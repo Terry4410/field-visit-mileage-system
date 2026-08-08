@@ -1,0 +1,1606 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#17324d" />
+  <title>外訪行程與里程管理系統 - Prototype v2.0</title>
+  <style>
+    :root{
+      --bg:#f4f7fa;
+      --card:#ffffff;
+      --ink:#1f2937;
+      --muted:#667085;
+      --line:#dce3ea;
+      --primary:#17324d;
+      --primary-2:#24577a;
+      --accent:#e9f1f7;
+      --ok:#287a4b;
+      --warn:#9a6700;
+      --danger:#b42318;
+      --shadow:0 10px 30px rgba(31,41,55,.08);
+      --radius:18px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","Microsoft JhengHei",sans-serif}
+    button,input,select,textarea{font:inherit}
+    button{cursor:pointer}
+    .app{min-height:100vh;display:grid;grid-template-columns:250px 1fr}
+    .sidebar{
+      background:var(--primary);color:#fff;padding:24px 18px;position:sticky;top:0;height:100vh;
+      display:flex;flex-direction:column;gap:20px
+    }
+    .brand{font-size:20px;font-weight:800;line-height:1.35}
+    .brand small{display:block;font-size:12px;font-weight:500;opacity:.7;margin-top:4px}
+    .role-box{background:rgba(255,255,255,.1);padding:12px;border-radius:14px}
+    .role-box label{display:block;font-size:12px;opacity:.8;margin-bottom:6px}
+    .role-box select{width:100%;padding:10px;border:0;border-radius:10px}
+    .nav{display:flex;flex-direction:column;gap:8px}
+    .nav button{
+      border:0;background:transparent;color:#fff;text-align:left;padding:12px 14px;border-radius:12px;
+      display:flex;align-items:center;gap:10px
+    }
+    .nav button.active,.nav button:hover{background:rgba(255,255,255,.14)}
+    .sidebar-footer{margin-top:auto;font-size:12px;opacity:.7}
+    .main{min-width:0}
+    .topbar{
+      position:sticky;top:0;z-index:10;background:rgba(244,247,250,.92);backdrop-filter:blur(12px);
+      padding:18px 28px;border-bottom:1px solid rgba(220,227,234,.8);
+      display:flex;align-items:center;justify-content:space-between;gap:16px
+    }
+    .topbar h1{font-size:24px;margin:0}
+    .user-chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 12px;font-size:14px}
+    .content{padding:24px 28px 100px;max-width:1400px;margin:auto}
+    .grid{display:grid;gap:18px}
+    .grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+    .stat{padding:18px}
+    .stat .label{color:var(--muted);font-size:13px}
+    .stat .value{font-size:28px;font-weight:800;margin-top:6px}
+    .stat .hint{font-size:12px;color:var(--muted);margin-top:6px}
+    .section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+    .section-title h2{font-size:18px;margin:0}
+    .btn{
+      border:0;border-radius:12px;padding:10px 14px;font-weight:700;
+      background:var(--primary);color:white
+    }
+    .btn.secondary{background:#eef3f7;color:var(--primary)}
+    .btn.outline{background:white;color:var(--primary);border:1px solid var(--line)}
+    .btn.danger{background:var(--danger)}
+    .btn.ok{background:var(--ok)}
+    .btn.small{padding:8px 10px;font-size:13px}
+    .btn:disabled{opacity:.45;cursor:not-allowed}
+    .field{display:flex;flex-direction:column;gap:7px;margin-bottom:14px}
+    .field label{font-size:13px;font-weight:700}
+    .field input,.field select,.field textarea{
+      width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink)
+    }
+    .field textarea{min-height:90px;resize:vertical}
+    .route-list{display:flex;flex-direction:column;gap:10px}
+    .route-item{
+      display:grid;grid-template-columns:40px 1fr auto;align-items:center;gap:12px;
+      border:1px solid var(--line);border-radius:14px;padding:12px;background:#fbfcfd
+    }
+    .route-index{width:32px;height:32px;border-radius:50%;background:var(--accent);display:grid;place-items:center;font-weight:800;color:var(--primary)}
+    .route-name{font-weight:800}
+    .route-address{color:var(--muted);font-size:12px;margin-top:3px}
+    .drag-controls{display:flex;gap:6px}
+    .drag-controls button{width:34px;height:34px;border:1px solid var(--line);background:#fff;border-radius:9px}
+    .timeline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .pill{padding:7px 10px;border-radius:999px;background:#eef3f7;color:var(--primary);font-size:12px;font-weight:800}
+    .pill.ok{background:#e8f5ed;color:var(--ok)}
+    .pill.warn{background:#fff3d6;color:var(--warn)}
+    .pill.danger{background:#feeceb;color:var(--danger)}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;vertical-align:top}
+    th{color:var(--muted);font-size:12px;background:#fafbfc}
+    .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}
+    .mobile-tabs{display:none}
+    .toast{
+      position:fixed;right:24px;bottom:24px;background:#172b3a;color:white;padding:12px 16px;border-radius:12px;
+      box-shadow:var(--shadow);opacity:0;transform:translateY(10px);pointer-events:none;transition:.25s;z-index:99
+    }
+    .toast.show{opacity:1;transform:translateY(0)}
+    .modal{
+      position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;padding:20px;z-index:80
+    }
+    .modal.show{display:flex}
+    .modal-panel{background:white;border-radius:20px;padding:22px;max-width:520px;width:100%;box-shadow:0 30px 80px rgba(0,0,0,.25)}
+    .modal-panel h3{margin-top:0}
+    .login-screen{
+      min-height:100vh;display:grid;place-items:center;padding:20px;background:linear-gradient(135deg,#17324d,#285f82)
+    }
+    .login-card{background:white;border-radius:22px;padding:26px;max-width:430px;width:100%;box-shadow:0 30px 90px rgba(0,0,0,.25)}
+    .login-card h1{margin:0 0 6px;font-size:25px}
+    .login-card p{color:var(--muted);margin-top:0}
+    .demo-users{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
+    .demo-users button{border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px;font-size:12px}
+    .screen{display:none}
+    .screen.active{display:block}
+    .empty{padding:30px;text-align:center;color:var(--muted)}
+    .progress{height:10px;background:#e8edf2;border-radius:999px;overflow:hidden}
+    .progress > div{height:100%;background:var(--primary-2);width:0;transition:width .4s}
+    .note{padding:12px 14px;border-left:4px solid var(--primary-2);background:#eef5f9;border-radius:10px;font-size:13px;color:#365264}
+    @media (max-width: 980px){
+      .grid.cols-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .grid.cols-3{grid-template-columns:1fr}
+      .grid.cols-2{grid-template-columns:1fr}
+      .app{grid-template-columns:1fr}
+      .sidebar{display:none}
+      .topbar{padding:14px 16px}
+      .topbar h1{font-size:20px}
+      .content{padding:16px 14px 92px}
+      .mobile-tabs{
+        display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));position:fixed;bottom:0;left:0;right:0;z-index:40;
+        background:white;border-top:1px solid var(--line);padding:8px 6px calc(8px + env(safe-area-inset-bottom))
+      }
+      .mobile-tabs button{border:0;background:transparent;color:var(--muted);font-size:11px;padding:6px 2px}
+      .mobile-tabs button.active{color:var(--primary);font-weight:800}
+      .route-item{grid-template-columns:34px 1fr}
+      .drag-controls{grid-column:2}
+      .card{padding:16px;border-radius:16px}
+      th,td{white-space:nowrap}
+      .user-chip{display:none}
+    }
+    @media (max-width: 600px){
+      .grid.cols-4{grid-template-columns:1fr 1fr}
+      .stat .value{font-size:23px}
+      .demo-users{grid-template-columns:1fr}
+      .actions .btn{flex:1}
+    }
+  </style>
+</head>
+<body>
+
+<div id="login" class="login-screen">
+  <div class="login-card">
+    <h1>外訪行程與里程管理</h1>
+    <p>Local Prototype｜帳號密碼與角色切換示意</p>
+    <div class="field">
+      <label>帳號</label>
+      <input id="loginAccount" value="visitor01" />
+    </div>
+    <div class="field">
+      <label>密碼</label>
+      <input id="loginPassword" type="password" value="123456" />
+    </div>
+    <button class="btn" style="width:100%" onclick="login()">登入</button>
+    <div class="demo-users">
+      <button onclick="fillLogin('visitor01','外訪員')">外訪員示範</button>
+      <button onclick="fillLogin('leader01','小組長')">小組長示範</button>
+      <button onclick="fillLogin('admin01','管理者')">管理者示範</button>
+      <button onclick="fillLogin('gov01','督導')">督導示範</button>
+    </div>
+    <div class="note">此為功能模擬檔，不會連線資料庫，也不會真正呼叫 Google Maps API。</div>
+  </div>
+</div>
+
+<div id="app" class="app" style="display:none">
+  <aside class="sidebar">
+    <div class="brand">外訪行程管理<small>Field Visit Mileage System</small></div>
+    <div class="role-box">
+      <label>目前角色</label>
+      <select id="roleSelect" onchange="switchRole(this.value)">
+        <option value="visitor">外訪員</option>
+        <option value="leader">小組長</option>
+        <option value="admin">管理者</option>
+        <option value="government">督導</option>
+      </select>
+    </div>
+    <div id="sideNav" class="nav"></div>
+    <div class="sidebar-footer">Prototype v2.0 Functional<br>Responsive Web App Demo</div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">今日行程</h1>
+        <div style="color:var(--muted);font-size:13px;margin-top:4px">手機優先介面｜可事後補登</div>
+      </div>
+      <div class="user-chip"><span id="currentUser">王小明｜外訪員</span>　<button class="btn small secondary" onclick="logout()">登出</button></div>
+    </header>
+    <section class="content">
+      <div id="visitor-home" class="screen"></div>
+      <div id="visitor-history" class="screen"></div>
+      <div id="leader-dashboard" class="screen"></div>
+      <div id="leader-review" class="screen"></div>
+      <div id="leader-locations" class="screen"></div>
+      <div id="admin-dashboard" class="screen"></div>
+      <div id="admin-users" class="screen"></div>
+      <div id="admin-projects" class="screen"></div>
+      <div id="admin-rates" class="screen"></div>
+      <div id="admin-reports" class="screen"></div>
+      <div id="gov-dashboard" class="screen"></div>
+      <div id="gov-location" class="screen"></div>
+      <div id="gov-visitor" class="screen"></div>
+      <div id="gov-reports" class="screen"></div>
+    </section>
+  </main>
+
+  <nav id="mobileTabs" class="mobile-tabs"></nav>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-panel">
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<script>
+const locations = [
+  {group:'北區第一組', city:'台北市', district:'松山區', name:'總公司', address:'台北市松山區復興北路 100 號'},
+  {group:'北區第一組', city:'台北市', district:'內湖區', name:'客戶 A｜內湖據點', address:'台北市內湖區瑞光路 258 號'},
+  {group:'北區第一組', city:'台北市', district:'南港區', name:'客戶 B｜南港據點', address:'台北市南港區三重路 19-13 號'},
+  {group:'北區第一組', city:'新北市', district:'汐止區', name:'客戶 C｜汐止據點', address:'新北市汐止區新台五路一段 99 號'},
+  {group:'北區第一組', city:'新北市', district:'板橋區', name:'客戶 D｜板橋文化站', address:'新北市板橋區文化路一段 188 號'},
+  {group:'北區第一組', city:'新北市', district:'新莊區', name:'客戶 E｜新莊中正站', address:'新北市新莊區中正路 510 號'},
+  {group:'北區第二組', city:'台北市', district:'中山區', name:'客戶 F｜南京服務處', address:'台北市中山區南京東路二段 100 號'},
+  {group:'北區第二組', city:'台北市', district:'士林區', name:'客戶 G｜士林據點', address:'台北市士林區中正路 300 號'},
+  {group:'桃竹組', city:'桃園市', district:'桃園區', name:'客戶 H｜桃園中心', address:'桃園市桃園區中正路 100 號'},
+  {group:'桃竹組', city:'桃園市', district:'中壢區', name:'客戶 I｜中壢服務站', address:'桃園市中壢區中央西路一段 120 號'},
+  {group:'桃竹組', city:'新竹市', district:'東區', name:'客戶 J｜新竹東區站', address:'新竹市東區光復路二段 101 號'},
+  {group:'中區組', city:'台中市', district:'西屯區', name:'客戶 K｜台中西屯站', address:'台中市西屯區臺灣大道三段 99 號'}
+];
+
+let routeStops = [locations[0],locations[1],locations[2],locations[3]];
+let selectedDate = new Date().toISOString().slice(0,10);
+let tripStartTime = '08:30';
+let tripEndTime = '17:10';
+let timeOverlapMessage = '';
+let currentRole = 'visitor';
+let currentScreen = '';
+let mileageCalculated = false;
+let selfMileage = '40.0';
+let tripNote = '今日有一處臨時新增地點，已請小組長協助確認地址。';
+let projects = [
+  {name:'高齡關懷訪視專案', group:'北區第一組', locationMode:'清單', locationNames:['客戶 A｜內湖據點','客戶 B｜南港據點','客戶 C｜汐止據點'], status:'啟用'},
+  {name:'就業服務追蹤專案', group:'北區第一組', locationMode:'自行維護', locationNames:[], status:'啟用'},
+  {name:'弱勢家庭訪視專案', group:'北區第二組', locationMode:'清單', locationNames:['客戶 F｜南京服務處','客戶 G｜士林據點'], status:'啟用'},
+  {name:'桃竹區定期訪視專案', group:'桃竹組', locationMode:'自行維護', locationNames:[], status:'啟用'}
+];
+let visitTypes = ['親訪','電訪','視訊訪談','文件送達','其他'];
+let users = [
+  {account:'visitor01',name:'王小明',role:'外訪員',group:'北區第一組',leader:'林組長',status:'啟用'},
+  {account:'visitor02',name:'李小華',role:'外訪員',group:'北區第一組',leader:'林組長',status:'啟用'},
+  {account:'visitor03',name:'張美玲',role:'外訪員',group:'北區第二組',leader:'陳組長',status:'啟用'},
+  {account:'leader01',name:'林組長',role:'小組長',group:'北區第一組',leader:'',status:'啟用'},
+  {account:'gov01',name:'督導人員',role:'督導',group:'全部',leader:'',status:'啟用'}
+];
+let reviewTrips = [
+  {id:'T20260724001',date:'2026-07-24',visitor:'王小明',group:'北區第一組',route:'總公司 → 內湖 → 南港 → 汐止',selfMileage:40.0,googleMileage:38.6,reviewMileage:38.6,status:'待核准',checked:true,note:'臨時新增一處拜訪'},
+  {id:'T20260724002',date:'2026-07-24',visitor:'張美玲',group:'北區第二組',route:'南京服務處 → 士林據點',selfMileage:29.0,googleMileage:27.4,reviewMileage:27.4,status:'待核對',checked:true,note:''},
+  {id:'T20260724003',date:'2026-07-24',visitor:'林志宏',group:'北區第一組',route:'客戶 G → 新增地點',selfMileage:16.5,googleMileage:null,reviewMileage:null,status:'地址待確認',checked:false,note:'地址不完整'},
+  {id:'T20260723004',date:'2026-07-23',visitor:'李小華',group:'北區第一組',route:'總公司 → 客戶 D → 客戶 E',selfMileage:31.2,googleMileage:null,reviewMileage:null,status:'待計算',checked:false,note:''},
+  {id:'T20260722005',date:'2026-07-22',visitor:'王小明',group:'北區第一組',route:'總公司 → 客戶 A → 客戶 B',selfMileage:26.1,googleMileage:null,reviewMileage:null,status:'待計算',checked:false,note:''},
+  {id:'T20260720006',date:'2026-07-20',visitor:'李小華',group:'北區第一組',route:'總公司 → 客戶 C',selfMileage:18.4,googleMileage:null,reviewMileage:null,status:'待計算',checked:false,note:''}
+];
+let auditLogs = [
+  {time:'2026-07-24 10:15',user:'林組長',action:'批次核准',detail:'核准 2 筆行程'},
+  {time:'2026-07-24 09:50',user:'系統管理員',action:'匯入專案',detail:'匯入 4 筆專案'},
+  {time:'2026-07-24 09:20',user:'王小明',action:'補登行程',detail:'補登 2026-07-23 行程'}
+];
+
+// 外訪員歷史資料：用於歷史查詢與時間重疊提醒
+let visitorHistoryData = [
+  {id:'H20260723001',date:'2026-07-23',start:'08:25',end:'17:05',locations:['總公司','客戶 A｜內湖據點','客戶 B｜南港據點','客戶 C｜汐止據點'],route:'總公司 → 內湖 → 南港 → 汐止',selfMileage:40.0,googleMileage:38.6,reviewMileage:38.6,status:'已核准',note:''},
+  {id:'H20260722001',date:'2026-07-22',start:'08:40',end:'16:50',locations:['總公司','客戶 A｜內湖據點','客戶 B｜南港據點'],route:'總公司 → 內湖 → 南港',selfMileage:26.0,googleMileage:25.2,reviewMileage:25.2,status:'已核准',note:''},
+  {id:'H20260721001',date:'2026-07-21',start:'08:20',end:'17:30',locations:['總公司','客戶 D｜板橋文化站','客戶 E｜新莊中正站'],route:'總公司 → 板橋 → 新莊',selfMileage:45.0,googleMileage:44.1,reviewMileage:44.1,status:'已退回',note:'時間需再確認'},
+  {id:'H20260718001',date:'2026-07-18',start:'13:30',end:'16:20',locations:['客戶 A｜內湖據點','客戶 C｜汐止據點'],route:'內湖 → 汐止',selfMileage:19.0,googleMileage:18.2,reviewMileage:18.2,status:'已核准',note:''}
+];
+
+// 每公里補助費率採「生效日版本」管理，歷史報表依行程日期抓取當日費率
+let subsidyRates = [
+  {id:'RATE-2025',effectiveDate:'2025-01-01',rate:2.3,note:'歷史費率'},
+  {id:'RATE-2026',effectiveDate:'2026-01-01',rate:2.5,note:'現行費率'}
+];
+
+// 小組長待處理的新地點
+let pendingLocations = [
+  {id:'PL001',date:'2026-07-24',group:'北區第一組',city:'新北市',district:'板橋區',name:'客戶 D 新址',address:'新北市板橋區文化路一段 188 號',plusCode:'',lat:'25.0121',lng:'121.4620',published:false},
+  {id:'PL002',date:'2026-07-23',group:'北區第一組',city:'新北市',district:'新莊區',name:'客戶 E 新址',address:'新北市新莊區中正路 510 號',plusCode:'',lat:'25.0350',lng:'121.4500',published:false},
+  {id:'PL003',date:'2026-07-22',group:'北區第一組',city:'新北市',district:'待確認',name:'客戶 F 臨時點',address:'新北市XX路',plusCode:'',lat:'',lng:'',published:false},
+  {id:'PL004',date:'2026-07-18',group:'北區第一組',city:'台北市',district:'內湖區',name:'客戶 A 二辦',address:'台北市內湖區瑞光路 300 號',plusCode:'',lat:'25.0785',lng:'121.5752',published:true}
+];
+
+function getMileageRate(date){
+  const applicable=subsidyRates
+    .filter(r=>r.effectiveDate<=date)
+    .sort((a,b)=>b.effectiveDate.localeCompare(a.effectiveDate));
+  return applicable.length?Number(applicable[0].rate):0;
+}
+function getSubsidyAmount(mileage,date){
+  const km=Number(mileage);
+  return Number.isFinite(km)?Math.round(km*getMileageRate(date)*100)/100:0;
+}
+function money(value){
+  return Number(value||0).toLocaleString('zh-TW',{minimumFractionDigits:0,maximumFractionDigits:2});
+}
+function effectiveMileage(trip){
+  return trip.reviewMileage??trip.googleMileage??trip.selfMileage??0;
+}
+
+
+const roleConfig = {
+  visitor:{
+    name:'王小明｜外訪員',
+    nav:[
+      ['visitor-home','今日行程','首頁'],
+      ['visitor-history','歷史紀錄','紀錄']
+    ]
+  },
+  leader:{
+    name:'林組長｜小組長',
+    nav:[
+      ['leader-dashboard','小組總覽','總覽'],
+      ['leader-review','行程審核','審核'],
+      ['leader-locations','地點管理','地點']
+    ]
+  },
+  admin:{
+    name:'系統管理員｜管理者',
+    nav:[
+      ['admin-dashboard','管理儀表板','總覽'],
+      ['admin-users','人員與權限','人員'],
+      ['admin-projects','專案與拜訪形式','專案'],
+      ['admin-rates','補助費率','費率'],
+      ['admin-reports','報表中心','報表']
+    ]
+  },
+  government:{
+    name:'督導人員｜督導',
+    nav:[
+      ['gov-dashboard','查詢總覽','總覽'],
+      ['gov-location','地點查詢','地點'],
+      ['gov-visitor','外訪員查詢','人員'],
+      ['gov-reports','整體報表查詢','報表']
+    ]
+  }
+};
+
+function fillLogin(account,role){
+  document.getElementById('loginAccount').value=account;
+  document.getElementById('loginPassword').value='123456';
+  showToast('已帶入'+role+'示範帳號');
+}
+
+function login(){
+  const account=document.getElementById('loginAccount').value.trim();
+  if(!account){showToast('請輸入帳號');return;}
+  currentRole=account.startsWith('leader')?'leader':account.startsWith('admin')?'admin':account.startsWith('gov')?'government':'visitor';
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='grid';
+  document.getElementById('roleSelect').value=currentRole;
+  switchRole(currentRole);
+}
+
+function logout(){
+  document.getElementById('app').style.display='none';
+  document.getElementById('login').style.display='grid';
+}
+
+function switchRole(role){
+  currentRole=role;
+  document.getElementById('currentUser').textContent=roleConfig[role].name;
+  renderNav();
+  navigate(roleConfig[role].nav[0][0]);
+}
+
+function renderNav(){
+  const config=roleConfig[currentRole];
+  document.getElementById('sideNav').innerHTML=config.nav.map(([id,label])=>
+    `<button data-screen="${id}" onclick="navigate('${id}')">● ${label}</button>`).join('');
+  document.getElementById('mobileTabs').innerHTML=config.nav.map(([id,label,short])=>
+    `<button data-screen="${id}" onclick="navigate('${id}')">${short}</button>`).join('');
+}
+
+function navigate(screenId){
+  currentScreen=screenId;
+  document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
+  const el=document.getElementById(screenId);
+  if(el)el.classList.add('active');
+  document.querySelectorAll('[data-screen]').forEach(x=>x.classList.toggle('active',x.dataset.screen===screenId));
+  const item=roleConfig[currentRole].nav.find(x=>x[0]===screenId);
+  document.getElementById('pageTitle').textContent=item?item[1]:'';
+  renderCurrent();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function renderCurrent(){
+  if(currentScreen==='visitor-home')renderVisitorHome();
+  if(currentScreen==='visitor-history')renderVisitorHistory();
+  if(currentScreen==='leader-dashboard')renderLeaderDashboard();
+  if(currentScreen==='leader-review')renderLeaderReview();
+  if(currentScreen==='leader-locations')renderLeaderLocations();
+  if(currentScreen==='admin-dashboard')renderAdminDashboard();
+  if(currentScreen==='admin-users')renderAdminUsers();
+  if(currentScreen==='admin-projects')renderAdminProjects();
+  if(currentScreen==='admin-rates')renderAdminRates();
+  if(currentScreen==='admin-reports')renderAdminReports();
+  if(currentScreen==='gov-dashboard')renderGovDashboard();
+  if(currentScreen==='gov-location')renderGovLocation();
+  if(currentScreen==='gov-visitor')renderGovVisitor();
+  if(currentScreen==='gov-reports')renderGovReports();
+}
+
+function renderRouteList(){
+  return routeStops.map((s,i)=>`
+    <div class="route-item">
+      <div class="route-index">${i+1}</div>
+      <div>
+        <div class="route-name">${s.name}</div>
+        <div class="route-address">${s.address}</div>
+        ${(s.sourceType||s.project)?`<div style="margin-top:5px">
+          ${s.sourceType?`<span class="pill">${s.sourceType}</span>`:''}
+          ${s.project?` <span class="pill">${s.project}</span> <span class="pill warn">${s.visitType}</span>`:''}
+        </div>`:''}
+      </div>
+      <div class="drag-controls">
+        <button onclick="moveStop(${i},-1)" ${i===0?'disabled':''}>↑</button>
+        <button onclick="moveStop(${i},1)" ${i===routeStops.length-1?'disabled':''}>↓</button>
+        <button onclick="removeStop(${i})">×</button>
+      </div>
+    </div>`).join('');
+}
+
+
+function timeToMinutes(t){
+  if(!t||!t.includes(':'))return null;
+  const [h,m]=t.split(':').map(Number);
+  return h*60+m;
+}
+function detectTimeOverlap(){
+  timeOverlapMessage='';
+  const start=timeToMinutes(tripStartTime),end=timeToMinutes(tripEndTime);
+  if(start===null||end===null)return '';
+  if(end<=start){
+    timeOverlapMessage='結束時間必須晚於出發時間，請確認輸入是否正確。';
+    return timeOverlapMessage;
+  }
+  const overlaps=visitorHistoryData.filter(h=>{
+    if(h.date!==selectedDate)return false;
+    const hs=timeToMinutes(h.start),he=timeToMinutes(h.end);
+    return start<he && end>hs;
+  });
+  if(overlaps.length){
+    const h=overlaps[0];
+    timeOverlapMessage=`此時間與 ${h.date} 已有紀錄 ${h.start}–${h.end} 重疊，請確認是否輸入正確。`;
+  }
+  return timeOverlapMessage;
+}
+function updateTripBasic(field,value){
+  if(field==='date')selectedDate=value;
+  if(field==='start')tripStartTime=value;
+  if(field==='end')tripEndTime=value;
+  const warning=detectTimeOverlap();
+  renderVisitorHome();
+  if(warning)showToast('偵測到時間重疊，請確認');
+}
+
+function renderVisitorHome(){
+  document.getElementById('visitor-home').innerHTML=`
+    <div class="grid cols-4">
+      <div class="card stat"><div class="label">行程日期</div><div class="value" style="font-size:20px">${selectedDate}</div><div class="hint">可事後補登</div></div>
+      <div class="card stat"><div class="label">拜訪地點</div><div class="value">${routeStops.length}</div><div class="hint">依實際順序排列</div></div>
+      <div class="card stat"><div class="label">自行計算里程</div><div class="value">${selfMileage||'--'}<span style="font-size:14px"> km</span></div><div class="hint">由外訪員送出前填寫</div></div>
+      <div class="card stat"><div class="label">目前狀態</div><div class="value" style="font-size:20px">草稿</div><div class="hint">尚未送出</div></div>
+    </div>
+
+    <div class="grid cols-2" style="margin-top:18px">
+      <div class="card">
+        <div class="section-title"><h2>基本資料</h2><span class="pill warn">可補登</span></div>
+        <div class="grid cols-2">
+          <div class="field"><label>行程日期</label><input type="date" value="${selectedDate}" onchange="updateTripBasic('date',this.value)"></div>
+          <div class="field"><label>出發時間</label><input type="time" value="${tripStartTime}" onchange="updateTripBasic('start',this.value)"></div>
+          <div class="field"><label>結束時間</label><input type="time" value="${tripEndTime}" onchange="updateTripBasic('end',this.value)"></div>
+          <div class="field"><label>所屬小組</label><input value="北區第一組" disabled></div>
+        </div>
+        <div class="note">住家地址不允許加入行程；里程只計算正式或臨時公務地點之間的路線。</div>
+        ${timeOverlapMessage?`<div class="note" style="margin-top:10px;border-left-color:var(--danger);background:#feeceb;color:var(--danger)"><strong>時間提醒：</strong>${timeOverlapMessage}</div>`:''}
+      </div>
+
+      <div class="card">
+        <div class="section-title"><h2>今日動作</h2></div>
+        <div class="actions">
+          <button class="btn secondary" onclick="openAddLocation()">＋新增臨時地點</button>
+          <button class="btn outline" onclick="saveDraft()">儲存草稿</button>
+          <button class="btn ok" onclick="submitTrip()">送出行程</button>
+        </div>
+        <div style="margin-top:16px" class="timeline">
+          <span class="pill ok">已建立</span><span>→</span><span class="pill warn">草稿</span><span>→</span><span class="pill">待小組長批次計算</span><span>→</span><span class="pill">待核准</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title">
+        <div><h2>拜訪順序</h2><div style="font-size:12px;color:var(--muted);margin-top:4px">使用 ↑ ↓ 調整順序；正式版手機可改為長按拖曳</div></div>
+        <div class="actions">
+          <button class="btn small secondary" onclick="openProjectPicker()">從專案加入</button>
+          <button class="btn small outline" onclick="openLocationPicker()">從地點清單加入</button>
+        </div>
+      </div>
+      <div class="route-list">${renderRouteList()}</div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title"><h2>外訪員自行計算里程</h2><span class="pill warn">送出前填寫</span></div>
+      <div class="grid cols-2">
+        <div class="field"><label>自行計算里程（公里）</label><input id="selfMileageInput" type="number" min="0" step="0.1" value="${selfMileage}" onchange="selfMileage=this.value"></div>
+        <div class="note">請依實際拜訪順序自行計算並填入。送出後，小組長會再由後台批次取得 Google 機車里程，兩者將並列供核對；外訪員不需要等待 Google 計算後再修改。</div>
+      </div>
+      ${mileageCalculated?`<div style="margin-top:14px" class="note">小組長已完成批次計算：Google 機車里程 38.6 km；此欄位僅供外訪員查看，不開放回頭修改已送出的自行里程。</div>`:''}
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title"><h2>備註</h2><span class="pill">外訪員自行維護</span></div>
+      <div class="field" style="margin-bottom:0">
+        <label>行程備註</label>
+        <textarea id="tripNoteInput" placeholder="可填寫臨時狀況、拜訪補充說明或其他行程資訊" oninput="tripNote=this.value">${tripNote}</textarea>
+      </div>
+    </div>
+  `;
+}
+
+function moveStop(index,delta){
+  const target=index+delta;
+  if(target<0||target>=routeStops.length)return;
+  [routeStops[index],routeStops[target]]=[routeStops[target],routeStops[index]];
+  mileageCalculated=false;
+  renderVisitorHome();
+}
+
+function removeStop(index){
+  if(routeStops.length<=2){showToast('至少需保留兩個公務地點');return;}
+  routeStops.splice(index,1);
+  mileageCalculated=false;
+  renderVisitorHome();
+}
+
+function uniqueValues(items,key){return [...new Set(items.map(x=>x[key]))].sort((a,b)=>a.localeCompare(b,'zh-Hant'));}
+function optionHtml(values,placeholder){return `<option value="">${placeholder}</option>`+values.map(v=>`<option value="${v}">${v}</option>`).join('');}
+
+
+function openProjectPicker(){
+  const group='北區第一組';
+  const availableProjects=projects.filter(p=>p.group===group && p.status==='啟用');
+  showModal(`
+    <h3>從專案加入</h3>
+    <div class="note" style="margin-bottom:14px">專案地點可以使用管理者預先建立的清單，也可以由外訪員自行維護本次拜訪地點。</div>
+    <div class="field"><label>專案名稱</label><select id="projectSelect" onchange="refreshProjectLocationMode()">${availableProjects.map((p,i)=>`<option value="${projects.indexOf(p)}">${p.name}</option>`).join('')}</select></div>
+    <div class="field"><label>拜訪形式</label><select id="visitTypeSelect">${visitTypes.map(v=>`<option value="${v}">${v}</option>`).join('')}</select></div>
+    <div id="projectLocationArea"></div>
+    <div class="actions"><button class="btn" onclick="addFromProject()">加入行程</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+  refreshProjectLocationMode();
+}
+
+function refreshProjectLocationMode(){
+  const index=Number(document.getElementById('projectSelect')?.value);
+  const project=projects[index];
+  const area=document.getElementById('projectLocationArea');
+  if(!project||!area)return;
+  if(project.locationMode==='清單'){
+    const allowed=locations.filter(x=>project.locationNames.includes(x.name));
+    area.innerHTML=`
+      <div class="field"><label>專案拜訪地點</label><select id="projectLocationSelect">${allowed.map(x=>`<option value="${locations.indexOf(x)}">${x.name}｜${x.city}${x.district}</option>`).join('')}</select></div>
+      <div class="note">此專案使用管理者維護的固定地點清單。</div>`;
+  }else{
+    area.innerHTML=`
+      <div class="field"><label>地點名稱</label><input id="manualProjectLocationName" placeholder="請輸入本次拜訪地點名稱"></div>
+      <div class="field"><label>地址或 Plus Code</label><input id="manualProjectLocationAddress" placeholder="完整地址或 Plus Code"></div>
+      <div class="note">此專案允許外訪員自行維護地點；新增後會標記為待小組長確認。</div>`;
+  }
+}
+
+function addFromProject(){
+  const projectIndex=Number(document.getElementById('projectSelect')?.value);
+  const project=projects[projectIndex];
+  const visitType=document.getElementById('visitTypeSelect')?.value;
+  if(!project||!visitType){showToast('請完整選擇專案與拜訪形式');return;}
+  if(project.locationMode==='清單'){
+    const locationIndex=Number(document.getElementById('projectLocationSelect')?.value);
+    const source=locations[locationIndex];
+    if(!source){showToast('請選擇專案拜訪地點');return;}
+    routeStops.push({...source,project:project.name,visitType,sourceType:'專案清單'});
+  }else{
+    const name=document.getElementById('manualProjectLocationName')?.value.trim();
+    const address=document.getElementById('manualProjectLocationAddress')?.value.trim();
+    if(!name||!address){showToast('請填寫地點名稱與地址或 Plus Code');return;}
+    routeStops.push({name:name+'（待確認）',address,group:project.group,city:'待解析',district:'待解析',project:project.name,visitType,sourceType:'自行維護'});
+  }
+  mileageCalculated=false;
+  closeModal();
+  renderVisitorHome();
+  showToast(`已從「${project.name}」加入，拜訪形式：${visitType}`);
+}
+
+function openLocationPicker(){
+  showModal(`
+    <h3>加入正式地點</h3>
+    <div class="note" style="margin-bottom:14px">客戶清單採階層式篩選：小組 → 縣市 → 鄉鎮 → 客戶名稱；也可直接輸入客戶名稱、地址、縣市或鄉鎮關鍵字搜尋。</div>
+    <div class="grid cols-2">
+      <div class="field"><label>小組</label><select id="locGroup" onchange="refreshLocationFilters('group')"></select></div>
+      <div class="field"><label>縣市</label><select id="locCity" onchange="refreshLocationFilters('city')"></select></div>
+      <div class="field"><label>鄉鎮／區</label><select id="locDistrict" onchange="refreshLocationFilters('district')"></select></div>
+      <div class="field"><label>客戶名稱</label><select id="locCustomer" onchange="renderLocationResults()"></select></div>
+    </div>
+    <div class="field"><label>關鍵字搜尋</label><input id="locKeyword" placeholder="輸入客戶名稱、地址、縣市、鄉鎮或小組" oninput="renderLocationResults()"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 10px"><strong>搜尋結果</strong><span id="locResultCount" class="pill">0 筆</span></div>
+    <div id="locResults" style="max-height:42vh;overflow:auto;padding-right:4px"></div>
+    <div class="actions" style="margin-top:14px"><button class="btn secondary" onclick="resetLocationFilters()">清除條件</button><button class="btn outline" onclick="closeModal()">關閉</button></div>`);
+  initializeLocationFilters();
+}
+
+function initializeLocationFilters(){
+  document.getElementById('locGroup').innerHTML=optionHtml(uniqueValues(locations,'group'),'全部小組');
+  document.getElementById('locCity').innerHTML=optionHtml(uniqueValues(locations,'city'),'全部縣市');
+  document.getElementById('locDistrict').innerHTML=optionHtml(uniqueValues(locations,'district'),'全部鄉鎮／區');
+  document.getElementById('locCustomer').innerHTML=optionHtml(uniqueValues(locations,'name'),'全部客戶');
+  renderLocationResults();
+}
+
+function getLocationFilterValues(){
+  return {
+    group:document.getElementById('locGroup')?.value||'',
+    city:document.getElementById('locCity')?.value||'',
+    district:document.getElementById('locDistrict')?.value||'',
+    customer:document.getElementById('locCustomer')?.value||'',
+    keyword:(document.getElementById('locKeyword')?.value||'').trim().toLowerCase()
+  };
+}
+
+function refreshLocationFilters(changed){
+  const f=getLocationFilterValues();
+  let pool=locations.filter(x=>(!f.group||x.group===f.group));
+  const cities=uniqueValues(pool,'city');
+  const citySel=document.getElementById('locCity');
+  if(changed==='group' && f.city && !cities.includes(f.city)) citySel.value='';
+  citySel.innerHTML=optionHtml(cities,'全部縣市');
+  if(cities.includes(f.city)) citySel.value=f.city;
+
+  const cityValue=citySel.value;
+  pool=pool.filter(x=>(!cityValue||x.city===cityValue));
+  const districts=uniqueValues(pool,'district');
+  const districtSel=document.getElementById('locDistrict');
+  if((changed==='group'||changed==='city') && f.district && !districts.includes(f.district)) districtSel.value='';
+  districtSel.innerHTML=optionHtml(districts,'全部鄉鎮／區');
+  if(districts.includes(f.district)) districtSel.value=f.district;
+
+  const districtValue=districtSel.value;
+  pool=pool.filter(x=>(!districtValue||x.district===districtValue));
+  const customers=uniqueValues(pool,'name');
+  const customerSel=document.getElementById('locCustomer');
+  customerSel.innerHTML=optionHtml(customers,'全部客戶');
+  if(customers.includes(f.customer)) customerSel.value=f.customer;
+  renderLocationResults();
+}
+
+function renderLocationResults(){
+  const f=getLocationFilterValues();
+  const results=locations.filter(x=>{
+    const haystack=[x.group,x.city,x.district,x.name,x.address].join(' ').toLowerCase();
+    return (!f.group||x.group===f.group) && (!f.city||x.city===f.city) && (!f.district||x.district===f.district) && (!f.customer||x.name===f.customer) && (!f.keyword||haystack.includes(f.keyword));
+  });
+  const count=document.getElementById('locResultCount');
+  const box=document.getElementById('locResults');
+  if(count) count.textContent=`${results.length} 筆`;
+  if(!box) return;
+  box.innerHTML=results.length?results.map(x=>{
+    const i=locations.indexOf(x);
+    return `<button class="btn outline" style="width:100%;margin:6px 0;text-align:left;padding:12px" onclick="addExisting(${i})"><strong>${x.name}</strong><br><small>${x.group} › ${x.city} › ${x.district}</small><br><small>${x.address}</small></button>`;
+  }).join(''):`<div class="empty">找不到符合條件的客戶，請調整階層條件或關鍵字。</div>`;
+}
+
+function resetLocationFilters(){
+  ['locGroup','locCity','locDistrict','locCustomer'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  const k=document.getElementById('locKeyword');if(k)k.value='';
+  initializeLocationFilters();
+}
+
+function addExisting(i){
+  const item=locations[i];
+  if(routeStops.some(x=>x.name===item.name&&x.address===item.address)){showToast('此客戶已在行程中');return;}
+  routeStops.push(item);mileageCalculated=false;renderVisitorHome();showToast('已加入 '+item.name);
+}
+
+function openAddLocation(){
+  const group='北區第一組';
+  const availableProjects=projects.filter(p=>p.group===group && p.status==='啟用');
+  showModal(`
+    <h3>新增臨時公務地點</h3>
+    <div class="field">
+      <label>地點屬性</label>
+      <select id="newLocSourceType" onchange="toggleTemporarySourceFields()">
+        <option value="固定拜訪清單">固定拜訪清單</option>
+        <option value="專案">專案</option>
+      </select>
+    </div>
+    <div id="temporaryProjectFields" style="display:none">
+      <div class="field">
+        <label>專案名稱</label>
+        <select id="newLocProject">
+          ${availableProjects.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>拜訪形式</label>
+        <select id="newLocVisitType">
+          ${visitTypes.map(v=>`<option value="${v}">${v}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>地點名稱</label><input id="newLocName" placeholder="例如：客戶 D"></div>
+    <div class="field"><label>地址或 Plus Code</label><input id="newLocAddr" placeholder="請輸入完整地址或 Plus Code"></div>
+    <div class="note">新增後可先用於本次行程，隔天由小組長確認地址與經緯度，再批次轉為正式地點。</div>
+    <div class="actions" style="margin-top:16px"><button class="btn" onclick="addTemporary()">加入行程</button><button class="btn secondary" onclick="closeModal()">取消</button></div>`);
+}
+function toggleTemporarySourceFields(){
+  const isProject=document.getElementById('newLocSourceType')?.value==='專案';
+  const area=document.getElementById('temporaryProjectFields');
+  if(area)area.style.display=isProject?'block':'none';
+}
+function addTemporary(){
+  const name=document.getElementById('newLocName').value.trim();
+  const address=document.getElementById('newLocAddr').value.trim();
+  const sourceType=document.getElementById('newLocSourceType')?.value||'固定拜訪清單';
+  if(!name||!address){showToast('請填寫地點名稱與地址或 Plus Code');return;}
+  const item={
+    name:name+'（待確認）',
+    address,
+    group:'北區第一組',
+    city:'待解析',
+    district:'待解析',
+    sourceType
+  };
+  if(sourceType==='專案'){
+    item.project=document.getElementById('newLocProject')?.value||'';
+    item.visitType=document.getElementById('newLocVisitType')?.value||'';
+  }
+  routeStops.push(item);
+  mileageCalculated=false;
+  closeModal();
+  renderVisitorHome();
+  showToast(sourceType==='專案'?'已加入專案臨時地點':'已加入固定拜訪清單臨時地點');
+}
+
+function saveDraft(){showToast('草稿已儲存（模擬）');}
+function submitTrip(){
+  const warning=detectTimeOverlap();
+  showModal(`<h3>確認送出</h3>
+    ${warning?`<div class="note" style="border-left-color:var(--danger);background:#feeceb;color:var(--danger);margin-bottom:12px"><strong>時間提醒：</strong>${warning}<br>若確認時間無誤，仍可繼續送出。</div>`:''}
+    <p>送出後，小組長可查看這筆行程並進行後台批次里程計算。</p>
+    <div class="actions"><button class="btn ok" onclick="confirmSubmit()">確認送出</button><button class="btn secondary" onclick="closeModal()">取消</button></div>`);
+}
+
+function confirmSubmit(){
+  const input=document.getElementById('selfMileageInput');
+  if(input) selfMileage=input.value;
+  if(!selfMileage || Number(selfMileage)<=0){closeModal();showToast('請先填寫自行計算里程');return;}
+  closeModal();showToast('行程已送出，等待小組長批次計算 Google 里程');
+}
+
+function renderVisitorHistory(){
+  const minDate=visitorHistoryData.map(x=>x.date).sort()[0]||'2026-01-01';
+  const maxDate=visitorHistoryData.map(x=>x.date).sort().slice(-1)[0]||selectedDate;
+  const allLocs=[...new Set(visitorHistoryData.flatMap(x=>x.locations))].sort((a,b)=>a.localeCompare(b,'zh-Hant'));
+  document.getElementById('visitor-history').innerHTML=`
+    <div class="card">
+      <div class="section-title"><div><h2>我的歷史行程</h2><div style="font-size:12px;color:var(--muted);margin-top:4px">可依日期區間及拜訪地點查詢。</div></div><button class="btn secondary" onclick="downloadVisitorHistory()">下載查詢結果 Excel</button></div>
+      <div class="grid cols-4">
+        <div class="field"><label>開始日期</label><input id="historyStart" type="date" value="${minDate}"></div>
+        <div class="field"><label>結束日期</label><input id="historyEnd" type="date" value="${maxDate}"></div>
+        <div class="field"><label>拜訪地點</label><select id="historyLocation"><option value="">全部地點</option>${allLocs.map(x=>`<option>${x}</option>`).join('')}</select></div>
+        <div class="field"><label>狀態</label><select id="historyStatus"><option value="">全部狀態</option><option>已核准</option><option>已退回</option></select></div>
+      </div>
+      <div class="actions" style="margin-bottom:16px">
+        <button class="btn" onclick="runVisitorHistoryQuery()">查詢</button>
+        <button class="btn outline" onclick="resetVisitorHistoryQuery()">清除條件</button>
+      </div>
+      <div id="visitorHistoryResult"></div>
+    </div>`;
+  runVisitorHistoryQuery();
+}
+function getVisitorHistoryFilteredRows(){
+  const start=document.getElementById('historyStart')?.value||'0000-01-01';
+  const end=document.getElementById('historyEnd')?.value||'9999-12-31';
+  const loc=document.getElementById('historyLocation')?.value||'';
+  const status=document.getElementById('historyStatus')?.value||'';
+  return visitorHistoryData.filter(x=>x.date>=start&&x.date<=end&&(!loc||x.locations.includes(loc))&&(!status||x.status===status));
+}
+function runVisitorHistoryQuery(){
+  const rows=getVisitorHistoryFilteredRows();
+  const box=document.getElementById('visitorHistoryResult');
+  if(!box)return;
+  box.innerHTML=rows.length?`<div class="table-wrap"><table>
+    <thead><tr><th>日期</th><th>地點</th><th>出發</th><th>結束</th><th>核定里程</th><th>每公里補助</th><th>補助金額</th><th>狀態</th><th>操作</th></tr></thead>
+    <tbody>${rows.map((x,i)=>`<tr>
+      <td>${x.date}</td><td>${x.locations.join('、')}</td><td>${x.start}</td><td>${x.end}</td>
+      <td>${effectiveMileage(x).toFixed(1)} km</td><td>$${getMileageRate(x.date).toFixed(2)}</td><td><strong>$${money(getSubsidyAmount(effectiveMileage(x),x.date))}</strong></td>
+      <td><span class="pill ${x.status==='已核准'?'ok':'warn'}">${x.status}</span></td>
+      <td><button class="btn small outline" onclick="openVisitorHistoryDetail('${x.id}')">${x.status==='已退回'?'查看／修改':'查看'}</button></td>
+    </tr>`).join('')}</tbody></table></div>`:`<div class="empty">查無符合條件的歷史行程。</div>`;
+}
+function resetVisitorHistoryQuery(){
+  const dates=visitorHistoryData.map(x=>x.date).sort();
+  document.getElementById('historyStart').value=dates[0]||'';
+  document.getElementById('historyEnd').value=dates.slice(-1)[0]||'';
+  document.getElementById('historyLocation').value='';
+  document.getElementById('historyStatus').value='';
+  runVisitorHistoryQuery();
+}
+function openVisitorHistoryDetail(id){
+  const x=visitorHistoryData.find(r=>r.id===id);
+  if(!x)return;
+  showModal(`<h3>歷史行程明細</h3>
+    <div class="note">${x.date}｜${x.start}–${x.end}｜${x.status}</div>
+    <p><strong>拜訪路線：</strong>${x.route}</p>
+    <p><strong>外訪員自算：</strong>${x.selfMileage.toFixed(1)} km<br>
+    <strong>Google里程：</strong>${x.googleMileage.toFixed(1)} km<br>
+    <strong>小組長核定：</strong>${x.reviewMileage.toFixed(1)} km</p>
+    <p><strong>補助：</strong>${x.reviewMileage.toFixed(1)} km × $${getMileageRate(x.date).toFixed(2)} = <strong>$${money(getSubsidyAmount(x.reviewMileage,x.date))}</strong></p>
+    ${x.note?`<p><strong>備註：</strong>${x.note}</p>`:''}
+    <div class="actions"><button class="btn outline" onclick="closeModal()">關閉</button></div>`);
+}
+function downloadVisitorHistory(){
+  const rows=getVisitorHistoryFilteredRows().map(x=>({
+    '日期':x.date,'出發時間':x.start,'結束時間':x.end,'拜訪地點':x.locations.join('、'),'拜訪順序':x.route,
+    '外訪員自算里程':x.selfMileage,'Google里程':x.googleMileage,'小組長核定里程':x.reviewMileage,
+    '每公里補助':getMileageRate(x.date),'補助金額':getSubsidyAmount(x.reviewMileage,x.date),'狀態':x.status,'備註':x.note
+  }));
+  downloadExcelXml('我的歷史行程.xls','歷史行程',rows);
+  showToast(`已下載 ${rows.length} 筆歷史行程`);
+}
+
+function renderLeaderDashboard(){
+  const pendingCount=reviewTrips.filter(x=>x.googleMileage==null).length;
+  document.getElementById('leader-dashboard').innerHTML=`
+    <div class="grid cols-4">
+      <div class="card stat"><div class="label">小組人數</div><div class="value">12</div><div class="hint">北區第一組</div></div>
+      <div class="card stat"><div class="label">今日已登記</div><div class="value">8</div><div class="hint">含草稿與已送出</div></div>
+      <div class="card stat"><div class="label">今日未登記</div><div class="value">4</div><div class="hint">可展開查看名單</div></div>
+      <div class="card stat"><div class="label">尚未計算里程</div><div id="pendingMileageCount" class="value">${pendingCount}</div><div class="hint">可跨日一次處理</div></div>
+    </div>
+    <div class="grid cols-2" style="margin-top:18px">
+      <div class="card">
+        <div class="section-title"><h2>今日人員狀態</h2><button class="btn secondary" onclick="showToast('已下載今日狀態 Excel')">下載</button></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>外訪員</th><th>狀態</th><th>地點數</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr><td>王小明</td><td><span class="pill warn">待計算</span></td><td>4</td><td><button class="btn small outline" onclick="navigate('leader-review')">查看</button></td></tr>
+            <tr><td>李小華</td><td><span class="pill ok">已核准</span></td><td>3</td><td><button class="btn small outline">查看</button></td></tr>
+            <tr><td>陳大文</td><td><span class="pill danger">未登記</span></td><td>—</td><td><button class="btn small secondary" onclick="showToast('已標記提醒')">提醒</button></td></tr>
+            <tr><td>林美玲</td><td><span class="pill danger">未登記</span></td><td>—</td><td><button class="btn small secondary">提醒</button></td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>批次里程計算</h2><span class="pill">Google Routes API</span></div>
+        <p style="color:var(--muted)">可一次補算所有歷史未計算行程，或只處理指定日期區間內尚未計算的資料。</p>
+        <div class="field"><label>計算模式</label>
+          <select id="batchCalcMode" onchange="toggleBatchDateRange()">
+            <option value="all">全部未計算行程</option>
+            <option value="range">指定日期區間</option>
+          </select>
+        </div>
+        <div id="batchDateRange" class="grid cols-2" style="display:none">
+          <div class="field"><label>開始日期</label><input id="batchStart" type="date" value="2026-07-20"></div>
+          <div class="field"><label>結束日期</label><input id="batchEnd" type="date" value="2026-07-24"></div>
+        </div>
+        <div class="note">僅處理尚無 Google 里程的行程；地址不完整的資料會略過並列入異常清單。</div>
+        <button class="btn" style="width:100%;margin-top:14px" onclick="runBatch('dashboard')">開始批次計算</button>
+        <div style="margin-top:16px" class="progress"><div id="batchProgress"></div></div>
+        <div id="batchStatus" style="font-size:13px;color:var(--muted);margin-top:8px">尚未執行</div>
+      </div>
+    </div>`;
+}
+function toggleBatchDateRange(){
+  const area=document.getElementById('batchDateRange');
+  if(area)area.style.display=document.getElementById('batchCalcMode').value==='range'?'grid':'none';
+}
+function getBatchTargetIndices(source){
+  if(source==='selected'){
+    return [...document.querySelectorAll('.review-check:checked')].map(x=>Number(x.dataset.index));
+  }
+  const mode=document.getElementById('batchCalcMode')?.value||'all';
+  const start=document.getElementById('batchStart')?.value||'0000-01-01';
+  const end=document.getElementById('batchEnd')?.value||'9999-12-31';
+  return reviewTrips.map((x,i)=>({x,i})).filter(({x})=>{
+    if(x.googleMileage!=null)return false;
+    if(mode==='range'&&(x.date<start||x.date>end))return false;
+    return true;
+  }).map(x=>x.i);
+}
+function runBatch(source='dashboard'){
+  const targets=getBatchTargetIndices(source);
+  const eligible=targets.filter(i=>!reviewTrips[i].status.includes('地址'));
+  const invalid=targets.filter(i=>reviewTrips[i].status.includes('地址'));
+  if(!targets.length){showToast('目前沒有符合條件的待計算行程');return;}
+  const bar=document.getElementById('batchProgress');
+  const status=document.getElementById('batchStatus');
+  if(bar)bar.style.width='0%';
+  if(status)status.textContent=`準備處理 ${targets.length} 筆行程…`;
+  let p=0;
+  const timer=setInterval(()=>{
+    p+=20;if(bar)bar.style.width=Math.min(p,100)+'%';
+    if(status)status.textContent=`正在計算… ${Math.min(p,100)}%`;
+    if(p>=100){
+      clearInterval(timer);
+      eligible.forEach(i=>{
+        const t=reviewTrips[i];
+        t.googleMileage=Math.round(t.selfMileage*0.965*10)/10;
+        t.reviewMileage=t.googleMileage;
+        t.status='待核准';
+        t.checked=true;
+      });
+      mileageCalculated=true;
+      const msg=`完成：${eligible.length} 筆成功、${invalid.length} 筆地址待確認`;
+      if(status)status.textContent=msg;
+      const pendingEl=document.getElementById('pendingMileageCount');
+      if(pendingEl)pendingEl.textContent=reviewTrips.filter(x=>x.googleMileage==null).length;
+      auditLogs.unshift({time:new Date().toLocaleString('zh-TW'),user:'林組長',action:'批次里程計算',detail:msg});
+      showToast(msg);
+      if(currentScreen==='leader-review')renderLeaderReview();
+    }
+  },220);
+}
+
+function renderLeaderReview(){
+  document.getElementById('leader-review').innerHTML=`
+    <div class="card">
+      <div class="section-title">
+        <div><h2>待審核行程</h2><div style="font-size:12px;color:var(--muted);margin-top:4px">審核里程預設等於 Google 里程；補助依行程日期套用當日有效費率。</div></div>
+        <div class="actions">
+          <button class="btn ok" onclick="batchApprove()">批次核准勾選項目</button>
+          <button class="btn secondary" onclick="runBatch('selected')">重新／補算勾選項目</button>
+          <button class="btn outline" onclick="downloadExcelXml('行程審核清單.xls','審核清單',getReportRows('每日行程明細'))">下載 Excel</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th><input id="reviewSelectAll" type="checkbox" checked onchange="toggleReviewSelection(this.checked)"></th><th>日期</th><th>外訪員</th><th>拜訪順序</th><th>自算</th><th>Google</th><th>小組長審核</th><th>每公里補助</th><th>補助金額</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody>${reviewTrips.map((t,i)=>`
+          <tr>
+            <td><input class="review-check" data-index="${i}" type="checkbox" ${t.checked?'checked':''}></td>
+            <td>${t.date}</td><td>${t.visitor}</td><td>${t.route}</td>
+            <td>${t.selfMileage.toFixed(1)} km</td><td>${t.googleMileage==null?'—':t.googleMileage.toFixed(1)+' km'}</td>
+            <td>${t.googleMileage==null?'—':`<input class="leader-mileage" data-index="${i}" type="number" step="0.1" min="0" value="${t.reviewMileage.toFixed(1)}" onchange="updateReviewMileage(${i},this.value)" style="width:92px;padding:7px;border:1px solid var(--line);border-radius:8px"> km`}</td>
+            <td>$${getMileageRate(t.date).toFixed(2)}</td>
+            <td><strong id="subsidy-${i}">$${money(getSubsidyAmount(effectiveMileage(t),t.date))}</strong></td>
+            <td><span class="pill ${t.status==='已核准'?'ok':t.status.includes('地址')?'danger':'warn'}">${t.status}</span></td>
+            <td><div class="actions">
+              ${t.googleMileage!=null?`<button class="btn small ok" onclick="approveTrip(${i})">核准</button><button class="btn small secondary" onclick="returnTrip(${i})">退回</button>`:`<button class="btn small outline" onclick="${t.status.includes('地址')?`navigate('leader-locations')`:`runSingleMileage(${i})`}">${t.status.includes('地址')?'修正地址':'計算里程'}</button>`}
+            </div></td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+}
+function updateReviewMileage(i,value){
+  reviewTrips[i].reviewMileage=Number(value);
+  const cell=document.getElementById(`subsidy-${i}`);
+  if(cell)cell.textContent='$'+money(getSubsidyAmount(reviewTrips[i].reviewMileage,reviewTrips[i].date));
+}
+function runSingleMileage(i){
+  const t=reviewTrips[i];
+  if(t.status.includes('地址')){showToast('請先完成地址確認');return;}
+  if(t.googleMileage==null){
+    t.googleMileage=Math.round(t.selfMileage*0.965*10)/10;
+    t.reviewMileage=t.googleMileage;
+    t.status='待核准';
+    t.checked=true;
+  }
+  auditLogs.unshift({time:new Date().toLocaleString('zh-TW'),user:'林組長',action:'單筆里程計算',detail:`${t.visitor} ${t.date}：${t.googleMileage} km`});
+  renderLeaderReview();
+  showToast(`已完成 ${t.visitor} 的里程計算`);
+}
+function toggleReviewSelection(checked){
+  reviewTrips.forEach(t=>{t.checked=checked;});
+  renderLeaderReview();
+}
+function approveTrip(i){
+  const t=reviewTrips[i];
+  if(t.googleMileage==null){showToast('Google 里程尚未計算，暫不可核准');return;}
+  t.status='已核准';t.checked=false;
+  auditLogs.unshift({time:new Date().toLocaleString('zh-TW'),user:'林組長',action:'核准行程',detail:`${t.visitor} ${t.date}，審核里程 ${t.reviewMileage} km，補助 $${money(getSubsidyAmount(t.reviewMileage,t.date))}`});
+  renderLeaderReview();showToast(`已核准 ${t.visitor} 行程`);
+}
+function returnTrip(i){
+  const t=reviewTrips[i];
+  showModal(`<h3>退回行程</h3><p>${t.visitor}｜${t.date}</p>
+    <div class="field"><label>退回原因</label><select id="returnReason"><option>拜訪順序需確認</option><option>里程需重新確認</option><option>地點資料不完整</option><option>時間重疊／時間需確認</option><option>其他</option></select></div>
+    <div class="actions"><button class="btn danger" onclick="confirmReturnTrip(${i})">確認退回</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+}
+function confirmReturnTrip(i){
+  reviewTrips[i].status='已退回';reviewTrips[i].checked=false;
+  auditLogs.unshift({time:new Date().toLocaleString('zh-TW'),user:'林組長',action:'退回行程',detail:`${reviewTrips[i].visitor}：${document.getElementById('returnReason').value}`});
+  closeModal();renderLeaderReview();showToast('行程已退回');
+}
+function batchApprove(){
+  const selected=[...document.querySelectorAll('.review-check:checked')].map(x=>Number(x.dataset.index));
+  const eligible=selected.filter(i=>reviewTrips[i].googleMileage!=null&&!reviewTrips[i].status.includes('地址'));
+  if(!eligible.length){showToast('勾選資料中沒有可核准的行程');return;}
+  eligible.forEach(i=>{reviewTrips[i].status='已核准';reviewTrips[i].checked=false;});
+  auditLogs.unshift({time:new Date().toLocaleString('zh-TW'),user:'林組長',action:'批次核准',detail:`核准 ${eligible.length} 筆行程`});
+  renderLeaderReview();showToast(`已批次核准 ${eligible.length} 筆行程`);
+}
+
+function renderLeaderLocations(){
+  document.getElementById('leader-locations').innerHTML=`
+    <div class="card">
+      <div class="section-title">
+        <div><h2>新增地點批次上傳／發布</h2><div style="font-size:12px;color:var(--muted);margin-top:4px">可選擇全部尚未上傳的地點，或指定日期區間。</div></div>
+        <span class="pill warn">${pendingLocations.filter(x=>!x.published).length} 筆未上傳</span>
+      </div>
+      <div class="grid cols-4">
+        <div class="field"><label>處理模式</label><select id="pendingLocationMode" onchange="togglePendingLocationDateRange()"><option value="all">全部未上傳地點</option><option value="range">指定日期區間</option></select></div>
+        <div id="pendingStartWrap" class="field" style="display:none"><label>開始日期</label><input id="pendingStart" type="date" value="2026-07-20"></div>
+        <div id="pendingEndWrap" class="field" style="display:none"><label>結束日期</label><input id="pendingEnd" type="date" value="2026-07-24"></div>
+        <div class="field"><label>&nbsp;</label><button class="btn" onclick="runPendingLocationQuery()">套用條件</button></div>
+      </div>
+      <div class="actions" style="margin-bottom:14px">
+        <button class="btn secondary" onclick="selectAllPendingLocations(true)">全選查詢結果</button>
+        <button class="btn outline" onclick="selectAllPendingLocations(false)">取消全選</button>
+        <button class="btn ok" onclick="batchPublishLocations()">批次解析並上傳</button>
+      </div>
+      <div id="pendingLocationResults"></div>
+    </div>
+
+    <div class="grid cols-2" style="margin-top:18px">
+      <div class="card">
+        <div class="section-title"><h2>Excel 批次匯入地點</h2><button class="btn secondary" onclick="downloadTemplate('locations')">下載上傳範例</button></div>
+        <div class="field"><label>上傳 Excel 2003 XML（.xls）或 CSV</label><input id="locationImportFile" type="file" accept=".xls,.xml,.csv"></div>
+        <div class="note">請先下載範例檔，必要欄位：小組、縣市、鄉鎮區、客戶名稱、地址；Plus Code 可選填。</div>
+        <button class="btn" style="width:100%;margin-top:16px" onclick="readImportFile(document.getElementById('locationImportFile'),previewLocationImport)">讀取並預覽</button>
+        <div id="locationImportPreview" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>處理說明</h2></div>
+        <div class="note">批次處理時，已具完整地址或座標者會直接模擬上傳至正式地點主檔；地址不完整者會略過，需先進入「維護／Plus Code」修正。</div>
+        <p style="font-size:13px;color:var(--muted)">正式版將由後端批次呼叫 Geocoding API，再寫入正式地點主檔。</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="section-title"><h2>正式地點主檔</h2><button class="btn secondary" onclick="downloadExcelXml('地點主檔.xls','地點主檔',locations.map(x=>({'小組':x.group,'縣市':x.city,'鄉鎮區':x.district,'客戶名稱':x.name,'地址':x.address})))">下載主檔</button></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>小組</th><th>地點名稱</th><th>地址</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody>${locations.map((x,i)=>`<tr><td>${x.group}</td><td>${x.name}</td><td>${x.address}</td><td><span class="pill ok">啟用</span></td><td><button class="btn small outline" onclick="showToast('已開啟正式地點 ${x.name}')">查看</button></td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  runPendingLocationQuery();
+}
+function togglePendingLocationDateRange(){
+  const show=document.getElementById('pendingLocationMode').value==='range';
+  document.getElementById('pendingStartWrap').style.display=show?'flex':'none';
+  document.getElementById('pendingEndWrap').style.display=show?'flex':'none';
+}
+function getPendingLocationRows(){
+  const mode=document.getElementById('pendingLocationMode')?.value||'all';
+  const start=document.getElementById('pendingStart')?.value||'0000-01-01';
+  const end=document.getElementById('pendingEnd')?.value||'9999-12-31';
+  return pendingLocations.map((x,i)=>({x,i})).filter(({x})=>!x.published&&(mode==='all'||(x.date>=start&&x.date<=end)));
+}
+function runPendingLocationQuery(){
+  const rows=getPendingLocationRows();
+  const box=document.getElementById('pendingLocationResults');
+  if(!box)return;
+  box.innerHTML=rows.length?`<div class="table-wrap"><table>
+    <thead><tr><th>選取</th><th>新增日期</th><th>地點</th><th>地址／Plus Code</th><th>解析狀態</th><th>操作</th></tr></thead>
+    <tbody>${rows.map(({x,i})=>`<tr>
+      <td><input class="pending-location-check" data-index="${i}" type="checkbox" checked></td>
+      <td>${x.date}</td><td>${x.name}</td><td>${x.address||x.plusCode||'—'}</td>
+      <td><span class="pill ${x.lat&&x.lng?'ok':'danger'}">${x.lat&&x.lng?'已取得經緯度':'地址待確認'}</span></td>
+      <td><button class="btn small outline" onclick="openLocationMaintenance(${i})">${x.lat&&x.lng?'維護':'維護／Plus Code'}</button></td>
+    </tr>`).join('')}</tbody></table></div>`:`<div class="empty">此條件下沒有尚未上傳的地點。</div>`;
+}
+function selectAllPendingLocations(checked){
+  document.querySelectorAll('.pending-location-check').forEach(x=>x.checked=checked);
+}
+function batchPublishLocations(){
+  const selected=[...document.querySelectorAll('.pending-location-check:checked')].map(x=>Number(x.dataset.index));
+  if(!selected.length){showToast('請先選擇要上傳的地點');return;}
+  let success=0,failed=0;
+  selected.forEach(i=>{
+    const p=pendingLocations[i];
+    if(!p.lat||!p.lng){failed++;return;}
+    if(!locations.some(x=>x.name===p.name&&x.address===p.address)){
+      locations.push({group:p.group,city:p.city,district:p.district,name:p.name,address:p.address||p.plusCode});
+    }
+    p.published=true;success++;
+  });
+  auditLogs.unshift({time:new Date().toLocaleString('zh-TW'),user:'林組長',action:'批次上傳新地點',detail:`成功 ${success} 筆、失敗 ${failed} 筆`});
+  renderLeaderLocations();
+  showToast(`批次上傳完成：${success} 筆成功、${failed} 筆需先修正地址`);
+}
+function previewLocationImport(rows,filename){
+  const required=['小組','縣市','鄉鎮區','客戶名稱','地址'];
+  const valid=rows.filter(r=>required.every(k=>r[k]));
+  const invalid=rows.length-valid.length;
+  document.getElementById('locationImportPreview').innerHTML=`<div class="note">檔案：${filename}<br>共 ${rows.length} 筆；可匯入 ${valid.length} 筆；異常 ${invalid} 筆。</div>
+    <button class="btn ok" style="margin-top:10px" onclick='commitLocationImport(${JSON.stringify(valid)})'>確認匯入</button>`;
+}
+function commitLocationImport(rows){
+  rows.forEach(r=>locations.push({group:r['小組'],city:r['縣市'],district:r['鄉鎮區'],name:r['客戶名稱'],address:r['地址']||r['Plus Code']}));
+  renderLeaderLocations();showToast(`已匯入 ${rows.length} 筆地點`);
+}
+
+function openLocationMaintenance(index){
+  const p=pendingLocations[index]||pendingLocations.find(x=>!x.published);
+  if(!p)return;
+  showModal(`
+    <h3>維護地點位置</h3>
+    <div class="field"><label>新增日期</label><input value="${p.date}" disabled></div>
+    <div class="field"><label>地點名稱</label><input value="${p.name}" disabled></div>
+    <div class="field"><label>完整地址</label><input id="maintAddress" value="${p.address||''}" placeholder="輸入完整門牌地址"></div>
+    <div class="field"><label>Plus Code</label><input id="maintPlusCode" value="${p.plusCode||''}" placeholder="例如：2G7H+45 板橋區 新北市"></div>
+    <div class="grid cols-2">
+      <div class="field"><label>緯度</label><input id="maintLat" value="${p.lat||''}" placeholder="解析後自動帶入"></div>
+      <div class="field"><label>經度</label><input id="maintLng" value="${p.lng||''}" placeholder="解析後自動帶入"></div>
+    </div>
+    <div class="note">可修正完整地址後解析；若沒有門牌，可輸入 Google Maps 顯示的 Plus Code。此原型僅模擬解析結果。</div>
+    <input id="maintPendingIndex" type="hidden" value="${index}">
+    <div class="actions" style="margin-top:16px">
+      <button class="btn secondary" onclick="simulateResolveLocation()">解析地址／Plus Code</button>
+      <button class="btn ok" onclick="saveResolvedLocation()">儲存位置</button>
+      <button class="btn outline" onclick="closeModal()">取消</button>
+    </div>`);
+}
+function simulateResolveLocation(){
+  const address=document.getElementById('maintAddress').value.trim();
+  const plus=document.getElementById('maintPlusCode').value.trim();
+  if(!address&&!plus){showToast('請輸入完整地址或 Plus Code');return;}
+  if(address.includes('XX')&&!plus){showToast('地址仍不完整，請補完整地址或輸入 Plus Code');return;}
+  document.getElementById('maintLat').value='25.011245';
+  document.getElementById('maintLng').value='121.461882';
+  showToast(plus?'已由 Plus Code 取得經緯度':'已由地址取得經緯度');
+}
+function saveResolvedLocation(){
+  const index=Number(document.getElementById('maintPendingIndex').value);
+  const p=pendingLocations[index];
+  const lat=document.getElementById('maintLat').value.trim();
+  const lng=document.getElementById('maintLng').value.trim();
+  if(!lat||!lng){showToast('請先解析並確認經緯度');return;}
+  p.address=document.getElementById('maintAddress').value.trim();
+  p.plusCode=document.getElementById('maintPlusCode').value.trim();
+  p.lat=lat;p.lng=lng;
+  closeModal();renderLeaderLocations();showToast('地點位置已儲存，可加入批次上傳');
+}
+
+function renderAdminDashboard(){
+  const currentRate=getMileageRate(new Date().toISOString().slice(0,10));
+  document.getElementById('admin-dashboard').innerHTML=`
+    <div class="grid cols-4">
+      <div class="card stat"><div class="label">外訪員</div><div class="value">68</div><div class="hint">啟用帳號</div></div>
+      <div class="card stat"><div class="label">小組長</div><div class="value">8</div><div class="hint">共 8 個小組</div></div>
+      <div class="card stat"><div class="label">本月行程</div><div class="value">1,128</div><div class="hint">含補登</div></div>
+      <div class="card stat"><div class="label">目前每公里補助</div><div class="value">$${currentRate.toFixed(2)}</div><div class="hint">依生效日套用</div></div>
+    </div>
+    <div class="grid cols-2" style="margin-top:18px">
+      <div class="card">
+        <div class="section-title"><h2>補助費率管理</h2><button class="btn" onclick="navigate('admin-rates')">維護費率</button></div>
+        <div class="note">費率採生效日版本管理，歷史行程與報表依行程日期套用當時有效費率，不會因後續調整而全部改用新費率。</div>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>待處理事項</h2></div>
+        <div class="route-list">
+          <div class="route-item"><div class="route-index">3</div><div><div class="route-name">地址解析失敗</div><div class="route-address">需管理者或小組長修正</div></div></div>
+          <div class="route-item"><div class="route-index">5</div><div><div class="route-name">今日未登記人員</div><div class="route-address">跨組共 5 人</div></div></div>
+          <div class="route-item"><div class="route-index">2</div><div><div class="route-name">人員關係待生效</div><div class="route-address">預計下月生效</div></div></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderAdminUsers(){
+  document.getElementById('admin-users').innerHTML=`
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="section-title"><h2>人員批次匯入</h2><button class="btn secondary" onclick="downloadTemplate('users')">下載上傳範例</button></div>
+        <div class="field"><label>上傳 Excel 2003 XML（.xls）或 CSV</label><input id="userImportFile" type="file" accept=".xls,.xml,.csv"></div>
+        <button class="btn" style="width:100%" onclick="readImportFile(document.getElementById('userImportFile'),previewUserImport)">讀取並預覽</button>
+        <div id="userImportPreview" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>新增帳號</h2><button class="btn" onclick="openAddUser()">新增帳號</button></div>
+        <div class="note">帳號、角色、小組與小組長關係會影響使用者登入後可看到的功能與資料範圍。</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <div class="section-title"><h2>帳號、角色與小組關係</h2><button class="btn secondary" onclick="downloadExcelXml('人員關係清單.xls','人員清單',users.map(u=>({'帳號':u.account,'姓名':u.name,'角色':u.role,'所屬小組':u.group,'直屬小組長':u.leader,'狀態':u.status})))">下載 Excel</button></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>帳號</th><th>姓名</th><th>角色</th><th>所屬小組</th><th>直屬小組長</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody>${users.map((u,i)=>`<tr><td>${u.account}</td><td>${u.name}</td><td>${u.role}</td><td>${u.group}</td><td>${u.leader||'—'}</td><td><span class="pill ${u.status==='啟用'?'ok':'warn'}">${u.status}</span></td><td><button class="btn small outline" onclick="editUser(${i})">編輯</button></td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+}
+function previewUserImport(rows,filename){
+  const required=['帳號','姓名','角色','所屬小組','狀態'];
+  const valid=rows.filter(r=>required.every(k=>r[k]));
+  document.getElementById('userImportPreview').innerHTML=`<div class="note">${filename}：共 ${rows.length} 筆，可匯入 ${valid.length} 筆。</div><button class="btn ok" style="margin-top:10px" onclick='commitUserImport(${JSON.stringify(valid)})'>確認匯入</button>`;
+}
+function commitUserImport(rows){
+  rows.forEach(r=>users.push({account:r['帳號'],name:r['姓名'],role:r['角色'],group:r['所屬小組'],leader:r['直屬小組長']||'',status:r['狀態']}));
+  renderAdminUsers();showToast(`已匯入 ${rows.length} 筆人員`);
+}
+function openAddUser(){
+  showModal(`<h3>新增帳號</h3>
+    <div class="field"><label>帳號</label><input id="newUserAccount"></div>
+    <div class="field"><label>姓名</label><input id="newUserName"></div>
+    <div class="field"><label>角色</label><select id="newUserRole"><option>外訪員</option><option>小組長</option><option>管理者</option><option>督導</option></select></div>
+    <div class="field"><label>所屬小組</label><select id="newUserGroup">${uniqueValues(locations,'group').map(x=>`<option>${x}</option>`).join('')}</select></div>
+    <div class="actions"><button class="btn" onclick="saveNewUser()">儲存</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+}
+function saveNewUser(){
+  const account=document.getElementById('newUserAccount').value.trim(),name=document.getElementById('newUserName').value.trim();
+  if(!account||!name){showToast('請填寫帳號與姓名');return;}
+  users.push({account,name,role:document.getElementById('newUserRole').value,group:document.getElementById('newUserGroup').value,leader:'',status:'啟用'});
+  closeModal();renderAdminUsers();showToast('帳號已新增');
+}
+function editUser(i){showToast(`已開啟 ${users[i].name} 的帳號設定`);}
+
+function renderAdminProjects(){
+  document.getElementById('admin-projects').innerHTML=`
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="section-title"><h2>專案匯入與管理</h2><div class="actions"><button class="btn secondary" onclick="downloadTemplate('projects')">下載上傳範例</button><button class="btn" onclick="openAddProject()">新增專案</button></div></div>
+        <div class="field"><label>上傳 Excel 2003 XML（.xls）或 CSV</label><input id="projectImportFile" type="file" accept=".xls,.xml,.csv"></div>
+        <div class="note">必要欄位：專案名稱、歸屬小組、地點模式。地點模式只能填「清單」或「自行維護」。清單模式可用多列維護多個專案地點。</div>
+        <button class="btn" style="width:100%;margin-top:14px" onclick="readImportFile(document.getElementById('projectImportFile'),previewProjectImport)">讀取並預覽</button>
+        <div id="projectImportPreview" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
+        <div class="section-title"><h2>拜訪形式主檔</h2><button class="btn" onclick="openAddVisitType()">新增形式</button></div>
+        <div class="route-list">${visitTypes.map((v,i)=>`<div class="route-item"><div class="route-index">${i+1}</div><div><div class="route-name">${v}</div><div class="route-address">外訪員從專案加入時使用</div></div><button class="btn small outline" onclick="editVisitType(${i})">編輯</button></div>`).join('')}</div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <div class="section-title"><h2>專案清單</h2><button class="btn secondary" onclick="downloadExcelXml('專案清單.xls','專案清單',projects.map(p=>({'專案名稱':p.name,'歸屬小組':p.group,'地點模式':p.locationMode,'專案地點':p.locationNames.join('；'),'狀態':p.status})))">下載 Excel</button></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>專案名稱</th><th>歸屬小組</th><th>地點模式</th><th>地點數</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody>${projects.map((p,i)=>`<tr><td>${p.name}</td><td>${p.group}</td><td><span class="pill">${p.locationMode}</span></td><td>${p.locationMode==='清單'?p.locationNames.length:'外訪員自行維護'}</td><td><span class="pill ${p.status==='啟用'?'ok':'warn'}">${p.status}</span></td><td><div class="actions"><button class="btn small outline" onclick="editProject(${i})">編輯</button><button class="btn small secondary" onclick="manageProjectLocations(${i})">地點設定</button><button class="btn small secondary" onclick="toggleProject(${i})">停用／啟用</button></div></td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+}
+function previewProjectImport(rows,filename){
+  const valid=rows.filter(r=>r['專案名稱']&&r['歸屬小組']&&['清單','自行維護'].includes(r['地點模式']));
+  document.getElementById('projectImportPreview').innerHTML=`<div class="note">${filename}：共 ${rows.length} 筆列，可處理 ${valid.length} 筆。</div><button class="btn ok" style="margin-top:10px" onclick='commitProjectImport(${JSON.stringify(valid)})'>確認匯入</button>`;
+}
+function commitProjectImport(rows){
+  const grouped={};
+  rows.forEach(r=>{
+    const key=r['專案名稱']+'|'+r['歸屬小組'];
+    grouped[key]??={name:r['專案名稱'],group:r['歸屬小組'],locationMode:r['地點模式'],locationNames:[],status:r['狀態']||'啟用'};
+    if(r['專案地點名稱'])grouped[key].locationNames.push(r['專案地點名稱']);
+  });
+  Object.values(grouped).forEach(p=>{
+    const existing=projects.find(x=>x.name===p.name&&x.group===p.group);
+    if(existing)Object.assign(existing,p);else projects.push(p);
+  });
+  renderAdminProjects();showToast(`已匯入／更新 ${Object.keys(grouped).length} 個專案`);
+}
+function openAddProject(){
+  showModal(`<h3>新增專案</h3>
+    <div class="field"><label>專案名稱</label><input id="newProjectName"></div>
+    <div class="field"><label>歸屬小組</label><select id="newProjectGroup">${uniqueValues(locations,'group').map(g=>`<option>${g}</option>`).join('')}</select></div>
+    <div class="field"><label>地點模式</label><select id="newProjectMode"><option>清單</option><option>自行維護</option></select></div>
+    <div class="actions"><button class="btn" onclick="saveNewProject()">儲存</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+}
+function saveNewProject(){
+  const name=document.getElementById('newProjectName').value.trim();
+  if(!name){showToast('請輸入專案名稱');return;}
+  projects.push({name,group:document.getElementById('newProjectGroup').value,locationMode:document.getElementById('newProjectMode').value,locationNames:[],status:'啟用'});
+  closeModal();renderAdminProjects();showToast('專案已新增');
+}
+function editProject(i){openAddProject();setTimeout(()=>{document.getElementById('newProjectName').value=projects[i].name;},0);}
+function manageProjectLocations(i){
+  const p=projects[i];
+  showModal(`<h3>${p.name}－地點設定</h3>
+    <div class="field"><label>地點模式</label><select id="editProjectMode" onchange="document.getElementById('projectListArea').style.display=this.value==='清單'?'block':'none'"><option ${p.locationMode==='清單'?'selected':''}>清單</option><option ${p.locationMode==='自行維護'?'selected':''}>自行維護</option></select></div>
+    <div id="projectListArea" style="display:${p.locationMode==='清單'?'block':'none'}"><div class="field"><label>可用地點（可複選）</label><select id="projectLocationMulti" multiple size="8">${locations.filter(x=>x.group===p.group).map(x=>`<option ${p.locationNames.includes(x.name)?'selected':''}>${x.name}</option>`).join('')}</select></div></div>
+    <div class="actions"><button class="btn" onclick="saveProjectLocations(${i})">儲存</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+}
+function saveProjectLocations(i){
+  const mode=document.getElementById('editProjectMode').value;
+  projects[i].locationMode=mode;
+  projects[i].locationNames=mode==='清單'?[...document.getElementById('projectLocationMulti').selectedOptions].map(x=>x.value):[];
+  closeModal();renderAdminProjects();showToast('專案地點設定已更新');
+}
+function toggleProject(i){projects[i].status=projects[i].status==='啟用'?'停用':'啟用';renderAdminProjects();showToast(`專案已${projects[i].status}`);}
+function openAddVisitType(){showModal(`<h3>新增拜訪形式</h3><div class="field"><label>拜訪形式名稱</label><input id="newVisitType"></div><div class="actions"><button class="btn" onclick="saveVisitType()">儲存</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);}
+function saveVisitType(){const v=document.getElementById('newVisitType').value.trim();if(!v)return showToast('請輸入拜訪形式');if(!visitTypes.includes(v))visitTypes.push(v);closeModal();renderAdminProjects();showToast('拜訪形式已新增');}
+function editVisitType(i){const old=visitTypes[i];showModal(`<h3>編輯拜訪形式</h3><div class="field"><input id="editVisitType" value="${old}"></div><div class="actions"><button class="btn" onclick="visitTypes[${i}]=document.getElementById('editVisitType').value.trim();closeModal();renderAdminProjects();showToast('已更新')">儲存</button></div>`);}
+
+
+function renderAdminRates(){
+  const today=new Date().toISOString().slice(0,10);
+  const currentRate=getMileageRate(today);
+  document.getElementById('admin-rates').innerHTML=`
+    <div class="grid cols-3">
+      <div class="card stat"><div class="label">目前每公里補助</div><div class="value">$${currentRate.toFixed(2)}</div><div class="hint">依今天日期適用</div></div>
+      <div class="card stat"><div class="label">費率版本數</div><div class="value">${subsidyRates.length}</div><div class="hint">保留歷史生效紀錄</div></div>
+      <div class="card stat"><div class="label">計算原則</div><div class="value" style="font-size:19px">核定里程 × 費率</div><div class="hint">依行程日期抓取生效費率</div></div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <div class="section-title">
+        <div><h2>每公里補助費率</h2><div style="font-size:12px;color:var(--muted);margin-top:4px">新增新費率時必須設定生效日期。</div></div>
+        <button class="btn" onclick="openAddSubsidyRate()">＋新增費率</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>生效日期</th><th>每公里補助</th><th>狀態</th><th>備註</th><th>操作</th></tr></thead>
+        <tbody>${[...subsidyRates].sort((a,b)=>b.effectiveDate.localeCompare(a.effectiveDate)).map(r=>`
+          <tr><td>${r.effectiveDate}</td><td><strong>$${Number(r.rate).toFixed(2)}</strong></td><td><span class="pill ${getMileageRate(today)===Number(r.rate)&&r.effectiveDate<=today?'ok':''}">${r.effectiveDate<=today?'已生效':'未生效'}</span></td><td>${r.note||'—'}</td><td><button class="btn small outline" onclick="openEditSubsidyRate('${r.id}')">編輯</button></td></tr>`).join('')}</tbody>
+      </table></div>
+      <div class="note" style="margin-top:14px">正式版建議：已被歷史行程使用的費率不要直接刪除；新增新版費率，以生效日區隔。</div>
+    </div>`;
+}
+function openAddSubsidyRate(){
+  showModal(`<h3>新增每公里補助費率</h3>
+    <div class="field"><label>生效日期</label><input id="rateEffectiveDate" type="date"></div>
+    <div class="field"><label>每公里補助金額（元）</label><input id="rateAmount" type="number" min="0" step="0.01" value="2.5"></div>
+    <div class="field"><label>備註</label><input id="rateNote" placeholder="例如：年度補助標準調整"></div>
+    <div class="actions"><button class="btn" onclick="saveSubsidyRate()">儲存</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+}
+function saveSubsidyRate(){
+  const date=document.getElementById('rateEffectiveDate').value;
+  const rate=Number(document.getElementById('rateAmount').value);
+  const note=document.getElementById('rateNote').value.trim();
+  if(!date||!Number.isFinite(rate)||rate<0){showToast('請填寫正確的生效日期與補助金額');return;}
+  if(subsidyRates.some(x=>x.effectiveDate===date)){showToast('此生效日期已存在費率，請改用編輯');return;}
+  subsidyRates.push({id:'RATE-'+Date.now(),effectiveDate:date,rate,note});
+  auditLogs.unshift({time:new Date().toLocaleString('zh-TW'),user:'系統管理員',action:'新增補助費率',detail:`${date} 起每公里 $${rate.toFixed(2)}`});
+  closeModal();renderAdminRates();showToast('新費率已建立');
+}
+function openEditSubsidyRate(id){
+  const r=subsidyRates.find(x=>x.id===id);if(!r)return;
+  showModal(`<h3>編輯補助費率</h3>
+    <div class="field"><label>生效日期</label><input id="editRateDate" type="date" value="${r.effectiveDate}"></div>
+    <div class="field"><label>每公里補助金額（元）</label><input id="editRateAmount" type="number" min="0" step="0.01" value="${r.rate}"></div>
+    <div class="field"><label>備註</label><input id="editRateNote" value="${r.note||''}"></div>
+    <div class="actions"><button class="btn" onclick="updateSubsidyRate('${id}')">儲存修改</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+}
+function updateSubsidyRate(id){
+  const r=subsidyRates.find(x=>x.id===id);if(!r)return;
+  const date=document.getElementById('editRateDate').value;
+  const rate=Number(document.getElementById('editRateAmount').value);
+  if(!date||!Number.isFinite(rate)||rate<0){showToast('請填寫正確資料');return;}
+  if(subsidyRates.some(x=>x.id!==id&&x.effectiveDate===date)){showToast('此生效日期已存在其他費率');return;}
+  r.effectiveDate=date;r.rate=rate;r.note=document.getElementById('editRateNote').value.trim();
+  closeModal();renderAdminRates();showToast('補助費率已更新');
+}
+
+function renderAdminReports(){
+  const reports=[
+    ['每日行程明細','外訪員、時間、地點順序、三種里程、補助費率與補助金額'],
+    ['拜訪站點明細','每一站的順序、地址、專案與適用補助費率'],
+    ['未登記清單','依日期、小組與人員查詢'],
+    ['里程彙總報表','三種里程、核定里程、補助費率與補助金額'],
+    ['地點使用分析','拜訪頻率、新增地點與停用地點'],
+    ['操作稽核紀錄','補登、修改、重算、核准與解鎖']
+  ];
+  document.getElementById('admin-reports').innerHTML=`
+    <div class="grid cols-3">${reports.map(x=>`<div class="card"><h2 style="font-size:17px;margin-top:0">${x[0]}</h2><p style="font-size:13px;color:var(--muted);min-height:42px">${x[1]}</p><div class="actions"><button class="btn small secondary" onclick="downloadReport('${x[0]}')">直接下載</button><button class="btn small outline" onclick="openReportCondition('${x[0]}')">設定條件</button></div></div>`).join('')}</div>`;
+}
+
+function renderGovDashboard(){
+  document.getElementById('gov-dashboard').innerHTML=`
+    <div class="grid cols-4">
+      <div class="card stat"><div class="label">可查詢外訪員</div><div class="value">68</div><div class="hint">僅查詢與下載</div></div>
+      <div class="card stat"><div class="label">正式拜訪地點</div><div class="value">326</div><div class="hint">跨小組資料</div></div>
+      <div class="card stat"><div class="label">本月行程</div><div class="value">1,128</div><div class="hint">已核准紀錄</div></div>
+      <div class="card stat"><div class="label">本月總里程</div><div class="value">28,640</div><div class="hint">公里</div></div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <div class="section-title"><h2>督導查詢權限</h2><span class="pill">唯讀</span></div>
+      <div class="note">可以查詢及下載地點拜訪狀況、外訪員行程與整體彙總報表；查詢介面可選擇全部或指定單一項目；不得新增、修改、核准、退回、維護地點或管理帳號。</div>
+      <div class="actions" style="margin-top:16px"><button class="btn secondary" onclick="navigate('gov-location')">查地點</button><button class="btn secondary" onclick="navigate('gov-visitor')">查外訪員</button><button class="btn" onclick="navigate('gov-reports')">整體報表</button></div>
+    </div>`;
+}
+
+function renderGovLocation(){
+  document.getElementById('gov-location').innerHTML=`
+    <div class="card">
+      <div class="section-title"><h2>地點拜訪狀況</h2><button class="btn secondary" onclick="downloadGovLocation()">下載 Excel</button></div>
+      <div class="grid cols-4">
+        <div class="field"><label>查詢範圍</label><select id="govLocScope" onchange="document.getElementById('govLocSelect').disabled=this.value==='全部'"><option>全部</option><option>指定地點</option></select></div>
+        <div class="field"><label>拜訪地點</label><select id="govLocSelect" disabled>${locations.map(x=>`<option>${x.name}</option>`).join('')}</select></div>
+        <div class="field"><label>開始日期</label><input id="govLocStart" type="date" value="2026-07-01"></div>
+        <div class="field"><label>結束日期</label><input id="govLocEnd" type="date" value="2026-07-24"></div>
+      </div>
+      <button class="btn" onclick="runGovLocationQuery()">查詢</button>
+      <div id="govLocResults" class="table-wrap" style="margin-top:16px"></div>
+    </div>`;
+  runGovLocationQuery();
+}
+function govLocationRows(){
+  const all=[
+    {date:'2026-07-23',location:'客戶 A｜內湖據點',visitor:'王小明',group:'北區第一組',order:2,start:'08:25',end:'17:05',self:40.0,google:38.6,review:38.6},
+    {date:'2026-07-21',location:'客戶 B｜南港據點',visitor:'李小華',group:'北區第一組',order:1,start:'08:40',end:'16:50',self:26.0,google:25.2,review:25.2}
+  ];
+  const scope=document.getElementById('govLocScope')?.value||'全部';
+  const loc=document.getElementById('govLocSelect')?.value;
+  return scope==='全部'?all:all.filter(x=>x.location===loc);
+}
+function runGovLocationQuery(){
+  const rows=govLocationRows();
+  document.getElementById('govLocResults').innerHTML=`<table><thead><tr><th>日期</th><th>地點</th><th>外訪員</th><th>小組</th><th>順序</th><th>審核里程</th><th>每公里補助</th><th>補助金額</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${x.date}</td><td>${x.location}</td><td>${x.visitor}</td><td>${x.group}</td><td>第 ${x.order} 站</td><td>${x.review}</td><td>$${getMileageRate(x.date).toFixed(2)}</td><td>$${money(getSubsidyAmount(x.review,x.date))}</td></tr>`).join('')}</tbody></table>`;
+}
+function downloadGovLocation(){
+  downloadExcelXml('地點拜訪狀況.xls','地點查詢',govLocationRows().map(x=>({
+    '日期':x.date,'地點':x.location,'外訪員':x.visitor,'小組':x.group,'拜訪順序':x.order,'外訪員自算':x.self,'Google里程':x.google,'審核里程':x.review,
+    '每公里補助':getMileageRate(x.date),'補助金額':getSubsidyAmount(x.review,x.date)
+  })));
+}
+
+function renderGovVisitor(){
+  document.getElementById('gov-visitor').innerHTML=`
+    <div class="card">
+      <div class="section-title"><h2>外訪員行程</h2><button class="btn secondary" onclick="downloadGovVisitor()">下載 Excel</button></div>
+      <div class="grid cols-4">
+        <div class="field"><label>查詢範圍</label><select id="govVisitorScope" onchange="document.getElementById('govVisitorSelect').disabled=this.value==='全部'"><option>全部</option><option>指定外訪員</option></select></div>
+        <div class="field"><label>外訪員</label><select id="govVisitorSelect" disabled>${users.filter(x=>x.role==='外訪員').map(x=>`<option>${x.name}</option>`).join('')}</select></div>
+        <div class="field"><label>開始日期</label><input type="date" value="2026-07-01"></div>
+        <div class="field"><label>結束日期</label><input type="date" value="2026-07-24"></div>
+      </div>
+      <button class="btn" onclick="runGovVisitorQuery()">查詢</button>
+      <div id="govVisitorResults" class="table-wrap" style="margin-top:16px"></div>
+    </div>`;
+  runGovVisitorQuery();
+}
+function govVisitorRows(){
+  const scope=document.getElementById('govVisitorScope')?.value||'全部';
+  const visitor=document.getElementById('govVisitorSelect')?.value;
+  return (scope==='全部'?reviewTrips:reviewTrips.filter(x=>x.visitor===visitor));
+}
+function runGovVisitorQuery(){
+  const rows=govVisitorRows();
+  document.getElementById('govVisitorResults').innerHTML=`<table><thead><tr><th>日期</th><th>外訪員</th><th>拜訪順序</th><th>自算</th><th>Google</th><th>審核里程</th><th>每公里補助</th><th>補助金額</th><th>狀態</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${x.date}</td><td>${x.visitor}</td><td>${x.route}</td><td>${x.selfMileage}</td><td>${x.googleMileage??'—'}</td><td>${x.reviewMileage??'—'}</td><td>$${getMileageRate(x.date).toFixed(2)}</td><td>$${money(getSubsidyAmount(effectiveMileage(x),x.date))}</td><td>${x.status}</td></tr>`).join('')}</tbody></table>`;
+}
+function downloadGovVisitor(){
+  downloadExcelXml('外訪員行程.xls','外訪員查詢',govVisitorRows().map(x=>({
+    '日期':x.date,'外訪員':x.visitor,'小組':x.group,'拜訪順序':x.route,'外訪員自算':x.selfMileage,'Google里程':x.googleMileage??'','審核里程':x.reviewMileage??'',
+    '每公里補助':getMileageRate(x.date),'補助金額':getSubsidyAmount(effectiveMileage(x),x.date),'狀態':x.status
+  })));
+}
+
+function renderGovReports(){
+  document.getElementById('gov-reports').innerHTML=`
+    <div class="card">
+      <div class="section-title"><h2>整體報表查詢</h2><span class="pill">唯讀</span></div>
+      <div class="grid cols-3">
+        ${['每日行程明細','里程彙總報表','地點使用分析'].map(x=>`<div class="card" style="box-shadow:none"><h3 style="margin-top:0">${x}</h3><div class="actions"><button class="btn small secondary" onclick="downloadReport('${x}')">下載 Excel</button><button class="btn small outline" onclick="openReportCondition('${x}')">設定條件</button></div></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function escapeXml(value){
+  return String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function downloadBlob(filename,content,type='application/octet-stream'){
+  const blob=new Blob([content],{type});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+}
+function downloadExcelXml(filename,sheetName,rows){
+  const headers=rows.length?Object.keys(rows[0]):[];
+  const headerCells=headers.map(h=>`<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('');
+  const dataRows=rows.map(r=>`<Row>${headers.map(h=>{
+    const v=r[h]??'';
+    const type=typeof v==='number'?'Number':'String';
+    return `<Cell><Data ss:Type="${type}">${escapeXml(v)}</Data></Cell>`;
+  }).join('')}</Row>`).join('');
+  const xml=`<?xml version="1.0"?>
+  <?mso-application progid="Excel.Sheet"?>
+  <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+   xmlns:o="urn:schemas-microsoft-com:office:office"
+   xmlns:x="urn:schemas-microsoft-com:office:excel"
+   xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+   <Worksheet ss:Name="${escapeXml(sheetName)}"><Table><Row>${headerCells}</Row>${dataRows}</Table></Worksheet>
+  </Workbook>`;
+  downloadBlob(filename,xml,'application/vnd.ms-excel;charset=utf-8');
+}
+function downloadTemplate(type){
+  const templates={
+    locations:[
+      {'小組':'北區第一組','縣市':'台北市','鄉鎮區':'內湖區','客戶名稱':'客戶範例','地址':'台北市內湖區瑞光路 100 號','Plus Code':'','狀態':'啟用'}
+    ],
+    projects:[
+      {'專案名稱':'高齡關懷訪視專案','歸屬小組':'北區第一組','地點模式':'清單','專案地點名稱':'客戶 A｜內湖據點','狀態':'啟用'},
+      {'專案名稱':'就業服務追蹤專案','歸屬小組':'北區第一組','地點模式':'自行維護','專案地點名稱':'','狀態':'啟用'}
+    ],
+    users:[
+      {'帳號':'visitor99','姓名':'測試外訪員','角色':'外訪員','所屬小組':'北區第一組','直屬小組長':'林組長','狀態':'啟用'}
+    ]
+  };
+  const names={locations:'地點匯入範例.xls',projects:'專案匯入範例.xls',users:'人員匯入範例.xls'};
+  downloadExcelXml(names[type], '匯入範例', templates[type]);
+  showToast('已下載 Excel 匯入範例');
+}
+function parseCsv(text){
+  const rows=[];let row=[],cell='',quoted=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i],n=text[i+1];
+    if(c==='"'&&quoted&&n==='"'){cell+='"';i++;}
+    else if(c==='"'){quoted=!quoted;}
+    else if(c===','&&!quoted){row.push(cell);cell='';}
+    else if((c==='\n'||c==='\r')&&!quoted){
+      if(c==='\r'&&n==='\n')i++;
+      row.push(cell);if(row.some(x=>x!==''))rows.push(row);row=[];cell='';
+    }else cell+=c;
+  }
+  row.push(cell);if(row.some(x=>x!==''))rows.push(row);
+  const headers=rows.shift()||[];
+  return rows.map(r=>Object.fromEntries(headers.map((h,i)=>[h.trim(),(r[i]??'').trim()])));
+}
+function parseSpreadsheetXml(text){
+  const doc=new DOMParser().parseFromString(text,'application/xml');
+  const rowNodes=[...doc.getElementsByTagNameNS('*','Row')];
+  const matrix=rowNodes.map(r=>[...r.getElementsByTagNameNS('*','Cell')].map(c=>{
+    const d=c.getElementsByTagNameNS('*','Data')[0];return d?d.textContent:'';
+  }));
+  const headers=matrix.shift()||[];
+  return matrix.map(r=>Object.fromEntries(headers.map((h,i)=>[h,(r[i]??'').trim()])));
+}
+function readImportFile(input,callback){
+  const file=input.files?.[0];
+  if(!file){showToast('請先選擇檔案');return;}
+  const ext=file.name.split('.').pop().toLowerCase();
+  if(!['csv','xls','xml'].includes(ext)){
+    showToast('Local HTML 支援 CSV 或下載範例產生的 Excel 2003 XML（.xls）');
+    return;
+  }
+  const reader=new FileReader();
+  reader.onload=()=> {
+    try{
+      const rows=ext==='csv'?parseCsv(reader.result):parseSpreadsheetXml(reader.result);
+      callback(rows,file.name);
+    }catch(e){showToast('檔案格式無法讀取，請使用本頁下載的範例檔');}
+  };
+  reader.readAsText(file,'utf-8');
+}
+function openReportCondition(type){
+  showModal(`<h3>${type}－條件設定</h3>
+    <div class="grid cols-2">
+      <div class="field"><label>開始日期</label><input id="reportStart" type="date" value="2026-07-01"></div>
+      <div class="field"><label>結束日期</label><input id="reportEnd" type="date" value="2026-07-24"></div>
+      <div class="field"><label>小組</label><select id="reportGroup"><option>全部</option>${uniqueValues(locations,'group').map(x=>`<option>${x}</option>`).join('')}</select></div>
+      <div class="field"><label>狀態</label><select id="reportStatus"><option>全部</option><option>已核准</option><option>待核准</option><option>未登記</option></select></div>
+    </div>
+    <div class="actions"><button class="btn" onclick="downloadReport('${type}')">套用並下載</button><button class="btn outline" onclick="closeModal()">取消</button></div>`);
+}
+function getReportRows(type){
+  if(type==='每日行程明細')return reviewTrips.map(t=>({
+    '行程編號':t.id,'日期':t.date,'外訪員':t.visitor,'小組':t.group,'拜訪順序':t.route,
+    '外訪員自算里程':t.selfMileage,'Google里程':t.googleMileage??'','小組長審核里程':t.reviewMileage??'',
+    '每公里補助':getMileageRate(t.date),'補助金額':getSubsidyAmount(effectiveMileage(t),t.date),'狀態':t.status,'備註':t.note
+  }));
+  if(type==='拜訪站點明細')return routeStops.map((s,i)=>({
+    '日期':selectedDate,'外訪員':'王小明','順序':i+1,'地點':s.name,'地址':s.address,'專案':s.project||'','拜訪形式':s.visitType||'',
+    '適用每公里補助':getMileageRate(selectedDate),'預估行程補助金額':getSubsidyAmount(Number(selfMileage||0),selectedDate)
+  }));
+  if(type==='未登記清單')return [{'日期':'2026-07-24','小組':'北區第一組','外訪員':'陳大文','狀態':'未登記'},{'日期':'2026-07-24','小組':'北區第一組','外訪員':'林美玲','狀態':'未登記'}];
+  if(type==='里程彙總報表')return reviewTrips.map(t=>({
+    '日期':t.date,'外訪員':t.visitor,'小組':t.group,'外訪員自算':t.selfMileage,'Google里程':t.googleMileage??'','小組長審核':t.reviewMileage??'',
+    '核定／計算基準里程':effectiveMileage(t),'每公里補助':getMileageRate(t.date),'補助金額':getSubsidyAmount(effectiveMileage(t),t.date)
+  }));
+  if(type==='地點使用分析')return locations.map((x,i)=>({'小組':x.group,'縣市':x.city,'鄉鎮區':x.district,'地點':x.name,'地址':x.address,'拜訪次數':12-i}));
+  return auditLogs.map(x=>({'時間':x.time,'使用者':x.user,'動作':x.action,'內容':x.detail}));
+}
+
+function downloadReport(type){
+  const rows=getReportRows(type);
+  downloadExcelXml(`${type}_${new Date().toISOString().slice(0,10)}.xls`,type.slice(0,25),rows);
+  closeModal();showToast(`已下載 ${type}`);
+}
+
+function showModal(html){document.getElementById('modalContent').innerHTML=html;document.getElementById('modal').classList.add('show')}
+function closeModal(){document.getElementById('modal').classList.remove('show')}
+function showToast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
+}
+</script>
+</body>
+</html>
