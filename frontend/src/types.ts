@@ -1,0 +1,9 @@
+export interface CurrentUser { userId:number; employeeNo:string; displayName:string; email?:string; organizationId?:number; teamId?:number; teamName?:string; roles:string[] }
+export interface LoginResponse { accessToken:string; expiresAtUtc:string; user:CurrentUser }
+export interface TripStopInput { locationId?:number; projectId?:number; visitTypeId?:number; sourceType:string; locationName:string; address?:string; visitPurpose?:string; notes?:string }
+export interface Trip { visitTripId:number; tripNo:string; userId:number; visitorName:string; teamId?:number; teamName?:string; visitDate:string; startTime?:string; endTime?:string; status:string; statusName:string; purpose?:string; notes?:string; returnReason?:string; claimedDistanceKm?:number; systemDistanceKm?:number; approvedDistanceKm?:number; ratePerKmSnapshot?:number; approvedAmount?:number; stops:TripStopInput[]; rowVersion:string }
+export interface Location { locationId:number; teamId?:number; locationName:string; locationType:string; city?:string; district?:string; address?:string; plusCode?:string; latitude?:number; longitude?:number; isTemporary:boolean; approvalStatus:string; geocodingStatus:string; isActive:boolean; createdAt:string; rowVersion:string }
+export interface Project { projectId:number; teamId?:number; projectCode:string; projectName:string; locationMode:string; isActive:boolean }
+export interface VisitType { visitTypeId:number; visitTypeCode:string; visitTypeName:string; sortOrder:number }
+export interface MileageRate { mileageRateRuleId:number; organizationId?:number; ruleName:string; vehicleType:string; ratePerKm:number; effectiveFrom:string; effectiveTo?:string; isActive:boolean }
+export interface MileageReport { tripNo:string; visitDate:string; visitorName:string; teamName?:string; route:string; claimedDistanceKm?:number; systemDistanceKm?:number; approvedDistanceKm?:number; ratePerKmSnapshot?:number; approvedAmount?:number; status:string; statusName:string }

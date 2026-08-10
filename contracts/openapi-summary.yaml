@@ -1,0 +1,22 @@
+openapi: 3.0.3
+info:
+  title: Field Visit Mileage UAT API
+  version: 1.0.0-existing-schema-1.5
+paths:
+  /api/v1/auth/demo-login: { post: { summary: UAT EmployeeNo demo login } }
+  /api/v1/me: { get: { summary: Current user roles/team } }
+  /api/v1/trips: { post: { summary: Create draft } }
+  /api/v1/trips/{tripId}: { get: { summary: Trip detail }, put: { summary: Update Draft/Returned } }
+  /api/v1/trips/time-overlap-check: { post: { summary: Warning-only time overlap check } }
+  /api/v1/trips/{tripId}/submit: { post: { summary: Submit/Resubmit } }
+  /api/v1/trips/history: { get: { summary: Visitor history by date/location } }
+  /api/v1/leader/review-queue: { get: { summary: Leader team queue } }
+  /api/v1/mileage-jobs: { post: { summary: AllPending/DateRange/Selected batch mileage } }
+  /api/v1/trips/{tripId}/approve: { post: { summary: Approve and snapshot rate/amount } }
+  /api/v1/trips/{tripId}/return: { post: { summary: Return with reason } }
+  /api/v1/trips/batch-approve: { post: { summary: Batch approve } }
+  /api/v1/locations/pending: { get: { summary: Pending locations by all/date range } }
+  /api/v1/locations/{locationId}: { put: { summary: Correct address/Plus Code } }
+  /api/v1/locations/batch-publish: { post: { summary: Batch geocode/publish } }
+  /api/v1/mileage-rate-rules: { get: { summary: Rate versions }, post: { summary: Admin create effective rate } }
+  /api/v1/reports/mileage: { get: { summary: Scoped mileage/subsidy report } }

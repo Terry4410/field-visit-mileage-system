@@ -1,0 +1,67 @@
+using FieldVisit.Application;
+using FieldVisit.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace FieldVisit.Infrastructure;
+
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
+{
+    public DbSet<Organization> Organizations => Set<Organization>();
+    public DbSet<Team> Teams => Set<Team>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Role> Roles => Set<Role>();
+    public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<Location> Locations => Set<Location>();
+    public DbSet<LocationApprovalHistory> LocationApprovalHistories => Set<LocationApprovalHistory>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectLocation> ProjectLocations => Set<ProjectLocation>();
+    public DbSet<VisitType> VisitTypes => Set<VisitType>();
+    public DbSet<VisitTrip> VisitTrips => Set<VisitTrip>();
+    public DbSet<VisitTripStop> VisitTripStops => Set<VisitTripStop>();
+    public DbSet<MileageCalculation> MileageCalculations => Set<MileageCalculation>();
+    public DbSet<MileageRateRule> MileageRateRules => Set<MileageRateRule>();
+    public DbSet<ApprovalRecord> ApprovalRecords => Set<ApprovalRecord>();
+    public DbSet<VisitTripStatusHistory> VisitTripStatusHistories => Set<VisitTripStatusHistory>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    protected override void OnModelCreating(ModelBuilder b)
+    {
+        b.Entity<Organization>(e => { e.ToTable("Organizations"); e.HasKey(x => x.OrganizationId); e.Property(x => x.OrganizationId).ValueGeneratedOnAdd(); });
+        b.Entity<Team>(e => { e.ToTable("Teams"); e.HasKey(x => x.TeamId); e.Property(x => x.TeamId).ValueGeneratedOnAdd(); });
+        b.Entity<User>(e => { e.ToTable("Users"); e.HasKey(x => x.UserId); e.Property(x => x.UserId).ValueGeneratedOnAdd(); });
+        b.Entity<Role>(e => { e.ToTable("Roles"); e.HasKey(x => x.RoleId); e.Property(x => x.RoleId).ValueGeneratedOnAdd(); });
+        b.Entity<UserRole>(e => { e.ToTable("UserRoles"); e.HasKey(x => x.UserRoleId); e.Property(x => x.UserRoleId).ValueGeneratedOnAdd(); });
+
+        b.Entity<Location>(e =>
+        {
+            e.ToTable("Locations"); e.HasKey(x => x.LocationId); e.Property(x => x.LocationId).ValueGeneratedOnAdd();
+            e.Property(x => x.Latitude).HasPrecision(10, 7); e.Property(x => x.Longitude).HasPrecision(10, 7);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+        });
+        b.Entity<LocationApprovalHistory>(e => { e.ToTable("LocationApprovalHistory"); e.HasKey(x => x.LocationApprovalHistoryId); e.Property(x => x.LocationApprovalHistoryId).ValueGeneratedOnAdd(); });
+
+        b.Entity<Project>(e => { e.ToTable("Projects"); e.HasKey(x => x.ProjectId); e.Property(x => x.ProjectId).ValueGeneratedOnAdd(); });
+        b.Entity<ProjectLocation>(e => { e.ToTable("ProjectLocations"); e.HasKey(x => x.ProjectLocationId); e.Property(x => x.ProjectLocationId).ValueGeneratedOnAdd(); });
+        b.Entity<VisitType>(e => { e.ToTable("VisitTypes"); e.HasKey(x => x.VisitTypeId); e.Property(x => x.VisitTypeId).ValueGeneratedOnAdd(); });
+
+        b.Entity<VisitTrip>(e =>
+        {
+            e.ToTable("VisitTrips"); e.HasKey(x => x.VisitTripId); e.Property(x => x.VisitTripId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasMany(x => x.Stops).WithOne(x => x.VisitTrip).HasForeignKey(x => x.VisitTripId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.MileageCalculation).WithOne(x => x.VisitTrip).HasForeignKey<MileageCalculation>(x => x.VisitTripId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<VisitTripStop>(e => { e.ToTable("VisitTripStops"); e.HasKey(x => x.VisitTripStopId); e.Property(x => x.VisitTripStopId).ValueGeneratedOnAdd(); e.HasOne(x => x.Location).WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.NoAction); });
+
+        b.Entity<MileageCalculation>(e =>
+        {
+            e.ToTable("MileageCalculations"); e.HasKey(x => x.MileageCalculationId); e.Property(x => x.MileageCalculationId).ValueGeneratedOnAdd();
+            e.Property(x => x.SystemDistanceKm).HasPrecision(10,2); e.Property(x => x.ClaimedDistanceKm).HasPrecision(10,2); e.Property(x => x.ApprovedDistanceKm).HasPrecision(10,2);
+            e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2); e.Property(x => x.ClaimedAmount).HasPrecision(12,2); e.Property(x => x.ApprovedAmount).HasPrecision(12,2);
+        });
+        b.Entity<MileageRateRule>(e => { e.ToTable("MileageRateRules"); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd(); e.Property(x => x.RatePerKm).HasPrecision(10,2); });
+        b.Entity<ApprovalRecord>(e => { e.ToTable("ApprovalRecords"); e.HasKey(x => x.ApprovalRecordId); e.Property(x => x.ApprovalRecordId).ValueGeneratedOnAdd(); });
+        b.Entity<VisitTripStatusHistory>(e => { e.ToTable("VisitTripStatusHistory"); e.HasKey(x => x.VisitTripStatusHistoryId); e.Property(x => x.VisitTripStatusHistoryId).ValueGeneratedOnAdd(); });
+        b.Entity<AuditLog>(e => { e.ToTable("AuditLogs"); e.HasKey(x => x.AuditLogId); e.Property(x => x.AuditLogId).ValueGeneratedOnAdd(); });
+    }
+}

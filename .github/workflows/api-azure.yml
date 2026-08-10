@@ -1,0 +1,28 @@
+name: Deploy API to Azure App Service
+on:
+  push:
+    branches: [ main ]
+    paths: [ "backend/**", ".github/workflows/api-azure.yml" ]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore
+        run: dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj
+      - name: Build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore
+      - name: Publish
+        run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build -o ./publish
+      - name: Deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./publish
