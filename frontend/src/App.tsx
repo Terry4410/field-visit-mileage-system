@@ -30,7 +30,7 @@ export default function App(){
       <div className="role-box"><label>目前登入</label><strong>{user.displayName}</strong><span>{user.employeeNo}｜{user.teamName||"全部"}</span></div>
       <nav className="nav">{nav.map(x=><NavLink key={x.path} end={x.path===home} to={x.path}>● {x.label}</NavLink>)}</nav>
       <button className="btn secondary logout-btn" onClick={logout}>登出</button>
-      <div className="sidebar-footer">UAT｜Azure SQL Schema 1.5.0<br/>Prototype v2 介面基準</div>
+      <div className="sidebar-footer">UAT v1.6.0 開發中<br/>DB Schema 1.5.x｜Phase 1 Foundation</div>
     </aside>
     <main className="main">
       <header className="topbar"><div><h1>{title}</h1><div className="top-subtitle">手機優先介面｜可事後補登｜Azure SQL 多人 UAT</div></div><div className="user-chip"><strong>{user.displayName}</strong><span>{user.teamName||"全部"}</span><button className="btn small secondary" onClick={logout}>登出</button></div></header>

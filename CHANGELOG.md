@@ -42,4 +42,13 @@
 - Modal 底部固定顯示「取消／加入行程」，避免手機捲動後找不到操作按鈕。
 - 行程目的維持每個拜訪地點各自維護且為選填。
 - 不變更 Azure SQL Schema 與既有 API Contract。
+## UAT v1.6.0 - Phase 1 Foundation
+
+- 建立 v1.6.0 Requirement Freeze 與開發基線。
+- 新增 UserTeamScopes / Snapshot / Correction / Background Job 的 Domain 與 DB Migration Foundation。
+- 手機版導入最低 44px 觸控高度、16px 表單字級與固定底部操作等 Mobile-first 基線。
+- 管理者 Dashboard 移除補助費率管理與 UAT 架構大卡片。
+- 拜訪形式「排序」改名「顯示順序」，新增時自動使用目前最大值 + 10。
+- 管理者現行報表查詢補上「下載查詢結果」。
+- Google Routes 仍維持 Mock Provider，正式串接保留 v1.7.0。
 

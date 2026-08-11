@@ -23,6 +23,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ApprovalRecord> ApprovalRecords => Set<ApprovalRecord>();
     public DbSet<VisitTripStatusHistory> VisitTripStatusHistories => Set<VisitTripStatusHistory>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<UserTeamScope> UserTeamScopes => Set<UserTeamScope>();
+    public DbSet<VisitTripSnapshot> VisitTripSnapshots => Set<VisitTripSnapshot>();
+    public DbSet<VisitTripSnapshotStop> VisitTripSnapshotStops => Set<VisitTripSnapshotStop>();
+    public DbSet<CorrectionRequest> CorrectionRequests => Set<CorrectionRequest>();
+    public DbSet<CorrectionRequestChange> CorrectionRequestChanges => Set<CorrectionRequestChange>();
+    public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
+    public DbSet<BackgroundJobItem> BackgroundJobItems => Set<BackgroundJobItem>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -63,5 +70,34 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<ApprovalRecord>(e => { e.ToTable("ApprovalRecords"); e.HasKey(x => x.ApprovalRecordId); e.Property(x => x.ApprovalRecordId).ValueGeneratedOnAdd(); });
         b.Entity<VisitTripStatusHistory>(e => { e.ToTable("VisitTripStatusHistory"); e.HasKey(x => x.VisitTripStatusHistoryId); e.Property(x => x.VisitTripStatusHistoryId).ValueGeneratedOnAdd(); });
         b.Entity<AuditLog>(e => { e.ToTable("AuditLogs"); e.HasKey(x => x.AuditLogId); e.Property(x => x.AuditLogId).ValueGeneratedOnAdd(); });
+
+        b.Entity<UserTeamScope>(e =>
+        {
+            e.ToTable("UserTeamScopes"); e.HasKey(x => x.UserTeamScopeId); e.Property(x => x.UserTeamScopeId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.UserId, x.TeamId }).IsUnique();
+        });
+        b.Entity<VisitTripSnapshot>(e =>
+        {
+            e.ToTable("VisitTripSnapshots"); e.HasKey(x => x.VisitTripSnapshotId); e.Property(x => x.VisitTripSnapshotId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.VisitTripId, x.SnapshotVersion }).IsUnique();
+            e.Property(x => x.ClaimedDistanceKmSnapshot).HasPrecision(10,2);
+            e.Property(x => x.SystemDistanceKmSnapshot).HasPrecision(10,2);
+            e.Property(x => x.ApprovedDistanceKmSnapshot).HasPrecision(10,2);
+            e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2);
+            e.Property(x => x.SubsidyAmountSnapshot).HasPrecision(12,2);
+        });
+        b.Entity<VisitTripSnapshotStop>(e =>
+        {
+            e.ToTable("VisitTripSnapshotStops"); e.HasKey(x => x.VisitTripSnapshotStopId); e.Property(x => x.VisitTripSnapshotStopId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.VisitTripSnapshotId, x.StopSequence }).IsUnique();
+        });
+        b.Entity<CorrectionRequest>(e =>
+        {
+            e.ToTable("CorrectionRequests"); e.HasKey(x => x.CorrectionRequestId); e.Property(x => x.CorrectionRequestId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+        });
+        b.Entity<CorrectionRequestChange>(e => { e.ToTable("CorrectionRequestChanges"); e.HasKey(x => x.CorrectionRequestChangeId); e.Property(x => x.CorrectionRequestChangeId).ValueGeneratedOnAdd(); });
+        b.Entity<BackgroundJob>(e => { e.ToTable("BackgroundJobs"); e.HasKey(x => x.BackgroundJobId); });
+        b.Entity<BackgroundJobItem>(e => { e.ToTable("BackgroundJobItems"); e.HasKey(x => x.BackgroundJobItemId); e.Property(x => x.BackgroundJobItemId).ValueGeneratedOnAdd(); });
     }
 }
