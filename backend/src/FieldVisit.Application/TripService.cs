@@ -130,8 +130,11 @@ trip.VisitDate = request.VisitDate;
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
         if (calc?.ClaimedDistanceKm is null or <= 0)
             throw new InvalidOperationException("送出前必須填寫外訪員自算里程。");
-        if (string.IsNullOrWhiteSpace(trip.Purpose))
-            throw new InvalidOperationException("送出前必須填寫行程目的。");
+        var missingPurpose = trip.Stops.OrderBy(x => x.StopSequence)
+            .Select((x, index) => new { Stop = x, Index = index + 1 })
+            .FirstOrDefault(x => string.IsNullOrWhiteSpace(x.Stop.VisitPurpose));
+        if (missingPurpose is not null)
+            throw new InvalidOperationException($"送出前必須填寫第 {missingPurpose.Index} 個地點的行程目的。");
 
         var overlap = await CheckOverlapAsync(new TimeOverlapRequest(
             trip.VisitDate, trip.StartTime.Value, trip.EndTime.Value, trip.VisitTripId), ct);

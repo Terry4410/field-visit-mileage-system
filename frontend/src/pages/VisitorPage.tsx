@@ -7,6 +7,7 @@ import type {Location,Project,Trip,TripStopInput,VisitType} from "../types";
 type ModalKind="location"|"project"|"temporary"|"submit"|null;
 type OverlapResult={hasOverlap:boolean;message?:string;overlappingTrips?:Array<{visitTripId:number;tripNo:string;startTime?:string;endTime?:string;status:string}>};
 const isListMode=(mode?:string)=>["list","清單"].includes((mode||"").toLowerCase());
+const normalizeTime=(value:string)=>value.length===5?`${value}:00`:value;
 
 export default function VisitorPage(){
   const {user}=useAuth();
@@ -23,7 +24,7 @@ export default function VisitorPage(){
   useEffect(()=>{Promise.all([api<Location[]>("/locations"),api<Project[]>("/projects"),api<VisitType[]>("/visit-types")]).then(([l,p,v])=>{setLocations(l);setProjects(p);setVisitTypes(v);setProjectId(String(p[0]?.projectId||""));setTempProjectId(String(p[0]?.projectId||""));setVisitTypeId(String(v[0]?.visitTypeId||""));setTempVisitTypeId(String(v[0]?.visitTypeId||""));}).catch(e=>setMsg(e.message))},[]);
   useEffect(()=>{if(!projectId)return;const p=projects.find(x=>x.projectId===Number(projectId));if(isListMode(p?.locationMode))api<Location[]>(`/projects/${projectId}/locations`).then(r=>{setProjectLocs(r);setProjectLocId(String(r[0]?.locationId||""));}).catch(e=>setMsg(e.message));else{setProjectLocs([]);setProjectLocId("")}},[projectId,projects]);
   useEffect(()=>{if(!editId)return;api<Trip>(`/trips/${editId}`).then(t=>{setDate(t.visitDate);setStart((t.startTime||"").slice(0,5));setEnd((t.endTime||"").slice(0,5));setKm(String(t.claimedDistanceKm||""));setPurpose(t.purpose||"");setNotes(t.notes||"");setStops(t.stops);setRowVersion(t.rowVersion);setMsg(`已載入 ${t.tripNo}，修改完成後可重新送出。`)}).catch(e=>setMsg(e.message))},[editId]);
-  useEffect(()=>{const timer=setTimeout(()=>{if(!date||!start||!end){setOverlap({hasOverlap:false});return}if(end<=start){setOverlap({hasOverlap:true,message:"結束時間必須晚於出發時間，請確認輸入是否正確。"});return}api<OverlapResult>("/trips/time-overlap-check",{method:"POST",body:JSON.stringify({visitDate:date,startTime:start,endTime:end,excludeVisitTripId:editId?Number(editId):null})}).then(r=>{setOverlap(r);if(!r.hasOverlap)setConfirmOverlap(false)}).catch(()=>{})},400);return()=>clearTimeout(timer)},[date,start,end,editId]);
+  useEffect(()=>{const timer=setTimeout(()=>{if(!date||!start||!end){setOverlap({hasOverlap:false});return}if(end<=start){setOverlap({hasOverlap:true,message:"結束時間必須晚於出發時間，請確認輸入是否正確。"});return}api<OverlapResult>("/trips/time-overlap-check",{method:"POST",body:JSON.stringify({visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),excludeVisitTripId:editId?Number(editId):null})}).then(r=>{setOverlap(r);if(!r.hasOverlap)setConfirmOverlap(false)}).catch(()=>{})},400);return()=>clearTimeout(timer)},[date,start,end,editId]);
 
   const cities=useMemo(()=>[...new Set(locations.map(x=>x.city).filter(Boolean) as string[])].sort((a,b)=>a.localeCompare(b,"zh-Hant")),[locations]);
   const districts=useMemo(()=>[...new Set(locations.filter(x=>!locCity||x.city===locCity).map(x=>x.district).filter(Boolean) as string[])].sort((a,b)=>a.localeCompare(b,"zh-Hant")),[locations,locCity]);
@@ -44,10 +45,12 @@ export default function VisitorPage(){
   const addProject=()=>{const p=selectedProject,vt=visitTypes.find(x=>x.visitTypeId===Number(visitTypeId));if(!p||!vt)return;if(isListMode(p.locationMode)){const l=projectLocs.find(x=>x.locationId===Number(projectLocId));if(!l)return setMsg("請選擇專案拜訪地點。");setStops(s=>[...s,{locationId:l.locationId,projectId:p.projectId,visitTypeId:vt.visitTypeId,sourceType:"ProjectList",locationName:l.locationName,address:l.address,visitPurpose:vt.visitTypeName}])}else{if(!manualName.trim()||!manualAddress.trim())return setMsg("請填寫專案地點名稱與地址或 Plus Code。");setStops(s=>[...s,{projectId:p.projectId,visitTypeId:vt.visitTypeId,sourceType:"Temporary",locationName:manualName.trim(),address:manualAddress.trim(),visitPurpose:vt.visitTypeName}]);setManualName("");setManualAddress("")}setModal(null)};
   const addTemporary=()=>{if(!tempName.trim()||!tempAddress.trim())return setMsg("請填寫地點名稱與地址或 Plus Code。");const p=projects.find(x=>x.projectId===Number(tempProjectId)),vt=visitTypes.find(x=>x.visitTypeId===Number(tempVisitTypeId));setStops(s=>[...s,{projectId:tempSource==="專案"?p?.projectId:undefined,visitTypeId:tempSource==="專案"?vt?.visitTypeId:undefined,sourceType:"Temporary",locationName:tempName.trim(),address:tempAddress.trim(),visitPurpose:tempSource==="專案"?vt?.visitTypeName:undefined,notes:`地點屬性：${tempSource}`}]);setTempName("");setTempAddress("");setModal(null)};
   const move=(i:number,d:number)=>{const j=i+d;if(j<0||j>=stops.length)return;const c=[...stops];[c[i],c[j]]=[c[j],c[i]];setStops(c)};
+  const updateStopPurpose=(index:number,value:string)=>setStops(rows=>rows.map((row,i)=>i===index?{...row,visitPurpose:value}:row));
   const validateForSubmit=()=>{
     if(stops.length<2){setMsg("送出前至少需要兩個公務地點。");return false}
     if(Number(km)<=0){setMsg("送出前請填寫外訪員自行計算里程。");return false}
-    if(!purpose.trim()){setMsg("送出前請填寫行程目的。");return false}
+    const missingPurposeIndex=stops.findIndex(x=>!x.visitPurpose?.trim());
+    if(missingPurposeIndex>=0){setMsg(`送出前請填寫第 ${missingPurposeIndex+1} 個地點的行程目的。`);return false}
     if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
     return true;
   };
@@ -59,7 +62,8 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:start,endTime:end,claimedDistanceKm:Number(km)||0,purpose:purpose.trim()||null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
+      const tripPurpose=stops.map(x=>x.visitPurpose?.trim()).filter(Boolean).join("、");
+      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:Number(km)||0,purpose:tripPurpose||null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
@@ -96,14 +100,14 @@ export default function VisitorPage(){
     </div>
 
     <div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>拜訪順序</h2><div className="sub">使用 ↑ ↓ 調整順序；手機介面維持大按鈕操作。</div></div><div className="actions"><button className="btn small secondary" onClick={()=>setModal("project")}>從專案加入</button><button className="btn small outline" onClick={()=>setModal("location")}>從地點清單加入</button><button className="btn small outline" onClick={()=>setModal("temporary")}>＋新增臨時地點</button></div></div>
-      <div className="route-list">{stops.length?stops.map((s,i)=><div className="route-item" key={`${s.locationId||s.locationName}-${i}`}><div className="route-index">{i+1}</div><div><div className="route-name">{s.locationName}</div><div className="route-address">{s.address||"—"}</div><div style={{marginTop:5}}>{s.sourceType&&<span className="pill">{s.sourceType==="Temporary"?"臨時地點":s.sourceType==="ProjectList"?"專案清單":"正式地點"}</span>}{s.visitPurpose&&<span className="pill warn" style={{marginLeft:6}}>{s.visitPurpose}</span>}</div></div><div className="drag-controls"><button onClick={()=>move(i,-1)} disabled={i===0}>↑</button><button onClick={()=>move(i,1)} disabled={i===stops.length-1}>↓</button><button onClick={()=>setStops(stops.filter((_,x)=>x!==i))}>×</button></div></div>):<div className="empty">尚未加入拜訪地點，請從專案或正式地點清單加入。</div>}</div>
+      <div className="route-list">{stops.length?stops.map((s,i)=><div className="route-item" key={`${s.locationId||s.locationName}-${i}`}><div className="route-index">{i+1}</div><div><div className="route-name">{s.locationName}</div><div className="route-address">{s.address||"—"}</div><div style={{marginTop:5}}>{s.sourceType&&<span className="pill">{s.sourceType==="Temporary"?"臨時地點":s.sourceType==="ProjectList"?"專案清單":"正式地點"}</span>}</div><div className="route-purpose"><label>行程目的 <span className="required">送出必填</span></label><input value={s.visitPurpose||""} onChange={e=>updateStopPurpose(i,e.target.value)} placeholder="例如：例行訪視、文件送達、專案訪談"/></div></div><div className="drag-controls"><button onClick={()=>move(i,-1)} disabled={i===0}>↑</button><button onClick={()=>move(i,1)} disabled={i===stops.length-1}>↓</button><button onClick={()=>setStops(stops.filter((_,x)=>x!==i))}>×</button></div></div>):<div className="empty">尚未加入拜訪地點，請從專案或正式地點清單加入。</div>}</div>
     </div>
 
     <div className="card" style={{marginTop:18}}><div className="section-title"><h2>外訪員自行計算里程</h2><span className="pill warn">送出前填寫</span></div><div className="grid cols-2"><div className="field"><label>自行計算里程（公里）</label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)}/></div><div className="note">請依實際拜訪順序自行計算並填入。送出後，小組長會由後台批次取得系統里程，兩者並列供核對。</div></div></div>
     <div className="card" style={{marginTop:18}}><div className="section-title"><h2>行程備註</h2><span className="pill">選填</span></div><div className="field"><label>備註</label><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="可填寫臨時狀況、拜訪補充說明或其他行程資訊"/></div></div>
 
     <div className="card action-footer" style={{marginTop:18}}>
-      <div className="section-title"><div><h2>{editId?"修改行程":"完成本次行程資料"}</h2><div className="sub">草稿可以先保存未完成資料；正式送出前才檢查地點、里程、行程目的與時間重疊確認。</div></div></div>
+      <div className="section-title"><div><h2>{editId?"修改行程":"完成本次行程資料"}</h2><div className="sub">草稿可以先保存未完成資料；正式送出前會檢查每個拜訪地點的行程目的、里程與時間重疊確認。</div></div></div>
       {msg&&<div className={`note ${msg.includes("失敗")||msg.includes("請")||msg.includes("必須")||msg.includes("至少")?"danger-note":"ok-note"}`}>{msg}</div>}
       <div className="actions bottom-actions">
         {editId&&<button className="btn outline" disabled={busy} onClick={reset}>取消修改</button>}
