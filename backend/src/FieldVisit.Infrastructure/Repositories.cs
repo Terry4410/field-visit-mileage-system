@@ -18,9 +18,23 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
                            join r in db.Roles.AsNoTracking() on ur.RoleId equals r.RoleId
                            where ur.UserId == userId && r.IsActive
                            select r.RoleCode).ToListAsync(ct);
-        var team = user.TeamId.HasValue ? await db.Teams.AsNoTracking().FirstOrDefaultAsync(x => x.TeamId == user.TeamId.Value, ct) : null;
-        return new CurrentUserDto(user.UserId, user.EmployeeNo, user.DisplayName, user.Email, user.OrganizationId, user.TeamId, team?.TeamName,
-            roles.Select(NormalizeRole).Distinct().ToList());
+        var scopeRows = await (from uts in db.UserTeamScopes.AsNoTracking()
+                               join t in db.Teams.AsNoTracking() on uts.TeamId equals t.TeamId
+                               where uts.UserId == userId && uts.IsActive && t.IsActive
+                               orderby uts.IsPrimary descending, t.TeamName
+                               select new TeamScopeDto(t.TeamId, t.TeamName, uts.IsPrimary)).ToListAsync(ct);
+        var primary = scopeRows.FirstOrDefault(x => x.IsPrimary)
+            ?? (user.TeamId.HasValue ? scopeRows.FirstOrDefault(x => x.TeamId == user.TeamId.Value) : null)
+            ?? scopeRows.FirstOrDefault();
+        var fallbackTeam = primary is null && user.TeamId.HasValue
+            ? await db.Teams.AsNoTracking().FirstOrDefaultAsync(x => x.TeamId == user.TeamId.Value, ct)
+            : null;
+        return new CurrentUserDto(
+            user.UserId, user.EmployeeNo, user.DisplayName, user.Email, user.OrganizationId,
+            primary?.TeamId ?? user.TeamId,
+            primary?.TeamName ?? fallbackTeam?.TeamName,
+            roles.Select(NormalizeRole).Distinct().ToList(),
+            scopeRows);
     }
 
     private static string NormalizeRole(string role) => role.Trim().ToLowerInvariant() switch
@@ -56,14 +70,17 @@ public sealed class TripRepository(AppDbContext db) : ITripRepository
         return q.OrderByDescending(x => x.VisitDate).ThenByDescending(x => x.VisitTripId).ToListAsync(ct);
     }
 
-    public Task<List<VisitTrip>> GetTeamQueueAsync(int teamId, CancellationToken ct) =>
-        Query(false).Where(x => x.TeamId == teamId &&
-            (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending || x.Status == TripStatuses.RouteCalculated || x.Status == TripStatuses.PendingApproval))
-            .OrderBy(x => x.VisitDate).ThenBy(x => x.VisitTripId).ToListAsync(ct);
+    public Task<List<VisitTrip>> GetTeamQueueAsync(IReadOnlyCollection<int> teamIds, CancellationToken ct) =>
+        teamIds.Count == 0
+            ? Task.FromResult(new List<VisitTrip>())
+            : Query(false).Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value) &&
+                (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending || x.Status == TripStatuses.RouteCalculated || x.Status == TripStatuses.PendingApproval))
+                .OrderBy(x => x.VisitDate).ThenBy(x => x.VisitTripId).ToListAsync(ct);
 
-    public Task<List<VisitTrip>> GetPendingMileageAsync(int teamId, DateOnly? start, DateOnly? end, IReadOnlyList<long>? selected, CancellationToken ct)
+    public Task<List<VisitTrip>> GetPendingMileageAsync(IReadOnlyCollection<int> teamIds, DateOnly? start, DateOnly? end, IReadOnlyList<long>? selected, CancellationToken ct)
     {
-        var q = Query(true).Where(x => x.TeamId == teamId &&
+        if (teamIds.Count == 0) return Task.FromResult(new List<VisitTrip>());
+        var q = Query(true).Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value) &&
             (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending) &&
             (x.MileageCalculation == null || x.MileageCalculation.SystemDistanceKm == null));
         if (start.HasValue) q = q.Where(x => x.VisitDate >= start.Value);
@@ -84,7 +101,11 @@ public sealed class TripRepository(AppDbContext db) : ITripRepository
     {
         var q = Query(false).Where(x => x.Status != TripStatuses.Cancelled);
         if ((user.Roles.Contains("admin") || user.Roles.Contains("supervisor")) && user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value);
-        else if (user.Roles.Contains("leader") && user.TeamId.HasValue) q = q.Where(x => x.TeamId == user.TeamId.Value);
+        else if (user.Roles.Contains("leader"))
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0 ? q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)) : q.Where(x => false);
+        }
         else if (user.Roles.Contains("visitor")) q = q.Where(x => x.UserId == user.UserId);
         else q = q.Where(x => false);
         if (start.HasValue) q = q.Where(x => x.VisitDate >= start.Value);
@@ -99,7 +120,12 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     {
         var q = db.Teams.AsNoTracking().Where(x => x.IsActive);
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value);
-        if (user.Roles.Contains("visitor") || user.Roles.Contains("leader"))
+        if (user.Roles.Contains("leader"))
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0 ? q.Where(x => teamIds.Contains(x.TeamId)) : q.Where(x => false);
+        }
+        else if (user.Roles.Contains("visitor"))
             q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value) : q.Where(x => false);
         return q.OrderBy(x => x.TeamName).ToListAsync(ct);
     }
@@ -108,7 +134,12 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     {
         var q = db.Locations.AsNoTracking().AsQueryable();
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value || x.OrganizationId == null);
-        if (user.Roles.Contains("visitor") || user.Roles.Contains("leader"))
+        if (user.Roles.Contains("leader"))
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0 ? q.Where(x => x.TeamId == null || (x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value))) : q.Where(x => false);
+        }
+        else if (user.Roles.Contains("visitor"))
             q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value || x.TeamId == null) : q.Where(x => false);
         if (activeOnly) q = q.Where(x => x.IsActive && x.ApprovalStatus == "Approved");
         return q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
@@ -120,7 +151,11 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
             (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending") &&
             !db.VisitTripStops.Any(s => s.LocationId == x.LocationId && s.VisitTrip.Status == TripStatuses.Cancelled));
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value || x.OrganizationId == null);
-        if (user.Roles.Contains("leader")) q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value) : q.Where(x => false);
+        if (user.Roles.Contains("leader"))
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0 ? q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)) : q.Where(x => false);
+        }
         if (start.HasValue) q = q.Where(x => x.CreatedAt >= start.Value);
         if (end.HasValue) q = q.Where(x => x.CreatedAt <= end.Value);
         return q.OrderBy(x => x.CreatedAt).ToListAsync(ct);
@@ -154,7 +189,9 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     public async Task<List<Location>> GetProjectLocationsAsync(int projectId, CurrentUserDto user, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(x => x.ProjectId == projectId, ct) ?? throw new KeyNotFoundException("找不到專案。");
-        if ((user.Roles.Contains("visitor") || user.Roles.Contains("leader")) && project.TeamId.HasValue && project.TeamId != user.TeamId)
+        if (user.Roles.Contains("leader") && project.TeamId.HasValue && !user.TeamIds.Contains(project.TeamId.Value))
+            throw new UnauthorizedAccessException("無權使用未授權小組專案。");
+        if (user.Roles.Contains("visitor") && project.TeamId.HasValue && project.TeamId != user.TeamId)
             throw new UnauthorizedAccessException("無權使用其他小組專案。");
         return await (from pl in db.ProjectLocations.AsNoTracking()
                       join l in db.Locations.AsNoTracking() on pl.LocationId equals l.LocationId

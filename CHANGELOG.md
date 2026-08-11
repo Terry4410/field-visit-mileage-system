@@ -52,3 +52,14 @@
 - 管理者現行報表查詢補上「下載查詢結果」。
 - Google Routes 仍維持 Mock Provider，正式串接保留 v1.7.0。
 
+## UAT v1.6.0 Phase 2 - Multi-Team Scope & Approved Snapshot
+
+- CurrentUser 正式加入 TeamScopes，JWT 同步攜帶多小組授權。
+- 小組長 Review Queue、批次里程、Master Data 與 Trip Data Scope 改為支援多個授權小組。
+- Admin / Supervisor 單筆 Trip 查詢新增 Organization Data Scope 驗證。
+- 外訪員送出規則調整：至少 1 個地點即可送出；只有 2 個以上地點才要求自算里程並進行系統里程／補助流程。
+- 單一地點行程直接進 PendingApproval，核准後里程／費率／補助保留為 N/A。
+- Approved 時自動建立 VisitTripSnapshot / VisitTripSnapshotStops v1 歷史快照。
+- API 在建立 Stop 時重新驗證 Location / Project / VisitType 的啟用狀態與資料範圍，不信任前端傳入的 Reference ID。
+- 外訪員新行程的自算里程不再預設 40 km，避免 UAT 產生假資料。
+

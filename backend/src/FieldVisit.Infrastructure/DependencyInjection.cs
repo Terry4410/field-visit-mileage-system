@@ -16,6 +16,7 @@ public static class DependencyInjection
         services.AddScoped<IMasterRepository, MasterRepository>();
         services.AddScoped<IMileageRepository, MileageRepository>();
         services.AddScoped<IWorkflowRepository, WorkflowRepository>();
+        services.AddScoped<ITripSnapshotRepository, TripSnapshotRepository>();
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<IRouteCalculationService, MockRouteCalculationService>();
         services.AddScoped<IGeocodingService, MockGeocodingService>();

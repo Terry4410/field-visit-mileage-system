@@ -1,4 +1,5 @@
-export interface CurrentUser { userId:number; employeeNo:string; displayName:string; email?:string; organizationId?:number; teamId?:number; teamName?:string; roles:string[] }
+export interface TeamScope { teamId:number; teamName:string; isPrimary:boolean }
+export interface CurrentUser { userId:number; employeeNo:string; displayName:string; email?:string; organizationId?:number; teamId?:number; teamName?:string; roles:string[]; teamScopes?:TeamScope[] }
 export interface LoginResponse { accessToken:string; expiresAtUtc:string; user:CurrentUser }
 export interface TripStopInput { locationId?:number; projectId?:number; visitTypeId?:number; sourceType:string; locationName:string; address?:string; visitPurpose?:string; notes?:string }
 export interface Trip { visitTripId:number; tripNo:string; userId:number; visitorName:string; teamId?:number; teamName?:string; visitDate:string; startTime?:string; endTime?:string; status:string; statusName:string; purpose?:string; notes?:string; returnReason?:string; claimedDistanceKm?:number; systemDistanceKm?:number; approvedDistanceKm?:number; ratePerKmSnapshot?:number; approvedAmount?:number; stops:TripStopInput[]; rowVersion:string }

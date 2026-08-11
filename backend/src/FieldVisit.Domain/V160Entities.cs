@@ -44,6 +44,7 @@ public sealed class VisitTripSnapshot
     public string? NotesSnapshot { get; set; }
     public DateTime CreatedAt { get; set; }
     public int? CreatedByUserId { get; set; }
+    public List<VisitTripSnapshotStop> Stops { get; set; } = [];
 }
 
 public sealed class VisitTripSnapshotStop
@@ -64,6 +65,7 @@ public sealed class VisitTripSnapshotStop
     public string? VisitPurposeSnapshot { get; set; }
     public string? NotesSnapshot { get; set; }
     public DateTime CreatedAt { get; set; }
+    public VisitTripSnapshot Snapshot { get; set; } = null!;
 }
 
 public sealed class CorrectionRequest

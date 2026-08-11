@@ -85,6 +85,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.ApprovedDistanceKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.SubsidyAmountSnapshot).HasPrecision(12,2);
+            e.HasMany(x => x.Stops).WithOne(x => x.Snapshot).HasForeignKey(x => x.VisitTripSnapshotId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<VisitTripSnapshotStop>(e =>
         {

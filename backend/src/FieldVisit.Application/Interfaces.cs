@@ -23,8 +23,8 @@ public interface ITripRepository
     Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct);
     Task AddAsync(VisitTrip trip, CancellationToken ct);
     Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct);
-    Task<List<VisitTrip>> GetTeamQueueAsync(int teamId, CancellationToken ct);
-    Task<List<VisitTrip>> GetPendingMileageAsync(int teamId, DateOnly? start, DateOnly? end, IReadOnlyList<long>? selected, CancellationToken ct);
+    Task<List<VisitTrip>> GetTeamQueueAsync(IReadOnlyCollection<int> teamIds, CancellationToken ct);
+    Task<List<VisitTrip>> GetPendingMileageAsync(IReadOnlyCollection<int> teamIds, DateOnly? start, DateOnly? end, IReadOnlyList<long>? selected, CancellationToken ct);
     Task<List<VisitTrip>> FindOverlapsAsync(int userId, DateOnly date, TimeOnly start, TimeOnly end, long? excludeTripId, CancellationToken ct);
     Task<List<VisitTrip>> GetReportTripsAsync(CurrentUserDto user, DateOnly? start, DateOnly? end, CancellationToken ct);
 }
@@ -55,6 +55,11 @@ public interface IMileageRepository
     Task<List<MileageRateRule>> GetRatesAsync(CurrentUserDto user, CancellationToken ct);
     Task<MileageRateRule?> GetRateAsync(int mileageRateRuleId, bool tracking, CancellationToken ct);
     Task AddRateAsync(MileageRateRule rule, CancellationToken ct);
+}
+
+public interface ITripSnapshotRepository
+{
+    Task AddApprovedSnapshotAsync(VisitTrip trip, CurrentUserDto approver, CancellationToken ct);
 }
 
 public interface IWorkflowRepository

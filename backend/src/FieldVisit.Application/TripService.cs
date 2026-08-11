@@ -145,12 +145,13 @@ trip.VisitDate = request.VisitDate;
             throw new InvalidOperationException("此狀態不能送出。");
         EnsureRowVersion(trip.RowVersion, rowVersion);
 
-        if (trip.StartTime is null || trip.EndTime is null || trip.Stops.Count < 2)
-            throw new InvalidOperationException("送出前必須填寫起訖時間，且至少兩個公務地點。");
+        if (trip.StartTime is null || trip.EndTime is null || trip.Stops.Count < 1)
+            throw new InvalidOperationException("送出前必須填寫起訖時間，且至少一個公務地點。");
 
+        var requiresMileage = trip.Stops.Count >= 2;
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
-        if (calc?.ClaimedDistanceKm is null or <= 0)
-            throw new InvalidOperationException("送出前必須填寫外訪員自算里程。");
+        if (requiresMileage && calc?.ClaimedDistanceKm is null or <= 0)
+            throw new InvalidOperationException("兩個以上地點的行程，送出前必須填寫外訪員自算里程。");
 
         var overlap = await CheckOverlapAsync(new TimeOverlapRequest(
             trip.VisitDate, trip.StartTime.Value, trip.EndTime.Value, trip.VisitTripId), ct);
@@ -158,7 +159,20 @@ trip.VisitDate = request.VisitDate;
             throw new InvalidOperationException("TIME_OVERLAP_WARNING：請確認時間重疊後再送出。");
 
         var previous = trip.Status;
-        trip.Status = TripStatuses.Submitted;
+        trip.Status = requiresMileage ? TripStatuses.Submitted : TripStatuses.PendingApproval;
+        if (!requiresMileage && calc is not null)
+        {
+            calc.ClaimedDistanceKm = null;
+            calc.SystemDistanceKm = null;
+            calc.ApprovedDistanceKm = null;
+            calc.MileageRateRuleId = null;
+            calc.RatePerKmSnapshot = null;
+            calc.ClaimedAmount = null;
+            calc.ApprovedAmount = null;
+            calc.CalculationSource = "NotApplicable/StopInsufficient";
+            calc.CalculatedAt = null;
+            calc.UpdatedAt = DateTime.UtcNow;
+        }
         trip.HasTimeOverlapWarning = overlap.HasOverlap;
         trip.TimeOverlapConfirmed = overlap.HasOverlap && request.ConfirmTimeOverlap;
         trip.SubmittedAt = DateTime.UtcNow;
@@ -166,8 +180,16 @@ trip.VisitDate = request.VisitDate;
         trip.UpdatedAt = DateTime.UtcNow;
         trip.UpdatedByUserId = user.UserId;
 
-        await AddHistoryAsync(trip, previous, TripStatuses.Submitted, previous == TripStatuses.Returned ? "Resubmit" : "Submit", user.UserId,
-            overlap.HasOverlap ? "使用者已確認時間重疊" : null, ct);
+        await AddHistoryAsync(
+            trip,
+            previous,
+            trip.Status,
+            previous == TripStatuses.Returned ? "Resubmit" : (requiresMileage ? "Submit" : "SubmitNoMileage"),
+            user.UserId,
+            !requiresMileage
+                ? "地點不足 2 個，允許送出但不進行里程計算。"
+                : overlap.HasOverlap ? "使用者已確認時間重疊" : null,
+            ct);
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripSubmit", null, new { trip.TripNo }, ct);
         await uow.SaveChangesAsync(ct);
         return await GetDtoAsync(tripId, ct);
@@ -202,8 +224,11 @@ trip.VisitDate = request.VisitDate;
         var trip = await trips.GetAsync(tripId, false, ct) ?? throw new KeyNotFoundException("找不到行程。");
         if (HasRole(user, "visitor") && trip.UserId != user.UserId)
             throw new UnauthorizedAccessException("無權查看其他外訪員行程。");
-        if (HasRole(user, "leader") && trip.TeamId != user.TeamId)
-            throw new UnauthorizedAccessException("無權查看其他小組行程。");
+        if (HasRole(user, "leader") && (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value)))
+            throw new UnauthorizedAccessException("無權查看未授權小組行程。");
+        if ((HasRole(user, "admin") || HasRole(user, "supervisor")) &&
+            user.OrganizationId.HasValue && trip.OrganizationId != user.OrganizationId.Value)
+            throw new UnauthorizedAccessException("無權查看其他 Organization 行程。");
         return await MapAsync(trip, ct);
     }
 
@@ -246,6 +271,37 @@ trip.VisitDate = request.VisitDate;
         foreach (var input in inputs)
         {
             int? locationId = input.LocationId;
+
+            if (locationId.HasValue)
+            {
+                var location = await masters.GetLocationAsync(locationId.Value, false, ct)
+                    ?? throw new KeyNotFoundException($"找不到地點 {locationId.Value}。");
+                if (!location.IsActive || location.ApprovalStatus != "Approved")
+                    throw new InvalidOperationException($"地點「{location.LocationName}」目前不可使用。");
+                if (user.OrganizationId.HasValue && location.OrganizationId.HasValue && location.OrganizationId != user.OrganizationId)
+                    throw new UnauthorizedAccessException("無權使用其他 Organization 地點。");
+                if (location.TeamId.HasValue && user.TeamId.HasValue && location.TeamId != user.TeamId)
+                    throw new UnauthorizedAccessException("外訪員無權使用其他小組地點。");
+            }
+
+            if (input.ProjectId.HasValue)
+            {
+                var project = await masters.GetProjectAsync(input.ProjectId.Value, false, ct)
+                    ?? throw new KeyNotFoundException($"找不到專案 {input.ProjectId.Value}。");
+                if (!project.IsActive) throw new InvalidOperationException($"專案「{project.ProjectName}」已停用。");
+                if (user.OrganizationId.HasValue && project.OrganizationId != user.OrganizationId)
+                    throw new UnauthorizedAccessException("無權使用其他 Organization 專案。");
+                if (project.TeamId.HasValue && user.TeamId.HasValue && project.TeamId != user.TeamId)
+                    throw new UnauthorizedAccessException("外訪員無權使用其他小組專案。");
+            }
+
+            if (input.VisitTypeId.HasValue)
+            {
+                var visitType = await masters.GetVisitTypeAsync(input.VisitTypeId.Value, false, ct)
+                    ?? throw new KeyNotFoundException($"找不到拜訪形式 {input.VisitTypeId.Value}。");
+                if (!visitType.IsActive) throw new InvalidOperationException($"拜訪形式「{visitType.VisitTypeName}」已停用。");
+            }
+
             Location? pendingLocation = null;
             if (!locationId.HasValue && input.SourceType.Equals("Temporary", StringComparison.OrdinalIgnoreCase))
             {
@@ -292,7 +348,8 @@ trip.VisitDate = request.VisitDate;
     private static void ValidateRequest(SaveTripRequest request)
     {
         if (request.EndTime <= request.StartTime) throw new InvalidOperationException("結束時間必須晚於出發時間。");
-        if (request.ClaimedDistanceKm < 0) throw new InvalidOperationException("自算里程不可小於 0。");
+        if (request.ClaimedDistanceKm.HasValue && request.ClaimedDistanceKm.Value < 0)
+            throw new InvalidOperationException("自算里程不可小於 0。");
         if (request.Stops.Any(x => string.IsNullOrWhiteSpace(x.LocationName))) throw new InvalidOperationException("地點名稱不可空白。");
     }
 

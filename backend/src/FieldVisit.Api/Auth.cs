@@ -30,6 +30,8 @@ public sealed class TokenService(IConfiguration configuration) : ITokenService
         if (user.OrganizationId.HasValue) claims.Add(new("organization_id", user.OrganizationId.Value.ToString()));
         if (user.TeamId.HasValue) claims.Add(new("team_id", user.TeamId.Value.ToString()));
         if (!string.IsNullOrWhiteSpace(user.TeamName)) claims.Add(new("team_name", user.TeamName));
+        if (user.TeamScopes is { Count: > 0 })
+            claims.Add(new("team_scopes", System.Text.Json.JsonSerializer.Serialize(user.TeamScopes)));
         foreach (var role in user.Roles) claims.Add(new(ClaimTypes.Role, role.ToLowerInvariant()));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(opt.JwtKey));
@@ -47,6 +49,13 @@ public sealed class CurrentUserService(IHttpContextAccessor accessor) : ICurrent
         var userId = int.Parse(p.FindFirstValue(ClaimTypes.NameIdentifier) ?? throw new UnauthorizedAccessException("Token 缺少 UserId。"));
         int? orgId = int.TryParse(p.FindFirstValue("organization_id"), out var o) ? o : null;
         int? teamId = int.TryParse(p.FindFirstValue("team_id"), out var t) ? t : null;
+        IReadOnlyList<TeamScopeDto>? teamScopes = null;
+        var scopeJson = p.FindFirstValue("team_scopes");
+        if (!string.IsNullOrWhiteSpace(scopeJson))
+        {
+            try { teamScopes = System.Text.Json.JsonSerializer.Deserialize<List<TeamScopeDto>>(scopeJson); }
+            catch { teamScopes = null; }
+        }
         return new CurrentUserDto(
             userId,
             p.FindFirstValue("employee_no") ?? "",
@@ -55,6 +64,7 @@ public sealed class CurrentUserService(IHttpContextAccessor accessor) : ICurrent
             orgId,
             teamId,
             p.FindFirstValue("team_name"),
-            p.FindAll(ClaimTypes.Role).Select(x => x.Value.ToLowerInvariant()).Distinct().ToList());
+            p.FindAll(ClaimTypes.Role).Select(x => x.Value.ToLowerInvariant()).Distinct().ToList(),
+            teamScopes);
     }
 }

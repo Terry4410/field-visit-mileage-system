@@ -9,13 +9,14 @@ public sealed class LeaderService(
     IMileageRepository mileage,
     IRouteCalculationService route,
     IWorkflowRepository workflow,
+    ITripSnapshotRepository snapshots,
     IUnitOfWork uow,
     TripService tripService)
 {
     public async Task<List<TripDto>> ReviewQueueAsync(CancellationToken ct)
     {
         var user = RequireLeader();
-        var rows = await trips.GetTeamQueueAsync(user.TeamId!.Value, ct);
+        var rows = await trips.GetTeamQueueAsync(user.TeamIds, ct);
         var result = new List<TripDto>();
         foreach (var row in rows) result.Add(await tripService.MapAsync(row, ct));
         return result;
@@ -33,7 +34,7 @@ public sealed class LeaderService(
             throw new InvalidOperationException("請先勾選要計算里程的行程。");
 
         var rows = await trips.GetPendingMileageAsync(
-            user.TeamId!.Value,
+            user.TeamIds,
             mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.StartDate : null,
             mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
             mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? request.SelectedTripIds : null,
@@ -102,12 +103,24 @@ public sealed class LeaderService(
         if (trip.Status != TripStatuses.PendingApproval)
             throw new InvalidOperationException("只有待核准行程可以核准。");
         EnsureRowVersion(trip.RowVersion, request.RowVersion);
-        if (request.ApprovedDistanceKm < 0) throw new InvalidOperationException("核定里程不可小於 0。");
 
-        var calc = await mileage.GetByTripAsync(tripId, true, ct)
-            ?? throw new InvalidOperationException("找不到里程計算資料。");
-        var rate = await mileage.GetEffectiveRateAsync(trip.OrganizationId, trip.VehicleType ?? "Motorcycle", trip.VisitDate, ct)
-            ?? throw new InvalidOperationException("找不到行程日期適用的補助費率。");
+        var noMileage = trip.Stops.Count < 2;
+        if (!noMileage && request.ApprovedDistanceKm is null or < 0)
+            throw new InvalidOperationException("兩個以上地點的行程必須填寫核定里程，且不可小於 0。");
+
+        var calc = await mileage.GetByTripAsync(tripId, true, ct);
+        if (calc is null)
+        {
+            calc = new MileageCalculation { VisitTripId = tripId, CreatedAt = DateTime.UtcNow };
+            await mileage.AddAsync(calc, ct);
+        }
+
+        MileageRateRule? rate = null;
+        if (!noMileage)
+        {
+            rate = await mileage.GetEffectiveRateAsync(trip.OrganizationId, trip.VehicleType ?? "Motorcycle", trip.VisitDate, ct)
+                ?? throw new InvalidOperationException("找不到行程日期適用的補助費率。");
+        }
 
         var previous = trip.Status;
         trip.Status = TripStatuses.Approved;
@@ -116,11 +129,26 @@ public sealed class LeaderService(
         trip.UpdatedAt = DateTime.UtcNow;
         trip.UpdatedByUserId = user.UserId;
 
-        calc.MileageRateRuleId = rate.MileageRateRuleId;
-        calc.ApprovedDistanceKm = request.ApprovedDistanceKm;
-        calc.RatePerKmSnapshot = rate.RatePerKm;
-        calc.ClaimedAmount = calc.ClaimedDistanceKm.HasValue ? decimal.Round(calc.ClaimedDistanceKm.Value * rate.RatePerKm, 2) : null;
-        calc.ApprovedAmount = decimal.Round(request.ApprovedDistanceKm * rate.RatePerKm, 2);
+        if (noMileage)
+        {
+            calc.ClaimedDistanceKm = null;
+            calc.SystemDistanceKm = null;
+            calc.ApprovedDistanceKm = null;
+            calc.MileageRateRuleId = null;
+            calc.RatePerKmSnapshot = null;
+            calc.ClaimedAmount = null;
+            calc.ApprovedAmount = null;
+            calc.CalculationSource = "NotApplicable/StopInsufficient";
+            calc.CalculatedAt = null;
+        }
+        else
+        {
+            calc.MileageRateRuleId = rate!.MileageRateRuleId;
+            calc.ApprovedDistanceKm = request.ApprovedDistanceKm;
+            calc.RatePerKmSnapshot = rate.RatePerKm;
+            calc.ClaimedAmount = calc.ClaimedDistanceKm.HasValue ? decimal.Round(calc.ClaimedDistanceKm.Value * rate.RatePerKm, 2) : null;
+            calc.ApprovedAmount = decimal.Round(request.ApprovedDistanceKm!.Value * rate.RatePerKm, 2);
+        }
         calc.UpdatedAt = DateTime.UtcNow;
 
         await workflow.AddApprovalAsync(new ApprovalRecord
@@ -129,7 +157,7 @@ public sealed class LeaderService(
             ApprovalStep = 1,
             ApproverUserId = user.UserId,
             Action = "Approved",
-            Comments = request.Comments,
+            Comments = noMileage ? "地點不足 2 個，本行程不計里程與補助。" : request.Comments,
             ActionAt = DateTime.UtcNow
         }, ct);
         await workflow.AddStatusHistoryAsync(new VisitTripStatusHistory
@@ -139,10 +167,17 @@ public sealed class LeaderService(
             NewStatus = TripStatuses.Approved,
             Action = "Approve",
             ActionByUserId = user.UserId,
-            Comments = $"ApprovedKm={request.ApprovedDistanceKm};Rate={rate.RatePerKm};Amount={calc.ApprovedAmount}",
+            Comments = noMileage
+                ? "STOP_INSUFFICIENT：核准完成，不計里程與補助。"
+                : $"ApprovedKm={request.ApprovedDistanceKm};Rate={rate!.RatePerKm};Amount={calc.ApprovedAmount}",
             ActionAt = DateTime.UtcNow
         }, ct);
-        await workflow.AddAuditAsync(Audit(user.UserId, trip.VisitTripId, "TripApprove", new { request.ApprovedDistanceKm, rate.RatePerKm, calc.ApprovedAmount }), ct);
+        await workflow.AddAuditAsync(Audit(user.UserId, trip.VisitTripId, "TripApprove",
+            noMileage
+                ? new { NoMileage = true, Reason = "StopInsufficient" }
+                : new { ApprovedDistanceKm = request.ApprovedDistanceKm, RatePerKm = rate!.RatePerKm, calc.ApprovedAmount }), ct);
+
+        await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
         await uow.SaveChangesAsync(ct);
         return await tripService.GetDtoAsync(tripId, ct);
     }
@@ -209,15 +244,16 @@ public sealed class LeaderService(
     private CurrentUserDto RequireLeader()
     {
         var user = current.GetRequired();
-        if (!user.Roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase)) || user.TeamId is null)
-            throw new UnauthorizedAccessException("只有小組長可以執行此操作。");
+        if (!user.Roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase)) || user.TeamIds.Count == 0)
+            throw new UnauthorizedAccessException("只有具有效小組授權的小組長可以執行此操作。");
         return user;
     }
 
     private async Task<VisitTrip> GetScopedAsync(long id, CurrentUserDto user, CancellationToken ct)
     {
         var trip = await trips.GetAsync(id, true, ct) ?? throw new KeyNotFoundException("找不到行程。");
-        if (trip.TeamId != user.TeamId) throw new UnauthorizedAccessException("無權處理其他小組資料。");
+        if (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value))
+            throw new UnauthorizedAccessException("無權處理未授權小組資料。");
         return trip;
     }
 

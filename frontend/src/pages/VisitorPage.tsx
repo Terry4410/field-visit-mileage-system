@@ -16,7 +16,7 @@ export default function VisitorPage(){
   const [sp,setSp]=useSearchParams();
   const editId=sp.get("edit");
 
-  const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState("40.0"),[notes,setNotes]=useState("");
+  const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [locations,setLocations]=useState<Location[]>([]),[projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
   const [rowVersion,setRowVersion]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
@@ -100,7 +100,7 @@ export default function VisitorPage(){
   };
 
   const reset=()=>{
-    setSp({});setDate(today);setStart("08:30");setEnd("17:10");setKm("40.0");setNotes("");setStops([]);setRowVersion("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setSp({});setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
   };
 
   const clearStopEditor=()=>{
@@ -188,8 +188,8 @@ export default function VisitorPage(){
   };
 
   const validateForSubmit=()=>{
-    if(stops.length<2){setMsg("送出前至少需要兩個公務地點。");return false}
-    if(Number(km)<=0){setMsg("送出前請填寫外訪員自行計算里程。");return false}
+    if(stops.length<1){setMsg("送出前至少需要一個公務地點。");return false}
+    if(stops.length>=2&&Number(km)<=0){setMsg("兩個以上地點的行程，送出前請填寫外訪員自行計算里程。");return false}
     if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
     return true;
   };
@@ -203,7 +203,7 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:Number(km)||0,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
+      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2?(Number(km)||0):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
@@ -222,7 +222,7 @@ export default function VisitorPage(){
     <div className="grid cols-4">
       <div className="card stat"><div className="label">行程日期</div><div className="value" style={{fontSize:20}}>{date}</div><div className="hint">可事後補登</div></div>
       <div className="card stat"><div className="label">拜訪地點</div><div className="value">{stops.length}</div><div className="hint">依實際順序排列</div></div>
-      <div className="card stat"><div className="label">自行計算里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">送出前填寫</div></div>
+      <div className="card stat"><div className="label">自行計算里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"地點不足 2 個，不計里程":"送出前填寫"}</div></div>
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
