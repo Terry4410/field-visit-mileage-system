@@ -13,3 +13,12 @@
 - 支援管理者費率生效區間維護。
 - UAT Route / Geocoding 採 replaceable Mock Provider。
 - GitHub Actions：API → Azure App Service；Frontend → GitHub Pages。
+
+## UAT v1.5.5 - Admin Master Data CRUD
+
+- 管理者可新增／修改／刪除（安全停用）補助費率。
+- 管理者可新增／修改／刪除（安全停用）專案主檔。
+- 管理者可新增／修改／刪除（安全停用）拜訪形式主檔。
+- 外訪員／小組長只讀取啟用且有效的專案與拜訪形式；管理者可檢視停用主檔。
+- 刪除採 soft deactivate，保留歷史行程、核准與費率快照的一致性。
+

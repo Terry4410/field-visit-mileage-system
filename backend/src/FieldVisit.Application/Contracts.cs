@@ -93,12 +93,15 @@ public sealed record UpdateLocationRequest(string LocationName, string? City, st
 public sealed record BatchPublishLocationsRequest(IReadOnlyList<int> LocationIds);
 public sealed record BatchPublishLocationsResult(int Success, int Failed, IReadOnlyList<string> Errors);
 
-public sealed record ProjectDto(int ProjectId, int? TeamId, string ProjectCode, string ProjectName, string LocationMode, bool IsActive);
-public sealed record VisitTypeDto(int VisitTypeId, string VisitTypeCode, string VisitTypeName, int SortOrder);
+public sealed record ProjectDto(int ProjectId, int? TeamId, string ProjectCode, string ProjectName, string? Description, string LocationMode, DateOnly? StartDate, DateOnly? EndDate, bool IsActive);
+public sealed record SaveProjectRequest(int? TeamId, string ProjectCode, string ProjectName, string? Description, string LocationMode, DateOnly? StartDate, DateOnly? EndDate, bool IsActive);
+public sealed record VisitTypeDto(int VisitTypeId, string VisitTypeCode, string VisitTypeName, string? Description, int SortOrder, bool IsActive);
+public sealed record SaveVisitTypeRequest(string VisitTypeCode, string VisitTypeName, string? Description, int SortOrder, bool IsActive);
 public sealed record TeamDto(int TeamId, int OrganizationId, string TeamCode, string TeamName);
 
 public sealed record MileageRateDto(int MileageRateRuleId, int? OrganizationId, string RuleName, string VehicleType, decimal RatePerKm, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive);
 public sealed record CreateMileageRateRequest(string RuleName, string VehicleType, decimal RatePerKm, DateOnly EffectiveFrom, DateOnly? EffectiveTo);
+public sealed record UpdateMileageRateRequest(string RuleName, string VehicleType, decimal RatePerKm, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive);
 
 public sealed record MileageReportRow(
     string TripNo,

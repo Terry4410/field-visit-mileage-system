@@ -100,7 +100,68 @@ public sealed class MasterService(
     public async Task<List<ProjectDto>> ProjectsAsync(CancellationToken ct)
     {
         var user = current.GetRequired();
-        return (await masters.GetProjectsAsync(user, ct)).Select(x => new ProjectDto(x.ProjectId, x.TeamId, x.ProjectCode, x.ProjectName, x.LocationMode, x.IsActive)).ToList();
+        var includeInactive = HasRole(user, "admin");
+        return (await masters.GetProjectsAsync(user, includeInactive, ct)).Select(MapProject).ToList();
+    }
+
+    public async Task<ProjectDto> CreateProjectAsync(SaveProjectRequest request, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        var orgId = user.OrganizationId ?? throw new InvalidOperationException("目前帳號缺少 OrganizationId。");
+        ValidateProjectRequest(request);
+        await EnsureTeamScopeAsync(user, request.TeamId, ct);
+        if (await masters.ProjectCodeExistsAsync(orgId, request.ProjectCode, null, ct)) throw new InvalidOperationException("專案代碼已存在。");
+        var row = new Project
+        {
+            OrganizationId = orgId,
+            TeamId = request.TeamId,
+            ProjectCode = request.ProjectCode.Trim(),
+            ProjectName = request.ProjectName.Trim(),
+            Description = request.Description?.Trim(),
+            LocationMode = NormalizeLocationMode(request.LocationMode),
+            StartDate = request.StartDate,
+            EndDate = request.EndDate,
+            IsActive = request.IsActive,
+            CreatedAt = DateTime.UtcNow
+        };
+        await masters.AddProjectAsync(row, ct);
+        await workflow.AddAuditAsync(Audit(user.UserId, "Project", null, "ProjectCreate", request), ct);
+        await uow.SaveChangesAsync(ct);
+        return MapProject(row);
+    }
+
+    public async Task<ProjectDto> UpdateProjectAsync(int projectId, SaveProjectRequest request, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        var orgId = user.OrganizationId ?? throw new InvalidOperationException("目前帳號缺少 OrganizationId。");
+        ValidateProjectRequest(request);
+        await EnsureTeamScopeAsync(user, request.TeamId, ct);
+        var row = await masters.GetProjectAsync(projectId, true, ct) ?? throw new KeyNotFoundException("找不到專案。");
+        if (row.OrganizationId != orgId) throw new UnauthorizedAccessException("無權維護其他組織專案。");
+        if (await masters.ProjectCodeExistsAsync(orgId, request.ProjectCode, projectId, ct)) throw new InvalidOperationException("專案代碼已存在。");
+        row.TeamId = request.TeamId;
+        row.ProjectCode = request.ProjectCode.Trim();
+        row.ProjectName = request.ProjectName.Trim();
+        row.Description = request.Description?.Trim();
+        row.LocationMode = NormalizeLocationMode(request.LocationMode);
+        row.StartDate = request.StartDate;
+        row.EndDate = request.EndDate;
+        row.IsActive = request.IsActive;
+        row.UpdatedAt = DateTime.UtcNow;
+        await workflow.AddAuditAsync(Audit(user.UserId, "Project", projectId.ToString(), "ProjectUpdate", request), ct);
+        await uow.SaveChangesAsync(ct);
+        return MapProject(row);
+    }
+
+    public async Task DeleteProjectAsync(int projectId, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        var row = await masters.GetProjectAsync(projectId, true, ct) ?? throw new KeyNotFoundException("找不到專案。");
+        if (user.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId.Value) throw new UnauthorizedAccessException("無權維護其他組織專案。");
+        row.IsActive = false;
+        row.UpdatedAt = DateTime.UtcNow;
+        await workflow.AddAuditAsync(Audit(user.UserId, "Project", projectId.ToString(), "ProjectDeactivate", new { projectId }), ct);
+        await uow.SaveChangesAsync(ct);
     }
 
     public async Task<List<LocationDto>> ProjectLocationsAsync(int projectId, CancellationToken ct)
@@ -109,8 +170,59 @@ public sealed class MasterService(
         return (await masters.GetProjectLocationsAsync(projectId, user, ct)).Select(MapLocation).ToList();
     }
 
-    public async Task<List<VisitTypeDto>> VisitTypesAsync(CancellationToken ct) =>
-        (await masters.GetVisitTypesAsync(ct)).Select(x => new VisitTypeDto(x.VisitTypeId, x.VisitTypeCode, x.VisitTypeName, x.SortOrder)).ToList();
+    public async Task<List<VisitTypeDto>> VisitTypesAsync(CancellationToken ct)
+    {
+        var user = current.GetRequired();
+        var includeInactive = HasRole(user, "admin");
+        return (await masters.GetVisitTypesAsync(includeInactive, ct)).Select(MapVisitType).ToList();
+    }
+
+    public async Task<VisitTypeDto> CreateVisitTypeAsync(SaveVisitTypeRequest request, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        ValidateVisitTypeRequest(request);
+        if (await masters.VisitTypeCodeExistsAsync(request.VisitTypeCode, null, ct)) throw new InvalidOperationException("拜訪形式代碼已存在。");
+        var row = new VisitType
+        {
+            VisitTypeCode = request.VisitTypeCode.Trim(),
+            VisitTypeName = request.VisitTypeName.Trim(),
+            Description = request.Description?.Trim(),
+            SortOrder = request.SortOrder,
+            IsActive = request.IsActive,
+            CreatedAt = DateTime.UtcNow
+        };
+        await masters.AddVisitTypeAsync(row, ct);
+        await workflow.AddAuditAsync(Audit(user.UserId, "VisitType", null, "VisitTypeCreate", request), ct);
+        await uow.SaveChangesAsync(ct);
+        return MapVisitType(row);
+    }
+
+    public async Task<VisitTypeDto> UpdateVisitTypeAsync(int visitTypeId, SaveVisitTypeRequest request, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        ValidateVisitTypeRequest(request);
+        var row = await masters.GetVisitTypeAsync(visitTypeId, true, ct) ?? throw new KeyNotFoundException("找不到拜訪形式。");
+        if (await masters.VisitTypeCodeExistsAsync(request.VisitTypeCode, visitTypeId, ct)) throw new InvalidOperationException("拜訪形式代碼已存在。");
+        row.VisitTypeCode = request.VisitTypeCode.Trim();
+        row.VisitTypeName = request.VisitTypeName.Trim();
+        row.Description = request.Description?.Trim();
+        row.SortOrder = request.SortOrder;
+        row.IsActive = request.IsActive;
+        row.UpdatedAt = DateTime.UtcNow;
+        await workflow.AddAuditAsync(Audit(user.UserId, "VisitType", visitTypeId.ToString(), "VisitTypeUpdate", request), ct);
+        await uow.SaveChangesAsync(ct);
+        return MapVisitType(row);
+    }
+
+    public async Task DeleteVisitTypeAsync(int visitTypeId, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        var row = await masters.GetVisitTypeAsync(visitTypeId, true, ct) ?? throw new KeyNotFoundException("找不到拜訪形式。");
+        row.IsActive = false;
+        row.UpdatedAt = DateTime.UtcNow;
+        await workflow.AddAuditAsync(Audit(user.UserId, "VisitType", visitTypeId.ToString(), "VisitTypeDeactivate", new { visitTypeId }), ct);
+        await uow.SaveChangesAsync(ct);
+    }
 
     public async Task<List<MileageRateDto>> RatesAsync(CancellationToken ct)
     {
@@ -121,8 +233,7 @@ public sealed class MasterService(
     public async Task<MileageRateDto> CreateRateAsync(CreateMileageRateRequest request, CancellationToken ct)
     {
         var user = RequireAny("admin");
-        if (request.RatePerKm < 0) throw new InvalidOperationException("每公里補助不可小於 0。");
-        if (request.EffectiveTo.HasValue && request.EffectiveTo.Value < request.EffectiveFrom) throw new InvalidOperationException("失效日不可早於生效日。");
+        ValidateRate(request.RuleName, request.RatePerKm, request.EffectiveFrom, request.EffectiveTo);
 
         var row = new MileageRateRule
         {
@@ -141,6 +252,73 @@ public sealed class MasterService(
         return MapRate(row);
     }
 
+    public async Task<MileageRateDto> UpdateRateAsync(int mileageRateRuleId, UpdateMileageRateRequest request, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        ValidateRate(request.RuleName, request.RatePerKm, request.EffectiveFrom, request.EffectiveTo);
+        var row = await mileage.GetRateAsync(mileageRateRuleId, true, ct) ?? throw new KeyNotFoundException("找不到補助費率。");
+        if (row.OrganizationId.HasValue && user.OrganizationId.HasValue && row.OrganizationId.Value != user.OrganizationId.Value)
+            throw new UnauthorizedAccessException("無權維護其他組織費率。");
+        row.RuleName = request.RuleName.Trim();
+        row.VehicleType = string.IsNullOrWhiteSpace(request.VehicleType) ? "Motorcycle" : request.VehicleType.Trim();
+        row.RatePerKm = request.RatePerKm;
+        row.EffectiveFrom = request.EffectiveFrom;
+        row.EffectiveTo = request.EffectiveTo;
+        row.IsActive = request.IsActive;
+        row.UpdatedAt = DateTime.UtcNow;
+        await workflow.AddAuditAsync(Audit(user.UserId, "MileageRateRule", mileageRateRuleId.ToString(), "MileageRateUpdate", request), ct);
+        await uow.SaveChangesAsync(ct);
+        return MapRate(row);
+    }
+
+    public async Task DeleteRateAsync(int mileageRateRuleId, CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        var row = await mileage.GetRateAsync(mileageRateRuleId, true, ct) ?? throw new KeyNotFoundException("找不到補助費率。");
+        if (row.OrganizationId.HasValue && user.OrganizationId.HasValue && row.OrganizationId.Value != user.OrganizationId.Value)
+            throw new UnauthorizedAccessException("無權維護其他組織費率。");
+        row.IsActive = false;
+        row.UpdatedAt = DateTime.UtcNow;
+        await workflow.AddAuditAsync(Audit(user.UserId, "MileageRateRule", mileageRateRuleId.ToString(), "MileageRateDeactivate", new { mileageRateRuleId }), ct);
+        await uow.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureTeamScopeAsync(CurrentUserDto user, int? teamId, CancellationToken ct)
+    {
+        if (!teamId.HasValue) return;
+        var teams = await masters.GetTeamsAsync(user, ct);
+        if (!teams.Any(x => x.TeamId == teamId.Value)) throw new InvalidOperationException("所選小組不存在或不屬於目前組織。");
+    }
+
+    private static void ValidateProjectRequest(SaveProjectRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ProjectCode)) throw new InvalidOperationException("專案代碼為必填。");
+        if (string.IsNullOrWhiteSpace(request.ProjectName)) throw new InvalidOperationException("專案名稱為必填。");
+        if (request.EndDate.HasValue && request.StartDate.HasValue && request.EndDate.Value < request.StartDate.Value) throw new InvalidOperationException("專案結束日不可早於開始日。");
+        _ = NormalizeLocationMode(request.LocationMode);
+    }
+
+    private static string NormalizeLocationMode(string mode) => mode?.Trim().ToLowerInvariant() switch
+    {
+        "list" or "清單" => "List",
+        "selfmaintained" or "self-maintained" or "自行維護" => "SelfMaintained",
+        _ => throw new InvalidOperationException("地點模式只允許 List 或 SelfMaintained。")
+    };
+
+    private static void ValidateVisitTypeRequest(SaveVisitTypeRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.VisitTypeCode)) throw new InvalidOperationException("拜訪形式代碼為必填。");
+        if (string.IsNullOrWhiteSpace(request.VisitTypeName)) throw new InvalidOperationException("拜訪形式名稱為必填。");
+        if (request.SortOrder < 0) throw new InvalidOperationException("排序不可小於 0。");
+    }
+
+    private static void ValidateRate(string ruleName, decimal ratePerKm, DateOnly effectiveFrom, DateOnly? effectiveTo)
+    {
+        if (string.IsNullOrWhiteSpace(ruleName)) throw new InvalidOperationException("規則名稱為必填。");
+        if (ratePerKm < 0) throw new InvalidOperationException("每公里補助不可小於 0。");
+        if (effectiveTo.HasValue && effectiveTo.Value < effectiveFrom) throw new InvalidOperationException("失效日不可早於生效日。");
+    }
+
     private CurrentUserDto RequireAny(params string[] roles)
     {
         var user = current.GetRequired();
@@ -155,6 +333,8 @@ public sealed class MasterService(
         if (!currentValue.SequenceEqual(expected)) throw new InvalidOperationException("ROWVERSION_CONFLICT：資料已被其他使用者修改。");
     }
     private static LocationDto MapLocation(Location x) => new(x.LocationId, x.TeamId, x.LocationName, x.LocationType, x.City, x.District, x.Address, x.PlusCode, x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []));
+    private static ProjectDto MapProject(Project x) => new(x.ProjectId, x.TeamId, x.ProjectCode, x.ProjectName, x.Description, x.LocationMode, x.StartDate, x.EndDate, x.IsActive);
+    private static VisitTypeDto MapVisitType(VisitType x) => new(x.VisitTypeId, x.VisitTypeCode, x.VisitTypeName, x.Description, x.SortOrder, x.IsActive);
     private static MileageRateDto MapRate(MileageRateRule x) => new(x.MileageRateRuleId, x.OrganizationId, x.RuleName, x.VehicleType, x.RatePerKm, x.EffectiveFrom, x.EffectiveTo, x.IsActive);
     private static AuditLog Audit(int userId, string entity, string? id, string action, object value) => new() { UserId = userId, EntityType = entity, EntityId = id, Action = action, NewValues = System.Text.Json.JsonSerializer.Serialize(value), CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow };
 }

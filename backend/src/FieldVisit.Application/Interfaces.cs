@@ -36,9 +36,15 @@ public interface IMasterRepository
     Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct);
     Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct);
     Task AddLocationAsync(Location location, CancellationToken ct);
-    Task<List<Project>> GetProjectsAsync(CurrentUserDto user, CancellationToken ct);
+    Task<List<Project>> GetProjectsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct);
+    Task<Project?> GetProjectAsync(int projectId, bool tracking, CancellationToken ct);
+    Task AddProjectAsync(Project project, CancellationToken ct);
+    Task<bool> ProjectCodeExistsAsync(int organizationId, string projectCode, int? excludeProjectId, CancellationToken ct);
     Task<List<Location>> GetProjectLocationsAsync(int projectId, CurrentUserDto user, CancellationToken ct);
-    Task<List<VisitType>> GetVisitTypesAsync(CancellationToken ct);
+    Task<List<VisitType>> GetVisitTypesAsync(bool includeInactive, CancellationToken ct);
+    Task<VisitType?> GetVisitTypeAsync(int visitTypeId, bool tracking, CancellationToken ct);
+    Task AddVisitTypeAsync(VisitType visitType, CancellationToken ct);
+    Task<bool> VisitTypeCodeExistsAsync(string visitTypeCode, int? excludeVisitTypeId, CancellationToken ct);
 }
 
 public interface IMileageRepository
@@ -47,6 +53,7 @@ public interface IMileageRepository
     Task AddAsync(MileageCalculation row, CancellationToken ct);
     Task<MileageRateRule?> GetEffectiveRateAsync(int organizationId, string vehicleType, DateOnly date, CancellationToken ct);
     Task<List<MileageRateRule>> GetRatesAsync(CurrentUserDto user, CancellationToken ct);
+    Task<MileageRateRule?> GetRateAsync(int mileageRateRuleId, bool tracking, CancellationToken ct);
     Task AddRateAsync(MileageRateRule rule, CancellationToken ct);
 }
 

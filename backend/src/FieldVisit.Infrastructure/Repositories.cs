@@ -128,13 +128,25 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
         (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking()).FirstOrDefaultAsync(x => x.LocationId == id, ct);
     public Task AddLocationAsync(Location location, CancellationToken ct) => db.Locations.AddAsync(location, ct).AsTask();
 
-    public Task<List<Project>> GetProjectsAsync(CurrentUserDto user, CancellationToken ct)
+    public Task<List<Project>> GetProjectsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
-        var q = db.Projects.AsNoTracking().Where(x => x.IsActive && (!x.StartDate.HasValue || x.StartDate <= today) && (!x.EndDate.HasValue || x.EndDate >= today));
+        var q = db.Projects.AsNoTracking().AsQueryable();
+        if (!includeInactive) q = q.Where(x => x.IsActive && (!x.StartDate.HasValue || x.StartDate <= today) && (!x.EndDate.HasValue || x.EndDate >= today));
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value);
         if (user.Roles.Contains("visitor") || user.Roles.Contains("leader")) q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value || x.TeamId == null) : q.Where(x => false);
         return q.OrderBy(x => x.ProjectName).ToListAsync(ct);
+    }
+
+    public Task<Project?> GetProjectAsync(int projectId, bool tracking, CancellationToken ct) =>
+        (tracking ? db.Projects.AsQueryable() : db.Projects.AsNoTracking()).FirstOrDefaultAsync(x => x.ProjectId == projectId, ct);
+    public Task AddProjectAsync(Project project, CancellationToken ct) => db.Projects.AddAsync(project, ct).AsTask();
+    public Task<bool> ProjectCodeExistsAsync(int organizationId, string projectCode, int? excludeProjectId, CancellationToken ct)
+    {
+        var code = projectCode.Trim();
+        var q = db.Projects.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.ProjectCode == code);
+        if (excludeProjectId.HasValue) q = q.Where(x => x.ProjectId != excludeProjectId.Value);
+        return q.AnyAsync(ct);
     }
 
     public async Task<List<Location>> GetProjectLocationsAsync(int projectId, CurrentUserDto user, CancellationToken ct)
@@ -149,7 +161,22 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
                       select l).ToListAsync(ct);
     }
 
-    public Task<List<VisitType>> GetVisitTypesAsync(CancellationToken ct) => db.VisitTypes.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.SortOrder).ThenBy(x => x.VisitTypeName).ToListAsync(ct);
+    public Task<List<VisitType>> GetVisitTypesAsync(bool includeInactive, CancellationToken ct)
+    {
+        var q = db.VisitTypes.AsNoTracking().AsQueryable();
+        if (!includeInactive) q = q.Where(x => x.IsActive);
+        return q.OrderBy(x => x.SortOrder).ThenBy(x => x.VisitTypeName).ToListAsync(ct);
+    }
+    public Task<VisitType?> GetVisitTypeAsync(int visitTypeId, bool tracking, CancellationToken ct) =>
+        (tracking ? db.VisitTypes.AsQueryable() : db.VisitTypes.AsNoTracking()).FirstOrDefaultAsync(x => x.VisitTypeId == visitTypeId, ct);
+    public Task AddVisitTypeAsync(VisitType visitType, CancellationToken ct) => db.VisitTypes.AddAsync(visitType, ct).AsTask();
+    public Task<bool> VisitTypeCodeExistsAsync(string visitTypeCode, int? excludeVisitTypeId, CancellationToken ct)
+    {
+        var code = visitTypeCode.Trim();
+        var q = db.VisitTypes.AsNoTracking().Where(x => x.VisitTypeCode == code);
+        if (excludeVisitTypeId.HasValue) q = q.Where(x => x.VisitTypeId != excludeVisitTypeId.Value);
+        return q.AnyAsync(ct);
+    }
 }
 
 public sealed class MileageRepository(AppDbContext db) : IMileageRepository
@@ -169,6 +196,8 @@ public sealed class MileageRepository(AppDbContext db) : IMileageRepository
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value || x.OrganizationId == null);
         return q.OrderByDescending(x => x.EffectiveFrom).ToListAsync(ct);
     }
+    public Task<MileageRateRule?> GetRateAsync(int mileageRateRuleId, bool tracking, CancellationToken ct) =>
+        (tracking ? db.MileageRateRules.AsQueryable() : db.MileageRateRules.AsNoTracking()).FirstOrDefaultAsync(x => x.MileageRateRuleId == mileageRateRuleId, ct);
     public Task AddRateAsync(MileageRateRule rule, CancellationToken ct) => db.MileageRateRules.AddAsync(rule, ct).AsTask();
 }
 
