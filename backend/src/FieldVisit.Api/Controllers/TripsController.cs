@@ -18,6 +18,14 @@ public sealed class TripsController(TripService trips, LeaderService leader) : C
     public async Task<ActionResult<TripDto>> Update(long tripId, SaveTripRequest request, [FromHeader(Name="If-Match")] string rowVersion, CancellationToken ct) =>
         Ok(await trips.UpdateAsync(tripId, request, rowVersion.Trim('"'), ct));
 
+    [HttpDelete("trips/{tripId:long}")]
+    [Authorize(Roles = "visitor")]
+    public async Task<IActionResult> DeleteDraft(long tripId, [FromHeader(Name="If-Match")] string rowVersion, CancellationToken ct)
+    {
+        await trips.DeleteDraftAsync(tripId, rowVersion.Trim('"'), ct);
+        return NoContent();
+    }
+
     [HttpGet("trips/{tripId:long}")]
     public async Task<ActionResult<TripDto>> Get(long tripId, CancellationToken ct) => Ok(await trips.GetDtoAsync(tripId, ct));
 

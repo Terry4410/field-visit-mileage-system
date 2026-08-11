@@ -45,7 +45,7 @@ public sealed class TripRepository(AppDbContext db) : ITripRepository
 
     public Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct)
     {
-        var q = Query(false).Where(x => x.UserId == userId);
+        var q = Query(false).Where(x => x.UserId == userId && x.Status != TripStatuses.Cancelled);
         if (start.HasValue) q = q.Where(x => x.VisitDate >= start.Value);
         if (end.HasValue) q = q.Where(x => x.VisitDate <= end.Value);
         if (!string.IsNullOrWhiteSpace(locationKeyword))
@@ -82,7 +82,7 @@ public sealed class TripRepository(AppDbContext db) : ITripRepository
 
     public Task<List<VisitTrip>> GetReportTripsAsync(CurrentUserDto user, DateOnly? start, DateOnly? end, CancellationToken ct)
     {
-        var q = Query(false);
+        var q = Query(false).Where(x => x.Status != TripStatuses.Cancelled);
         if ((user.Roles.Contains("admin") || user.Roles.Contains("supervisor")) && user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value);
         else if (user.Roles.Contains("leader") && user.TeamId.HasValue) q = q.Where(x => x.TeamId == user.TeamId.Value);
         else if (user.Roles.Contains("visitor")) q = q.Where(x => x.UserId == user.UserId);
@@ -116,7 +116,9 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
 
     public Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct)
     {
-        var q = db.Locations.AsNoTracking().Where(x => x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending");
+        var q = db.Locations.AsNoTracking().Where(x =>
+            (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending") &&
+            !db.VisitTripStops.Any(s => s.LocationId == x.LocationId && s.VisitTrip.Status == TripStatuses.Cancelled));
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value || x.OrganizationId == null);
         if (user.Roles.Contains("leader")) q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value) : q.Where(x => false);
         if (start.HasValue) q = q.Where(x => x.CreatedAt >= start.Value);

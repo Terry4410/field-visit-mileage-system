@@ -113,6 +113,27 @@ trip.VisitDate = request.VisitDate;
         return await GetDtoAsync(tripId, ct);
     }
 
+    public async Task DeleteDraftAsync(long tripId, string rowVersion, CancellationToken ct)
+    {
+        var user = RequireRole("visitor");
+        var trip = await trips.GetAsync(tripId, true, ct)
+            ?? throw new KeyNotFoundException("找不到行程。");
+
+        EnsureVisitorOwns(user, trip);
+        if (trip.Status != TripStatuses.Draft)
+            throw new InvalidOperationException("只有草稿可以刪除。");
+
+        EnsureRowVersion(trip.RowVersion, rowVersion);
+
+        trip.Status = TripStatuses.Cancelled;
+        trip.UpdatedAt = DateTime.UtcNow;
+        trip.UpdatedByUserId = user.UserId;
+
+        await AddHistoryAsync(trip, TripStatuses.Draft, TripStatuses.Cancelled, "DeleteDraft", user.UserId, "使用者刪除草稿", ct);
+        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripDeleteDraft", new { Status = TripStatuses.Draft }, new { Status = TripStatuses.Cancelled }, ct);
+        await uow.SaveChangesAsync(ct);
+    }
+
     public async Task<TripDto> SubmitAsync(long tripId, SubmitTripRequest request, string rowVersion, CancellationToken ct)
     {
         var user = RequireRole("visitor");
