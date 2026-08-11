@@ -28,6 +28,9 @@ public sealed class LeaderService(
         if (mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) &&
             (request.StartDate is null || request.EndDate is null || request.EndDate < request.StartDate))
             throw new InvalidOperationException("日期區間不正確。");
+        if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) &&
+            (request.SelectedTripIds is null || request.SelectedTripIds.Count == 0))
+            throw new InvalidOperationException("請先勾選要計算里程的行程。");
 
         var rows = await trips.GetPendingMileageAsync(
             user.TeamId!.Value,

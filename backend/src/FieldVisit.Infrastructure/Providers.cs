@@ -12,7 +12,8 @@ public sealed class MockRouteCalculationService : IRouteCalculationService
         var claimed = trip.MileageCalculation?.ClaimedDistanceKm;
         if (claimed is null or <= 0) return Task.FromResult(new RouteCalculationResult(false, null, "CLAIMED_MILEAGE_MISSING", "缺少外訪員自算里程。"));
         if (trip.Stops.Count < 2) return Task.FromResult(new RouteCalculationResult(false, null, "STOP_INSUFFICIENT", "站點不足。"));
-        if (trip.Stops.Any(x => string.IsNullOrWhiteSpace(x.AddressSnapshot))) return Task.FromResult(new RouteCalculationResult(false, null, "ADDRESS_INVALID", "至少一個地點缺少地址。"));
+        // UAT Mock Provider：只要已送出的行程有至少兩個站點與自算里程，就產生可供使用者測試的系統里程。
+        // 正式 Google Routes Provider 上線時，再改由座標/地址完整性進行真正路線驗證。
         var km = decimal.Round(claimed.Value * 0.965m, 1, MidpointRounding.AwayFromZero);
         return Task.FromResult(new RouteCalculationResult(true, km, null, null));
     }
