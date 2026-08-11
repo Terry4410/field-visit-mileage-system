@@ -30,13 +30,49 @@ export default function VisitorPage(){
   const customers=useMemo(()=>locations.filter(x=>(!locCity||x.city===locCity)&&(!locDistrict||x.district===locDistrict)).map(x=>x.locationName).sort((a,b)=>a.localeCompare(b,"zh-Hant")),[locations,locCity,locDistrict]);
   const locResults=useMemo(()=>{const kw=locKeyword.trim().toLowerCase();return locations.filter(x=>{const hay=[x.locationName,x.city,x.district,x.address,x.plusCode].filter(Boolean).join(" ").toLowerCase();return(!locCity||x.city===locCity)&&(!locDistrict||x.district===locDistrict)&&(!locCustomer||x.locationName===locCustomer)&&(!kw||hay.includes(kw))})},[locations,locCity,locDistrict,locCustomer,locKeyword]);
   const selectedProject=projects.find(x=>x.projectId===Number(projectId));
+  const hourOptions=useMemo(()=>Array.from({length:24},(_,i)=>String(i).padStart(2,"0")),[]);
+  const minuteOptions=useMemo(()=>Array.from({length:60},(_,i)=>String(i).padStart(2,"0")),[]);
+  const updateClock=(kind:"start"|"end",part:"hour"|"minute",value:string)=>{
+    const current=kind==="start"?start:end;
+    const [hour="00",minute="00"]=current.split(":");
+    const next=part==="hour"?`${value}:${minute}`:`${hour}:${value}`;
+    if(kind==="start")setStart(next);else setEnd(next);
+  };
 
   const reset=()=>{setSp({});setDate(today);setStart("08:30");setEnd("17:10");setKm("40.0");setPurpose("");setNotes("");setStops([]);setRowVersion("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("")};
   const addLocation=(l:Location)=>{if(stops.some(x=>x.locationId===l.locationId))return setMsg("此地點已在行程中。");setStops(s=>[...s,{locationId:l.locationId,sourceType:"Master",locationName:l.locationName,address:l.address||l.plusCode}]);setModal(null)};
   const addProject=()=>{const p=selectedProject,vt=visitTypes.find(x=>x.visitTypeId===Number(visitTypeId));if(!p||!vt)return;if(isListMode(p.locationMode)){const l=projectLocs.find(x=>x.locationId===Number(projectLocId));if(!l)return setMsg("請選擇專案拜訪地點。");setStops(s=>[...s,{locationId:l.locationId,projectId:p.projectId,visitTypeId:vt.visitTypeId,sourceType:"ProjectList",locationName:l.locationName,address:l.address,visitPurpose:vt.visitTypeName}])}else{if(!manualName.trim()||!manualAddress.trim())return setMsg("請填寫專案地點名稱與地址或 Plus Code。");setStops(s=>[...s,{projectId:p.projectId,visitTypeId:vt.visitTypeId,sourceType:"Temporary",locationName:manualName.trim(),address:manualAddress.trim(),visitPurpose:vt.visitTypeName}]);setManualName("");setManualAddress("")}setModal(null)};
   const addTemporary=()=>{if(!tempName.trim()||!tempAddress.trim())return setMsg("請填寫地點名稱與地址或 Plus Code。");const p=projects.find(x=>x.projectId===Number(tempProjectId)),vt=visitTypes.find(x=>x.visitTypeId===Number(tempVisitTypeId));setStops(s=>[...s,{projectId:tempSource==="專案"?p?.projectId:undefined,visitTypeId:tempSource==="專案"?vt?.visitTypeId:undefined,sourceType:"Temporary",locationName:tempName.trim(),address:tempAddress.trim(),visitPurpose:tempSource==="專案"?vt?.visitTypeName:undefined,notes:`地點屬性：${tempSource}`}]);setTempName("");setTempAddress("");setModal(null)};
   const move=(i:number,d:number)=>{const j=i+d;if(j<0||j>=stops.length)return;const c=[...stops];[c[i],c[j]]=[c[j],c[i]];setStops(c)};
-  const save=async(submit:boolean)=>{if(stops.length<2)return setMsg("至少需要兩個公務地點。");if(Number(km)<=0)return setMsg("請先填寫外訪員自行計算里程。");if(end<=start)return setMsg("結束時間必須晚於出發時間。");if(overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請先勾選確認時間正確。");setBusy(true);try{const body={visitDate:date,startTime:start,endTime:end,claimedDistanceKm:Number(km),purpose,notes,timeOverlapConfirmed:confirmOverlap,stops};let t:Trip;if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});setRowVersion(t.rowVersion);if(submit){const sent=await api<Trip>(`/trips/${t.visitTripId}/submit`,{method:"POST",headers:{"If-Match":t.rowVersion},body:JSON.stringify({confirmTimeOverlap:confirmOverlap})});setModal(null);reset();setMsg(`已送出 ${sent.tripNo}，小組長可在另一台裝置看到。`)}else{setSp({edit:String(t.visitTripId)});setMsg(`草稿已儲存 ${t.tripNo}`)}}catch(e){setMsg(e instanceof Error?e.message:"儲存失敗")}finally{setBusy(false)}};
+  const validateForSubmit=()=>{
+    if(stops.length<2){setMsg("送出前至少需要兩個公務地點。");return false}
+    if(Number(km)<=0){setMsg("送出前請填寫外訪員自行計算里程。");return false}
+    if(!purpose.trim()){setMsg("送出前請填寫行程目的。");return false}
+    if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
+    return true;
+  };
+  const requestSubmit=()=>{if(!validateForSubmit())return;setModal("submit")};
+  const save=async(submit:boolean)=>{
+    setMsg("");
+    if(end<=start)return setMsg("結束時間必須晚於出發時間。");
+    if(submit&&!validateForSubmit())return;
+    if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
+    setBusy(true);
+    try{
+      const body={visitDate:date,startTime:start,endTime:end,claimedDistanceKm:Number(km)||0,purpose:purpose.trim()||null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
+      let t:Trip;
+      if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
+      else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
+      setRowVersion(t.rowVersion);
+      if(submit){
+        const sent=await api<Trip>(`/trips/${t.visitTripId}/submit`,{method:"POST",headers:{"If-Match":t.rowVersion},body:JSON.stringify({confirmTimeOverlap:confirmOverlap})});
+        setModal(null);reset();setMsg(`已送出 ${sent.tripNo}，小組長可在另一台裝置看到。`);
+      }else{
+        setSp({edit:String(t.visitTripId)});
+        setMsg(`草稿已儲存 ${t.tripNo}。未完成的地點、里程與行程目的可稍後再補。`);
+      }
+    }catch(e){setMsg(e instanceof Error?e.message:"儲存失敗")}finally{setBusy(false)}
+  };
 
   return <>
     <div className="grid cols-4">
@@ -46,24 +82,35 @@ export default function VisitorPage(){
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
-    <div className="grid cols-2" style={{marginTop:18}}>
-      <div className="card"><div className="section-title"><h2>基本資料</h2><span className="pill warn">可補登</span></div><div className="grid cols-2">
+    <div className="card" style={{marginTop:18}}>
+      <div className="section-title"><h2>基本資料</h2><span className="pill warn">可補登</span></div>
+      <div className="grid cols-2">
         <div className="field"><label>行程日期</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
-        <div className="field"><label>出發時間</label><input type="time" value={start} onChange={e=>setStart(e.target.value)}/></div>
-        <div className="field"><label>結束時間</label><input type="time" value={end} onChange={e=>setEnd(e.target.value)}/></div>
         <div className="field"><label>所屬小組</label><input value={user?.teamName||""} disabled/></div>
-      </div><div className="note">住家地址不允許加入行程；里程只計算正式或臨時公務地點之間的路線。</div>
-      {overlap.hasOverlap&&<div className="note danger-note" style={{marginTop:10}}><strong>時間提醒：</strong>{overlap.message||"此時間與既有紀錄重疊，請確認是否輸入正確。"}<label className="check-row"><input type="checkbox" checked={confirmOverlap} onChange={e=>setConfirmOverlap(e.target.checked)}/>我確認時間正確，仍要儲存／送出</label></div>}
+        <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
+        <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
+        <div className="field span-2"><label>行程目的 <span className="required">送出必填</span></label><input value={purpose} onChange={e=>setPurpose(e.target.value)} placeholder="例如：例行訪視、文件送達、專案訪談"/></div>
       </div>
-      <div className="card"><div className="section-title"><h2>今日動作</h2></div><div className="actions"><button className="btn secondary" onClick={()=>setModal("temporary")}>＋新增臨時地點</button><button className="btn outline" disabled={busy} onClick={()=>void save(false)}>儲存草稿</button><button className="btn ok" disabled={busy} onClick={()=>setModal("submit")}>{editId?"重新送出":"送出行程"}</button></div><div className="timeline" style={{marginTop:16}}><span className="pill ok">已建立</span><span>→</span><span className="pill warn">草稿</span><span>→</span><span className="pill">待小組長批次計算</span><span>→</span><span className="pill">待核准</span></div></div>
+      <div className="note">住家地址不允許加入行程；里程只計算正式或臨時公務地點之間的路線。</div>
+      {overlap.hasOverlap&&<div className="note danger-note" style={{marginTop:10}}><strong>時間提醒：</strong>{overlap.message||"此時間與既有紀錄重疊，請確認是否輸入正確。"}<label className="check-row"><input type="checkbox" checked={confirmOverlap} onChange={e=>setConfirmOverlap(e.target.checked)}/>我確認時間正確，送出時仍要繼續</label></div>}
     </div>
 
-    <div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>拜訪順序</h2><div className="sub">使用 ↑ ↓ 調整順序；手機介面維持大按鈕操作。</div></div><div className="actions"><button className="btn small secondary" onClick={()=>setModal("project")}>從專案加入</button><button className="btn small outline" onClick={()=>setModal("location")}>從地點清單加入</button></div></div>
+    <div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>拜訪順序</h2><div className="sub">使用 ↑ ↓ 調整順序；手機介面維持大按鈕操作。</div></div><div className="actions"><button className="btn small secondary" onClick={()=>setModal("project")}>從專案加入</button><button className="btn small outline" onClick={()=>setModal("location")}>從地點清單加入</button><button className="btn small outline" onClick={()=>setModal("temporary")}>＋新增臨時地點</button></div></div>
       <div className="route-list">{stops.length?stops.map((s,i)=><div className="route-item" key={`${s.locationId||s.locationName}-${i}`}><div className="route-index">{i+1}</div><div><div className="route-name">{s.locationName}</div><div className="route-address">{s.address||"—"}</div><div style={{marginTop:5}}>{s.sourceType&&<span className="pill">{s.sourceType==="Temporary"?"臨時地點":s.sourceType==="ProjectList"?"專案清單":"正式地點"}</span>}{s.visitPurpose&&<span className="pill warn" style={{marginLeft:6}}>{s.visitPurpose}</span>}</div></div><div className="drag-controls"><button onClick={()=>move(i,-1)} disabled={i===0}>↑</button><button onClick={()=>move(i,1)} disabled={i===stops.length-1}>↓</button><button onClick={()=>setStops(stops.filter((_,x)=>x!==i))}>×</button></div></div>):<div className="empty">尚未加入拜訪地點，請從專案或正式地點清單加入。</div>}</div>
     </div>
 
     <div className="card" style={{marginTop:18}}><div className="section-title"><h2>外訪員自行計算里程</h2><span className="pill warn">送出前填寫</span></div><div className="grid cols-2"><div className="field"><label>自行計算里程（公里）</label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)}/></div><div className="note">請依實際拜訪順序自行計算並填入。送出後，小組長會由後台批次取得系統里程，兩者並列供核對。</div></div></div>
-    <div className="card" style={{marginTop:18}}><div className="section-title"><h2>備註</h2><span className="pill">外訪員自行維護</span></div><div className="grid cols-2"><div className="field"><label>行程目的</label><input value={purpose} onChange={e=>setPurpose(e.target.value)} placeholder="例如：例行訪視"/></div><div className="field"><label>行程備註</label><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="可填寫臨時狀況、拜訪補充說明或其他行程資訊"/></div></div>{msg&&<div className={`note ${msg.includes("失敗")||msg.includes("請")?"danger-note":"ok-note"}`}>{msg}</div>}{editId&&<div className="actions" style={{marginTop:12}}><button className="btn outline" onClick={reset}>取消修改</button></div>}</div>
+    <div className="card" style={{marginTop:18}}><div className="section-title"><h2>行程備註</h2><span className="pill">選填</span></div><div className="field"><label>備註</label><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="可填寫臨時狀況、拜訪補充說明或其他行程資訊"/></div></div>
+
+    <div className="card action-footer" style={{marginTop:18}}>
+      <div className="section-title"><div><h2>{editId?"修改行程":"完成本次行程資料"}</h2><div className="sub">草稿可以先保存未完成資料；正式送出前才檢查地點、里程、行程目的與時間重疊確認。</div></div></div>
+      {msg&&<div className={`note ${msg.includes("失敗")||msg.includes("請")||msg.includes("必須")||msg.includes("至少")?"danger-note":"ok-note"}`}>{msg}</div>}
+      <div className="actions bottom-actions">
+        {editId&&<button className="btn outline" disabled={busy} onClick={reset}>取消修改</button>}
+        <button className="btn outline" disabled={busy} onClick={()=>void save(false)}>{busy?"處理中…":"儲存草稿"}</button>
+        <button className="btn ok" disabled={busy} onClick={requestSubmit}>{editId?"重新送出":"送出行程"}</button>
+      </div>
+    </div>
 
     {modal==="location"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null)}}><div className="modal-panel"><h3>加入正式地點</h3><div className="note" style={{marginBottom:14}}>客戶清單採階層式篩選，也可直接輸入客戶名稱、地址、縣市或鄉鎮關鍵字搜尋。</div><div className="grid cols-2"><div className="field"><label>小組</label><input value={user?.teamName||""} disabled/></div><div className="field"><label>縣市</label><select value={locCity} onChange={e=>{setLocCity(e.target.value);setLocDistrict("");setLocCustomer("")}}><option value="">全部縣市</option>{cities.map(x=><option key={x}>{x}</option>)}</select></div><div className="field"><label>鄉鎮／區</label><select value={locDistrict} onChange={e=>{setLocDistrict(e.target.value);setLocCustomer("")}}><option value="">全部鄉鎮／區</option>{districts.map(x=><option key={x}>{x}</option>)}</select></div><div className="field"><label>客戶名稱</label><select value={locCustomer} onChange={e=>setLocCustomer(e.target.value)}><option value="">全部客戶</option>{customers.map(x=><option key={x}>{x}</option>)}</select></div></div><div className="field"><label>關鍵字搜尋</label><input value={locKeyword} onChange={e=>setLocKeyword(e.target.value)} placeholder="輸入客戶名稱、地址、縣市或鄉鎮"/></div><div className="section-title"><strong>搜尋結果</strong><span className="pill">{locResults.length} 筆</span></div><div className="search-results">{locResults.map(l=><button key={l.locationId} className="btn outline search-result" onClick={()=>addLocation(l)}><strong>{l.locationName}</strong><br/><small>{l.city||""}{l.district||""}｜{l.address||l.plusCode||""}</small></button>)}</div><div className="actions" style={{marginTop:14}}><button className="btn secondary" onClick={()=>{setLocCity("");setLocDistrict("");setLocCustomer("");setLocKeyword("")}}>清除條件</button><button className="btn outline" onClick={()=>setModal(null)}>關閉</button></div></div></div>}
 
@@ -71,6 +118,6 @@ export default function VisitorPage(){
 
     {modal==="temporary"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null)}}><div className="modal-panel"><h3>新增臨時公務地點</h3><div className="field"><label>地點屬性</label><select value={tempSource} onChange={e=>setTempSource(e.target.value)}><option>固定拜訪清單</option><option>專案</option></select></div>{tempSource==="專案"&&<div className="grid cols-2"><div className="field"><label>專案名稱</label><select value={tempProjectId} onChange={e=>setTempProjectId(e.target.value)}>{projects.map(p=><option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}</select></div><div className="field"><label>拜訪形式</label><select value={tempVisitTypeId} onChange={e=>setTempVisitTypeId(e.target.value)}>{visitTypes.map(v=><option key={v.visitTypeId} value={v.visitTypeId}>{v.visitTypeName}</option>)}</select></div></div>}<div className="field"><label>地點名稱</label><input value={tempName} onChange={e=>setTempName(e.target.value)} placeholder="例如：客戶 D"/></div><div className="field"><label>地址或 Plus Code</label><input value={tempAddress} onChange={e=>setTempAddress(e.target.value)} placeholder="請輸入完整地址或 Plus Code"/></div><div className="note">新增後可先用於本次行程，小組長可在地點管理依日期區間或未上傳清單批次確認及發布。</div><div className="actions" style={{marginTop:16}}><button className="btn" onClick={addTemporary}>加入行程</button><button className="btn outline" onClick={()=>setModal(null)}>取消</button></div></div></div>}
 
-    {modal==="submit"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null)}}><div className="modal-panel"><h3>確認送出</h3>{overlap.hasOverlap&&<div className="note danger-note" style={{marginBottom:12}}><strong>時間提醒：</strong>{overlap.message||"時間與既有紀錄重疊。"}<br/>若確認時間無誤，勾選後仍可繼續送出。</div>}<p>送出後，小組長可查看這筆行程並進行後台批次里程計算。</p><div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save(true)}>確認送出</button><button className="btn secondary" onClick={()=>setModal(null)}>取消</button></div></div></div>}
+    {modal==="submit"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null)}}><div className="modal-panel"><h3>確認送出</h3>{overlap.hasOverlap&&<div className="note danger-note" style={{marginBottom:12}}><strong>時間提醒：</strong>{overlap.message||"時間與既有紀錄重疊。"}<label className="check-row"><input type="checkbox" checked={confirmOverlap} onChange={e=>setConfirmOverlap(e.target.checked)}/>我確認時間正確，仍要送出</label></div>}<p>送出後，小組長可查看這筆行程並進行後台批次里程計算。</p>{msg&&<div className="note danger-note">{msg}</div>}<div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save(true)}>確認送出</button><button className="btn secondary" disabled={busy} onClick={()=>setModal(null)}>取消</button></div></div></div>}
   </>;
 }

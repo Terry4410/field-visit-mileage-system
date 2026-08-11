@@ -19,11 +19,7 @@ public sealed class TripService(
 
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, null), ct);
-
-        if (overlap.HasOverlap && !request.TimeOverlapConfirmed)
-            throw new InvalidOperationException("TIME_OVERLAP_WARNING：時間與既有紀錄重疊，請確認是否正確。");
-
-        var now = DateTime.UtcNow;
+var now = DateTime.UtcNow;
         var trip = new VisitTrip
         {
             TripNo = BuildTripNo(request.VisitDate),
@@ -80,10 +76,7 @@ public sealed class TripService(
 
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, tripId), ct);
-        if (overlap.HasOverlap && !request.TimeOverlapConfirmed)
-            throw new InvalidOperationException("TIME_OVERLAP_WARNING：時間與既有紀錄重疊，請確認是否正確。");
-
-        trip.VisitDate = request.VisitDate;
+trip.VisitDate = request.VisitDate;
         trip.StartTime = request.StartTime;
         trip.EndTime = request.EndTime;
         trip.HasTimeOverlapWarning = overlap.HasOverlap;
@@ -137,6 +130,8 @@ public sealed class TripService(
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
         if (calc?.ClaimedDistanceKm is null or <= 0)
             throw new InvalidOperationException("送出前必須填寫外訪員自算里程。");
+        if (string.IsNullOrWhiteSpace(trip.Purpose))
+            throw new InvalidOperationException("送出前必須填寫行程目的。");
 
         var overlap = await CheckOverlapAsync(new TimeOverlapRequest(
             trip.VisitDate, trip.StartTime.Value, trip.EndTime.Value, trip.VisitTripId), ct);
@@ -278,8 +273,7 @@ public sealed class TripService(
     private static void ValidateRequest(SaveTripRequest request)
     {
         if (request.EndTime <= request.StartTime) throw new InvalidOperationException("結束時間必須晚於出發時間。");
-        if (request.ClaimedDistanceKm <= 0) throw new InvalidOperationException("自算里程必須大於 0。");
-        if (request.Stops.Count < 2) throw new InvalidOperationException("至少需要兩個公務地點。");
+        if (request.ClaimedDistanceKm < 0) throw new InvalidOperationException("自算里程不可小於 0。");
         if (request.Stops.Any(x => string.IsNullOrWhiteSpace(x.LocationName))) throw new InvalidOperationException("地點名稱不可空白。");
     }
 
