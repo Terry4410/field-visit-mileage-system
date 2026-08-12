@@ -378,8 +378,6 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
     public async Task<AdminUserAccessDto> SaveUserAccessAsync(CurrentUserDto user, int userId, SaveUserAccessRequest request, CancellationToken ct)
     {
         var orgId = RequireOrganization(user);
-        var target = await db.Users.FirstOrDefaultAsync(x => x.UserId == userId && x.OrganizationId == orgId, ct)
-            ?? throw new KeyNotFoundException("找不到人員。");
         var allowedRoles = new HashSet<string>(new[] { "visitor", "leader", "admin", "supervisor" }, StringComparer.OrdinalIgnoreCase);
         var requestedRoles = request.Roles.Select(NormalizeRole).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (requestedRoles.Any(x => !allowedRoles.Contains(x))) throw new InvalidOperationException("包含不允許的角色。");
@@ -390,35 +388,63 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
         var validTeamIds = await db.Teams.AsNoTracking().Where(x => x.OrganizationId == orgId && x.IsActive && requestedTeamIds.Contains(x.TeamId)).Select(x => x.TeamId).ToListAsync(ct);
         if (validTeamIds.Count != requestedTeamIds.Count) throw new InvalidOperationException("包含不存在或不屬於本 Organization 的小組。");
 
-        var roleRows = await db.Roles.Where(x => x.IsActive).ToListAsync(ct);
-        var targetRoleIds = roleRows.Where(x => requestedRoles.Contains(NormalizeRole(x.RoleCode))).Select(x => x.RoleId).ToHashSet();
-        var existingRoles = await db.UserRoles.Where(x => x.UserId == userId).ToListAsync(ct);
-        db.UserRoles.RemoveRange(existingRoles.Where(x => !targetRoleIds.Contains(x.RoleId)));
-        foreach (var roleId in targetRoleIds.Where(id => existingRoles.All(x => x.RoleId != id)))
-            await db.UserRoles.AddAsync(new UserRole { UserId = userId, RoleId = roleId, AssignedAt = DateTime.UtcNow }, ct);
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
 
-        var existingScopes = await db.UserTeamScopes.Where(x => x.UserId == userId).ToListAsync(ct);
-        foreach (var scope in existingScopes)
-        {
-            var requested = request.TeamScopes.FirstOrDefault(x => x.TeamId == scope.TeamId);
-            scope.IsActive = requested is not null;
-            scope.IsPrimary = requested?.IsPrimary == true;
-            scope.EndedAt = requested is null ? DateTime.UtcNow : null;
-            if (requested is not null) { scope.AssignedAt = DateTime.UtcNow; scope.AssignedByUserId = user.UserId; }
-        }
-        foreach (var requested in request.TeamScopes.Where(x => existingScopes.All(e => e.TeamId != x.TeamId)))
-        {
-            await db.UserTeamScopes.AddAsync(new UserTeamScope
+            var target = await db.Users.FirstOrDefaultAsync(x => x.UserId == userId && x.OrganizationId == orgId, ct)
+                ?? throw new KeyNotFoundException("找不到人員。");
+
+            var existingScopes = await db.UserTeamScopes.Where(x => x.UserId == userId).ToListAsync(ct);
+
+            // SQL Server filtered unique index allows only one active primary team.
+            // Clear the current primary first inside the same transaction so switching
+            // from one existing scope to another cannot depend on UPDATE ordering.
+            var currentPrimaryScopes = existingScopes.Where(x => x.IsActive && x.IsPrimary).ToList();
+            if (currentPrimaryScopes.Count > 0)
             {
-                UserId = userId, TeamId = requested.TeamId, IsPrimary = requested.IsPrimary, IsActive = true,
-                AssignedAt = DateTime.UtcNow, AssignedByUserId = user.UserId
-            }, ct);
-        }
-        target.TeamId = request.TeamScopes.FirstOrDefault(x => x.IsPrimary)?.TeamId;
-        target.IsActive = request.IsActive;
-        target.UpdatedAt = DateTime.UtcNow;
-        AddAudit(user.UserId, "User", userId.ToString(), "UserAccessUpdated", new { Roles = requestedRoles, TeamScopes = request.TeamScopes });
-        await db.SaveChangesAsync(ct);
+                foreach (var scope in currentPrimaryScopes) scope.IsPrimary = false;
+                await db.SaveChangesAsync(ct);
+            }
+
+            var roleRows = await db.Roles.AsNoTracking().Where(x => x.IsActive).ToListAsync(ct);
+            var targetRoleIds = roleRows.Where(x => requestedRoles.Contains(NormalizeRole(x.RoleCode))).Select(x => x.RoleId).ToHashSet();
+            var existingRoles = await db.UserRoles.Where(x => x.UserId == userId).ToListAsync(ct);
+            db.UserRoles.RemoveRange(existingRoles.Where(x => !targetRoleIds.Contains(x.RoleId)));
+            foreach (var roleId in targetRoleIds.Where(id => existingRoles.All(x => x.RoleId != id)))
+                await db.UserRoles.AddAsync(new UserRole { UserId = userId, RoleId = roleId, AssignedAt = DateTime.UtcNow }, ct);
+
+            foreach (var scope in existingScopes)
+            {
+                var requested = request.TeamScopes.FirstOrDefault(x => x.TeamId == scope.TeamId);
+                scope.IsActive = requested is not null;
+                scope.IsPrimary = requested?.IsPrimary == true;
+                scope.EndedAt = requested is null ? DateTime.UtcNow : null;
+                if (requested is not null) { scope.AssignedAt = DateTime.UtcNow; scope.AssignedByUserId = user.UserId; }
+            }
+
+            foreach (var requested in request.TeamScopes.Where(x => existingScopes.All(e => e.TeamId != x.TeamId)))
+            {
+                await db.UserTeamScopes.AddAsync(new UserTeamScope
+                {
+                    UserId = userId, TeamId = requested.TeamId, IsPrimary = requested.IsPrimary, IsActive = true,
+                    AssignedAt = DateTime.UtcNow, AssignedByUserId = user.UserId
+                }, ct);
+            }
+
+            target.TeamId = request.TeamScopes.FirstOrDefault(x => x.IsPrimary)?.TeamId;
+            target.IsActive = request.IsActive;
+            target.UpdatedAt = DateTime.UtcNow;
+
+            AddAudit(user.UserId, "User", userId.ToString(), "UserAccessUpdated",
+                new { Roles = requestedRoles, TeamScopes = request.TeamScopes });
+
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
+
         return (await GetUsersAsync(user, ct)).First(x => x.UserId == userId);
     }
 
