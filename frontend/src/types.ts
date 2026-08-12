@@ -22,6 +22,7 @@ export interface CorrectionChange{fieldName:string;oldValue?:string;newValue?:st
 export interface CorrectionRequest{correctionRequestId:number;visitTripId:number;tripNo:string;visitorName:string;teamName?:string;baseSnapshotVersion:number;resultSnapshotVersion?:number;status:string;reason:string;requestedAt:string;requestedBy:string;leaderReviewedAt?:string;leaderReviewedBy?:string;leaderComments?:string;adminClosedAt?:string;adminClosedBy?:string;adminComments?:string;requiresAdminClose:boolean;proposal:CorrectionProposal;changes:CorrectionChange[];rowVersion:string}
 
 export interface AdminUserAccess{userId:number;employeeNo:string;displayName:string;email?:string;isActive:boolean;roles:string[];teamScopes:TeamScope[]}
+export interface ManagedTeam{teamId:number;organizationId:number;teamCode:string;teamName:string;isActive:boolean}
 export interface ManagedLocation{locationId:number;locationCode:string;teamId?:number;teamName?:string;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string}
 export interface ImportPreviewItem{rowNumber:number;entityType:string;action:string;status:string;displayKey:string;errorMessage?:string}
 export interface ImportPreview{importBatchId:string;importType:string;totalCount:number;validCount:number;errorCount:number;items:ImportPreviewItem[]}

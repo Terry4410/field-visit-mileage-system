@@ -63,6 +63,29 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
     public async Task<ActionResult<AdminUserAccessDto>> SaveUserAccess(int userId, SaveUserAccessRequest request, CancellationToken ct) =>
         Ok(await service.SaveUserAccessAsync(userId, request, ct));
 
+    [HttpGet("admin/teams")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<IReadOnlyList<ManagedTeamDto>>> Teams([FromQuery] bool includeInactive = true, CancellationToken ct = default) =>
+        Ok(await service.TeamsAsync(includeInactive, ct));
+
+    [HttpPost("admin/teams")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<ManagedTeamDto>> CreateTeam(SaveManagedTeamRequest request, CancellationToken ct) =>
+        Ok(await service.CreateTeamAsync(request, ct));
+
+    [HttpPut("admin/teams/{teamId:int}")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<ManagedTeamDto>> UpdateTeam(int teamId, SaveManagedTeamRequest request, CancellationToken ct) =>
+        Ok(await service.UpdateTeamAsync(teamId, request, ct));
+
+    [HttpDelete("admin/teams/{teamId:int}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> DeactivateTeam(int teamId, CancellationToken ct)
+    {
+        await service.DeactivateTeamAsync(teamId, ct);
+        return NoContent();
+    }
+
     [HttpGet("managed-locations")]
     [Authorize(Roles = "admin,leader")]
     public async Task<ActionResult<IReadOnlyList<ManagedLocationDto>>> ManagedLocations([FromQuery] bool includeInactive = true, CancellationToken ct = default) =>

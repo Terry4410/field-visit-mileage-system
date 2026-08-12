@@ -12,6 +12,10 @@ public interface IV160FinalRepository
     Task<IReadOnlyList<UserOptionDto>> GetScopedVisitorsAsync(CurrentUserDto user, CancellationToken ct);
     Task<IReadOnlyList<AdminUserAccessDto>> GetUsersAsync(CurrentUserDto user, CancellationToken ct);
     Task<AdminUserAccessDto> SaveUserAccessAsync(CurrentUserDto user, int userId, SaveUserAccessRequest request, CancellationToken ct);
+    Task<IReadOnlyList<ManagedTeamDto>> GetManagedTeamsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct);
+    Task<ManagedTeamDto> CreateManagedTeamAsync(CurrentUserDto user, SaveManagedTeamRequest request, CancellationToken ct);
+    Task<ManagedTeamDto> UpdateManagedTeamAsync(CurrentUserDto user, int teamId, SaveManagedTeamRequest request, CancellationToken ct);
+    Task DeactivateManagedTeamAsync(CurrentUserDto user, int teamId, CancellationToken ct);
 
     Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct);
     Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct);

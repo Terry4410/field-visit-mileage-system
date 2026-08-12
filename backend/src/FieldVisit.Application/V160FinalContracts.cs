@@ -131,6 +131,9 @@ public sealed record AdminUserAccessDto(
     IReadOnlyList<string> Roles,
     IReadOnlyList<TeamScopeDto> TeamScopes);
 
+public sealed record ManagedTeamDto(int TeamId, int OrganizationId, string TeamCode, string TeamName, bool IsActive);
+public sealed record SaveManagedTeamRequest(string TeamCode, string TeamName, bool IsActive = true);
+
 public sealed record SaveUserAccessRequest(bool IsActive, IReadOnlyList<string> Roles, IReadOnlyList<SaveTeamScopeRequest> TeamScopes);
 public sealed record SaveTeamScopeRequest(int TeamId, bool IsPrimary);
 

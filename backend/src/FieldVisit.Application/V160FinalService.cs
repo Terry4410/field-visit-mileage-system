@@ -49,6 +49,18 @@ public sealed class V160FinalService(
     public Task<AdminUserAccessDto> SaveUserAccessAsync(int userId, SaveUserAccessRequest request, CancellationToken ct) =>
         repository.SaveUserAccessAsync(RequireRole("admin"), userId, request, ct);
 
+    public Task<IReadOnlyList<ManagedTeamDto>> TeamsAsync(bool includeInactive, CancellationToken ct) =>
+        repository.GetManagedTeamsAsync(RequireRole("admin"), includeInactive, ct);
+
+    public Task<ManagedTeamDto> CreateTeamAsync(SaveManagedTeamRequest request, CancellationToken ct) =>
+        repository.CreateManagedTeamAsync(RequireRole("admin"), request, ct);
+
+    public Task<ManagedTeamDto> UpdateTeamAsync(int teamId, SaveManagedTeamRequest request, CancellationToken ct) =>
+        repository.UpdateManagedTeamAsync(RequireRole("admin"), teamId, request, ct);
+
+    public Task DeactivateTeamAsync(int teamId, CancellationToken ct) =>
+        repository.DeactivateManagedTeamAsync(RequireRole("admin"), teamId, ct);
+
     public Task<IReadOnlyList<ManagedLocationDto>> ManagedLocationsAsync(bool includeInactive, CancellationToken ct) =>
         repository.GetManagedLocationsAsync(RequireAny("admin", "leader"), includeInactive, ct);
 

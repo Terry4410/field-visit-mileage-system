@@ -422,6 +422,70 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
         return (await GetUsersAsync(user, ct)).First(x => x.UserId == userId);
     }
 
+    public async Task<IReadOnlyList<ManagedTeamDto>> GetManagedTeamsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
+    {
+        var orgId = RequireOrganization(user);
+        var q = db.Teams.AsNoTracking().Where(x => x.OrganizationId == orgId);
+        if (!includeInactive) q = q.Where(x => x.IsActive);
+        return await q.OrderBy(x => x.TeamCode)
+            .Select(x => new ManagedTeamDto(x.TeamId, x.OrganizationId, x.TeamCode, x.TeamName, x.IsActive))
+            .ToListAsync(ct);
+    }
+
+    public async Task<ManagedTeamDto> CreateManagedTeamAsync(CurrentUserDto user, SaveManagedTeamRequest request, CancellationToken ct)
+    {
+        var orgId = RequireOrganization(user);
+        var code = NormalizeTeamCode(request.TeamCode);
+        var name = NormalizeTeamName(request.TeamName);
+        if (await db.Teams.AnyAsync(x => x.OrganizationId == orgId && x.TeamCode == code, ct))
+            throw new InvalidOperationException("小組代碼已存在。");
+        var row = new Team
+        {
+            OrganizationId = orgId,
+            TeamCode = code,
+            TeamName = name,
+            IsActive = request.IsActive,
+            CreatedAt = DateTime.UtcNow
+        };
+        await db.Teams.AddAsync(row, ct);
+        AddAudit(user.UserId, "Team", null, "TeamCreate", new { row.TeamCode, row.TeamName, row.IsActive });
+        await db.SaveChangesAsync(ct);
+        return new ManagedTeamDto(row.TeamId, row.OrganizationId, row.TeamCode, row.TeamName, row.IsActive);
+    }
+
+    public async Task<ManagedTeamDto> UpdateManagedTeamAsync(CurrentUserDto user, int teamId, SaveManagedTeamRequest request, CancellationToken ct)
+    {
+        var orgId = RequireOrganization(user);
+        var row = await db.Teams.FirstOrDefaultAsync(x => x.TeamId == teamId && x.OrganizationId == orgId, ct)
+            ?? throw new KeyNotFoundException("找不到小組。");
+        var code = NormalizeTeamCode(request.TeamCode);
+        var name = NormalizeTeamName(request.TeamName);
+        if (await db.Teams.AnyAsync(x => x.OrganizationId == orgId && x.TeamId != teamId && x.TeamCode == code, ct))
+            throw new InvalidOperationException("小組代碼已存在。");
+        if (row.IsActive && !request.IsActive) await EnsureTeamCanDeactivateAsync(teamId, ct);
+        var before = new { row.TeamCode, row.TeamName, row.IsActive };
+        row.TeamCode = code;
+        row.TeamName = name;
+        row.IsActive = request.IsActive;
+        row.UpdatedAt = DateTime.UtcNow;
+        AddAudit(user.UserId, "Team", teamId.ToString(), "TeamUpdate", new { before, after = new { row.TeamCode, row.TeamName, row.IsActive } });
+        await db.SaveChangesAsync(ct);
+        return new ManagedTeamDto(row.TeamId, row.OrganizationId, row.TeamCode, row.TeamName, row.IsActive);
+    }
+
+    public async Task DeactivateManagedTeamAsync(CurrentUserDto user, int teamId, CancellationToken ct)
+    {
+        var orgId = RequireOrganization(user);
+        var row = await db.Teams.FirstOrDefaultAsync(x => x.TeamId == teamId && x.OrganizationId == orgId, ct)
+            ?? throw new KeyNotFoundException("找不到小組。");
+        if (!row.IsActive) return;
+        await EnsureTeamCanDeactivateAsync(teamId, ct);
+        row.IsActive = false;
+        row.UpdatedAt = DateTime.UtcNow;
+        AddAudit(user.UserId, "Team", teamId.ToString(), "TeamDeactivate", new { row.TeamCode, row.TeamName });
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
         var q = db.Locations.AsNoTracking().AsQueryable();
@@ -436,6 +500,7 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var orgId = RequireOrganization(user);
         var row = new Location
         {
@@ -454,6 +519,7 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
     public async Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
         EnsureRowVersion(row.RowVersion, request.RowVersion);
@@ -532,6 +598,38 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
         }
         else if (HasRole(user, "visitor")) q = q.Where(x => x.TeamId == user.TeamId || x.TeamId == null);
         return q;
+    }
+
+    private async Task EnsureTeamCanDeactivateAsync(int teamId, CancellationToken ct)
+    {
+        var hasScopes = await db.UserTeamScopes.AnyAsync(x => x.TeamId == teamId, ct);
+        var hasPrimaryUsers = await db.Users.AnyAsync(x => x.TeamId == teamId, ct);
+        if (hasScopes || hasPrimaryUsers)
+            throw new InvalidOperationException("小組仍有成員或主要小組關聯，請先在小組成員維護移除或轉移後再停用。");
+    }
+
+    private static string NormalizeTeamCode(string value)
+    {
+        var code = (value ?? "").Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(code)) throw new InvalidOperationException("小組代碼必填。");
+        if (code.Length > 50) throw new InvalidOperationException("小組代碼不可超過 50 個字元。");
+        return code;
+    }
+
+    private static string NormalizeTeamName(string value)
+    {
+        var name = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) throw new InvalidOperationException("小組名稱必填。");
+        if (name.Length > 100) throw new InvalidOperationException("小組名稱不可超過 100 個字元。");
+        return name;
+    }
+
+    private async Task EnsureManagedLocationTeamAsync(CurrentUserDto user, int? teamId, CancellationToken ct)
+    {
+        if (!teamId.HasValue) return;
+        var orgId = RequireOrganization(user);
+        var valid = await db.Teams.AsNoTracking().AnyAsync(x => x.TeamId == teamId.Value && x.OrganizationId == orgId && x.IsActive, ct);
+        if (!valid) throw new InvalidOperationException("所選小組不存在、已停用或不屬於目前 Organization。");
     }
 
     private void ValidateLocationRequest(CurrentUserDto user, SaveManagedLocationRequest request)

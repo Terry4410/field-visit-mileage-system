@@ -86,6 +86,13 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
             var fromFile = SKTypeface.FromFile(configured);
             if (fromFile is not null) return fromFile;
         }
+        var bundled = Path.Combine(AppContext.BaseDirectory, "fonts", "NotoSansCJK-Regular.ttc");
+        if (File.Exists(bundled))
+        {
+            var fromBundle = SKTypeface.FromFile(bundled);
+            if (fromBundle is not null) return fromBundle;
+        }
+
         foreach (var candidate in new[]
         {
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
