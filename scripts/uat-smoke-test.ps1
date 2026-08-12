@@ -45,9 +45,9 @@ Write-Host "1/10 API + DB health"
 $root = $ApiBaseUrl -replace '/api/v1$',''
 
 $health = Invoke-RestMethod "$root/health"
-$dbHealth = Invoke-RestMethod "$root/health/db"
+$dbHealth = Invoke-RestMethod "$root/health/ready"
 
-if ($health.status -ne 'ok' -or $dbHealth.status -ne 'ok') {
+if ($health.status -ne 'ok' -or $dbHealth.status -ne 'ready') {
     throw "Health check failed."
 }
 
