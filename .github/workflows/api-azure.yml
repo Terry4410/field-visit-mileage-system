@@ -1,4 +1,4 @@
-name: Deploy API to Azure App Service
+name: Build Test and Deploy API to Azure UAT
 on:
   push:
     branches: [ main ]
@@ -7,20 +7,24 @@ on:
 permissions:
   contents: read
 jobs:
-  build-and-deploy:
+  build-test-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - name: Restore
+      - name: Restore API
         run: dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj
-      - name: Build
+      - name: Restore tests
+        run: dotnet restore backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj
+      - name: Build API
         run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore
+      - name: Unit tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-restore
       - name: Publish
         run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build -o ./publish
-      - name: Deploy
+      - name: Deploy Azure UAT
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ vars.AZURE_WEBAPP_NAME }}

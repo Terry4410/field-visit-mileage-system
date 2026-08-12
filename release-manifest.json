@@ -1,301 +1,267 @@
 {
-  "release": "Existing Schema 1.5.0 UAT v1.0",
-  "fileCount": 59,
-  "files": [
+  "release": "v1.6.0 FINAL Release Candidate",
+  "status": "Release Candidate / Codespaces Verified",
+  "baselineBranch": "main",
+  "baselineCommit": "4bc7ab6706485d490ce7be0a4fb86d2c92e8381a",
+  "databaseSchema": "1.6.0",
+  "routeProvider": "Mock",
+  "geocodingProvider": "Mock",
+  "payloadFileCount": 46,
+  "payloadFiles": [
     {
       "path": ".github/workflows/api-azure.yml",
-      "sha256": "dea63b9e56e5db3d5d13255779f18be6bef0630d53df86303712b2a0bc31636f",
-      "bytes": 946
+      "bytes": 1260,
+      "sha256": "e54571cf59efaf652cd4c028bd137d5284b371498e975ede271f619e9ea878e3"
     },
     {
       "path": ".github/workflows/frontend-pages.yml",
-      "sha256": "1df82fe0ecfdaa09d7b66b6c045456121c84ee36873f7834e798084a2c21bacf",
-      "bytes": 905
-    },
-    {
-      "path": ".gitignore",
-      "sha256": "9a43c956d65b2774c3f168205d627e71764deabc4a9dfae694a142e3f0db5551",
-      "bytes": 160
-    },
-    {
-      "path": "CHANGELOG.md",
-      "sha256": "534aa07d2912ebea891f231a423c4a94a7e9e04c7e647815fdd241f26302e721",
-      "bytes": 736
+      "bytes": 1032,
+      "sha256": "46c8eda8597ec3605167cf37522122182dcff09146c95824034d293fb54d1286"
     },
     {
       "path": "IT-HANDOFF.md",
-      "sha256": "83b15f09450349419fc4480635d8b1a035536c58936640ad138bd23d826fb958",
-      "bytes": 1103
+      "bytes": 2364,
+      "sha256": "67953ac9e9be77e9dc0b4c842380c1bc3987b7652266eb525df77f4e37737f89"
     },
     {
       "path": "README.md",
-      "sha256": "82e5cd66cd250f1ba58df262bacdaf4235c2b3078ec210ed51dd0bd364cee814",
-      "bytes": 1994
+      "bytes": 2725,
+      "sha256": "a0b7bc55038a21a1016e6c8090a011889b420042c4e9d32bbd08395474b888e4"
     },
     {
-      "path": "backend/FieldVisitSystem.sln",
-      "sha256": "06d9defa0f6c545e86a80247cdce903e3d96e5bb7170fb642dfeb427c8b415c6",
-      "bytes": 912
-    },
-    {
-      "path": "backend/src/FieldVisit.Api/Auth.cs",
-      "sha256": "2f2c192deb9d9eef1337959cca937dafd50e3dfa0776bb8e11efe47f72d633d1",
-      "bytes": 2868
-    },
-    {
-      "path": "backend/src/FieldVisit.Api/Controllers/AuthController.cs",
-      "sha256": "72a33e149a13d4976ad421f5ede8ef8fc2c49940079b049a32116093df2ea49a",
-      "bytes": 666
-    },
-    {
-      "path": "backend/src/FieldVisit.Api/Controllers/MasterController.cs",
-      "sha256": "07389f6f28c740932535ba43d2788262563b2cdc81acb6228b9424a73631aa78",
-      "bytes": 2342
-    },
-    {
-      "path": "backend/src/FieldVisit.Api/Controllers/ReportsController.cs",
-      "sha256": "6ce8b9ccc0f6412383ab305ac21374c9efcaa6c3f250e68968dfa7b01fb1791e",
-      "bytes": 561
-    },
-    {
-      "path": "backend/src/FieldVisit.Api/Controllers/TripsController.cs",
-      "sha256": "5a5de272753313f7fad7ecdc8ae23b3c569a17b859790491eae2436003c64fa1",
-      "bytes": 3048
-    },
-    {
-      "path": "backend/src/FieldVisit.Api/FieldVisit.Api.csproj",
-      "sha256": "ed319b7c912f82c725e78f33a7542dc7cdb7ba662f99e41a5da346440c5ac628",
-      "bytes": 625
+      "path": "backend/src/FieldVisit.Api/BackgroundJobHostedService.cs",
+      "bytes": 1071,
+      "sha256": "458d75594653b026100897cfffdb168ede5abe40f67b9d2178d3d8cf40b363f7"
     },
     {
       "path": "backend/src/FieldVisit.Api/Program.cs",
-      "sha256": "6292bbd7cc4a6a65c778ea0f2978aeb87fb77712a1da2d26ff7fa7b2a7b24bc2",
-      "bytes": 3756
+      "bytes": 3925,
+      "sha256": "5f051f3f9f41717cc987806cfd4896fea2d983e7f43832bb8af9f76f94b4afb8"
     },
     {
-      "path": "backend/src/FieldVisit.Api/Properties/launchSettings.json",
-      "sha256": "68a91b3c7553f2e5ed533ff22b2bbd13bba796d89c66ce156f59eaf112c6790e",
-      "bytes": 291
+      "path": "backend/src/FieldVisit.Api/V160FinalController.cs",
+      "bytes": 6743,
+      "sha256": "1dae94d9d2fafb002344b206f65040d9648065550c63c1f221c3d418e5b12e6a"
     },
     {
       "path": "backend/src/FieldVisit.Api/appsettings.json",
-      "sha256": "7122345393499577a5733c1c2722671946d9b0623d37c1013622286ff79f7f26",
-      "bytes": 497
+      "bytes": 605,
+      "sha256": "2aa948682b8843fff10d91c4f8c634d14c9c5440141abfc856ae46afeee1dee4"
     },
     {
-      "path": "backend/src/FieldVisit.Application/AuthService.cs",
-      "sha256": "c08b375f976a800f1502cd53a8e11d29729eef167beddffdcde8f87823748de7",
-      "bytes": 1095
+      "path": "backend/src/FieldVisit.Application/BusinessTime.cs",
+      "bytes": 801,
+      "sha256": "b3b4f9001d9f56d492087dbe2c862a837f69dd13cab50eaf6280cf10434df5c4"
     },
     {
-      "path": "backend/src/FieldVisit.Application/Contracts.cs",
-      "sha256": "97188bccfd8e1d24ab54100172aa0188da8ed80289bbd79e65cad6c2cfb6a4f7",
-      "bytes": 4814
+      "path": "backend/src/FieldVisit.Application/V160FinalContracts.cs",
+      "bytes": 5878,
+      "sha256": "e5ecc488e5685fbf38daed4f39f363cad0f0c9d9bca63f5278b1d7e8026b1c3b"
     },
     {
-      "path": "backend/src/FieldVisit.Application/FieldVisit.Application.csproj",
-      "sha256": "8cc681bdc1fa637a2796f3ce5b21677a95b7e2507121158dde9ec2b5310fd0ad",
-      "bytes": 314
+      "path": "backend/src/FieldVisit.Application/V160FinalInterfaces.cs",
+      "bytes": 3277,
+      "sha256": "7ed80c25a611773eb2593eca7ccf4ee448078743fc1181f4c421aa48cf815ef4"
     },
     {
-      "path": "backend/src/FieldVisit.Application/Interfaces.cs",
-      "sha256": "1cb4703924a6bdda4a975360878945d3d12d69c301c9264ee20fab311837beac",
-      "bytes": 3196
+      "path": "backend/src/FieldVisit.Application/V160FinalService.cs",
+      "bytes": 6325,
+      "sha256": "c5f69db33b95a513920e8ce83573f9a6e77bdd2c456e6e344200b351773c1d23"
     },
     {
-      "path": "backend/src/FieldVisit.Application/LeaderService.cs",
-      "sha256": "503332cf0e64570683d9322f09816f474aac0e91d8b49dd8508e6b778709241e",
-      "bytes": 10564
+      "path": "backend/src/FieldVisit.Domain/V160FinalEntities.cs",
+      "bytes": 1072,
+      "sha256": "6c3d25de1c57943242e39b3ab69dff7b093ef3bd70f8946a9753e85d0421e8f2"
     },
     {
-      "path": "backend/src/FieldVisit.Application/MasterAndReportServices.cs",
-      "sha256": "51fef17ba99f4bda4d5d9482119cb3ea01741c9279a720aba076872fc508e0a5",
-      "bytes": 9235
-    },
-    {
-      "path": "backend/src/FieldVisit.Application/TripService.cs",
-      "sha256": "9539190e329f61f881d7a1eecf178fb88ddd0270ec353077e2e9ace2becccb70",
-      "bytes": 14789
-    },
-    {
-      "path": "backend/src/FieldVisit.Domain/Entities.cs",
-      "sha256": "eaa13318da7936ad5521b67a78e47e69b0c573578fb6fe419dcc123906b6df23",
-      "bytes": 8606
-    },
-    {
-      "path": "backend/src/FieldVisit.Domain/FieldVisit.Domain.csproj",
-      "sha256": "12985a174dc55d6f519f2205bf7b35d0123d6d7dfa7fe3fe34f2f3028ba30604",
-      "bytes": 204
-    },
-    {
-      "path": "backend/src/FieldVisit.Domain/TripStatuses.cs",
-      "sha256": "eda5adc70b3fd79213fdbff5a1dd5358250367654daa3cfad96f841ca353f79b",
-      "bytes": 860
-    },
-    {
-      "path": "backend/src/FieldVisit.Infrastructure/AppDbContext.cs",
-      "sha256": "df6fa6c991e15156b7ac84115184934c9c9e90ff654027bf6caa364137efcd3d",
-      "bytes": 5302
+      "path": "backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs",
+      "bytes": 13407,
+      "sha256": "64c046720e5d2be25b9ecbb6e843a8f0f4853df3397889b21733d9a78f89ef38"
     },
     {
       "path": "backend/src/FieldVisit.Infrastructure/DependencyInjection.cs",
-      "sha256": "3fbe41e6f2c4a792c53f2c8b45aa2733213574efb81d73b6d0c9c522d5ea3e96",
-      "bytes": 1258
+      "bytes": 1991,
+      "sha256": "79f7ab0d415b0549bf21c96f6816bc8b0cbb2d30f52002a0dac3ec4381c5bb7f"
     },
     {
       "path": "backend/src/FieldVisit.Infrastructure/FieldVisit.Infrastructure.csproj",
-      "sha256": "13e8f6de2e6358352f6f0e286f3c70e224d42c009970051badd0a4590dc00646",
-      "bytes": 525
+      "bytes": 726,
+      "sha256": "38707a99adc9557a2bc7596104e5ace61ecd30e9df0072abffc3fe56d82b38ab"
     },
     {
-      "path": "backend/src/FieldVisit.Infrastructure/Providers.cs",
-      "sha256": "03234e765a6c295bd97d2a608963e0d1569e73739280080d4b77a83779c1cd88",
-      "bytes": 1834
+      "path": "backend/src/FieldVisit.Infrastructure/ReportDocumentService.cs",
+      "bytes": 11100,
+      "sha256": "6c5524cf8d37324bddb360cdfdf78a34edfef3f4964831ce28c9e34f72ab5159"
     },
     {
-      "path": "backend/src/FieldVisit.Infrastructure/Repositories.cs",
-      "sha256": "a554d22d7fa0cea2f348cd3d8885393b1b218b22178d85ecf84ee1fef154f563",
-      "bytes": 11697
+      "path": "backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs",
+      "bytes": 48620,
+      "sha256": "c5b2456b068b86b7c0bbe96727e6d5699d526fa870a35f6e0d74f3aa393ac554"
     },
     {
-      "path": "contracts/openapi-summary.yaml",
-      "sha256": "cfac5b0050624f9c3720dbea0b7d6587f5778ec076046fd3e1aab6dfe99ad733",
-      "bytes": 1472
+      "path": "backend/src/FieldVisit.Infrastructure/WorkbookImportService.cs",
+      "bytes": 26663,
+      "sha256": "2a7103a114ba94a3e16773faf61b78a967f024ccc1b2ec0e9a4b7dab3c20f459"
     },
     {
-      "path": "database/015_schema_v1_5_verify.sql",
-      "sha256": "f43e23c8201cc651464f8aa95bcf9de160d84866273df209d47082c0fa12fc63",
-      "bytes": 795
+      "path": "backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj",
+      "bytes": 607,
+      "sha256": "ea509140335e7183074e67bc6884012678cea7876a8a925c7aeab0c848440c9b"
     },
     {
-      "path": "database/020_uat_demo_seed.sql",
-      "sha256": "5021310d9dc5fa0a28bf5197ae9f113cf718611602f2cba79ce4ddf0e8b15eae",
-      "bytes": 9793
+      "path": "backend/tests/FieldVisit.Application.Tests/V160Tests.cs",
+      "bytes": 697,
+      "sha256": "8678b68868f32b541b547044fa1c9eb07f0a1d41fc82144fb1bb91773e696517"
     },
     {
-      "path": "database/030_uat_sample_transactions.sql",
-      "sha256": "51e176bf4eed807f2ab7f2f8507c3afa386ecd9704b1d5e351bdb1ab6a259f4d",
-      "bytes": 4534
+      "path": "contracts/openapi-summary-v1.6.0.yaml",
+      "bytes": 1947,
+      "sha256": "9350f98ca5b7898a0b8bad81f77d765f486acda76af7f6448108b4900e9fb1e9"
     },
     {
-      "path": "docs/DEPLOYMENT_ZH-TW.md",
-      "sha256": "42e4bda257888ff8d909f4a7ba07b5eba6ab87adc448de63cb804feaab373e9b",
-      "bytes": 3319
+      "path": "database/migrations/1600_002_final/Rollback.sql",
+      "bytes": 1175,
+      "sha256": "5327c42a4fc499f8032c84d9dc4060ce1cc379425d74a36f2930f0097cb6331b"
     },
     {
-      "path": "docs/SCHEMA_MAPPING.md",
-      "sha256": "973477048f417132237b3d7e036b6d646f028f14d3483a6183887a1a374fce02",
-      "bytes": 1189
+      "path": "database/migrations/1600_002_final/Up.sql",
+      "bytes": 8281,
+      "sha256": "0d2d8c29ea62a606941be0e1f1412a7b3aa85e4630ca62d5445c9b5cbbbd1ccc"
     },
     {
-      "path": "frontend/index.html",
-      "sha256": "5e2612e37f1ac3d8d4b8d4460ffd70cf8bce6b80f3ba3ef3403d8e3c30dddfa3",
-      "bytes": 320
+      "path": "database/migrations/1600_002_final/Verify.sql",
+      "bytes": 2813,
+      "sha256": "3e6f349156e88de898375f6037328662f2f319c279ac249ba0578e93c8166ce5"
+    },
+    {
+      "path": "docs/release/DEPLOY_v1.6.0.md",
+      "bytes": 2035,
+      "sha256": "7feae2b66c3fa5217a906cc3f5224949670b23c3d9f8bd00b96dc810ceeda1bb"
+    },
+    {
+      "path": "docs/release/FINAL-REVIEW-v1.6.0.md",
+      "bytes": 3012,
+      "sha256": "9df76d3f53166d0854f4a91f60469f0b19ac88baa55fd473ab36b01487624181"
+    },
+    {
+      "path": "docs/release/FUTURE-BACKLOG.md",
+      "bytes": 1166,
+      "sha256": "3e14044f8b3a5997a7518aac710de9ea53d7cb5edd492b1dd33dea48d87815f8"
+    },
+    {
+      "path": "docs/uat/UAT-SMOKE-TEST-v1.6.0.md",
+      "bytes": 3649,
+      "sha256": "4b48f18333f4e08f02a188fc942fe89e31b2b40b20ec946ba6f85e8068e27361"
     },
     {
       "path": "frontend/package.json",
-      "sha256": "494fcdfc10af92759f27504074859bcb98085ec5cec2f3cbab940c287e40dcff",
-      "bytes": 493
-    },
-    {
-      "path": "frontend/public/config.js",
-      "sha256": "8c56864e99b17272c2a2c7474abcdee2b16edd617e83f16978e4808f0d7dfc77",
-      "bytes": 124
+      "bytes": 543,
+      "sha256": "a1ab8258151428fd11d563b331323179aa9e846f36ea4d3dc9d05533b182aa32"
     },
     {
       "path": "frontend/src/App.tsx",
-      "sha256": "7fe85eece6adc60c3024c1d56c6c65904932bb15b4b2e4ed999bf132eeb4fb89",
-      "bytes": 1881
+      "bytes": 6039,
+      "sha256": "e55fa48639c8a757e2a3291120f4d20591a323c5247b2712c15775c892ee98b0"
     },
     {
       "path": "frontend/src/api.ts",
-      "sha256": "8467ab7bdd4b3c8c24bb8b295f2b17b8e9cac6ebeda587096f5010afd60ff22b",
-      "bytes": 1065
+      "bytes": 3014,
+      "sha256": "d7476e8bd93abdf46c904c6239f66e26b9f31e70b88b717776932ff63232c8a9"
     },
     {
       "path": "frontend/src/auth.tsx",
-      "sha256": "09bceb22c81f400116c9e001b6aca75c5243fb6ab97415e7b1686bec0044bbd8",
-      "bytes": 1188
-    },
-    {
-      "path": "frontend/src/env.d.ts",
-      "sha256": "205f16064d4e0435cbaacb3d2ee98821b79bbada1dbe7f0e83b8d072132f1591",
-      "bytes": 59
+      "bytes": 1415,
+      "sha256": "db8d466fa5effbc8df4079c3a733cecb63e2c79a7cab2d6546153e3e32c6172a"
     },
     {
       "path": "frontend/src/main.tsx",
-      "sha256": "a76f7bc47e7215a01db2e296a67fac765b30dca92ef4e2c220ec673b040d9e1e",
-      "bytes": 354
+      "bytes": 369,
+      "sha256": "3c6d7eaee927cc6a1fed5a2caeec8f625288daba3e4a22aeeb3cd2bbde1d216b"
     },
     {
       "path": "frontend/src/pages/AdminPage.tsx",
-      "sha256": "7d2a9b48eb9ed080a17aa819eaf420dcebdd24f9c49eb9cc48e65af2ac7b5539",
-      "bytes": 3751
+      "bytes": 26361,
+      "sha256": "009b148af54ca527d9efa7ea47a3a2351587d040b60adaf43beaf5f9c8e2040a"
     },
     {
       "path": "frontend/src/pages/HistoryPage.tsx",
-      "sha256": "ff0a787a284788cccf93e45a074f7a51b91e1b4567a60461090dd35bd0a0f5f8",
-      "bytes": 2365
+      "bytes": 159,
+      "sha256": "a0fb8c570d1a8a7ceadb5bed939af05ac7f9358f220f58f32c4a3881c9dddec5"
     },
     {
       "path": "frontend/src/pages/LeaderPage.tsx",
-      "sha256": "0ecb6db4a4848ab768c6e6b476571b9f40aee19ff33495359f44afdf3004f841",
-      "bytes": 7527
-    },
-    {
-      "path": "frontend/src/pages/LoginPage.tsx",
-      "sha256": "f3d2c3a7e4adc617670d80c40bdeca6dbe2aeb4a78fc230de33c26e85f92d1ee",
-      "bytes": 1256
+      "bytes": 14621,
+      "sha256": "d865e9c57f853027dbd05c2a2e040d76eeff5348aa420dadddfff15eb251f685"
     },
     {
       "path": "frontend/src/pages/SupervisorPage.tsx",
-      "sha256": "26d599f77495e387ae17bb2dd5416cbb56ab2163ca48a120e13cb8e89bf753f1",
-      "bytes": 1999
+      "bytes": 880,
+      "sha256": "188bf0c0a905d1426efce24f4e4d88958c5418bfa09ace8d2d6525261b9d387a"
     },
     {
-      "path": "frontend/src/pages/VisitorPage.tsx",
-      "sha256": "e43d2ef78febdf38059774ff4f29f65beb6234e0ff5ecfcba53b02b27a078a5a",
-      "bytes": 8510
-    },
-    {
-      "path": "frontend/src/styles.css",
-      "sha256": "773bcae93f2176a91900dc0819d41b3b510b898e1e0f697ac1b5730e6a3c459c",
-      "bytes": 4259
+      "path": "frontend/src/pages/UnifiedQueryPage.tsx",
+      "bytes": 13895,
+      "sha256": "2a7bfc57d8c7d42549d510ac41970dfcd17eca3f0000519ae746905cccfc224b"
     },
     {
       "path": "frontend/src/types.ts",
-      "sha256": "ed220942d3765bd00fbaf20298a5f7f43c31cc648250c21361858ae5c99d3e68",
-      "bytes": 1970
+      "bytes": 5708,
+      "sha256": "5eb5455c9a8f9027f6e94cf6b0e4db8c3792ebe345f12a35765c0379db220e12"
     },
     {
-      "path": "frontend/src/utils.ts",
-      "sha256": "06840557e5c32bd0eb91ab5b116dea0ebe98004f253c778c4b816776368c21bb",
-      "bytes": 627
+      "path": "frontend/src/v160-final.css",
+      "bytes": 2724,
+      "sha256": "032c44ff4dd99b3a0227abca82f696375e90ee2813f608e76976c71afa89899e"
     },
     {
-      "path": "frontend/tsconfig.app.json",
-      "sha256": "ea07fc2e3d7a16a28625522b83ad48f168718cf2f68baa12fc493231bee4c301",
-      "bytes": 405
+      "path": "frontend/src/v160.test.ts",
+      "bytes": 274,
+      "sha256": "cd8cf73af164f366128630d226296ea9d1a1dce641e44e79ece86ab91e136224"
     },
     {
-      "path": "frontend/tsconfig.json",
-      "sha256": "c092108fc40848318cc6ea4b71c4e559d4ef08f863b46f8744d1489ed749ba19",
-      "bytes": 90
+      "path": "frontend/src/v160.ts",
+      "bytes": 1586,
+      "sha256": "64144205be4bd1fb88d029e4ba68f537c8484531ce28ef48af2054f68b753c18"
     },
     {
-      "path": "frontend/tsconfig.node.json",
-      "sha256": "14254b3674cc40dec39213db82951650a0546d87cbf6921a41b2e41719b9eb74",
-      "bytes": 168
+      "path": "scripts/verify_v160_rc.py",
+      "bytes": 5479,
+      "sha256": "97dc6f1fb76c91b248f04bc13daced699cc51dde7b98c89ac41a0b93c40d1300"
     },
     {
-      "path": "frontend/vite.config.ts",
-      "sha256": "4e94267d3a4771512ee172b018613c4212f43cbaf68330ba84adaff9f0f81471",
-      "bytes": 144
+      "path": "contracts/openapi-summary.yaml",
+      "bytes": 1947,
+      "sha256": "9350f98ca5b7898a0b8bad81f77d765f486acda76af7f6448108b4900e9fb1e9"
     },
     {
       "path": "scripts/uat-smoke-test.ps1",
-      "sha256": "e4c97261d21f40afbc3c69ce7ada4850e5faa63ec16f82bf7b6eabcedbd6e974",
-      "bytes": 3306
+      "bytes": 8423,
+      "sha256": "d6ecde5e073f0f31f2cca625875c1ad5fe46c27a9fc446a52dedb0817c7fcba0"
     }
-  ]
+  ],
+  "patchedBaselineFiles": [
+    "backend/src/FieldVisit.Api/Auth.cs",
+    "backend/src/FieldVisit.Api/Controllers/AuthController.cs",
+    "backend/src/FieldVisit.Api/Controllers/MasterController.cs",
+    "backend/src/FieldVisit.Api/Controllers/TripsController.cs",
+    "backend/src/FieldVisit.Application/Interfaces.cs",
+    "backend/src/FieldVisit.Application/MasterAndReportServices.cs",
+    "backend/src/FieldVisit.Application/TripService.cs",
+    "backend/src/FieldVisit.Infrastructure/AppDbContext.cs",
+    "backend/src/FieldVisit.Infrastructure/Repositories.cs",
+    "frontend/src/pages/VisitorPage.tsx",
+    "CHANGELOG.md"
+  ],
+  "removedLegacyFiles": [
+    "backend/src/FieldVisit.Api/Controllers/ReportsController.cs",
+    "frontend/src/utils.ts"
+  ],
+  "verification": {
+    "static": "PASS",
+    "codespacesBuild": "PASS",
+    "azureSqlMigration": "REQUIRED",
+    "githubActionsDeployment": "REQUIRED",
+    "uatSmokeTest": "SCRIPT READY / RUNTIME REQUIRED",
+    "unitTests": "PASS - Frontend 2/2; Backend 4/4"
+  }
 }

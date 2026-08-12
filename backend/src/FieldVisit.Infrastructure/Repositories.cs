@@ -52,7 +52,7 @@ public sealed class TripRepository(AppDbContext db) : ITripRepository
 {
     private IQueryable<VisitTrip> Query(bool tracking) =>
         (tracking ? db.VisitTrips.AsQueryable() : db.VisitTrips.AsNoTracking())
-            .Include(x => x.Stops).Include(x => x.MileageCalculation);
+            .Include(x => x.Stops).ThenInclude(x => x.Location).Include(x => x.MileageCalculation);
 
     public Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct) => Query(tracking).FirstOrDefaultAsync(x => x.VisitTripId == tripId, ct);
     public Task AddAsync(VisitTrip trip, CancellationToken ct) => db.VisitTrips.AddAsync(trip, ct).AsTask();
@@ -164,14 +164,32 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     public Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct) =>
         (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking()).FirstOrDefaultAsync(x => x.LocationId == id, ct);
     public Task AddLocationAsync(Location location, CancellationToken ct) => db.Locations.AddAsync(location, ct).AsTask();
+    public Task<Location?> FindReusableTemporaryLocationAsync(int? organizationId, int? teamId, string locationName, string? addressOrPlusCode, CancellationToken ct) =>
+        db.Locations.FirstOrDefaultAsync(x => x.IsTemporary && x.ApprovalStatus == "Pending" && x.OrganizationId == organizationId && x.TeamId == teamId && x.LocationName == locationName && (x.Address == addressOrPlusCode || x.PlusCode == addressOrPlusCode), ct);
+    public async Task AbandonUnusedTemporaryLocationsAsync(IReadOnlyCollection<int> locationIds, CancellationToken ct)
+    {
+        if (locationIds.Count == 0) return;
+        var rows = await db.Locations.Where(x => locationIds.Contains(x.LocationId) && x.IsTemporary && x.ApprovalStatus == "Pending").ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            var stillUsed = await db.VisitTripStops.AnyAsync(s => s.LocationId == row.LocationId && s.VisitTrip.Status != TripStatuses.Cancelled, ct);
+            if (!stillUsed) { row.ApprovalStatus = "Abandoned"; row.GeocodingStatus = "NotRequired"; row.IsActive = false; row.UpdatedAt = DateTime.UtcNow; }
+        }
+    }
 
     public Task<List<Project>> GetProjectsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = BusinessTime.Today;
         var q = db.Projects.AsNoTracking().AsQueryable();
         if (!includeInactive) q = q.Where(x => x.IsActive && (!x.StartDate.HasValue || x.StartDate <= today) && (!x.EndDate.HasValue || x.EndDate >= today));
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value);
-        if (user.Roles.Contains("visitor") || user.Roles.Contains("leader")) q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value || x.TeamId == null) : q.Where(x => false);
+        if (user.Roles.Contains("admin") || user.Roles.Contains("supervisor")) { }
+        else if (user.Roles.Contains("leader"))
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0 ? q.Where(x => x.TeamId == null || (x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value))) : q.Where(x => false);
+        }
+        else if (user.Roles.Contains("visitor")) q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value || x.TeamId == null) : q.Where(x => false);
         return q.OrderBy(x => x.ProjectName).ToListAsync(ct);
     }
 
@@ -189,6 +207,8 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     public async Task<List<Location>> GetProjectLocationsAsync(int projectId, CurrentUserDto user, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(x => x.ProjectId == projectId, ct) ?? throw new KeyNotFoundException("找不到專案。");
+        if ((user.Roles.Contains("admin") || user.Roles.Contains("supervisor")) && user.OrganizationId.HasValue && project.OrganizationId != user.OrganizationId.Value)
+            throw new UnauthorizedAccessException("無權使用其他 Organization 專案。");
         if (user.Roles.Contains("leader") && project.TeamId.HasValue && !user.TeamIds.Contains(project.TeamId.Value))
             throw new UnauthorizedAccessException("無權使用未授權小組專案。");
         if (user.Roles.Contains("visitor") && project.TeamId.HasValue && project.TeamId != user.TeamId)
@@ -238,6 +258,12 @@ public sealed class MileageRepository(AppDbContext db) : IMileageRepository
     public Task<MileageRateRule?> GetRateAsync(int mileageRateRuleId, bool tracking, CancellationToken ct) =>
         (tracking ? db.MileageRateRules.AsQueryable() : db.MileageRateRules.AsNoTracking()).FirstOrDefaultAsync(x => x.MileageRateRuleId == mileageRateRuleId, ct);
     public Task AddRateAsync(MileageRateRule rule, CancellationToken ct) => db.MileageRateRules.AddAsync(rule, ct).AsTask();
+    public Task<List<MileageRateRule>> GetRateSeriesAsync(int? organizationId, string vehicleType, bool tracking, CancellationToken ct)
+    {
+        var q = tracking ? db.MileageRateRules.AsQueryable() : db.MileageRateRules.AsNoTracking();
+        q = organizationId.HasValue ? q.Where(x => x.OrganizationId == organizationId.Value) : q.Where(x => x.OrganizationId == null);
+        return q.Where(x => x.VehicleType == vehicleType).OrderBy(x => x.EffectiveFrom).ThenBy(x => x.MileageRateRuleId).ToListAsync(ct);
+    }
 }
 
 public sealed class WorkflowRepository(AppDbContext db) : IWorkflowRepository

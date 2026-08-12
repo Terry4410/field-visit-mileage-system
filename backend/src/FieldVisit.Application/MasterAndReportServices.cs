@@ -36,7 +36,8 @@ public sealed class MasterService(
     {
         var user = RequireAny("leader", "admin");
         var row = await masters.GetLocationAsync(id, true, ct) ?? throw new KeyNotFoundException("找不到地點。");
-        if (HasRole(user, "leader") && row.TeamId != user.TeamId) throw new UnauthorizedAccessException("無權維護其他小組地點。");
+        if (!HasRole(user, "admin") && HasRole(user, "leader") && (!row.TeamId.HasValue || !user.TeamIds.Contains(row.TeamId.Value))) throw new UnauthorizedAccessException("無權維護未授權小組地點。");
+        if (HasRole(user, "admin") && user.OrganizationId.HasValue && row.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId) throw new UnauthorizedAccessException("無權維護其他 Organization 地點。");
         EnsureRowVersion(row.RowVersion, request.RowVersion);
         if (string.IsNullOrWhiteSpace(request.Address) && string.IsNullOrWhiteSpace(request.PlusCode))
             throw new InvalidOperationException("完整地址與 Plus Code 至少需要一項。");
@@ -64,7 +65,8 @@ public sealed class MasterService(
         {
             var row = await masters.GetLocationAsync(id, true, ct);
             if (row is null) { failed++; errors.Add($"{id}: 找不到地點"); continue; }
-            if (HasRole(user, "leader") && row.TeamId != user.TeamId) { failed++; errors.Add($"{id}: 無權限"); continue; }
+            if (!HasRole(user, "admin") && HasRole(user, "leader") && (!row.TeamId.HasValue || !user.TeamIds.Contains(row.TeamId.Value))) { failed++; errors.Add($"{id}: 無權限"); continue; }
+            if (HasRole(user, "admin") && user.OrganizationId.HasValue && row.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId) { failed++; errors.Add($"{id}: 無權限"); continue; }
 
             var geo = await geocoding.ResolveAsync(row.Address, row.PlusCode, ct);
             if (!geo.Success || geo.Latitude is null || geo.Longitude is null)
@@ -233,53 +235,37 @@ public sealed class MasterService(
     public async Task<MileageRateDto> CreateRateAsync(CreateMileageRateRequest request, CancellationToken ct)
     {
         var user = RequireAny("admin");
-        ValidateRate(request.RuleName, request.RatePerKm, request.EffectiveFrom, request.EffectiveTo);
-
-        var row = new MileageRateRule
-        {
-            OrganizationId = user.OrganizationId,
-            RuleName = request.RuleName.Trim(),
-            VehicleType = string.IsNullOrWhiteSpace(request.VehicleType) ? "Motorcycle" : request.VehicleType.Trim(),
-            RatePerKm = request.RatePerKm,
-            EffectiveFrom = request.EffectiveFrom,
-            EffectiveTo = request.EffectiveTo,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow
-        };
-        await mileage.AddRateAsync(row, ct);
-        await workflow.AddAuditAsync(Audit(user.UserId, "MileageRateRule", null, "MileageRateCreate", request), ct);
-        await uow.SaveChangesAsync(ct);
-        return MapRate(row);
+        ValidateRate(request.RuleName, request.RatePerKm, request.EffectiveFrom, null);
+        var vehicle = string.IsNullOrWhiteSpace(request.VehicleType) ? "Motorcycle" : request.VehicleType.Trim();
+        var series = await mileage.GetRateSeriesAsync(user.OrganizationId, vehicle, false, ct);
+        if (series.Any(x => x.IsActive && x.EffectiveFrom == request.EffectiveFrom)) throw new InvalidOperationException("同一車種不可有兩個同日生效的費率版本。");
+        var row = new MileageRateRule { OrganizationId=user.OrganizationId, RuleName=request.RuleName.Trim(), VehicleType=vehicle, RatePerKm=request.RatePerKm, EffectiveFrom=request.EffectiveFrom, EffectiveTo=null, IsActive=true, CreatedAt=DateTime.UtcNow };
+        await mileage.AddRateAsync(row, ct); await uow.SaveChangesAsync(ct); await NormalizeRateSeriesAsync(user.OrganizationId, vehicle, ct);
+        await workflow.AddAuditAsync(Audit(user.UserId,"MileageRateRule",row.MileageRateRuleId.ToString(),"MileageRateCreate",new{request.RuleName,request.RatePerKm,request.EffectiveFrom}),ct); await uow.SaveChangesAsync(ct); return MapRate(row);
     }
 
     public async Task<MileageRateDto> UpdateRateAsync(int mileageRateRuleId, UpdateMileageRateRequest request, CancellationToken ct)
     {
-        var user = RequireAny("admin");
-        ValidateRate(request.RuleName, request.RatePerKm, request.EffectiveFrom, request.EffectiveTo);
-        var row = await mileage.GetRateAsync(mileageRateRuleId, true, ct) ?? throw new KeyNotFoundException("找不到補助費率。");
-        if (row.OrganizationId.HasValue && user.OrganizationId.HasValue && row.OrganizationId.Value != user.OrganizationId.Value)
-            throw new UnauthorizedAccessException("無權維護其他組織費率。");
-        row.RuleName = request.RuleName.Trim();
-        row.VehicleType = string.IsNullOrWhiteSpace(request.VehicleType) ? "Motorcycle" : request.VehicleType.Trim();
-        row.RatePerKm = request.RatePerKm;
-        row.EffectiveFrom = request.EffectiveFrom;
-        row.EffectiveTo = request.EffectiveTo;
-        row.IsActive = request.IsActive;
-        row.UpdatedAt = DateTime.UtcNow;
-        await workflow.AddAuditAsync(Audit(user.UserId, "MileageRateRule", mileageRateRuleId.ToString(), "MileageRateUpdate", request), ct);
-        await uow.SaveChangesAsync(ct);
-        return MapRate(row);
+        var user=RequireAny("admin"); ValidateRate(request.RuleName,request.RatePerKm,request.EffectiveFrom,null);
+        var row=await mileage.GetRateAsync(mileageRateRuleId,true,ct)??throw new KeyNotFoundException("找不到補助費率。");
+        if(row.OrganizationId!=user.OrganizationId)throw new UnauthorizedAccessException("無權維護其他組織費率。");
+        var oldVehicle=row.VehicleType;
+        var vehicle=string.IsNullOrWhiteSpace(request.VehicleType)?"Motorcycle":request.VehicleType.Trim();
+        var series=await mileage.GetRateSeriesAsync(user.OrganizationId,vehicle,false,ct);
+        if(request.IsActive&&series.Any(x=>x.IsActive&&x.MileageRateRuleId!=mileageRateRuleId&&x.EffectiveFrom==request.EffectiveFrom))throw new InvalidOperationException("同一車種不可有兩個同日生效的費率版本。");
+        row.RuleName=request.RuleName.Trim();row.VehicleType=vehicle;row.RatePerKm=request.RatePerKm;row.EffectiveFrom=request.EffectiveFrom;row.EffectiveTo=null;row.IsActive=request.IsActive;row.UpdatedAt=DateTime.UtcNow;
+        await uow.SaveChangesAsync(ct);await NormalizeRateSeriesAsync(user.OrganizationId,vehicle,ct);if(!string.Equals(oldVehicle,vehicle,StringComparison.OrdinalIgnoreCase))await NormalizeRateSeriesAsync(user.OrganizationId,oldVehicle,ct);await workflow.AddAuditAsync(Audit(user.UserId,"MileageRateRule",mileageRateRuleId.ToString(),"MileageRateUpdate",new{request.RuleName,request.RatePerKm,request.EffectiveFrom,request.IsActive}),ct);await uow.SaveChangesAsync(ct);return MapRate(row);
     }
 
     public async Task DeleteRateAsync(int mileageRateRuleId, CancellationToken ct)
     {
-        var user = RequireAny("admin");
-        var row = await mileage.GetRateAsync(mileageRateRuleId, true, ct) ?? throw new KeyNotFoundException("找不到補助費率。");
-        if (row.OrganizationId.HasValue && user.OrganizationId.HasValue && row.OrganizationId.Value != user.OrganizationId.Value)
-            throw new UnauthorizedAccessException("無權維護其他組織費率。");
-        row.IsActive = false;
-        row.UpdatedAt = DateTime.UtcNow;
-        await workflow.AddAuditAsync(Audit(user.UserId, "MileageRateRule", mileageRateRuleId.ToString(), "MileageRateDeactivate", new { mileageRateRuleId }), ct);
+        var user=RequireAny("admin");var row=await mileage.GetRateAsync(mileageRateRuleId,true,ct)??throw new KeyNotFoundException("找不到補助費率。");if(row.OrganizationId!=user.OrganizationId)throw new UnauthorizedAccessException("無權維護其他組織費率。");var vehicle=row.VehicleType;row.IsActive=false;row.UpdatedAt=DateTime.UtcNow;await uow.SaveChangesAsync(ct);await NormalizeRateSeriesAsync(user.OrganizationId,vehicle,ct);await workflow.AddAuditAsync(Audit(user.UserId,"MileageRateRule",mileageRateRuleId.ToString(),"MileageRateDeactivate",new{mileageRateRuleId}),ct);await uow.SaveChangesAsync(ct);
+    }
+
+    private async Task NormalizeRateSeriesAsync(int? organizationId,string vehicleType,CancellationToken ct)
+    {
+        var series=(await mileage.GetRateSeriesAsync(organizationId,vehicleType,true,ct)).Where(x=>x.IsActive).OrderBy(x=>x.EffectiveFrom).ThenBy(x=>x.MileageRateRuleId).ToList();
+        for(var i=0;i<series.Count;i++) series[i].EffectiveTo=i+1<series.Count?series[i+1].EffectiveFrom.AddDays(-1):null;
         await uow.SaveChangesAsync(ct);
     }
 
@@ -337,25 +323,4 @@ public sealed class MasterService(
     private static VisitTypeDto MapVisitType(VisitType x) => new(x.VisitTypeId, x.VisitTypeCode, x.VisitTypeName, x.Description, x.SortOrder, x.IsActive);
     private static MileageRateDto MapRate(MileageRateRule x) => new(x.MileageRateRuleId, x.OrganizationId, x.RuleName, x.VehicleType, x.RatePerKm, x.EffectiveFrom, x.EffectiveTo, x.IsActive);
     private static AuditLog Audit(int userId, string entity, string? id, string action, object value) => new() { UserId = userId, EntityType = entity, EntityId = id, Action = action, NewValues = System.Text.Json.JsonSerializer.Serialize(value), CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow };
-}
-
-public sealed class ReportService(ICurrentUserService current, ITripRepository trips, IUserRepository users)
-{
-    public async Task<List<MileageReportRow>> MileageAsync(DateOnly? start, DateOnly? end, CancellationToken ct)
-    {
-        var user = current.GetRequired();
-        var rows = await trips.GetReportTripsAsync(user, start, end, ct);
-        var result = new List<MileageReportRow>();
-        foreach (var trip in rows)
-        {
-            var profile = await users.GetProfileAsync(trip.UserId, ct);
-            var calc = trip.MileageCalculation;
-            result.Add(new MileageReportRow(
-                trip.TripNo, trip.VisitDate, profile?.DisplayName ?? $"User {trip.UserId}", profile?.TeamName,
-                string.Join(" → ", trip.Stops.OrderBy(x => x.StopSequence).Select(x => x.LocationNameSnapshot)),
-                calc?.ClaimedDistanceKm, calc?.SystemDistanceKm, calc?.ApprovedDistanceKm,
-                calc?.RatePerKmSnapshot, calc?.ApprovedAmount, trip.Status, TripStatuses.Display(trip.Status)));
-        }
-        return result;
-    }
 }

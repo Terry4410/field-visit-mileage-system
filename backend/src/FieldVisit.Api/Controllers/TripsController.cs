@@ -38,18 +38,9 @@ public sealed class TripsController(TripService trips, LeaderService leader) : C
     public async Task<ActionResult<TripDto>> Submit(long tripId, SubmitTripRequest request, [FromHeader(Name="If-Match")] string rowVersion, CancellationToken ct) =>
         Ok(await trips.SubmitAsync(tripId, request, rowVersion.Trim('"'), ct));
 
-    [HttpGet("trips/history")]
-    [Authorize(Roles = "visitor")]
-    public async Task<ActionResult<List<TripDto>>> History([FromQuery] DateOnly? startDate, [FromQuery] DateOnly? endDate, [FromQuery] string? locationKeyword, CancellationToken ct) =>
-        Ok(await trips.HistoryAsync(startDate, endDate, locationKeyword, ct));
-
     [HttpGet("leader/review-queue")]
     [Authorize(Roles = "leader")]
     public async Task<ActionResult<List<TripDto>>> Queue(CancellationToken ct) => Ok(await leader.ReviewQueueAsync(ct));
-
-    [HttpPost("mileage-jobs")]
-    [Authorize(Roles = "leader")]
-    public async Task<ActionResult<MileageBatchResult>> Mileage(MileageBatchRequest request, CancellationToken ct) => Ok(await leader.CalculateBatchAsync(request, ct));
 
     [HttpPost("trips/{tripId:long}/approve")]
     [Authorize(Roles = "leader")]

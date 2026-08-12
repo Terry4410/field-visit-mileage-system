@@ -1,21 +1,285 @@
 param(
-  [Parameter(Mandatory=$true)][string]$ApiBaseUrl,
-  [string]$DemoPassword="123456"
+  [Parameter(Mandatory=$true)]
+  [string]$ApiBaseUrl,
+
+  [string]$DemoPassword = $env:FIELDVISIT_DEMO_PASSWORD,
+
+  [int]$JobTimeoutSeconds = 90
 )
-$ErrorActionPreference="Stop";$ApiBaseUrl=$ApiBaseUrl.TrimEnd('/')
-function Login($account){$b=@{account=$account;password=$DemoPassword}|ConvertTo-Json;Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/auth/demo-login" -ContentType "application/json" -Body $b}
-function H($token){@{Authorization="Bearer $token"}}
-Write-Host "1/9 API + DB health"
-$root=$ApiBaseUrl -replace '/api/v1$','';$h=Invoke-RestMethod "$root/health";$db=Invoke-RestMethod "$root/health/db";if($h.status-ne'ok' -or $db.status-ne'ok'){throw "Health failed"}
-Write-Host "2/9 Visitor login";$v=Login 'visitor01';$vh=H $v.accessToken
-Write-Host "3/9 Master data";$loc=Invoke-RestMethod -Uri "$ApiBaseUrl/locations" -Headers $vh;if($loc.Count-lt2){throw "Need >=2 locations"}
-$date=(Get-Date).AddDays(30).ToString('yyyy-MM-dd')
-$body=@{visitDate=$date;startTime='18:10';endTime='19:10';claimedDistanceKm=12.3;purpose='Smoke Test';notes='Automated';timeOverlapConfirmed=$false;stops=@(@{locationId=$loc[0].locationId;projectId=$null;visitTypeId=$null;sourceType='Master';locationName=$loc[0].locationName;address=$loc[0].address},@{locationId=$loc[1].locationId;projectId=$null;visitTypeId=$null;sourceType='Master';locationName=$loc[1].locationName;address=$loc[1].address})}|ConvertTo-Json -Depth 8
-Write-Host "4/9 Create draft";$t=Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/trips" -Headers $vh -ContentType 'application/json' -Body $body
-Write-Host "5/9 Submit";$sh=@{Authorization="Bearer $($v.accessToken)";'If-Match'=$t.rowVersion};$sb=@{confirmTimeOverlap=$false}|ConvertTo-Json;$sent=Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/trips/$($t.visitTripId)/submit" -Headers $sh -ContentType 'application/json' -Body $sb
-Write-Host "6/9 Leader login + batch mileage";$l=Login 'leader01';$lh=H $l.accessToken;$jb=@{mode='AllPending';startDate=$null;endDate=$null;selectedTripIds=$null}|ConvertTo-Json;$job=Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/mileage-jobs" -Headers $lh -ContentType 'application/json' -Body $jb
-Write-Host "7/9 Review queue";$q=Invoke-RestMethod -Uri "$ApiBaseUrl/leader/review-queue" -Headers $lh;$target=$q|Where-Object{$_.visitTripId-eq$t.visitTripId}|Select-Object -First 1;if(-not$target){throw "Trip not in leader queue"};if($target.status-ne'PendingApproval'){throw "Unexpected status $($target.status)"}
-Write-Host "8/9 Approve";$ab=@{approvedDistanceKm=$target.systemDistanceKm;rowVersion=$target.rowVersion;comments='Smoke test'}|ConvertTo-Json;$approved=Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/trips/$($target.visitTripId)/approve" -Headers $lh -ContentType 'application/json' -Body $ab;if($approved.status-ne'Approved' -or $null-eq$approved.approvedAmount){throw "Approve/subsidy failed"}
-Write-Host "9/9 Visitor history";$hist=Invoke-RestMethod -Uri "$ApiBaseUrl/trips/history?startDate=$date&endDate=$date" -Headers $vh;$final=$hist|Where-Object{$_.visitTripId-eq$t.visitTripId}|Select-Object -First 1;if(-not$final){throw "History not found"}
-Write-Host "PASS - Existing Schema 1.5.0 multi-role UAT flow completed." -ForegroundColor Green
-Write-Host "Trip=$($final.tripNo), status=$($final.statusName), systemKm=$($final.systemDistanceKm), approvedAmount=$($final.approvedAmount)"
+
+$ErrorActionPreference = "Stop"
+$ApiBaseUrl = $ApiBaseUrl.TrimEnd('/')
+
+if ([string]::IsNullOrWhiteSpace($DemoPassword)) {
+    throw "DemoPassword 未提供。請使用 -DemoPassword 或設定 FIELDVISIT_DEMO_PASSWORD 環境變數。"
+}
+
+function Login([string]$account) {
+    $body = @{
+        account  = $account
+        password = $DemoPassword
+    } | ConvertTo-Json
+
+    Invoke-RestMethod `
+        -Method Post `
+        -Uri "$ApiBaseUrl/auth/demo-login" `
+        -ContentType "application/json" `
+        -Body $body
+}
+
+function H([string]$token) {
+    @{
+        Authorization = "Bearer $token"
+    }
+}
+
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "Field Visit Mileage System v1.6.0 UAT Smoke Test" -ForegroundColor Cyan
+Write-Host "==================================================" -ForegroundColor Cyan
+
+# ------------------------------------------------------------
+# 1. Health
+# ------------------------------------------------------------
+Write-Host "1/10 API + DB health"
+
+$root = $ApiBaseUrl -replace '/api/v1$',''
+
+$health = Invoke-RestMethod "$root/health"
+$dbHealth = Invoke-RestMethod "$root/health/db"
+
+if ($health.status -ne 'ok' -or $dbHealth.status -ne 'ok') {
+    throw "Health check failed."
+}
+
+# ------------------------------------------------------------
+# 2. Visitor login
+# ------------------------------------------------------------
+Write-Host "2/10 Visitor login"
+
+$visitor = Login 'visitor01'
+$visitorHeaders = H $visitor.accessToken
+
+# ------------------------------------------------------------
+# 3. Master data
+# ------------------------------------------------------------
+Write-Host "3/10 Load master data"
+
+$locations = Invoke-RestMethod `
+    -Uri "$ApiBaseUrl/locations" `
+    -Headers $visitorHeaders
+
+if ($locations.Count -lt 2) {
+    throw "Smoke Test 至少需要 2 個可用地點。"
+}
+
+# ------------------------------------------------------------
+# 4. Create trip
+# ------------------------------------------------------------
+Write-Host "4/10 Create trip draft"
+
+$date = (Get-Date).AddDays(30).ToString('yyyy-MM-dd')
+
+$tripBody = @{
+    visitDate             = $date
+    startTime             = '18:10'
+    endTime               = '19:10'
+    claimedDistanceKm     = 12.3
+    purpose               = 'v1.6.0 Smoke Test'
+    notes                 = 'Automated UAT Smoke Test'
+    timeOverlapConfirmed  = $false
+    stops = @(
+        @{
+            locationId   = $locations[0].locationId
+            projectId    = $null
+            visitTypeId  = $null
+            sourceType   = 'Master'
+            locationName = $locations[0].locationName
+            address      = $locations[0].address
+        },
+        @{
+            locationId   = $locations[1].locationId
+            projectId    = $null
+            visitTypeId  = $null
+            sourceType   = 'Master'
+            locationName = $locations[1].locationName
+            address      = $locations[1].address
+        }
+    )
+} | ConvertTo-Json -Depth 8
+
+$trip = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$ApiBaseUrl/trips" `
+    -Headers $visitorHeaders `
+    -ContentType 'application/json' `
+    -Body $tripBody
+
+# ------------------------------------------------------------
+# 5. Submit
+# ------------------------------------------------------------
+Write-Host "5/10 Submit trip"
+
+$submitHeaders = @{
+    Authorization = "Bearer $($visitor.accessToken)"
+    'If-Match'    = $trip.rowVersion
+}
+
+$submitBody = @{
+    confirmTimeOverlap = $false
+} | ConvertTo-Json
+
+$submitted = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$ApiBaseUrl/trips/$($trip.visitTripId)/submit" `
+    -Headers $submitHeaders `
+    -ContentType 'application/json' `
+    -Body $submitBody
+
+# ------------------------------------------------------------
+# 6. Leader login + enqueue mileage background job
+# ------------------------------------------------------------
+Write-Host "6/10 Leader login + enqueue mileage job"
+
+$leader = Login 'leader01'
+$leaderHeaders = H $leader.accessToken
+
+$jobBody = @{
+    mode            = 'Selected'
+    startDate       = $null
+    endDate         = $null
+    selectedTripIds = @($trip.visitTripId)
+} | ConvertTo-Json
+
+$job = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$ApiBaseUrl/jobs/mileage" `
+    -Headers $leaderHeaders `
+    -ContentType 'application/json' `
+    -Body $jobBody
+
+if (-not $job.backgroundJobId) {
+    throw "建立 Mileage Background Job 失敗：沒有 BackgroundJobId。"
+}
+
+Write-Host "  JobId=$($job.backgroundJobId), initial=$($job.status)"
+
+# ------------------------------------------------------------
+# 7. Poll background job
+# ------------------------------------------------------------
+Write-Host "7/10 Wait for mileage job"
+
+$deadline = (Get-Date).AddSeconds($JobTimeoutSeconds)
+$jobState = $job
+
+do {
+    if ($jobState.status -in @('Succeeded','PartiallySucceeded','Failed')) {
+        break
+    }
+
+    Start-Sleep -Seconds 2
+
+    $jobState = Invoke-RestMethod `
+        -Method Get `
+        -Uri "$ApiBaseUrl/jobs/$($job.backgroundJobId)" `
+        -Headers $leaderHeaders
+
+    Write-Host "  Job status=$($jobState.status), success=$($jobState.successCount), failed=$($jobState.failedCount)"
+
+} while ((Get-Date) -lt $deadline)
+
+if ($jobState.status -notin @('Succeeded','PartiallySucceeded')) {
+    throw "Mileage Job 未成功完成。Status=$($jobState.status), Error=$($jobState.errorMessage)"
+}
+
+if ($jobState.successCount -lt 1) {
+    throw "Mileage Job 沒有成功處理任何行程。"
+}
+
+# ------------------------------------------------------------
+# 8. Leader review queue + approve
+# ------------------------------------------------------------
+Write-Host "8/10 Leader review + approve"
+
+$queue = Invoke-RestMethod `
+    -Uri "$ApiBaseUrl/leader/review-queue" `
+    -Headers $leaderHeaders
+
+$target = $queue |
+    Where-Object { $_.visitTripId -eq $trip.visitTripId } |
+    Select-Object -First 1
+
+if (-not $target) {
+    throw "Mileage Job 完成後，行程未出現在 Leader Review Queue。"
+}
+
+if ($target.status -ne 'PendingApproval') {
+    throw "Mileage Job 後狀態錯誤：$($target.status)"
+}
+
+if ($null -eq $target.systemDistanceKm) {
+    throw "Mileage Job 完成後沒有 systemDistanceKm。"
+}
+
+$approveBody = @{
+    approvedDistanceKm = $target.systemDistanceKm
+    rowVersion         = $target.rowVersion
+    comments           = 'v1.6.0 automated smoke test'
+} | ConvertTo-Json
+
+$approved = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$ApiBaseUrl/trips/$($target.visitTripId)/approve" `
+    -Headers $leaderHeaders `
+    -ContentType 'application/json' `
+    -Body $approveBody
+
+if ($approved.status -ne 'Approved') {
+    throw "核准失敗。Status=$($approved.status)"
+}
+
+# ------------------------------------------------------------
+# 9. Unified Query
+# ------------------------------------------------------------
+Write-Host "9/10 Unified Query validation"
+
+$query = Invoke-RestMethod `
+    -Uri "$ApiBaseUrl/query/trips?startDate=$date&endDate=$date&page=1&pageSize=100" `
+    -Headers $visitorHeaders
+
+$final = $query.items |
+    Where-Object { $_.visitTripId -eq $trip.visitTripId } |
+    Select-Object -First 1
+
+if (-not $final) {
+    throw "Unified Query 找不到剛完成的行程。"
+}
+
+if ($final.status -ne 'Approved') {
+    throw "Unified Query 行程狀態不是 Approved：$($final.status)"
+}
+
+if (-not $final.isSnapshot -or $final.snapshotVersion -lt 1) {
+    throw "核准後沒有建立有效 Snapshot。"
+}
+
+# ------------------------------------------------------------
+# 10. Final validation
+# ------------------------------------------------------------
+Write-Host "10/10 Final validation"
+
+if ($null -eq $final.systemDistanceKm) {
+    throw "Unified Query 缺少 systemDistanceKm。"
+}
+
+if ($null -eq $final.approvedDistanceKm) {
+    throw "Unified Query 缺少 approvedDistanceKm。"
+}
+
+Write-Host ""
+Write-Host "PASS - v1.6.0 multi-role UAT smoke flow completed." -ForegroundColor Green
+Write-Host "Trip=$($final.tripNo)"
+Write-Host "Status=$($final.statusName)"
+Write-Host "SnapshotVersion=$($final.snapshotVersion)"
+Write-Host "SystemKm=$($final.systemDistanceKm)"
+Write-Host "ApprovedKm=$($final.approvedDistanceKm)"
+Write-Host "Subsidy=$($final.subsidyAmount)"

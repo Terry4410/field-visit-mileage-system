@@ -1,65 +1,48 @@
-# 外訪行程與里程管理系統｜Azure SQL Existing Schema UAT
+# 外訪行程與里程管理系統 v1.6.0 FINAL Release Candidate
 
-本版本直接對應目前 Azure SQL `SchemaVersions = 1.5.0` 的既有資料表，不建立第二套 `Trips / Groups / SubsidyRates`。
+> 狀態：**Release Candidate / Codespaces Verified**
+> Baseline：`main@4bc7ab6706485d490ce7be0a4fb86d2c92e8381a`
+> Application：v1.6.0｜DB Schema：1.6.0｜Route/Geocoding：Mock (UAT)
+> 正式目標：React + TypeScript → ASP.NET Core .NET 8+ → SQL Server 2019+ / Azure SQL → Microsoft Entra ID
 
-## UAT 架構
+本版本以 `docs/requirements/v1.6.0-requirement-freeze.md` 為唯一需求基準，完成 v1.6.0 UAT Architecture Consolidation。Google Routes、Google Production Geocoding、Production Entra ID 與 DMZ/Intranet 正式部署不在 v1.6.0 範圍。
 
-```text
-GitHub Pages (React + TypeScript)
-        ↓ HTTPS
-Azure App Service (ASP.NET Core .NET 8)
-        ↓
-Azure SQL db-fieldvisit-uat
-```
+## v1.6.0 完成範圍
 
-## 正式移交目標
+- Leader 多小組 `UserTeamScopes`、Admin 角色/Team Scope 維護。
+- Approved 歷史資料以 Snapshot 為唯一查詢/報表來源；既有 Approved 資料於 Migration Backfill。
+- Approved 更正：Visitor 申請 → Leader 審核 → 財務性更正由 Admin 結案 → Snapshot V2+。
+- 1 個地點可送出/核准但里程、費率、補助為 N/A；2 個以上才進里程流程。
+- Unified Query：日期、小組、外訪員、地點、專案、拜訪形式、狀態；Server-side pagination。
+- 同一 Query Definition 產生畫面、Server-side Excel（三工作表）與 PDF。
+- LocationCode、地點/專案 Excel Template → Preview → Validate → Error Excel → Confirm → Result。
+- 補助費率由生效日自動銜接前後版本；同日重複版本禁止。
+- Mileage / Geocoding Background Jobs；Leader Geocoding 支援全部未處理、日期區間、勾選。
+- Mobile-first 觸控與字級基準。
+- Backend Role / Organization / Team Scope / Ownership / Reference ID 驗證。
+- `/health/live`、`/health/ready`、CI Build/Test/Deploy Gate。
 
-```text
-企業 Web / DMZ
-→ ASP.NET Core .NET 8+
-→ Microsoft SQL Server 2019+
-→ Microsoft Entra ID
-```
+## 套用前必要條件
 
-## Existing Schema 對應
+1. Repository 必須是 `Terry4410/field-visit-mileage-system`。
+2. `git rev-parse HEAD` 必須等於：
 
-- `Teams`：小組
-- `VisitTrips`：行程主檔
-- `VisitTripStops`：拜訪站點
-- `MileageCalculations`：自算 / 系統 / 核定里程與補助快照
-- `MileageRateRules`：每公里補助與生效區間
-- `ApprovalRecords`：核准 / 退回紀錄
-- `VisitTripStatusHistory`：狀態歷史
-- `Locations / LocationApprovalHistory`：地點與發布紀錄
-- `Projects / ProjectLocations / VisitTypes`：專案與拜訪形式
-- `Users / Roles / UserRoles`：身分與業務角色
-- `AuditLogs`：稽核
+   `4bc7ab6706485d490ce7be0a4fb86d2c92e8381a`
 
-## 安裝順序
+3. tracked files 必須沒有未 commit 變更。
+4. **不要先執行 SQL**；先套用程式並 Build/Test。
 
-1. Azure SQL 已完成 Schema 1.5.0。
-2. 執行 `database/020_uat_demo_seed.sql` 建立 UAT 示範帳號 / 主檔（可選，但建議）。
-3. App Service 設定 Connection String / Auth / CORS。
-4. GitHub 設定 `AZURE_WEBAPP_PUBLISH_PROFILE` 與 `AZURE_WEBAPP_NAME`。
-5. Push `main`，API workflow 會建置與部署。
-6. 修改 `frontend/public/config.js` 指向 App Service `/api/v1`。
-7. GitHub Pages Source 選 GitHub Actions。
-8. 執行 `scripts/uat-smoke-test.ps1`。
+## 建議流程
 
-詳見 `docs/DEPLOYMENT_ZH-TW.md`。
+請依 `docs/release/DEPLOY_v1.6.0.md` 執行：
 
-## UAT Demo Auth
+`Apply RC → Static Verify → Frontend Build/Test → Backend Build/Test → Azure SQL Up.sql → Verify.sql → Commit/Push → GitHub Actions → UAT Smoke Test`
 
-UAT 使用 `EmployeeNo + 共用 Demo Password`。建議 Seed 後：
+## 狀態用語
 
-- `visitor01` 外訪員
-- `visitor02` 外訪員
-- `leader01` 小組長
-- `admin01` 管理者
-- `gov01` 督導
+- 本 ZIP：**Release Candidate / Codespaces Verified**。
+- Codespaces `npm test/build` + `dotnet build/test` 成功：**Build Verified**。
+- Azure SQL `Verify.sql` 全 PASS / ErrorCount=0：**DB Verified**。
+- GitHub Actions + 實際瀏覽器 Smoke Test 成功：**UAT Deployed**。
 
-正式版由 IT 將 Demo JWT Provider 替換為 Microsoft Entra ID；`Users.EntraObjectId` 已保留。
-
-## Secret 原則
-
-SQL Password、JWT Key、Google API Key、Entra Secret、Publish Profile 不可 commit 至 GitHub。
+本環境無 .NET SDK、無 Azure SQL 連線、無 Azure App Service Runtime，因此不得把本 RC 稱為 Build Verified / DB Verified / UAT Deployed。

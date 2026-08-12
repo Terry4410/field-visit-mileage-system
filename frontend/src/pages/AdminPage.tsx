@@ -1,157 +1,86 @@
-import {useEffect,useMemo,useState} from "react";
-import {api} from "../api";
-import type {MileageRate,MileageReport,Project,Team,VisitType} from "../types";
-import {downloadCsv,money} from "../utils";
+import{useEffect,useMemo,useState}from"react";
+import{api,apiDownload}from"../api";
+import type{AdminUserAccess,BackgroundJob,CorrectionRequest,DashboardSummary,ImportConfirmResult,ImportPreview,ManagedLocation,MileageRate,Project,Team,VisitType}from"../types";
+import{money,todayTaipei}from"../v160";
 
-type Props={section:"dashboard"|"users"|"projects"|"rates"|"reports"};
-const effectiveRate=(rates:MileageRate[],date:string)=>rates.filter(r=>r.isActive&&r.effectiveFrom<=date&&(!r.effectiveTo||r.effectiveTo>=date)).sort((a,b)=>b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+type Props={section:'dashboard'|'users'|'locations'|'projects'|'rates'|'corrections'};
+const roleLabels:Record<string,string>={visitor:'外訪員',leader:'小組長',admin:'管理者',supervisor:'督導'};
 
 export default function AdminPage({section}:Props){
-  const today=new Date().toISOString().slice(0,10);
-  const [rates,setRates]=useState<MileageRate[]>([]),[report,setReport]=useState<MileageReport[]>([]),[projects,setProjects]=useState<Project[]>([]),[types,setTypes]=useState<VisitType[]>([]),[teams,setTeams]=useState<Team[]>([]);
-  const [msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[start,setStart]=useState("2026-01-01"),[end,setEnd]=useState(today),[status,setStatus]=useState(""),[team,setTeam]=useState("");
+ const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);
+ if(section==='dashboard')return <Dashboard msg={msg} setMsg={setMsg}/>;
+ if(section==='users')return <Users busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
+ if(section==='locations')return <Locations busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
+ if(section==='projects')return <Projects busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
+ if(section==='rates')return <Rates busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
+ return <Corrections busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
+}
 
-  const [rateEditId,setRateEditId]=useState<number|null>(null),[rateValue,setRateValue]=useState("2.50"),[rateFrom,setRateFrom]=useState(today),[rateTo,setRateTo]=useState(""),[rateName,setRateName]=useState(""),[rateActive,setRateActive]=useState(true);
-  const [projectEditId,setProjectEditId]=useState<number|null>(null),[projectCode,setProjectCode]=useState(""),[projectName,setProjectName]=useState(""),[projectDesc,setProjectDesc]=useState(""),[projectTeamId,setProjectTeamId]=useState(""),[projectMode,setProjectMode]=useState("List"),[projectStart,setProjectStart]=useState(today),[projectEnd,setProjectEnd]=useState(""),[projectActive,setProjectActive]=useState(true);
-  const [typeEditId,setTypeEditId]=useState<number|null>(null),[typeCode,setTypeCode]=useState(""),[typeName,setTypeName]=useState(""),[typeDesc,setTypeDesc]=useState(""),[typeSort,setTypeSort]=useState("10"),[typeActive,setTypeActive]=useState(true);
+function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){
+ const[d,setD]=useState<DashboardSummary|null>(null);useEffect(()=>{api<DashboardSummary>('/dashboard').then(setD).catch(e=>setMsg(e.message))},[]);
+ return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待處理更正" value={d?.pendingCorrections??'—'} hint={d?.currentRatePerKm!=null?`目前費率 ${money(d.currentRatePerKm)}/km`:undefined}/></div>{msg&&<div className="note">{msg}</div>}</>
+}
+function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}){return <div className="card stat"><div className="label">{label}</div><div className="value">{value}</div>{hint&&<div className="hint">{hint}</div>}</div>}
 
-  const load=()=>Promise.all([
-    api<MileageRate[]>("/mileage-rate-rules"),
-    api<MileageReport[]>(`/reports/mileage?startDate=${start}&endDate=${end}`),
-    api<Project[]>("/projects"),
-    api<VisitType[]>("/visit-types"),
-    api<Team[]>("/teams")
-  ]).then(([r,m,p,v,t])=>{setRates(r);setReport(m);setProjects(p);setTypes(v);setTeams(t)}).catch(e=>setMsg(e.message));
-  useEffect(()=>{void load()},[section]);
+function Users({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
+ const[rows,setRows]=useState<AdminUserAccess[]>([]),[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<AdminUserAccess|null>(null),[active,setActive]=useState(true),[roles,setRoles]=useState<string[]>([]),[scopes,setScopes]=useState<Array<{teamId:number;isPrimary:boolean}>>([]);
+ const load=()=>Promise.all([api<AdminUserAccess[]>('/admin/users'),api<Team[]>('/teams')]).then(([u,t])=>{setRows(u);setTeams(t)}).catch(e=>setMsg(e.message));useEffect(()=>{void load()},[]);
+ const open=(u:AdminUserAccess)=>{setEdit(u);setActive(u.isActive);setRoles([...u.roles]);setScopes(u.teamScopes.map(s=>({teamId:s.teamId,isPrimary:s.isPrimary})))};
+ const toggleRole=(r:string)=>setRoles(x=>x.includes(r)?x.filter(v=>v!==r):[...x,r]);
+ const toggleTeam=(id:number)=>setScopes(x=>x.some(s=>s.teamId===id)?x.filter(s=>s.teamId!==id):[...x,{teamId:id,isPrimary:x.length===0}]);
+ const primary=(id:number)=>setScopes(x=>x.map(s=>({...s,isPrimary:s.teamId===id})));
+ const save=async()=>{if(!edit)return;setBusy(true);setMsg('');try{const u=await api<AdminUserAccess>(`/admin/users/${edit.userId}/access`,{method:'PUT',body:JSON.stringify({isActive:active,roles,teamScopes:scopes})});setEdit(u);setMsg('人員角色與小組授權已更新；該使用者需重新登入取得最新權限。');await load()}catch(e){setMsg(e instanceof Error?e.message:'儲存失敗')}finally{setBusy(false)}};
+ return <><div className="card"><div className="section-title"><div><h2>人員與權限</h2><div className="sub">同一人可有多角色；小組長可授權多個小組，並指定一個主要小組。</div></div></div>{msg&&<div className="note">{msg}</div>}<div className="table-wrap"><table><thead><tr><th>員編</th><th>姓名</th><th>角色</th><th>小組範圍</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(u=><tr key={u.userId}><td>{u.employeeNo}</td><td>{u.displayName}</td><td>{u.roles.map(r=>roleLabels[r]||r).join('、')||'—'}</td><td>{u.teamScopes.map(s=>`${s.teamName}${s.isPrimary?' ★':''}`).join('、')||'—'}</td><td>{u.isActive?'啟用':'停用'}</td><td><button className="btn small secondary" onClick={()=>open(u)}>維護</button></td></tr>)}</tbody></table></div></div>
+ {edit&&<div className="modal"><div className="modal-panel"><h3>人員權限｜{edit.displayName}</h3><label className="check-row"><input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)}/>帳號啟用</label><h4>角色</h4><div className="checkbox-grid">{Object.entries(roleLabels).map(([r,n])=><label className="check-row" key={r}><input type="checkbox" checked={roles.includes(r)} onChange={()=>toggleRole(r)}/>{n}</label>)}</div><h4>小組授權</h4><div className="scope-list">{teams.map(t=>{const s=scopes.find(x=>x.teamId===t.teamId);return <div className="scope-row" key={t.teamId}><label className="check-row"><input type="checkbox" checked={!!s} onChange={()=>toggleTeam(t.teamId)}/>{t.teamName}</label>{s&&<label className="check-row"><input type="radio" name="primary-team" checked={s.isPrimary} onChange={()=>primary(t.teamId)}/>主要小組</label>}</div>})}</div><div className="modal-sticky-actions"><button className="btn secondary" onClick={()=>setEdit(null)}>取消</button><button className="btn ok" disabled={busy} onClick={()=>void save()}>儲存</button></div></div></div>}</>
+}
 
-  const current=effectiveRate(rates,today);
-  const teamNames=useMemo(()=>[...new Set(report.map(x=>x.teamName).filter(Boolean) as string[])].sort(),[report]);
-  const filtered=useMemo(()=>report.filter(x=>(!status||x.status===status)&&(!team||x.teamName===team)),[report,status,team]);
-  const approved=report.filter(x=>x.status==="Approved");
-  const reportDownload=(name:string,rows:MileageReport[]=report)=>downloadCsv(`${name}.csv`,rows.map(x=>({日期:x.visitDate,外訪員:x.visitorName,小組:x.teamName||"",路線:x.route,外訪員自算里程:x.claimedDistanceKm??"",系統里程:x.systemDistanceKm??"",小組長核定里程:x.approvedDistanceKm??"",每公里補助:x.ratePerKmSnapshot??"",補助金額:x.approvedAmount??"",狀態:x.statusName})));
+function ImportPanel({type,onDone}:{type:'locations'|'projects';onDone:()=>void}){
+ const[file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<ImportPreview|null>(null),[result,setResult]=useState<ImportConfirmResult|null>(null),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);
+ const template=()=>apiDownload(`/imports/${type}/template`,type==='locations'?'地點主檔匯入範例.xlsx':'專案主檔匯入範例.xlsx');
+ const doPreview=async()=>{if(!file)return setMsg('請先選擇 .xlsx 檔案。');setBusy(true);setMsg('');try{const form=new FormData();form.append('file',file);setPreview(await api<ImportPreview>(`/imports/${type}/preview`,{method:'POST',body:form},120000));setResult(null)}catch(e){setMsg(e instanceof Error?e.message:'預覽失敗')}finally{setBusy(false)}};
+ const confirm=async()=>{if(!preview)return;setBusy(true);try{const r=await api<ImportConfirmResult>(`/imports/${preview.importBatchId}/confirm`,{method:'POST'},120000);setResult(r);setMsg('匯入完成。');onDone()}catch(e){setMsg(e instanceof Error?e.message:'匯入失敗')}finally{setBusy(false)}};
+ return <div className="import-panel"><div className="section-title"><strong>Excel 批次匯入</strong><button className="btn small outline" onClick={()=>void template()}>下載 Excel 範例</button></div><div className="actions"><input type="file" accept=".xlsx" onChange={e=>{setFile(e.target.files?.[0]||null);setPreview(null)}}/><button className="btn secondary" disabled={busy} onClick={()=>void doPreview()}>預覽與驗證</button></div>{msg&&<div className="note">{msg}</div>}{preview&&<><div className={`note ${preview.errorCount?'danger-note':'ok-note'}`}>共 {preview.totalCount} 列｜可匯入 {preview.validCount}｜錯誤 {preview.errorCount}</div><div className="table-wrap compact-table"><table><thead><tr><th>列</th><th>類型</th><th>動作</th><th>Key</th><th>結果</th></tr></thead><tbody>{preview.items.slice(0,100).map((x,i)=><tr key={i}><td>{x.rowNumber}</td><td>{x.entityType}</td><td>{x.action}</td><td>{x.displayKey}</td><td>{x.errorMessage||'OK'}</td></tr>)}</tbody></table></div><div className="actions">{preview.errorCount>0&&<button className="btn outline" onClick={()=>void apiDownload(`/imports/${preview.importBatchId}/errors.xlsx`,'匯入錯誤.xlsx')}>下載錯誤 Excel</button>}<button className="btn ok" disabled={preview.errorCount>0||busy} onClick={()=>void confirm()}>確認匯入</button></div></>}{result&&<div className="note ok-note">新增 {result.created}／更新 {result.updated}／無變更 {result.unchanged}／失敗 {result.failed}</div>}</div>
+}
 
-  const resetRate=()=>{setRateEditId(null);setRateValue("2.50");setRateFrom(today);setRateTo("");setRateName("");setRateActive(true)};
-  const editRate=(r:MileageRate)=>{setRateEditId(r.mileageRateRuleId);setRateValue(String(r.ratePerKm));setRateFrom(r.effectiveFrom);setRateTo(r.effectiveTo||"");setRateName(r.ruleName);setRateActive(r.isActive)};
-  const saveRate=async()=>{
-    if(Number(rateValue)<0)return setMsg("每公里補助不可小於 0。");
-    if(!rateName.trim())return setMsg("請輸入規則名稱。");
-    setBusy(true);setMsg("");
-    try{
-      const body={ruleName:rateName.trim(),vehicleType:"Motorcycle",ratePerKm:Number(rateValue),effectiveFrom:rateFrom,effectiveTo:rateTo||null,isActive:rateActive};
-      if(rateEditId)await api(`/mileage-rate-rules/${rateEditId}`,{method:"PUT",body:JSON.stringify(body)});
-      else await api("/mileage-rate-rules",{method:"POST",body:JSON.stringify(body)});
-      setMsg(rateEditId?"費率版本已修改。":"費率版本已新增。");
-      resetRate();await load();
-    }catch(e){setMsg(e instanceof Error?e.message:"費率儲存失敗")}finally{setBusy(false)}
-  };
-  const deleteRate=async(r:MileageRate)=>{
-    if(!window.confirm(`確定刪除／停用費率「${r.ruleName}」？已被歷史行程引用的費率會保留資料但停止後續套用。`))return;
-    setBusy(true);setMsg("");
-    try{await api(`/mileage-rate-rules/${r.mileageRateRuleId}`,{method:"DELETE"});setMsg("費率已刪除／停用。");if(rateEditId===r.mileageRateRuleId)resetRate();await load()}
-    catch(e){setMsg(e instanceof Error?e.message:"費率刪除失敗")}finally{setBusy(false)}
-  };
+function Locations({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
+ const[rows,setRows]=useState<ManagedLocation[]>([]),[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<ManagedLocation|null>(null),[teamId,setTeamId]=useState(''),[name,setName]=useState(''),[city,setCity]=useState(''),[district,setDistrict]=useState(''),[address,setAddress]=useState(''),[plus,setPlus]=useState(''),[selected,setSelected]=useState<number[]>([]),[job,setJob]=useState<BackgroundJob|null>(null);
+ const load=()=>Promise.all([api<ManagedLocation[]>('/managed-locations?includeInactive=true'),api<Team[]>('/teams')]).then(([l,t])=>{setRows(l);setTeams(t)}).catch(e=>setMsg(e.message));useEffect(()=>{void load()},[]);
+ const reset=()=>{setEdit(null);setTeamId('');setName('');setCity('');setDistrict('');setAddress('');setPlus('')};
+ const open=(l:ManagedLocation)=>{setEdit(l);setTeamId(l.teamId?String(l.teamId):'');setName(l.locationName);setCity(l.city||'');setDistrict(l.district||'');setAddress(l.address||'');setPlus(l.plusCode||'')};
+ const save=async()=>{setBusy(true);try{const body={teamId:teamId?Number(teamId):null,locationName:name,locationType:'Official',city:city||null,district:district||null,address:address||null,plusCode:plus||null,isActive:edit?.isActive??false,rowVersion:edit?.rowVersion||null};if(edit)await api(`/managed-locations/${edit.locationId}`,{method:'PUT',body:JSON.stringify(body)});else await api('/managed-locations',{method:'POST',body:JSON.stringify(body)});setMsg(edit?'地點已修改，需重新解析/發布。':'地點已新增，需解析/發布後才會成為正式地點。');reset();await load()}catch(e){setMsg(e instanceof Error?e.message:'儲存失敗')}finally{setBusy(false)}};
+ const geocode=async()=>{if(!selected.length)return setMsg('請先勾選地點。');setBusy(true);try{const j=await api<BackgroundJob>('/jobs/geocoding',{method:'POST',body:JSON.stringify({mode:'Selected',locationIds:selected})});setJob(j);setMsg(`已建立背景工作 ${j.backgroundJobId}`);setTimeout(()=>void poll(j.backgroundJobId),1000)}catch(e){setMsg(e instanceof Error?e.message:'建立工作失敗')}finally{setBusy(false)}};
+ const deactivate=async(l:ManagedLocation)=>{if(!window.confirm(`確定停用地點「${l.locationName}」？歷史行程 Snapshot 不受影響。`))return;setBusy(true);try{await api(`/managed-locations/${l.locationId}`,{method:'DELETE'});setMsg('地點已停用。');await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
+ const poll=async(id:string)=>{const j=await api<BackgroundJob>(`/jobs/${id}`);setJob(j);if(['Waiting','Processing'].includes(j.status))setTimeout(()=>void poll(id),1500);else{await load();setSelected([])}};
+ return <><div className="grid cols-2"><div className="card"><div className="section-title"><h2>{edit?'修改地點':'新增地點'}</h2>{edit&&<button className="btn small outline" onClick={reset}>取消修改</button>}</div><div className="grid cols-2"><div className="field"><label>小組</label><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>地點名稱</label><input value={name} onChange={e=>setName(e.target.value)}/></div><div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div><div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field span-2"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div></div><button className="btn" disabled={busy} onClick={()=>void save()}>{edit?'儲存修改':'新增地點'}</button></div><div className="card"><ImportPanel type="locations" onDone={load}/></div></div>{msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}{job&&<div className="note">背景工作：{job.status}｜成功 {job.successCount}／失敗 {job.failedCount}／總計 {job.totalCount}</div>}<div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>地點主檔</h2><div className="sub">LocationCode 由系統自動產生；待確認地點可批次背景解析。</div></div><button className="btn ok" onClick={()=>void geocode()} disabled={busy}>解析/發布勾選地點</button></div><div className="table-wrap"><table><thead><tr><th></th><th>地點代碼</th><th>地點</th><th>小組</th><th>地址</th><th>解析</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(l=><tr key={l.locationId}><td><input type="checkbox" checked={selected.includes(l.locationId)} onChange={e=>setSelected(x=>e.target.checked?[...x,l.locationId]:x.filter(id=>id!==l.locationId))}/></td><td>{l.locationCode}</td><td>{l.locationName}</td><td>{l.teamName||'全組織'}</td><td>{l.address||l.plusCode||'—'}</td><td>{l.geocodingStatus}</td><td>{l.isActive?'啟用':l.approvalStatus}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>open(l)}>修改</button>{l.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivate(l)}>停用</button>}</div></td></tr>)}</tbody></table></div></div></>
+}
 
-  const resetProject=()=>{setProjectEditId(null);setProjectCode("");setProjectName("");setProjectDesc("");setProjectTeamId("");setProjectMode("List");setProjectStart(today);setProjectEnd("");setProjectActive(true)};
-  const editProject=(p:Project)=>{setProjectEditId(p.projectId);setProjectCode(p.projectCode);setProjectName(p.projectName);setProjectDesc(p.description||"");setProjectTeamId(p.teamId?String(p.teamId):"");setProjectMode(p.locationMode);setProjectStart(p.startDate||today);setProjectEnd(p.endDate||"");setProjectActive(p.isActive)};
-  const saveProject=async()=>{
-    if(!projectCode.trim()||!projectName.trim())return setMsg("專案代碼與專案名稱為必填。");
-    setBusy(true);setMsg("");
-    try{
-      const body={teamId:projectTeamId?Number(projectTeamId):null,projectCode:projectCode.trim(),projectName:projectName.trim(),description:projectDesc.trim()||null,locationMode:projectMode,startDate:projectStart||null,endDate:projectEnd||null,isActive:projectActive};
-      if(projectEditId)await api(`/projects/${projectEditId}`,{method:"PUT",body:JSON.stringify(body)});
-      else await api("/projects",{method:"POST",body:JSON.stringify(body)});
-      setMsg(projectEditId?"專案已修改。":"專案已新增。");resetProject();await load();
-    }catch(e){setMsg(e instanceof Error?e.message:"專案儲存失敗")}finally{setBusy(false)}
-  };
-  const deleteProject=async(p:Project)=>{
-    if(!window.confirm(`確定刪除／停用專案「${p.projectName}」？既有行程仍會保留專案歷史資料。`))return;
-    setBusy(true);setMsg("");
-    try{await api(`/projects/${p.projectId}`,{method:"DELETE"});setMsg("專案已刪除／停用。");if(projectEditId===p.projectId)resetProject();await load()}
-    catch(e){setMsg(e instanceof Error?e.message:"專案刪除失敗")}finally{setBusy(false)}
-  };
+function Projects({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
+ const[projects,setProjects]=useState<Project[]>([]),[types,setTypes]=useState<VisitType[]>([]),[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<Project|null>(null),[code,setCode]=useState(''),[name,setName]=useState(''),[teamId,setTeamId]=useState(''),[mode,setMode]=useState('List'),[start,setStart]=useState(todayTaipei()),[end,setEnd]=useState(''),[desc,setDesc]=useState('');
+ const[typeEdit,setTypeEdit]=useState<VisitType|null>(null),[typeCode,setTypeCode]=useState(''),[typeName,setTypeName]=useState(''),[typeDesc,setTypeDesc]=useState(''),[sort,setSort]=useState('10');
+ const load=()=>Promise.all([api<Project[]>('/projects'),api<VisitType[]>('/visit-types'),api<Team[]>('/teams')]).then(([p,v,t])=>{setProjects(p);setTypes(v);setTeams(t);if(!typeEdit)setSort(String(Math.max(0,...v.map(x=>x.sortOrder))+10))}).catch(e=>setMsg(e.message));useEffect(()=>{void load()},[]);
+ const reset=()=>{setEdit(null);setCode('');setName('');setTeamId('');setMode('List');setStart(todayTaipei());setEnd('');setDesc('')};
+ const open=(p:Project)=>{setEdit(p);setCode(p.projectCode);setName(p.projectName);setTeamId(p.teamId?String(p.teamId):'');setMode(p.locationMode);setStart(p.startDate||todayTaipei());setEnd(p.endDate||'');setDesc(p.description||'')};
+ const save=async()=>{setBusy(true);try{const body={teamId:teamId?Number(teamId):null,projectCode:code,projectName:name,description:desc||null,locationMode:mode,startDate:start||null,endDate:end||null,isActive:true};if(edit)await api(`/projects/${edit.projectId}`,{method:'PUT',body:JSON.stringify(body)});else await api('/projects',{method:'POST',body:JSON.stringify(body)});setMsg(edit?'專案已修改。':'專案已新增。');reset();await load()}catch(e){setMsg(e instanceof Error?e.message:'儲存失敗')}finally{setBusy(false)}};
+ const deactivateProject=async(p:Project)=>{if(!window.confirm(`確定停用專案「${p.projectName}」？歷史 Snapshot 不受影響。`))return;setBusy(true);try{await api(`/projects/${p.projectId}`,{method:'DELETE'});setMsg('專案已停用。');if(edit?.projectId===p.projectId)reset();await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
+ const resetType=()=>{setTypeEdit(null);setTypeCode('');setTypeName('');setTypeDesc('');setSort(String(Math.max(0,...types.map(x=>x.sortOrder))+10))};
+ const openType=(v:VisitType)=>{setTypeEdit(v);setTypeCode(v.visitTypeCode);setTypeName(v.visitTypeName);setTypeDesc(v.description||'');setSort(String(v.sortOrder))};
+ const saveType=async()=>{setBusy(true);try{const body={visitTypeCode:typeCode,visitTypeName:typeName,description:typeDesc||null,sortOrder:Number(sort)||0,isActive:true};if(typeEdit)await api(`/visit-types/${typeEdit.visitTypeId}`,{method:'PUT',body:JSON.stringify(body)});else await api('/visit-types',{method:'POST',body:JSON.stringify(body)});setMsg(typeEdit?'拜訪形式已修改。':'拜訪形式已新增。');resetType();await load()}catch(e){setMsg(e instanceof Error?e.message:'儲存失敗')}finally{setBusy(false)}};
+ const deactivateType=async(v:VisitType)=>{if(!window.confirm(`確定停用拜訪形式「${v.visitTypeName}」？歷史 Snapshot 不受影響。`))return;setBusy(true);try{await api(`/visit-types/${v.visitTypeId}`,{method:'DELETE'});setMsg('拜訪形式已停用。');if(typeEdit?.visitTypeId===v.visitTypeId)resetType();await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
+ return <><div className="grid cols-2"><div className="card"><div className="section-title"><h2>專案主檔</h2>{edit&&<button className="btn small outline" onClick={reset}>取消修改</button>}</div><div className="grid cols-2"><div className="field"><label>專案代碼</label><input value={code} onChange={e=>setCode(e.target.value)}/></div><div className="field"><label>專案名稱</label><input value={name} onChange={e=>setName(e.target.value)}/></div><div className="field"><label>歸屬小組</label><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>預設地點方式</label><select value={mode} onChange={e=>setMode(e.target.value)}><option value="List">專案清單優先</option><option value="SelfMaintained">臨時維護優先</option></select></div><div className="field"><label>開始日期</label><input type="date" value={start} onChange={e=>setStart(e.target.value)}/></div><div className="field"><label>結束日期</label><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></div><div className="field span-2"><label>說明</label><input value={desc} onChange={e=>setDesc(e.target.value)}/></div></div><button className="btn" disabled={busy} onClick={()=>void save()}>{edit?'儲存專案':'新增專案'}</button><div className="table-wrap"><table><thead><tr><th>代碼</th><th>名稱</th><th>地點方式</th><th>操作</th></tr></thead><tbody>{projects.map(p=><tr key={p.projectId}><td>{p.projectCode}</td><td>{p.projectName}{!p.isActive&&<span className="pill warn">停用</span>}</td><td>{p.locationMode==='List'?'專案清單優先':'臨時維護優先'}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>open(p)}>修改</button>{p.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivateProject(p)}>停用</button>}</div></td></tr>)}</tbody></table></div></div><div className="card"><ImportPanel type="projects" onDone={load}/><hr/><div className="section-title"><h2>拜訪形式</h2>{typeEdit&&<button className="btn small outline" onClick={resetType}>取消修改</button>}</div><div className="grid cols-2"><div className="field"><label>代碼</label><input value={typeCode} onChange={e=>setTypeCode(e.target.value)}/></div><div className="field"><label>名稱</label><input value={typeName} onChange={e=>setTypeName(e.target.value)}/></div><div className="field"><label>顯示順序</label><input type="number" value={sort} onChange={e=>setSort(e.target.value)}/></div><div className="field"><label>說明</label><input value={typeDesc} onChange={e=>setTypeDesc(e.target.value)}/></div></div><button className="btn" onClick={()=>void saveType()} disabled={busy}>{typeEdit?'儲存拜訪形式':'新增拜訪形式'}</button><div className="route-list">{types.map(v=><div className="route-item" key={v.visitTypeId}><div className="route-index">{v.sortOrder}</div><div><div className="route-name">{v.visitTypeName}</div><div className="route-address">{v.visitTypeCode}{!v.isActive?'｜停用':''}</div></div><div className="actions"><button className="btn small secondary" onClick={()=>openType(v)}>修改</button>{v.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivateType(v)}>停用</button>}</div></div>)}</div></div></div>{msg&&<div className="note">{msg}</div>}</>
+}
 
-  const resetType=()=>{setTypeEditId(null);setTypeCode("");setTypeName("");setTypeDesc("");setTypeSort(String(Math.max(0,...types.map(x=>x.sortOrder))+10));setTypeActive(true)};
-  const editType=(v:VisitType)=>{setTypeEditId(v.visitTypeId);setTypeCode(v.visitTypeCode);setTypeName(v.visitTypeName);setTypeDesc(v.description||"");setTypeSort(String(v.sortOrder));setTypeActive(v.isActive)};
-  const saveType=async()=>{
-    if(!typeCode.trim()||!typeName.trim())return setMsg("拜訪形式代碼與名稱為必填。");
-    setBusy(true);setMsg("");
-    try{
-      const body={visitTypeCode:typeCode.trim(),visitTypeName:typeName.trim(),description:typeDesc.trim()||null,sortOrder:Number(typeSort)||0,isActive:typeActive};
-      if(typeEditId)await api(`/visit-types/${typeEditId}`,{method:"PUT",body:JSON.stringify(body)});
-      else await api("/visit-types",{method:"POST",body:JSON.stringify(body)});
-      setMsg(typeEditId?"拜訪形式已修改。":"拜訪形式已新增。");resetType();await load();
-    }catch(e){setMsg(e instanceof Error?e.message:"拜訪形式儲存失敗")}finally{setBusy(false)}
-  };
-  const deleteType=async(v:VisitType)=>{
-    if(!window.confirm(`確定刪除／停用拜訪形式「${v.visitTypeName}」？既有行程仍保留歷史資料。`))return;
-    setBusy(true);setMsg("");
-    try{await api(`/visit-types/${v.visitTypeId}`,{method:"DELETE"});setMsg("拜訪形式已刪除／停用。");if(typeEditId===v.visitTypeId)resetType();await load()}
-    catch(e){setMsg(e instanceof Error?e.message:"拜訪形式刪除失敗")}finally{setBusy(false)}
-  };
+function Rates({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
+ const[rows,setRows]=useState<MileageRate[]>([]),[edit,setEdit]=useState<MileageRate|null>(null),[name,setName]=useState(''),[rate,setRate]=useState('2.50'),[from,setFrom]=useState(todayTaipei());
+ const load=()=>api<MileageRate[]>('/mileage-rate-rules').then(setRows).catch(e=>setMsg(e.message));useEffect(()=>{void load()},[]);
+ const reset=()=>{setEdit(null);setName('');setRate('2.50');setFrom(todayTaipei())};const open=(r:MileageRate)=>{setEdit(r);setName(r.ruleName);setRate(String(r.ratePerKm));setFrom(r.effectiveFrom)};
+ const save=async()=>{setBusy(true);try{const body={ruleName:name,vehicleType:'Motorcycle',ratePerKm:Number(rate),effectiveFrom:from,effectiveTo:null,isActive:true};if(edit)await api(`/mileage-rate-rules/${edit.mileageRateRuleId}`,{method:'PUT',body:JSON.stringify(body)});else await api('/mileage-rate-rules',{method:'POST',body:JSON.stringify(body)});setMsg('費率版本已儲存；前後版本失效日期已由系統自動銜接。');reset();await load()}catch(e){setMsg(e instanceof Error?e.message:'儲存失敗')}finally{setBusy(false)}};
+ const deactivateRate=async(r:MileageRate)=>{if(!window.confirm(`確定停用 ${r.effectiveFrom} 起生效的費率版本？歷史核准費率快照不受影響。`))return;setBusy(true);try{await api(`/mileage-rate-rules/${r.mileageRateRuleId}`,{method:'DELETE'});setMsg('費率版本已停用，剩餘有效版本日期已重新銜接。');if(edit?.mileageRateRuleId===r.mileageRateRuleId)reset();await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
+ const current=useMemo(()=>rows.filter(r=>r.isActive&&r.effectiveFrom<=todayTaipei()&&(!r.effectiveTo||r.effectiveTo>=todayTaipei())).sort((a,b)=>b.effectiveFrom.localeCompare(a.effectiveFrom))[0],[rows]);
+ return <><div className="grid cols-3"><Stat label="目前每公里補助" value={money(current?.ratePerKm)}/><Stat label="版本數" value={rows.length}/><Stat label="日期規則" value="自動銜接" hint="只輸入生效日"/></div><div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>{edit?'修改費率版本':'新增費率版本'}</h2><div className="sub">管理者只維護生效日期；上一版失效日由後端自動設定為新生效日前一天。</div></div>{edit&&<button className="btn small outline" onClick={reset}>取消修改</button>}</div><div className="grid cols-3"><div className="field"><label>生效日期</label><input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></div><div className="field"><label>每公里補助</label><input type="number" step="0.01" min="0" value={rate} onChange={e=>setRate(e.target.value)}/></div><div className="field"><label>規則名稱／備註</label><input value={name} onChange={e=>setName(e.target.value)}/></div></div><button className="btn" disabled={busy} onClick={()=>void save()}>{edit?'儲存修改':'新增費率版本'}</button>{msg&&<div className="note">{msg}</div>}<div className="table-wrap"><table><thead><tr><th>生效日期</th><th>失效日期（系統）</th><th>每公里</th><th>規則</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(r=><tr key={r.mileageRateRuleId}><td>{r.effectiveFrom}</td><td>{r.effectiveTo||'無期限'}</td><td>{money(r.ratePerKm)}</td><td>{r.ruleName}</td><td>{r.isActive?'啟用':'停用'}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>open(r)}>修改</button>{r.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivateRate(r)}>停用</button>}</div></td></tr>)}</tbody></table></div></div></>
+}
 
-  if(section==="dashboard")return <>
-    <div className="grid cols-4"><div className="card stat"><div className="label">本期行程</div><div className="value">{report.length}</div><div className="hint">目前查詢資料</div></div><div className="card stat"><div className="label">已核准</div><div className="value">{approved.length}</div><div className="hint">含補助快照</div></div><div className="card stat"><div className="label">專案</div><div className="value">{projects.filter(x=>x.isActive).length}</div><div className="hint">目前啟用專案</div></div><div className="card stat"><div className="label">目前每公里補助</div><div className="value">${money(current?.ratePerKm??0)}</div><div className="hint">依今天日期適用</div></div></div>
-  </>;
-
-  if(section==="rates")return <>
-    <div className="grid cols-3"><div className="card stat"><div className="label">目前每公里補助</div><div className="value">${money(current?.ratePerKm??0)}</div><div className="hint">依今天日期套用</div></div><div className="card stat"><div className="label">費率版本數</div><div className="value">{rates.length}</div><div className="hint">含停用與歷史版本</div></div><div className="card stat"><div className="label">計算原則</div><div className="value" style={{fontSize:19}}>核定里程 × 費率</div><div className="hint">依行程日期抓取生效費率</div></div></div>
-    <div className="card" style={{marginTop:18}}>
-      <div className="section-title"><div><h2>{rateEditId?"修改補助費率":"新增補助費率"}</h2><div className="sub">生效日版本管理；刪除採安全停用，避免破壞歷史核准快照。</div></div>{rateEditId&&<button className="btn secondary small" onClick={resetRate}>取消修改</button>}</div>
-      <div className="grid cols-3">
-        <div className="field"><label>生效日期</label><input type="date" value={rateFrom} onChange={e=>setRateFrom(e.target.value)}/></div>
-        <div className="field"><label>失效日期（選填）</label><input type="date" value={rateTo} onChange={e=>setRateTo(e.target.value)}/></div>
-        <div className="field"><label>每公里補助金額（元）</label><input type="number" min="0" step="0.01" value={rateValue} onChange={e=>setRateValue(e.target.value)}/></div>
-        <div className="field span-2"><label>規則名稱／備註</label><input value={rateName} onChange={e=>setRateName(e.target.value)} placeholder="例如：2026 年機車里程補助"/></div>
-        <div className="field"><label>狀態</label><select value={rateActive?"1":"0"} onChange={e=>setRateActive(e.target.value==="1")}><option value="1">啟用</option><option value="0">停用</option></select></div>
-      </div>
-      <div className="actions"><button className="btn" disabled={busy} onClick={()=>void saveRate()}>{rateEditId?"儲存修改":"＋新增費率版本"}</button>{rateEditId&&<button className="btn secondary" onClick={resetRate}>取消</button>}</div>
-      {msg&&<div className="note" style={{marginTop:12}}>{msg}</div>}
-      <div className="table-wrap" style={{marginTop:16}}><table><thead><tr><th>生效日期</th><th>失效日期</th><th>每公里補助</th><th>狀態</th><th>規則</th><th>操作</th></tr></thead><tbody>{[...rates].sort((a,b)=>b.effectiveFrom.localeCompare(a.effectiveFrom)).map(r=><tr key={r.mileageRateRuleId}><td>{r.effectiveFrom}</td><td>{r.effectiveTo||"—"}</td><td><strong>${money(r.ratePerKm)}</strong></td><td><span className={`pill ${r.isActive?"ok":"warn"}`}>{r.isActive?"啟用":"停用"}</span></td><td>{r.ruleName}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>editRate(r)}>修改</button><button className="btn small outline" disabled={busy} onClick={()=>void deleteRate(r)}>刪除</button></div></td></tr>)}</tbody></table></div>
-    </div>
-  </>;
-
-  if(section==="projects")return <>
-    <div className="grid cols-2">
-      <div className="card">
-        <div className="section-title"><div><h2>專案清單</h2><div className="sub">可新增、修改、刪除／停用專案主檔。</div></div>{projectEditId&&<button className="btn secondary small" onClick={resetProject}>取消修改</button>}</div>
-        <div className="grid cols-2">
-          <div className="field"><label>專案代碼</label><input value={projectCode} onChange={e=>setProjectCode(e.target.value)} placeholder="例如：CARE-002"/></div>
-          <div className="field"><label>專案名稱</label><input value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="專案名稱"/></div>
-          <div className="field"><label>歸屬小組</label><select value={projectTeamId} onChange={e=>setProjectTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div>
-          <div className="field"><label>地點模式</label><select value={projectMode} onChange={e=>setProjectMode(e.target.value)}><option value="List">固定清單</option><option value="SelfMaintained">自行維護</option></select></div>
-          <div className="field"><label>開始日期</label><input type="date" value={projectStart} onChange={e=>setProjectStart(e.target.value)}/></div>
-          <div className="field"><label>結束日期（選填）</label><input type="date" value={projectEnd} onChange={e=>setProjectEnd(e.target.value)}/></div>
-          <div className="field span-2"><label>說明</label><input value={projectDesc} onChange={e=>setProjectDesc(e.target.value)} placeholder="專案說明"/></div>
-          <div className="field"><label>狀態</label><select value={projectActive?"1":"0"} onChange={e=>setProjectActive(e.target.value==="1")}><option value="1">啟用</option><option value="0">停用</option></select></div>
-        </div>
-        <div className="actions"><button className="btn" disabled={busy} onClick={()=>void saveProject()}>{projectEditId?"儲存專案修改":"＋新增專案"}</button>{projectEditId&&<button className="btn secondary" onClick={resetProject}>取消</button>}</div>
-        <div className="table-wrap" style={{marginTop:16}}><table><thead><tr><th>專案代碼</th><th>專案名稱</th><th>小組</th><th>地點模式</th><th>狀態</th><th>操作</th></tr></thead><tbody>{projects.map(p=><tr key={p.projectId}><td>{p.projectCode}</td><td>{p.projectName}</td><td>{teams.find(t=>t.teamId===p.teamId)?.teamName||"全組織"}</td><td><span className="pill">{p.locationMode==="List"?"固定清單":"自行維護"}</span></td><td><span className={`pill ${p.isActive?"ok":"warn"}`}>{p.isActive?"啟用":"停用"}</span></td><td><div className="actions"><button className="btn small secondary" onClick={()=>editProject(p)}>修改</button><button className="btn small outline" disabled={busy} onClick={()=>void deleteProject(p)}>刪除</button></div></td></tr>)}</tbody></table></div>
-      </div>
-
-      <div className="card">
-        <div className="section-title"><div><h2>拜訪形式主檔</h2><div className="sub">可新增、修改、刪除／停用；停用後不再提供新行程選擇。</div></div>{typeEditId&&<button className="btn secondary small" onClick={resetType}>取消修改</button>}</div>
-        <div className="grid cols-2">
-          <div className="field"><label>拜訪形式代碼</label><input value={typeCode} onChange={e=>setTypeCode(e.target.value)} placeholder="例如：DOCUMENT"/></div>
-          <div className="field"><label>拜訪形式名稱</label><input value={typeName} onChange={e=>setTypeName(e.target.value)} placeholder="例如：文件送達"/></div>
-          <div className="field"><label>顯示順序</label><input type="number" value={typeSort} onChange={e=>setTypeSort(e.target.value)}/></div>
-          <div className="field"><label>狀態</label><select value={typeActive?"1":"0"} onChange={e=>setTypeActive(e.target.value==="1")}><option value="1">啟用</option><option value="0">停用</option></select></div>
-          <div className="field span-2"><label>說明</label><input value={typeDesc} onChange={e=>setTypeDesc(e.target.value)} placeholder="拜訪形式說明"/></div>
-        </div>
-        <div className="actions"><button className="btn" disabled={busy} onClick={()=>void saveType()}>{typeEditId?"儲存拜訪形式修改":"＋新增拜訪形式"}</button>{typeEditId&&<button className="btn secondary" onClick={resetType}>取消</button>}</div>
-        <div className="route-list" style={{marginTop:16}}>{types.map((v,i)=><div className="route-item" key={v.visitTypeId}><div className="route-index">{i+1}</div><div><div className="route-name">{v.visitTypeName} {!v.isActive&&<span className="pill warn">停用</span>}</div><div className="route-address">{v.visitTypeCode}｜顯示順序 {v.sortOrder}{v.description?`｜${v.description}`:""}</div></div><div className="actions"><button className="btn small secondary" onClick={()=>editType(v)}>修改</button><button className="btn small outline" disabled={busy} onClick={()=>void deleteType(v)}>刪除</button></div></div>)}</div>
-      </div>
-    </div>
-    {msg&&<div className="note" style={{marginTop:18}}>{msg}</div>}
-    <div className="note" style={{marginTop:18}}>為保留歷史行程與報表一致性，「刪除」採安全停用；已停用主檔仍會保留於管理畫面，但外訪員新增行程時不再顯示。</div>
-  </>;
-
-  if(section==="users")return <><div className="grid cols-2"><div className="card"><div className="section-title"><h2>人員與權限</h2><span className="pill">UAT</span></div><div className="note">正式環境以 Microsoft Entra ID 驗證身分；應用程式內仍保存角色、小組及資料範圍。此頁不提供 API 使用量控制。</div></div><div className="card"><div className="section-title"><h2>示範帳號</h2></div><div className="route-list">{[["visitor01","外訪員"],["visitor02","外訪員"],["leader01","小組長"],["admin01","管理者"],["gov01","督導"]].map(([a,r],i)=><div className="route-item" key={a}><div className="route-index">{i+1}</div><div><div className="route-name">{a}</div><div className="route-address">{r}｜UAT Seed</div></div></div>)}</div></div></div><div className="placeholder-box" style={{marginTop:18}}>人員批次匯入、新增帳號與角色異動將另列 Master Data API 模組；目前不以假資料模擬寫入。</div></>;
-
-  const reportCards=[
-    ["每日行程明細","外訪員、時間、路線、三種里程、補助費率與補助金額"],
-    ["里程彙總報表","自算、系統、核定里程與補助金額"],
-    ["地點使用分析","依路線關鍵字檢視地點使用情形，並保留補助資訊"],
-    ["核准補助清單","已核准行程、費率快照與補助金額"]
-  ];
-  return <><div className="grid cols-3">{reportCards.map(([name,desc])=><div className="card report-card" key={name}><h2>{name}</h2><p>{desc}</p><button className="btn small secondary" onClick={()=>reportDownload(name,filtered)}>下載查詢結果</button></div>)}</div><div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>報表查詢</h2><div className="sub">所有里程相關報表均顯示每公里補助與補助金額。</div></div><div className="actions"><button className="btn" onClick={load}>查詢</button><button className="btn secondary" onClick={()=>reportDownload("行程查詢結果",filtered)}>下載查詢結果</button></div></div><div className="grid cols-4"><div className="field"><label>開始日期</label><input type="date" value={start} onChange={e=>setStart(e.target.value)}/></div><div className="field"><label>結束日期</label><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></div><div className="field"><label>小組</label><select value={team} onChange={e=>setTeam(e.target.value)}><option value="">全部</option>{teamNames.map(x=><option key={x}>{x}</option>)}</select></div><div className="field"><label>狀態</label><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">全部</option><option value="Approved">已核准</option><option value="PendingApproval">待核准</option><option value="Submitted">已送出</option><option value="Returned">已退回</option></select></div></div>{msg&&<div className="note danger-note">{msg}</div>}<div className="table-wrap"><table><thead><tr><th>日期</th><th>外訪員</th><th>小組</th><th>路線</th><th>自算</th><th>系統</th><th>核定</th><th>每公里補助</th><th>補助金額</th><th>狀態</th></tr></thead><tbody>{filtered.map(x=><tr key={x.tripNo}><td>{x.visitDate}</td><td>{x.visitorName}</td><td>{x.teamName||"—"}</td><td>{x.route}</td><td>{x.claimedDistanceKm??"—"}</td><td>{x.systemDistanceKm??"—"}</td><td>{x.approvedDistanceKm??"—"}</td><td>{x.ratePerKmSnapshot==null?"—":`$${money(x.ratePerKmSnapshot)}`}</td><td className="subsidy-strong">{x.approvedAmount==null?"—":`$${money(x.approvedAmount)}`}</td><td>{x.statusName}</td></tr>)}</tbody></table></div></div></>;
+function Corrections({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
+ const[rows,setRows]=useState<CorrectionRequest[]>([]);const load=()=>api<CorrectionRequest[]>('/corrections').then(setRows).catch(e=>setMsg(e.message));useEffect(()=>{void load()},[]);
+ const close=async(r:CorrectionRequest,approve:boolean)=>{const comments=window.prompt(approve?'管理者結案說明（選填）':'拒絕原因')||'';setBusy(true);try{await api(`/corrections/${r.correctionRequestId}/admin-close`,{method:'POST',body:JSON.stringify({approve,comments,rowVersion:r.rowVersion})});setMsg(approve?'更正已結案並建立新 Snapshot。':'更正申請已拒絕。');await load()}catch(e){setMsg(e instanceof Error?e.message:'操作失敗')}finally{setBusy(false)}};
+ return <div className="card"><div className="section-title"><div><h2>更正流程</h2><div className="sub">財務性更正由小組長審核後，管理者結案；原核准 Snapshot 永久保留。</div></div></div>{msg&&<div className="note">{msg}</div>}<div className="table-wrap"><table><thead><tr><th>申請日</th><th>Trip</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(r=><tr key={r.correctionRequestId}><td>{r.requestedAt.slice(0,10)}</td><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.map(c=>c.fieldName).join('、')}</td><td>{r.status}</td><td>{r.status==='PendingAdminClose'&&<div className="actions"><button className="btn small ok" disabled={busy} onClick={()=>void close(r,true)}>結案</button><button className="btn small danger" disabled={busy} onClick={()=>void close(r,false)}>拒絕</button></div>}</td></tr>)}</tbody></table></div></div>
 }

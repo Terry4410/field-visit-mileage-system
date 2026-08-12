@@ -6,7 +6,7 @@ namespace FieldVisit.Api.Controllers;
 
 [ApiController]
 [Route("api/v1")]
-public sealed class AuthController(AuthService auth, ICurrentUserService current, IConfiguration config) : ControllerBase
+public sealed class AuthController(AuthService auth, IUserRepository users, IConfiguration config) : ControllerBase
 {
     [HttpPost("auth/demo-login")]
     [AllowAnonymous]
@@ -15,5 +15,10 @@ public sealed class AuthController(AuthService auth, ICurrentUserService current
 
     [HttpGet("me")]
     [Authorize]
-    public ActionResult<CurrentUserDto> Me() => Ok(current.GetRequired());
+    public async Task<ActionResult<CurrentUserDto>> Me(CancellationToken ct)
+    {
+        var raw = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(raw, out var userId)) throw new UnauthorizedAccessException("Token 缺少 UserId。");
+        return Ok(await users.GetProfileAsync(userId, ct) ?? throw new UnauthorizedAccessException("使用者不存在或已停用。"));
+    }
 }

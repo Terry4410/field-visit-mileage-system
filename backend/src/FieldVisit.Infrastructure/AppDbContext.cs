@@ -30,6 +30,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<CorrectionRequestChange> CorrectionRequestChanges => Set<CorrectionRequestChange>();
     public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
     public DbSet<BackgroundJobItem> BackgroundJobItems => Set<BackgroundJobItem>();
+    public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
+    public DbSet<ImportBatchItem> ImportBatchItems => Set<ImportBatchItem>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -100,5 +102,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<CorrectionRequestChange>(e => { e.ToTable("CorrectionRequestChanges"); e.HasKey(x => x.CorrectionRequestChangeId); e.Property(x => x.CorrectionRequestChangeId).ValueGeneratedOnAdd(); });
         b.Entity<BackgroundJob>(e => { e.ToTable("BackgroundJobs"); e.HasKey(x => x.BackgroundJobId); });
         b.Entity<BackgroundJobItem>(e => { e.ToTable("BackgroundJobItems"); e.HasKey(x => x.BackgroundJobItemId); e.Property(x => x.BackgroundJobItemId).ValueGeneratedOnAdd(); });
+        b.Entity<ImportBatch>(e => { e.ToTable("ImportBatches"); e.HasKey(x => x.ImportBatchId); });
+        b.Entity<ImportBatchItem>(e => { e.ToTable("ImportBatchItems"); e.HasKey(x => x.ImportBatchItemId); e.Property(x => x.ImportBatchItemId).ValueGeneratedOnAdd(); e.HasOne<ImportBatch>().WithMany().HasForeignKey(x => x.ImportBatchId).OnDelete(DeleteBehavior.Cascade); });
     }
 }

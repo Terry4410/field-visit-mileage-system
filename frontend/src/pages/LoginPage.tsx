@@ -13,7 +13,7 @@ export default function LoginPage(){
   const [account,setAccount]=useState("visitor01"),[password,setPassword]=useState("123456"),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const go=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);setError("");try{await login(account,password)}catch(x){setError(x instanceof Error?x.message:"登入失敗")}finally{setBusy(false)}};
   return <div className="login-screen"><form className="login-card" onSubmit={go}>
-    <h1>外訪行程與里程管理</h1><p>Azure SQL 多人 UAT｜Prototype v2 介面</p>
+    <h1>外訪行程與里程管理</h1><p>Azure SQL 多人 UAT｜v1.6.0 介面</p>
     <div className="field"><label>帳號</label><input value={account} onChange={e=>setAccount(e.target.value)} autoComplete="username"/></div>
     <div className="field"><label>密碼</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password"/></div>
     {error&&<div className="note danger-note">{error}</div>}

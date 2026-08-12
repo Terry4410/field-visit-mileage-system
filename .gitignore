@@ -12,3 +12,5 @@ frontend/.env
 appsettings.Local.json
 .DS_Store
 Thumbs.db
+frontend/*.tsbuildinfo
+field-visit-mileage-system_*.zip

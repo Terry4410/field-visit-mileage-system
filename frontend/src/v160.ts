@@ -1,0 +1,9 @@
+export const todayTaipei=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+export const monthStart=(date=todayTaipei())=>`${date.slice(0,7)}-01`;
+export const previousMonthRange=()=>{const [y,m]=todayTaipei().split("-").map(Number);const d=new Date(Date.UTC(y,m-2,1));const start=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-01`;const end=new Date(Date.UTC(y,m-1,0)).toISOString().slice(0,10);return{start,end}};
+export const threeMonthStart=()=>{const [y,m]=todayTaipei().split("-").map(Number);const d=new Date(Date.UTC(y,m-3,1));return`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-01`};
+export const qs=(values:Record<string,string|number|boolean|undefined|null>)=>{const p=new URLSearchParams();Object.entries(values).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=="")p.set(k,String(v))});return p.toString()};
+export const money=(n?:number|null)=>n==null?"N/A":`$${n.toLocaleString("zh-TW",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+export const km=(n?:number|null)=>n==null?"N/A":`${n.toLocaleString("zh-TW",{maximumFractionDigits:2})} km`;
+export const nowTimeTaipei=()=>new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Taipei",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date());
+export const addMinutesToTime=(value:string,minutes:number)=>{const[h,m]=value.split(':').map(Number);const total=((h*60+m+minutes)%(24*60)+24*60)%(24*60);return`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`};

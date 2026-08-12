@@ -64,7 +64,15 @@ public sealed class CurrentUserService(IHttpContextAccessor accessor) : ICurrent
             orgId,
             teamId,
             p.FindFirstValue("team_name"),
-            p.FindAll(ClaimTypes.Role).Select(x => x.Value.ToLowerInvariant()).Distinct().ToList(),
+            ResolveActiveRoles(accessor.HttpContext, p),
             teamScopes);
+    }
+
+    private static IReadOnlyList<string> ResolveActiveRoles(HttpContext? context, ClaimsPrincipal principal)
+    {
+        var all = principal.FindAll(ClaimTypes.Role).Select(x => x.Value.ToLowerInvariant()).Distinct().ToList();
+        var requested = context?.Request.Headers["X-Active-Role"].FirstOrDefault()?.Trim().ToLowerInvariant();
+        return !string.IsNullOrWhiteSpace(requested) && all.Contains(requested) ? new[] { requested } : all;
+
     }
 }

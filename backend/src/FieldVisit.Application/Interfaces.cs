@@ -36,6 +36,8 @@ public interface IMasterRepository
     Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct);
     Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct);
     Task AddLocationAsync(Location location, CancellationToken ct);
+    Task<Location?> FindReusableTemporaryLocationAsync(int? organizationId, int? teamId, string locationName, string? addressOrPlusCode, CancellationToken ct);
+    Task AbandonUnusedTemporaryLocationsAsync(IReadOnlyCollection<int> locationIds, CancellationToken ct);
     Task<List<Project>> GetProjectsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct);
     Task<Project?> GetProjectAsync(int projectId, bool tracking, CancellationToken ct);
     Task AddProjectAsync(Project project, CancellationToken ct);
@@ -55,6 +57,7 @@ public interface IMileageRepository
     Task<List<MileageRateRule>> GetRatesAsync(CurrentUserDto user, CancellationToken ct);
     Task<MileageRateRule?> GetRateAsync(int mileageRateRuleId, bool tracking, CancellationToken ct);
     Task AddRateAsync(MileageRateRule rule, CancellationToken ct);
+    Task<List<MileageRateRule>> GetRateSeriesAsync(int? organizationId, string vehicleType, bool tracking, CancellationToken ct);
 }
 
 public interface ITripSnapshotRepository

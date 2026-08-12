@@ -23,10 +23,6 @@ public sealed class MasterController(MasterService master) : ControllerBase
     [Authorize(Roles = "leader,admin")]
     public async Task<ActionResult<LocationDto>> UpdateLocation(int locationId, UpdateLocationRequest request, CancellationToken ct) => Ok(await master.UpdateLocationAsync(locationId, request, ct));
 
-    [HttpPost("locations/batch-publish")]
-    [Authorize(Roles = "leader,admin")]
-    public async Task<ActionResult<BatchPublishLocationsResult>> BatchPublish(BatchPublishLocationsRequest request, CancellationToken ct) => Ok(await master.BatchPublishAsync(request, ct));
-
     [HttpGet("projects")]
     public async Task<ActionResult<List<ProjectDto>>> Projects(CancellationToken ct) => Ok(await master.ProjectsAsync(ct));
 
