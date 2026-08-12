@@ -1,6 +1,6 @@
 {
   "release": "v1.6.0 FINAL Release Candidate",
-  "status": "Release Candidate / Codespaces Verified",
+  "status": "Release Candidate / Azure UAT Core Smoke Verified",
   "baselineBranch": "main",
   "baselineCommit": "4bc7ab6706485d490ce7be0a4fb86d2c92e8381a",
   "databaseSchema": "1.6.0",
@@ -235,8 +235,8 @@
     },
     {
       "path": "scripts/uat-smoke-test.ps1",
-      "bytes": 8429,
-      "sha256": "76551aed72d46334d7c7ee10c283284608de795327d4e4c90126e8353bd608fc"
+      "bytes": 8434,
+      "sha256": "3f8ee89a904039eaa9858e7eb0c544a3e8d83c4ee40d6898c8778eeaa5b65a2a"
     }
   ],
   "patchedBaselineFiles": [
@@ -259,9 +259,9 @@
   "verification": {
     "static": "PASS",
     "codespacesBuild": "PASS",
-    "azureSqlMigration": "REQUIRED",
-    "githubActionsDeployment": "REQUIRED",
-    "uatSmokeTest": "SCRIPT READY / RUNTIME REQUIRED",
+    "azureSqlMigration": "PASS",
+    "githubActionsDeployment": "PASS",
+    "uatSmokeTest": "PASS - Core multi-role runtime smoke; full manual UAT pending",
     "unitTests": "PASS - Frontend 2/2; Backend 4/4"
   }
 }

@@ -81,8 +81,8 @@ $date = (Get-Date).AddDays(30).ToString('yyyy-MM-dd')
 
 $tripBody = @{
     visitDate             = $date
-    startTime             = '18:10'
-    endTime               = '19:10'
+    startTime             = '18:10:00'
+    endTime               = '19:10:00'
     claimedDistanceKm     = 12.3
     purpose               = 'v1.6.0 Smoke Test'
     notes                 = 'Automated UAT Smoke Test'
@@ -125,7 +125,7 @@ $submitHeaders = @{
 }
 
 $submitBody = @{
-    confirmTimeOverlap = $false
+    confirmTimeOverlap = $true
 } | ConvertTo-Json
 
 $submitted = Invoke-RestMethod `
