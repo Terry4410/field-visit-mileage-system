@@ -531,7 +531,7 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
         var row = new Location
         {
             OrganizationId = orgId, TeamId = request.TeamId, LocationCode = NewLocationCode(), LocationName = request.LocationName.Trim(),
-            LocationType = string.IsNullOrWhiteSpace(request.LocationType) ? "Official" : request.LocationType.Trim(), City = request.City?.Trim(), District = request.District?.Trim(),
+            LocationType = string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType.Trim(), City = request.City?.Trim(), District = request.District?.Trim(),
             Address = request.Address?.Trim(), PlusCode = request.PlusCode?.Trim(), IsTemporary = false, ApprovalStatus = "Pending",
             GeocodingStatus = "Pending", CreatedByUserId = user.UserId, IsActive = false, CreatedAt = DateTime.UtcNow
         };

@@ -132,7 +132,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                         await db.Locations.AddAsync(new FieldVisit.Domain.Entities.Location
                         {
                             OrganizationId = user.OrganizationId, TeamId = teamId, LocationCode = NewLocationCode(), LocationName = data.LocationName.Trim(),
-                            LocationType = "Official", City = data.City?.Trim(), District = data.District?.Trim(), Address = data.Address?.Trim(), PlusCode = data.PlusCode?.Trim(),
+                            LocationType = "Customer", City = data.City?.Trim(), District = data.District?.Trim(), Address = data.Address?.Trim(), PlusCode = data.PlusCode?.Trim(),
                             IsTemporary = false, ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId,
                             IsActive = false, CreatedAt = DateTime.UtcNow
                         }, ct);
