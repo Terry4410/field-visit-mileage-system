@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Infrastructure;
 
-public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
+public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl access) : IV160FinalRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -15,7 +15,11 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
         var latestSnapshotQ = db.VisitTripSnapshots.AsNoTracking().Where(s =>
             !db.VisitTripSnapshots.Any(newer => newer.VisitTripId == s.VisitTripId && newer.SnapshotVersion > s.SnapshotVersion));
 
-        IQueryable<VisitTrip> q = ApplyTripScope(db.VisitTrips.AsNoTracking(), user);
+        IQueryable<VisitTrip> q =
+            await ApplyTripScopeAsync(
+                db.VisitTrips.AsNoTracking(),
+                user,
+                ct);
         if (!request.IncludeCancelled) q = q.Where(x => x.Status != TripStatuses.Cancelled);
         if (!string.IsNullOrWhiteSpace(request.Status))
         {
@@ -263,10 +267,51 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
     public async Task<IReadOnlyList<CorrectionRequestDto>> GetCorrectionsAsync(CurrentUserDto user, string? status, CancellationToken ct)
     {
         var q = db.CorrectionRequests.AsNoTracking().AsQueryable();
-        if (HasRole(user, "admin") || HasRole(user, "supervisor"))
+        if (HasRole(user, "admin"))
         {
-            var orgId = user.OrganizationId ?? -1;
-            q = q.Where(x => db.VisitTrips.Any(t => t.VisitTripId == x.VisitTripId && t.OrganizationId == orgId));
+            var orgId =
+                user.OrganizationId ?? -1;
+
+            q = q.Where(
+                x => db.VisitTrips.Any(
+                    t =>
+                        t.VisitTripId == x.VisitTripId
+                        && t.OrganizationId == orgId));
+        }
+        else if (HasRole(user, "supervisor"))
+        {
+            var readScope =
+                await access.ResolveReadScopeAsync(
+                    user,
+                    ct);
+
+            var orgId =
+                user.OrganizationId ?? -1;
+
+            if (readScope.OrganizationWide)
+            {
+                q = q.Where(
+                    x => db.VisitTrips.Any(
+                        t =>
+                            t.VisitTripId == x.VisitTripId
+                            && t.OrganizationId == orgId));
+            }
+            else
+            {
+                var teamIds =
+                    readScope.TeamIds;
+
+                q = teamIds.Count == 0
+                    ? q.Where(x => false)
+                    : q.Where(
+                        x => db.VisitTrips.Any(
+                            t =>
+                                t.VisitTripId == x.VisitTripId
+                                && t.OrganizationId == orgId
+                                && t.TeamId.HasValue
+                                && teamIds.Contains(
+                                    t.TeamId.Value)));
+            }
         }
         else if (HasRole(user, "leader"))
         {
@@ -342,10 +387,46 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
     public async Task<IReadOnlyList<UserOptionDto>> GetScopedVisitorsAsync(CurrentUserDto user, CancellationToken ct)
     {
         var q = db.Users.AsNoTracking().Where(x => x.IsActive);
-        if (HasRole(user, "admin") || HasRole(user, "supervisor"))
+        if (HasRole(user, "admin"))
         {
-            if (!user.OrganizationId.HasValue) return [];
-            q = q.Where(x => x.OrganizationId == user.OrganizationId.Value);
+            if (!user.OrganizationId.HasValue)
+                return [];
+
+            q = q.Where(
+                x => x.OrganizationId
+                     == user.OrganizationId.Value);
+        }
+        else if (HasRole(user, "supervisor"))
+        {
+            if (!user.OrganizationId.HasValue)
+                return [];
+
+            var readScope =
+                await access.ResolveReadScopeAsync(
+                    user,
+                    ct);
+
+            var orgId = user.OrganizationId.Value;
+
+            q = q.Where(
+                x => x.OrganizationId == orgId);
+
+            if (!readScope.OrganizationWide)
+            {
+                var allowedTeams =
+                    readScope.TeamIds;
+
+                q = allowedTeams.Count == 0
+                    ? q.Where(x => false)
+                    : q.Where(
+                        x =>
+                            db.UserTeamScopes.Any(
+                                s =>
+                                    s.UserId == x.UserId
+                                    && s.IsActive
+                                    && allowedTeams.Contains(
+                                        s.TeamId)));
+            }
         }
         else if (HasRole(user, "leader"))
         {
@@ -577,15 +658,57 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
     {
         var today = BusinessTime.Today;
         var start = new DateOnly(today.Year, today.Month, 1);
-        var trips = ApplyTripScope(db.VisitTrips.AsNoTracking(), user).Where(x => x.Status != TripStatuses.Cancelled && x.VisitDate >= start && x.VisitDate <= today);
+        var trips =
+            (await ApplyTripScopeAsync(
+                db.VisitTrips.AsNoTracking(),
+                user,
+                ct))
+            .Where(
+                x =>
+                    x.Status != TripStatuses.Cancelled
+                    && x.VisitDate >= start
+                    && x.VisitDate <= today);
         var thisMonth = await trips.CountAsync(ct);
         var pending = await trips.CountAsync(x => x.Status == TripStatuses.PendingApproval, ct);
         var approved = await trips.CountAsync(x => x.Status == TripStatuses.Approved, ct);
-        var pendingLocations = await ApplyLocationScope(db.Locations.AsNoTracking(), user).CountAsync(x => x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending", ct);
+        var pendingLocations =
+            HasRole(user, "supervisor")
+                ? 0
+                : await ApplyLocationScope(
+                    db.Locations.AsNoTracking(),
+                    user)
+                    .CountAsync(
+                        x =>
+                            x.ApprovalStatus == "Pending"
+                            || x.GeocodingStatus == "Pending",
+                        ct);
         var correctionQ = db.CorrectionRequests.AsNoTracking().Where(x => x.Status == "PendingLeaderReview" || x.Status == "PendingAdminClose");
-        if ((HasRole(user, "admin") || HasRole(user, "supervisor")) && user.OrganizationId.HasValue)
-            correctionQ = correctionQ.Where(x => db.VisitTrips.Any(t => t.VisitTripId == x.VisitTripId && t.OrganizationId == user.OrganizationId.Value));
-        else if (HasRole(user, "leader")) correctionQ = correctionQ.Where(x => db.VisitTrips.Any(t => t.VisitTripId == x.VisitTripId && t.TeamId.HasValue && user.TeamIds.Contains(t.TeamId.Value)));
+        if (HasRole(user, "admin")
+            && user.OrganizationId.HasValue)
+        {
+            correctionQ = correctionQ.Where(
+                x => db.VisitTrips.Any(
+                    t =>
+                        t.VisitTripId == x.VisitTripId
+                        && t.OrganizationId
+                           == user.OrganizationId.Value));
+        }
+        else if (HasRole(user, "supervisor"))
+        {
+            // Supervisor has no correction workflow action.
+            // Do not expose an irrelevant workflow count.
+            correctionQ = correctionQ.Where(x => false);
+        }
+        else if (HasRole(user, "leader"))
+        {
+            correctionQ = correctionQ.Where(
+                x => db.VisitTrips.Any(
+                    t =>
+                        t.VisitTripId == x.VisitTripId
+                        && t.TeamId.HasValue
+                        && user.TeamIds.Contains(
+                            t.TeamId.Value)));
+        }
         else if (HasRole(user, "visitor")) correctionQ = correctionQ.Where(x => x.RequestedByUserId == user.UserId);
         var pendingCorrections = await correctionQ.CountAsync(ct);
         decimal? rate = null;
@@ -600,16 +723,70 @@ public sealed class V160FinalRepository(AppDbContext db) : IV160FinalRepository
         await db.SaveChangesAsync(ct);
     }
 
-    private IQueryable<VisitTrip> ApplyTripScope(IQueryable<VisitTrip> q, CurrentUserDto user)
+    private async Task<IQueryable<VisitTrip>> ApplyTripScopeAsync(
+        IQueryable<VisitTrip> q,
+        CurrentUserDto user,
+        CancellationToken ct)
     {
-        if ((HasRole(user, "admin") || HasRole(user, "supervisor")) && user.OrganizationId.HasValue)
-            return q.Where(x => x.OrganizationId == user.OrganizationId.Value);
+        if (HasRole(user, "admin")
+            && user.OrganizationId.HasValue)
+        {
+            return q.Where(
+                x => x.OrganizationId
+                     == user.OrganizationId.Value);
+        }
+
+        if (HasRole(user, "supervisor"))
+        {
+            if (!user.OrganizationId.HasValue)
+                return q.Where(x => false);
+
+            var orgId =
+                user.OrganizationId.Value;
+
+            var readScope =
+                await access.ResolveReadScopeAsync(
+                    user,
+                    ct);
+
+            q = q.Where(
+                x => x.OrganizationId == orgId);
+
+            if (readScope.OrganizationWide)
+                return q;
+
+            var teamIds =
+                readScope.TeamIds;
+
+            return teamIds.Count == 0
+                ? q.Where(x => false)
+                : q.Where(
+                    x =>
+                        x.TeamId.HasValue
+                        && teamIds.Contains(
+                            x.TeamId.Value));
+        }
+
         if (HasRole(user, "leader"))
         {
-            var teamIds = user.TeamIds;
-            return teamIds.Count == 0 ? q.Where(x => false) : q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
+            var teamIds =
+                user.TeamIds;
+
+            return teamIds.Count == 0
+                ? q.Where(x => false)
+                : q.Where(
+                    x =>
+                        x.TeamId.HasValue
+                        && teamIds.Contains(
+                            x.TeamId.Value));
         }
-        if (HasRole(user, "visitor")) return q.Where(x => x.UserId == user.UserId);
+
+        if (HasRole(user, "visitor"))
+        {
+            return q.Where(
+                x => x.UserId == user.UserId);
+        }
+
         return q.Where(x => false);
     }
 

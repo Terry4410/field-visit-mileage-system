@@ -5,14 +5,40 @@ public sealed class V160FinalService(
     IV160FinalRepository repository,
     IReportDocumentService reports,
     IWorkbookImportService imports,
-    IBackgroundJobService jobs)
+    IBackgroundJobService jobs,
+    IV170AccessControl access)
 {
-    public Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(TripQueryRequest request, CancellationToken ct) =>
-        repository.QueryTripsAsync(current.GetRequired(), NormalizeQuery(request), false, ct);
+    public async Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(
+        TripQueryRequest request,
+        CancellationToken ct)
+    {
+        var user = current.GetRequired();
+        var normalized = NormalizeQuery(request);
+
+        var result = await repository.QueryTripsAsync(
+            user,
+            normalized,
+            false,
+            ct);
+
+        await access.AuditSupervisorQueryAsync(
+            user,
+            normalized,
+            result.TotalCount,
+            ct);
+
+        return result;
+    }
 
     public async Task<ReportExportContext> ExportAsync(string format, TripQueryRequest request, CancellationToken ct)
     {
         var user = current.GetRequired();
+
+        await access.EnsureExportAllowedAsync(
+            user,
+            format,
+            ct);
+
         var normalized = NormalizeQuery(request) with { Page = 1, PageSize = 100000 };
         var result = await repository.QueryTripsAsync(user, normalized, true, ct);
         ReportExportContext file = format.Trim().ToLowerInvariant() switch

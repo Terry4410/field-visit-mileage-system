@@ -57,3 +57,18 @@ Do not modify previously applied v1.6 migration scripts.
 3. Run `Verify.sql`.
 4. Verify application Build/Test.
 5. Run v1.6.1 regression tests before enabling new UI.
+
+## Supervisor migration policy
+
+v1.6.1 supervisors had Organization-wide read visibility.
+
+The migration preserves that current visibility by creating an explicit
+Organization `UserDataScope`. This prevents an unexpected loss of access
+during the v1.7 cutover.
+
+This backfill does **not** mean that every Supervisor is an External user.
+`UserType` and `Role` remain independent.
+
+Supervisor Excel/PDF capabilities are **not** automatically backfilled.
+Under the v1.7 policy, an administrator must explicitly grant export
+capabilities.

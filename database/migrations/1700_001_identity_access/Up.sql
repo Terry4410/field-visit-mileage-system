@@ -328,6 +328,54 @@ BEGIN TRY
             );
     END;
 
+
+    /* Preserve the CURRENT v1.6.1 supervisor visibility during migration.
+       v1.6.1 supervisors could read the whole Organization.
+       We convert that existing authorization into an explicit Organization
+       Data Scope instead of silently removing access.
+
+       This does NOT classify supervisors as External users.
+       Person Type and Role remain separate concepts.
+
+       Export capabilities are intentionally NOT backfilled because v1.7
+       policy requires explicit Admin authorization for Supervisor exports. */
+    INSERT dbo.UserDataScopes(
+        UserId,
+        ScopeType,
+        OrganizationId,
+        TeamId,
+        EffectiveFrom,
+        EffectiveTo,
+        GrantedByUserId,
+        CreatedAt
+    )
+    SELECT DISTINCT
+        ur.UserId,
+        N'Organization',
+        u.OrganizationId,
+        NULL,
+        CONVERT(date, ur.AssignedAt),
+        NULL,
+        NULL,
+        SYSUTCDATETIME()
+    FROM dbo.UserRoles ur
+    JOIN dbo.Roles r
+        ON r.RoleId = ur.RoleId
+    JOIN dbo.Users u
+        ON u.UserId = ur.UserId
+    WHERE
+        u.OrganizationId IS NOT NULL
+        AND LOWER(LTRIM(RTRIM(r.RoleCode)))
+            IN(N'supervisor', N'government')
+        AND NOT EXISTS(
+            SELECT 1
+            FROM dbo.UserDataScopes s
+            WHERE
+                s.UserId = ur.UserId
+                AND s.ScopeType = N'Organization'
+                AND s.OrganizationId = u.OrganizationId
+        );
+
     IF OBJECT_ID(N'dbo.UserCapabilities', N'U') IS NULL
     BEGIN
         CREATE TABLE dbo.UserCapabilities(

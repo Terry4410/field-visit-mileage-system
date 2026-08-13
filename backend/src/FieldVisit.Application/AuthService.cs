@@ -1,6 +1,6 @@
 namespace FieldVisit.Application;
 
-public sealed class AuthService(IUserRepository users, ITokenService tokens)
+public sealed class AuthService(IUserRepository users, ITokenService tokens, IV170AccessControl access)
 {
     public async Task<DemoLoginResponse> LoginAsync(DemoLoginRequest request, string demoPassword, CancellationToken ct)
     {
@@ -13,8 +13,14 @@ public sealed class AuthService(IUserRepository users, ITokenService tokens)
         var user = await users.FindByAccountAsync(request.Account.Trim(), ct)
             ?? throw new UnauthorizedAccessException("帳號或密碼錯誤。");
 
-        if (!user.IsActive)
-            throw new UnauthorizedAccessException("此帳號未啟用。");
+        var eligibility = await access.EvaluateLoginAsync(
+            user.UserId,
+            user.IsActive,
+            ct);
+
+        if (!eligibility.IsAllowed)
+            throw new UnauthorizedAccessException(
+                eligibility.Reason ?? "目前帳號無法登入系統。");
 
         var profile = await users.GetProfileAsync(user.UserId, ct)
             ?? throw new UnauthorizedAccessException("帳號角色設定不完整。");
