@@ -14,26 +14,154 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
     {
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);
         if (user is null) return null;
-        var roles = await (from ur in db.UserRoles.AsNoTracking()
-                           join r in db.Roles.AsNoTracking() on ur.RoleId equals r.RoleId
-                           where ur.UserId == userId && r.IsActive
-                           select r.RoleCode).ToListAsync(ct);
-        var scopeRows = await (from uts in db.UserTeamScopes.AsNoTracking()
-                               join t in db.Teams.AsNoTracking() on uts.TeamId equals t.TeamId
-                               where uts.UserId == userId && uts.IsActive && t.IsActive
-                               orderby uts.IsPrimary descending, t.TeamName
-                               select new TeamScopeDto(t.TeamId, t.TeamName, uts.IsPrimary)).ToListAsync(ct);
-        var primary = scopeRows.FirstOrDefault(x => x.IsPrimary)
-            ?? (user.TeamId.HasValue ? scopeRows.FirstOrDefault(x => x.TeamId == user.TeamId.Value) : null)
+        var today =
+            BusinessTime.Today;
+
+        var hasV170Identity =
+            await db.UserIdentityProfiles
+                .AsNoTracking()
+                .AnyAsync(
+                    x => x.UserId == userId,
+                    ct);
+
+        List<string> roles;
+        List<TeamScopeDto> scopeRows;
+
+        if (hasV170Identity)
+        {
+            var roleCodes =
+                await (
+                    from assignment
+                        in db.UserRoleAssignments
+                            .AsNoTracking()
+                    join role
+                        in db.Roles.AsNoTracking()
+                        on assignment.RoleId
+                        equals role.RoleId
+                    where
+                        assignment.UserId == userId
+                        && assignment.EffectiveFrom <= today
+                        && (!assignment.EffectiveTo.HasValue
+                            || assignment.EffectiveTo >= today)
+                        && role.IsActive
+                    select role.RoleCode)
+                    .ToListAsync(ct);
+
+            roles =
+                roleCodes
+                    .Select(NormalizeRole)
+                    .Distinct()
+                    .ToList();
+
+            scopeRows =
+                await (
+                    from assignment
+                        in db.UserTeamAssignments
+                            .AsNoTracking()
+                    join team
+                        in db.Teams.AsNoTracking()
+                        on assignment.TeamId
+                        equals team.TeamId
+                    where
+                        assignment.UserId == userId
+                        && assignment.EffectiveFrom <= today
+                        && (!assignment.EffectiveTo.HasValue
+                            || assignment.EffectiveTo >= today)
+                        && team.IsActive
+                    orderby
+                        assignment.IsPrimary descending,
+                        team.TeamName
+                    select new TeamScopeDto(
+                        team.TeamId,
+                        team.TeamName,
+                        assignment.IsPrimary))
+                    .ToListAsync(ct);
+        }
+        else
+        {
+            var roleCodes =
+                await (
+                    from ur
+                        in db.UserRoles.AsNoTracking()
+                    join role
+                        in db.Roles.AsNoTracking()
+                        on ur.RoleId equals role.RoleId
+                    where
+                        ur.UserId == userId
+                        && role.IsActive
+                    select role.RoleCode)
+                    .ToListAsync(ct);
+
+            roles =
+                roleCodes
+                    .Select(NormalizeRole)
+                    .Distinct()
+                    .ToList();
+
+            scopeRows =
+                await (
+                    from scope
+                        in db.UserTeamScopes
+                            .AsNoTracking()
+                    join team
+                        in db.Teams.AsNoTracking()
+                        on scope.TeamId
+                        equals team.TeamId
+                    where
+                        scope.UserId == userId
+                        && scope.IsActive
+                        && team.IsActive
+                    orderby
+                        scope.IsPrimary descending,
+                        team.TeamName
+                    select new TeamScopeDto(
+                        team.TeamId,
+                        team.TeamName,
+                        scope.IsPrimary))
+                    .ToListAsync(ct);
+        }
+
+        var primary =
+            scopeRows.FirstOrDefault(
+                x => x.IsPrimary)
             ?? scopeRows.FirstOrDefault();
-        var fallbackTeam = primary is null && user.TeamId.HasValue
-            ? await db.Teams.AsNoTracking().FirstOrDefaultAsync(x => x.TeamId == user.TeamId.Value, ct)
-            : null;
+
+        Team? fallbackTeam =
+            null;
+
+        if (!hasV170Identity
+            && primary is null
+            && user.TeamId.HasValue)
+        {
+            fallbackTeam =
+                await db.Teams
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.TeamId
+                            == user.TeamId.Value,
+                        ct);
+        }
+
+        var resolvedTeamId =
+            primary?.TeamId
+            ?? (!hasV170Identity
+                ? user.TeamId
+                : null);
+
+        var resolvedTeamName =
+            primary?.TeamName
+            ?? fallbackTeam?.TeamName;
+
         return new CurrentUserDto(
-            user.UserId, user.EmployeeNo, user.DisplayName, user.Email, user.OrganizationId,
-            primary?.TeamId ?? user.TeamId,
-            primary?.TeamName ?? fallbackTeam?.TeamName,
-            roles.Select(NormalizeRole).Distinct().ToList(),
+            user.UserId,
+            user.EmployeeNo ?? "",
+            user.DisplayName,
+            user.Email,
+            user.OrganizationId,
+            resolvedTeamId,
+            resolvedTeamName,
+            roles,
             scopeRows);
     }
 

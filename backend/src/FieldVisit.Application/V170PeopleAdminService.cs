@@ -85,6 +85,36 @@ public sealed class V170PeopleAdminService(
             ct);
     }
 
+    public async Task<V170PersonDetailDto>
+        UpdateInternalUserAccessAsync(
+            int userId,
+            UpdateInternalUserAccessRequest request,
+            CancellationToken ct)
+    {
+        if (userId <= 0)
+            throw new InvalidOperationException(
+                "UserId 不正確。");
+
+        var admin =
+            RequireAdmin();
+
+        request =
+            V170InternalUserAccessRules.Normalize(
+                request,
+                BusinessTime.Today);
+
+        await writer.UpdateInternalUserAccessAsync(
+            admin,
+            userId,
+            request,
+            ct);
+
+        return await repository.GetAsync(
+            admin,
+            userId,
+            ct);
+    }
+
     private CurrentUserDto RequireAdmin()
     {
         var user = current.GetRequired();

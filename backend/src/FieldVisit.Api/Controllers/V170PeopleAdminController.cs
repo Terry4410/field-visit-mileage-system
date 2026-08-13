@@ -68,4 +68,19 @@ public sealed class V170PeopleAdminController(
                     userId,
                     request,
                     ct));
+
+    [HttpPut("internal-users/{userId:int}/access")]
+    public async Task<ActionResult<
+        V170PersonDetailDto>>
+        UpdateInternalUserAccess(
+            int userId,
+            [FromBody]
+            UpdateInternalUserAccessRequest request,
+            CancellationToken ct)
+        => Ok(
+            await service
+                .UpdateInternalUserAccessAsync(
+                    userId,
+                    request,
+                    ct));
 }

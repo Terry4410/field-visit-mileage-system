@@ -46,6 +46,33 @@ IF OBJECT_ID(N'dbo.UserDataScopes', N'U') IS NULL
 IF OBJECT_ID(N'dbo.UserCapabilities', N'U') IS NULL
     INSERT @Errors VALUES(N'Missing table: UserCapabilities');
 
+IF OBJECT_ID(N'dbo.UserDataScopes', N'U') IS NOT NULL
+BEGIN
+    IF EXISTS(
+        SELECT 1
+        FROM dbo.UserDataScopes
+        WHERE
+            (
+                ScopeType = N'Organization'
+                AND (
+                    OrganizationId IS NULL
+                    OR TeamId IS NOT NULL
+                )
+            )
+            OR
+            (
+                ScopeType = N'Team'
+                AND (
+                    TeamId IS NULL
+                    OR OrganizationId IS NOT NULL
+                )
+            )
+    )
+        INSERT @Errors VALUES(
+            N'Invalid Organization/Team target in UserDataScopes'
+        );
+END;
+
 IF OBJECT_ID(N'dbo.UserIdentityProfiles', N'U') IS NOT NULL
 BEGIN
     IF EXISTS(

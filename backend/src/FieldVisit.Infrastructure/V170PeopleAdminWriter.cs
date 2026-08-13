@@ -755,6 +755,612 @@ public sealed class V170PeopleAdminWriter(
             });
     }
 
+    public async Task UpdateInternalUserAccessAsync(
+        CurrentUserDto admin,
+        int userId,
+        UpdateInternalUserAccessRequest request,
+        CancellationToken ct)
+    {
+        var today =
+            BusinessTime.Today;
+
+        request =
+            V170InternalUserAccessRules.Normalize(
+                request,
+                today);
+
+        var orgId =
+            admin.OrganizationId
+            ?? throw new InvalidOperationException(
+                "目前管理者缺少 OrganizationId。");
+
+        var strategy =
+            db.Database.CreateExecutionStrategy();
+
+        await strategy.ExecuteAsync(
+            async () =>
+            {
+                db.ChangeTracker.Clear();
+
+                await using var tx =
+                    await db.Database
+                        .BeginTransactionAsync(ct);
+
+                var now =
+                    DateTime.UtcNow;
+
+                var user =
+                    await db.Users
+                        .FirstOrDefaultAsync(
+                            x =>
+                                x.UserId == userId
+                                && x.OrganizationId == orgId,
+                            ct)
+                    ?? throw new KeyNotFoundException(
+                        "找不到 Internal User。");
+
+                var identity =
+                    await db.UserIdentityProfiles
+                        .FirstOrDefaultAsync(
+                            x => x.UserId == userId,
+                            ct)
+                    ?? throw new InvalidOperationException(
+                        "此帳號缺少 v1.7 Identity Profile。");
+
+                if (!identity.UserType.Equals(
+                        UserTypes.Internal,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        "External User 不可使用 Internal User 權限異動功能。");
+                }
+
+                var requestedTeamIds =
+                    request.TeamAssignments
+                        .Select(x => x.TeamId)
+                        .ToList();
+
+                if (requestedTeamIds.Count > 0)
+                {
+                    var validTeamIds =
+                        await db.Teams
+                            .AsNoTracking()
+                            .Where(
+                                x =>
+                                    requestedTeamIds.Contains(
+                                        x.TeamId)
+                                    && x.OrganizationId == orgId
+                                    && x.IsActive)
+                            .Select(x => x.TeamId)
+                            .ToListAsync(ct);
+
+                    if (validTeamIds.Count
+                        != requestedTeamIds.Count)
+                    {
+                        throw new InvalidOperationException(
+                            "包含不存在、已停用或不屬於目前 Organization 的 Team。");
+                    }
+                }
+
+                var roleRows =
+                    await db.Roles
+                        .AsNoTracking()
+                        .Where(x => x.IsActive)
+                        .ToListAsync(ct);
+
+                var requestedRoles =
+                    request.Roles
+                        .ToHashSet(
+                            StringComparer.OrdinalIgnoreCase);
+
+                var targetRoles =
+                    roleRows
+                        .Where(
+                            x =>
+                                requestedRoles.Contains(
+                                    NormalizeRoleCode(
+                                        x.RoleCode)))
+                        .ToList();
+
+                if (targetRoles
+                        .Select(
+                            x =>
+                                NormalizeRoleCode(
+                                    x.RoleCode))
+                        .Distinct(
+                            StringComparer.OrdinalIgnoreCase)
+                        .Count()
+                    != requestedRoles.Count)
+                {
+                    throw new InvalidOperationException(
+                        "找不到一個或多個指定 Role。");
+                }
+
+                var rolesBefore =
+                    await (
+                        from assignment
+                            in db.UserRoleAssignments
+                                .AsNoTracking()
+                        join role
+                            in db.Roles.AsNoTracking()
+                            on assignment.RoleId
+                            equals role.RoleId
+                        where assignment.UserId
+                              == userId
+                        orderby
+                            assignment.EffectiveFrom,
+                            role.RoleCode
+                        select new
+                        {
+                            Role =
+                                role.RoleCode,
+
+                            assignment.EffectiveFrom,
+                            assignment.EffectiveTo
+                        })
+                        .ToListAsync(ct);
+
+                var teamsBefore =
+                    await (
+                        from assignment
+                            in db.UserTeamAssignments
+                                .AsNoTracking()
+                        join team
+                            in db.Teams.AsNoTracking()
+                            on assignment.TeamId
+                            equals team.TeamId
+                        where assignment.UserId
+                              == userId
+                        orderby
+                            assignment.EffectiveFrom,
+                            team.TeamCode
+                        select new
+                        {
+                            team.TeamId,
+                            team.TeamCode,
+                            team.TeamName,
+                            assignment.IsPrimary,
+                            assignment.EffectiveFrom,
+                            assignment.EffectiveTo
+                        })
+                        .ToListAsync(ct);
+
+                var oldValues =
+                    new
+                    {
+                        user.IsActive,
+                        Roles = rolesBefore,
+                        Teams = teamsBefore
+                    };
+
+                /*
+                 * AdminEnabled is intentionally immediate.
+                 * Role and Team changes are effective-dated.
+                 */
+                user.IsActive =
+                    request.AdminEnabled;
+
+                user.UpdatedAt =
+                    now;
+
+                await PrepareInternalRoleVersionsAsync(
+                    userId,
+                    request.ChangeEffectiveFrom,
+                    ct);
+
+                await PrepareInternalTeamVersionsAsync(
+                    userId,
+                    request.ChangeEffectiveFrom,
+                    ct);
+
+                foreach (var role
+                         in targetRoles)
+                {
+                    await db.UserRoleAssignments
+                        .AddAsync(
+                            new UserRoleAssignment
+                            {
+                                UserId =
+                                    userId,
+
+                                RoleId =
+                                    role.RoleId,
+
+                                EffectiveFrom =
+                                    request.ChangeEffectiveFrom,
+
+                                EffectiveTo =
+                                    null,
+
+                                AssignedByUserId =
+                                    admin.UserId,
+
+                                CreatedAt =
+                                    now
+                            },
+                            ct);
+                }
+
+                foreach (var team
+                         in request.TeamAssignments)
+                {
+                    await db.UserTeamAssignments
+                        .AddAsync(
+                            new UserTeamAssignment
+                            {
+                                UserId =
+                                    userId,
+
+                                TeamId =
+                                    team.TeamId,
+
+                                IsPrimary =
+                                    team.IsPrimary,
+
+                                EffectiveFrom =
+                                    request.ChangeEffectiveFrom,
+
+                                EffectiveTo =
+                                    null,
+
+                                AssignedByUserId =
+                                    admin.UserId,
+
+                                CreatedAt =
+                                    now
+                            },
+                            ct);
+                }
+
+                await db.SaveChangesAsync(ct);
+
+                /*
+                 * Keep v1.6 tables as CURRENT-STATE compatibility
+                 * projections. Runtime authentication for v1.7 users
+                 * reads the effective-dated source of truth directly.
+                 */
+                await SyncLegacyCurrentProjectionAsync(
+                    user,
+                    today,
+                    admin.UserId,
+                    now,
+                    ct);
+
+                await db.AuditLogs.AddAsync(
+                    new AuditLog
+                    {
+                        UserId =
+                            admin.UserId,
+
+                        EntityType =
+                            "User",
+
+                        EntityId =
+                            userId.ToString(),
+
+                        Action =
+                            request.AdminEnabled
+                                ? "InternalUserAccessUpdate"
+                                : "InternalUserDisable",
+
+                        NewValues =
+                            JsonSerializer.Serialize(
+                                new
+                                {
+                                    Old =
+                                        oldValues,
+
+                                    New =
+                                        new
+                                        {
+                                            request.Roles,
+                                            request.TeamAssignments,
+                                            request.AdminEnabled,
+                                            request.ChangeEffectiveFrom
+                                        },
+
+                                    request.ConfirmRetroactive
+                                }),
+
+                        CreatedAt =
+                            now
+                    },
+                    ct);
+
+                await db.SaveChangesAsync(ct);
+
+                await tx.CommitAsync(ct);
+            });
+    }
+
+    private async Task PrepareInternalRoleVersionsAsync(
+        int userId,
+        DateOnly effectiveFrom,
+        CancellationToken ct)
+    {
+        var rows =
+            await db.UserRoleAssignments
+                .Where(x => x.UserId == userId)
+                .ToListAsync(ct);
+
+        if (rows.Any(
+                x => x.EffectiveFrom > effectiveFrom))
+        {
+            throw new InvalidOperationException(
+                "此人員已有較晚生效的 Role 排程，請先處理該排程後再異動。");
+        }
+
+        var previousDay =
+            PreviousDay(effectiveFrom);
+
+        foreach (var row
+                 in rows.Where(
+                     x =>
+                         x.EffectiveFrom
+                             < effectiveFrom
+                         && (!x.EffectiveTo.HasValue
+                             || x.EffectiveTo
+                                >= effectiveFrom)))
+        {
+            row.EffectiveTo =
+                previousDay;
+        }
+
+        var sameStart =
+            rows.Where(
+                    x =>
+                        x.EffectiveFrom
+                        == effectiveFrom)
+                .ToList();
+
+        if (sameStart.Count > 0)
+        {
+            db.UserRoleAssignments
+                .RemoveRange(sameStart);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task PrepareInternalTeamVersionsAsync(
+        int userId,
+        DateOnly effectiveFrom,
+        CancellationToken ct)
+    {
+        var rows =
+            await db.UserTeamAssignments
+                .Where(x => x.UserId == userId)
+                .ToListAsync(ct);
+
+        if (rows.Any(
+                x => x.EffectiveFrom > effectiveFrom))
+        {
+            throw new InvalidOperationException(
+                "此人員已有較晚生效的 Team 排程，請先處理該排程後再異動。");
+        }
+
+        var previousDay =
+            PreviousDay(effectiveFrom);
+
+        foreach (var row
+                 in rows.Where(
+                     x =>
+                         x.EffectiveFrom
+                             < effectiveFrom
+                         && (!x.EffectiveTo.HasValue
+                             || x.EffectiveTo
+                                >= effectiveFrom)))
+        {
+            row.EffectiveTo =
+                previousDay;
+        }
+
+        var sameStart =
+            rows.Where(
+                    x =>
+                        x.EffectiveFrom
+                        == effectiveFrom)
+                .ToList();
+
+        if (sameStart.Count > 0)
+        {
+            db.UserTeamAssignments
+                .RemoveRange(sameStart);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task SyncLegacyCurrentProjectionAsync(
+        User user,
+        DateOnly today,
+        int assignedByUserId,
+        DateTime now,
+        CancellationToken ct)
+    {
+        var currentRoleIds =
+            await db.UserRoleAssignments
+                .AsNoTracking()
+                .Where(
+                    x =>
+                        x.UserId == user.UserId
+                        && x.EffectiveFrom <= today
+                        && (!x.EffectiveTo.HasValue
+                            || x.EffectiveTo >= today))
+                .Select(x => x.RoleId)
+                .Distinct()
+                .ToListAsync(ct);
+
+        var legacyRoles =
+            await db.UserRoles
+                .Where(
+                    x => x.UserId == user.UserId)
+                .ToListAsync(ct);
+
+        db.UserRoles.RemoveRange(
+            legacyRoles.Where(
+                x =>
+                    !currentRoleIds.Contains(
+                        x.RoleId)));
+
+        foreach (var roleId
+                 in currentRoleIds.Where(
+                     roleId =>
+                         legacyRoles.All(
+                             x =>
+                                 x.RoleId
+                                 != roleId)))
+        {
+            await db.UserRoles.AddAsync(
+                new UserRole
+                {
+                    UserId =
+                        user.UserId,
+
+                    RoleId =
+                        roleId,
+
+                    AssignedAt =
+                        now
+                },
+                ct);
+        }
+
+        var currentTeams =
+            await db.UserTeamAssignments
+                .AsNoTracking()
+                .Where(
+                    x =>
+                        x.UserId == user.UserId
+                        && x.EffectiveFrom <= today
+                        && (!x.EffectiveTo.HasValue
+                            || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.IsPrimary)
+                .ThenBy(x => x.TeamId)
+                .ToListAsync(ct);
+
+        if (currentTeams.Count > 0
+            && currentTeams.Count(
+                x => x.IsPrimary) != 1)
+        {
+            throw new InvalidOperationException(
+                "目前有效 Team Membership 的 Primary Team 資料不正確。");
+        }
+
+        var legacyScopes =
+            await db.UserTeamScopes
+                .Where(
+                    x => x.UserId == user.UserId)
+                .ToListAsync(ct);
+
+        /*
+         * Clear primary first so SQL Server's filtered unique
+         * index is never dependent on UPDATE ordering.
+         */
+        foreach (var scope
+                 in legacyScopes.Where(
+                     x =>
+                         x.IsActive
+                         && x.IsPrimary))
+        {
+            scope.IsPrimary =
+                false;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        foreach (var scope
+                 in legacyScopes)
+        {
+            var desired =
+                currentTeams.FirstOrDefault(
+                    x =>
+                        x.TeamId
+                        == scope.TeamId);
+
+            scope.IsActive =
+                desired is not null;
+
+            scope.IsPrimary =
+                desired?.IsPrimary
+                == true;
+
+            scope.EndedAt =
+                desired is null
+                    ? now
+                    : null;
+
+            if (desired is not null)
+            {
+                scope.AssignedAt =
+                    now;
+
+                scope.AssignedByUserId =
+                    assignedByUserId;
+            }
+        }
+
+        foreach (var desired
+                 in currentTeams.Where(
+                     desired =>
+                         legacyScopes.All(
+                             x =>
+                                 x.TeamId
+                                 != desired.TeamId)))
+        {
+            await db.UserTeamScopes.AddAsync(
+                new UserTeamScope
+                {
+                    UserId =
+                        user.UserId,
+
+                    TeamId =
+                        desired.TeamId,
+
+                    IsPrimary =
+                        desired.IsPrimary,
+
+                    IsActive =
+                        true,
+
+                    AssignedAt =
+                        now,
+
+                    AssignedByUserId =
+                        assignedByUserId,
+
+                    EndedAt =
+                        null
+                },
+                ct);
+        }
+
+        user.TeamId =
+            currentTeams
+                .FirstOrDefault(
+                    x => x.IsPrimary)
+                ?.TeamId;
+
+        user.UpdatedAt =
+            now;
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static string NormalizeRoleCode(
+        string role)
+        => (role ?? "")
+            .Trim()
+            .ToLowerInvariant() switch
+        {
+            "visitor" => "visitor",
+            "leader" => "leader",
+            "admin" => "admin",
+            "supervisor" => "supervisor",
+            "government" => "supervisor",
+            var value => value
+        };
+
     private async Task PrepareScopeVersionAsync(
         int userId,
         DateOnly effectiveFrom,

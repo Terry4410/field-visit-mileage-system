@@ -87,3 +87,20 @@ Starting with v1.7:
 - a filtered unique index preserves uniqueness for non-null EmployeeNo values.
 
 Do not generate fake employee numbers for external users.
+
+## Effective-dated source of truth and legacy projections
+
+For users with a `UserIdentityProfile`, runtime profile resolution reads
+`UserRoleAssignments` and `UserTeamAssignments` using the current business date.
+
+`UserRoles`, `UserTeamScopes`, and `Users.TeamId` remain temporary
+v1.6 compatibility projections only.
+
+Current-state admin writes synchronize those legacy projections transactionally.
+Future-dated assignments do not overwrite today's legacy projection early.
+
+The v1.7 runtime therefore does not depend on a scheduled job for a future Role
+or Team assignment to become effective.
+
+The old v1.6 `SaveUserAccess` write path is transitional and must not be used by
+the v1.7 People & Access UI after that UI is switched to the v1.7 endpoints.

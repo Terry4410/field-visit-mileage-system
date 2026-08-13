@@ -201,6 +201,123 @@ public static class V170ExternalSupervisorUpdateRules
     }
 }
 
+
+public sealed record InternalTeamAssignmentInput(
+    int TeamId,
+    bool IsPrimary);
+
+public sealed record UpdateInternalUserAccessRequest(
+    IReadOnlyList<string> Roles,
+    IReadOnlyList<InternalTeamAssignmentInput> TeamAssignments,
+    bool AdminEnabled,
+    DateOnly ChangeEffectiveFrom,
+    bool ConfirmRetroactive = false);
+
+public static class V170InternalUserAccessRules
+{
+    private static readonly HashSet<string>
+        AllowedRoles =
+            new(
+                new[]
+                {
+                    "visitor",
+                    "leader",
+                    "admin"
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+    public static UpdateInternalUserAccessRequest Normalize(
+        UpdateInternalUserAccessRequest request,
+        DateOnly today)
+    {
+        var roles =
+            (request.Roles ?? [])
+                .Select(NormalizeRole)
+                .Distinct(
+                    StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x)
+                .ToList();
+
+        if (roles.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "Internal User 至少需要一個角色。");
+        }
+
+        if (roles.Any(
+                x => !AllowedRoles.Contains(x)))
+        {
+            throw new InvalidOperationException(
+                "Internal User 只允許 Visitor、Leader、Admin 角色；Supervisor 必須使用 External Supervisor 管理。");
+        }
+
+        var teams =
+            (request.TeamAssignments ?? [])
+                .ToList();
+
+        if (teams.Any(x => x.TeamId <= 0))
+        {
+            throw new InvalidOperationException(
+                "TeamId 不正確。");
+        }
+
+        if (teams.Select(x => x.TeamId)
+            .Distinct()
+            .Count() != teams.Count)
+        {
+            throw new InvalidOperationException(
+                "同一個 Team 不可重複設定。");
+        }
+
+        var primaryCount =
+            teams.Count(x => x.IsPrimary);
+
+        if (teams.Count > 0
+            && primaryCount != 1)
+        {
+            throw new InvalidOperationException(
+                "有 Team Membership 時必須且只能指定一個 Primary Team。");
+        }
+
+        if (teams.Count == 0
+            && roles.Any(
+                x =>
+                    x == "visitor"
+                    || x == "leader"))
+        {
+            throw new InvalidOperationException(
+                "Visitor 或 Leader 至少需要一個 Team Membership。");
+        }
+
+        if (request.ChangeEffectiveFrom < today
+            && !request.ConfirmRetroactive)
+        {
+            throw new InvalidOperationException(
+                "異動生效日早於今天，請二次確認回溯異動。");
+        }
+
+        return request with
+        {
+            Roles = roles,
+            TeamAssignments = teams
+        };
+    }
+
+    public static string NormalizeRole(
+        string role)
+        => (role ?? "")
+            .Trim()
+            .ToLowerInvariant() switch
+        {
+            "visitor" => "visitor",
+            "leader" => "leader",
+            "admin" => "admin",
+            "supervisor" => "supervisor",
+            "government" => "supervisor",
+            var value => value
+        };
+}
+
 public interface IV170PeopleAdminWriter
 {
     Task<int> CreateExternalSupervisorAsync(
@@ -212,5 +329,11 @@ public interface IV170PeopleAdminWriter
         CurrentUserDto admin,
         int userId,
         UpdateExternalSupervisorRequest request,
+        CancellationToken ct);
+
+    Task UpdateInternalUserAccessAsync(
+        CurrentUserDto admin,
+        int userId,
+        UpdateInternalUserAccessRequest request,
         CancellationToken ct);
 }

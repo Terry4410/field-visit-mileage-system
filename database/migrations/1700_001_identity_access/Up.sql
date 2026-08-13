@@ -479,7 +479,8 @@ BEGIN TRY
                         AND TeamId IS NULL)
                     OR
                     (ScopeType = N'Team'
-                        AND TeamId IS NOT NULL)
+                        AND TeamId IS NOT NULL
+                        AND OrganizationId IS NULL)
                 )
         );
 
