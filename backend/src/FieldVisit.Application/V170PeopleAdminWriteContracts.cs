@@ -125,10 +125,92 @@ public static class V170ExternalSupervisorRules
     }
 }
 
+
+public sealed record UpdateExternalSupervisorRequest(
+    string DisplayName,
+    string Email,
+    string ExternalOrganization,
+    string? ExternalTitle,
+    DateOnly AuthorizationFrom,
+    DateOnly AuthorizationTo,
+    string ScopeType,
+    IReadOnlyList<int> TeamIds,
+    bool CanExportExcel,
+    bool CanExportPdf,
+    bool AdminEnabled,
+    DateOnly ChangeEffectiveFrom,
+    bool ConfirmRetroactive = false);
+
+public static class V170ExternalSupervisorUpdateRules
+{
+    public static UpdateExternalSupervisorRequest Normalize(
+        UpdateExternalSupervisorRequest request,
+        DateOnly today)
+    {
+        var normalized =
+            V170ExternalSupervisorRules.Normalize(
+                new SaveExternalSupervisorRequest(
+                    request.DisplayName,
+                    request.Email,
+                    request.ExternalOrganization,
+                    request.ExternalTitle,
+                    request.AuthorizationFrom,
+                    request.AuthorizationTo,
+                    request.ScopeType,
+                    request.TeamIds,
+                    request.CanExportExcel,
+                    request.CanExportPdf,
+                    request.AdminEnabled));
+
+        if (request.ChangeEffectiveFrom
+            < request.AuthorizationFrom
+            || request.ChangeEffectiveFrom
+            > request.AuthorizationTo)
+        {
+            throw new InvalidOperationException(
+                "異動生效日必須位於授權起訖期間內。");
+        }
+
+        if (request.ChangeEffectiveFrom < today
+            && !request.ConfirmRetroactive)
+        {
+            throw new InvalidOperationException(
+                "異動生效日早於今天，請二次確認回溯異動。");
+        }
+
+        return request with
+        {
+            DisplayName =
+                normalized.DisplayName,
+
+            Email =
+                normalized.Email,
+
+            ExternalOrganization =
+                normalized.ExternalOrganization,
+
+            ExternalTitle =
+                normalized.ExternalTitle,
+
+            ScopeType =
+                normalized.ScopeType,
+
+            TeamIds =
+                normalized.TeamIds
+        };
+    }
+}
+
 public interface IV170PeopleAdminWriter
 {
     Task<int> CreateExternalSupervisorAsync(
         CurrentUserDto admin,
         SaveExternalSupervisorRequest request,
+        CancellationToken ct);
+
+    Task UpdateExternalSupervisorAsync(
+        CurrentUserDto admin,
+        int userId,
+        UpdateExternalSupervisorRequest request,
         CancellationToken ct);
 }

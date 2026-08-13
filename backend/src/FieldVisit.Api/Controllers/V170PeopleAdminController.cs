@@ -53,4 +53,19 @@ public sealed class V170PeopleAdminController(
             },
             result);
     }
+
+    [HttpPut("external-supervisors/{userId:int}")]
+    public async Task<ActionResult<
+        V170PersonDetailDto>>
+        UpdateExternalSupervisor(
+            int userId,
+            [FromBody]
+            UpdateExternalSupervisorRequest request,
+            CancellationToken ct)
+        => Ok(
+            await service
+                .UpdateExternalSupervisorAsync(
+                    userId,
+                    request,
+                    ct));
 }
