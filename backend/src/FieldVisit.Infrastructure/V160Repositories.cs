@@ -42,7 +42,7 @@ public sealed class TripSnapshotRepository(AppDbContext db) : ITripSnapshotRepos
             SnapshotType = "Approved",
             TripNo = trip.TripNo,
             UserId = trip.UserId,
-            EmployeeNoSnapshot = visitor.EmployeeNo,
+            EmployeeNoSnapshot = visitor.EmployeeNo ?? "",
             DisplayNameSnapshot = visitor.DisplayName,
             OrganizationId = trip.OrganizationId,
             OrganizationNameSnapshot = organizationName,

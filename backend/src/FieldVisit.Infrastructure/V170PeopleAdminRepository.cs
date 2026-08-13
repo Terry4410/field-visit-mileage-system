@@ -39,7 +39,8 @@ public sealed class V170PeopleAdminRepository(
             q = q.Where(
                 x =>
                     x.DisplayName.Contains(keyword)
-                    || x.EmployeeNo.Contains(keyword)
+                    || (x.EmployeeNo != null
+                        && x.EmployeeNo.Contains(keyword))
                     || (x.Email != null
                         && x.Email.Contains(keyword))
                     || db.UserIdentityProfiles.Any(

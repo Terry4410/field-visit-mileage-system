@@ -30,4 +30,27 @@ public sealed class V170PeopleAdminController(
             await service.GetAsync(
                 userId,
                 ct));
+
+    [HttpPost("external-supervisors")]
+    public async Task<ActionResult<
+        V170PersonDetailDto>>
+        CreateExternalSupervisor(
+            [FromBody]
+            SaveExternalSupervisorRequest request,
+            CancellationToken ct)
+    {
+        var result =
+            await service
+                .CreateExternalSupervisorAsync(
+                    request,
+                    ct);
+
+        return CreatedAtAction(
+            nameof(Get),
+            new
+            {
+                userId = result.UserId
+            },
+            result);
+    }
 }

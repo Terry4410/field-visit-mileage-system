@@ -4,6 +4,169 @@ BEGIN TRY
     BEGIN TRANSACTION;
 
     /* ================================================================
+       EmployeeNo remains the HR employee identifier.
+       External identities must NOT receive fake employee numbers.
+
+       Convert EmployeeNo to nullable and replace a legacy single-column
+       unique constraint/index with a filtered unique index so multiple
+       external users may have NULL EmployeeNo.
+       ================================================================ */
+
+    IF EXISTS(
+        SELECT EmployeeNo
+        FROM dbo.Users
+        WHERE EmployeeNo IS NOT NULL
+        GROUP BY EmployeeNo
+        HAVING COUNT(*) > 1
+    )
+        THROW 51690,
+              N'Users.EmployeeNo 存在重複值，無法建立 v1.7 filtered unique index。',
+              1;
+
+    DECLARE @UsersObjectId INT =
+        OBJECT_ID(N'dbo.Users');
+
+    DECLARE @EmployeeNoColumnId INT =
+    (
+        SELECT column_id
+        FROM sys.columns
+        WHERE object_id = @UsersObjectId
+          AND name = N'EmployeeNo'
+    );
+
+    IF @EmployeeNoColumnId IS NULL
+        THROW 51691,
+              N'找不到 dbo.Users.EmployeeNo。',
+              1;
+
+    /* Block unexpected composite UNIQUE definitions before changing them. */
+    IF EXISTS(
+        SELECT 1
+        FROM sys.indexes i
+        JOIN sys.index_columns ic
+          ON ic.object_id = i.object_id
+         AND ic.index_id = i.index_id
+        WHERE i.object_id = @UsersObjectId
+          AND i.is_unique = 1
+          AND ic.column_id = @EmployeeNoColumnId
+          AND i.name <> N'UX_Users_EmployeeNo_NotNull'
+          AND (
+              SELECT COUNT(*)
+              FROM sys.index_columns x
+              WHERE x.object_id = i.object_id
+                AND x.index_id = i.index_id
+                AND x.key_ordinal > 0
+          ) <> 1
+    )
+        THROW 51692,
+              N'EmployeeNo 參與未預期的複合 UNIQUE Index，請由 IT Review 後再執行 Migration。',
+              1;
+
+    DECLARE @DropEmployeeNoUnique NVARCHAR(MAX) = N'';
+
+    SELECT
+        @DropEmployeeNoUnique =
+            @DropEmployeeNoUnique
+            + CASE
+                WHEN i.is_unique_constraint = 1
+                THEN
+                    N'ALTER TABLE dbo.Users DROP CONSTRAINT '
+                    + QUOTENAME(i.name) + N';'
+                ELSE
+                    N'DROP INDEX '
+                    + QUOTENAME(i.name)
+                    + N' ON dbo.Users;'
+              END
+    FROM sys.indexes i
+    JOIN sys.index_columns ic
+      ON ic.object_id = i.object_id
+     AND ic.index_id = i.index_id
+    WHERE i.object_id = @UsersObjectId
+      AND i.is_unique = 1
+      AND ic.column_id = @EmployeeNoColumnId
+      AND ic.key_ordinal > 0
+      AND i.name <> N'UX_Users_EmployeeNo_NotNull'
+      AND (
+          SELECT COUNT(*)
+          FROM sys.index_columns x
+          WHERE x.object_id = i.object_id
+            AND x.index_id = i.index_id
+            AND x.key_ordinal > 0
+      ) = 1;
+
+    IF LEN(@DropEmployeeNoUnique) > 0
+        EXEC sys.sp_executesql
+            @DropEmployeeNoUnique;
+
+    DECLARE
+        @EmployeeNoType SYSNAME,
+        @EmployeeNoMaxLength SMALLINT;
+
+    SELECT
+        @EmployeeNoType = t.name,
+        @EmployeeNoMaxLength = c.max_length
+    FROM sys.columns c
+    JOIN sys.types t
+      ON t.user_type_id = c.user_type_id
+    WHERE c.object_id = @UsersObjectId
+      AND c.column_id = @EmployeeNoColumnId;
+
+    IF @EmployeeNoType NOT IN(
+        N'nvarchar',
+        N'varchar',
+        N'nchar',
+        N'char'
+    )
+        THROW 51693,
+              N'Users.EmployeeNo 使用未預期的資料型別。',
+              1;
+
+    DECLARE @EmployeeNoLength NVARCHAR(20);
+
+    IF @EmployeeNoMaxLength = -1
+        SET @EmployeeNoLength = N'MAX';
+    ELSE IF @EmployeeNoType IN(N'nvarchar', N'nchar')
+        SET @EmployeeNoLength =
+            CONVERT(NVARCHAR(20),
+                    @EmployeeNoMaxLength / 2);
+    ELSE
+        SET @EmployeeNoLength =
+            CONVERT(NVARCHAR(20),
+                    @EmployeeNoMaxLength);
+
+    /* Only ALTER on the first migration run.
+       Once the column is nullable, the filtered unique index may already
+       depend on EmployeeNo and a redundant ALTER could fail. */
+    IF EXISTS(
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = @UsersObjectId
+          AND column_id = @EmployeeNoColumnId
+          AND is_nullable = 0
+    )
+    BEGIN
+        DECLARE @AlterEmployeeNo NVARCHAR(MAX) =
+            N'ALTER TABLE dbo.Users ALTER COLUMN EmployeeNo '
+            + @EmployeeNoType
+            + N'(' + @EmployeeNoLength + N') NULL;';
+
+        EXEC sys.sp_executesql
+            @AlterEmployeeNo;
+    END;
+
+    IF NOT EXISTS(
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = @UsersObjectId
+          AND name = N'UX_Users_EmployeeNo_NotNull'
+    )
+    BEGIN
+        CREATE UNIQUE INDEX UX_Users_EmployeeNo_NotNull
+            ON dbo.Users(EmployeeNo)
+            WHERE EmployeeNo IS NOT NULL;
+    END;
+
+    /* ================================================================
        v1.7.0-001 Identity & Access Foundation
        Additive only. Existing Users/UserRoles/UserTeamScopes remain
        untouched as the v1.6.1 compatibility layer.

@@ -4,6 +4,30 @@ DECLARE @Errors TABLE(
     ErrorMessage NVARCHAR(1000) NOT NULL
 );
 
+
+IF EXISTS(
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.Users')
+      AND name = N'EmployeeNo'
+      AND is_nullable = 0
+)
+    INSERT @Errors VALUES(
+        N'Users.EmployeeNo is still NOT NULL'
+    );
+
+IF NOT EXISTS(
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.Users')
+      AND name = N'UX_Users_EmployeeNo_NotNull'
+      AND is_unique = 1
+      AND has_filter = 1
+)
+    INSERT @Errors VALUES(
+        N'Missing filtered unique index: UX_Users_EmployeeNo_NotNull'
+    );
+
 IF OBJECT_ID(N'dbo.UserIdentityProfiles', N'U') IS NULL
     INSERT @Errors VALUES(N'Missing table: UserIdentityProfiles');
 

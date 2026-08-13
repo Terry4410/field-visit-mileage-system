@@ -26,7 +26,7 @@ public sealed class User
     public int UserId { get; set; }
     public int? OrganizationId { get; set; }
     public int? TeamId { get; set; }
-    public string EmployeeNo { get; set; } = "";
+    public string? EmployeeNo { get; set; }
     public string DisplayName { get; set; } = "";
     public string? Email { get; set; }
     public Guid? EntraObjectId { get; set; }

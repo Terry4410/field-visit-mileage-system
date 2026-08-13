@@ -72,3 +72,18 @@ This backfill does **not** mean that every Supervisor is an External user.
 Supervisor Excel/PDF capabilities are **not** automatically backfilled.
 Under the v1.7 policy, an administrator must explicitly grant export
 capabilities.
+
+## EmployeeNo and external identity
+
+`EmployeeNo` is an HR identifier, not a generic login identifier.
+
+Starting with v1.7:
+
+- internal users may continue to use EmployeeNo;
+- external users may have `EmployeeNo = NULL`;
+- external users receive a stable `UserCode`;
+- external UAT login uses Email;
+- production external login is designed for Entra ID B2B after IT Gate;
+- a filtered unique index preserves uniqueness for non-null EmployeeNo values.
+
+Do not generate fake employee numbers for external users.

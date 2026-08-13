@@ -439,7 +439,7 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
         var rows = await q.OrderBy(x => x.DisplayName).ToListAsync(ct);
         var teamIds2 = rows.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
         var teams = await db.Teams.AsNoTracking().Where(x => teamIds2.Contains(x.TeamId)).ToDictionaryAsync(x => x.TeamId, ct);
-        return rows.Select(x => new UserOptionDto(x.UserId, x.EmployeeNo, x.DisplayName, x.TeamId,
+        return rows.Select(x => new UserOptionDto(x.UserId, x.EmployeeNo ?? "", x.DisplayName, x.TeamId,
             x.TeamId.HasValue && teams.TryGetValue(x.TeamId.Value, out var t) ? t.TeamName : null)).ToList();
     }
 
@@ -451,7 +451,7 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
         var roles = await (from ur in db.UserRoles.AsNoTracking() join r in db.Roles.AsNoTracking() on ur.RoleId equals r.RoleId where ids.Contains(ur.UserId) select new { ur.UserId, r.RoleCode }).ToListAsync(ct);
         var scopes = await (from s in db.UserTeamScopes.AsNoTracking() join t in db.Teams.AsNoTracking() on s.TeamId equals t.TeamId where ids.Contains(s.UserId) && s.IsActive select new { s.UserId, Dto = new TeamScopeDto(t.TeamId, t.TeamName, s.IsPrimary) }).ToListAsync(ct);
         return users.Select(x => new AdminUserAccessDto(
-            x.UserId, x.EmployeeNo, x.DisplayName, x.Email, x.IsActive,
+            x.UserId, x.EmployeeNo ?? "", x.DisplayName, x.Email, x.IsActive,
             roles.Where(r => r.UserId == x.UserId).Select(r => NormalizeRole(r.RoleCode)).Distinct().OrderBy(r => r).ToList(),
             scopes.Where(s => s.UserId == x.UserId).Select(s => s.Dto).OrderByDescending(s => s.IsPrimary).ThenBy(s => s.TeamName).ToList())).ToList();
     }

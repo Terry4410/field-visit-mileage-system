@@ -2,7 +2,8 @@ namespace FieldVisit.Application;
 
 public sealed class V170PeopleAdminService(
     ICurrentUserService current,
-    IV170PeopleAdminRepository repository)
+    IV170PeopleAdminRepository repository,
+    IV170PeopleAdminWriter writer)
 {
     public Task<PagedResult<V170PeopleRowDto>> QueryAsync(
         V170PeopleQueryRequest request,
@@ -26,6 +27,30 @@ public sealed class V170PeopleAdminService(
 
         return repository.GetAsync(
             RequireAdmin(),
+            userId,
+            ct);
+    }
+
+    public async Task<V170PersonDetailDto>
+        CreateExternalSupervisorAsync(
+            SaveExternalSupervisorRequest request,
+            CancellationToken ct)
+    {
+        var admin =
+            RequireAdmin();
+
+        request =
+            V170ExternalSupervisorRules.Normalize(
+                request);
+
+        var userId =
+            await writer.CreateExternalSupervisorAsync(
+                admin,
+                request,
+                ct);
+
+        return await repository.GetAsync(
+            admin,
             userId,
             ct);
     }

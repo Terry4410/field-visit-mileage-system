@@ -44,7 +44,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     {
         b.Entity<Organization>(e => { e.ToTable("Organizations"); e.HasKey(x => x.OrganizationId); e.Property(x => x.OrganizationId).ValueGeneratedOnAdd(); });
         b.Entity<Team>(e => { e.ToTable("Teams"); e.HasKey(x => x.TeamId); e.Property(x => x.TeamId).ValueGeneratedOnAdd(); });
-        b.Entity<User>(e => { e.ToTable("Users"); e.HasKey(x => x.UserId); e.Property(x => x.UserId).ValueGeneratedOnAdd(); });
+        b.Entity<User>(e => { e.ToTable("Users"); e.HasKey(x => x.UserId); e.Property(x => x.UserId).ValueGeneratedOnAdd(); e.Property(x => x.EmployeeNo).IsRequired(false); });
         b.Entity<Role>(e => { e.ToTable("Roles"); e.HasKey(x => x.RoleId); e.Property(x => x.RoleId).ValueGeneratedOnAdd(); });
         b.Entity<UserRole>(e => { e.ToTable("UserRoles"); e.HasKey(x => x.UserRoleId); e.Property(x => x.UserRoleId).ValueGeneratedOnAdd(); });
 
