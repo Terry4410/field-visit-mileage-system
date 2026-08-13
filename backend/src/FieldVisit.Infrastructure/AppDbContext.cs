@@ -33,6 +33,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
     public DbSet<ImportBatchItem> ImportBatchItems => Set<ImportBatchItem>();
 
+    public DbSet<UserIdentityProfile> UserIdentityProfiles => Set<UserIdentityProfile>();
+    public DbSet<UserEmploymentPeriod> UserEmploymentPeriods => Set<UserEmploymentPeriod>();
+    public DbSet<UserRoleAssignment> UserRoleAssignments => Set<UserRoleAssignment>();
+    public DbSet<UserTeamAssignment> UserTeamAssignments => Set<UserTeamAssignment>();
+    public DbSet<UserDataScope> UserDataScopes => Set<UserDataScope>();
+    public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Organization>(e => { e.ToTable("Organizations"); e.HasKey(x => x.OrganizationId); e.Property(x => x.OrganizationId).ValueGeneratedOnAdd(); });
@@ -104,5 +111,59 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<BackgroundJobItem>(e => { e.ToTable("BackgroundJobItems"); e.HasKey(x => x.BackgroundJobItemId); e.Property(x => x.BackgroundJobItemId).ValueGeneratedOnAdd(); });
         b.Entity<ImportBatch>(e => { e.ToTable("ImportBatches"); e.HasKey(x => x.ImportBatchId); });
         b.Entity<ImportBatchItem>(e => { e.ToTable("ImportBatchItems"); e.HasKey(x => x.ImportBatchItemId); e.Property(x => x.ImportBatchItemId).ValueGeneratedOnAdd(); e.HasOne<ImportBatch>().WithMany().HasForeignKey(x => x.ImportBatchId).OnDelete(DeleteBehavior.Cascade); });
+
+        // v1.7 Identity & Access foundation. Additive to v1.6 compatibility tables.
+        b.Entity<UserIdentityProfile>(e =>
+        {
+            e.ToTable("UserIdentityProfiles");
+            e.HasKey(x => x.UserId);
+            e.Property(x => x.UserId).ValueGeneratedNever();
+            e.HasIndex(x => x.UserCode).IsUnique();
+        });
+
+        b.Entity<UserEmploymentPeriod>(e =>
+        {
+            e.ToTable("UserEmploymentPeriods");
+            e.HasKey(x => x.UserEmploymentPeriodId);
+            e.Property(x => x.UserEmploymentPeriodId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.UserId, x.EffectiveFrom, x.EffectiveTo });
+        });
+
+        b.Entity<UserRoleAssignment>(e =>
+        {
+            e.ToTable("UserRoleAssignments");
+            e.HasKey(x => x.UserRoleAssignmentId);
+            e.Property(x => x.UserRoleAssignmentId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.UserId, x.RoleId, x.EffectiveFrom }).IsUnique();
+        });
+
+        b.Entity<UserTeamAssignment>(e =>
+        {
+            e.ToTable("UserTeamAssignments");
+            e.HasKey(x => x.UserTeamAssignmentId);
+            e.Property(x => x.UserTeamAssignmentId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.UserId, x.TeamId, x.EffectiveFrom }).IsUnique();
+        });
+
+        b.Entity<UserDataScope>(e =>
+        {
+            e.ToTable("UserDataScopes");
+            e.HasKey(x => x.UserDataScopeId);
+            e.Property(x => x.UserDataScopeId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.UserId, x.EffectiveFrom, x.EffectiveTo });
+        });
+
+        b.Entity<UserCapability>(e =>
+        {
+            e.ToTable("UserCapabilities");
+            e.HasKey(x => x.UserCapabilityId);
+            e.Property(x => x.UserCapabilityId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new
+            {
+                x.UserId,
+                x.CapabilityCode,
+                x.EffectiveFrom
+            }).IsUnique();
+        });
     }
 }
