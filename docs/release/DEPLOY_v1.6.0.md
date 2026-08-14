@@ -16,10 +16,11 @@ rm -rf /tmp/v160-final
 mkdir -p /tmp/v160-final
 unzip -o field-visit-mileage-system_v1.6.0_FINAL_RC.zip -d /tmp/v160-final
 python3 /tmp/v160-final/field-visit-mileage-system_v1.6.0_FINAL_RC/apply_v160_final.py
-python3 scripts/verify_v160_rc.py
 ```
 
 If the apply script refuses the SHA or reports a Baseline mismatch, stop. Do not force apply.
+
+> Historical note: the legacy Python RC verifier used during v1.6.0 development was retired from v1.7 and later branches. On newer branches, use the documented build/test/UAT gates instead.
 
 ## B. Build / Test Gate
 

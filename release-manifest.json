@@ -6,7 +6,7 @@
   "databaseSchema": "1.6.0",
   "routeProvider": "Mock",
   "geocodingProvider": "Mock",
-  "payloadFileCount": 46,
+  "payloadFileCount": 45,
   "payloadFiles": [
     {
       "path": ".github/workflows/api-azure.yml",
@@ -222,11 +222,6 @@
       "path": "frontend/src/v160.ts",
       "bytes": 1586,
       "sha256": "64144205be4bd1fb88d029e4ba68f537c8484531ce28ef48af2054f68b753c18"
-    },
-    {
-      "path": "scripts/verify_v160_rc.py",
-      "bytes": 5479,
-      "sha256": "97dc6f1fb76c91b248f04bc13daced699cc51dde7b98c89ac41a0b93c40d1300"
     },
     {
       "path": "contracts/openapi-summary.yaml",
