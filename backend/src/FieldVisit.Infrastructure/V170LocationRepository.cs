@@ -1,4 +1,5 @@
 using FieldVisit.Application;
+using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,79 +14,12 @@ public sealed class V170LocationRepository(
         CancellationToken ct)
     {
         var q =
-            db.Locations
-                .AsNoTracking()
-                .Where(x =>
-                    x.IsActive
-                    && x.ApprovalStatus == "Approved");
-
-        // ------------------------------------------------------------
-        // Organization scope
-        // ------------------------------------------------------------
-
-        if (user.OrganizationId.HasValue)
-        {
-            var organizationId =
-                user.OrganizationId.Value;
-
-            q = q.Where(x =>
-                x.OrganizationId == organizationId
-                || x.OrganizationId == null);
-        }
-        else
-        {
-            q = q.Where(_ => false);
-        }
-
-        // ------------------------------------------------------------
-        // Team scope
-        // Admin = organization-wide.
-        // Leader / Visitor = own effective team memberships + global.
-        // Supervisor is intentionally not a Smart Picker role.
-        // ------------------------------------------------------------
+            AccessibleLocations(user);
 
         var isAdmin =
             user.Roles.Contains(
                 "admin",
                 StringComparer.OrdinalIgnoreCase);
-
-        var isLeader =
-            user.Roles.Contains(
-                "leader",
-                StringComparer.OrdinalIgnoreCase);
-
-        var isVisitor =
-            user.Roles.Contains(
-                "visitor",
-                StringComparer.OrdinalIgnoreCase);
-
-        if (!isAdmin)
-        {
-            if (isLeader || isVisitor)
-            {
-                var teamIds =
-                    user.TeamIds.ToArray();
-
-                q = teamIds.Length > 0
-                    ? q.Where(x =>
-                        x.TeamId == null
-                        || (x.TeamId.HasValue
-                            && teamIds.Contains(
-                                x.TeamId.Value)))
-                    : q.Where(_ => false);
-            }
-            else
-            {
-                q = q.Where(_ => false);
-            }
-        }
-
-        // ------------------------------------------------------------
-        // Optional project-list restriction.
-        //
-        // This lets Phase 2F replace the current behavior where the
-        // browser downloads the whole ProjectLocation list first.
-        // ------------------------------------------------------------
 
         if (spec.ProjectId.HasValue)
         {
@@ -141,10 +75,6 @@ public sealed class V170LocationRepository(
                         && pl.IsActive));
         }
 
-        // ------------------------------------------------------------
-        // Structured filters
-        // ------------------------------------------------------------
-
         if (spec.City is not null)
         {
             var city = spec.City;
@@ -160,14 +90,6 @@ public sealed class V170LocationRepository(
             q = q.Where(x =>
                 x.District == district);
         }
-
-        // ------------------------------------------------------------
-        // Keyword search
-        //
-        // Government TaxId is used only when the government candidate
-        // has already been explicitly matched to an application
-        // Location. Pending candidates never appear in the picker.
-        // ------------------------------------------------------------
 
         if (spec.Query is not null)
         {
@@ -208,13 +130,6 @@ public sealed class V170LocationRepository(
             var keyword =
                 spec.Query;
 
-            // Relevance:
-            // exact code
-            // exact name
-            // name prefix
-            // code prefix
-            // name contains
-            // stable geographic/name ordering
             ordered =
                 q.OrderByDescending(x =>
                         x.LocationCode != null
@@ -278,5 +193,283 @@ public sealed class V170LocationRepository(
             spec.PageSize,
             totalCount,
             hasNextPage);
+    }
+
+    public async Task<
+        IReadOnlyList<V170LocationFavoriteDto>>
+        GetFavoritesAsync(
+            CurrentUserDto user,
+            CancellationToken ct)
+    {
+        var accessible =
+            AccessibleLocations(user);
+
+        return await (
+            from favorite
+                in db.UserFavoriteLocations
+                    .AsNoTracking()
+            join location
+                in accessible
+                on favorite.LocationId
+                equals location.LocationId
+            where favorite.UserId == user.UserId
+            orderby
+                favorite.SortOrder,
+                favorite.CreatedAt,
+                favorite.UserFavoriteLocationId
+            select new V170LocationFavoriteDto(
+                location.LocationId,
+                location.LocationCode,
+                location.LocationName,
+                location.LocationType,
+                location.City,
+                location.District,
+                location.Address,
+                location.PlusCode,
+                location.Latitude,
+                location.Longitude,
+                favorite.SortOrder,
+                favorite.CreatedAt))
+            .ToListAsync(ct);
+    }
+
+    public async Task<bool> AddFavoriteAsync(
+        CurrentUserDto user,
+        int locationId,
+        CancellationToken ct)
+    {
+        var accessible =
+            await AccessibleLocations(user)
+                .AnyAsync(
+                    x => x.LocationId == locationId,
+                    ct);
+
+        if (!accessible)
+            throw new KeyNotFoundException(
+                "找不到可使用的正式地點。");
+
+        var exists =
+            await db.UserFavoriteLocations
+                .AnyAsync(
+                    x =>
+                        x.UserId == user.UserId
+                        && x.LocationId == locationId,
+                    ct);
+
+        if (exists)
+            return false;
+
+        var currentMax =
+            await db.UserFavoriteLocations
+                .Where(x =>
+                    x.UserId == user.UserId)
+                .Select(x =>
+                    (int?)x.SortOrder)
+                .MaxAsync(ct);
+
+        await db.UserFavoriteLocations.AddAsync(
+            new UserFavoriteLocation
+            {
+                UserId = user.UserId,
+                LocationId = locationId,
+                SortOrder =
+                    (currentMax ?? -1) + 1,
+                CreatedAt = DateTime.UtcNow
+            },
+            ct);
+
+        return true;
+    }
+
+    public async Task<bool> RemoveFavoriteAsync(
+        CurrentUserDto user,
+        int locationId,
+        CancellationToken ct)
+    {
+        var row =
+            await db.UserFavoriteLocations
+                .FirstOrDefaultAsync(
+                    x =>
+                        x.UserId == user.UserId
+                        && x.LocationId == locationId,
+                    ct);
+
+        if (row is null)
+            return false;
+
+        db.UserFavoriteLocations.Remove(row);
+
+        return true;
+    }
+
+    public async Task<bool> ReorderFavoritesAsync(
+        CurrentUserDto user,
+        IReadOnlyList<int> locationIds,
+        CancellationToken ct)
+    {
+        var accessibleIds =
+            AccessibleLocations(user)
+                .Select(x => x.LocationId);
+
+        var rows =
+            await db.UserFavoriteLocations
+                .Where(x =>
+                    x.UserId == user.UserId
+                    && accessibleIds.Contains(
+                        x.LocationId))
+                .ToListAsync(ct);
+
+        if (rows.Count != locationIds.Count)
+        {
+            throw new InvalidOperationException(
+                "排序清單必須包含目前所有可使用的常用地點。");
+        }
+
+        var requested =
+            locationIds.ToHashSet();
+
+        if (rows.Any(x =>
+            !requested.Contains(x.LocationId)))
+        {
+            throw new InvalidOperationException(
+                "排序清單與目前常用地點不一致。");
+        }
+
+        var order =
+            locationIds
+                .Select((id, index) =>
+                    new { id, index })
+                .ToDictionary(
+                    x => x.id,
+                    x => x.index);
+
+        var changed = false;
+
+        foreach (var row in rows)
+        {
+            var next =
+                order[row.LocationId];
+
+            if (row.SortOrder == next)
+                continue;
+
+            row.SortOrder = next;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    public async Task<
+        IReadOnlyList<V170LocationRecentDto>>
+        GetRecentAsync(
+            CurrentUserDto user,
+            int limit,
+            CancellationToken ct)
+    {
+        var accessible =
+            AccessibleLocations(user);
+
+        var recent =
+            from stop
+                in db.VisitTripStops.AsNoTracking()
+            join trip
+                in db.VisitTrips.AsNoTracking()
+                on stop.VisitTripId
+                equals trip.VisitTripId
+            where
+                trip.UserId == user.UserId
+                && trip.Status != TripStatuses.Cancelled
+                && stop.LocationId.HasValue
+            group trip
+                by stop.LocationId!.Value
+                into usage
+            select new
+            {
+                LocationId = usage.Key,
+                LastVisitedOn =
+                    usage.Max(x => x.VisitDate),
+                LastTripId =
+                    usage.Max(x => x.VisitTripId)
+            };
+
+        return await (
+            from usage in recent
+            join location
+                in accessible
+                on usage.LocationId
+                equals location.LocationId
+            orderby
+                usage.LastVisitedOn descending,
+                usage.LastTripId descending,
+                location.LocationName
+            select new V170LocationRecentDto(
+                location.LocationId,
+                location.LocationCode,
+                location.LocationName,
+                location.LocationType,
+                location.City,
+                location.District,
+                location.Address,
+                location.PlusCode,
+                location.Latitude,
+                location.Longitude,
+                usage.LastVisitedOn))
+            .Take(limit)
+            .ToListAsync(ct);
+    }
+
+    private IQueryable<Location> AccessibleLocations(
+        CurrentUserDto user)
+    {
+        var q =
+            db.Locations
+                .AsNoTracking()
+                .Where(x =>
+                    x.IsActive
+                    && x.ApprovalStatus == "Approved");
+
+        if (!user.OrganizationId.HasValue)
+            return q.Where(_ => false);
+
+        var organizationId =
+            user.OrganizationId.Value;
+
+        q = q.Where(x =>
+            x.OrganizationId == organizationId
+            || x.OrganizationId == null);
+
+        var isAdmin =
+            user.Roles.Contains(
+                "admin",
+                StringComparer.OrdinalIgnoreCase);
+
+        if (isAdmin)
+            return q;
+
+        var isLeader =
+            user.Roles.Contains(
+                "leader",
+                StringComparer.OrdinalIgnoreCase);
+
+        var isVisitor =
+            user.Roles.Contains(
+                "visitor",
+                StringComparer.OrdinalIgnoreCase);
+
+        if (!isLeader && !isVisitor)
+            return q.Where(_ => false);
+
+        var teamIds =
+            user.TeamIds.ToArray();
+
+        if (teamIds.Length == 0)
+            return q.Where(_ => false);
+
+        return q.Where(x =>
+            x.TeamId == null
+            || (x.TeamId.HasValue
+                && teamIds.Contains(
+                    x.TeamId.Value)));
     }
 }

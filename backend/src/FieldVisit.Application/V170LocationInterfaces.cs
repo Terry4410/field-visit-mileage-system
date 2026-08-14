@@ -6,4 +6,28 @@ public interface IV170LocationRepository
         CurrentUserDto user,
         V170LocationSearchSpec spec,
         CancellationToken ct);
+
+    Task<IReadOnlyList<V170LocationFavoriteDto>> GetFavoritesAsync(
+        CurrentUserDto user,
+        CancellationToken ct);
+
+    Task<bool> AddFavoriteAsync(
+        CurrentUserDto user,
+        int locationId,
+        CancellationToken ct);
+
+    Task<bool> RemoveFavoriteAsync(
+        CurrentUserDto user,
+        int locationId,
+        CancellationToken ct);
+
+    Task<bool> ReorderFavoritesAsync(
+        CurrentUserDto user,
+        IReadOnlyList<int> locationIds,
+        CancellationToken ct);
+
+    Task<IReadOnlyList<V170LocationRecentDto>> GetRecentAsync(
+        CurrentUserDto user,
+        int limit,
+        CancellationToken ct);
 }

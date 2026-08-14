@@ -34,4 +34,66 @@ public sealed class V170LocationController(
 
         return Ok(result);
     }
+
+    [HttpGet("favorites")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public async Task<ActionResult<
+        IReadOnlyList<V170LocationFavoriteDto>>> Favorites(
+        CancellationToken ct)
+    {
+        return Ok(
+            await locations.GetFavoritesAsync(ct));
+    }
+
+    [HttpPost("{locationId:int}/favorite")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public async Task<IActionResult> AddFavorite(
+        int locationId,
+        CancellationToken ct)
+    {
+        await locations.AddFavoriteAsync(
+            locationId,
+            ct);
+
+        return NoContent();
+    }
+
+    [HttpDelete("{locationId:int}/favorite")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public async Task<IActionResult> RemoveFavorite(
+        int locationId,
+        CancellationToken ct)
+    {
+        await locations.RemoveFavoriteAsync(
+            locationId,
+            ct);
+
+        return NoContent();
+    }
+
+    [HttpPut("favorites/order")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public async Task<IActionResult> ReorderFavorites(
+        V170LocationFavoriteOrderRequest request,
+        CancellationToken ct)
+    {
+        await locations.ReorderFavoritesAsync(
+            request,
+            ct);
+
+        return NoContent();
+    }
+
+    [HttpGet("recent")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public async Task<ActionResult<
+        IReadOnlyList<V170LocationRecentDto>>> Recent(
+        [FromQuery] int limit = 20,
+        CancellationToken ct = default)
+    {
+        return Ok(
+            await locations.GetRecentAsync(
+                limit,
+                ct));
+    }
 }
