@@ -308,7 +308,7 @@ trip.VisitDate = request.VisitDate;
                 pendingLocation = new Location
                 {
                     OrganizationId = user.OrganizationId, TeamId = user.TeamId, LocationName = input.LocationName.Trim(),
-                    LocationType = input.ProjectId.HasValue ? "Project" : "Official", Address = input.Address, IsTemporary = true,
+                    LocationType = "Customer", Address = input.Address, IsTemporary = true,
                     ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId, IsActive = false, CreatedAt = now
                 };
                 await masters.AddLocationAsync(pendingLocation, ct);
