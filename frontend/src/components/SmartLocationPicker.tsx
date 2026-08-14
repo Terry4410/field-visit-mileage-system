@@ -9,6 +9,7 @@ import {api} from "../api";
 
 import {
   buildLocationSearchPath,
+  hasLocationSearchCriteria,
   moveFavoriteIds
 } from "../smart-location-picker";
 
@@ -228,6 +229,23 @@ export default function SmartLocationPicker({
   },[]);
 
   useEffect(()=>{
+    const hasCriteria=
+      hasLocationSearchCriteria({
+        query,
+        city,
+        district
+      });
+
+    if(!hasCriteria){
+      searchSequence.current++;
+      setSearchRows([]);
+      setSearchPage(1);
+      setSearchTotal(0);
+      setHasNextPage(false);
+      setLoading(false);
+      return;
+    }
+
     const timer=
       window.setTimeout(
         ()=>{
@@ -594,7 +612,13 @@ export default function SmartLocationPicker({
           {!loading&&
             searchRows.length===0&&
             <div className="empty compact-empty">
-              查無符合條件的正式地點。
+              {hasLocationSearchCriteria({
+                query,
+                city,
+                district
+              })
+                ?"查無符合條件的正式地點。"
+                :"請輸入地點名稱、地址、縣市或鄉鎮開始搜尋。"}
             </div>
           }
         </div>

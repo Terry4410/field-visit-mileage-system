@@ -6,8 +6,48 @@ import {
 
 import {
   buildLocationSearchPath,
+  hasLocationSearchCriteria,
   moveFavoriteIds
 } from "./smart-location-picker";
+
+describe(
+  "hasLocationSearchCriteria",
+  ()=>{
+    it(
+      "returns false when all user search fields are blank",
+      ()=>{
+        expect(
+          hasLocationSearchCriteria({
+            query:" ",
+            city:"",
+            district:""
+          })
+        ).toBe(false);
+      }
+    );
+
+    it(
+      "returns true when any user search field has a value",
+      ()=>{
+        expect(
+          hasLocationSearchCriteria({
+            query:"中寮",
+            city:"",
+            district:""
+          })
+        ).toBe(true);
+
+        expect(
+          hasLocationSearchCriteria({
+            query:"",
+            city:"南投縣",
+            district:""
+          })
+        ).toBe(true);
+      }
+    );
+  }
+);
 
 describe(
   "buildLocationSearchPath",

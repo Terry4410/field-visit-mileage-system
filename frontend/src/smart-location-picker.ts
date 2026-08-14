@@ -7,6 +7,16 @@ export interface LocationSearchPathInput{
   pageSize?:number;
 }
 
+export function hasLocationSearchCriteria(
+  input:Pick<LocationSearchPathInput,"query"|"city"|"district">
+){
+  return Boolean(
+    input.query?.trim()
+    ||input.city?.trim()
+    ||input.district?.trim()
+  );
+}
+
 export function buildLocationSearchPath(
   input:LocationSearchPathInput
 ){
