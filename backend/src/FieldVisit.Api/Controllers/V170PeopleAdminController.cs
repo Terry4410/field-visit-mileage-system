@@ -151,6 +151,20 @@ public sealed class V170PeopleAdminController(
                 ct));
     }
 
+    [HttpPost("bulk/{importBatchId:guid}/confirm")]
+    public async Task<ActionResult<
+        V170PeopleBulkConfirmResultDto>>
+        ConfirmBulk(
+            Guid importBatchId,
+            [FromBody]
+            V170PeopleBulkConfirmRequest request,
+            CancellationToken ct)
+        => Ok(
+            await service.ConfirmBulkAsync(
+                importBatchId,
+                request,
+                ct));
+
     [HttpGet("bulk/{importBatchId:guid}/errors.xlsx")]
     public async Task<IActionResult>
         BulkErrors(

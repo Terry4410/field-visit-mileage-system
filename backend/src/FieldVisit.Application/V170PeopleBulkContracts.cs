@@ -101,6 +101,45 @@ public sealed record V170PeopleBulkConfirmResultDto(
     int Failed,
     IReadOnlyList<string> Errors);
 
+public static class V170PeopleBulkConfirmRules
+{
+    public static void Validate(
+        string status,
+        DateTime expiresAtUtc,
+        int errorCount,
+        bool requiresRetroactiveConfirmation,
+        bool confirmRetroactive,
+        DateTime nowUtc)
+    {
+        if (!status.Equals(
+                "Previewed",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "此匯入批次已處理或不可使用。");
+        }
+
+        if (expiresAtUtc < nowUtc)
+        {
+            throw new InvalidOperationException(
+                "匯入預覽已逾時，請重新上傳 Excel。");
+        }
+
+        if (errorCount > 0)
+        {
+            throw new InvalidOperationException(
+                "預覽仍有錯誤資料，請修正 Excel 後重新上傳。");
+        }
+
+        if (requiresRetroactiveConfirmation
+            && !confirmRetroactive)
+        {
+            throw new InvalidOperationException(
+                "此批次包含回溯異動，請二次確認後再執行。");
+        }
+    }
+}
+
 public interface IV170PeopleBulkWorkbookService
 {
     Task<ReportExportContext> ExportCurrentAsync(

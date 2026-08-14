@@ -148,6 +148,17 @@ public sealed class V170PeopleAdminService(
             importBatchId,
             ct);
 
+    public Task<V170PeopleBulkConfirmResultDto>
+        ConfirmBulkAsync(
+            Guid importBatchId,
+            V170PeopleBulkConfirmRequest request,
+            CancellationToken ct)
+        => bulk.ConfirmAsync(
+            RequireAdmin(),
+            importBatchId,
+            request,
+            ct);
+
     private CurrentUserDto RequireAdmin()
     {
         var user = current.GetRequired();

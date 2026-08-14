@@ -10,7 +10,8 @@ using Microsoft.EntityFrameworkCore;
 namespace FieldVisit.Infrastructure;
 
 public sealed class V170PeopleBulkWorkbookService(
-    AppDbContext db)
+    AppDbContext db,
+    IV170PeopleAdminWriter writer)
     : IV170PeopleBulkWorkbookService
 {
     private const string ImportType =
@@ -500,12 +501,17 @@ public sealed class V170PeopleBulkWorkbookService(
             new HashSet<string>(
                 StringComparer.OrdinalIgnoreCase);
 
+        var seenEntraBindings =
+            new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+
         PreviewInternalRows(
             batch,
             result,
             snapshot,
             internalSheet,
             seenInternalCodes,
+            seenEntraBindings,
             today);
 
         PreviewExternalRows(
@@ -515,6 +521,7 @@ public sealed class V170PeopleBulkWorkbookService(
             externalSheet,
             seenExternalCodes,
             seenExternalCreateEmails,
+            seenEntraBindings,
             today);
 
         if (result.Count == 0)
@@ -606,7 +613,9 @@ public sealed class V170PeopleBulkWorkbookService(
                     x =>
                         x.ImportBatchId
                             == importBatchId
-                        && x.Status == "Error")
+                        && (
+                            x.Status == "Error"
+                            || x.Status == "Failed"))
                 .OrderBy(x => x.RowNumber)
                 .ThenBy(x => x.EntityType)
                 .ToListAsync(ct);
@@ -614,7 +623,7 @@ public sealed class V170PeopleBulkWorkbookService(
         if (errors.Count == 0)
         {
             throw new InvalidOperationException(
-                "此匯入批次沒有錯誤資料。");
+                "此匯入批次沒有錯誤或失敗資料。");
         }
 
         var rows =
@@ -694,20 +703,433 @@ public sealed class V170PeopleBulkWorkbookService(
             ExcelContentType);
     }
 
-    /*
-     * C2A intentionally does not enable database mutation.
-     * C2B will route Confirm through the existing v1.7
-     * People/Access writer so single-record and bulk rules
-     * stay aligned.
-     */
-    public Task<V170PeopleBulkConfirmResultDto>
+    public async Task<V170PeopleBulkConfirmResultDto>
         ConfirmAsync(
             CurrentUserDto admin,
             Guid importBatchId,
             V170PeopleBulkConfirmRequest request,
             CancellationToken ct)
-        => throw new InvalidOperationException(
-            "人員與權限批次確認寫入尚未啟用；請完成 Checkpoint C2B。");
+    {
+        var orgId =
+            RequireAdminOrganization(admin);
+
+        var batch =
+            await db.ImportBatches
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x =>
+                        x.ImportBatchId
+                            == importBatchId,
+                    ct)
+            ?? throw new KeyNotFoundException(
+                "找不到匯入批次。");
+
+        if (!batch.ImportType.Equals(
+                ImportType,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "此批次不是人員與權限匯入。");
+        }
+
+        if (batch.OrganizationId != orgId
+            || batch.RequestedByUserId
+               != admin.UserId)
+        {
+            throw new UnauthorizedAccessException(
+                "只能確認自己建立的人員與權限匯入預覽。");
+        }
+
+        var items =
+            await db.ImportBatchItems
+                .AsNoTracking()
+                .Where(
+                    x =>
+                        x.ImportBatchId
+                        == importBatchId)
+                .OrderBy(x => x.RowNumber)
+                .ThenBy(x => x.EntityType)
+                .ToListAsync(ct);
+
+        var today =
+            BusinessTime.Today;
+
+        var requiresRetroactive =
+            items
+                .Where(
+                    x =>
+                        x.Status == "Valid"
+                        && x.Action != "NoChange")
+                .Any(
+                    x =>
+                        V170PeopleBulkRules.IsRetroactive(
+                            GetChangeEffectiveFrom(x),
+                            today));
+
+        V170PeopleBulkConfirmRules.Validate(
+            batch.Status,
+            batch.ExpiresAt,
+            batch.ErrorCount,
+            requiresRetroactive,
+            request.ConfirmRetroactive,
+            DateTime.UtcNow);
+
+        var activeTeams =
+            await db.Teams
+                .AsNoTracking()
+                .Where(
+                    x =>
+                        x.OrganizationId == orgId
+                        && x.IsActive)
+                .ToListAsync(ct);
+
+        var teamByCode =
+            activeTeams.ToDictionary(
+                x => x.TeamCode,
+                x => x.TeamId,
+                StringComparer.OrdinalIgnoreCase);
+
+        var people =
+            await (
+                from profile
+                    in db.UserIdentityProfiles
+                        .AsNoTracking()
+                join user
+                    in db.Users
+                        .AsNoTracking()
+                    on profile.UserId
+                    equals user.UserId
+                where user.OrganizationId
+                      == orgId
+                select new
+                {
+                    profile.UserId,
+                    profile.UserCode,
+                    profile.UserType
+                })
+                .ToListAsync(ct);
+
+        var peopleByCode =
+            people.ToDictionary(
+                x => x.UserCode,
+                x => (
+                    x.UserId,
+                    x.UserType),
+                StringComparer.OrdinalIgnoreCase);
+
+        var created = 0;
+        var updated = 0;
+        var unchanged = 0;
+        var failed = 0;
+
+        var errors =
+            new List<string>();
+
+        foreach (var item
+                 in items.Where(
+                     x => x.Status == "Valid"))
+        {
+            if (item.Action == "NoChange")
+            {
+                unchanged++;
+
+                await UpdateBatchItemStatusAsync(
+                    item.ImportBatchItemId,
+                    "Applied",
+                    null,
+                    ct);
+
+                continue;
+            }
+
+            try
+            {
+                if (item.EntityType
+                    == "InternalAuthorization")
+                {
+                    var row =
+                        DeserializeRequired<
+                            V170InternalAuthorizationRow>(
+                                item);
+
+                    var userId =
+                        ResolvePeopleUserId(
+                            row.UserCode,
+                            UserTypes.Internal,
+                            peopleByCode);
+
+                    var teamAssignments =
+                        row.TeamCodes
+                            .Select(
+                                code =>
+                                    new InternalTeamAssignmentInput(
+                                        ResolveTeamId(
+                                            code,
+                                            teamByCode),
+                                        string.Equals(
+                                            code,
+                                            row.PrimaryTeamCode,
+                                            StringComparison.OrdinalIgnoreCase)))
+                            .ToList();
+
+                    await writer
+                        .UpdateInternalUserAccessAsync(
+                            admin,
+                            userId,
+                            new UpdateInternalUserAccessRequest(
+                                Roles:
+                                    row.Roles,
+
+                                TeamAssignments:
+                                    teamAssignments,
+
+                                AdminEnabled:
+                                    row.AdminEnabled,
+
+                                ChangeEffectiveFrom:
+                                    row.ChangeEffectiveFrom,
+
+                                ConfirmRetroactive:
+                                    request.ConfirmRetroactive,
+
+                                IdentityProvider:
+                                    row.IdentityProvider,
+
+                                EntraTenantId:
+                                    row.EntraTenantId,
+
+                                EntraObjectId:
+                                    row.EntraObjectId),
+                            ct);
+
+                    updated++;
+                }
+                else if (item.EntityType
+                         == "ExternalSupervisor")
+                {
+                    var row =
+                        DeserializeRequired<
+                            V170ExternalSupervisorRow>(
+                                item);
+
+                    var teamIds =
+                        row.ScopeTeamCodes
+                            .Select(
+                                code =>
+                                    ResolveTeamId(
+                                        code,
+                                        teamByCode))
+                            .Distinct()
+                            .ToList();
+
+                    if (item.Action == "Create")
+                    {
+                        await writer
+                            .CreateExternalSupervisorAsync(
+                                admin,
+                                new SaveExternalSupervisorRequest(
+                                    DisplayName:
+                                        row.DisplayName,
+
+                                    Email:
+                                        row.Email,
+
+                                    ExternalOrganization:
+                                        row.ExternalOrganization,
+
+                                    ExternalTitle:
+                                        row.ExternalTitle,
+
+                                    AuthorizationFrom:
+                                        row.AuthorizationFrom,
+
+                                    AuthorizationTo:
+                                        row.AuthorizationTo,
+
+                                    ScopeType:
+                                        row.ScopeType,
+
+                                    TeamIds:
+                                        teamIds,
+
+                                    CanExportExcel:
+                                        row.CanExportExcel,
+
+                                    CanExportPdf:
+                                        row.CanExportPdf,
+
+                                    AdminEnabled:
+                                        row.AdminEnabled,
+
+                                    IdentityProvider:
+                                        row.IdentityProvider,
+
+                                    EntraTenantId:
+                                        row.EntraTenantId,
+
+                                    EntraObjectId:
+                                        row.EntraObjectId),
+                                ct);
+
+                        created++;
+                    }
+                    else
+                    {
+                        if (string.IsNullOrWhiteSpace(
+                                row.UserCode))
+                        {
+                            throw new InvalidOperationException(
+                                "External Supervisor Update 缺少 UserCode。");
+                        }
+
+                        var userId =
+                            ResolvePeopleUserId(
+                                row.UserCode,
+                                UserTypes.External,
+                                peopleByCode);
+
+                        await writer
+                            .UpdateExternalSupervisorAsync(
+                                admin,
+                                userId,
+                                new UpdateExternalSupervisorRequest(
+                                    DisplayName:
+                                        row.DisplayName,
+
+                                    Email:
+                                        row.Email,
+
+                                    ExternalOrganization:
+                                        row.ExternalOrganization,
+
+                                    ExternalTitle:
+                                        row.ExternalTitle,
+
+                                    AuthorizationFrom:
+                                        row.AuthorizationFrom,
+
+                                    AuthorizationTo:
+                                        row.AuthorizationTo,
+
+                                    ScopeType:
+                                        row.ScopeType,
+
+                                    TeamIds:
+                                        teamIds,
+
+                                    CanExportExcel:
+                                        row.CanExportExcel,
+
+                                    CanExportPdf:
+                                        row.CanExportPdf,
+
+                                    AdminEnabled:
+                                        row.AdminEnabled,
+
+                                    ChangeEffectiveFrom:
+                                        row.ChangeEffectiveFrom,
+
+                                    ConfirmRetroactive:
+                                        request.ConfirmRetroactive,
+
+                                    IdentityProvider:
+                                        row.IdentityProvider,
+
+                                    EntraTenantId:
+                                        row.EntraTenantId,
+
+                                    EntraObjectId:
+                                        row.EntraObjectId),
+                                ct);
+
+                        updated++;
+                    }
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"不支援的批次資料類型：{item.EntityType}");
+                }
+
+                /*
+                 * V170PeopleAdminWriter clears the shared EF
+                 * ChangeTracker inside each transaction.
+                 * Therefore batch progress is persisted with
+                 * ExecuteUpdate and never relies on tracked
+                 * ImportBatchItem entities.
+                 */
+                await UpdateBatchItemStatusAsync(
+                    item.ImportBatchItemId,
+                    "Applied",
+                    null,
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                failed++;
+
+                var message =
+                    $"{SheetName(item.EntityType)} 第 {item.RowNumber} 列 ({item.DisplayKey})：{ex.Message}";
+
+                errors.Add(message);
+
+                await UpdateBatchItemStatusAsync(
+                    item.ImportBatchItemId,
+                    "Failed",
+                    ex.Message,
+                    ct);
+            }
+        }
+
+        var finalStatus =
+            failed == 0
+                ? "Confirmed"
+                : "PartiallyFailed";
+
+        var confirmedAt =
+            DateTime.UtcNow;
+
+        await db.ImportBatches
+            .Where(
+                x =>
+                    x.ImportBatchId
+                    == importBatchId)
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(
+                            x => x.Status,
+                            finalStatus)
+                        .SetProperty(
+                            x => x.ConfirmedAt,
+                            (DateTime?)confirmedAt),
+                ct);
+
+        AddAudit(
+            admin,
+            "PeopleBulkConfirm",
+            new
+            {
+                importBatchId,
+                created,
+                updated,
+                unchanged,
+                failed,
+                FinalStatus =
+                    finalStatus,
+                request.ConfirmRetroactive
+            });
+
+        await db.SaveChangesAsync(ct);
+
+        return new V170PeopleBulkConfirmResultDto(
+            importBatchId,
+            created,
+            updated,
+            unchanged,
+            failed,
+            errors);
+    }
 
     private void PreviewInternalRows(
         ImportBatch batch,
@@ -715,6 +1137,7 @@ public sealed class V170PeopleBulkWorkbookService(
         PeopleSnapshot snapshot,
         IReadOnlyList<string[]> sheet,
         HashSet<string> seenCodes,
+        HashSet<string> seenEntraBindings,
         DateOnly today)
     {
         var headers =
@@ -813,7 +1236,8 @@ public sealed class V170PeopleBulkWorkbookService(
                     normalized.EntraTenantId,
                     normalized.EntraObjectId,
                     userId,
-                    snapshot);
+                    snapshot,
+                    seenEntraBindings);
 
                 action =
                     SameInternal(
@@ -860,6 +1284,7 @@ public sealed class V170PeopleBulkWorkbookService(
         IReadOnlyList<string[]> sheet,
         HashSet<string> seenCodes,
         HashSet<string> seenCreateEmails,
+        HashSet<string> seenEntraBindings,
         DateOnly today)
     {
         var headers =
@@ -928,6 +1353,13 @@ public sealed class V170PeopleBulkWorkbookService(
                 {
                     action =
                         "Create";
+
+                    if (normalized.ChangeEffectiveFrom
+                        != normalized.AuthorizationFrom)
+                    {
+                        throw new InvalidOperationException(
+                            "新增 External Supervisor 時，ChangeEffectiveFrom 必須等於 AuthorizationFrom。");
+                    }
 
                     if (!seenCreateEmails.Add(
                             normalized.Email))
@@ -1010,7 +1442,8 @@ public sealed class V170PeopleBulkWorkbookService(
                     normalized.EntraTenantId,
                     normalized.EntraObjectId,
                     targetUserId,
-                    snapshot);
+                    snapshot,
+                    seenEntraBindings);
             }
             catch (Exception ex)
             {
@@ -1116,13 +1549,31 @@ public sealed class V170PeopleBulkWorkbookService(
         Guid? tenantId,
         Guid? objectId,
         int? targetUserId,
-        PeopleSnapshot snapshot)
+        PeopleSnapshot snapshot,
+        HashSet<string> seenEntraBindings)
     {
         if (!provider.Equals(
                 "EntraId",
                 StringComparison.OrdinalIgnoreCase))
         {
             return;
+        }
+
+        if (!tenantId.HasValue
+            || !objectId.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Entra ID 綁定資料不完整。");
+        }
+
+        var bindingKey =
+            $"{tenantId.Value:D}/{objectId.Value:D}";
+
+        if (!seenEntraBindings.Add(
+                bindingKey))
+        {
+            throw new InvalidOperationException(
+                "同一份 Excel 內 EntraTenantId + EntraObjectId 不可重複。");
         }
 
         var duplicate =
@@ -1623,6 +2074,110 @@ public sealed class V170PeopleBulkWorkbookService(
             scopesByUser,
             capabilitiesByUser);
     }
+
+    private static T DeserializeRequired<T>(
+        ImportBatchItem item)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<T>(
+                       item.DataJson,
+                       JsonOptions)
+                   ?? throw new InvalidOperationException(
+                       "批次暫存資料為空。");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                "批次暫存資料格式不正確，請重新上傳 Excel。",
+                ex);
+        }
+    }
+
+    private static DateOnly GetChangeEffectiveFrom(
+        ImportBatchItem item)
+        => item.EntityType switch
+        {
+            "InternalAuthorization" =>
+                DeserializeRequired<
+                    V170InternalAuthorizationRow>(
+                        item)
+                    .ChangeEffectiveFrom,
+
+            "ExternalSupervisor" =>
+                DeserializeRequired<
+                    V170ExternalSupervisorRow>(
+                        item)
+                    .ChangeEffectiveFrom,
+
+            _ =>
+                throw new InvalidOperationException(
+                    $"不支援的批次資料類型：{item.EntityType}")
+        };
+
+    private static int ResolvePeopleUserId(
+        string userCode,
+        string expectedUserType,
+        IReadOnlyDictionary<
+            string,
+            (int UserId, string UserType)>
+            peopleByCode)
+    {
+        if (!peopleByCode.TryGetValue(
+                userCode,
+                out var person))
+        {
+            throw new InvalidOperationException(
+                $"找不到 UserCode：{userCode}");
+        }
+
+        if (!person.UserType.Equals(
+                expectedUserType,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"UserCode {userCode} 的 UserType 不正確。");
+        }
+
+        return person.UserId;
+    }
+
+    private static int ResolveTeamId(
+        string teamCode,
+        IReadOnlyDictionary<string, int>
+            teamByCode)
+    {
+        if (!teamByCode.TryGetValue(
+                teamCode,
+                out var teamId))
+        {
+            throw new InvalidOperationException(
+                $"找不到或已停用的 TeamCode：{teamCode}");
+        }
+
+        return teamId;
+    }
+
+    private Task<int> UpdateBatchItemStatusAsync(
+        long importBatchItemId,
+        string status,
+        string? errorMessage,
+        CancellationToken ct)
+        => db.ImportBatchItems
+            .Where(
+                x =>
+                    x.ImportBatchItemId
+                    == importBatchItemId)
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters
+                        .SetProperty(
+                            x => x.Status,
+                            status)
+                        .SetProperty(
+                            x => x.ErrorMessage,
+                            errorMessage),
+                ct);
 
     private static bool GetCapability(
         PeopleSnapshot snapshot,
