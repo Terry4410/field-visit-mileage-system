@@ -878,8 +878,14 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
 
     private static void AddDiff<T>(List<CorrectionChangeDto> list, string field, T oldValue, T newValue)
     {
-        var a = oldValue is null ? null : oldValue.ToString(); var b = newValue is null ? null : newValue.ToString();
-        if (!string.Equals(a, b, StringComparison.Ordinal)) list.Add(new CorrectionChangeDto(field, a, b));
+        if (V160CorrectionDiffRules.AreEquivalent(oldValue, newValue))
+            return;
+
+        list.Add(
+            new CorrectionChangeDto(
+                field,
+                V160CorrectionDiffRules.ToDisplayValue(oldValue),
+                V160CorrectionDiffRules.ToDisplayValue(newValue)));
     }
 
     private static bool RequiresAdminClose(IEnumerable<CorrectionRequestChange> changes) =>
