@@ -62,6 +62,31 @@ public sealed record V170LocationRecentDto(
     decimal? Longitude,
     DateOnly LastVisitedOn);
 
+public sealed record V170LocationNearbyRequest(
+    decimal Latitude,
+    decimal Longitude,
+    int? ProjectId,
+    int Limit = 20);
+
+public sealed record V170LocationNearbySpec(
+    decimal Latitude,
+    decimal Longitude,
+    int? ProjectId,
+    int Limit);
+
+public sealed record V170LocationNearbyDto(
+    int LocationId,
+    string? LocationCode,
+    string LocationName,
+    string LocationType,
+    string? City,
+    string? District,
+    string? Address,
+    string? PlusCode,
+    decimal Latitude,
+    decimal Longitude,
+    decimal DistanceKm);
+
 public sealed record V170LocationFavoriteOrderRequest(
     IReadOnlyList<int> LocationIds);
 
@@ -181,6 +206,9 @@ public static class V170LocationPickerRules
         return request.LocationIds.ToArray();
     }
 
+    public const int DefaultNearbyLimit = 20;
+    public const int MaxNearbyLimit = 50;
+
     public static int NormalizeRecentLimit(
         int limit)
     {
@@ -190,5 +218,102 @@ public static class V170LocationPickerRules
         return Math.Min(
             limit,
             MaxRecentLimit);
+    }
+
+    public static V170LocationNearbySpec NormalizeNearby(
+        V170LocationNearbyRequest request)
+    {
+        if (request.Latitude < -90m
+            || request.Latitude > 90m)
+        {
+            throw new InvalidOperationException(
+                "Latitude 必須介於 -90 到 90。");
+        }
+
+        if (request.Longitude < -180m
+            || request.Longitude > 180m)
+        {
+            throw new InvalidOperationException(
+                "Longitude 必須介於 -180 到 180。");
+        }
+
+        if (request.ProjectId.HasValue
+            && request.ProjectId.Value <= 0)
+        {
+            throw new InvalidOperationException(
+                "ProjectId 必須大於 0。");
+        }
+
+        var limit =
+            request.Limit <= 0
+                ? DefaultNearbyLimit
+                : Math.Min(
+                    request.Limit,
+                    MaxNearbyLimit);
+
+        return new V170LocationNearbySpec(
+            request.Latitude,
+            request.Longitude,
+            request.ProjectId,
+            limit);
+    }
+
+    public static decimal CalculateDistanceKm(
+        decimal fromLatitude,
+        decimal fromLongitude,
+        decimal toLatitude,
+        decimal toLongitude)
+    {
+        const double earthRadiusKm =
+            6371.0088d;
+
+        static double ToRadians(
+            decimal degrees) =>
+            (double)degrees
+            * Math.PI
+            / 180d;
+
+        var lat1 =
+            ToRadians(fromLatitude);
+
+        var lat2 =
+            ToRadians(toLatitude);
+
+        var deltaLat =
+            ToRadians(
+                toLatitude
+                - fromLatitude);
+
+        var deltaLon =
+            ToRadians(
+                toLongitude
+                - fromLongitude);
+
+        var sinLat =
+            Math.Sin(deltaLat / 2d);
+
+        var sinLon =
+            Math.Sin(deltaLon / 2d);
+
+        var a =
+            sinLat * sinLat
+            + Math.Cos(lat1)
+            * Math.Cos(lat2)
+            * sinLon
+            * sinLon;
+
+        a = Math.Clamp(
+            a,
+            0d,
+            1d);
+
+        var c =
+            2d
+            * Math.Atan2(
+                Math.Sqrt(a),
+                Math.Sqrt(1d - a));
+
+        return Convert.ToDecimal(
+            earthRadiusKm * c);
     }
 }

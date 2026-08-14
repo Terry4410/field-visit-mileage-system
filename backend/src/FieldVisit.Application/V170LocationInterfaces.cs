@@ -30,4 +30,9 @@ public interface IV170LocationRepository
         CurrentUserDto user,
         int limit,
         CancellationToken ct);
+
+    Task<IReadOnlyList<V170LocationNearbyDto>> GetNearbyAsync(
+        CurrentUserDto user,
+        V170LocationNearbySpec spec,
+        CancellationToken ct);
 }

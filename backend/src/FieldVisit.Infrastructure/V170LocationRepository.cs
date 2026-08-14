@@ -419,6 +419,170 @@ public sealed class V170LocationRepository(
             .ToListAsync(ct);
     }
 
+    public async Task<
+        IReadOnlyList<V170LocationNearbyDto>>
+        GetNearbyAsync(
+            CurrentUserDto user,
+            V170LocationNearbySpec spec,
+            CancellationToken ct)
+    {
+        var q =
+            AccessibleLocations(user)
+                .Where(x =>
+                    x.Latitude.HasValue
+                    && x.Longitude.HasValue);
+
+        var isAdmin =
+            user.Roles.Contains(
+                "admin",
+                StringComparer.OrdinalIgnoreCase);
+
+        // Optional project-list restriction.
+        if (spec.ProjectId.HasValue)
+        {
+            var projectId =
+                spec.ProjectId.Value;
+
+            var project =
+                await db.Projects
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.ProjectId == projectId,
+                        ct)
+                ?? throw new KeyNotFoundException(
+                    "找不到專案。");
+
+            if (user.OrganizationId.HasValue
+                && project.OrganizationId
+                    != user.OrganizationId.Value)
+            {
+                throw new UnauthorizedAccessException(
+                    "無權使用其他 Organization 專案。");
+            }
+
+            if (!isAdmin
+                && project.TeamId.HasValue
+                && !user.TeamIds.Contains(
+                    project.TeamId.Value))
+            {
+                throw new UnauthorizedAccessException(
+                    "無權使用未授權小組專案。");
+            }
+
+            var today =
+                BusinessTime.Today;
+
+            if (!project.IsActive
+                || (project.StartDate.HasValue
+                    && project.StartDate.Value > today)
+                || (project.EndDate.HasValue
+                    && project.EndDate.Value < today))
+            {
+                throw new InvalidOperationException(
+                    "專案目前不在可使用期間。");
+            }
+
+            q = q.Where(location =>
+                db.ProjectLocations
+                    .AsNoTracking()
+                    .Any(pl =>
+                        pl.ProjectId == projectId
+                        && pl.LocationId
+                            == location.LocationId
+                        && pl.IsActive));
+        }
+
+        // Use a lightweight equirectangular approximation in SQL
+        // only to reduce the candidate set. There is intentionally
+        // no hard radius such as 5 km.
+        //
+        // Exact Haversine distance is calculated below for the small
+        // candidate set before the final Top-N result is returned.
+        var longitudeScale =
+            Convert.ToDecimal(
+                Math.Cos(
+                    (double)spec.Latitude
+                    * Math.PI
+                    / 180d));
+
+        var candidateLimit =
+            Math.Min(
+                spec.Limit * 3,
+                150);
+
+        var latitude =
+            spec.Latitude;
+
+        var longitude =
+            spec.Longitude;
+
+        var candidates =
+            await q
+                .OrderBy(x =>
+                    (x.Latitude!.Value - latitude)
+                    * (x.Latitude.Value - latitude)
+                    +
+                    (
+                        (x.Longitude!.Value - longitude)
+                        * longitudeScale
+                    )
+                    *
+                    (
+                        (x.Longitude.Value - longitude)
+                        * longitudeScale
+                    ))
+                .ThenBy(x =>
+                    x.LocationId)
+                .Take(candidateLimit)
+                .Select(x =>
+                    new
+                    {
+                        x.LocationId,
+                        x.LocationCode,
+                        x.LocationName,
+                        x.LocationType,
+                        x.City,
+                        x.District,
+                        x.Address,
+                        x.PlusCode,
+                        Latitude =
+                            x.Latitude!.Value,
+                        Longitude =
+                            x.Longitude!.Value
+                    })
+                .ToListAsync(ct);
+
+        return candidates
+            .Select(x =>
+                new V170LocationNearbyDto(
+                    x.LocationId,
+                    x.LocationCode,
+                    x.LocationName,
+                    x.LocationType,
+                    x.City,
+                    x.District,
+                    x.Address,
+                    x.PlusCode,
+                    x.Latitude,
+                    x.Longitude,
+                    Math.Round(
+                        V170LocationPickerRules
+                            .CalculateDistanceKm(
+                                latitude,
+                                longitude,
+                                x.Latitude,
+                                x.Longitude),
+                        2)))
+            .OrderBy(x =>
+                x.DistanceKm)
+            .ThenBy(x =>
+                x.LocationName)
+            .ThenBy(x =>
+                x.LocationId)
+            .Take(spec.Limit)
+            .ToList();
+    }
+
     private IQueryable<Location> AccessibleLocations(
         CurrentUserDto user)
     {

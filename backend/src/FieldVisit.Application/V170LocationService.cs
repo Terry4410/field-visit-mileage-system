@@ -106,6 +106,31 @@ public sealed class V170LocationService(
             ct);
     }
 
+    public async Task<IReadOnlyList<V170LocationNearbyDto>>
+        GetNearbyAsync(
+            decimal latitude,
+            decimal longitude,
+            int? projectId,
+            int limit,
+            CancellationToken ct)
+    {
+        var user = RequirePickerUser();
+
+        var spec =
+            V170LocationPickerRules
+                .NormalizeNearby(
+                    new V170LocationNearbyRequest(
+                        latitude,
+                        longitude,
+                        projectId,
+                        limit));
+
+        return await locations.GetNearbyAsync(
+            user,
+            spec,
+            ct);
+    }
+
     private CurrentUserDto RequirePickerUser()
     {
         var user = current.GetRequired();

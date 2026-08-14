@@ -96,4 +96,23 @@ public sealed class V170LocationController(
                 limit,
                 ct));
     }
+
+    [HttpGet("nearby")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public async Task<ActionResult<
+        IReadOnlyList<V170LocationNearbyDto>>> Nearby(
+        [FromQuery] decimal latitude,
+        [FromQuery] decimal longitude,
+        [FromQuery] int? projectId,
+        [FromQuery] int limit = 20,
+        CancellationToken ct = default)
+    {
+        return Ok(
+            await locations.GetNearbyAsync(
+                latitude,
+                longitude,
+                projectId,
+                limit,
+                ct));
+    }
 }
