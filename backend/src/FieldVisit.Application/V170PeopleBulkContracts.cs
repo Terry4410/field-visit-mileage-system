@@ -442,33 +442,6 @@ public static class V170PeopleBulkRules
             string? tenantRaw,
             string? objectRaw)
     {
-        var provider =
-            string.IsNullOrWhiteSpace(providerRaw)
-                ? "Demo"
-                : providerRaw.Trim();
-
-        if (provider.Equals(
-                "demo",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            provider = "Demo";
-        }
-        else if (
-            provider.Equals(
-                "entra",
-                StringComparison.OrdinalIgnoreCase)
-            || provider.Equals(
-                "entraid",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            provider = "EntraId";
-        }
-        else
-        {
-            throw new InvalidOperationException(
-                "IdentityProvider 只允許 Demo 或 EntraId。");
-        }
-
         var tenant =
             ParseOptionalGuid(
                 tenantRaw,
@@ -479,26 +452,18 @@ public static class V170PeopleBulkRules
                 objectRaw,
                 "EntraObjectId");
 
-        if (provider == "EntraId"
-            && (!tenant.HasValue
-                || !objectId.HasValue))
-        {
-            throw new InvalidOperationException(
-                "IdentityProvider=EntraId 時，EntraTenantId 與 EntraObjectId 都必填。");
-        }
-
-        if (provider == "Demo"
-            && (tenant.HasValue
-                || objectId.HasValue))
-        {
-            throw new InvalidOperationException(
-                "IdentityProvider=Demo 時不可填寫 EntraTenantId 或 EntraObjectId。");
-        }
+        var identity =
+            V170IdentityBindingRules.Normalize(
+                providerRaw,
+                tenant,
+                objectId,
+                defaultToDemo: true);
 
         return (
-            provider,
-            tenant,
-            objectId);
+            identity.IdentityProvider
+                ?? "Demo",
+            identity.EntraTenantId,
+            identity.EntraObjectId);
     }
 
     private static Guid? ParseOptionalGuid(

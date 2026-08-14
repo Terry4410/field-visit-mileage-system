@@ -13,7 +13,106 @@ public sealed record SaveExternalSupervisorRequest(
     IReadOnlyList<int> TeamIds,
     bool CanExportExcel,
     bool CanExportPdf,
-    bool AdminEnabled = true);
+    bool AdminEnabled = true,
+    string? IdentityProvider = null,
+    Guid? EntraTenantId = null,
+    Guid? EntraObjectId = null);
+
+
+public sealed record V170IdentityBindingInput(
+    bool IsSpecified,
+    string? IdentityProvider,
+    Guid? EntraTenantId,
+    Guid? EntraObjectId);
+
+public static class V170IdentityBindingRules
+{
+    public static V170IdentityBindingInput Normalize(
+        string? identityProvider,
+        Guid? entraTenantId,
+        Guid? entraObjectId,
+        bool defaultToDemo)
+    {
+        var providerProvided =
+            !string.IsNullOrWhiteSpace(
+                identityProvider);
+
+        var anyIdentityField =
+            providerProvided
+            || entraTenantId.HasValue
+            || entraObjectId.HasValue;
+
+        if (!anyIdentityField
+            && !defaultToDemo)
+        {
+            return new V170IdentityBindingInput(
+                false,
+                null,
+                null,
+                null);
+        }
+
+        if (!providerProvided
+            && (
+                entraTenantId.HasValue
+                || entraObjectId.HasValue))
+        {
+            throw new InvalidOperationException(
+                "填寫 EntraTenantId 或 EntraObjectId 時，IdentityProvider 必填。");
+        }
+
+        var provider =
+            providerProvided
+                ? identityProvider!.Trim()
+                : "Demo";
+
+        if (provider.Equals(
+                "demo",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            provider = "Demo";
+        }
+        else if (
+            provider.Equals(
+                "entra",
+                StringComparison.OrdinalIgnoreCase)
+            || provider.Equals(
+                "entraid",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            provider = "EntraId";
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                "IdentityProvider 只允許 Demo 或 EntraId。");
+        }
+
+        if (provider == "EntraId"
+            && (
+                !entraTenantId.HasValue
+                || !entraObjectId.HasValue))
+        {
+            throw new InvalidOperationException(
+                "IdentityProvider=EntraId 時，EntraTenantId 與 EntraObjectId 都必填。");
+        }
+
+        if (provider == "Demo"
+            && (
+                entraTenantId.HasValue
+                || entraObjectId.HasValue))
+        {
+            throw new InvalidOperationException(
+                "IdentityProvider=Demo 時不可填寫 EntraTenantId 或 EntraObjectId。");
+        }
+
+        return new V170IdentityBindingInput(
+            true,
+            provider,
+            entraTenantId,
+            entraObjectId);
+    }
+}
 
 public static class V170ExternalSupervisorRules
 {
@@ -113,6 +212,13 @@ public static class V170ExternalSupervisorRules
                 "Team Scope 至少需要一個 Team。");
         }
 
+        var identity =
+            V170IdentityBindingRules.Normalize(
+                request.IdentityProvider,
+                request.EntraTenantId,
+                request.EntraObjectId,
+                defaultToDemo: true);
+
         return request with
         {
             DisplayName = name,
@@ -120,7 +226,13 @@ public static class V170ExternalSupervisorRules
             ExternalOrganization = organization,
             ExternalTitle = title,
             ScopeType = scope,
-            TeamIds = teamIds
+            TeamIds = teamIds,
+            IdentityProvider =
+                identity.IdentityProvider,
+            EntraTenantId =
+                identity.EntraTenantId,
+            EntraObjectId =
+                identity.EntraObjectId
         };
     }
 }
@@ -139,7 +251,10 @@ public sealed record UpdateExternalSupervisorRequest(
     bool CanExportPdf,
     bool AdminEnabled,
     DateOnly ChangeEffectiveFrom,
-    bool ConfirmRetroactive = false);
+    bool ConfirmRetroactive = false,
+    string? IdentityProvider = null,
+    Guid? EntraTenantId = null,
+    Guid? EntraObjectId = null);
 
 public static class V170ExternalSupervisorUpdateRules
 {
@@ -161,6 +276,13 @@ public static class V170ExternalSupervisorUpdateRules
                     request.CanExportExcel,
                     request.CanExportPdf,
                     request.AdminEnabled));
+
+        var identity =
+            V170IdentityBindingRules.Normalize(
+                request.IdentityProvider,
+                request.EntraTenantId,
+                request.EntraObjectId,
+                defaultToDemo: false);
 
         if (request.ChangeEffectiveFrom
             < request.AuthorizationFrom
@@ -196,7 +318,16 @@ public static class V170ExternalSupervisorUpdateRules
                 normalized.ScopeType,
 
             TeamIds =
-                normalized.TeamIds
+                normalized.TeamIds,
+
+            IdentityProvider =
+                identity.IdentityProvider,
+
+            EntraTenantId =
+                identity.EntraTenantId,
+
+            EntraObjectId =
+                identity.EntraObjectId
         };
     }
 }
@@ -211,7 +342,10 @@ public sealed record UpdateInternalUserAccessRequest(
     IReadOnlyList<InternalTeamAssignmentInput> TeamAssignments,
     bool AdminEnabled,
     DateOnly ChangeEffectiveFrom,
-    bool ConfirmRetroactive = false);
+    bool ConfirmRetroactive = false,
+    string? IdentityProvider = null,
+    Guid? EntraTenantId = null,
+    Guid? EntraObjectId = null);
 
 public static class V170InternalUserAccessRules
 {
@@ -296,10 +430,23 @@ public static class V170InternalUserAccessRules
                 "異動生效日早於今天，請二次確認回溯異動。");
         }
 
+        var identity =
+            V170IdentityBindingRules.Normalize(
+                request.IdentityProvider,
+                request.EntraTenantId,
+                request.EntraObjectId,
+                defaultToDemo: false);
+
         return request with
         {
             Roles = roles,
-            TeamAssignments = teams
+            TeamAssignments = teams,
+            IdentityProvider =
+                identity.IdentityProvider,
+            EntraTenantId =
+                identity.EntraTenantId,
+            EntraObjectId =
+                identity.EntraObjectId
         };
     }
 

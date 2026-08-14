@@ -143,6 +143,13 @@ public sealed class V170PeopleAdminWriter(
                     await NewExternalUserCodeAsync(
                         ct);
 
+                await EnsureIdentityBindingAvailableAsync(
+                    request.IdentityProvider,
+                    request.EntraTenantId,
+                    request.EntraObjectId,
+                    user.UserId,
+                    ct);
+
                 await db.UserIdentityProfiles
                     .AddAsync(
                         new UserIdentityProfile
@@ -156,11 +163,15 @@ public sealed class V170PeopleAdminWriter(
                             UserCode =
                                 userCode,
 
-                            // UAT uses Demo authentication.
-                            // Production is switched to
-                            // Entra ID B2B after IT Gate.
                             IdentityProvider =
-                                "Demo",
+                                request.IdentityProvider
+                                ?? "Demo",
+
+                            EntraTenantId =
+                                request.EntraTenantId,
+
+                            EntraObjectId =
+                                request.EntraObjectId,
 
                             ExternalOrganization =
                                 request.ExternalOrganization,
@@ -341,7 +352,10 @@ public sealed class V170PeopleAdminWriter(
                                     request.TeamIds,
                                     request.CanExportExcel,
                                     request.CanExportPdf,
-                                    request.AdminEnabled
+                                    request.AdminEnabled,
+                                    request.IdentityProvider,
+                                    request.EntraTenantId,
+                                    request.EntraObjectId
                                 }),
 
                         CreatedAt =
@@ -416,6 +430,13 @@ public sealed class V170PeopleAdminWriter(
                     throw new InvalidOperationException(
                         "只有 External User 可以使用此外部督導異動功能。");
                 }
+
+                await EnsureIdentityBindingAvailableAsync(
+                    request.IdentityProvider,
+                    request.EntraTenantId,
+                    request.EntraObjectId,
+                    userId,
+                    ct);
 
                 var duplicateEmail =
                     await db.Users
@@ -550,6 +571,14 @@ public sealed class V170PeopleAdminWriter(
                         identity.AuthorizationFrom,
                         identity.AuthorizationTo,
 
+                        Identity =
+                            new
+                            {
+                                identity.IdentityProvider,
+                                identity.EntraTenantId,
+                                identity.EntraObjectId
+                            },
+
                         Scopes =
                             scopesBefore,
 
@@ -580,6 +609,13 @@ public sealed class V170PeopleAdminWriter(
 
                 identity.AuthorizationTo =
                     request.AuthorizationTo;
+
+                ApplyIdentityBinding(
+                    identity,
+                    request.IdentityProvider,
+                    request.EntraTenantId,
+                    request.EntraObjectId,
+                    now);
 
                 identity.UpdatedAt =
                     now;
@@ -738,7 +774,10 @@ public sealed class V170PeopleAdminWriter(
                                             request.CanExportExcel,
                                             request.CanExportPdf,
                                             request.AdminEnabled,
-                                            request.ChangeEffectiveFrom
+                                            request.ChangeEffectiveFrom,
+                                            request.IdentityProvider,
+                                            request.EntraTenantId,
+                                            request.EntraObjectId
                                         },
 
                                     request.ConfirmRetroactive
@@ -814,6 +853,13 @@ public sealed class V170PeopleAdminWriter(
                     throw new InvalidOperationException(
                         "External User 不可使用 Internal User 權限異動功能。");
                 }
+
+                await EnsureIdentityBindingAvailableAsync(
+                    request.IdentityProvider,
+                    request.EntraTenantId,
+                    request.EntraObjectId,
+                    userId,
+                    ct);
 
                 var requestedTeamIds =
                     request.TeamAssignments
@@ -929,6 +975,15 @@ public sealed class V170PeopleAdminWriter(
                     new
                     {
                         user.IsActive,
+
+                        Identity =
+                            new
+                            {
+                                identity.IdentityProvider,
+                                identity.EntraTenantId,
+                                identity.EntraObjectId
+                            },
+
                         Roles = rolesBefore,
                         Teams = teamsBefore
                     };
@@ -942,6 +997,13 @@ public sealed class V170PeopleAdminWriter(
 
                 user.UpdatedAt =
                     now;
+
+                ApplyIdentityBinding(
+                    identity,
+                    request.IdentityProvider,
+                    request.EntraTenantId,
+                    request.EntraObjectId,
+                    now);
 
                 await PrepareInternalRoleVersionsAsync(
                     userId,
@@ -1056,7 +1118,10 @@ public sealed class V170PeopleAdminWriter(
                                             request.Roles,
                                             request.TeamAssignments,
                                             request.AdminEnabled,
-                                            request.ChangeEffectiveFrom
+                                            request.ChangeEffectiveFrom,
+                                            request.IdentityProvider,
+                                            request.EntraTenantId,
+                                            request.EntraObjectId
                                         },
 
                                     request.ConfirmRetroactive
@@ -1345,6 +1410,73 @@ public sealed class V170PeopleAdminWriter(
             now;
 
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureIdentityBindingAvailableAsync(
+        string? identityProvider,
+        Guid? entraTenantId,
+        Guid? entraObjectId,
+        int targetUserId,
+        CancellationToken ct)
+    {
+        if (!string.Equals(
+                identityProvider,
+                "EntraId",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!entraTenantId.HasValue
+            || !entraObjectId.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Entra ID 綁定資料不完整。");
+        }
+
+        var duplicate =
+            await db.UserIdentityProfiles
+                .AsNoTracking()
+                .AnyAsync(
+                    x =>
+                        x.UserId != targetUserId
+                        && x.EntraTenantId
+                           == entraTenantId
+                        && x.EntraObjectId
+                           == entraObjectId,
+                    ct);
+
+        if (duplicate)
+        {
+            throw new InvalidOperationException(
+                "此 EntraTenantId + EntraObjectId 已綁定其他系統使用者。");
+        }
+    }
+
+    private static void ApplyIdentityBinding(
+        UserIdentityProfile identity,
+        string? identityProvider,
+        Guid? entraTenantId,
+        Guid? entraObjectId,
+        DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(
+                identityProvider))
+        {
+            return;
+        }
+
+        identity.IdentityProvider =
+            identityProvider;
+
+        identity.EntraTenantId =
+            entraTenantId;
+
+        identity.EntraObjectId =
+            entraObjectId;
+
+        identity.UpdatedAt =
+            now;
     }
 
     private static string NormalizeRoleCode(
