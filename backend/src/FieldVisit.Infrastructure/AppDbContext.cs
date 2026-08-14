@@ -40,6 +40,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserDataScope> UserDataScopes => Set<UserDataScope>();
     public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
 
+    // v1.7 Location Scale foundation.
+    public DbSet<GovernmentLocationSource> GovernmentLocationSources => Set<GovernmentLocationSource>();
+    public DbSet<GovernmentLocationSourceArea> GovernmentLocationSourceAreas => Set<GovernmentLocationSourceArea>();
+    public DbSet<GovernmentLocationMaster> GovernmentLocationMasters => Set<GovernmentLocationMaster>();
+    public DbSet<UserFavoriteLocation> UserFavoriteLocations => Set<UserFavoriteLocation>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Organization>(e => { e.ToTable("Organizations"); e.HasKey(x => x.OrganizationId); e.Property(x => x.OrganizationId).ValueGeneratedOnAdd(); });
@@ -164,6 +170,103 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 x.CapabilityCode,
                 x.EffectiveFrom
             }).IsUnique();
+        });
+
+        // v1.7 Location Scale foundation.
+        b.Entity<GovernmentLocationSource>(e =>
+        {
+            e.ToTable("GovernmentLocationSources");
+            e.HasKey(x => x.GovernmentLocationSourceId);
+            e.Property(x => x.GovernmentLocationSourceId).ValueGeneratedOnAdd();
+            e.HasIndex(x => x.SourceCode).IsUnique();
+        });
+
+        b.Entity<GovernmentLocationSourceArea>(e =>
+        {
+            e.ToTable("GovernmentLocationSourceAreas");
+            e.HasKey(x => x.GovernmentLocationSourceAreaId);
+            e.Property(x => x.GovernmentLocationSourceAreaId).ValueGeneratedOnAdd();
+
+            e.HasIndex(x => new
+            {
+                x.GovernmentLocationSourceId,
+                x.City,
+                x.District
+            }).IsUnique();
+
+            e.HasOne<GovernmentLocationSource>()
+                .WithMany()
+                .HasForeignKey(x => x.GovernmentLocationSourceId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<GovernmentLocationMaster>(e =>
+        {
+            e.ToTable("GovernmentLocationMasters");
+            e.HasKey(x => x.GovernmentLocationMasterId);
+            e.Property(x => x.GovernmentLocationMasterId).ValueGeneratedOnAdd();
+
+            e.Property(x => x.Latitude).HasPrecision(10, 7);
+            e.Property(x => x.Longitude).HasPrecision(10, 7);
+
+            e.HasIndex(x => new
+            {
+                x.GovernmentLocationSourceId,
+                x.SourceRecordKey
+            }).IsUnique();
+
+            e.HasIndex(x => new
+            {
+                x.City,
+                x.District,
+                x.LocationName
+            });
+
+            e.HasIndex(x => x.TaxId);
+
+            e.HasOne<GovernmentLocationSource>()
+                .WithMany()
+                .HasForeignKey(x => x.GovernmentLocationSourceId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne<Location>()
+                .WithMany()
+                .HasForeignKey(x => x.MatchedLocationId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(x => x.ReviewedByUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<UserFavoriteLocation>(e =>
+        {
+            e.ToTable("UserFavoriteLocations");
+            e.HasKey(x => x.UserFavoriteLocationId);
+            e.Property(x => x.UserFavoriteLocationId).ValueGeneratedOnAdd();
+
+            e.HasIndex(x => new
+            {
+                x.UserId,
+                x.LocationId
+            }).IsUnique();
+
+            e.HasIndex(x => new
+            {
+                x.UserId,
+                x.SortOrder
+            });
+
+            e.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            e.HasOne<Location>()
+                .WithMany()
+                .HasForeignKey(x => x.LocationId)
+                .OnDelete(DeleteBehavior.NoAction);
         });
     }
 }
