@@ -62,29 +62,38 @@ BEGIN TRY
             EntraTenantId UNIQUEIDENTIFIER NULL,
             EntraObjectId UNIQUEIDENTIFIER NULL;
 
-    ALTER TABLE dbo.UserIdentityProfiles
-        ADD CONSTRAINT CK_UserIdentityProfiles_EntraBindingPair
-        CHECK(
-            (
-                EntraTenantId IS NULL
-                AND EntraObjectId IS NULL
-            )
-            OR
-            (
-                EntraTenantId IS NOT NULL
-                AND EntraObjectId IS NOT NULL
-            )
-        );
+    /*
+       SQL Server compiles a batch before the ALTER TABLE above becomes
+       visible to later statements. Use dynamic SQL so the constraint
+       and index are compiled after the new columns exist.
+    */
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.UserIdentityProfiles
+            ADD CONSTRAINT CK_UserIdentityProfiles_EntraBindingPair
+            CHECK(
+                (
+                    EntraTenantId IS NULL
+                    AND EntraObjectId IS NULL
+                )
+                OR
+                (
+                    EntraTenantId IS NOT NULL
+                    AND EntraObjectId IS NOT NULL
+                )
+            );
+    ';
 
-    CREATE UNIQUE INDEX
-        UX_UserIdentityProfiles_EntraIdentity
-        ON dbo.UserIdentityProfiles(
-            EntraTenantId,
-            EntraObjectId
-        )
-        WHERE
-            EntraTenantId IS NOT NULL
-            AND EntraObjectId IS NOT NULL;
+    EXEC sys.sp_executesql N'
+        CREATE UNIQUE INDEX
+            UX_UserIdentityProfiles_EntraIdentity
+            ON dbo.UserIdentityProfiles(
+                EntraTenantId,
+                EntraObjectId
+            )
+            WHERE
+                EntraTenantId IS NOT NULL
+                AND EntraObjectId IS NOT NULL;
+    ';
 
     INSERT dbo.SchemaVersions
     (
