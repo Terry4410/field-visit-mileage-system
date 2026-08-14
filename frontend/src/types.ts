@@ -67,3 +67,22 @@ export interface ImportPreview{importBatchId:string;importType:string;totalCount
 export interface ImportConfirmResult{importBatchId:string;created:number;updated:number;unchanged:number;failed:number;errors:string[]}
 export interface BackgroundJob{backgroundJobId:string;jobType:string;status:string;mode?:string;totalCount:number;successCount:number;failedCount:number;skippedCount:number;errorMessage?:string;createdAt:string;startedAt?:string;completedAt?:string}
 export interface DashboardSummary{thisMonthTrips:number;pendingApproval:number;approved:number;pendingLocations:number;pendingCorrections:number;currentRatePerKm?:number}
+
+
+export interface ProjectLocationAdminItem{
+  locationId:number;
+  locationCode?:string|null;
+  locationName:string;
+  city?:string|null;
+  district?:string|null;
+  address?:string|null;
+  plusCode?:string|null;
+}
+
+export interface ProjectLocationCandidateResult{
+  items:ProjectLocationAdminItem[];
+  page:number;
+  pageSize:number;
+  totalCount:number;
+  hasNextPage:boolean;
+}

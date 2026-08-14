@@ -285,3 +285,96 @@
     min-height:44px
   }
 }
+
+
+/* v1.7.0 project fixed locations */
+.project-location-manager{
+  margin-top:18px;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#fbfcfd;
+  display:flex;
+  flex-direction:column;
+  gap:12px
+}
+
+.project-location-manager h3{
+  margin:0;
+  font-size:16px
+}
+
+.project-location-search{
+  margin-bottom:0
+}
+
+.project-location-candidates,
+.project-selected-locations{
+  display:flex;
+  flex-direction:column;
+  gap:8px
+}
+
+.compact-section-title{
+  margin:2px 0 4px
+}
+
+.project-location-choice{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  align-items:center;
+  padding:11px 12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff
+}
+
+.project-selected-locations .project-location-choice{
+  grid-template-columns:32px minmax(0,1fr) auto
+}
+
+.project-location-choice strong{
+  display:block;
+  font-size:14px
+}
+
+.project-location-choice small{
+  display:block;
+  margin-top:3px;
+  color:var(--muted);
+  line-height:1.45
+}
+
+.project-location-index{
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:var(--accent);
+  color:var(--primary);
+  font-size:12px;
+  font-weight:800
+}
+
+@media(max-width:600px){
+  .project-location-manager{
+    padding:12px
+  }
+
+  .project-location-choice{
+    grid-template-columns:minmax(0,1fr) auto
+  }
+
+  .project-selected-locations .project-location-choice{
+    grid-template-columns:28px minmax(0,1fr);
+  }
+
+  .project-selected-locations
+  .project-location-choice
+  .btn{
+    grid-column:2;
+    justify-self:end
+  }
+}
