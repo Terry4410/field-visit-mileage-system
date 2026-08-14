@@ -354,6 +354,13 @@ public sealed class V170LocationRepository(
                 continue;
 
             row.SortOrder = next;
+
+            // Explicitly mark SortOrder as modified so the reorder
+            // cannot silently depend on query tracking behavior.
+            db.Entry(row)
+                .Property(x => x.SortOrder)
+                .IsModified = true;
+
             changed = true;
         }
 
