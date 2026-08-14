@@ -152,7 +152,7 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
                     snapshot.RatePerKmSnapshot, snapshot.SubsidyAmountSnapshot,
                     stops.Count < 2 ? "NotApplicable" : snapshot.SystemDistanceKmSnapshot.HasValue ? "Calculated" : "Pending",
                     TripStatuses.Approved, TripStatuses.Display(TripStatuses.Approved), snapshot.SnapshotVersion, true,
-                    snapshot.NotesSnapshot, correction, stops);
+                    snapshot.NotesSnapshot, null, correction, stops);
             }
             else
             {
@@ -174,7 +174,7 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
                     JoinDistinct(stops.Select(x => x.VisitTypeName)), calc?.ClaimedDistanceKm, calc?.SystemDistanceKm,
                     calc?.ApprovedDistanceKm, calc?.RatePerKmSnapshot, calc?.ApprovedAmount,
                     stops.Count < 2 ? "NotApplicable" : calc?.SystemDistanceKm.HasValue == true ? "Calculated" : "Pending",
-                    trip.Status, TripStatuses.Display(trip.Status), 0, false, trip.Notes, correction, stops);
+                    trip.Status, TripStatuses.Display(trip.Status), 0, false, trip.Notes, trip.ReturnReason, correction, stops);
             }
         }
 

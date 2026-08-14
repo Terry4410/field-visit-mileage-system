@@ -19,7 +19,7 @@ export default function VisitorPage(){
 
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
-  const [rowVersion,setRowVersion]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
+  const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
@@ -53,6 +53,7 @@ export default function VisitorPage(){
       setNotes(t.notes||"");
       setStops(t.stops);
       setRowVersion(t.rowVersion);
+      setReturnReason(t.status==="Returned"?(t.returnReason||""):"");
       setMsg(`已載入 ${t.tripNo}，修改完成後可重新送出。`);
     }).catch(e=>setMsg(e.message));
   },[editId]);
@@ -90,7 +91,7 @@ export default function VisitorPage(){
   };
 
   const reset=()=>{
-    setSp({});setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setSp({});setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
   };
 
   const clearStopEditor=()=>{
@@ -244,6 +245,8 @@ export default function VisitorPage(){
       <div className="card stat"><div className="label">自行計算里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"地點不足 2 個，不計里程":"送出前填寫"}</div></div>
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
+
+    {editId&&returnReason&&<div className="note danger-note" style={{marginTop:18}}><strong>主管退回原因：</strong>{returnReason}<br/><span>請依退回原因確認並修改資料後重新送出。</span></div>}
 
     <div className="card" style={{marginTop:18}}>
       <div className="section-title"><h2>基本資料</h2><span className="pill warn">可補登</span></div>

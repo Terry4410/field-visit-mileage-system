@@ -54,6 +54,7 @@ public sealed record TripQueryRowDto(
     int SnapshotVersion,
     bool IsSnapshot,
     string? Notes,
+    string? ReturnReason,
     string? CorrectionStatus,
     IReadOnlyList<QueryStopDto> Stops);
 
