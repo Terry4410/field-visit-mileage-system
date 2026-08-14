@@ -146,7 +146,8 @@
   border:1px solid var(--line);
   border-radius:14px;
   background:#fff;
-  overflow:hidden
+  overflow:hidden;
+  flex-shrink:0
 }
 
 .smart-location-row.selected{
