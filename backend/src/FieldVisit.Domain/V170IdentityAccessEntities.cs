@@ -38,6 +38,11 @@ public sealed class UserIdentityProfile
     public string UserCode { get; set; } = "";
     public string IdentityProvider { get; set; } = "Demo";
 
+    // Microsoft Entra ID stable identity binding.
+    // Email/display name must never be used as the permanent identity key.
+    public Guid? EntraTenantId { get; set; }
+    public Guid? EntraObjectId { get; set; }
+
     public string? ExternalOrganization { get; set; }
     public string? ExternalTitle { get; set; }
 

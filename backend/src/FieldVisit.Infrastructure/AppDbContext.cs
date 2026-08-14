@@ -125,6 +125,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasKey(x => x.UserId);
             e.Property(x => x.UserId).ValueGeneratedNever();
             e.HasIndex(x => x.UserCode).IsUnique();
+            e.HasIndex(x => new { x.EntraTenantId, x.EntraObjectId })
+                .IsUnique()
+                .HasFilter("[EntraTenantId] IS NOT NULL AND [EntraObjectId] IS NOT NULL");
         });
 
         b.Entity<UserEmploymentPeriod>(e =>
