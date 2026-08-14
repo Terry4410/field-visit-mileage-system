@@ -4,6 +4,44 @@ export interface LoginResponse{accessToken:string;expiresAtUtc:string;user:Curre
 export interface TripStopInput{locationId?:number;projectId?:number;visitTypeId?:number;sourceType:string;locationName:string;address?:string;visitPurpose?:string;notes?:string}
 export interface Trip{visitTripId:number;tripNo:string;userId:number;visitorName:string;teamId?:number;teamName?:string;visitDate:string;startTime?:string;endTime?:string;status:string;statusName:string;purpose?:string;notes?:string;returnReason?:string;claimedDistanceKm?:number;systemDistanceKm?:number;approvedDistanceKm?:number;ratePerKmSnapshot?:number;approvedAmount?:number;stops:TripStopInput[];rowVersion:string}
 export interface Location{locationId:number;teamId?:number;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string}
+
+export interface SmartLocationItem{
+  locationId:number;
+  locationCode?:string|null;
+  locationName:string;
+  locationType:string;
+  city?:string|null;
+  district?:string|null;
+  address?:string|null;
+  plusCode?:string|null;
+  latitude?:number|null;
+  longitude?:number|null;
+}
+
+export interface LocationSearchItem extends SmartLocationItem{}
+
+export interface LocationSearchResult{
+  items:LocationSearchItem[];
+  page:number;
+  pageSize:number;
+  totalCount:number;
+  hasNextPage:boolean;
+}
+
+export interface LocationFavoriteItem extends SmartLocationItem{
+  sortOrder:number;
+  createdAt:string;
+}
+
+export interface LocationRecentItem extends SmartLocationItem{
+  lastVisitedOn:string;
+}
+
+export interface LocationNearbyItem extends SmartLocationItem{
+  latitude:number;
+  longitude:number;
+  distanceKm:number;
+}
 export interface Team{teamId:number;organizationId:number;teamCode:string;teamName:string}
 export interface Project{projectId:number;teamId?:number;projectCode:string;projectName:string;description?:string;locationMode:string;startDate?:string;endDate?:string;isActive:boolean}
 export interface VisitType{visitTypeId:number;visitTypeCode:string;visitTypeName:string;description?:string;sortOrder:number;isActive:boolean}
