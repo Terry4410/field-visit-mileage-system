@@ -2,7 +2,8 @@ import {useEffect,useMemo,useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {api} from "../api";
 import {useAuth} from "../auth";
-import type {Location,Project,Trip,TripStopInput,VisitType} from "../types";
+import SmartLocationPicker from "../components/SmartLocationPicker";
+import type {Project,SmartLocationItem,Trip,TripStopInput,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
 type LocationMethod="existing"|"temporary";
@@ -17,39 +18,30 @@ export default function VisitorPage(){
   const editId=sp.get("edit");
 
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
-  const [locations,setLocations]=useState<Location[]>([]),[projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
+  const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
   const [rowVersion,setRowVersion]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
-  const [selectedExistingId,setSelectedExistingId]=useState("");
+  const [selectedExistingLocation,setSelectedExistingLocation]=useState<SmartLocationItem|null>(null);
   const [stopPurpose,setStopPurpose]=useState("");
 
-  const [locCity,setLocCity]=useState(""),[locDistrict,setLocDistrict]=useState(""),[locCustomer,setLocCustomer]=useState(""),[locKeyword,setLocKeyword]=useState("");
-  const [projectId,setProjectId]=useState(""),[projectLocs,setProjectLocs]=useState<Location[]>([]),[visitTypeId,setVisitTypeId]=useState("");
+  const [projectId,setProjectId]=useState(""),[visitTypeId,setVisitTypeId]=useState("");
   const [tempName,setTempName]=useState(""),[tempAddress,setTempAddress]=useState("");
 
   useEffect(()=>{
-    Promise.all([api<Location[]>("/locations"),api<Project[]>("/projects"),api<VisitType[]>("/visit-types")])
-      .then(([l,p,v])=>{
-        setLocations(l);setProjects(p);setVisitTypes(v);
+    Promise.all([
+      api<Project[]>("/projects"),
+      api<VisitType[]>("/visit-types")
+    ])
+      .then(([p,v])=>{
+        setProjects(p);
+        setVisitTypes(v);
         setProjectId("");
         setVisitTypeId(String(v[0]?.visitTypeId||""));
       })
       .catch(e=>setMsg(e.message));
   },[]);
-
-  useEffect(()=>{
-    if(!projectId){setProjectLocs([]);return;}
-    const p=projects.find(x=>x.projectId===Number(projectId));
-    if(isListMode(p?.locationMode)){
-      api<Location[]>(`/projects/${projectId}/locations`)
-        .then(r=>setProjectLocs(r))
-        .catch(e=>setMsg(e.message));
-    }else{
-      setProjectLocs([]);
-    }
-  },[projectId,projects]);
 
   useEffect(()=>{
     if(!editId)return;
@@ -78,17 +70,15 @@ export default function VisitorPage(){
   },[date,start,end,editId]);
 
   const selectedProject=projects.find(x=>x.projectId===Number(projectId));
-  const existingBase=projectId&&isListMode(selectedProject?.locationMode)?projectLocs:locations;
-  const cities=useMemo(()=>[...new Set(existingBase.map(x=>x.city).filter(Boolean) as string[])].sort((a,b)=>a.localeCompare(b,"zh-Hant")),[existingBase]);
-  const districts=useMemo(()=>[...new Set(existingBase.filter(x=>!locCity||x.city===locCity).map(x=>x.district).filter(Boolean) as string[])].sort((a,b)=>a.localeCompare(b,"zh-Hant")),[existingBase,locCity]);
-  const customers=useMemo(()=>existingBase.filter(x=>(!locCity||x.city===locCity)&&(!locDistrict||x.district===locDistrict)).map(x=>x.locationName).sort((a,b)=>a.localeCompare(b,"zh-Hant")),[existingBase,locCity,locDistrict]);
-  const locResults=useMemo(()=>{
-    const kw=locKeyword.trim().toLowerCase();
-    return existingBase.filter(x=>{
-      const hay=[x.locationName,x.city,x.district,x.address,x.plusCode].filter(Boolean).join(" ").toLowerCase();
-      return(!locCity||x.city===locCity)&&(!locDistrict||x.district===locDistrict)&&(!locCustomer||x.locationName===locCustomer)&&(!kw||hay.includes(kw));
-    });
-  },[existingBase,locCity,locDistrict,locCustomer,locKeyword]);
+
+  // Only list-mode projects restrict Smart Picker to ProjectLocations.
+  // Other project modes preserve the existing behavior: users may still
+  // switch to a normal Master Location or use a Temporary Location.
+  const pickerProjectId=
+    projectId&&isListMode(selectedProject?.locationMode)
+      ?Number(projectId)
+      :undefined;
+
   const hourOptions=useMemo(()=>Array.from({length:24},(_,i)=>String(i).padStart(2,"0")),[]);
   const minuteOptions=useMemo(()=>Array.from({length:60},(_,i)=>String(i).padStart(2,"0")),[]);
 
@@ -106,9 +96,8 @@ export default function VisitorPage(){
   const clearStopEditor=()=>{
     setEditingStopIndex(null);
     setLocationMethod("existing");
-    setSelectedExistingId("");
+    setSelectedExistingLocation(null);
     setStopPurpose("");
-    setLocCity("");setLocDistrict("");setLocCustomer("");setLocKeyword("");
     setProjectId("");
     setVisitTypeId(String(visitTypes[0]?.visitTypeId||""));
     setTempName("");setTempAddress("");
@@ -121,21 +110,33 @@ export default function VisitorPage(){
 
   const openEditStop=(index:number)=>{
     const stop=stops[index];
+
     setEditingStopIndex(index);
     setStopPurpose(stop.visitPurpose||"");
-    setLocCity("");setLocDistrict("");setLocCustomer("");setLocKeyword("");
     setProjectId(stop.projectId?String(stop.projectId):"");
     setVisitTypeId(String(stop.visitTypeId||visitTypes[0]?.visitTypeId||""));
+
     if(stop.locationId){
       setLocationMethod("existing");
-      setSelectedExistingId(String(stop.locationId));
-      setTempName("");setTempAddress("");
+
+      // Seed the current Stop so editing does not require downloading
+      // the entire Location master or reselecting an unchanged location.
+      setSelectedExistingLocation({
+        locationId:stop.locationId,
+        locationName:stop.locationName,
+        locationType:"Existing",
+        address:stop.address||null
+      });
+
+      setTempName("");
+      setTempAddress("");
     }else{
       setLocationMethod("temporary");
-      setSelectedExistingId("");
+      setSelectedExistingLocation(null);
       setTempName(stop.locationName||"");
       setTempAddress(stop.address||"");
     }
+
     setModal("stop");
   };
 
@@ -154,19 +155,37 @@ export default function VisitorPage(){
     if(selectedProjectId&&!visitType)return setMsg("有選擇專案時，請選擇拜訪形式。");
 
     if(locationMethod==="existing"){
-      const location=existingBase.find(x=>x.locationId===Number(selectedExistingId));
-      if(!location)return setMsg("請先選擇一個既有地點；若查無地點，可切換為「臨時新增地點」。");
-      const duplicated=stops.some((x,i)=>i!==editingStopIndex&&x.locationId===location.locationId&&x.projectId===selectedProjectId);
-      if(duplicated)return setMsg("此地點已在目前行程中。");
+      const location=selectedExistingLocation;
+
+      if(!location)
+        return setMsg("請先選擇一個既有地點；若查無地點，可切換為「臨時新增地點」。");
+
+      const duplicated=stops.some(
+        (x,i)=>
+          i!==editingStopIndex
+          &&x.locationId===location.locationId
+          &&x.projectId===selectedProjectId
+      );
+
+      if(duplicated)
+        return setMsg("此地點已在目前行程中。");
+
       commitStop({
         locationId:location.locationId,
         projectId:selectedProjectId,
         visitTypeId:visitType?.visitTypeId,
-        sourceType:selectedProjectId&&isListMode(selectedProject?.locationMode)?"ProjectList":"Master",
+        sourceType:
+          selectedProjectId&&isListMode(selectedProject?.locationMode)
+            ?"ProjectList"
+            :"Master",
         locationName:location.locationName,
-        address:location.address||location.plusCode,
+        address:
+          location.address
+          ||location.plusCode
+          ||undefined,
         visitPurpose:stopPurpose.trim()||undefined
       });
+
       return;
     }
 
@@ -297,8 +316,7 @@ export default function VisitorPage(){
           <select value={projectId} onChange={e=>{
             const value=e.target.value;
             setProjectId(value);
-            setSelectedExistingId("");
-            setLocCity("");setLocDistrict("");setLocCustomer("");setLocKeyword("");
+            setSelectedExistingLocation(null);
             if(!value){
               setLocationMethod("existing");
               return;
@@ -329,26 +347,41 @@ export default function VisitorPage(){
         {locationMethod==="existing"&&<>
           <div className="note" style={{marginBottom:14}}>
             {projectId&&isListMode(selectedProject?.locationMode)
-              ?"此專案預設顯示管理者維護的專案地點；若本次有臨時地點，可切換「臨時新增地點」。"
-              :"可從小組正式地點清單搜尋；若本次地點不在清單內，可直接切換「臨時新增地點」。"}
+              ?"此專案只會顯示管理者維護的專案正式地點；若本次有臨時地點，可切換「臨時新增地點」。"
+              :"可搜尋正式地點，也可使用常用、最近或附近地點；若查無地點，可切換「臨時新增地點」。"}
           </div>
 
-          <div className="grid cols-2">
-            <div className="field"><label>小組</label><input value={user?.teamName||""} disabled/></div>
-            <div className="field"><label>縣市</label><select value={locCity} onChange={e=>{setLocCity(e.target.value);setLocDistrict("");setLocCustomer("")}}><option value="">全部縣市</option>{cities.map(x=><option key={x}>{x}</option>)}</select></div>
-            <div className="field"><label>鄉鎮／區</label><select value={locDistrict} onChange={e=>{setLocDistrict(e.target.value);setLocCustomer("")}}><option value="">全部鄉鎮／區</option>{districts.map(x=><option key={x}>{x}</option>)}</select></div>
-            <div className="field"><label>客戶名稱</label><select value={locCustomer} onChange={e=>setLocCustomer(e.target.value)}><option value="">全部客戶</option>{customers.map(x=><option key={x}>{x}</option>)}</select></div>
+          <div className="field">
+            <label>小組</label>
+            <input value={user?.teamName||""} disabled/>
           </div>
-          <div className="field"><label>關鍵字搜尋</label><input value={locKeyword} onChange={e=>setLocKeyword(e.target.value)} placeholder="輸入客戶名稱、地址、縣市或鄉鎮"/></div>
 
-          <div className="section-title"><strong>搜尋結果</strong><span className="pill">{locResults.length} 筆</span></div>
-          <div className="search-results existing-location-results">
-            {locResults.map(l=><label key={l.locationId} className={`existing-location-choice ${selectedExistingId===String(l.locationId)?"selected":""}`}>
-              <input type="radio" name="existing-location" value={l.locationId} checked={selectedExistingId===String(l.locationId)} onChange={()=>setSelectedExistingId(String(l.locationId))}/>
-              <span><strong>{l.locationName}</strong><small>{l.city||""}{l.district||""}｜{l.address||l.plusCode||""}</small></span>
-            </label>)}
-            {!locResults.length&&<div className="empty compact-empty">查無符合條件的既有地點。可以修改搜尋條件，或切換「臨時新增地點」。</div>}
-          </div>
+          <SmartLocationPicker
+            key={
+              pickerProjectId
+                ?`project-${pickerProjectId}`
+                :"master"
+            }
+            projectId={pickerProjectId}
+            selectedLocationId={
+              selectedExistingLocation?.locationId
+            }
+            onSelect={location=>{
+              setSelectedExistingLocation(location);
+              setMsg("");
+            }}
+          />
+
+          {selectedExistingLocation&&
+            <div className="note ok-note" style={{marginTop:12}}>
+              <strong>已選擇：</strong>
+              {selectedExistingLocation.locationName}
+              <br/>
+              {selectedExistingLocation.address
+                ||selectedExistingLocation.plusCode
+                ||"未提供地址"}
+            </div>
+          }
         </>}
 
         {locationMethod==="temporary"&&<>
