@@ -15,8 +15,77 @@ builder.Services.AddScoped<ITokenService,TokenService>();
 builder.Services.AddScoped<AuthService>();builder.Services.AddScoped<TripService>();builder.Services.AddScoped<LeaderService>();builder.Services.AddScoped<MasterService>();builder.Services.AddScoped<V160FinalService>();builder.Services.AddScoped<V170PeopleAdminService>();builder.Services.AddScoped<V170LocationService>();builder.Services.AddScoped<V170ProjectLocationAdminService>();
 builder.Services.AddInfrastructure(builder.Configuration);builder.Services.AddHostedService<BackgroundJobHostedService>();
 
-var auth=builder.Configuration.GetSection("Auth").Get<AuthOptions>()??new AuthOptions();var signingKey=(auth.JwtKey??"").PadRight(32,'_');
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o=>{o.TokenValidationParameters=new TokenValidationParameters{ValidateIssuer=true,ValidateAudience=true,ValidateLifetime=true,ValidateIssuerSigningKey=true,ValidIssuer=auth.Issuer,ValidAudience=auth.Audience,IssuerSigningKey=new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),ClockSkew=TimeSpan.FromMinutes(2)};});builder.Services.AddAuthorization();
+var auth=builder.Configuration.GetSection("Auth").Get<AuthOptions>()??new AuthOptions();
+var authMode=V170AuthenticationRules.NormalizeMode(auth.Mode);
+var signingKey=(auth.JwtKey??"").PadRight(32,'_');
+
+var authentication=builder.Services
+    .AddAuthentication(options=>
+    {
+        options.DefaultAuthenticateScheme=AuthSchemes.AppJwt;
+        options.DefaultChallengeScheme=AuthSchemes.AppJwt;
+    })
+    .AddJwtBearer(
+        AuthSchemes.AppJwt,
+        o=>
+        {
+            o.TokenValidationParameters=
+                new TokenValidationParameters
+                {
+                    ValidateIssuer=true,
+                    ValidateAudience=true,
+                    ValidateLifetime=true,
+                    ValidateIssuerSigningKey=true,
+                    ValidIssuer=auth.Issuer,
+                    ValidAudience=auth.Audience,
+                    IssuerSigningKey=
+                        new SymmetricSecurityKey(
+                            Encoding.UTF8.GetBytes(signingKey)),
+                    ClockSkew=TimeSpan.FromMinutes(2)
+                };
+        });
+
+if(authMode==AuthenticationModes.Entra)
+{
+    if(!Guid.TryParse(auth.Entra.TenantId,out var entraTenantId))
+        throw new InvalidOperationException(
+            "Auth__Entra__TenantId 必須是有效的 Microsoft Entra Tenant GUID。");
+
+    if(string.IsNullOrWhiteSpace(auth.Entra.Audience))
+        throw new InvalidOperationException(
+            "Auth__Entra__Audience 尚未設定。");
+
+    var instance=
+        (auth.Entra.Instance
+         ?? "https://login.microsoftonline.com")
+        .TrimEnd('/');
+
+    authentication.AddJwtBearer(
+        AuthSchemes.Entra,
+        o=>
+        {
+            o.Authority=
+                $"{instance}/{entraTenantId:D}/v2.0";
+
+            o.Audience=
+                auth.Entra.Audience;
+
+            o.MapInboundClaims=
+                false;
+
+            o.TokenValidationParameters=
+                new TokenValidationParameters
+                {
+                    ValidateIssuer=true,
+                    ValidateAudience=true,
+                    ValidateLifetime=true,
+                    ValidateIssuerSigningKey=true,
+                    ClockSkew=TimeSpan.FromMinutes(2)
+                };
+        });
+}
+
+builder.Services.AddAuthorization();
 var origins=builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()??[];builder.Services.AddCors(o=>o.AddPolicy("Frontend",p=>{var clean=origins.Where(x=>!string.IsNullOrWhiteSpace(x)).ToArray();if(clean.Length>0)p.WithOrigins(clean).AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("Content-Disposition");}));
 builder.Services.AddControllers();builder.Services.AddEndpointsApiExplorer();builder.Services.AddSwaggerGen(c=>{c.SwaggerDoc("v1",new OpenApiInfo{Title="Field Visit Mileage API",Version="v1.7.0-uat-candidate"});c.AddSecurityDefinition("Bearer",new OpenApiSecurityScheme{Type=SecuritySchemeType.Http,Scheme="bearer",BearerFormat="JWT",In=ParameterLocation.Header});c.AddSecurityRequirement(new OpenApiSecurityRequirement{[new OpenApiSecurityScheme{Reference=new OpenApiReference{Type=ReferenceType.SecurityScheme,Id="Bearer"}}]=Array.Empty<string>()});});
 

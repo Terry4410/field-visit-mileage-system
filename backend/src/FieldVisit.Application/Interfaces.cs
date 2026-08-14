@@ -14,8 +14,24 @@ public interface ITokenService
 
 public interface IUserRepository
 {
-    Task<User?> FindByAccountAsync(string account, CancellationToken ct);
-    Task<CurrentUserDto?> GetProfileAsync(int userId, CancellationToken ct);
+    Task<User?> FindByAccountAsync(
+        string account,
+        CancellationToken ct);
+
+    Task<User?> FindByEntraIdentityAsync(
+        Guid tenantId,
+        Guid objectId,
+        CancellationToken ct);
+
+    Task<User?> BindEntraIdentityByEmailAsync(
+        Guid tenantId,
+        Guid objectId,
+        string email,
+        CancellationToken ct);
+
+    Task<CurrentUserDto?> GetProfileAsync(
+        int userId,
+        CancellationToken ct);
 }
 
 public interface ITripRepository

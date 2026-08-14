@@ -10,6 +10,91 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
     public Task<User?> FindByAccountAsync(string account, CancellationToken ct) =>
         db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.EmployeeNo == account || x.Email == account, ct);
 
+    public Task<User?> FindByEntraIdentityAsync(
+        Guid tenantId,
+        Guid objectId,
+        CancellationToken ct) =>
+        (
+            from identity in db.UserIdentityProfiles.AsNoTracking()
+            join user in db.Users.AsNoTracking()
+                on identity.UserId equals user.UserId
+            where
+                identity.EntraTenantId == tenantId
+                && identity.EntraObjectId == objectId
+            select user
+        ).SingleOrDefaultAsync(ct);
+
+    public async Task<User?> BindEntraIdentityByEmailAsync(
+        Guid tenantId,
+        Guid objectId,
+        string email,
+        CancellationToken ct)
+    {
+        var normalizedEmail =
+            email.Trim();
+
+        var candidates =
+            await db.Users
+                .Where(
+                    x =>
+                        x.Email != null
+                        && x.Email == normalizedEmail)
+                .ToListAsync(ct);
+
+        if (candidates.Count == 0)
+            return null;
+
+        if (candidates.Count > 1)
+            throw new UnauthorizedAccessException(
+                "此 Microsoft 帳號對應到多個系統 Email，禁止自動綁定。");
+
+        var user =
+            candidates[0];
+
+        var identity =
+            await db.UserIdentityProfiles
+                .SingleOrDefaultAsync(
+                    x => x.UserId == user.UserId,
+                    ct)
+            ?? throw new UnauthorizedAccessException(
+                "此系統帳號缺少 Identity Profile。");
+
+        if (identity.EntraTenantId.HasValue
+            || identity.EntraObjectId.HasValue)
+        {
+            if (identity.EntraTenantId == tenantId
+                && identity.EntraObjectId == objectId)
+                return user;
+
+            throw new UnauthorizedAccessException(
+                "此系統帳號已綁定其他 Microsoft Entra 身分。");
+        }
+
+        identity.EntraTenantId =
+            tenantId;
+
+        identity.EntraObjectId =
+            objectId;
+
+        identity.IdentityProvider =
+            "EntraId";
+
+        identity.UpdatedAt =
+            DateTime.UtcNow;
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            throw new InvalidOperationException(
+                "Microsoft Entra 身分綁定發生衝突，請由系統管理者確認。");
+        }
+
+        return user;
+    }
+
     public async Task<CurrentUserDto?> GetProfileAsync(int userId, CancellationToken ct)
     {
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == userId, ct);

@@ -6,12 +6,43 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace FieldVisit.Api;
 
+public static class AuthSchemes
+{
+    public const string AppJwt = "AppJwt";
+    public const string Entra = "Entra";
+}
+
+public sealed class EntraAuthOptions
+{
+    public string Instance { get; set; } =
+        "https://login.microsoftonline.com";
+
+    public string TenantId { get; set; } = "";
+    public string Audience { get; set; } = "";
+
+    public string RequiredScope { get; set; } =
+        "access_as_user";
+
+    public bool AllowFirstLoginEmailBinding
+        { get; set; } = false;
+}
+
 public sealed class AuthOptions
 {
-    public string Issuer { get; set; } = "FieldVisit.UAT";
-    public string Audience { get; set; } = "FieldVisit.UAT.Users";
+    public string Mode { get; set; } =
+        AuthenticationModes.Demo;
+
+    public string Issuer { get; set; } =
+        "FieldVisit.UAT";
+
+    public string Audience { get; set; } =
+        "FieldVisit.UAT.Users";
+
     public string JwtKey { get; set; } = "";
     public string DemoPassword { get; set; } = "";
+
+    public EntraAuthOptions Entra { get; set; } =
+        new();
 }
 
 public sealed class TokenService(IConfiguration configuration) : ITokenService
