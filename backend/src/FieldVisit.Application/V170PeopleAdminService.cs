@@ -3,7 +3,8 @@ namespace FieldVisit.Application;
 public sealed class V170PeopleAdminService(
     ICurrentUserService current,
     IV170PeopleAdminRepository repository,
-    IV170PeopleAdminWriter writer)
+    IV170PeopleAdminWriter writer,
+    IV170PeopleBulkWorkbookService bulk)
 {
     public Task<PagedResult<V170PeopleRowDto>> QueryAsync(
         V170PeopleQueryRequest request,
@@ -114,6 +115,38 @@ public sealed class V170PeopleAdminService(
             userId,
             ct);
     }
+
+    public Task<ReportExportContext>
+        ExportBulkCurrentAsync(
+            CancellationToken ct)
+        => bulk.ExportCurrentAsync(
+            RequireAdmin(),
+            ct);
+
+    public Task<ReportExportContext>
+        CreateBulkTemplateAsync(
+            CancellationToken ct)
+        => bulk.CreateTemplateAsync(
+            RequireAdmin(),
+            ct);
+
+    public Task<V170PeopleBulkPreviewDto>
+        PreviewBulkAsync(
+            byte[] content,
+            CancellationToken ct)
+        => bulk.PreviewAsync(
+            RequireAdmin(),
+            content,
+            ct);
+
+    public Task<ReportExportContext>
+        BulkErrorReportAsync(
+            Guid importBatchId,
+            CancellationToken ct)
+        => bulk.CreateErrorReportAsync(
+            RequireAdmin(),
+            importBatchId,
+            ct);
 
     private CurrentUserDto RequireAdmin()
     {

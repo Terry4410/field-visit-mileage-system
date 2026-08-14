@@ -83,4 +83,91 @@ public sealed class V170PeopleAdminController(
                     userId,
                     request,
                     ct));
+    [HttpGet("bulk/current.xlsx")]
+    public async Task<IActionResult>
+        DownloadBulkCurrent(
+            CancellationToken ct)
+    {
+        var file =
+            await service
+                .ExportBulkCurrentAsync(ct);
+
+        return File(
+            file.Content,
+            file.ContentType,
+            file.FileName);
+    }
+
+    [HttpGet("bulk/template.xlsx")]
+    public async Task<IActionResult>
+        DownloadBulkTemplate(
+            CancellationToken ct)
+    {
+        var file =
+            await service
+                .CreateBulkTemplateAsync(ct);
+
+        return File(
+            file.Content,
+            file.ContentType,
+            file.FileName);
+    }
+
+    [HttpPost("bulk/preview")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult<
+        V170PeopleBulkPreviewDto>>
+        PreviewBulk(
+            IFormFile file,
+            CancellationToken ct)
+    {
+        if (file is null
+            || file.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "請選擇 Excel 檔案。");
+        }
+
+        if (!Path.GetExtension(
+                file.FileName)
+            .Equals(
+                ".xlsx",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "只支援 .xlsx 檔案。");
+        }
+
+        await using var ms =
+            new MemoryStream();
+
+        await file.CopyToAsync(
+            ms,
+            ct);
+
+        return Ok(
+            await service.PreviewBulkAsync(
+                ms.ToArray(),
+                ct));
+    }
+
+    [HttpGet("bulk/{importBatchId:guid}/errors.xlsx")]
+    public async Task<IActionResult>
+        BulkErrors(
+            Guid importBatchId,
+            CancellationToken ct)
+    {
+        var file =
+            await service
+                .BulkErrorReportAsync(
+                    importBatchId,
+                    ct);
+
+        return File(
+            file.Content,
+            file.ContentType,
+            file.FileName);
+    }
+
+
 }
