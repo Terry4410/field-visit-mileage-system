@@ -65,6 +65,35 @@ export interface ManagedLocation{locationId:number;locationCode:string;teamId?:n
 export interface ImportPreviewItem{rowNumber:number;entityType:string;action:string;status:string;displayKey:string;errorMessage?:string}
 export interface ImportPreview{importBatchId:string;importType:string;totalCount:number;validCount:number;errorCount:number;items:ImportPreviewItem[]}
 export interface ImportConfirmResult{importBatchId:string;created:number;updated:number;unchanged:number;failed:number;errors:string[]}
+export interface PeopleBulkPreviewItem{
+  rowNumber:number;
+  sheet:string;
+  entityType:string;
+  action:string;
+  displayKey:string;
+  status:string;
+  message?:string;
+  isRetroactive:boolean;
+}
+
+export interface PeopleBulkPreview{
+  importBatchId:string;
+  totalCount:number;
+  validCount:number;
+  errorCount:number;
+  requiresRetroactiveConfirmation:boolean;
+  items:PeopleBulkPreviewItem[];
+}
+
+export interface PeopleBulkConfirmResult{
+  importBatchId:string;
+  created:number;
+  updated:number;
+  unchanged:number;
+  failed:number;
+  errors:string[];
+}
+
 export interface BackgroundJob{backgroundJobId:string;jobType:string;status:string;mode?:string;totalCount:number;successCount:number;failedCount:number;skippedCount:number;errorMessage?:string;createdAt:string;startedAt?:string;completedAt?:string}
 export interface DashboardSummary{thisMonthTrips:number;pendingApproval:number;approved:number;pendingLocations:number;pendingCorrections:number;currentRatePerKm?:number}
 
