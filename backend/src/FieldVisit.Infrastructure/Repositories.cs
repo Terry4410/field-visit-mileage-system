@@ -7,8 +7,24 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class UserRepository(AppDbContext db) : IUserRepository
 {
-    public Task<User?> FindByAccountAsync(string account, CancellationToken ct) =>
-        db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.EmployeeNo == account || x.Email == account, ct);
+    public Task<User?> FindByAccountAsync(
+        string account,
+        CancellationToken ct) =>
+        (
+            from user in db.Users.AsNoTracking()
+            join identity in db.UserIdentityProfiles.AsNoTracking()
+                on user.UserId equals identity.UserId
+                into identityRows
+            from identity in identityRows.DefaultIfEmpty()
+            where
+                user.EmployeeNo == account
+                || user.Email == account
+                || (
+                    identity != null
+                    && identity.UserCode == account
+                )
+            select user
+        ).FirstOrDefaultAsync(ct);
 
     public Task<User?> FindByEntraIdentityAsync(
         Guid tenantId,

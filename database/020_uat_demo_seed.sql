@@ -42,7 +42,14 @@ SELECT @Leader01=UserId FROM dbo.Users WHERE EmployeeNo=N'leader01';
 IF @Leader01 IS NULL BEGIN INSERT dbo.Users(OrganizationId,TeamId,EmployeeNo,DisplayName,Email,EntraObjectId,IsActive,CreatedAt) VALUES(@OrgId,@TeamId,N'leader01',N'林組長',N'leader01@example.com',NULL,1,@Now); SET @Leader01=CONVERT(int,SCOPE_IDENTITY()); END;
 SELECT @Admin01=UserId FROM dbo.Users WHERE EmployeeNo=N'admin01';
 IF @Admin01 IS NULL BEGIN INSERT dbo.Users(OrganizationId,TeamId,EmployeeNo,DisplayName,Email,EntraObjectId,IsActive,CreatedAt) VALUES(@OrgId,NULL,N'admin01',N'系統管理員',N'admin01@example.com',NULL,1,@Now); SET @Admin01=CONVERT(int,SCOPE_IDENTITY()); END;
-SELECT @Gov01=UserId FROM dbo.Users WHERE EmployeeNo=N'gov01';
+SELECT @Gov01=UserId
+FROM dbo.Users
+WHERE Email=N'gov01@example.com';
+
+IF @Gov01 IS NULL
+    SELECT @Gov01=UserId
+    FROM dbo.Users
+    WHERE EmployeeNo=N'gov01';
 IF @Gov01 IS NULL BEGIN INSERT dbo.Users(OrganizationId,TeamId,EmployeeNo,DisplayName,Email,EntraObjectId,IsActive,CreatedAt) VALUES(@OrgId,NULL,N'gov01',N'督導人員',N'gov01@example.com',NULL,1,@Now); SET @Gov01=CONVERT(int,SCOPE_IDENTITY()); END;
 
 IF NOT EXISTS(SELECT 1 FROM dbo.UserRoles WHERE UserId=@Visitor01 AND RoleId=@VisitorRole) INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(@Visitor01,@VisitorRole,@Now);
