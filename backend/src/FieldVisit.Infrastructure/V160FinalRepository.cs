@@ -387,6 +387,40 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
     public async Task<IReadOnlyList<UserOptionDto>> GetScopedVisitorsAsync(CurrentUserDto user, CancellationToken ct)
     {
         var q = db.Users.AsNoTracking().Where(x => x.IsActive);
+
+        // "query/visitors" is a Visitor selector, not a generic user selector.
+        // v1.7 identity-enabled users use effective-dated UserRoleAssignments as
+        // the role source of truth. Legacy users without an identity profile
+        // keep the UserRoles compatibility fallback.
+        var today = BusinessTime.Today;
+
+        var currentVisitorUserIds =
+            from assignment in db.UserRoleAssignments.AsNoTracking()
+            join role in db.Roles.AsNoTracking()
+                on assignment.RoleId equals role.RoleId
+            where
+                assignment.EffectiveFrom <= today
+                && (!assignment.EffectiveTo.HasValue
+                    || assignment.EffectiveTo >= today)
+                && role.IsActive
+                && role.RoleCode.ToUpper() == "VISITOR"
+            select assignment.UserId;
+
+        var legacyVisitorUserIds =
+            from userRole in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking()
+                on userRole.RoleId equals role.RoleId
+            where
+                role.IsActive
+                && role.RoleCode.ToUpper() == "VISITOR"
+                && !db.UserIdentityProfiles.Any(
+                    profile => profile.UserId == userRole.UserId)
+            select userRole.UserId;
+
+        q = q.Where(
+            x =>
+                currentVisitorUserIds.Contains(x.UserId)
+                || legacyVisitorUserIds.Contains(x.UserId));
         if (HasRole(user, "admin"))
         {
             if (!user.OrganizationId.HasValue)
