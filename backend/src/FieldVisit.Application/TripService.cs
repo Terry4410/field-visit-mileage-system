@@ -126,13 +126,30 @@ trip.VisitDate = request.VisitDate;
 
         EnsureRowVersion(trip.RowVersion, rowVersion);
 
+        var pendingTemporaryLocationIds =
+            V170TemporaryLocationCleanupRules
+                .GetPendingTemporaryLocationIds(trip);
+
         trip.Status = TripStatuses.Cancelled;
         trip.UpdatedAt = DateTime.UtcNow;
         trip.UpdatedByUserId = user.UserId;
 
         await AddHistoryAsync(trip, TripStatuses.Draft, TripStatuses.Cancelled, "DeleteDraft", user.UserId, "使用者刪除草稿", ct);
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripDeleteDraft", new { Status = TripStatuses.Draft }, new { Status = TripStatuses.Cancelled }, ct);
+
+        // Persist the cancellation first. The repository cleanup query must see
+        // this trip as Cancelled before deciding whether the temporary location
+        // is still referenced by any non-cancelled trip.
         await uow.SaveChangesAsync(ct);
+
+        if (pendingTemporaryLocationIds.Count > 0)
+        {
+            await masters.AbandonUnusedTemporaryLocationsAsync(
+                pendingTemporaryLocationIds,
+                ct);
+
+            await uow.SaveChangesAsync(ct);
+        }
     }
 
     public async Task<TripDto> SubmitAsync(long tripId, SubmitTripRequest request, string rowVersion, CancellationToken ct)
