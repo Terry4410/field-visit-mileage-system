@@ -27,7 +27,7 @@ export default function UnifiedQueryPage({title="行程查詢",allowCorrection=f
  const startCorrection=async(row:TripQueryRow)=>{if(isPendingCorrection(row.correctionStatus))return;setMsg('');setCorrectionError('');try{setCorrection(await api<CorrectionDraft>(`/corrections/draft/${row.visitTripId}`));setReason('')}catch(e){setMsg(e instanceof Error?e.message:'無法開啟更正申請')}};
  const updateProposal=(patch:Partial<CorrectionProposal>)=>setCorrection(c=>c?{...c,proposal:{...c.proposal,...patch}}:c);
  const updateStop=(index:number,patch:Partial<CorrectionProposal['stops'][number]>)=>setCorrection(c=>c?{...c,proposal:{...c.proposal,stops:c.proposal.stops.map((s,i)=>i===index?{...s,...patch}:s)}}:c);
- const submitCorrection=async()=>{if(!correction)return;if(!reason.trim()){setCorrectionError('請填寫更正原因。');return}setBusy(true);setCorrectionError('');try{await api('/corrections',{method:'POST',body:JSON.stringify({visitTripId:correction.visitTripId,reason:reason.trim(),proposal:correction.proposal})});setCorrection(null);setCorrectionError('');setMsg('更正申請已送出，等待小組長審核。');await load(page)}catch(e){setCorrectionError(e instanceof Error?e.message:'更正申請失敗')}finally{setBusy(false)}};
+ const submitCorrection=async()=>{if(!correction)return;if(!reason.trim()){setCorrectionError('請填寫更正原因。');return}setBusy(true);setCorrectionError('');try{await api('/corrections',{method:'POST',body:JSON.stringify({visitTripId:correction.visitTripId,reason:reason.trim(),proposal:correction.proposal})});setCorrection(null);setCorrectionError('');await load(page);setMsg('更正申請已送出，等待小組長審核。')}catch(e){setCorrectionError(e instanceof Error?e.message:'更正申請失敗')}finally{setBusy(false)}};
  const deleteDraft=async(row:TripQueryRow)=>{
   if(activeRole!=='visitor'||row.status!=='Draft')return;
   const confirmed=window.confirm(`確定要刪除草稿 ${row.tripNo}？\n\n刪除後不可復原；若草稿使用的臨時地點沒有被其他有效行程使用，系統也會一併取消該臨時地點。`);
@@ -38,8 +38,8 @@ export default function UnifiedQueryPage({title="行程查詢",allowCorrection=f
    if(latest.status!=='Draft')throw new Error('此行程已不是草稿，請重新整理後再操作。');
    await api<void>(`/trips/${row.visitTripId}`,{method:'DELETE',headers:{'If-Match':latest.rowVersion}});
    if(detail?.visitTripId===row.visitTripId)setDetail(null);
-   setMsg(`草稿 ${row.tripNo} 已刪除。`);
    await load(page);
+   setMsg(`草稿 ${row.tripNo} 已刪除。`);
   }catch(e){setMsg(e instanceof Error?e.message:'刪除草稿失敗')}
   finally{setBusy(false)}
  };
