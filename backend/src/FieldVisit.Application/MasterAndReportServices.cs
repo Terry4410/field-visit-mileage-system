@@ -42,12 +42,31 @@ public sealed class MasterService(
         if (string.IsNullOrWhiteSpace(request.Address) && string.IsNullOrWhiteSpace(request.PlusCode))
             throw new InvalidOperationException("完整地址與 Plus Code 至少需要一項。");
 
+        var normalizedAddress =
+            V170LocationGeocodingRules.Normalize(request.Address);
+        var normalizedPlusCode =
+            V170LocationGeocodingRules.Normalize(request.PlusCode);
+
+        var geocodingInputChanged =
+            V170LocationGeocodingRules.GeocodingInputChanged(
+                row.Address,
+                row.PlusCode,
+                normalizedAddress,
+                normalizedPlusCode);
+
         row.LocationName = request.LocationName.Trim();
         row.City = request.City;
         row.District = request.District;
-        row.Address = request.Address;
-        row.PlusCode = request.PlusCode;
-        row.GeocodingStatus = "Pending";
+        row.Address = normalizedAddress;
+        row.PlusCode = normalizedPlusCode;
+
+        // Location name / descriptive edits must not invalidate coordinates.
+        // Only inputs actually used by IGeocodingService require re-geocoding.
+        if (geocodingInputChanged)
+        {
+            row.GeocodingStatus = "Pending";
+        }
+
         row.UpdatedAt = DateTime.UtcNow;
 
         await workflow.AddAuditAsync(Audit(user.UserId, "Location", id.ToString(), "LocationUpdate", new { request.LocationName, request.Address, request.PlusCode }), ct);
