@@ -38,4 +38,56 @@ describe("correction UI",()=>{
       newValue:"UAT"
     })).toBe("備註：— → UAT");
   });
+
+  it("renders stop JSON as readable Chinese field differences",()=>{
+    const oldValue=JSON.stringify([
+      {
+        stopSequence:1,
+        locationCode:"LOC-1",
+        locationName:"南投就業中心-埔里分站",
+        address:"北辰街101號",
+        visitPurpose:"電訪"
+      },
+      {
+        stopSequence:2,
+        locationCode:"LOC-2",
+        locationName:"集集就業服務台",
+        address:"民生路61號",
+        visitPurpose:null
+      }
+    ]);
+
+    const newValue=JSON.stringify([
+      {
+        stopSequence:1,
+        locationCode:"LOC-1",
+        locationName:"南投就業中心-埔里分站",
+        address:"北辰街101號",
+        visitPurpose:"電訪"
+      },
+      {
+        stopSequence:2,
+        locationCode:"LOC-2",
+        locationName:"集集就業服務台",
+        address:"民生路61號",
+        visitPurpose:"修正拜訪目的"
+      }
+    ]);
+
+    expect(correctionChangeText({
+      fieldName:"Stops",
+      oldValue,
+      newValue
+    })).toBe(
+      "第 2 站（集集就業服務台）－拜訪目的：— → 修正拜訪目的"
+    );
+  });
+
+  it("does not expose raw JSON when stop data is malformed",()=>{
+    expect(correctionChangeText({
+      fieldName:"Stops",
+      oldValue:"not-json",
+      newValue:"also-not-json"
+    })).toBe("拜訪地點：內容已變更");
+  });
 });
