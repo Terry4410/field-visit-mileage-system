@@ -152,6 +152,37 @@ public sealed class V170PeopleBulkRulesTests
                     }));
     }
 
+    [Fact]
+    public void Future_effective_row_is_update_even_when_values_match()
+    {
+        var today =
+            new DateOnly(2026, 8, 17);
+
+        var future =
+            new DateOnly(2026, 8, 18);
+
+        Assert.Equal(
+            "Update",
+            V170PeopleBulkRules.DetermineUpdateAction(
+                sameAsCurrent: true,
+                changeEffectiveFrom: future,
+                today: today));
+    }
+
+    [Fact]
+    public void Same_current_row_is_no_change_when_not_future()
+    {
+        var today =
+            new DateOnly(2026, 8, 17);
+
+        Assert.Equal(
+            "NoChange",
+            V170PeopleBulkRules.DetermineUpdateAction(
+                sameAsCurrent: true,
+                changeEffectiveFrom: today,
+                today: today));
+    }
+
     private static V170InternalAuthorizationRawRow
         Internal()
         => new(

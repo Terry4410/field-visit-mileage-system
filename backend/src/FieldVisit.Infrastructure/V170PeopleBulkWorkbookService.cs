@@ -766,13 +766,47 @@ public sealed class V170PeopleBulkWorkbookService(
                             GetChangeEffectiveFrom(x),
                             today));
 
+        var confirmNowUtc =
+            DateTime.UtcNow;
+
         V170PeopleBulkConfirmRules.Validate(
             batch.Status,
             batch.ExpiresAt,
             batch.ErrorCount,
             requiresRetroactive,
             request.ConfirmRetroactive,
-            DateTime.UtcNow);
+            confirmNowUtc);
+
+        /*
+         * Atomic claim:
+         *
+         * Two concurrent requests may both have read Previewed above,
+         * but SQL Server guarantees only one UPDATE can transition the
+         * row from Previewed -> Confirming.
+         *
+         * The second request therefore affects 0 rows and is rejected
+         * before any authorization writer is called.
+         */
+        var claimCount =
+            await db.ImportBatches
+                .Where(
+                    x =>
+                        x.ImportBatchId
+                            == importBatchId
+                        && x.Status
+                            == "Previewed"
+                        && x.ExpiresAt
+                            >= confirmNowUtc)
+                .ExecuteUpdateAsync(
+                    setters =>
+                        setters.SetProperty(
+                            x => x.Status,
+                            "Confirming"),
+                    ct);
+
+        V170PeopleBulkConfirmRules
+            .EnsureAtomicClaimSucceeded(
+                claimCount);
 
         var activeTeams =
             await db.Teams
@@ -1089,21 +1123,30 @@ public sealed class V170PeopleBulkWorkbookService(
         var confirmedAt =
             DateTime.UtcNow;
 
-        await db.ImportBatches
-            .Where(
-                x =>
-                    x.ImportBatchId
-                    == importBatchId)
-            .ExecuteUpdateAsync(
-                setters =>
-                    setters
-                        .SetProperty(
-                            x => x.Status,
-                            finalStatus)
-                        .SetProperty(
-                            x => x.ConfirmedAt,
-                            (DateTime?)confirmedAt),
-                ct);
+        var finalizeCount =
+            await db.ImportBatches
+                .Where(
+                    x =>
+                        x.ImportBatchId
+                            == importBatchId
+                        && x.Status
+                            == "Confirming")
+                .ExecuteUpdateAsync(
+                    setters =>
+                        setters
+                            .SetProperty(
+                                x => x.Status,
+                                finalStatus)
+                            .SetProperty(
+                                x => x.ConfirmedAt,
+                                (DateTime?)confirmedAt),
+                    ct);
+
+        if (finalizeCount != 1)
+        {
+            throw new InvalidOperationException(
+                "匯入批次完成狀態更新失敗；請聯絡系統管理者確認批次狀態。");
+        }
 
         AddAudit(
             admin,
@@ -1240,13 +1283,14 @@ public sealed class V170PeopleBulkWorkbookService(
                     seenEntraBindings);
 
                 action =
-                    SameInternal(
-                        normalized,
-                        user,
-                        profile,
-                        snapshot)
-                        ? "NoChange"
-                        : "Update";
+                    V170PeopleBulkRules.DetermineUpdateAction(
+                        SameInternal(
+                            normalized,
+                            user,
+                            profile,
+                            snapshot),
+                        normalized.ChangeEffectiveFrom,
+                        today);
             }
             catch (Exception ex)
             {
@@ -1428,13 +1472,14 @@ public sealed class V170PeopleBulkWorkbookService(
                     }
 
                     action =
-                        SameExternal(
-                            normalized,
-                            user,
-                            profile,
-                            snapshot)
-                            ? "NoChange"
-                            : "Update";
+                        V170PeopleBulkRules.DetermineUpdateAction(
+                            SameExternal(
+                                normalized,
+                                user,
+                                profile,
+                                snapshot),
+                            normalized.ChangeEffectiveFrom,
+                            today);
                 }
 
                 ValidateEntraBinding(

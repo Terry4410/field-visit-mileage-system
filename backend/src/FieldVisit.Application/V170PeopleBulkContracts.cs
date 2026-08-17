@@ -138,6 +138,16 @@ public static class V170PeopleBulkConfirmRules
                 "此批次包含回溯異動，請二次確認後再執行。");
         }
     }
+
+    public static void EnsureAtomicClaimSucceeded(
+        int affectedRows)
+    {
+        if (affectedRows != 1)
+        {
+            throw new InvalidOperationException(
+                "此匯入批次正在處理或已處理；請重新預覽後再執行。");
+        }
+    }
 }
 
 public interface IV170PeopleBulkWorkbookService
@@ -409,6 +419,24 @@ public static class V170PeopleBulkRules
         DateOnly changeEffectiveFrom,
         DateOnly today)
         => changeEffectiveFrom < today;
+
+    public static string DetermineUpdateAction(
+        bool sameAsCurrent,
+        DateOnly changeEffectiveFrom,
+        DateOnly today)
+    {
+        /*
+         * A future effective date is itself a scheduled authorization
+         * change. It must not be collapsed into NoChange merely because
+         * today's effective state happens to contain the same values.
+         */
+        if (changeEffectiveFrom > today)
+            return "Update";
+
+        return sameAsCurrent
+            ? "NoChange"
+            : "Update";
+    }
 
     public static IReadOnlyList<string> SplitCodes(
         string? raw)

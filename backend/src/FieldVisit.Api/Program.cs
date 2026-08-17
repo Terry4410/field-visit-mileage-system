@@ -95,7 +95,7 @@ var app=builder.Build();
 app.UseExceptionHandler(handler=>handler.Run(async context=>{var ex=context.Features.Get<IExceptionHandlerFeature>()?.Error;var status=ex switch{UnauthorizedAccessException=>403,KeyNotFoundException=>404,DbUpdateConcurrencyException=>409,InvalidOperationException when ex.Message.Contains("ROWVERSION_CONFLICT",StringComparison.OrdinalIgnoreCase)=>409,InvalidOperationException=>422,_=>500};context.Response.StatusCode=status;context.Response.ContentType="application/problem+json";await context.Response.WriteAsJsonAsync(new{title=status==500?"系統錯誤":"無法完成操作",status,detail=status==500?"系統發生未預期錯誤，請記錄時間後聯絡系統管理者。":ex?.Message,traceId=context.TraceIdentifier});}));
 var swaggerEnabled=builder.Configuration.GetValue<bool?>("Swagger:Enabled")??!app.Environment.IsProduction();if(swaggerEnabled){app.UseSwagger();app.UseSwaggerUI();}
 app.UseHttpsRedirection();app.UseCors("Frontend");app.UseAuthentication();app.UseAuthorization();app.MapControllers();
-var version=builder.Configuration["App:Version"]??"1.7.0-uat-candidate";var schema=builder.Configuration["App:DbSchemaVersion"]??"1.7.0-004";
+var version=builder.Configuration["App:Version"]??"1.7.0-uat-candidate";var schema=builder.Configuration["App:DbSchemaVersion"]??"1.7.0-005";
 app.MapGet("/health",()=>Results.Ok(new{status="ok",version,schema,utc=DateTime.UtcNow}));
 app.MapGet("/health/live",()=>Results.Ok(new{status="ok",version,utc=DateTime.UtcNow}));
 app.MapGet("/health/ready",async(AppDbContext db)=>await db.Database.CanConnectAsync()?Results.Ok(new{status="ready",version,schema,utc=DateTime.UtcNow}):Results.Json(new{status="unavailable",version,utc=DateTime.UtcNow},statusCode:503));

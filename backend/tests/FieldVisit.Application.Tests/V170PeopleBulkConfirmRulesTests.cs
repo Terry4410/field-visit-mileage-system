@@ -82,4 +82,30 @@ public sealed class V170PeopleBulkConfirmRulesTests
             true,
             Now);
     }
+    [Fact]
+    public void Rejects_confirming_batch_as_already_processing()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () =>
+                V170PeopleBulkConfirmRules.Validate(
+                    "Confirming",
+                    Now.AddHours(1),
+                    0,
+                    false,
+                    false,
+                    Now));
+    }
+
+    [Fact]
+    public void Atomic_claim_requires_exactly_one_updated_row()
+    {
+        V170PeopleBulkConfirmRules
+            .EnsureAtomicClaimSucceeded(1);
+
+        Assert.Throws<InvalidOperationException>(
+            () =>
+                V170PeopleBulkConfirmRules
+                    .EnsureAtomicClaimSucceeded(0));
+    }
+
 }
