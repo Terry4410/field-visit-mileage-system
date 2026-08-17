@@ -326,7 +326,10 @@ trip.VisitDate = request.VisitDate;
             {
                 var project = await masters.GetProjectAsync(input.ProjectId.Value, false, ct)
                     ?? throw new KeyNotFoundException($"找不到專案 {input.ProjectId.Value}。");
-                if (!project.IsActive) throw new InvalidOperationException($"專案「{project.ProjectName}」已停用。");
+                V170ProjectDateRules.EnsureAvailableOn(
+                    project,
+                    trip.VisitDate);
+
                 if (user.OrganizationId.HasValue && project.OrganizationId != user.OrganizationId)
                     throw new UnauthorizedAccessException("無權使用其他 Organization 專案。");
                 if (project.TeamId.HasValue && user.TeamId.HasValue && project.TeamId != user.TeamId)

@@ -4,6 +4,7 @@ import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
+import {isProjectAvailableOn} from "../project-date-rules";
 import type {Project,SmartLocationItem,Trip,TripStopInput,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
@@ -71,7 +72,23 @@ export default function VisitorPage(){
     return()=>clearTimeout(timer);
   },[date,start,end,editId]);
 
+  const availableProjects=useMemo(
+    ()=>projects.filter(p=>isProjectAvailableOn(p,date)),
+    [projects,date]
+  );
+
   const selectedProject=projects.find(x=>x.projectId===Number(projectId));
+
+  useEffect(()=>{
+    if(!projectId)return;
+    if(availableProjects.some(
+      p=>p.projectId===Number(projectId)
+    ))return;
+
+    setProjectId("");
+    setSelectedExistingLocation(null);
+    setLocationMethod("existing");
+  },[availableProjects,projectId]);
 
   // Only list-mode projects restrict Smart Picker to ProjectLocations.
   // Other project modes preserve the existing behavior: users may still
@@ -329,7 +346,7 @@ export default function VisitorPage(){
             setLocationMethod(isListMode(p?.locationMode)?"existing":"temporary");
           }}>
             <option value="">不屬於專案</option>
-            {projects.map(p=><option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}
+            {availableProjects.map(p=><option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}
           </select>
         </div>
 
