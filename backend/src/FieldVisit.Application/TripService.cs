@@ -266,6 +266,8 @@ trip.VisitDate = request.VisitDate;
             trip.VisitDate,
             trip.StartTime,
             trip.EndTime,
+            trip.HasTimeOverlapWarning,
+            trip.TimeOverlapConfirmed,
             trip.Status,
             TripStatuses.Display(trip.Status),
             trip.Purpose,

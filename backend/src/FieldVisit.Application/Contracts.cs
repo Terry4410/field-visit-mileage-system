@@ -57,6 +57,8 @@ public sealed record TripDto(
     DateOnly VisitDate,
     TimeOnly? StartTime,
     TimeOnly? EndTime,
+    bool HasTimeOverlapWarning,
+    bool TimeOverlapConfirmed,
     string Status,
     string StatusName,
     string? Purpose,
