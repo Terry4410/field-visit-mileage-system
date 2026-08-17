@@ -37,8 +37,8 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         var linePaint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 0.6f, Color = SKColors.Gray };
         const float width = 841.89f, height = 595.28f; // A4 landscape points
         const float left = 28, right = 28, top = 28, bottom = 28;
-        var columns = new[] { 68f, 52f, 55f, 45f, 60f, 55f, 150f, 38f, 38f, 38f, 42f, 50f, 50f };
-        var headers = new[] { "TripNo", "日期", "外訪員", "小組", "專案", "拜訪形式", "拜訪路線", "自算", "系統", "核定", "費率", "補助金額", "狀態" };
+        var columns = new[] { 64f, 48f, 48f, 52f, 43f, 50f, 48f, 135f, 35f, 35f, 35f, 38f, 44f, 44f };
+        var headers = new[] { "TripNo", "日期", "時間", "外訪員", "小組", "專案", "拜訪形式", "拜訪路線", "自算", "系統", "核定", "費率", "補助金額", "狀態" };
         var rowHeight = 22f;
         var pageNo = 0;
         var index = 0;
@@ -60,7 +60,7 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
                 var r = rows[index];
                 var cells = new[]
                 {
-                    r.TripNo, r.VisitDate.ToString("yyyy/MM/dd"), r.VisitorName, r.TeamName ?? "—", Truncate(r.ProjectNames, 12),
+                    r.TripNo, r.VisitDate.ToString("yyyy/MM/dd"), TimeRange(r.StartTime, r.EndTime), r.VisitorName, r.TeamName ?? "—", Truncate(r.ProjectNames, 12),
                     Truncate(r.VisitTypeNames, 12), Truncate(r.Route, 30), Km(r.ClaimedDistanceKm), Km(r.SystemDistanceKm),
                     Km(r.ApprovedDistanceKm), Money(r.RatePerKmSnapshot), Money(r.SubsidyAmount), r.StatusName
                 };
@@ -147,16 +147,16 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
 
     private static IEnumerable<IReadOnlyList<object?>> BuildSummaryRows(IReadOnlyList<TripQueryRowDto> rows)
     {
-        yield return new object?[] { "日期", "TripNo", "外訪員", "員編", "小組", "專案", "拜訪形式", "拜訪順序", "自算里程", "系統里程", "核定里程", "每公里補助", "補助金額", "狀態", "Snapshot版本", "更正狀態", "備註" };
-        foreach (var r in rows) yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), r.TripNo, r.VisitorName, r.EmployeeNo, r.TeamName, r.ProjectNames, r.VisitTypeNames, r.Route, r.ClaimedDistanceKm, r.SystemDistanceKm, r.ApprovedDistanceKm, r.RatePerKmSnapshot, r.SubsidyAmount, r.StatusName, r.SnapshotVersion, r.CorrectionStatus, r.Notes };
+        yield return new object?[] { "日期", "時間", "TripNo", "外訪員", "員編", "小組", "專案", "拜訪形式", "拜訪順序", "自算里程", "系統里程", "核定里程", "每公里補助", "補助金額", "狀態", "Snapshot版本", "更正狀態", "備註" };
+        foreach (var r in rows) yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), TimeRange(r.StartTime, r.EndTime), r.TripNo, r.VisitorName, r.EmployeeNo, r.TeamName, r.ProjectNames, r.VisitTypeNames, r.Route, r.ClaimedDistanceKm, r.SystemDistanceKm, r.ApprovedDistanceKm, r.RatePerKmSnapshot, r.SubsidyAmount, r.StatusName, r.SnapshotVersion, r.CorrectionStatus, r.Notes };
     }
 
     private static IEnumerable<IReadOnlyList<object?>> BuildStopRows(IReadOnlyList<TripQueryRowDto> rows)
     {
-        yield return new object?[] { "日期", "TripNo", "外訪員", "小組", "順序", "地點代碼", "地點名稱", "地址", "專案代碼", "專案名稱", "拜訪形式代碼", "拜訪形式", "行程目的", "備註" };
+        yield return new object?[] { "日期", "時間", "TripNo", "外訪員", "小組", "順序", "地點代碼", "地點名稱", "地址", "專案代碼", "專案名稱", "拜訪形式代碼", "拜訪形式", "行程目的", "備註" };
         foreach (var r in rows)
             foreach (var s in r.Stops.OrderBy(x => x.StopSequence))
-                yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), r.TripNo, r.VisitorName, r.TeamName, s.StopSequence, s.LocationCode, s.LocationName, s.Address, s.ProjectCode, s.ProjectName, s.VisitTypeCode, s.VisitTypeName, s.VisitPurpose, s.Notes };
+                yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), TimeRange(r.StartTime, r.EndTime), r.TripNo, r.VisitorName, r.TeamName, s.StopSequence, s.LocationCode, s.LocationName, s.Address, s.ProjectCode, s.ProjectName, s.VisitTypeCode, s.VisitTypeName, s.VisitPurpose, s.Notes };
     }
 
     private static void AddWorksheet(WorkbookPart workbookPart, Sheets sheets, uint sheetId, string name, IEnumerable<IReadOnlyList<object?>> rows)
@@ -181,6 +181,16 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
             return new Cell { DataType = CellValues.Number, CellValue = new CellValue(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)) };
         if (value is bool b) return new Cell { DataType = CellValues.Boolean, CellValue = new CellValue(b ? "1" : "0") };
         return new Cell { DataType = CellValues.InlineString, InlineString = new InlineString(new Text(value.ToString() ?? "")) };
+    }
+
+    private static string TimeRange(TimeOnly? start, TimeOnly? end)
+    {
+        var s = start?.ToString("HH:mm");
+        var e = end?.ToString("HH:mm");
+        if (s is not null && e is not null) return $"{s}～{e}";
+        if (s is not null) return $"{s}～—";
+        if (e is not null) return $"—～{e}";
+        return "—";
     }
 
     private static string Km(decimal? value) => value.HasValue ? value.Value.ToString("0.##") : "N/A";

@@ -7,3 +7,4 @@ export const money=(n?:number|null)=>n==null?"N/A":`$${n.toLocaleString("zh-TW",
 export const km=(n?:number|null)=>n==null?"N/A":`${n.toLocaleString("zh-TW",{maximumFractionDigits:2})} km`;
 export const nowTimeTaipei=()=>new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Taipei",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date());
 export const addMinutesToTime=(value:string,minutes:number)=>{const[h,m]=value.split(':').map(Number);const total=((h*60+m+minutes)%(24*60)+24*60)%(24*60);return`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`};
+export const timeRange=(start?:string|null,end?:string|null)=>{const s=(start||"").slice(0,5);const e=(end||"").slice(0,5);return s&&e?`${s}～${e}`:s?`${s}～—`:e?`—～${e}`:"—"};
