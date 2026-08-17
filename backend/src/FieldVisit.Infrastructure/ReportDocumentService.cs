@@ -36,44 +36,81 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         var textPaint = new SKPaint { Typeface = typeface, TextSize = 7.2f, IsAntialias = true, Color = SKColors.Black };
         var headerPaint = new SKPaint { Typeface = typeface, TextSize = 7.2f, IsAntialias = true, FakeBoldText = true, Color = SKColors.Black };
         var linePaint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 0.6f, Color = SKColors.Gray };
+
         const float width = 841.89f, height = 595.28f; // A4 landscape points
         const float left = 28, right = 28, top = 28, bottom = 28;
-        var columns = new[] { 64f, 48f, 48f, 52f, 43f, 50f, 48f, 135f, 35f, 35f, 35f, 38f, 44f, 44f };
+        const float headerRowHeight = 22f;
+        const float footerReserve = 34f;
+
+        // Keep the report compact, but give route / project / visit type enough room to wrap.
+        var columns = new[] { 64f, 48f, 48f, 52f, 43f, 52f, 52f, 145f, 35f, 35f, 35f, 38f, 44f, 44f };
         var headers = new[] { "TripNo", "日期", "時間", "外訪員", "小組", "專案", "拜訪形式", "拜訪路線", "自算", "系統", "核定", "費率", "補助金額", "狀態" };
-        var rowHeight = 22f;
+
         var pageNo = 0;
         var index = 0;
+
         do
         {
             pageNo++;
             using var canvas = document.BeginPage(width, height);
             var y = top;
+
             canvas.DrawText("外訪行程與里程管理系統－行程查詢報表", left, y + 16, titlePaint);
             y += 30;
+
             var filter = $"期間：{request.StartDate:yyyy/MM/dd} ～ {request.EndDate:yyyy/MM/dd}　匯出人：{user.DisplayName}　匯出時間：{BusinessTime.Now:yyyy/MM/dd HH:mm}　總筆數：{rows.Count}";
             canvas.DrawText(filter, left, y + 10, textPaint);
             y += 22;
-            DrawTableRow(canvas, left, y, columns, headers, rowHeight, headerPaint, linePaint);
-            y += rowHeight;
-            var maxRows = Math.Max(1, (int)((height - bottom - y - 32) / rowHeight));
-            for (var i = 0; i < maxRows && index < rows.Count; i++, index++)
+
+            DrawTableRow(canvas, left, y, columns, headers, headerRowHeight, headerPaint, linePaint);
+            y += headerRowHeight;
+
+            var drewAny = false;
+            while (index < rows.Count)
             {
                 var r = rows[index];
                 var cells = new[]
                 {
-                    r.TripNo, r.VisitDate.ToString("yyyy/MM/dd"), TimeRange(r.StartTime, r.EndTime), r.VisitorName, r.TeamName ?? "—", Truncate(r.ProjectNames, 12),
-                    Truncate(r.VisitTypeNames, 12), Truncate(r.Route, 30), Km(r.ClaimedDistanceKm), Km(r.SystemDistanceKm),
-                    Km(r.ApprovedDistanceKm), Money(r.RatePerKmSnapshot), Money(r.SubsidyAmount), r.StatusName
+                    r.TripNo,
+                    r.VisitDate.ToString("yyyy/MM/dd"),
+                    TimeRange(r.StartTime, r.EndTime),
+                    r.VisitorName,
+                    r.TeamName ?? "—",
+                    r.ProjectNames,
+                    r.VisitTypeNames,
+                    r.Route,
+                    Km(r.ClaimedDistanceKm),
+                    Km(r.SystemDistanceKm),
+                    Km(r.ApprovedDistanceKm),
+                    Money(r.RatePerKmSnapshot),
+                    Money(r.SubsidyAmount),
+                    r.StatusName
                 };
-                DrawTableRow(canvas, left, y, columns, cells, rowHeight, textPaint, linePaint);
+
+                var rowHeight = MeasureWrappedRowHeight(columns, cells, textPaint, 22f);
+                var footerTop = height - bottom - footerReserve;
+
+                if (drewAny && y + rowHeight > footerTop)
+                    break;
+
+                // Extremely long single row: fit what we reasonably can on one page.
+                if (y + rowHeight > footerTop)
+                    rowHeight = Math.Max(22f, footerTop - y);
+
+                DrawWrappedTableRow(canvas, left, y, columns, cells, rowHeight, textPaint, linePaint);
                 y += rowHeight;
+                index++;
+                drewAny = true;
             }
+
             var sumKm = rows.Sum(x => x.ApprovedDistanceKm ?? 0m);
             var sumAmount = rows.Sum(x => x.SubsidyAmount ?? 0m);
             canvas.DrawText($"核定總里程：{sumKm:0.##} km　補助總金額：${sumAmount:0.00}", left, height - bottom - 12, headerPaint);
             canvas.DrawText($"第 {pageNo} 頁", width - right - 45, height - bottom - 12, textPaint);
             document.EndPage();
-        } while (index < rows.Count || pageNo == 0);
+        }
+        while (index < rows.Count || pageNo == 0);
+
         document.Close();
         var name = $"外訪行程查詢_{BusinessTime.Today:yyyyMMdd}.pdf";
         return Task.FromResult(new ReportExportContext(name, stream.ToArray(), "application/pdf"));
@@ -113,6 +150,87 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
             if (font is not null) return font;
         }
         return SKTypeface.Default;
+    }
+
+    private static float MeasureWrappedRowHeight(float[] widths, string[] cells, SKPaint textPaint, float minimumHeight)
+    {
+        var lineHeight = textPaint.TextSize + 2.8f;
+        var maxLines = 1;
+
+        for (var i = 0; i < widths.Length; i++)
+        {
+            var lines = WrapText(cells.ElementAtOrDefault(i) ?? "", textPaint, Math.Max(8f, widths[i] - 6f));
+            maxLines = Math.Max(maxLines, lines.Count);
+        }
+
+        return Math.Max(minimumHeight, maxLines * lineHeight + 7f);
+    }
+
+    private static void DrawWrappedTableRow(SKCanvas canvas, float x, float y, float[] widths, string[] cells, float height, SKPaint textPaint, SKPaint linePaint)
+    {
+        var cursor = x;
+        var lineHeight = textPaint.TextSize + 2.8f;
+
+        for (var i = 0; i < widths.Length; i++)
+        {
+            var rect = new SKRect(cursor, y, cursor + widths[i], y + height);
+            canvas.DrawRect(rect, linePaint);
+            canvas.Save();
+            canvas.ClipRect(new SKRect(rect.Left + 2, rect.Top + 2, rect.Right - 2, rect.Bottom - 2));
+
+            var lines = WrapText(cells.ElementAtOrDefault(i) ?? "", textPaint, Math.Max(8f, widths[i] - 6f));
+            var baseline = rect.Top + 3f + textPaint.TextSize;
+
+            foreach (var line in lines)
+            {
+                if (baseline > rect.Bottom - 2f)
+                    break;
+
+                canvas.DrawText(line, rect.Left + 3f, baseline, textPaint);
+                baseline += lineHeight;
+            }
+
+            canvas.Restore();
+            cursor += widths[i];
+        }
+    }
+
+    private static IReadOnlyList<string> WrapText(string text, SKPaint paint, float maxWidth)
+    {
+        if (string.IsNullOrEmpty(text))
+            return new[] { "" };
+
+        var result = new List<string>();
+        var paragraphs = text.Replace("\r", "").Split('\n');
+
+        foreach (var paragraph in paragraphs)
+        {
+            if (paragraph.Length == 0)
+            {
+                result.Add("");
+                continue;
+            }
+
+            var current = "";
+            foreach (var ch in paragraph)
+            {
+                var candidate = current + ch;
+                if (current.Length > 0 && paint.MeasureText(candidate) > maxWidth)
+                {
+                    result.Add(current.TrimEnd());
+                    current = ch.ToString().TrimStart();
+                }
+                else
+                {
+                    current = candidate;
+                }
+            }
+
+            if (current.Length > 0)
+                result.Add(current.TrimEnd());
+        }
+
+        return result.Count == 0 ? new[] { "" } : result;
     }
 
     private static void DrawTableRow(SKCanvas canvas, float x, float y, float[] widths, string[] cells, float height, SKPaint textPaint, SKPaint linePaint)
