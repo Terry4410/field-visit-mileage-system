@@ -6,6 +6,7 @@ public sealed class V160FinalService(
     IReportDocumentService reports,
     IWorkbookImportService imports,
     IBackgroundJobService jobs,
+    IBackgroundJobSignal backgroundJobSignal,
     IV170AccessControl access)
 {
     public async Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(
@@ -114,11 +115,35 @@ public sealed class V160FinalService(
     public Task<ImportConfirmResultDto> ConfirmImportAsync(Guid batchId, CancellationToken ct) =>
         imports.ConfirmAsync(RequireAny("admin", "leader"), batchId, ct);
 
-    public Task<BackgroundJobDto> EnqueueMileageAsync(MileageBatchRequest request, CancellationToken ct) =>
-        jobs.EnqueueMileageAsync(RequireRole("leader"), request, ct);
+    public async Task<BackgroundJobDto> EnqueueMileageAsync(
+        MileageBatchRequest request,
+        CancellationToken ct)
+    {
+        var result =
+            await jobs.EnqueueMileageAsync(
+                RequireRole("leader"),
+                request,
+                ct);
 
-    public Task<BackgroundJobDto> EnqueueGeocodingAsync(CreateGeocodingJobRequest request, CancellationToken ct) =>
-        jobs.EnqueueGeocodingAsync(RequireAny("leader", "admin"), request, ct);
+        backgroundJobSignal.Signal();
+
+        return result;
+    }
+
+    public async Task<BackgroundJobDto> EnqueueGeocodingAsync(
+        CreateGeocodingJobRequest request,
+        CancellationToken ct)
+    {
+        var result =
+            await jobs.EnqueueGeocodingAsync(
+                RequireAny("leader", "admin"),
+                request,
+                ct);
+
+        backgroundJobSignal.Signal();
+
+        return result;
+    }
 
     public Task<BackgroundJobDto> JobAsync(Guid id, CancellationToken ct) => jobs.GetAsync(current.GetRequired(), id, ct);
 

@@ -47,3 +47,9 @@ public interface IBackgroundJobService
     Task<BackgroundJobDto> GetAsync(CurrentUserDto user, Guid jobId, CancellationToken ct);
     Task<bool> ProcessNextAsync(CancellationToken ct);
 }
+
+public interface IBackgroundJobSignal
+{
+    void Signal();
+    Task WaitAsync(CancellationToken ct);
+}
