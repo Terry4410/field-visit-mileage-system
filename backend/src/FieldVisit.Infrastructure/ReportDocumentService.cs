@@ -16,6 +16,7 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         {
             var workbookPart = doc.AddWorkbookPart();
             workbookPart.Workbook = new Workbook();
+            AddWorkbookStyles(workbookPart);
             var sheets = workbookPart.Workbook.AppendChild(new Sheets());
             AddWorksheet(workbookPart, sheets, 1, "查詢條件", BuildConditionRows(request, user, rows.Count));
             AddWorksheet(workbookPart, sheets, 2, "行程彙總", BuildSummaryRows(rows));
@@ -147,46 +148,171 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
 
     private static IEnumerable<IReadOnlyList<object?>> BuildSummaryRows(IReadOnlyList<TripQueryRowDto> rows)
     {
-        yield return new object?[] { "日期", "時間", "TripNo", "外訪員", "員編", "小組", "專案", "拜訪形式", "拜訪順序", "自算里程", "系統里程", "核定里程", "每公里補助", "補助金額", "狀態", "Snapshot版本", "更正狀態", "備註" };
-        foreach (var r in rows) yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), TimeRange(r.StartTime, r.EndTime), r.TripNo, r.VisitorName, r.EmployeeNo, r.TeamName, r.ProjectNames, r.VisitTypeNames, r.Route, r.ClaimedDistanceKm, r.SystemDistanceKm, r.ApprovedDistanceKm, r.RatePerKmSnapshot, r.SubsidyAmount, r.StatusName, r.SnapshotVersion, r.CorrectionStatus, r.Notes };
+        yield return new object?[] { "日期", "起始時", "起始分", "結束時", "結束分", "TripNo", "外訪員", "員編", "小組", "專案", "拜訪形式", "拜訪順序", "自算里程", "系統里程", "核定里程", "每公里補助", "補助金額", "狀態", "Snapshot版本", "更正狀態", "備註" };
+        foreach (var r in rows) yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), r.StartTime?.Hour, r.StartTime?.Minute, r.EndTime?.Hour, r.EndTime?.Minute, r.TripNo, r.VisitorName, r.EmployeeNo, r.TeamName, r.ProjectNames, r.VisitTypeNames, r.Route, r.ClaimedDistanceKm, r.SystemDistanceKm, r.ApprovedDistanceKm, r.RatePerKmSnapshot, r.SubsidyAmount, r.StatusName, r.SnapshotVersion, r.CorrectionStatus, r.Notes };
     }
 
     private static IEnumerable<IReadOnlyList<object?>> BuildStopRows(IReadOnlyList<TripQueryRowDto> rows)
     {
-        yield return new object?[] { "日期", "時間", "TripNo", "外訪員", "小組", "順序", "地點代碼", "地點名稱", "地址", "專案代碼", "專案名稱", "拜訪形式代碼", "拜訪形式", "行程目的", "備註" };
+        yield return new object?[] { "日期", "起始時", "起始分", "結束時", "結束分", "TripNo", "外訪員", "小組", "順序", "地點代碼", "地點名稱", "地址", "專案代碼", "專案名稱", "拜訪形式代碼", "拜訪形式", "行程目的", "備註" };
         foreach (var r in rows)
             foreach (var s in r.Stops.OrderBy(x => x.StopSequence))
-                yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), TimeRange(r.StartTime, r.EndTime), r.TripNo, r.VisitorName, r.TeamName, s.StopSequence, s.LocationCode, s.LocationName, s.Address, s.ProjectCode, s.ProjectName, s.VisitTypeCode, s.VisitTypeName, s.VisitPurpose, s.Notes };
+                yield return new object?[] { r.VisitDate.ToString("yyyy-MM-dd"), r.StartTime?.Hour, r.StartTime?.Minute, r.EndTime?.Hour, r.EndTime?.Minute, r.TripNo, r.VisitorName, r.TeamName, s.StopSequence, s.LocationCode, s.LocationName, s.Address, s.ProjectCode, s.ProjectName, s.VisitTypeCode, s.VisitTypeName, s.VisitPurpose, s.Notes };
     }
 
     private static void AddWorksheet(WorkbookPart workbookPart, Sheets sheets, uint sheetId, string name, IEnumerable<IReadOnlyList<object?>> rows)
     {
         var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
         var sheetData = new SheetData();
-        foreach (var values in rows)
+        var materialized = rows.ToList();
+
+        var twoDigitColumns = new HashSet<int>();
+        if (materialized.Count > 0)
         {
+            var header = materialized[0];
+            for (var i = 0; i < header.Count; i++)
+            {
+                var label = header[i]?.ToString();
+                if (label is "起始時" or "起始分" or "結束時" or "結束分")
+                    twoDigitColumns.Add(i);
+            }
+        }
+
+        for (var rowIndex = 0; rowIndex < materialized.Count; rowIndex++)
+        {
+            var values = materialized[rowIndex];
             var row = new Row();
-            foreach (var value in values) row.Append(ToCell(value));
+
+            for (var columnIndex = 0; columnIndex < values.Count; columnIndex++)
+            {
+                var useTwoDigitStyle =
+                    rowIndex > 0
+                    && twoDigitColumns.Contains(columnIndex);
+
+                row.Append(
+                    ToCell(
+                        values[columnIndex],
+                        useTwoDigitStyle ? 1U : null));
+            }
+
             sheetData.Append(row);
         }
+
         worksheetPart.Worksheet = new Worksheet(sheetData);
         worksheetPart.Worksheet.Save();
         sheets.Append(new Sheet { Id = workbookPart.GetIdOfPart(worksheetPart), SheetId = sheetId, Name = name });
     }
 
-    private static Cell ToCell(object? value)
+    private static void AddWorkbookStyles(WorkbookPart workbookPart)
     {
-        if (value is null) return new Cell { DataType = CellValues.InlineString, InlineString = new InlineString(new Text("")) };
-        if (value is byte or short or int or long or float or double or decimal)
-            return new Cell { DataType = CellValues.Number, CellValue = new CellValue(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)) };
-        if (value is bool b) return new Cell { DataType = CellValues.Boolean, CellValue = new CellValue(b ? "1" : "0") };
-        return new Cell { DataType = CellValues.InlineString, InlineString = new InlineString(new Text(value.ToString() ?? "")) };
+        var stylesPart = workbookPart.AddNewPart<WorkbookStylesPart>();
+
+        var numberingFormats = new NumberingFormats(
+            new NumberingFormat
+            {
+                NumberFormatId = 164U,
+                FormatCode = "00"
+            })
+        {
+            Count = 1U
+        };
+
+        var fonts = new Fonts(new Font()) { Count = 1U };
+
+        var fills = new Fills(
+            new Fill(new PatternFill { PatternType = PatternValues.None }),
+            new Fill(new PatternFill { PatternType = PatternValues.Gray125 }))
+        {
+            Count = 2U
+        };
+
+        var borders = new Borders(new Border()) { Count = 1U };
+
+        var cellStyleFormats = new CellStyleFormats(
+            new CellFormat())
+        {
+            Count = 1U
+        };
+
+        var cellFormats = new CellFormats(
+            new CellFormat(),
+            new CellFormat
+            {
+                NumberFormatId = 164U,
+                ApplyNumberFormat = true
+            })
+        {
+            Count = 2U
+        };
+
+        stylesPart.Stylesheet = new Stylesheet(
+            numberingFormats,
+            fonts,
+            fills,
+            borders,
+            cellStyleFormats,
+            cellFormats);
+
+        stylesPart.Stylesheet.Save();
+    }
+
+    private static Cell ToCell(object? value, uint? styleIndex = null)
+    {
+        Cell cell;
+
+        if (value is null)
+        {
+            cell = new Cell
+            {
+                DataType = CellValues.InlineString,
+                InlineString = new InlineString(new Text(""))
+            };
+        }
+        else if (value is byte or short or int or long or float or double or decimal)
+        {
+            cell = new Cell
+            {
+                DataType = CellValues.Number,
+                CellValue = new CellValue(
+                    Convert.ToString(
+                        value,
+                        System.Globalization.CultureInfo.InvariantCulture))
+            };
+        }
+        else if (value is bool b)
+        {
+            cell = new Cell
+            {
+                DataType = CellValues.Boolean,
+                CellValue = new CellValue(b ? "1" : "0")
+            };
+        }
+        else
+        {
+            cell = new Cell
+            {
+                DataType = CellValues.InlineString,
+                InlineString = new InlineString(
+                    new Text(value.ToString() ?? ""))
+            };
+        }
+
+        if (styleIndex.HasValue)
+            cell.StyleIndex = styleIndex.Value;
+
+        return cell;
     }
 
     private static string TimeRange(TimeOnly? start, TimeOnly? end)
     {
-        var s = start?.ToString("HH:mm");
-        var e = end?.ToString("HH:mm");
+        var s = start.HasValue
+            ? $"{start.Value.Hour:00}:{start.Value.Minute:00}"
+            : null;
+
+        var e = end.HasValue
+            ? $"{end.Value.Hour:00}:{end.Value.Minute:00}"
+            : null;
+
         if (s is not null && e is not null) return $"{s}～{e}";
         if (s is not null) return $"{s}～—";
         if (e is not null) return $"—～{e}";
