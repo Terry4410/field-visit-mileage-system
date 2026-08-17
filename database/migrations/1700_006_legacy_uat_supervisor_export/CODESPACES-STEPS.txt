@@ -1,0 +1,31 @@
+CODESPACES STEPS — v1.7.0-006
+
+1) Put this folder under:
+   database/migrations/1700_006_legacy_uat_supervisor_export
+
+2) In Codespaces Terminal:
+   cd /workspaces/field-visit-mileage-system
+   git status -sb
+
+3) Confirm branch:
+   git branch --show-current
+   Expected: v1.7.0-uat-candidate
+
+4) Add the migration:
+   git add database/migrations/1700_006_legacy_uat_supervisor_export
+
+5) Review:
+   git diff --cached -- database/migrations/1700_006_legacy_uat_supervisor_export
+
+6) Commit:
+   git commit -m "fix: enable legacy UAT supervisor report exports"
+
+7) Push:
+   git push origin v1.7.0-uat-candidate
+
+IMPORTANT:
+- Committing the SQL files does NOT automatically change the UAT database unless your deployment pipeline explicitly applies database migrations.
+- Apply Up.sql to the UAT Azure SQL database only after confirming 1.7.0-005 is present.
+- Then run Verify.sql.
+- Expected VerifyStatus = PASS and SchemaVersion = 1.7.0-006.
+- Log out and log back in as gov01 before retesting Excel/PDF, so the UAT session is fresh.
