@@ -10,6 +10,7 @@ public sealed class TripService(
     IMasterRepository masters,
     IMileageRepository mileage,
     IWorkflowRepository workflow,
+    IV170AccessControl access,
     IUnitOfWork uow)
 {
     public async Task<TripDto> CreateAsync(SaveTripRequest request, CancellationToken ct)
@@ -224,11 +225,44 @@ trip.VisitDate = request.VisitDate;
         var trip = await trips.GetAsync(tripId, false, ct) ?? throw new KeyNotFoundException("找不到行程。");
         if (HasRole(user, "visitor") && trip.UserId != user.UserId)
             throw new UnauthorizedAccessException("無權查看其他外訪員行程。");
+
         if (HasRole(user, "leader") && (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value)))
             throw new UnauthorizedAccessException("無權查看未授權小組行程。");
-        if ((HasRole(user, "admin") || HasRole(user, "supervisor")) &&
-            user.OrganizationId.HasValue && trip.OrganizationId != user.OrganizationId.Value)
+
+        if (HasRole(user, "admin") &&
+            user.OrganizationId.HasValue &&
+            trip.OrganizationId != user.OrganizationId.Value)
+        {
             throw new UnauthorizedAccessException("無權查看其他 Organization 行程。");
+        }
+
+        /*
+         * Security:
+         * Query/export already resolve the v1.7 Supervisor Data Scope.
+         * Direct GET /trips/{id} must apply the same scope so a caller
+         * cannot bypass the query list by guessing a VisitTripId.
+         *
+         * Admin+Supervisor keeps Admin semantics. A read-only external
+         * Supervisor must pass Organization + Data Scope authorization.
+         */
+        if (HasRole(user, "supervisor") && !HasRole(user, "admin"))
+        {
+            var readScope =
+                await access.ResolveReadScopeAsync(
+                    user,
+                    ct);
+
+            if (!V170TripAccessRules.CanSupervisorReadTrip(
+                    user,
+                    trip.OrganizationId,
+                    trip.TeamId,
+                    readScope))
+            {
+                throw new UnauthorizedAccessException(
+                    "無權查看未授權範圍的行程。");
+            }
+        }
+
         return await MapAsync(trip, ct);
     }
 
