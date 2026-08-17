@@ -146,13 +146,13 @@ trip.VisitDate = request.VisitDate;
             throw new InvalidOperationException("此狀態不能送出。");
         EnsureRowVersion(trip.RowVersion, rowVersion);
 
-        if (trip.StartTime is null || trip.EndTime is null || trip.Stops.Count < 1)
-            throw new InvalidOperationException("送出前必須填寫起訖時間，且至少一個公務地點。");
+        if (trip.StartTime is null || trip.EndTime is null)
+            throw new InvalidOperationException("送出前必須填寫起訖時間。");
 
-        var requiresMileage = trip.Stops.Count >= 2;
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
-        if (requiresMileage && calc?.ClaimedDistanceKm is null or <= 0)
-            throw new InvalidOperationException("兩個以上地點的行程，送出前必須填寫外訪員自算里程。");
+        V170TripMileageRules.EnsureReadyForSubmission(
+            trip.Stops.Count,
+            calc?.ClaimedDistanceKm);
 
         var overlap = await CheckOverlapAsync(new TimeOverlapRequest(
             trip.VisitDate, trip.StartTime.Value, trip.EndTime.Value, trip.VisitTripId), ct);
@@ -160,20 +160,7 @@ trip.VisitDate = request.VisitDate;
             throw new InvalidOperationException("TIME_OVERLAP_WARNING：請確認時間重疊後再送出。");
 
         var previous = trip.Status;
-        trip.Status = requiresMileage ? TripStatuses.Submitted : TripStatuses.PendingApproval;
-        if (!requiresMileage && calc is not null)
-        {
-            calc.ClaimedDistanceKm = null;
-            calc.SystemDistanceKm = null;
-            calc.ApprovedDistanceKm = null;
-            calc.MileageRateRuleId = null;
-            calc.RatePerKmSnapshot = null;
-            calc.ClaimedAmount = null;
-            calc.ApprovedAmount = null;
-            calc.CalculationSource = "NotApplicable/StopInsufficient";
-            calc.CalculatedAt = null;
-            calc.UpdatedAt = DateTime.UtcNow;
-        }
+        trip.Status = TripStatuses.Submitted;
         trip.HasTimeOverlapWarning = overlap.HasOverlap;
         trip.TimeOverlapConfirmed = overlap.HasOverlap && request.ConfirmTimeOverlap;
         trip.SubmittedAt = DateTime.UtcNow;
@@ -184,12 +171,10 @@ trip.VisitDate = request.VisitDate;
         await AddHistoryAsync(
             trip,
             previous,
-            trip.Status,
-            previous == TripStatuses.Returned ? "Resubmit" : (requiresMileage ? "Submit" : "SubmitNoMileage"),
+            TripStatuses.Submitted,
+            previous == TripStatuses.Returned ? "Resubmit" : "Submit",
             user.UserId,
-            !requiresMileage
-                ? "地點不足 2 個，允許送出但不進行里程計算。"
-                : overlap.HasOverlap ? "使用者已確認時間重疊" : null,
+            overlap.HasOverlap ? "使用者已確認時間重疊" : null,
             ct);
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripSubmit", null, new { trip.TripNo }, ct);
         await uow.SaveChangesAsync(ct);

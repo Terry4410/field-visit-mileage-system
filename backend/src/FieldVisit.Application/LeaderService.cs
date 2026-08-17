@@ -104,9 +104,10 @@ public sealed class LeaderService(
             throw new InvalidOperationException("只有待核准行程可以核准。");
         EnsureRowVersion(trip.RowVersion, request.RowVersion);
 
-        var noMileage = trip.Stops.Count < 2;
-        if (!noMileage && request.ApprovedDistanceKm is null or < 0)
-            throw new InvalidOperationException("兩個以上地點的行程必須填寫核定里程，且不可小於 0。");
+        V170TripMileageRules.EnsureReadyForApproval(trip.Stops.Count);
+
+        if (request.ApprovedDistanceKm is null or <= 0)
+            throw new InvalidOperationException("兩個以上地點的行程必須填寫大於 0 的核定里程。");
 
         var calc = await mileage.GetByTripAsync(tripId, true, ct);
         if (calc is null)
@@ -115,12 +116,12 @@ public sealed class LeaderService(
             await mileage.AddAsync(calc, ct);
         }
 
-        MileageRateRule? rate = null;
-        if (!noMileage)
-        {
-            rate = await mileage.GetEffectiveRateAsync(trip.OrganizationId, trip.VehicleType ?? "Motorcycle", trip.VisitDate, ct)
-                ?? throw new InvalidOperationException("找不到行程日期適用的補助費率。");
-        }
+        var rate = await mileage.GetEffectiveRateAsync(
+            trip.OrganizationId,
+            trip.VehicleType ?? "Motorcycle",
+            trip.VisitDate,
+            ct)
+            ?? throw new InvalidOperationException("找不到行程日期適用的補助費率。");
 
         var previous = trip.Status;
         trip.Status = TripStatuses.Approved;
@@ -129,26 +130,13 @@ public sealed class LeaderService(
         trip.UpdatedAt = DateTime.UtcNow;
         trip.UpdatedByUserId = user.UserId;
 
-        if (noMileage)
-        {
-            calc.ClaimedDistanceKm = null;
-            calc.SystemDistanceKm = null;
-            calc.ApprovedDistanceKm = null;
-            calc.MileageRateRuleId = null;
-            calc.RatePerKmSnapshot = null;
-            calc.ClaimedAmount = null;
-            calc.ApprovedAmount = null;
-            calc.CalculationSource = "NotApplicable/StopInsufficient";
-            calc.CalculatedAt = null;
-        }
-        else
-        {
-            calc.MileageRateRuleId = rate!.MileageRateRuleId;
-            calc.ApprovedDistanceKm = request.ApprovedDistanceKm;
-            calc.RatePerKmSnapshot = rate.RatePerKm;
-            calc.ClaimedAmount = calc.ClaimedDistanceKm.HasValue ? decimal.Round(calc.ClaimedDistanceKm.Value * rate.RatePerKm, 2) : null;
-            calc.ApprovedAmount = decimal.Round(request.ApprovedDistanceKm!.Value * rate.RatePerKm, 2);
-        }
+        calc.MileageRateRuleId = rate.MileageRateRuleId;
+        calc.ApprovedDistanceKm = request.ApprovedDistanceKm;
+        calc.RatePerKmSnapshot = rate.RatePerKm;
+        calc.ClaimedAmount = calc.ClaimedDistanceKm.HasValue
+            ? decimal.Round(calc.ClaimedDistanceKm.Value * rate.RatePerKm, 2)
+            : null;
+        calc.ApprovedAmount = decimal.Round(request.ApprovedDistanceKm.Value * rate.RatePerKm, 2);
         calc.UpdatedAt = DateTime.UtcNow;
 
         await workflow.AddApprovalAsync(new ApprovalRecord
@@ -157,7 +145,7 @@ public sealed class LeaderService(
             ApprovalStep = 1,
             ApproverUserId = user.UserId,
             Action = "Approved",
-            Comments = noMileage ? "地點不足 2 個，本行程不計里程與補助。" : request.Comments,
+            Comments = request.Comments,
             ActionAt = DateTime.UtcNow
         }, ct);
         await workflow.AddStatusHistoryAsync(new VisitTripStatusHistory
@@ -167,15 +155,19 @@ public sealed class LeaderService(
             NewStatus = TripStatuses.Approved,
             Action = "Approve",
             ActionByUserId = user.UserId,
-            Comments = noMileage
-                ? "STOP_INSUFFICIENT：核准完成，不計里程與補助。"
-                : $"ApprovedKm={request.ApprovedDistanceKm};Rate={rate!.RatePerKm};Amount={calc.ApprovedAmount}",
+            Comments = $"ApprovedKm={request.ApprovedDistanceKm};Rate={rate.RatePerKm};Amount={calc.ApprovedAmount}",
             ActionAt = DateTime.UtcNow
         }, ct);
-        await workflow.AddAuditAsync(Audit(user.UserId, trip.VisitTripId, "TripApprove",
-            noMileage
-                ? new { NoMileage = true, Reason = "StopInsufficient" }
-                : new { ApprovedDistanceKm = request.ApprovedDistanceKm, RatePerKm = rate!.RatePerKm, calc.ApprovedAmount }), ct);
+        await workflow.AddAuditAsync(Audit(
+            user.UserId,
+            trip.VisitTripId,
+            "TripApprove",
+            new
+            {
+                ApprovedDistanceKm = request.ApprovedDistanceKm,
+                RatePerKm = rate.RatePerKm,
+                calc.ApprovedAmount
+            }), ct);
 
         await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
         await uow.SaveChangesAsync(ct);

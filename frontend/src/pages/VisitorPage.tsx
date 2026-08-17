@@ -3,6 +3,7 @@ import {useSearchParams} from "react-router-dom";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
+import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import type {Project,SmartLocationItem,Trip,TripStopInput,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
@@ -208,8 +209,8 @@ export default function VisitorPage(){
   };
 
   const validateForSubmit=()=>{
-    if(stops.length<1){setMsg("送出前至少需要一個公務地點。");return false}
-    if(stops.length>=2&&Number(km)<=0){setMsg("兩個以上地點的行程，送出前請填寫外訪員自行計算里程。");return false}
+    const mileageError=validateTripMileageForSubmit(stops.length,km);
+    if(mileageError){setMsg(mileageError);return false}
     if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
     return true;
   };
@@ -223,7 +224,7 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2?(Number(km)||0):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
+      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
@@ -242,7 +243,7 @@ export default function VisitorPage(){
     <div className="grid cols-4">
       <div className="card stat"><div className="label">行程日期</div><div className="value" style={{fontSize:20}}>{date}</div><div className="hint">可事後補登</div></div>
       <div className="card stat"><div className="label">拜訪地點</div><div className="value">{stops.length}</div><div className="hint">依實際順序排列</div></div>
-      <div className="card stat"><div className="label">自行計算里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"地點不足 2 個，不計里程":"送出前填寫"}</div></div>
+      <div className="card stat"><div className="label">自行計算里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"至少 2 個公務地點才可正式送出":"正式送出前必填"}</div></div>
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
