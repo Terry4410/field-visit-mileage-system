@@ -40,8 +40,28 @@ public sealed class BackgroundJobService(
             throw new InvalidOperationException("請先選擇地點。");
         var normalized = request with { Mode = mode };
         var row = NewJob("Geocoding", mode, user, JsonSerializer.Serialize(normalized, JsonOptions));
+
+        // Geocoding scope must match the formal-location access rules:
+        // - admin: organization-wide (no TeamId restriction)
+        // - leader: authorized teams + organization-wide locations (TeamId = null)
+        if (HasRole(user, "admin"))
+            row.TeamScopeJson = JsonSerializer.Serialize(Array.Empty<int>(), JsonOptions);
+
         await db.BackgroundJobs.AddAsync(row, ct);
-        AddAudit(user.UserId, "BackgroundJob", row.BackgroundJobId.ToString(), "GeocodingJobEnqueued", new { Mode = mode, Count = request.LocationIds?.Count ?? 0, request.StartDate, request.EndDate, user.TeamIds });
+        AddAudit(
+            user.UserId,
+            "BackgroundJob",
+            row.BackgroundJobId.ToString(),
+            "GeocodingJobEnqueued",
+            new
+            {
+                Mode = mode,
+                Count = request.LocationIds?.Count ?? 0,
+                request.StartDate,
+                request.EndDate,
+                Scope = HasRole(user, "admin") ? "Organization" : "TeamsAndGlobal",
+                TeamIds = HasRole(user, "admin") ? Array.Empty<int>() : user.TeamIds
+            });
         await db.SaveChangesAsync(ct);
         return Map(row);
     }
@@ -125,7 +145,11 @@ public sealed class BackgroundJobService(
         var teamIds = ParseTeamIds(job.TeamScopeJson);
         var q = db.Locations.Where(x => (x.OrganizationId == job.OrganizationId || x.OrganizationId == null) &&
             (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
-        if (teamIds.Count > 0) q = q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
+        if (teamIds.Count > 0)
+            q = q.Where(
+                x => x.TeamId == null
+                     || (x.TeamId.HasValue
+                         && teamIds.Contains(x.TeamId.Value)));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
             q = q.Where(x => request.LocationIds.Contains(x.LocationId));
         if (request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase))
