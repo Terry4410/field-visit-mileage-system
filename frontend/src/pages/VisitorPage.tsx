@@ -5,6 +5,7 @@ import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
+import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
 import type {Project,SmartLocationItem,Trip,TripStopInput,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
@@ -39,7 +40,7 @@ export default function VisitorPage(){
   );
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
-  const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
+  const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
@@ -71,22 +72,54 @@ export default function VisitorPage(){
   useEffect(()=>{
     if(!editId)return;
     api<Trip>(`/trips/${editId}`).then(t=>{
+      const teamResolution=
+        resolveTripTeamForEdit(
+          t.teamId,
+          t.teamName,
+          teamScopes,
+          user?.teamId,
+          user?.teamName
+        );
+
       setDate(t.visitDate);
       setTripTeamId(
-        t.teamId
-          ?String(t.teamId)
-          :(user?.teamId?String(user.teamId):"")
+        teamResolution.teamId
+          ?String(teamResolution.teamId)
+          :""
       );
       setStart((t.startTime||"").slice(0,5));
       setEnd((t.endTime||"").slice(0,5));
-      setKm(String(t.claimedDistanceKm||""));
       setNotes(t.notes||"");
-      setStops(t.stops);
       setRowVersion(t.rowVersion);
       setReturnReason(t.status==="Returned"?(t.returnReason||""):"");
-      setMsg(`已載入 ${t.tripNo}，修改完成後可重新送出。`);
+
+      if(teamResolution.originalTeamStillAllowed){
+        setKm(String(t.claimedDistanceKm||""));
+        setStops(t.stops);
+        setTeamAccessWarning("");
+        setMsg(`已載入 ${t.tripNo}，修改完成後可重新送出。`);
+        return;
+      }
+
+      setKm("");
+      setStops([]);
+      setProjectId("");
+      setVisitTypeId("");
+      setSelectedExistingLocation(null);
+      setEditingStopIndex(null);
+      setLocationMethod("existing");
+      setStopPurpose("");
+      setTempName("");
+      setTempAddress("");
+      setModal(null);
+      setTeamAccessWarning(teamResolution.warning||"");
+      setMsg(
+        teamResolution.teamId
+          ?`已載入 ${t.tripNo}；請重新確認行程歸屬小組與拜訪地點後再儲存送出。`
+          :`已載入 ${t.tripNo}；目前沒有有效的小組可供重新歸屬。`
+      );
     }).catch(e=>setMsg(e.message));
-  },[editId]);
+  },[editId,user?.teamId,user?.teamName,teamScopes]);
 
   useEffect(()=>{
     const timer=setTimeout(()=>{
@@ -154,7 +187,7 @@ export default function VisitorPage(){
   const reset=()=>{
     setSp({});
     setTripTeamId(user?.teamId?String(user.teamId):"");
-    setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
   };
 
   const changeTripTeam=(value:string)=>{
@@ -172,6 +205,7 @@ export default function VisitorPage(){
 
     setTripTeamId(value);
     setStops([]);
+    setKm("");
     setProjectId("");
     setSelectedExistingLocation(null);
     setLocationMethod("existing");
@@ -340,6 +374,8 @@ export default function VisitorPage(){
     </div>
 
     {editId&&returnReason&&<div className="note danger-note" style={{marginTop:18}}><strong>主管退回原因：</strong>{returnReason}<br/><span>請依退回原因確認並修改資料後重新送出。</span></div>}
+
+    {editId&&teamAccessWarning&&<div className="note danger-note" style={{marginTop:18}}><strong>小組權限已變更：</strong>{teamAccessWarning}</div>}
 
     <div className="card" style={{marginTop:18}}>
       <div className="section-title"><h2>基本資料</h2><span className="pill warn">可補登</span></div>
