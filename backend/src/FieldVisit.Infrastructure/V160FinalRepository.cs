@@ -207,22 +207,35 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
             throw new InvalidOperationException("此行程已有待處理的更正申請。");
 
         var snapshot = await GetLatestSnapshotAsync(request.VisitTripId, ct) ?? throw new InvalidOperationException("找不到核准 Snapshot。");
-        // Policy values are server-owned. Recalculate the applicable rate from the corrected business date;
-        // a one-stop correction remains NotApplicable. This also guarantees that a date correction which crosses
-        // a rate boundary becomes a financial correction and therefore requires Admin close.
+
+        // Financial snapshot rule:
+        // - Same VisitDate: preserve the frozen rate from the base approved Snapshot.
+        // - Changed VisitDate: re-evaluate rate using the corrected business date.
+        // - One-stop corrections remain NotApplicable.
         var correctedHasMileage = request.Proposal.Stops.Count >= 2;
         decimal? correctedRate = null;
         if (correctedHasMileage)
         {
             if (request.Proposal.ClaimedDistanceKm is null or <= 0) throw new InvalidOperationException("兩個以上地點的更正必須填寫自算里程。");
             if (request.Proposal.ApprovedDistanceKm is null or < 0) throw new InvalidOperationException("兩個以上地點的更正必須填寫核定里程。");
-            correctedRate = await db.MileageRateRules.AsNoTracking()
-                .Where(x => x.IsActive && (x.OrganizationId == trip.OrganizationId || x.OrganizationId == null) &&
-                    x.VehicleType == (snapshot.VehicleTypeSnapshot ?? "Motorcycle") && x.EffectiveFrom <= request.Proposal.VisitDate &&
-                    (!x.EffectiveTo.HasValue || x.EffectiveTo >= request.Proposal.VisitDate))
-                .OrderByDescending(x => x.OrganizationId.HasValue).ThenByDescending(x => x.EffectiveFrom)
-                .Select(x => (decimal?)x.RatePerKm).FirstOrDefaultAsync(ct)
-                ?? throw new InvalidOperationException("找不到更正日期適用的補助費率。");
+
+            if (V160CorrectionFinancialRules.ShouldPreserveSnapshotRate(
+                    snapshot.VisitDate,
+                    request.Proposal.VisitDate))
+            {
+                correctedRate = V160CorrectionFinancialRules.RequireSnapshotRate(
+                    snapshot.RatePerKmSnapshot);
+            }
+            else
+            {
+                correctedRate = await db.MileageRateRules.AsNoTracking()
+                    .Where(x => x.IsActive && (x.OrganizationId == trip.OrganizationId || x.OrganizationId == null) &&
+                        x.VehicleType == (snapshot.VehicleTypeSnapshot ?? "Motorcycle") && x.EffectiveFrom <= request.Proposal.VisitDate &&
+                        (!x.EffectiveTo.HasValue || x.EffectiveTo >= request.Proposal.VisitDate))
+                    .OrderByDescending(x => x.OrganizationId.HasValue).ThenByDescending(x => x.EffectiveFrom)
+                    .Select(x => (decimal?)x.RatePerKm).FirstOrDefaultAsync(ct)
+                    ?? throw new InvalidOperationException("找不到更正日期適用的補助費率。");
+            }
         }
         var normalizedProposal = request.Proposal with
         {
