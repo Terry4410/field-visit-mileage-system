@@ -30,6 +30,7 @@ type PickerTab=
 
 interface Props{
   projectId?:number;
+  teamId?:number;
   selectedLocationId?:number;
   onSelect:(location:SmartLocationItem)=>void;
 }
@@ -60,6 +61,7 @@ function locationAddress(
 
 export default function SmartLocationPicker({
   projectId,
+  teamId,
   selectedLocationId,
   onSelect
 }:Props){
@@ -124,7 +126,9 @@ export default function SmartLocationPicker({
     try{
       const rows=
         await api<LocationFavoriteItem[]>(
-          "/locations/favorites"
+          teamId
+            ?`/locations/favorites?teamId=${teamId}`
+            :"/locations/favorites"
         );
 
       setFavoriteRows(rows);
@@ -160,6 +164,7 @@ export default function SmartLocationPicker({
             city,
             district,
             projectId,
+            teamId,
             page,
             pageSize:20
           })
@@ -210,7 +215,9 @@ export default function SmartLocationPicker({
     try{
       setRecentRows(
         await api<LocationRecentItem[]>(
-          "/locations/recent?limit=20"
+          teamId
+            ?`/locations/recent?limit=20&teamId=${teamId}`
+            :"/locations/recent?limit=20"
         )
       );
     }catch(e){
@@ -226,7 +233,7 @@ export default function SmartLocationPicker({
 
   useEffect(()=>{
     void loadFavorites();
-  },[]);
+  },[teamId]);
 
   useEffect(()=>{
     const hasCriteria=
@@ -261,7 +268,8 @@ export default function SmartLocationPicker({
     query,
     city,
     district,
-    projectId
+    projectId,
+    teamId
   ]);
 
   const switchTab=(
@@ -401,6 +409,12 @@ export default function SmartLocationPicker({
             params.set(
               "projectId",
               String(projectId)
+            );
+
+          if(teamId)
+            params.set(
+              "teamId",
+              String(teamId)
             );
 
           const rows=
@@ -686,35 +700,37 @@ export default function SmartLocationPicker({
                 </button>
 
                 <div className="smart-favorite-order">
-                  <button
-                    type="button"
-                    disabled={index===0}
-                    aria-label="常用地點上移"
-                    onClick={()=>
-                      void moveFavorite(
-                        item.locationId,
-                        -1
-                      )
-                    }
-                  >
-                    ↑
-                  </button>
+                  {!teamId&&<>
+                    <button
+                      type="button"
+                      disabled={index===0}
+                      aria-label="常用地點上移"
+                      onClick={()=>
+                        void moveFavorite(
+                          item.locationId,
+                          -1
+                        )
+                      }
+                    >
+                      ↑
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled={
-                      index===favoriteRows.length-1
-                    }
-                    aria-label="常用地點下移"
-                    onClick={()=>
-                      void moveFavorite(
-                        item.locationId,
-                        1
-                      )
-                    }
-                  >
-                    ↓
-                  </button>
+                    <button
+                      type="button"
+                      disabled={
+                        index===favoriteRows.length-1
+                      }
+                      aria-label="常用地點下移"
+                      onClick={()=>
+                        void moveFavorite(
+                          item.locationId,
+                          1
+                        )
+                      }
+                    >
+                      ↓
+                    </button>
+                  </>}
 
                   <button
                     type="button"

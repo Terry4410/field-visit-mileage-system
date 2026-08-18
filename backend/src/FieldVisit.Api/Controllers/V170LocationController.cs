@@ -17,6 +17,7 @@ public sealed class V170LocationController(
         [FromQuery] string? city,
         [FromQuery] string? district,
         [FromQuery] int? projectId,
+        [FromQuery] int? teamId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
@@ -29,7 +30,8 @@ public sealed class V170LocationController(
                     district,
                     projectId,
                     page,
-                    pageSize),
+                    pageSize,
+                    teamId),
                 ct);
 
         return Ok(result);
@@ -39,10 +41,13 @@ public sealed class V170LocationController(
     [Authorize(Roles = "visitor,leader,admin")]
     public async Task<ActionResult<
         IReadOnlyList<V170LocationFavoriteDto>>> Favorites(
+        [FromQuery] int? teamId,
         CancellationToken ct)
     {
         return Ok(
-            await locations.GetFavoritesAsync(ct));
+            await locations.GetFavoritesAsync(
+                teamId,
+                ct));
     }
 
     [HttpPost("{locationId:int}/favorite")]
@@ -89,11 +94,13 @@ public sealed class V170LocationController(
     public async Task<ActionResult<
         IReadOnlyList<V170LocationRecentDto>>> Recent(
         [FromQuery] int limit = 20,
+        [FromQuery] int? teamId = null,
         CancellationToken ct = default)
     {
         return Ok(
             await locations.GetRecentAsync(
                 limit,
+                teamId,
                 ct));
     }
 
@@ -104,6 +111,7 @@ public sealed class V170LocationController(
         [FromQuery] decimal latitude,
         [FromQuery] decimal longitude,
         [FromQuery] int? projectId,
+        [FromQuery] int? teamId,
         [FromQuery] int limit = 20,
         CancellationToken ct = default)
     {
@@ -113,6 +121,7 @@ public sealed class V170LocationController(
                 longitude,
                 projectId,
                 limit,
+                teamId,
                 ct));
     }
 }

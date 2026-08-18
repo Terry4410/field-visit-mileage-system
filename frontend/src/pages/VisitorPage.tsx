@@ -19,6 +19,24 @@ export default function VisitorPage(){
   const [sp,setSp]=useSearchParams();
   const editId=sp.get("edit");
 
+  const teamScopes=useMemo(
+    ()=>{
+      if(user?.teamScopes?.length)
+        return user.teamScopes;
+      if(user?.teamId)
+        return [{
+          teamId:user.teamId,
+          teamName:user.teamName||`Team ${user.teamId}`,
+          isPrimary:true
+        }];
+      return [];
+    },
+    [user]
+  );
+
+  const [tripTeamId,setTripTeamId]=useState(
+    user?.teamId?String(user.teamId):""
+  );
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
   const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
@@ -30,6 +48,11 @@ export default function VisitorPage(){
 
   const [projectId,setProjectId]=useState(""),[visitTypeId,setVisitTypeId]=useState("");
   const [tempName,setTempName]=useState(""),[tempAddress,setTempAddress]=useState("");
+
+  useEffect(()=>{
+    if(!editId&&user?.teamId)
+      setTripTeamId(String(user.teamId));
+  },[user?.teamId,editId]);
 
   useEffect(()=>{
     Promise.all([
@@ -49,6 +72,11 @@ export default function VisitorPage(){
     if(!editId)return;
     api<Trip>(`/trips/${editId}`).then(t=>{
       setDate(t.visitDate);
+      setTripTeamId(
+        t.teamId
+          ?String(t.teamId)
+          :(user?.teamId?String(user.teamId):"")
+      );
       setStart((t.startTime||"").slice(0,5));
       setEnd((t.endTime||"").slice(0,5));
       setKm(String(t.claimedDistanceKm||""));
@@ -72,9 +100,24 @@ export default function VisitorPage(){
     return()=>clearTimeout(timer);
   },[date,start,end,editId]);
 
+  const selectedTeamId=
+    tripTeamId?Number(tripTeamId):undefined;
+
+  const selectedTripTeam=
+    teamScopes.find(
+      x=>x.teamId===selectedTeamId
+    );
+
   const availableProjects=useMemo(
-    ()=>projects.filter(p=>isProjectAvailableOn(p,date)),
-    [projects,date]
+    ()=>projects.filter(
+      p=>
+        isProjectAvailableOn(p,date)
+        &&(
+          !p.teamId
+          ||p.teamId===selectedTeamId
+        )
+    ),
+    [projects,date,selectedTeamId]
   );
 
   const selectedProject=projects.find(x=>x.projectId===Number(projectId));
@@ -109,7 +152,32 @@ export default function VisitorPage(){
   };
 
   const reset=()=>{
-    setSp({});setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setSp({});
+    setTripTeamId(user?.teamId?String(user.teamId):"");
+    setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+  };
+
+  const changeTripTeam=(value:string)=>{
+    if(value===tripTeamId)
+      return;
+
+    if(stops.length>0){
+      const confirmed=
+        window.confirm(
+          "切換行程歸屬小組後，已加入的拜訪地點會清除，並重新套用新小組可使用的地點與專案。是否繼續？"
+        );
+      if(!confirmed)
+        return;
+    }
+
+    setTripTeamId(value);
+    setStops([]);
+    setProjectId("");
+    setSelectedExistingLocation(null);
+    setLocationMethod("existing");
+    setMsg(
+      "已切換行程歸屬小組；地點與專案將依新小組重新篩選。"
+    );
   };
 
   const clearStopEditor=()=>{
@@ -229,6 +297,10 @@ export default function VisitorPage(){
   };
 
   const validateForSubmit=()=>{
+    if(!selectedTeamId){
+      setMsg("請選擇本次行程的歸屬小組。");
+      return false;
+    }
     const mileageError=validateTripMileageForSubmit(stops.length,km);
     if(mileageError){setMsg(mileageError);return false}
     if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
@@ -244,7 +316,7 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops};
+      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null};
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
@@ -273,7 +345,33 @@ export default function VisitorPage(){
       <div className="section-title"><h2>基本資料</h2><span className="pill warn">可補登</span></div>
       <div className="grid cols-2">
         <div className="field"><label>行程日期</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
-        <div className="field"><label>所屬小組</label><input value={user?.teamName||""} disabled/></div>
+        <div className="field">
+          <label>行程歸屬小組</label>
+          {teamScopes.length>1
+            ?<select
+              value={tripTeamId}
+              onChange={e=>changeTripTeam(e.target.value)}
+            >
+              {teamScopes.map(team=>
+                <option
+                  key={team.teamId}
+                  value={team.teamId}
+                >
+                  {team.teamName}{team.isPrimary?" ★":""}
+                </option>
+              )}
+            </select>
+            :<input
+              value={selectedTripTeam?.teamName||user?.teamName||""}
+              disabled
+            />
+          }
+          {teamScopes.length>1&&
+            <div className="hint">
+              預設為主要小組 ★；此選擇只影響本次行程，不會修改人員主檔。
+            </div>
+          }
+        </div>
         <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
         <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
       </div>
@@ -377,17 +475,20 @@ export default function VisitorPage(){
           </div>
 
           <div className="field">
-            <label>小組</label>
-            <input value={user?.teamName||""} disabled/>
+            <label>行程歸屬小組</label>
+            <input value={selectedTripTeam?.teamName||""} disabled/>
           </div>
 
           <SmartLocationPicker
             key={
-              pickerProjectId
-                ?`project-${pickerProjectId}`
-                :"master"
+              `${selectedTeamId||"no-team"}-${
+                pickerProjectId
+                  ?`project-${pickerProjectId}`
+                  :"master"
+              }`
             }
             projectId={pickerProjectId}
+            teamId={selectedTeamId}
             selectedLocationId={
               selectedExistingLocation?.locationId
             }

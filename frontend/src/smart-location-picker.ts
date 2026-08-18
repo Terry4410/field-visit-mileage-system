@@ -3,6 +3,7 @@ export interface LocationSearchPathInput{
   city?:string;
   district?:string;
   projectId?:number;
+  teamId?:number;
   page?:number;
   pageSize?:number;
 }
@@ -32,6 +33,9 @@ export function buildLocationSearchPath(
 
   if(input.projectId&&input.projectId>0)
     params.set("projectId",String(input.projectId));
+
+  if(input.teamId&&input.teamId>0)
+    params.set("teamId",String(input.teamId));
 
   params.set("page",String(input.page&&input.page>0?input.page:1));
   params.set(

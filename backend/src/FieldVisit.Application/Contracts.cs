@@ -40,7 +40,8 @@ public sealed record SaveTripRequest(
     string? Purpose,
     string? Notes,
     bool TimeOverlapConfirmed,
-    IReadOnlyList<TripStopInput> Stops);
+    IReadOnlyList<TripStopInput> Stops,
+    int? TeamId = null);
 
 public sealed record SubmitTripRequest(bool ConfirmTimeOverlap);
 public sealed record TimeOverlapRequest(DateOnly VisitDate, TimeOnly StartTime, TimeOnly EndTime, long? ExcludeVisitTripId);

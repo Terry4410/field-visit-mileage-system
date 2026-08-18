@@ -18,6 +18,11 @@ public sealed class TripService(
         var user = RequireRole("visitor");
         ValidateRequest(request);
 
+        var tripTeamId =
+            V170TripTeamSelectionRules.Resolve(
+                user,
+                request.TeamId);
+
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, null), ct);
 var now = DateTime.UtcNow;
@@ -26,7 +31,7 @@ var now = DateTime.UtcNow;
             TripNo = BuildTripNo(request.VisitDate),
             UserId = user.UserId,
             OrganizationId = user.OrganizationId ?? throw new InvalidOperationException("使用者未設定 Organization。"),
-            TeamId = user.TeamId,
+            TeamId = tripTeamId,
             VisitDate = request.VisitDate,
             StartTime = request.StartTime,
             EndTime = request.EndTime,
@@ -75,9 +80,15 @@ var now = DateTime.UtcNow;
 
         EnsureRowVersion(trip.RowVersion, rowVersion);
 
+        var tripTeamId =
+            V170TripTeamSelectionRules.Resolve(
+                user,
+                request.TeamId);
+
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, tripId), ct);
-trip.VisitDate = request.VisitDate;
+        trip.TeamId = tripTeamId;
+        trip.VisitDate = request.VisitDate;
         trip.StartTime = request.StartTime;
         trip.EndTime = request.EndTime;
         trip.HasTimeOverlapWarning = overlap.HasOverlap;
@@ -159,6 +170,10 @@ trip.VisitDate = request.VisitDate;
             ?? throw new KeyNotFoundException("找不到行程。");
 
         EnsureVisitorOwns(user, trip);
+        V170TripTeamSelectionRules.EnsureStillAllowed(
+            user,
+            trip.TeamId);
+
         if (trip.Status is not (TripStatuses.Draft or TripStatuses.Returned))
             throw new InvalidOperationException("此狀態不能送出。");
         EnsureRowVersion(trip.RowVersion, rowVersion);
@@ -291,6 +306,12 @@ trip.VisitDate = request.VisitDate;
     public async Task<TripDto> MapAsync(VisitTrip trip, CancellationToken ct)
     {
         var profile = await users.GetProfileAsync(trip.UserId, ct);
+        var tripTeam =
+            trip.TeamId.HasValue
+                ? await masters.GetTeamAsync(
+                    trip.TeamId.Value,
+                    ct)
+                : null;
         var calc = trip.MileageCalculation ?? await mileage.GetByTripAsync(trip.VisitTripId, false, ct);
 
         return new TripDto(
@@ -299,7 +320,7 @@ trip.VisitDate = request.VisitDate;
             trip.UserId,
             profile?.DisplayName ?? $"User {trip.UserId}",
             trip.TeamId,
-            profile?.TeamName,
+            tripTeam?.TeamName,
             trip.VisitDate,
             trip.StartTime,
             trip.EndTime,
@@ -338,8 +359,10 @@ trip.VisitDate = request.VisitDate;
                     throw new InvalidOperationException($"地點「{location.LocationName}」目前不可使用。");
                 if (user.OrganizationId.HasValue && location.OrganizationId.HasValue && location.OrganizationId != user.OrganizationId)
                     throw new UnauthorizedAccessException("無權使用其他 Organization 地點。");
-                if (location.TeamId.HasValue && user.TeamId.HasValue && location.TeamId != user.TeamId)
-                    throw new UnauthorizedAccessException("外訪員無權使用其他小組地點。");
+                if (location.TeamId.HasValue
+                    && location.TeamId != trip.TeamId)
+                    throw new UnauthorizedAccessException(
+                        "此地點不屬於本次行程的歸屬小組。");
             }
 
             if (input.ProjectId.HasValue)
@@ -352,8 +375,10 @@ trip.VisitDate = request.VisitDate;
 
                 if (user.OrganizationId.HasValue && project.OrganizationId != user.OrganizationId)
                     throw new UnauthorizedAccessException("無權使用其他 Organization 專案。");
-                if (project.TeamId.HasValue && user.TeamId.HasValue && project.TeamId != user.TeamId)
-                    throw new UnauthorizedAccessException("外訪員無權使用其他小組專案。");
+                if (project.TeamId.HasValue
+                    && project.TeamId != trip.TeamId)
+                    throw new UnauthorizedAccessException(
+                        "此專案不屬於本次行程的歸屬小組。");
             }
 
             if (input.VisitTypeId.HasValue)
@@ -368,7 +393,7 @@ trip.VisitDate = request.VisitDate;
             {
                 pendingLocation = new Location
                 {
-                    OrganizationId = user.OrganizationId, TeamId = user.TeamId, LocationName = input.LocationName.Trim(),
+                    OrganizationId = user.OrganizationId, TeamId = trip.TeamId, LocationName = input.LocationName.Trim(),
                     LocationType = "Customer", Address = input.Address, IsTemporary = true,
                     ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId, IsActive = false, CreatedAt = now
                 };

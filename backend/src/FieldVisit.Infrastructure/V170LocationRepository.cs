@@ -14,7 +14,9 @@ public sealed class V170LocationRepository(
         CancellationToken ct)
     {
         var q =
-            AccessibleLocations(user);
+            AccessibleLocations(
+                user,
+                spec.TeamId);
 
         var isAdmin =
             user.Roles.Contains(
@@ -199,10 +201,13 @@ public sealed class V170LocationRepository(
         IReadOnlyList<V170LocationFavoriteDto>>
         GetFavoritesAsync(
             CurrentUserDto user,
+            int? teamId,
             CancellationToken ct)
     {
         var accessible =
-            AccessibleLocations(user);
+            AccessibleLocations(
+                user,
+                teamId);
 
         return await (
             from favorite
@@ -372,10 +377,13 @@ public sealed class V170LocationRepository(
         GetRecentAsync(
             CurrentUserDto user,
             int limit,
+            int? teamId,
             CancellationToken ct)
     {
         var accessible =
-            AccessibleLocations(user);
+            AccessibleLocations(
+                user,
+                teamId);
 
         var recent =
             from stop
@@ -387,6 +395,8 @@ public sealed class V170LocationRepository(
             where
                 trip.UserId == user.UserId
                 && trip.Status != TripStatuses.Cancelled
+                && (!teamId.HasValue
+                    || trip.TeamId == teamId.Value)
                 && stop.LocationId.HasValue
             group trip
                 by stop.LocationId!.Value
@@ -434,7 +444,9 @@ public sealed class V170LocationRepository(
             CancellationToken ct)
     {
         var q =
-            AccessibleLocations(user)
+            AccessibleLocations(
+                user,
+                spec.TeamId)
                 .Where(x =>
                     x.Latitude.HasValue
                     && x.Longitude.HasValue);
@@ -591,7 +603,8 @@ public sealed class V170LocationRepository(
     }
 
     private IQueryable<Location> AccessibleLocations(
-        CurrentUserDto user)
+        CurrentUserDto user,
+        int? requestedTeamId = null)
     {
         var q =
             db.Locations
@@ -614,6 +627,16 @@ public sealed class V170LocationRepository(
             user.Roles.Contains(
                 "admin",
                 StringComparer.OrdinalIgnoreCase);
+
+        if (requestedTeamId.HasValue)
+        {
+            var selectedTeamId =
+                requestedTeamId.Value;
+
+            q = q.Where(x =>
+                x.TeamId == null
+                || x.TeamId == selectedTeamId);
+        }
 
         if (isAdmin)
             return q;

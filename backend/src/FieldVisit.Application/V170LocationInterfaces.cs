@@ -9,6 +9,7 @@ public interface IV170LocationRepository
 
     Task<IReadOnlyList<V170LocationFavoriteDto>> GetFavoritesAsync(
         CurrentUserDto user,
+        int? teamId,
         CancellationToken ct);
 
     Task<bool> AddFavoriteAsync(
@@ -29,6 +30,7 @@ public interface IV170LocationRepository
     Task<IReadOnlyList<V170LocationRecentDto>> GetRecentAsync(
         CurrentUserDto user,
         int limit,
+        int? teamId,
         CancellationToken ct);
 
     Task<IReadOnlyList<V170LocationNearbyDto>> GetNearbyAsync(

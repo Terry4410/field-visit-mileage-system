@@ -14,6 +14,10 @@ public sealed class V170LocationService(
         var spec =
             V170LocationSearchRules.Normalize(request);
 
+        EnsureRequestedTeamAllowed(
+            user,
+            spec.TeamId);
+
         return await locations.SearchAsync(
             user,
             spec,
@@ -22,12 +26,18 @@ public sealed class V170LocationService(
 
     public async Task<IReadOnlyList<V170LocationFavoriteDto>>
         GetFavoritesAsync(
+            int? teamId,
             CancellationToken ct)
     {
         var user = RequirePickerUser();
 
+        EnsureRequestedTeamAllowed(
+            user,
+            teamId);
+
         return await locations.GetFavoritesAsync(
             user,
+            teamId,
             ct);
     }
 
@@ -92,9 +102,14 @@ public sealed class V170LocationService(
     public async Task<IReadOnlyList<V170LocationRecentDto>>
         GetRecentAsync(
             int limit,
+            int? teamId,
             CancellationToken ct)
     {
         var user = RequirePickerUser();
+
+        EnsureRequestedTeamAllowed(
+            user,
+            teamId);
 
         var normalizedLimit =
             V170LocationPickerRules
@@ -103,6 +118,7 @@ public sealed class V170LocationService(
         return await locations.GetRecentAsync(
             user,
             normalizedLimit,
+            teamId,
             ct);
     }
 
@@ -112,6 +128,7 @@ public sealed class V170LocationService(
             decimal longitude,
             int? projectId,
             int limit,
+            int? teamId,
             CancellationToken ct)
     {
         var user = RequirePickerUser();
@@ -123,7 +140,12 @@ public sealed class V170LocationService(
                         latitude,
                         longitude,
                         projectId,
-                        limit));
+                        limit,
+                        teamId));
+
+        EnsureRequestedTeamAllowed(
+            user,
+            spec.TeamId);
 
         return await locations.GetNearbyAsync(
             user,
@@ -145,5 +167,27 @@ public sealed class V170LocationService(
         }
 
         return user;
+    }
+
+    private static void EnsureRequestedTeamAllowed(
+        CurrentUserDto user,
+        int? teamId)
+    {
+        if (!teamId.HasValue)
+            return;
+
+        var isAdmin =
+            user.Roles.Contains(
+                "admin",
+                StringComparer.OrdinalIgnoreCase);
+
+        if (isAdmin)
+            return;
+
+        if (!user.TeamIds.Contains(teamId.Value))
+        {
+            throw new UnauthorizedAccessException(
+                "無權查詢未授權小組的地點。");
+        }
     }
 }

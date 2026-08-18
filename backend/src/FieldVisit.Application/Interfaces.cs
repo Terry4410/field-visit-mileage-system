@@ -48,6 +48,7 @@ public interface ITripRepository
 public interface IMasterRepository
 {
     Task<List<Team>> GetTeamsAsync(CurrentUserDto user, CancellationToken ct);
+    Task<Team?> GetTeamAsync(int teamId, CancellationToken ct);
     Task<List<Location>> GetLocationsAsync(CurrentUserDto user, bool activeOnly, CancellationToken ct);
     Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct);
     Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct);

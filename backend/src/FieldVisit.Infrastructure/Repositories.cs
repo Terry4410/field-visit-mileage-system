@@ -355,9 +355,22 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
             q = teamIds.Count > 0 ? q.Where(x => teamIds.Contains(x.TeamId)) : q.Where(x => false);
         }
         else if (user.Roles.Contains("visitor"))
-            q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value) : q.Where(x => false);
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0
+                ? q.Where(x => teamIds.Contains(x.TeamId))
+                : q.Where(x => false);
+        }
         return q.OrderBy(x => x.TeamName).ToListAsync(ct);
     }
+
+    public Task<Team?> GetTeamAsync(
+        int teamId,
+        CancellationToken ct) =>
+        db.Teams.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.TeamId == teamId,
+                ct);
 
     public Task<List<Location>> GetLocationsAsync(CurrentUserDto user, bool activeOnly, CancellationToken ct)
     {
@@ -369,7 +382,15 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
             q = teamIds.Count > 0 ? q.Where(x => x.TeamId == null || (x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value))) : q.Where(x => false);
         }
         else if (user.Roles.Contains("visitor"))
-            q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value || x.TeamId == null) : q.Where(x => false);
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0
+                ? q.Where(x =>
+                    x.TeamId == null
+                    || (x.TeamId.HasValue
+                        && teamIds.Contains(x.TeamId.Value)))
+                : q.Where(x => false);
+        }
         if (activeOnly) q = q.Where(x => x.IsActive && x.ApprovalStatus == "Approved");
         return q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
     }
@@ -418,7 +439,16 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
             var teamIds = user.TeamIds;
             q = teamIds.Count > 0 ? q.Where(x => x.TeamId == null || (x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value))) : q.Where(x => false);
         }
-        else if (user.Roles.Contains("visitor")) q = user.TeamId.HasValue ? q.Where(x => x.TeamId == user.TeamId.Value || x.TeamId == null) : q.Where(x => false);
+        else if (user.Roles.Contains("visitor"))
+        {
+            var teamIds = user.TeamIds;
+            q = teamIds.Count > 0
+                ? q.Where(x =>
+                    x.TeamId == null
+                    || (x.TeamId.HasValue
+                        && teamIds.Contains(x.TeamId.Value)))
+                : q.Where(x => false);
+        }
         return q.OrderBy(x => x.ProjectName).ToListAsync(ct);
     }
 
@@ -440,8 +470,10 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
             throw new UnauthorizedAccessException("無權使用其他 Organization 專案。");
         if (user.Roles.Contains("leader") && project.TeamId.HasValue && !user.TeamIds.Contains(project.TeamId.Value))
             throw new UnauthorizedAccessException("無權使用未授權小組專案。");
-        if (user.Roles.Contains("visitor") && project.TeamId.HasValue && project.TeamId != user.TeamId)
-            throw new UnauthorizedAccessException("無權使用其他小組專案。");
+        if (user.Roles.Contains("visitor")
+            && project.TeamId.HasValue
+            && !user.TeamIds.Contains(project.TeamId.Value))
+            throw new UnauthorizedAccessException("無權使用未授權小組專案。");
         return await (from pl in db.ProjectLocations.AsNoTracking()
                       join l in db.Locations.AsNoTracking() on pl.LocationId equals l.LocationId
                       where pl.ProjectId == projectId && pl.IsActive && l.IsActive

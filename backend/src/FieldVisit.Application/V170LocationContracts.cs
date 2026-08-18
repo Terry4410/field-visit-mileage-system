@@ -6,7 +6,8 @@ public sealed record V170LocationSearchRequest(
     string? District,
     int? ProjectId,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    int? TeamId = null);
 
 public sealed record V170LocationSearchSpec(
     string? Query,
@@ -14,7 +15,8 @@ public sealed record V170LocationSearchSpec(
     string? District,
     int? ProjectId,
     int Page,
-    int PageSize);
+    int PageSize,
+    int? TeamId = null);
 
 public sealed record V170LocationSearchItemDto(
     int LocationId,
@@ -66,13 +68,15 @@ public sealed record V170LocationNearbyRequest(
     decimal Latitude,
     decimal Longitude,
     int? ProjectId,
-    int Limit = 20);
+    int Limit = 20,
+    int? TeamId = null);
 
 public sealed record V170LocationNearbySpec(
     decimal Latitude,
     decimal Longitude,
     int? ProjectId,
-    int Limit);
+    int Limit,
+    int? TeamId = null);
 
 public sealed record V170LocationNearbyDto(
     int LocationId,
@@ -128,13 +132,19 @@ public static class V170LocationSearchRules
             ? DefaultPageSize
             : Math.Min(request.PageSize, MaxPageSize);
 
+        if (request.TeamId.HasValue
+            && request.TeamId.Value <= 0)
+            throw new InvalidOperationException(
+                "TeamId 必須大於 0。");
+
         return new V170LocationSearchSpec(
             query,
             city,
             district,
             request.ProjectId,
             page,
-            pageSize);
+            pageSize,
+            request.TeamId);
     }
 
     public static void EnsurePickerRole(
@@ -251,11 +261,17 @@ public static class V170LocationPickerRules
                     request.Limit,
                     MaxNearbyLimit);
 
+        if (request.TeamId.HasValue
+            && request.TeamId.Value <= 0)
+            throw new InvalidOperationException(
+                "TeamId 必須大於 0。");
+
         return new V170LocationNearbySpec(
             request.Latitude,
             request.Longitude,
             request.ProjectId,
-            limit);
+            limit,
+            request.TeamId);
     }
 
     public static decimal CalculateDistanceKm(
