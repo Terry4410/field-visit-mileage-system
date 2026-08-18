@@ -166,6 +166,26 @@ trip.VisitDate = request.VisitDate;
         if (trip.StartTime is null || trip.EndTime is null)
             throw new InvalidOperationException("送出前必須填寫起訖時間。");
 
+        // Defense in depth:
+        // A draft can remain open while an administrator disables a VisitType.
+        // Normal UI editing revalidates the Stop through BuildStopsAsync, but a
+        // caller could otherwise invoke /submit directly without re-saving the
+        // draft. Re-check each referenced VisitType here before status changes.
+        foreach (var stop in trip.Stops.Where(x => x.VisitTypeId.HasValue))
+        {
+            var visitType =
+                await masters.GetVisitTypeAsync(
+                    stop.VisitTypeId!.Value,
+                    false,
+                    ct)
+                ?? throw new KeyNotFoundException(
+                    $"找不到拜訪形式 {stop.VisitTypeId.Value}。");
+
+            if (!visitType.IsActive)
+                throw new InvalidOperationException(
+                    $"拜訪形式「{visitType.VisitTypeName}」已停用，請重新選擇拜訪形式。");
+        }
+
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
         V170TripMileageRules.EnsureReadyForSubmission(
             trip.Stops.Count,
