@@ -153,6 +153,22 @@ public sealed class V170ProjectLocationAdminRepository(
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyList<V170ProjectLocationCountDto>>
+        GetLocationCountsAsync(
+            int organizationId,
+            CancellationToken ct)
+    {
+        return await db.Projects
+            .AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId)
+            .Select(x => new V170ProjectLocationCountDto(
+                x.ProjectId,
+                db.ProjectLocations
+                    .AsNoTracking()
+                    .Count(a => a.ProjectId == x.ProjectId && a.IsActive)))
+            .ToListAsync(ct);
+    }
+
     public Task AddAssignmentAsync(
         ProjectLocation row,
         CancellationToken ct)

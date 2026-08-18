@@ -108,6 +108,11 @@ export interface ProjectLocationAdminItem{
   plusCode?:string|null;
 }
 
+export interface ProjectLocationCount{
+  projectId:number;
+  count:number;
+}
+
 export interface ProjectLocationCandidateResult{
   items:ProjectLocationAdminItem[];
   page:number;

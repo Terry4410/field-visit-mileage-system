@@ -101,6 +101,7 @@ public sealed record LocationDto(
     string RowVersion);
 
 public sealed record UpdateLocationRequest(string LocationName, string? City, string? District, string? Address, string? PlusCode, string RowVersion);
+public sealed record PromoteLocationRequest(string RowVersion);
 public sealed record BatchPublishLocationsRequest(IReadOnlyList<int> LocationIds);
 public sealed record BatchPublishLocationsResult(int Success, int Failed, IReadOnlyList<string> Errors);
 

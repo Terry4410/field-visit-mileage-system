@@ -74,6 +74,44 @@ public sealed class MasterService(
         return MapLocation(row);
     }
 
+    public async Task<LocationDto> PromoteTemporaryLocationAsync(
+        int id,
+        PromoteLocationRequest request,
+        CancellationToken ct)
+    {
+        var user = RequireAny("admin");
+        var row = await masters.GetLocationAsync(id, true, ct)
+            ?? throw new KeyNotFoundException("找不到地點。");
+
+        if (user.OrganizationId.HasValue
+            && row.OrganizationId.HasValue
+            && row.OrganizationId != user.OrganizationId)
+            throw new UnauthorizedAccessException("無權維護其他 Organization 地點。");
+
+        EnsureRowVersion(row.RowVersion, request.RowVersion);
+        V170LocationPromotionRules.EnsureCanPromote(row);
+
+        row.IsTemporary = false;
+        row.UpdatedAt = DateTime.UtcNow;
+
+        await workflow.AddLocationHistoryAsync(new LocationApprovalHistory
+        {
+            LocationId = row.LocationId,
+            Action = "PromotedToOfficial",
+            ReviewedByUserId = user.UserId,
+            Comments = "管理者將已核准臨時地點轉為正式地點",
+            ActionAt = DateTime.UtcNow
+        }, ct);
+
+        await workflow.AddAuditAsync(
+            Audit(user.UserId, "Location", id.ToString(), "LocationPromoteToOfficial",
+                new { locationId = id, row.LocationName }),
+            ct);
+
+        await uow.SaveChangesAsync(ct);
+        return MapLocation(row);
+    }
+
     public async Task<BatchPublishLocationsResult> BatchPublishAsync(BatchPublishLocationsRequest request, CancellationToken ct)
     {
         var user = RequireAny("leader", "admin");

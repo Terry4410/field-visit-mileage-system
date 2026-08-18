@@ -27,6 +27,10 @@ public sealed record V170ProjectLocationCandidateSpec(
 public sealed record V170SaveProjectLocationsRequest(
     IReadOnlyList<int> LocationIds);
 
+public sealed record V170ProjectLocationCountDto(
+    int ProjectId,
+    int Count);
+
 public static class V170ProjectLocationAdminRules
 {
     public const int DefaultPageSize = 20;
@@ -104,6 +108,10 @@ public interface IV170ProjectLocationAdminRepository
         int projectId,
         CancellationToken ct);
 
+    Task<IReadOnlyList<V170ProjectLocationCountDto>> GetLocationCountsAsync(
+        int organizationId,
+        CancellationToken ct);
+
     Task AddAssignmentAsync(
         ProjectLocation row,
         CancellationToken ct);
@@ -115,6 +123,15 @@ public sealed class V170ProjectLocationAdminService(
     IWorkflowRepository workflow,
     IUnitOfWork uow)
 {
+    public async Task<IReadOnlyList<V170ProjectLocationCountDto>>
+        GetLocationCountsAsync(CancellationToken ct)
+    {
+        var user = RequireAdmin();
+        return await repository.GetLocationCountsAsync(
+            user.OrganizationId!.Value,
+            ct);
+    }
+
     public async Task<
         IReadOnlyList<V170ProjectLocationItemDto>>
         GetAsync(
