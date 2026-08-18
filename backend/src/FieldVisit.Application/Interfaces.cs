@@ -74,6 +74,11 @@ public interface IMileageRepository
     Task<MileageRateRule?> GetRateAsync(int mileageRateRuleId, bool tracking, CancellationToken ct);
     Task AddRateAsync(MileageRateRule rule, CancellationToken ct);
     Task<List<MileageRateRule>> GetRateSeriesAsync(int? organizationId, string vehicleType, bool tracking, CancellationToken ct);
+    Task<(int Count, DateOnly? FirstVisitDate, DateOnly? LastVisitDate)> GetApprovedRateImpactAsync(
+        int? organizationId,
+        string vehicleType,
+        DateOnly effectiveFrom,
+        CancellationToken ct);
 }
 
 public interface ITripSnapshotRepository

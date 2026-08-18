@@ -493,6 +493,40 @@ public sealed class MileageRepository(AppDbContext db) : IMileageRepository
         q = organizationId.HasValue ? q.Where(x => x.OrganizationId == organizationId.Value) : q.Where(x => x.OrganizationId == null);
         return q.Where(x => x.VehicleType == vehicleType).OrderBy(x => x.EffectiveFrom).ThenBy(x => x.MileageRateRuleId).ToListAsync(ct);
     }
+
+    public async Task<(int Count, DateOnly? FirstVisitDate, DateOnly? LastVisitDate)> GetApprovedRateImpactAsync(
+        int? organizationId,
+        string vehicleType,
+        DateOnly effectiveFrom,
+        CancellationToken ct)
+    {
+        var q =
+            from trip in db.VisitTrips.AsNoTracking()
+            join calc in db.MileageCalculations.AsNoTracking()
+                on trip.VisitTripId equals calc.VisitTripId
+            where trip.Status == TripStatuses.Approved
+                  && trip.VisitDate >= effectiveFrom
+                  && (trip.VehicleType ?? "Motorcycle") == vehicleType
+                  && calc.RatePerKmSnapshot != null
+            select new
+            {
+                trip.OrganizationId,
+                trip.VisitDate
+            };
+
+        if (organizationId.HasValue)
+            q = q.Where(x => x.OrganizationId == organizationId.Value);
+
+        var dates = await q.Select(x => x.VisitDate).ToListAsync(ct);
+
+        if (dates.Count == 0)
+            return (0, null, null);
+
+        return (
+            dates.Count,
+            dates.Min(),
+            dates.Max());
+    }
 }
 
 public sealed class WorkflowRepository(AppDbContext db) : IWorkflowRepository

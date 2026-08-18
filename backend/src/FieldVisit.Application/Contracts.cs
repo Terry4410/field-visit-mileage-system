@@ -112,8 +112,28 @@ public sealed record SaveVisitTypeRequest(string VisitTypeCode, string VisitType
 public sealed record TeamDto(int TeamId, int OrganizationId, string TeamCode, string TeamName);
 
 public sealed record MileageRateDto(int MileageRateRuleId, int? OrganizationId, string RuleName, string VehicleType, decimal RatePerKm, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive);
-public sealed record CreateMileageRateRequest(string RuleName, string VehicleType, decimal RatePerKm, DateOnly EffectiveFrom, DateOnly? EffectiveTo);
-public sealed record UpdateMileageRateRequest(string RuleName, string VehicleType, decimal RatePerKm, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive);
+public sealed record MileageRateImpactDto(
+    DateOnly EffectiveFrom,
+    string VehicleType,
+    int ApprovedTripCount,
+    DateOnly? FirstApprovedVisitDate,
+    DateOnly? LastApprovedVisitDate,
+    bool RequiresAcknowledgement);
+public sealed record CreateMileageRateRequest(
+    string RuleName,
+    string VehicleType,
+    decimal RatePerKm,
+    DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo,
+    bool AcknowledgeHistoricalImpact = false);
+public sealed record UpdateMileageRateRequest(
+    string RuleName,
+    string VehicleType,
+    decimal RatePerKm,
+    DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo,
+    bool IsActive,
+    bool AcknowledgeHistoricalImpact = false);
 
 public sealed record MileageReportRow(
     string TripNo,

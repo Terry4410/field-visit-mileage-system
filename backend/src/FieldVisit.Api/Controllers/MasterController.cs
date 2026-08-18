@@ -67,6 +67,14 @@ public sealed class MasterController(MasterService master) : ControllerBase
     [HttpGet("mileage-rate-rules")]
     public async Task<ActionResult<List<MileageRateDto>>> Rates(CancellationToken ct) => Ok(await master.RatesAsync(ct));
 
+    [HttpGet("mileage-rate-rules/impact")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<MileageRateImpactDto>> RateImpact(
+        [FromQuery] DateOnly effectiveFrom,
+        [FromQuery] string? vehicleType,
+        CancellationToken ct)
+        => Ok(await master.RateImpactAsync(effectiveFrom, vehicleType, ct));
+
     [HttpPost("mileage-rate-rules")]
     [Authorize(Roles = "admin")]
     public async Task<ActionResult<MileageRateDto>> CreateRate(CreateMileageRateRequest request, CancellationToken ct) => Ok(await master.CreateRateAsync(request, ct));
@@ -77,5 +85,15 @@ public sealed class MasterController(MasterService master) : ControllerBase
 
     [HttpDelete("mileage-rate-rules/{mileageRateRuleId:int}")]
     [Authorize(Roles = "admin")]
-    public async Task<IActionResult> DeleteRate(int mileageRateRuleId, CancellationToken ct) { await master.DeleteRateAsync(mileageRateRuleId, ct); return NoContent(); }
+    public async Task<IActionResult> DeleteRate(
+        int mileageRateRuleId,
+        [FromQuery] bool acknowledgeHistoricalImpact,
+        CancellationToken ct)
+    {
+        await master.DeleteRateAsync(
+            mileageRateRuleId,
+            acknowledgeHistoricalImpact,
+            ct);
+        return NoContent();
+    }
 }
