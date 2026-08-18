@@ -41,8 +41,20 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 });
                 AddSheet(wb, sheets, 2, "ProjectLocations", new[]
                 {
-                    new[] { "ProjectCode", "LocationCode", "IsPrimary", "Status" },
-                    new[] { "CARE-001", "LOC-000001", "Y", "Active" }
+                    new[] { "ProjectCode", "LocationCode", "Status" },
+                    new[] { "CARE-001", "LOC-000001", "Active" }
+                });
+                AddSheet(wb, sheets, 3, "說明", new[]
+                {
+                    new[] { "項目", "規則" },
+                    new[] { "Projects.ProjectCode", "必填；同一 Excel 不可重複。" },
+                    new[] { "Projects.TeamCode", "選填；若填寫必須是目前啟用的小組代碼。" },
+                    new[] { "Projects.LocationMode", "只接受 List / SelfMaintained（亦相容：專案清單優先 / 臨時維護優先）。" },
+                    new[] { "Projects.StartDate / EndDate", "可留空；接受 yyyy-MM-dd、yyyy/MM/dd 或 Excel 真正日期；結束日期不得早於開始日期。" },
+                    new[] { "Status", "只接受 Active / Inactive / 啟用 / 停用 / 1 / 0。" },
+                    new[] { "ProjectLocations.LocationCode", "啟用關聯時只允許正式、啟用、Approved，且符合專案小組範圍的地點。" },
+                    new[] { "ProjectLocations", "同一 ProjectCode + LocationCode 不可重複；每個專案最多 500 個啟用固定地點。" },
+                    new[] { "IsPrimary", "舊版欄位仍可讀取，但新版不再使用；匯入後一律視為非主要地點。" }
                 });
             }
             wb.Workbook.Save();
@@ -165,15 +177,64 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 else if (item.EntityType == "ProjectLocation")
                 {
                     var data = JsonSerializer.Deserialize<ProjectLocationImportRow>(item.DataJson, JsonOptions)!;
-                    var project = await db.Projects.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.ProjectCode == data.ProjectCode, ct);
-                    var location = await db.Locations.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
-                    var link = await db.ProjectLocations.FirstOrDefaultAsync(x => x.ProjectId == project.ProjectId && x.LocationId == location.LocationId, ct);
+                    var project = await db.Projects.FirstAsync(
+                        x => x.OrganizationId == user.OrganizationId
+                             && x.ProjectCode == data.ProjectCode,
+                        ct);
+
+                    var location = await db.Locations.FirstOrDefaultAsync(
+                        x => (x.OrganizationId == user.OrganizationId || x.OrganizationId == null)
+                             && x.LocationCode == data.LocationCode,
+                        ct)
+                        ?? throw new InvalidOperationException($"找不到地點代碼 {data.LocationCode}。");
+
+                    var requestedActive = ParseActive(data.Status);
+
+                    if (requestedActive)
+                    {
+                        EnsureProjectLocationEligible(project, location);
+
+                        var currentActiveCount = await db.ProjectLocations
+                            .CountAsync(x => x.ProjectId == project.ProjectId && x.IsActive, ct);
+
+                        var existingActive = await db.ProjectLocations.AnyAsync(
+                            x => x.ProjectId == project.ProjectId
+                                 && x.LocationId == location.LocationId
+                                 && x.IsActive,
+                            ct);
+
+                        if (!existingActive
+                            && currentActiveCount >= V170ProjectLocationAdminRules.MaxAssignedLocations)
+                            throw new InvalidOperationException(
+                                $"單一專案最多可設定 {V170ProjectLocationAdminRules.MaxAssignedLocations} 個固定地點。");
+                    }
+
+                    var link = await db.ProjectLocations
+                        .FirstOrDefaultAsync(
+                            x => x.ProjectId == project.ProjectId
+                                 && x.LocationId == location.LocationId,
+                            ct);
+
                     if (link is null)
                     {
-                        await db.ProjectLocations.AddAsync(new ProjectLocation { ProjectId = project.ProjectId, LocationId = location.LocationId, IsPrimary = data.IsPrimary, IsActive = ParseActive(data.Status), CreatedAt = DateTime.UtcNow }, ct);
+                        await db.ProjectLocations.AddAsync(
+                            new ProjectLocation
+                            {
+                                ProjectId = project.ProjectId,
+                                LocationId = location.LocationId,
+                                IsPrimary = false,
+                                IsActive = requestedActive,
+                                CreatedAt = DateTime.UtcNow
+                            },
+                            ct);
                         created++;
                     }
-                    else { link.IsPrimary = data.IsPrimary; link.IsActive = ParseActive(data.Status); updated++; }
+                    else
+                    {
+                        link.IsPrimary = false;
+                        link.IsActive = requestedActive;
+                        updated++;
+                    }
                 }
                 item.Status = "Applied";
                 await db.SaveChangesAsync(ct);
@@ -228,41 +289,282 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
     {
         var projectRows = ReadSheet(doc, "Projects");
         var workbookProjectCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var workbookProjects = new Dictionary<string, ProjectImportRow>(StringComparer.OrdinalIgnoreCase);
+
         var rowNo = 1;
         foreach (var raw in projectRows.Skip(1))
         {
             rowNo++;
             if (raw.All(string.IsNullOrWhiteSpace)) continue;
+
             var headers = projectRows[0];
-            var data = new ProjectImportRow(Get(raw, headers, "ProjectCode", "專案代碼") ?? "", Get(raw, headers, "ProjectName", "專案名稱") ?? "", Get(raw, headers, "TeamCode", "小組代碼"), Get(raw, headers, "LocationMode", "預設地點方式") ?? "List", Get(raw, headers, "StartDate", "開始日期"), Get(raw, headers, "EndDate", "結束日期"), Get(raw, headers, "Status", "狀態") ?? "Active", Get(raw, headers, "Description", "說明"));
-            workbookProjectCodes.Add(data.ProjectCode);
+            var data = new ProjectImportRow(
+                Get(raw, headers, "ProjectCode", "專案代碼") ?? "",
+                Get(raw, headers, "ProjectName", "專案名稱") ?? "",
+                Get(raw, headers, "TeamCode", "小組代碼"),
+                Get(raw, headers, "LocationMode", "預設地點方式") ?? "List",
+                Get(raw, headers, "StartDate", "開始日期"),
+                Get(raw, headers, "EndDate", "結束日期"),
+                Get(raw, headers, "Status", "狀態") ?? "Active",
+                Get(raw, headers, "Description", "說明"));
+
+            var code = data.ProjectCode.Trim();
             string? error = null;
-            if (string.IsNullOrWhiteSpace(data.ProjectCode) || string.IsNullOrWhiteSpace(data.ProjectName)) error = "ProjectCode 與 ProjectName 為必填。";
+
+            if (string.IsNullOrWhiteSpace(code)
+                || string.IsNullOrWhiteSpace(data.ProjectName))
+            {
+                error = "ProjectCode 與 ProjectName 為必填。";
+            }
+            else if (!workbookProjectCodes.Add(code))
+            {
+                error = $"Excel 內 ProjectCode 重複：{code}。";
+            }
             else
             {
-                try { _ = NormalizeLocationMode(data.LocationMode); _ = ParseDate(data.StartDate); _ = ParseDate(data.EndDate); if (!string.IsNullOrWhiteSpace(data.TeamCode)) _ = await ResolveTeamIdAsync(user, data.TeamCode, ct); }
-                catch (Exception ex) { error = ex.Message; }
+                workbookProjects[code] = data;
+                try
+                {
+                    _ = NormalizeLocationMode(data.LocationMode);
+                    var startDate = ParseDate(data.StartDate);
+                    var endDate = ParseDate(data.EndDate);
+                    _ = ParseActive(data.Status);
+
+                    if (startDate.HasValue
+                        && endDate.HasValue
+                        && endDate.Value < startDate.Value)
+                        throw new InvalidOperationException(
+                            "結束日期不得早於開始日期。");
+
+                    if (!string.IsNullOrWhiteSpace(data.TeamCode))
+                        _ = await ResolveTeamIdAsync(user, data.TeamCode, ct);
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                }
             }
-            var existing = error is null ? await db.Projects.AsNoTracking().FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.ProjectCode == data.ProjectCode, ct) : null;
-            var requestedTeamId = error is null ? await ResolveTeamIdAsync(user, data.TeamCode, ct) : null;
-            var action = existing is null ? "Create" : SameProject(existing, data) && existing.TeamId == requestedTeamId ? "NoChange" : "Update";
-            await StageAsync(batch, preview, rowNo, "Project", action, data.ProjectCode, data, error, ct);
+
+            var existing = error is null
+                ? await db.Projects.AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.OrganizationId == user.OrganizationId
+                             && x.ProjectCode == code,
+                        ct)
+                : null;
+
+            var requestedTeamId = error is null
+                ? await ResolveTeamIdAsync(user, data.TeamCode, ct)
+                : null;
+
+            var action = existing is null
+                ? "Create"
+                : SameProject(existing, data)
+                  && existing.TeamId == requestedTeamId
+                    ? "NoChange"
+                    : "Update";
+
+            await StageAsync(
+                batch,
+                preview,
+                rowNo,
+                "Project",
+                action,
+                code,
+                data,
+                error,
+                ct);
         }
 
         var linkRows = ReadSheet(doc, "ProjectLocations", optional: true);
         if (linkRows.Count == 0) return;
+
+        var workbookLinkKeys =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var pendingLinks =
+            new List<(int RowNo, ProjectLocationImportRow Data, string? Error)>();
+
         rowNo = 1;
         foreach (var raw in linkRows.Skip(1))
         {
             rowNo++;
             if (raw.All(string.IsNullOrWhiteSpace)) continue;
+
             var headers = linkRows[0];
-            var data = new ProjectLocationImportRow(Get(raw, headers, "ProjectCode", "專案代碼") ?? "", Get(raw, headers, "LocationCode", "地點代碼") ?? "", ParseYes(Get(raw, headers, "IsPrimary", "主要地點")), Get(raw, headers, "Status", "狀態") ?? "Active");
+            var data = new ProjectLocationImportRow(
+                Get(raw, headers, "ProjectCode", "專案代碼") ?? "",
+                Get(raw, headers, "LocationCode", "地點代碼") ?? "",
+                ParseYes(Get(raw, headers, "IsPrimary", "主要地點")),
+                Get(raw, headers, "Status", "狀態") ?? "Active");
+
+            var projectCode = data.ProjectCode.Trim();
+            var locationCode = data.LocationCode.Trim();
+            var key = $"{projectCode}/{locationCode}";
             string? error = null;
-            var projectExists = workbookProjectCodes.Contains(data.ProjectCode) || await db.Projects.AsNoTracking().AnyAsync(x => x.OrganizationId == user.OrganizationId && x.ProjectCode == data.ProjectCode, ct);
-            if (!projectExists) error = "ProjectCode 不存在。";
-            else if (!await db.Locations.AsNoTracking().AnyAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct)) error = "LocationCode 不存在。";
-            await StageAsync(batch, preview, rowNo, "ProjectLocation", "Upsert", $"{data.ProjectCode}/{data.LocationCode}", data, error, ct);
+            bool requestedActive = false;
+
+            if (string.IsNullOrWhiteSpace(projectCode)
+                || string.IsNullOrWhiteSpace(locationCode))
+            {
+                error = "ProjectCode 與 LocationCode 為必填。";
+            }
+            else if (!workbookLinkKeys.Add(key))
+            {
+                error = $"Excel 內專案固定地點重複：{key}。";
+            }
+            else
+            {
+                try
+                {
+                    requestedActive = ParseActive(data.Status);
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                }
+            }
+
+            int? requestedProjectTeamId = null;
+
+            if (error is null)
+            {
+                if (workbookProjects.TryGetValue(projectCode, out var workbookProject))
+                {
+                    try
+                    {
+                        requestedProjectTeamId =
+                            await ResolveTeamIdAsync(
+                                user,
+                                workbookProject.TeamCode,
+                                ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        error = ex.Message;
+                    }
+                }
+                else
+                {
+                    var existingProject = await db.Projects.AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            x => x.OrganizationId == user.OrganizationId
+                                 && x.ProjectCode == projectCode,
+                            ct);
+
+                    if (existingProject is null)
+                        error = "ProjectCode 不存在。";
+                    else
+                        requestedProjectTeamId = existingProject.TeamId;
+                }
+            }
+
+            if (error is null)
+            {
+                var location = await db.Locations.AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => (x.OrganizationId == user.OrganizationId
+                              || x.OrganizationId == null)
+                             && x.LocationCode == locationCode,
+                        ct);
+
+                if (location is null)
+                {
+                    error = "LocationCode 不存在。";
+                }
+                else if (requestedActive)
+                {
+                    if (location.IsTemporary)
+                        error = "專案固定地點不可使用臨時地點；請先由管理者轉為正式地點。";
+                    else if (!location.IsActive)
+                        error = "專案固定地點必須為啟用地點。";
+                    else if (!string.Equals(
+                                 location.ApprovalStatus,
+                                 "Approved",
+                                 StringComparison.OrdinalIgnoreCase))
+                        error = "專案固定地點必須為 Approved。";
+                    else if (requestedProjectTeamId.HasValue
+                             && location.TeamId.HasValue
+                             && location.TeamId != requestedProjectTeamId)
+                        error = "地點不符合專案歸屬小組範圍。";
+                }
+            }
+
+            pendingLinks.Add((rowNo, data, error));
+        }
+
+        foreach (var projectGroup in pendingLinks
+                     .Where(x => x.Error is null)
+                     .GroupBy(
+                         x => x.Data.ProjectCode.Trim(),
+                         StringComparer.OrdinalIgnoreCase))
+        {
+            var projectCode = projectGroup.Key;
+            var dbProject = await db.Projects.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.OrganizationId == user.OrganizationId
+                         && x.ProjectCode == projectCode,
+                    ct);
+
+            var activeCodes =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (dbProject is not null)
+            {
+                var existingCodes = await (
+                    from link in db.ProjectLocations.AsNoTracking()
+                    join location in db.Locations.AsNoTracking()
+                        on link.LocationId equals location.LocationId
+                    where link.ProjectId == dbProject.ProjectId
+                          && link.IsActive
+                    select location.LocationCode)
+                    .Where(x => x != null)
+                    .ToListAsync(ct);
+
+                foreach (var code in existingCodes)
+                    if (!string.IsNullOrWhiteSpace(code))
+                        activeCodes.Add(code!);
+            }
+
+            foreach (var row in projectGroup)
+            {
+                if (ParseActive(row.Data.Status))
+                    activeCodes.Add(row.Data.LocationCode.Trim());
+                else
+                    activeCodes.Remove(row.Data.LocationCode.Trim());
+            }
+
+            if (activeCodes.Count
+                > V170ProjectLocationAdminRules.MaxAssignedLocations)
+            {
+                var message =
+                    $"單一專案最多可設定 {V170ProjectLocationAdminRules.MaxAssignedLocations} 個固定地點；"
+                    + $"目前匯入後預計為 {activeCodes.Count} 個。";
+
+                for (var i = 0; i < pendingLinks.Count; i++)
+                {
+                    var row = pendingLinks[i];
+                    if (row.Error is null
+                        && row.Data.ProjectCode.Trim().Equals(
+                            projectCode,
+                            StringComparison.OrdinalIgnoreCase))
+                        pendingLinks[i] = (row.RowNo, row.Data, message);
+                }
+            }
+        }
+
+        foreach (var row in pendingLinks)
+        {
+            await StageAsync(
+                batch,
+                preview,
+                row.RowNo,
+                "ProjectLocation",
+                "Upsert",
+                $"{row.Data.ProjectCode.Trim()}/{row.Data.LocationCode.Trim()}",
+                row.Data,
+                row.Error,
+                ct);
         }
     }
 
@@ -277,12 +579,40 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
     {
         if (string.IsNullOrWhiteSpace(row.LocationName)) return "LocationName 為必填。";
         if (string.IsNullOrWhiteSpace(row.Address) && string.IsNullOrWhiteSpace(row.PlusCode)) return "Address 與 PlusCode 至少需要一項。";
+        try { _ = ParseActive(row.Status); }
+        catch (Exception ex) { return ex.Message; }
         if (!string.IsNullOrWhiteSpace(row.TeamCode))
         {
             try { _ = await ResolveTeamIdAsync(user, row.TeamCode, ct); }
             catch (Exception ex) { return ex.Message; }
         }
         return null;
+    }
+
+    private static void EnsureProjectLocationEligible(
+        Project project,
+        FieldVisit.Domain.Entities.Location location)
+    {
+        if (location.IsTemporary)
+            throw new InvalidOperationException(
+                "專案固定地點不可使用臨時地點；請先由管理者轉為正式地點。");
+
+        if (!location.IsActive)
+            throw new InvalidOperationException(
+                "專案固定地點必須為啟用地點。");
+
+        if (!string.Equals(
+                location.ApprovalStatus,
+                "Approved",
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "專案固定地點必須為 Approved。");
+
+        if (project.TeamId.HasValue
+            && location.TeamId.HasValue
+            && project.TeamId != location.TeamId)
+            throw new InvalidOperationException(
+                "地點不符合專案歸屬小組範圍。");
     }
 
     private async Task<int?> ResolveTeamIdAsync(CurrentUserDto user, string? teamCode, CancellationToken ct)
@@ -344,8 +674,64 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
     private static bool SameProject(Project x, ProjectImportRow r) => x.ProjectName == r.ProjectName && x.LocationMode == NormalizeLocationMode(r.LocationMode) && x.StartDate == ParseDate(r.StartDate) && x.EndDate == ParseDate(r.EndDate) && x.IsActive == ParseActive(r.Status) && x.Description == r.Description;
     private static string NormalizeType(string value) => value.Trim().ToLowerInvariant() switch { "location" or "locations" => "locations", "project" or "projects" => "projects", _ => throw new InvalidOperationException("匯入類型只支援 locations 或 projects。") };
     private static string NormalizeLocationMode(string value) => value.Trim().ToLowerInvariant() switch { "list" or "清單" or "專案清單優先" => "List", "selfmaintained" or "self-maintained" or "自行維護" or "臨時維護優先" => "SelfMaintained", _ => throw new InvalidOperationException("LocationMode 只支援 List 或 SelfMaintained。") };
-    private static DateOnly? ParseDate(string? value) { if (string.IsNullOrWhiteSpace(value)) return null; if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)) return d; throw new InvalidOperationException($"日期格式錯誤：{value}"); }
-    private static bool ParseActive(string? value) => !(value ?? "Active").Trim().Equals("Inactive", StringComparison.OrdinalIgnoreCase) && !(value ?? "").Trim().Equals("停用", StringComparison.OrdinalIgnoreCase) && value?.Trim() != "0";
+    private static DateOnly? ParseDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+
+        var text = value.Trim();
+        var formats = new[]
+        {
+            "yyyy-MM-dd",
+            "yyyy/M/d",
+            "yyyy/MM/dd",
+            "M/d/yyyy",
+            "MM/dd/yyyy"
+        };
+
+        if (DateOnly.TryParseExact(
+                text,
+                formats,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var exact))
+            return exact;
+
+        if (double.TryParse(
+                text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var serial))
+        {
+            try
+            {
+                return DateOnly.FromDateTime(DateTime.FromOADate(serial));
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"日期格式錯誤：{value}；請使用 yyyy-MM-dd、yyyy/MM/dd 或 Excel 日期格式。");
+    }
+
+    private static bool ParseActive(string? value)
+    {
+        var text = (value ?? "Active").Trim();
+
+        if (text.Equals("Active", StringComparison.OrdinalIgnoreCase)
+            || text.Equals("啟用", StringComparison.OrdinalIgnoreCase)
+            || text == "1")
+            return true;
+
+        if (text.Equals("Inactive", StringComparison.OrdinalIgnoreCase)
+            || text.Equals("停用", StringComparison.OrdinalIgnoreCase)
+            || text == "0")
+            return false;
+
+        throw new InvalidOperationException(
+            $"Status 不合法：{value}；只接受 Active / Inactive / 啟用 / 停用 / 1 / 0。");
+    }
     private static bool ParseYes(string? value) => (value ?? "").Trim().ToLowerInvariant() is "y" or "yes" or "true" or "1" or "是";
     private static bool HasRole(CurrentUserDto user, string role) => user.Roles.Any(x => x.Equals(role, StringComparison.OrdinalIgnoreCase));
     private static string NewLocationCode() => $"LOC-{DateTime.UtcNow:yyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
