@@ -555,12 +555,65 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
 
         foreach (var row in pendingLinks)
         {
+            var action = "Create";
+
+            if (row.Error is null)
+            {
+                var projectCode = row.Data.ProjectCode.Trim();
+                var locationCode = row.Data.LocationCode.Trim();
+                var requestedActive = ParseActive(row.Data.Status);
+
+                var project = await db.Projects
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.OrganizationId == user.OrganizationId
+                             && x.ProjectCode == projectCode,
+                        ct);
+
+                // If the Project does not exist in DB yet but was validly staged
+                // in this same workbook, the relation is a true Create.
+                if (project is not null)
+                {
+                    var location = await db.Locations
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            x => (x.OrganizationId == user.OrganizationId
+                                  || x.OrganizationId == null)
+                                 && x.LocationCode == locationCode,
+                            ct);
+
+                    if (location is not null)
+                    {
+                        var existingLink = await db.ProjectLocations
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(
+                                x => x.ProjectId == project.ProjectId
+                                     && x.LocationId == location.LocationId,
+                                ct);
+
+                        if (existingLink is null)
+                        {
+                            action = "Create";
+                        }
+                        else if (existingLink.IsActive == requestedActive
+                                 && !existingLink.IsPrimary)
+                        {
+                            action = "NoChange";
+                        }
+                        else
+                        {
+                            action = "Update";
+                        }
+                    }
+                }
+            }
+
             await StageAsync(
                 batch,
                 preview,
                 row.RowNo,
                 "ProjectLocation",
-                "Upsert",
+                action,
                 $"{row.Data.ProjectCode.Trim()}/{row.Data.LocationCode.Trim()}",
                 row.Data,
                 row.Error,
