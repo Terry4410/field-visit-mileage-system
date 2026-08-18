@@ -40,7 +40,7 @@ export default function VisitorPage(){
         setProjects(p);
         setVisitTypes(v);
         setProjectId("");
-        setVisitTypeId(String(v[0]?.visitTypeId||""));
+        setVisitTypeId("");
       })
       .catch(e=>setMsg(e.message));
   },[]);
@@ -118,7 +118,7 @@ export default function VisitorPage(){
     setSelectedExistingLocation(null);
     setStopPurpose("");
     setProjectId("");
-    setVisitTypeId(String(visitTypes[0]?.visitTypeId||""));
+    setVisitTypeId("");
     setTempName("");setTempAddress("");
   };
 
@@ -133,7 +133,7 @@ export default function VisitorPage(){
     setEditingStopIndex(index);
     setStopPurpose(stop.visitPurpose||"");
     setProjectId(stop.projectId?String(stop.projectId):"");
-    setVisitTypeId(String(stop.visitTypeId||visitTypes[0]?.visitTypeId||""));
+    setVisitTypeId(stop.visitTypeId?String(stop.visitTypeId):"");
 
     if(stop.locationId){
       setLocationMethod("existing");
@@ -170,8 +170,11 @@ export default function VisitorPage(){
 
   const saveStop=()=>{
     const selectedProjectId=projectId?Number(projectId):undefined;
-    const visitType=selectedProjectId?visitTypes.find(x=>x.visitTypeId===Number(visitTypeId)):undefined;
-    if(selectedProjectId&&!visitType)return setMsg("有選擇專案時，請選擇拜訪形式。");
+    const visitType=visitTypeId
+      ?visitTypes.find(x=>x.visitTypeId===Number(visitTypeId))
+      :undefined;
+    if(visitTypeId&&!visitType)
+      return setMsg("請重新選擇有效的拜訪形式。");
 
     if(locationMethod==="existing"){
       const location=selectedExistingLocation;
@@ -350,12 +353,13 @@ export default function VisitorPage(){
           </select>
         </div>
 
-        {projectId&&<div className="field">
-          <label>拜訪形式</label>
+        <div className="field">
+          <label>拜訪形式 <span className="muted">選填</span></label>
           <select value={visitTypeId} onChange={e=>setVisitTypeId(e.target.value)}>
+            <option value="">未指定</option>
             {visitTypes.map(v=><option key={v.visitTypeId} value={v.visitTypeId}>{v.visitTypeName}</option>)}
           </select>
-        </div>}
+        </div>
 
         <div className="field">
           <label>地點取得方式</label>
