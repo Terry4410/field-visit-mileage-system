@@ -28,8 +28,20 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
             {
                 AddSheet(wb, sheets, 1, "Locations", new[]
                 {
-                    new[] { "LocationCode", "TeamCode", "LocationName", "City", "District", "Address", "PlusCode", "Status" },
-                    new[] { "", "TEAM-N01", "客戶A", "台北市", "內湖區", "台北市內湖區示例路1號", "", "Active" }
+                    new[] { "LocationCode", "TeamCode", "LocationName", "City", "District", "Address", "PlusCode" },
+                    new[] { "", "TEAM-N01", "客戶A", "台北市", "內湖區", "台北市內湖區示例路1號", "" }
+                });
+                AddSheet(wb, sheets, 2, "說明", new[]
+                {
+                    new[] { "項目", "規則" },
+                    new[] { "LocationCode", "新增地點請留空；更新既有地點時必須填寫現有 LocationCode。" },
+                    new[] { "TeamCode", "選填；若填寫必須是目前啟用且有權限的小組代碼。" },
+                    new[] { "LocationName", "必填。" },
+                    new[] { "Address / PlusCode", "至少需填一項。" },
+                    new[] { "新增地點", "Excel 匯入後一律為正式地點資料，但 ApprovalStatus=Pending、GeocodingStatus=Pending、IsActive=false；完成解析與核准後才可使用。" },
+                    new[] { "更新既有地點", "只要主檔內容有變更，匯入後會重新進入 Pending / Pending / 未啟用，需重新解析與核准。" },
+                    new[] { "重複資料", "同一 Excel 不可重複使用相同 LocationCode；新增資料不可在同一小組重複相同地點名稱＋地址／PlusCode。" },
+                    new[] { "Status", "新版範本已移除。舊版檔案若仍有 Status 欄可相容讀取，但不會直接控制啟用或核准狀態。" }
                 });
             }
             else
@@ -141,6 +153,8 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     if (item.Action == "Create")
                     {
                         var teamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
+                        // Excel imports can never bypass the location lifecycle:
+                        // new Locations always require geocoding and approval.
                         await db.Locations.AddAsync(new FieldVisit.Domain.Entities.Location
                         {
                             OrganizationId = user.OrganizationId, TeamId = teamId, LocationCode = NewLocationCode(), LocationName = data.LocationName.Trim(),
@@ -154,6 +168,8 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     {
                         var row = await db.Locations.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
                         EnsureLeaderTeam(user, row.TeamId);
+                        // Any imported master-data change reopens geocoding /
+                        // approval before the Location can be used again.
                         row.TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
                         row.LocationName = data.LocationName.Trim(); row.City = data.City?.Trim(); row.District = data.District?.Trim(); row.Address = data.Address?.Trim(); row.PlusCode = data.PlusCode?.Trim();
                         row.GeocodingStatus = "Pending"; row.ApprovalStatus = "Pending"; row.IsActive = false; row.UpdatedAt = DateTime.UtcNow;
@@ -255,33 +271,124 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
     private async Task PreviewLocationsAsync(SpreadsheetDocument doc, CurrentUserDto user, ImportBatch batch, List<ImportPreviewItemDto> preview, CancellationToken ct)
     {
         var rows = ReadSheet(doc, "Locations");
+        var workbookLocationCodes =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var workbookNewLocationKeys =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var rowNo = 1;
         foreach (var raw in rows.Skip(1))
         {
             rowNo++;
             if (raw.All(string.IsNullOrWhiteSpace)) continue;
+
             var headers = rows[0];
-            var data = new LocationImportRow(Get(raw, headers, "LocationCode", "地點代碼"), Get(raw, headers, "TeamCode", "小組代碼"), Get(raw, headers, "LocationName", "地點名稱") ?? "", Get(raw, headers, "City", "縣市"), Get(raw, headers, "District", "鄉鎮區"), Get(raw, headers, "Address", "地址"), Get(raw, headers, "PlusCode", "Plus Code"), Get(raw, headers, "Status", "狀態") ?? "Active");
+            var data = new LocationImportRow(
+                Get(raw, headers, "LocationCode", "地點代碼"),
+                Get(raw, headers, "TeamCode", "小組代碼"),
+                Get(raw, headers, "LocationName", "地點名稱") ?? "",
+                Get(raw, headers, "City", "縣市"),
+                Get(raw, headers, "District", "鄉鎮區"),
+                Get(raw, headers, "Address", "地址"),
+                Get(raw, headers, "PlusCode", "Plus Code"),
+                // Legacy column compatibility only. Location Status never
+                // bypasses geocoding / approval during Confirm.
+                Get(raw, headers, "Status", "狀態") ?? "Active");
+
             var error = await ValidateLocationAsync(user, data, ct);
             var action = "Create";
+            var code = data.LocationCode?.Trim();
+            int? teamId = null;
+
             if (error is null)
             {
-                var teamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
-                if (!string.IsNullOrWhiteSpace(data.LocationCode))
+                teamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
+
+                if (!string.IsNullOrWhiteSpace(code))
                 {
-                    var existing = await db.Locations.AsNoTracking().FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
-                    if (existing is null) error = "LocationCode 不存在；新增地點請留空 LocationCode。";
-                    else action = SameLocation(existing, data) && existing.TeamId == teamId ? "NoChange" : "Update";
+                    if (!workbookLocationCodes.Add(code))
+                    {
+                        error = $"Excel 內 LocationCode 重複：{code}。";
+                    }
+                    else
+                    {
+                        var existing = await db.Locations
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(
+                                x => x.OrganizationId == user.OrganizationId
+                                     && x.LocationCode == code,
+                                ct);
+
+                        if (existing is null)
+                        {
+                            error = "LocationCode 不存在；新增地點請留空 LocationCode。";
+                        }
+                        else
+                        {
+                            action =
+                                SameLocation(existing, data)
+                                && existing.TeamId == teamId
+                                    ? "NoChange"
+                                    : "Update";
+                        }
+                    }
                 }
                 else
                 {
-                    var same = await db.Locations.AsNoTracking().FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.TeamId == teamId && x.LocationName == data.LocationName && x.Address == data.Address && x.PlusCode == data.PlusCode, ct);
-                    if (same is not null) action = "NoChange";
-                    else if (await db.Locations.AsNoTracking().AnyAsync(x => x.OrganizationId == user.OrganizationId && x.TeamId == teamId && x.LocationName == data.LocationName, ct))
-                        error = "同小組已有相同地點名稱；若要更新既有地點，請先下載資料並使用 LocationCode。";
+                    var newLocationKey =
+                        $"{teamId?.ToString(CultureInfo.InvariantCulture) ?? "ALL"}|"
+                        + $"{data.LocationName.Trim()}|"
+                        + $"{(data.Address ?? "").Trim()}|"
+                        + $"{(data.PlusCode ?? "").Trim()}";
+
+                    if (!workbookNewLocationKeys.Add(newLocationKey))
+                    {
+                        error =
+                            "Excel 內有重複新增地點：同一小組的地點名稱與地址／PlusCode 相同。";
+                    }
+                    else
+                    {
+                        var same = await db.Locations
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(
+                                x => x.OrganizationId == user.OrganizationId
+                                     && x.TeamId == teamId
+                                     && x.LocationName == data.LocationName
+                                     && x.Address == data.Address
+                                     && x.PlusCode == data.PlusCode,
+                                ct);
+
+                        if (same is not null)
+                        {
+                            // Re-uploading the same new-location row is
+                            // idempotent and must not create a duplicate.
+                            action = "NoChange";
+                        }
+                        else if (await db.Locations
+                                     .AsNoTracking()
+                                     .AnyAsync(
+                                         x => x.OrganizationId == user.OrganizationId
+                                              && x.TeamId == teamId
+                                              && x.LocationName == data.LocationName,
+                                         ct))
+                        {
+                            error =
+                                "同小組已有相同地點名稱；若要更新既有地點，請先下載資料並使用 LocationCode。";
+                        }
+                    }
                 }
             }
-            await StageAsync(batch, preview, rowNo, "Location", action, data.LocationCode ?? data.LocationName, data, error, ct);
+
+            await StageAsync(
+                batch,
+                preview,
+                rowNo,
+                "Location",
+                action,
+                code ?? data.LocationName,
+                data,
+                error,
+                ct);
         }
     }
 
