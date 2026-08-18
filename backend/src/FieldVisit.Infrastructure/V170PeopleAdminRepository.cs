@@ -241,6 +241,7 @@ public sealed class V170PeopleAdminRepository(
                     a.UserId,
                     a.TeamId,
                     a.IsPrimary,
+                    t.TeamCode,
                     t.TeamName
                 }
             ).ToListAsync(ct);
@@ -296,6 +297,19 @@ public sealed class V170PeopleAdminRepository(
                         ?? currentTeams
                             .FirstOrDefault();
 
+                    var currentTeamAssignments =
+                        currentTeams
+                            .OrderByDescending(
+                                x => x.IsPrimary)
+                            .ThenBy(x => x.TeamName)
+                            .Select(
+                                x => new V170CurrentTeamAssignmentDto(
+                                    x.TeamId,
+                                    x.TeamCode,
+                                    x.TeamName,
+                                    x.IsPrimary))
+                            .ToList();
+
                     var actualAccess =
                         V170AccessRules
                             .IsSystemAccessAllowed(
@@ -321,6 +335,7 @@ public sealed class V170PeopleAdminRepository(
                         user.IsActive,
                         actualAccess,
                         roles,
+                        currentTeamAssignments,
                         primary?.TeamId,
                         primary?.TeamName,
                         identity?

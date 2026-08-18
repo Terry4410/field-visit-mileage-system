@@ -11,6 +11,12 @@ public sealed record V170PeopleQueryRequest(
     int PageSize = 50,
     string Sort = "name_asc");
 
+public sealed record V170CurrentTeamAssignmentDto(
+    int TeamId,
+    string TeamCode,
+    string TeamName,
+    bool IsPrimary);
+
 public sealed record V170PeopleRowDto(
     int UserId,
     string UserCode,
@@ -22,6 +28,7 @@ public sealed record V170PeopleRowDto(
     bool AdminEnabled,
     bool ActualAccess,
     IReadOnlyList<string> Roles,
+    IReadOnlyList<V170CurrentTeamAssignmentDto> TeamAssignments,
     int? PrimaryTeamId,
     string? PrimaryTeamName,
     DateOnly? AuthorizationFrom,
