@@ -94,10 +94,13 @@ export default function TeamManagementPage(){
    <div className="section-title"><div><h2>小組成員維護{selectedTeam?`｜${selectedTeam.teamCode} ${selectedTeam.teamName}`:""}</h2><div className="sub">沿用 v1.6.0 已確認的 SaveUserAccess；此頁只提供「從小組角度」維護成員與主要小組。</div></div>
     <select value={selectedTeamId??""} onChange={e=>setSelectedTeamId(e.target.value?Number(e.target.value):null)}><option value="">選擇小組</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamCode}｜{t.teamName}{t.isActive?"":"（停用）"}</option>)}</select>
    </div>
-   {!selectedTeam?<div className="empty">請先選擇小組。</div>:<div className="table-wrap"><table><thead><tr><th>員編</th><th>姓名</th><th>角色</th><th>本小組成員</th><th>主要小組</th><th>目前小組範圍</th></tr></thead><tbody>{users.map(u=>{
+   {!selectedTeam?<div className="empty">請先選擇小組。</div>:<>
+    <div className="sub" style={{marginBottom:10}}>一人可同時屬於多個小組；★ 代表主要小組。勾選「加入此小組」只會新增此小組，不會移除既有所屬小組。</div>
+    <div className="table-wrap"><table><thead><tr><th>員編</th><th>姓名</th><th>角色</th><th>{selectedTeam.teamCode} {selectedTeam.teamName}成員</th><th>是否主要小組</th><th>所屬小組</th></tr></thead><tbody>{users.map(u=>{
     const scope=u.teamScopes.find(s=>s.teamId===selectedTeam.teamId);
-    return <tr key={u.userId}><td>{u.employeeNo}</td><td>{u.displayName}</td><td>{u.roles.join("、")||"—"}</td><td><label className="check-row"><input type="checkbox" checked={!!scope} disabled={busy||(!selectedTeam.isActive&&!scope)} onChange={e=>void toggleMember(u,e.target.checked)}/>{scope?"已加入":"未加入"}</label></td><td>{scope?<label className="check-row"><input type="radio" name={`primary-${u.userId}`} checked={scope.isPrimary} disabled={busy} onChange={()=>void setPrimary(u)}/>{scope.isPrimary?"主要":"設為主要"}</label>:"—"}</td><td>{u.teamScopes.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td></tr>
-   })}</tbody></table></div>}
+    return <tr key={u.userId}><td>{u.employeeNo}</td><td>{u.displayName}</td><td>{u.roles.join("、")||"—"}</td><td><label className="check-row"><input type="checkbox" checked={!!scope} disabled={busy||(!selectedTeam.isActive&&!scope)} onChange={e=>void toggleMember(u,e.target.checked)}/>{scope?"已加入此小組":"加入此小組"}</label></td><td>{scope?<label className="check-row"><input type="radio" name={`primary-${u.userId}`} checked={scope.isPrimary} disabled={busy} onChange={()=>void setPrimary(u)}/>{scope.isPrimary?"主要小組":"設為主要"}</label>:"—"}</td><td>{u.teamScopes.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td></tr>
+   })}</tbody></table></div>
+   </>}
   </div>
  </>;
 }
