@@ -1,0 +1,32 @@
+{
+  "release": "v1.7.0 UAT Pilot",
+  "status": "Business User Pilot Candidate",
+  "generatedAtUtc": "2026-08-18T16:00:52.475581+00:00",
+  "branch": "v1.7.0-uat-candidate",
+  "sourceCommitBeforePilotLabel": "9e6d3d04e1a33cdd6748f7ee13989e3378825c83",
+  "frontendVersion": "1.7.0",
+  "database": {
+    "latestMigrationInRepository": "1700_008_location_promotion_history_action",
+    "runtimeSchemaVerification": "Pending Pre-Pilot database verification"
+  },
+  "providers": {
+    "routeProvider": "Mock",
+    "geocodingProvider": "Mock"
+  },
+  "prePilotBackup": {
+    "sourceBackupBranch": "backup/pre-pilot-20260818",
+    "sourceBackupCommit": "9e6d3d04e1a33cdd6748f7ee13989e3378825c83",
+    "databaseBacpac": "db-fieldvisit-uat-prepilot-20260818.bacpac",
+    "bacpacSizeBytes": 98122,
+    "storageAccount": "stfieldvisitbackup2608",
+    "container": "fieldvisit-backup",
+    "localSecondCopyConfirmed": true
+  },
+  "pilotConditions": {
+    "environment": "UAT",
+    "intendedAudience": "Business User Pilot",
+    "productionUse": false,
+    "routeAccuracyAcceptance": false,
+    "databaseResetCompleted": false
+  }
+}
