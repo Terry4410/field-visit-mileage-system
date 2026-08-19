@@ -2,12 +2,17 @@
   "release": "v1.7.0 UAT Pilot",
   "status": "Business User Pilot Candidate",
   "generatedAtUtc": "2026-08-18T16:00:52.475581+00:00",
+  "lastUpdatedAtUtc": "2026-08-19T09:45:00+00:00",
   "branch": "v1.7.0-uat-candidate",
   "sourceCommitBeforePilotLabel": "9e6d3d04e1a33cdd6748f7ee13989e3378825c83",
+  "deployedSourceCommit": "8400bf5f583bffcae5814ff881fc22fa4a9327bb",
   "frontendVersion": "1.7.0",
   "database": {
     "latestMigrationInRepository": "1700_008_location_promotion_history_action",
-    "runtimeSchemaVerification": "Pending Pre-Pilot database verification"
+    "runtimeSchemaVerification": "PASS - Azure SQL schema 1.7.0-008",
+    "initialPilotBaselinePreparedAtUtc": "2026-08-19T01:56:20.278681+00:00",
+    "finalPilotBaselinePreparedAtUtc": "2026-08-19T09:39:58+00:00",
+    "smokeTestCleanup": "PASS"
   },
   "providers": {
     "routeProvider": "Mock",
@@ -22,11 +27,27 @@
     "container": "fieldvisit-backup",
     "localSecondCopyConfirmed": true
   },
+  "finalPilotBaseline": {
+    "databaseBacpac": "db-fieldvisit-uat-pilot-final-20260819.bacpac",
+    "bacpacSizeBytes": 57644,
+    "sha256": "f8a72732c980b22ca24e935991c11bc1ba78cbac295ef4496a4ffe2a404e525b",
+    "storageAccount": "stfieldvisitbackup2608",
+    "container": "fieldvisit-backup",
+    "blobLastModifiedUtc": "2026-08-19T09:39:58+00:00",
+    "blobETag": "0x8DEFDD5D534C446",
+    "bacpacIntegrityVerified": true,
+    "blobUploadVerified": true,
+    "storagePublicNetworkDisabledAfterUpload": true
+  },
   "pilotConditions": {
     "environment": "UAT",
     "intendedAudience": "Business User Pilot",
     "productionUse": false,
     "routeAccuracyAcceptance": false,
-    "databaseResetCompleted": false
+    "databaseResetCompleted": true,
+    "masterCleanupCompleted": true,
+    "baselineVerified": true,
+    "smokeTestCleanupCompleted": true,
+    "supervisorScopeS2PatchVerified": true
   }
 }
