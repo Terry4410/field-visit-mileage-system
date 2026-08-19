@@ -127,6 +127,7 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
 
         List<string> roles;
         List<TeamScopeDto> scopeRows;
+        List<DataScopeDto> dataScopeRows = [];
 
         if (hasV170Identity)
         {
@@ -222,6 +223,58 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
                     .ToListAsync(ct);
         }
 
+        if (hasV170Identity
+            && roles.Any(
+                x => x.Equals(
+                    "supervisor",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            var organizationScopes =
+                await db.UserDataScopes
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.UserId == userId
+                        && x.ScopeType == DataScopeTypes.Organization
+                        && x.EffectiveFrom <= today
+                        && (!x.EffectiveTo.HasValue
+                            || x.EffectiveTo >= today))
+                    .OrderBy(x => x.UserDataScopeId)
+                    .Select(x => new DataScopeDto(
+                        x.ScopeType,
+                        x.OrganizationId,
+                        x.TeamId,
+                        null))
+                    .ToListAsync(ct);
+
+            var teamScopes =
+                await (
+                    from scope
+                        in db.UserDataScopes.AsNoTracking()
+                    join team
+                        in db.Teams.AsNoTracking()
+                        on scope.TeamId
+                        equals (int?)team.TeamId
+                    where
+                        scope.UserId == userId
+                        && scope.ScopeType == DataScopeTypes.Team
+                        && scope.EffectiveFrom <= today
+                        && (!scope.EffectiveTo.HasValue
+                            || scope.EffectiveTo >= today)
+                        && team.IsActive
+                    orderby scope.UserDataScopeId
+                    select new DataScopeDto(
+                        scope.ScopeType,
+                        scope.OrganizationId,
+                        scope.TeamId,
+                        team.TeamName))
+                    .ToListAsync(ct);
+
+            dataScopeRows =
+                organizationScopes
+                    .Concat(teamScopes)
+                    .ToList();
+        }
+
         var primary =
             scopeRows.FirstOrDefault(
                 x => x.IsPrimary)
@@ -263,7 +316,8 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
             resolvedTeamId,
             resolvedTeamName,
             roles,
-            scopeRows);
+            scopeRows,
+            dataScopeRows);
     }
 
     private static string NormalizeRole(string role) => role.Trim().ToLowerInvariant() switch

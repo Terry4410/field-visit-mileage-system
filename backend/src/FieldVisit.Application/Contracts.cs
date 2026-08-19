@@ -2,6 +2,12 @@ namespace FieldVisit.Application;
 
 public sealed record TeamScopeDto(int TeamId, string TeamName, bool IsPrimary);
 
+public sealed record DataScopeDto(
+    string ScopeType,
+    int? OrganizationId,
+    int? TeamId,
+    string? TeamName);
+
 public sealed record CurrentUserDto(
     int UserId,
     string EmployeeNo,
@@ -11,7 +17,8 @@ public sealed record CurrentUserDto(
     int? TeamId,
     string? TeamName,
     IReadOnlyList<string> Roles,
-    IReadOnlyList<TeamScopeDto>? TeamScopes = null)
+    IReadOnlyList<TeamScopeDto>? TeamScopes = null,
+    IReadOnlyList<DataScopeDto>? DataScopes = null)
 {
     public IReadOnlyList<int> TeamIds =>
         TeamScopes is { Count: > 0 }

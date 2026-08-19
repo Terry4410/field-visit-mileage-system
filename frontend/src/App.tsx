@@ -28,7 +28,23 @@ export default function App(){
  if(loading)return <div className="center">載入中…</div>;if(!user)return <LoginPage/>;
  const role=roles.includes(activeRole)?activeRole:(priority.find(r=>roles.includes(r))||roles[0]||'visitor');const nav=navByRole[role];const home=nav[0].path;const title=nav.find(x=>x.path===loc.pathname)?.label||nav.find(x=>x.path!=='/'&&loc.pathname.startsWith(x.path))?.label||nav[0].label;
  const switchRole=(r:string)=>{setActiveRole(r);sessionStorage.setItem('fieldvisit_active_role',r);navigate(navByRole[r][0].path)};
- const teamText=role==='leader'&&user.teamScopes?.length?user.teamScopes.map(x=>x.teamName).join('、'):user.teamName||'全部';
+ const supervisorScopes=user.dataScopes||[];
+ const supervisorIsOrganizationWide=supervisorScopes.some(x=>x.scopeType.toLowerCase()==='organization');
+ const supervisorTeamNames=supervisorScopes
+   .filter(x=>x.scopeType.toLowerCase()==='team'&&x.teamName)
+   .map(x=>x.teamName!)
+   .filter((name,index,array)=>array.indexOf(name)===index);
+ const supervisorScopeText=supervisorIsOrganizationWide
+   ?'全部'
+   :supervisorTeamNames.length
+     ?supervisorTeamNames.join('、')
+     :'無授權範圍';
+ const teamText=
+   role==='leader'&&user.teamScopes?.length
+     ?user.teamScopes.map(x=>x.teamName).join('、')
+     :role==='supervisor'
+       ?supervisorScopeText
+       :user.teamName||'全部';
  return <div className="app-shell">
   <aside className="sidebar"><div className="brand">外訪行程管理<small>Field Visit Mileage System</small></div><div className="role-box"><label>目前登入</label><strong>{user.displayName}</strong><span>{user.employeeNo}｜{roleLabel[role]}｜{teamText}</span>{roles.length>1&&<select className="role-switch" value={role} onChange={e=>switchRole(e.target.value)}>{roles.map(r=><option key={r} value={r}>切換為：{roleLabel[r]||r}</option>)}</select>}</div><nav className="nav">{nav.map(x=><NavLink key={x.path} end={x.path===home} to={x.path}>● {x.label}</NavLink>)}</nav><button className="btn secondary logout-btn" onClick={logout}>登出</button><div className="sidebar-footer">UAT Pilot v1.7.0<br/>使用者測試階段</div></aside>
   <main className="main"><header className="topbar"><div><h1>{title}</h1><div className="top-subtitle">手機優先｜UAT Pilot｜v1.7.0｜Route Provider：Mock</div></div><div className="user-chip"><strong>{user.displayName}</strong><span>{roleLabel[role]}｜{teamText}</span>{roles.length>1&&<select value={role} onChange={e=>switchRole(e.target.value)}>{roles.map(r=><option key={r} value={r}>{roleLabel[r]||r}</option>)}</select>}<button className="btn small secondary" onClick={logout}>登出</button></div></header><section className="content"><Routes>
