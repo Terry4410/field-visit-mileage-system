@@ -160,7 +160,11 @@ async function chooseFreeRatedSlot(
   ] as const;
 
   for (const rate of activeRates) {
-    const firstDate = laterDate(preferredStart, rate.effectiveFrom);
+    const preferredForRate = laterDate(preferredStart, rate.effectiveFrom);
+    const firstDate =
+      rate.effectiveTo && preferredForRate > rate.effectiveTo
+        ? laterDate(today, rate.effectiveFrom)
+        : preferredForRate;
 
     for (let dayOffset = 0; dayOffset < 45; dayOffset++) {
       const visitDate = addDays(firstDate, dayOffset);
