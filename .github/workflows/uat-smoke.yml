@@ -1,0 +1,59 @@
+name: UAT Browser Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: UAT frontend URL
+        required: false
+        default: https://terry4410.github.io/field-visit-mileage-system/
+  pull_request:
+    branches: [ v1.7.0-uat-candidate ]
+    paths:
+      - "uat/**"
+      - ".github/workflows/uat-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Playwright non-destructive UAT smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      UAT_BASE_URL: ${{ github.event.inputs.base_url || 'https://terry4410.github.io/field-visit-mileage-system/' }}
+      UAT_API_HEALTH_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health
+      UAT_DEMO_PASSWORD: "123456"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install UAT dependencies
+        working-directory: uat
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: uat
+        run: npx playwright install --with-deps chromium
+
+      - name: Run UAT smoke
+        working-directory: uat
+        run: npm run test:smoke
+
+      - name: Upload Playwright diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-smoke-playwright-report
+          path: |
+            uat/playwright-report
+            uat/test-results
+          if-no-files-found: ignore
+          retention-days: 14
