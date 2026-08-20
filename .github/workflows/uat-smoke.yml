@@ -1,4 +1,4 @@
-name: UAT Browser Smoke
+name: UAT Automation Checks
 
 on:
   workflow_dispatch:
@@ -7,6 +7,11 @@ on:
         description: UAT frontend URL
         required: false
         default: https://terry4410.github.io/field-visit-mileage-system/
+      include_write_flow:
+        description: Run Phase 2 write/cleanup lifecycle UAT
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       base_url:
@@ -14,6 +19,11 @@ on:
         required: false
         type: string
         default: https://terry4410.github.io/field-visit-mileage-system/
+      include_write_flow:
+        description: Run Phase 2 write/cleanup lifecycle UAT
+        required: false
+        type: boolean
+        default: false
     secrets:
       UAT_DEMO_PASSWORD:
         required: true
@@ -22,17 +32,42 @@ on:
     paths:
       - "uat/**"
       - ".github/workflows/uat-smoke.yml"
+      - "backend/src/FieldVisit.Api/Controllers/UatAutomationController.cs"
+      - "backend/tests/FieldVisit.Application.Tests/UatAutomationSafetyTests.cs"
 
 permissions:
   contents: read
 
 jobs:
-  smoke:
-    name: Playwright non-destructive UAT smoke
+  backend-tests:
+    name: Backend regression and UAT safety tests
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Traditional Chinese PDF font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Run backend tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release
+
+  smoke:
+    name: Playwright UAT checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       UAT_BASE_URL: ${{ inputs.base_url || 'https://terry4410.github.io/field-visit-mileage-system/' }}
+      UAT_API_BASE_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net
       UAT_API_HEALTH_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health
       UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
 
@@ -53,15 +88,20 @@ jobs:
         working-directory: uat
         run: npx playwright install --with-deps chromium
 
-      - name: Run UAT smoke
+      - name: Run Phase 1 non-destructive smoke
         working-directory: uat
         run: npm run test:smoke
+
+      - name: Run Phase 2 trip lifecycle
+        if: github.event_name != 'pull_request' && inputs.include_write_flow == true
+        working-directory: uat
+        run: npm run test:lifecycle
 
       - name: Upload Playwright diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: uat-smoke-playwright-report
+          name: uat-playwright-report
           path: |
             uat/playwright-report
             uat/test-results
