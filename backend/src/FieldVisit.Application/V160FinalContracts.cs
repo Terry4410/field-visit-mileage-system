@@ -158,6 +158,28 @@ public sealed record ManagedLocationDto(
     DateTime CreatedAt,
     string RowVersion);
 
+public sealed record ManagedLocationQueryRequest(
+    string? Q = null,
+    int? TeamId = null,
+    string? City = null,
+    string? District = null,
+    string? GeocodingStatus = null,
+    bool? IsActive = null,
+    int Page = 1,
+    int PageSize = 50);
+
+public sealed record ManagedLocationDeleteImpactDto(
+    int LocationId,
+    string LocationCode,
+    string LocationName,
+    bool CanDelete,
+    int TripReferenceCount,
+    int ProjectReferenceCount,
+    int FavoriteReferenceCount,
+    int ApprovalHistoryCount,
+    int GovernmentMatchCount,
+    string? Reason);
+
 public sealed record SaveManagedLocationRequest(
     int? TeamId,
     string LocationName,
@@ -187,7 +209,17 @@ public sealed record BackgroundJobDto(
     DateTime? StartedAt,
     DateTime? CompletedAt);
 
-public sealed record CreateGeocodingJobRequest(string Mode = "Selected", DateOnly? StartDate = null, DateOnly? EndDate = null, IReadOnlyList<int>? LocationIds = null);
+public sealed record CreateGeocodingJobRequest(
+    string Mode = "Selected",
+    DateOnly? StartDate = null,
+    DateOnly? EndDate = null,
+    IReadOnlyList<int>? LocationIds = null,
+    string? Q = null,
+    int? TeamId = null,
+    string? City = null,
+    string? District = null,
+    string? GeocodingStatus = null,
+    bool? IsActive = null);
 
 public sealed record DashboardSummaryDto(
     int ThisMonthTrips,

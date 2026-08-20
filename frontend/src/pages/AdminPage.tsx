@@ -9,6 +9,27 @@ import{money,todayTaipei}from"../v160";
 type Props={section:'dashboard'|'users'|'locations'|'projects'|'rates'|'corrections'};
 const roleLabels:Record<string,string>={visitor:'外訪員',leader:'小組長',admin:'管理者',supervisor:'督導'};
 
+type ManagedLocationPage={
+ items:ManagedLocation[];
+ page:number;
+ pageSize:number;
+ totalCount:number;
+ totalPages:number;
+};
+
+type ManagedLocationDeleteImpact={
+ locationId:number;
+ locationCode:string;
+ locationName:string;
+ canDelete:boolean;
+ tripReferenceCount:number;
+ projectReferenceCount:number;
+ favoriteReferenceCount:number;
+ approvalHistoryCount:number;
+ governmentMatchCount:number;
+ reason?:string|null;
+};
+
 export default function AdminPage({section}:Props){
  const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);
  if(section==='dashboard')return <Dashboard msg={msg} setMsg={setMsg}/>;
@@ -42,21 +63,82 @@ function ImportPanel({type,onDone}:{type:'locations'|'projects';onDone:()=>void}
  const template=()=>apiDownload(`/imports/${type}/template`,type==='locations'?'地點主檔匯入範例.xlsx':'專案主檔匯入範例.xlsx');
  const doPreview=async()=>{if(!file)return setMsg('請先選擇 .xlsx 檔案。');setBusy(true);setMsg('');try{const form=new FormData();form.append('file',file);setPreview(await api<ImportPreview>(`/imports/${type}/preview`,{method:'POST',body:form},120000));setResult(null)}catch(e){setMsg(e instanceof Error?e.message:'預覽失敗')}finally{setBusy(false)}};
  const confirm=async()=>{if(!preview)return;setBusy(true);try{const r=await api<ImportConfirmResult>(`/imports/${preview.importBatchId}/confirm`,{method:'POST'},120000);setResult(r);setMsg('匯入完成。');onDone()}catch(e){setMsg(e instanceof Error?e.message:'匯入失敗')}finally{setBusy(false)}};
- return <div className="import-panel"><div className="section-title"><strong>Excel 批次匯入</strong><button className="btn small outline" onClick={()=>void template()}>下載 Excel 範例</button></div><div className="actions"><input type="file" accept=".xlsx" onChange={e=>{setFile(e.target.files?.[0]||null);setPreview(null)}}/><button className="btn secondary" disabled={busy} onClick={()=>void doPreview()}>預覽與驗證</button></div>{msg&&<div className="note">{msg}</div>}{preview&&<><div className={`note ${preview.errorCount?'danger-note':'ok-note'}`}>共 {preview.totalCount} 列｜可匯入 {preview.validCount}｜錯誤 {preview.errorCount}</div><div className="table-wrap compact-table"><table><thead><tr><th>列</th><th>類型</th><th>動作</th><th>Key</th><th>結果</th></tr></thead><tbody>{preview.items.slice(0,100).map((x,i)=><tr key={i}><td>{x.rowNumber}</td><td>{x.entityType}</td><td>{x.action}</td><td>{x.displayKey}</td><td>{x.errorMessage||'OK'}</td></tr>)}</tbody></table></div><div className="actions">{preview.errorCount>0&&<button className="btn outline" onClick={()=>void apiDownload(`/imports/${preview.importBatchId}/errors.xlsx`,'匯入錯誤.xlsx')}>下載錯誤 Excel</button>}<button className="btn ok" disabled={preview.errorCount>0||busy} onClick={()=>void confirm()}>確認匯入</button></div></>}{result&&<div className="note ok-note">新增 {result.created}／更新 {result.updated}／無變更 {result.unchanged}／失敗 {result.failed}</div>}</div>
+ return <div className="import-panel"><div className="section-title"><strong>Excel 批次匯入</strong><button className="btn small outline" onClick={()=>void template()}>下載 Excel 範例</button></div><div className="actions"><input type="file" accept=".xlsx" onChange={e=>{setFile(e.target.files?.[0]||null);setPreview(null)}}/><button className="btn secondary" disabled={busy} onClick={()=>void doPreview()}>預覽與驗證</button></div>{msg&&<div className="note">{msg}</div>}{preview&&<><div className={`note ${preview.errorCount?'danger-note':'ok-note'}`}>共 {preview.totalCount} 列｜可匯入 {preview.validCount}｜錯誤 {preview.errorCount}{preview.totalCount>100?'｜畫面僅顯示前 100 筆預覽，系統已驗證全部資料':''}</div><div className="table-wrap compact-table"><table><thead><tr><th>列</th><th>類型</th><th>動作</th><th>Key</th><th>結果</th></tr></thead><tbody>{preview.items.slice(0,100).map((x,i)=><tr key={i}><td>{x.rowNumber}</td><td>{x.entityType}</td><td>{x.action}</td><td>{x.displayKey}</td><td>{x.errorMessage||'OK'}</td></tr>)}</tbody></table></div><div className="actions">{preview.errorCount>0&&<button className="btn outline" onClick={()=>void apiDownload(`/imports/${preview.importBatchId}/errors.xlsx`,'匯入錯誤.xlsx')}>下載錯誤 Excel</button>}<button className="btn ok" disabled={preview.errorCount>0||busy} onClick={()=>void confirm()}>確認匯入</button></div></>}{result&&<div className="note ok-note">新增 {result.created}／更新 {result.updated}／無變更 {result.unchanged}／失敗 {result.failed}</div>}</div>
 }
 
 function Locations({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
- const[rows,setRows]=useState<ManagedLocation[]>([]),[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<ManagedLocation|null>(null),[teamId,setTeamId]=useState(''),[name,setName]=useState(''),[city,setCity]=useState(''),[district,setDistrict]=useState(''),[address,setAddress]=useState(''),[plus,setPlus]=useState(''),[selected,setSelected]=useState<number[]>([]),[job,setJob]=useState<BackgroundJob|null>(null);
- const load=()=>Promise.all([api<ManagedLocation[]>('/managed-locations?includeInactive=true'),api<Team[]>('/teams')]).then(([l,t])=>{setRows(l);setTeams(t)}).catch(e=>setMsg(e.message));useEffect(()=>{void load()},[]);
+ const[rows,setRows]=useState<ManagedLocation[]>([]),[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<ManagedLocation|null>(null);
+ const[teamId,setTeamId]=useState(''),[name,setName]=useState(''),[city,setCity]=useState(''),[district,setDistrict]=useState(''),[address,setAddress]=useState(''),[plus,setPlus]=useState('');
+ const[q,setQ]=useState(''),[filterTeam,setFilterTeam]=useState(''),[filterCity,setFilterCity]=useState(''),[filterDistrict,setFilterDistrict]=useState(''),[filterGeocode,setFilterGeocode]=useState(''),[filterActive,setFilterActive]=useState('');
+ const[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[totalCount,setTotalCount]=useState(0),[totalPages,setTotalPages]=useState(0);
+ const[selected,setSelected]=useState<number[]>([]),[allFiltered,setAllFiltered]=useState(false),[job,setJob]=useState<BackgroundJob|null>(null);
+
+ const params=()=>{
+   const p=new URLSearchParams({page:String(page),pageSize:String(pageSize)});
+   if(q.trim())p.set('q',q.trim());
+   if(filterTeam)p.set('teamId',filterTeam);
+   if(filterCity.trim())p.set('city',filterCity.trim());
+   if(filterDistrict.trim())p.set('district',filterDistrict.trim());
+   if(filterGeocode)p.set('geocodingStatus',filterGeocode);
+   if(filterActive)p.set('isActive',filterActive);
+   return p;
+ };
+ const load=()=>Promise.all([api<ManagedLocationPage>(`/managed-locations/search?${params().toString()}`),api<Team[]>('/teams')]).then(([result,t])=>{setRows(result.items);setTotalCount(result.totalCount);setTotalPages(result.totalPages);setTeams(t)}).catch(e=>setMsg(e.message));
+ useEffect(()=>{void load()},[page,pageSize,q,filterTeam,filterCity,filterDistrict,filterGeocode,filterActive]);
+
+ const clearSelection=()=>{setSelected([]);setAllFiltered(false)};
+ useEffect(()=>{clearSelection()},[page,pageSize,q,filterTeam,filterCity,filterDistrict,filterGeocode,filterActive]);
+
  const reset=()=>{setEdit(null);setTeamId('');setName('');setCity('');setDistrict('');setAddress('');setPlus('')};
  const open=(l:ManagedLocation)=>{setEdit(l);setTeamId(l.teamId?String(l.teamId):'');setName(l.locationName);setCity(l.city||'');setDistrict(l.district||'');setAddress(l.address||'');setPlus(l.plusCode||'')};
  const save=async()=>{setBusy(true);try{const body={teamId:teamId?Number(teamId):null,locationName:name,locationType:'Customer',city:city||null,district:district||null,address:address||null,plusCode:plus||null,isActive:edit?.isActive??false,rowVersion:edit?.rowVersion||null};if(edit)await api(`/managed-locations/${edit.locationId}`,{method:'PUT',body:JSON.stringify(body)});else await api('/managed-locations',{method:'POST',body:JSON.stringify(body)});setMsg(edit?'地點已修改，需重新解析/發布。':'地點已新增，需解析/發布後才會成為正式地點。');reset();await load()}catch(e){setMsg(e instanceof Error?e.message:'儲存失敗')}finally{setBusy(false)}};
- const geocode=async()=>{if(!selected.length)return setMsg('請先勾選地點。');setBusy(true);try{const j=await api<BackgroundJob>('/jobs/geocoding',{method:'POST',body:JSON.stringify({mode:'Selected',locationIds:selected})});setJob(j);setMsg(`已建立背景工作 ${j.backgroundJobId}`);setTimeout(()=>void poll(j.backgroundJobId),1000)}catch(e){setMsg(e instanceof Error?e.message:'建立工作失敗')}finally{setBusy(false)}};
+
+ const pageIds=rows.map(x=>x.locationId);
+ const pageAllSelected=pageIds.length>0&&pageIds.every(id=>selected.includes(id));
+ const togglePage=(checked:boolean)=>setSelected(current=>checked?Array.from(new Set([...current,...pageIds])):current.filter(id=>!pageIds.includes(id)));
+
+ const geocode=async()=>{
+   if(!allFiltered&&!selected.length)return setMsg('請先勾選地點，或選取全部符合目前條件的地點。');
+   setBusy(true);
+   try{
+     const body=allFiltered?{mode:'Filtered',q:q.trim()||null,teamId:filterTeam?Number(filterTeam):null,city:filterCity.trim()||null,district:filterDistrict.trim()||null,geocodingStatus:filterGeocode||null,isActive:filterActive===''?null:filterActive==='true'}:{mode:'Selected',locationIds:selected};
+     const j=await api<BackgroundJob>('/jobs/geocoding',{method:'POST',body:JSON.stringify(body)});
+     setJob(j);setMsg(`已建立背景工作 ${j.backgroundJobId}`);setTimeout(()=>void poll(j.backgroundJobId),1000);
+   }catch(e){setMsg(e instanceof Error?e.message:'建立工作失敗')}finally{setBusy(false)}
+ };
+
  const deactivate=async(l:ManagedLocation)=>{if(!window.confirm(`確定停用地點「${l.locationName}」？歷史行程 Snapshot 不受影響。`))return;setBusy(true);try{await api(`/managed-locations/${l.locationId}`,{method:'DELETE'});setMsg('地點已停用。');await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
- const promote=async(l:ManagedLocation)=>{if(!window.confirm(`確定將「${l.locationName}」轉為正式地點？\n\n轉換後可加入專案固定地點；既有歷史行程不會被修改。`))return;setBusy(true);try{await api(`/locations/${l.locationId}/promote`,{method:'POST',body:JSON.stringify({rowVersion:l.rowVersion})});setMsg(`地點「${l.locationName}」已轉為正式地點。`);await load()}catch(e){setMsg(e instanceof Error?e.message:'轉為正式地點失敗')}finally{setBusy(false)}};
- const poll=async(id:string)=>{const j=await api<BackgroundJob>(`/jobs/${id}`);setJob(j);if(['Waiting','Processing'].includes(j.status))setTimeout(()=>void poll(id),1500);else{await load();setSelected([])}};
- return <><div className="grid cols-2"><div className="card"><div className="section-title"><h2>{edit?'修改地點':'新增地點'}</h2>{edit&&<button className="btn small outline" onClick={reset}>取消修改</button>}</div><div className="grid cols-2"><div className="field"><label>小組</label><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>地點名稱</label><input value={name} onChange={e=>setName(e.target.value)}/></div><div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div><div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field span-2"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div></div><button className="btn" disabled={busy} onClick={()=>void save()}>{edit?'儲存修改':'新增地點'}</button></div><div className="card"><ImportPanel type="locations" onDone={load}/></div></div>{msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}{job&&<div className="note">背景工作：{job.status}｜成功 {job.successCount}／失敗 {job.failedCount}／總計 {job.totalCount}</div>}<div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>地點主檔</h2><div className="sub">LocationCode 由系統自動產生；待確認地點可批次背景解析。</div></div><button className="btn ok" onClick={()=>void geocode()} disabled={busy}>解析/發布勾選地點</button></div><div className="table-wrap"><table><thead><tr><th></th><th>地點代碼</th><th>地點</th><th>類型</th><th>小組</th><th>地址</th><th>解析</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(l=>{const canPromote=l.isTemporary&&l.isActive&&l.approvalStatus==='Approved'&&l.geocodingStatus==='Completed';return <tr key={l.locationId}><td><input type="checkbox" checked={selected.includes(l.locationId)} onChange={e=>setSelected(x=>e.target.checked?[...x,l.locationId]:x.filter(id=>id!==l.locationId))}/></td><td>{l.locationCode}</td><td>{l.locationName}</td><td>{l.isTemporary?<span className="pill warn">臨時</span>:<span className="pill ok">正式</span>}</td><td>{l.teamName||'全組織'}</td><td>{l.address||l.plusCode||'—'}</td><td>{l.geocodingStatus}</td><td>{l.isActive?'啟用':l.approvalStatus}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>open(l)}>修改</button>{canPromote&&<button className="btn small ok" disabled={busy} onClick={()=>void promote(l)}>轉正式</button>}{l.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivate(l)}>停用</button>}</div></td></tr>})}</tbody></table></div></div></>
+
+ const permanentDelete=async(l:ManagedLocation)=>{
+   setBusy(true);
+   try{
+     const impact=await api<ManagedLocationDeleteImpact>(`/managed-locations/${l.locationId}/delete-impact`);
+     if(!impact.canDelete){window.alert(impact.reason||'此地點已有歷史或關聯資料，只能停用。');return}
+     if(!window.confirm(`確定永久刪除地點「${l.locationName}」？
+
+此地點目前沒有行程、專案、常用地點、核准歷史或政府主檔關聯。
+刪除後無法復原。`))return;
+     await api(`/managed-locations/${l.locationId}/permanent`,{method:'DELETE'});
+     setMsg(`地點「${l.locationName}」已永久刪除。`);clearSelection();await load();
+   }catch(e){setMsg(e instanceof Error?e.message:'刪除失敗')}finally{setBusy(false)}
+ };
+
+ const promote=async(l:ManagedLocation)=>{if(!window.confirm(`確定將「${l.locationName}」轉為正式地點？
+
+轉換後可加入專案固定地點；既有歷史行程不會被修改。`))return;setBusy(true);try{await api(`/locations/${l.locationId}/promote`,{method:'POST',body:JSON.stringify({rowVersion:l.rowVersion})});setMsg(`地點「${l.locationName}」已轉為正式地點。`);await load()}catch(e){setMsg(e instanceof Error?e.message:'轉為正式地點失敗')}finally{setBusy(false)}};
+ const poll=async(id:string)=>{const j=await api<BackgroundJob>(`/jobs/${id}`);setJob(j);if(['Waiting','Processing'].includes(j.status))setTimeout(()=>void poll(id),1500);else{await load();clearSelection()}};
+
+ return <><div className="grid cols-2"><div className="card"><div className="section-title"><h2>{edit?'修改地點':'新增地點'}</h2>{edit&&<button className="btn small outline" onClick={reset}>取消修改</button>}</div><div className="grid cols-2"><div className="field"><label>小組</label><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>地點名稱</label><input value={name} onChange={e=>setName(e.target.value)}/></div><div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div><div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field span-2"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div></div><button className="btn" disabled={busy} onClick={()=>void save()}>{edit?'儲存修改':'新增地點'}</button></div><div className="card"><ImportPanel type="locations" onDone={load}/></div></div>{msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}{job&&<div className="note">背景工作：{job.status}｜成功 {job.successCount}／失敗 {job.failedCount}／總計 {job.totalCount}</div>}
+
+ <div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>地點主檔</h2><div className="sub">大量資料採伺服器端搜尋與分頁；解析可選本頁或全部符合目前條件的地點。</div></div><button className="btn ok" onClick={()=>void geocode()} disabled={busy||(!allFiltered&&!selected.length)}>批次解析／發布</button></div>
+ <div className="grid cols-5"><div className="field"><label>搜尋</label><input value={q} placeholder="代碼／名稱／地址" onChange={e=>{setPage(1);setQ(e.target.value)}}/></div><div className="field"><label>小組</label><select value={filterTeam} onChange={e=>{setPage(1);setFilterTeam(e.target.value)}}><option value="">全部</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>縣市</label><input value={filterCity} onChange={e=>{setPage(1);setFilterCity(e.target.value)}}/></div><div className="field"><label>鄉鎮區</label><input value={filterDistrict} onChange={e=>{setPage(1);setFilterDistrict(e.target.value)}}/></div><div className="field"><label>解析狀態</label><select value={filterGeocode} onChange={e=>{setPage(1);setFilterGeocode(e.target.value)}}><option value="">全部</option><option value="NeedsProcessing">待處理（Pending/Failed）</option><option value="Pending">Pending</option><option value="Completed">Completed</option><option value="Failed">Failed</option></select></div></div>
+ <div className="actions" style={{marginBottom:10}}><label className="check-row">啟用狀態<select value={filterActive} onChange={e=>{setPage(1);setFilterActive(e.target.value)}}><option value="">全部</option><option value="true">啟用</option><option value="false">停用／未發布</option></select></label><label className="check-row">每頁<select value={pageSize} onChange={e=>{setPage(1);setPageSize(Number(e.target.value))}}><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label><span className="sub">共 {totalCount} 筆</span></div>
+ {pageAllSelected&&totalCount>rows.length&&!allFiltered&&<div className="note">已選取本頁 {rows.length} 筆。<button className="btn small outline" style={{marginLeft:8}} onClick={()=>{setAllFiltered(true);setSelected([])}}>選取全部 {totalCount} 筆符合目前條件</button></div>}
+ {allFiltered&&<div className="note ok-note">已選取全部 {totalCount} 筆符合目前條件的地點；執行解析時只會處理待解析／失敗／待核准資料。<button className="btn small outline" style={{marginLeft:8}} onClick={clearSelection}>清除選取</button></div>}
+ <div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={pageAllSelected&&!allFiltered} onChange={e=>{setAllFiltered(false);togglePage(e.target.checked)}}/></th><th>地點代碼</th><th>地點</th><th>類型</th><th>小組</th><th>地址</th><th>解析</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(l=>{const canPromote=l.isTemporary&&l.isActive&&l.approvalStatus==='Approved'&&l.geocodingStatus==='Completed';return <tr key={l.locationId}><td><input type="checkbox" checked={!allFiltered&&selected.includes(l.locationId)} disabled={allFiltered} onChange={e=>setSelected(x=>e.target.checked?[...x,l.locationId]:x.filter(id=>id!==l.locationId))}/></td><td>{l.locationCode}</td><td>{l.locationName}</td><td>{l.isTemporary?<span className="pill warn">臨時</span>:<span className="pill ok">正式</span>}</td><td>{l.teamName||'全組織'}</td><td>{l.address||l.plusCode||'—'}</td><td>{l.geocodingStatus}</td><td>{l.isActive?'啟用':l.approvalStatus}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>open(l)}>修改</button>{canPromote&&<button className="btn small ok" disabled={busy} onClick={()=>void promote(l)}>轉正式</button>}{l.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivate(l)}>停用</button>}<button className="btn small outline" disabled={busy} onClick={()=>void permanentDelete(l)}>刪除</button></div></td></tr>})}</tbody></table></div>
+ <div className="actions" style={{justifyContent:'space-between',marginTop:12}}><span className="sub">{totalCount===0?'0 筆':`${(page-1)*pageSize+1}–${Math.min(page*pageSize,totalCount)} / 共 ${totalCount} 筆`}</span><div className="actions"><button className="btn small outline" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>上一頁</button><span className="sub">第 {page} / {Math.max(totalPages,1)} 頁</span><button className="btn small outline" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>下一頁</button></div></div></div></>
 }
+
 
 function Projects({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
  const[projects,setProjects]=useState<Project[]>([]),[types,setTypes]=useState<VisitType[]>([]),[teams,setTeams]=useState<Team[]>([]),[locationCounts,setLocationCounts]=useState<Record<number,number>>({}),[edit,setEdit]=useState<Project|null>(null),[code,setCode]=useState(''),[name,setName]=useState(''),[teamId,setTeamId]=useState(''),[mode,setMode]=useState('List'),[start,setStart]=useState(todayTaipei()),[end,setEnd]=useState(''),[desc,setDesc]=useState('');
