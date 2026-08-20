@@ -7,6 +7,16 @@ on:
         description: UAT frontend URL
         required: false
         default: https://terry4410.github.io/field-visit-mileage-system/
+  workflow_call:
+    inputs:
+      base_url:
+        description: UAT frontend URL
+        required: false
+        type: string
+        default: https://terry4410.github.io/field-visit-mileage-system/
+    secrets:
+      UAT_DEMO_PASSWORD:
+        required: true
   pull_request:
     branches: [ v1.7.0-uat-candidate ]
     paths:
@@ -22,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
-      UAT_BASE_URL: ${{ github.event.inputs.base_url || 'https://terry4410.github.io/field-visit-mileage-system/' }}
+      UAT_BASE_URL: ${{ inputs.base_url || 'https://terry4410.github.io/field-visit-mileage-system/' }}
       UAT_API_HEALTH_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health
       UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
 
