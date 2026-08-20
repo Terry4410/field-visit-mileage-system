@@ -91,6 +91,9 @@ public sealed class V160FinalService(
     public Task<IReadOnlyList<ManagedLocationDto>> ManagedLocationsAsync(bool includeInactive, CancellationToken ct) =>
         repository.GetManagedLocationsAsync(RequireAny("admin", "leader"), includeInactive, ct);
 
+    public Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(ManagedLocationQueryRequest request, CancellationToken ct) =>
+        repository.SearchManagedLocationsAsync(RequireAny("admin", "leader"), request, ct);
+
     public Task<ManagedLocationDto> CreateManagedLocationAsync(SaveManagedLocationRequest request, CancellationToken ct) =>
         repository.CreateManagedLocationAsync(RequireAny("admin", "leader"), request, ct);
 
@@ -99,6 +102,12 @@ public sealed class V160FinalService(
 
     public Task DeactivateManagedLocationAsync(int id, CancellationToken ct) =>
         repository.DeactivateManagedLocationAsync(RequireRole("admin"), id, ct);
+
+    public Task<ManagedLocationDeleteImpactDto> ManagedLocationDeleteImpactAsync(int id, CancellationToken ct) =>
+        repository.GetManagedLocationDeleteImpactAsync(RequireRole("admin"), id, ct);
+
+    public Task DeleteManagedLocationAsync(int id, CancellationToken ct) =>
+        repository.DeleteManagedLocationAsync(RequireRole("admin"), id, ct);
 
     public Task<DashboardSummaryDto> DashboardAsync(CancellationToken ct) =>
         repository.GetDashboardAsync(current.GetRequired(), ct);

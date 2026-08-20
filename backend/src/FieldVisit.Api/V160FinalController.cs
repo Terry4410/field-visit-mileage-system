@@ -91,6 +91,13 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
     public async Task<ActionResult<IReadOnlyList<ManagedLocationDto>>> ManagedLocations([FromQuery] bool includeInactive = true, CancellationToken ct = default) =>
         Ok(await service.ManagedLocationsAsync(includeInactive, ct));
 
+    [HttpGet("managed-locations/search")]
+    [Authorize(Roles = "admin,leader")]
+    public async Task<ActionResult<PagedResult<ManagedLocationDto>>> SearchManagedLocations(
+        [FromQuery] ManagedLocationQueryRequest request,
+        CancellationToken ct = default) =>
+        Ok(await service.SearchManagedLocationsAsync(request, ct));
+
     [HttpPost("managed-locations")]
     [Authorize(Roles = "admin,leader")]
     public async Task<ActionResult<ManagedLocationDto>> CreateLocation(SaveManagedLocationRequest request, CancellationToken ct) =>
@@ -106,6 +113,21 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
     public async Task<IActionResult> DeactivateLocation(int locationId, CancellationToken ct)
     {
         await service.DeactivateManagedLocationAsync(locationId, ct);
+        return NoContent();
+    }
+
+    [HttpGet("managed-locations/{locationId:int}/delete-impact")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<ManagedLocationDeleteImpactDto>> ManagedLocationDeleteImpact(
+        int locationId,
+        CancellationToken ct) =>
+        Ok(await service.ManagedLocationDeleteImpactAsync(locationId, ct));
+
+    [HttpDelete("managed-locations/{locationId:int}/permanent")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> DeleteLocation(int locationId, CancellationToken ct)
+    {
+        await service.DeleteManagedLocationAsync(locationId, ct);
         return NoContent();
     }
 

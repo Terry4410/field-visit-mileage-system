@@ -651,6 +651,60 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
         return rows.Select(x => MapManagedLocation(x, x.TeamId.HasValue && teams.TryGetValue(x.TeamId.Value, out var t) ? t.TeamName : null)).ToList();
     }
 
+    public async Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(
+        CurrentUserDto user,
+        ManagedLocationQueryRequest request,
+        CancellationToken ct)
+    {
+        var page = Math.Max(1, request.Page);
+        var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
+        var q = ApplyLocationScope(db.Locations.AsNoTracking(), user);
+
+        if (!string.IsNullOrWhiteSpace(request.Q))
+        {
+            var keyword = request.Q.Trim();
+            q = q.Where(x =>
+                x.LocationCode != null && x.LocationCode.Contains(keyword)
+                || x.LocationName.Contains(keyword)
+                || (x.Address != null && x.Address.Contains(keyword))
+                || (x.PlusCode != null && x.PlusCode.Contains(keyword)));
+        }
+
+        if (request.TeamId.HasValue) q = q.Where(x => x.TeamId == request.TeamId.Value);
+        if (!string.IsNullOrWhiteSpace(request.City))
+        {
+            var city = request.City.Trim();
+            q = q.Where(x => x.City == city);
+        }
+        if (!string.IsNullOrWhiteSpace(request.District))
+        {
+            var district = request.District.Trim();
+            q = q.Where(x => x.District == district);
+        }
+        if (!string.IsNullOrWhiteSpace(request.GeocodingStatus))
+        {
+            var status = request.GeocodingStatus.Trim();
+            if (status.Equals("NeedsProcessing", StringComparison.OrdinalIgnoreCase))
+                q = q.Where(x => x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed");
+            else
+                q = q.Where(x => x.GeocodingStatus == status);
+        }
+        if (request.IsActive.HasValue) q = q.Where(x => x.IsActive == request.IsActive.Value);
+
+        var total = await q.CountAsync(ct);
+        var rows = await q
+            .OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ThenBy(x => x.LocationId)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+
+        var teamIds = rows.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
+        var teams = await db.Teams.AsNoTracking().Where(x => teamIds.Contains(x.TeamId)).ToDictionaryAsync(x => x.TeamId, ct);
+        var items = rows.Select(x => MapManagedLocation(
+            x,
+            x.TeamId.HasValue && teams.TryGetValue(x.TeamId.Value, out var team) ? team.TeamName : null)).ToList();
+
+        return new PagedResult<ManagedLocationDto>(items, page, pageSize, total);
+    }
+
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
@@ -698,6 +752,59 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
         row.IsActive = false;
         row.UpdatedAt = DateTime.UtcNow;
         AddAudit(user.UserId, "Location", locationId.ToString(), "LocationDeactivate", new { locationId });
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<ManagedLocationDeleteImpactDto> GetManagedLocationDeleteImpactAsync(
+        CurrentUserDto user,
+        int locationId,
+        CancellationToken ct)
+    {
+        var row = await db.Locations.AsNoTracking().FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
+            ?? throw new KeyNotFoundException("找不到地點。");
+        EnsureLocationWriteScope(row, user);
+
+        var tripRefs = await db.VisitTripStops.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var projectRefs = await db.ProjectLocations.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var favoriteRefs = await db.UserFavoriteLocations.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var approvalHistory = await db.LocationApprovalHistories.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var governmentMatches = await db.GovernmentLocationMasters.AsNoTracking().CountAsync(x => x.MatchedLocationId == locationId, ct);
+
+        var canDelete = tripRefs == 0 && projectRefs == 0 && favoriteRefs == 0 && approvalHistory == 0 && governmentMatches == 0;
+        string? reason = null;
+        if (!canDelete)
+        {
+            var reasons = new List<string>();
+            if (tripRefs > 0) reasons.Add($"已有 {tripRefs} 筆行程引用");
+            if (projectRefs > 0) reasons.Add($"已有 {projectRefs} 筆專案地點引用");
+            if (favoriteRefs > 0) reasons.Add($"已有 {favoriteRefs} 筆常用地點引用");
+            if (approvalHistory > 0) reasons.Add($"已有 {approvalHistory} 筆核准/解析歷史");
+            if (governmentMatches > 0) reasons.Add($"已有 {governmentMatches} 筆政府主檔比對");
+            reason = string.Join("；", reasons) + "，因此只能停用，不能永久刪除。";
+        }
+
+        return new ManagedLocationDeleteImpactDto(
+            row.LocationId, row.LocationCode ?? "", row.LocationName, canDelete,
+            tripRefs, projectRefs, favoriteRefs, approvalHistory, governmentMatches, reason);
+    }
+
+    public async Task DeleteManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct)
+    {
+        var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
+            ?? throw new KeyNotFoundException("找不到地點。");
+        EnsureLocationWriteScope(row, user);
+
+        var impact = await GetManagedLocationDeleteImpactAsync(user, locationId, ct);
+        if (!impact.CanDelete)
+            throw new InvalidOperationException(impact.Reason ?? "此地點已有歷史或關聯資料，只能停用。");
+
+        var auditValue = new
+        {
+            row.LocationId, row.LocationCode, row.LocationName, row.TeamId,
+            row.City, row.District, row.Address, row.PlusCode
+        };
+        db.Locations.Remove(row);
+        AddAudit(user.UserId, "Location", locationId.ToString(), "LocationPermanentDelete", auditValue);
         await db.SaveChangesAsync(ct);
     }
 

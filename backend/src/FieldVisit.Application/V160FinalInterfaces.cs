@@ -18,9 +18,12 @@ public interface IV160FinalRepository
     Task DeactivateManagedTeamAsync(CurrentUserDto user, int teamId, CancellationToken ct);
 
     Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct);
+    Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(CurrentUserDto user, ManagedLocationQueryRequest request, CancellationToken ct);
     Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct);
     Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct);
     Task DeactivateManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct);
+    Task<ManagedLocationDeleteImpactDto> GetManagedLocationDeleteImpactAsync(CurrentUserDto user, int locationId, CancellationToken ct);
+    Task DeleteManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct);
 
     Task<DashboardSummaryDto> GetDashboardAsync(CurrentUserDto user, CancellationToken ct);
     Task AuditExportAsync(CurrentUserDto user, string format, TripQueryRequest request, int count, CancellationToken ct);

@@ -32,8 +32,11 @@ public sealed class BackgroundJobService(
     {
         if (!HasRole(user, "leader") && !HasRole(user, "admin")) throw new UnauthorizedAccessException("目前角色無權建立地點解析工作。");
         var mode = request.Mode?.Trim() ?? "Selected";
-        if (!(mode.Equals("AllPending", StringComparison.OrdinalIgnoreCase) || mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) || mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("地點解析 Mode 只支援 AllPending、DateRange 或 Selected。");
+        if (!(mode.Equals("AllPending", StringComparison.OrdinalIgnoreCase)
+              || mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase)
+              || mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
+              || mode.Equals("Filtered", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("地點解析 Mode 只支援 AllPending、DateRange、Selected 或 Filtered。");
         if (mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) && (request.StartDate is null || request.EndDate is null || request.EndDate < request.StartDate))
             throw new InvalidOperationException("日期區間不正確。");
         if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && (request.LocationIds is null || request.LocationIds.Count == 0))
@@ -152,6 +155,38 @@ public sealed class BackgroundJobService(
                          && teamIds.Contains(x.TeamId.Value)));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
             q = q.Where(x => request.LocationIds.Contains(x.LocationId));
+
+        if (request.Mode.Equals("Filtered", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(request.Q))
+            {
+                var keyword = request.Q.Trim();
+                q = q.Where(x =>
+                    x.LocationCode != null && x.LocationCode.Contains(keyword)
+                    || x.LocationName.Contains(keyword)
+                    || (x.Address != null && x.Address.Contains(keyword))
+                    || (x.PlusCode != null && x.PlusCode.Contains(keyword)));
+            }
+            if (request.TeamId.HasValue) q = q.Where(x => x.TeamId == request.TeamId.Value);
+            if (!string.IsNullOrWhiteSpace(request.City))
+            {
+                var city = request.City.Trim();
+                q = q.Where(x => x.City == city);
+            }
+            if (!string.IsNullOrWhiteSpace(request.District))
+            {
+                var district = request.District.Trim();
+                q = q.Where(x => x.District == district);
+            }
+            if (!string.IsNullOrWhiteSpace(request.GeocodingStatus)
+                && !request.GeocodingStatus.Equals("NeedsProcessing", StringComparison.OrdinalIgnoreCase))
+            {
+                var status = request.GeocodingStatus.Trim();
+                q = q.Where(x => x.GeocodingStatus == status);
+            }
+            if (request.IsActive.HasValue) q = q.Where(x => x.IsActive == request.IsActive.Value);
+        }
+
         if (request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase))
         {
             if (request.StartDate.HasValue)
