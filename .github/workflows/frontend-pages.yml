@@ -39,3 +39,10 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  uat-browser-smoke:
+    name: UAT Browser Smoke
+    needs: deploy
+    uses: ./.github/workflows/uat-smoke.yml
+    secrets:
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
