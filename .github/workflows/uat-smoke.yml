@@ -45,14 +45,6 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Validate UAT login secret
-        shell: bash
-        run: |
-          if [ -z "${UAT_DEMO_PASSWORD:-}" ]; then
-            echo "::error::Repository secret UAT_DEMO_PASSWORD is not configured."
-            exit 1
-          fi
-
       - name: Install UAT dependencies
         working-directory: uat
         run: npm install --no-audit --no-fund
