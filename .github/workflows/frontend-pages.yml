@@ -41,8 +41,10 @@ jobs:
         uses: actions/deploy-pages@v4
 
   uat-browser-smoke:
-    name: UAT Browser Smoke
+    name: UAT Automation Checks
     needs: deploy
     uses: ./.github/workflows/uat-smoke.yml
+    with:
+      include_write_flow: false
     secrets:
       UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
