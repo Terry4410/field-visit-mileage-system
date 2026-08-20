@@ -8,8 +8,7 @@ const apiHealthUrl =
   process.env.UAT_API_HEALTH_URL ??
   "https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health";
 
-const demoPassword =
-  process.env.UAT_DEMO_PASSWORD ?? "123456";
+const demoPassword = process.env.UAT_DEMO_PASSWORD ?? "";
 
 const roles = [
   {
@@ -52,6 +51,12 @@ async function login(
   account: string,
   homeTitle: string
 ) {
+  if (!demoPassword) {
+    throw new Error(
+      "UAT_DEMO_PASSWORD is not configured for the automated UAT run."
+    );
+  }
+
   await page.goto(uatBaseUrl, {
     waitUntil: "domcontentloaded"
   });
@@ -62,7 +67,25 @@ async function login(
   const inputs = card.locator("input");
   await inputs.nth(0).fill(account);
   await card.locator('input[type="password"]').fill(demoPassword);
+
+  const loginResponsePromise = page.waitForResponse(
+    response =>
+      response.url().includes("/api/v1/auth/demo-login") &&
+      response.request().method() === "POST"
+  );
+
   await card.getByRole("button", { name: "登入", exact: true }).click();
+  const loginResponse = await loginResponsePromise;
+
+  if (!loginResponse.ok()) {
+    const uiMessage =
+      (await card.locator(".danger-note").textContent().catch(() => null))
+        ?.trim() || "登入失敗，畫面未提供錯誤文字。";
+
+    throw new Error(
+      `Demo login failed for ${account}: HTTP ${loginResponse.status()} - ${uiMessage}`
+    );
+  }
 
   await expect(page.locator(".topbar h1")).toHaveText(homeTitle);
   await expect(page.locator(".sidebar-footer")).toContainText("UAT Pilot");
