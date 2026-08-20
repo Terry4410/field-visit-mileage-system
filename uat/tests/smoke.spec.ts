@@ -12,17 +12,32 @@ const demoPassword = process.env.UAT_DEMO_PASSWORD ?? "";
 
 const roles = [
   {
-    account: "visitor01",
+    account: "pilotv01",
+    role: "外訪員",
     homeTitle: "今日行程",
     pages: ["今日行程", "歷史紀錄"]
   },
   {
-    account: "leader01",
+    account: "pilotv03",
+    role: "外訪員",
+    homeTitle: "今日行程",
+    pages: ["今日行程", "歷史紀錄"]
+  },
+  {
+    account: "pilotl01",
+    role: "小組長",
     homeTitle: "小組總覽",
     pages: ["小組總覽", "行程審核", "行程查詢", "地點管理"]
   },
   {
-    account: "admin01",
+    account: "pilotl03",
+    role: "小組長",
+    homeTitle: "小組總覽",
+    pages: ["小組總覽", "行程審核", "行程查詢", "地點管理"]
+  },
+  {
+    account: "pilota01",
+    role: "管理者",
     homeTitle: "管理儀表板",
     pages: [
       "管理儀表板",
@@ -36,7 +51,14 @@ const roles = [
     ]
   },
   {
-    account: "gov01",
+    account: "pilots02",
+    role: "督導",
+    homeTitle: "查詢總覽",
+    pages: ["查詢總覽", "行程查詢"]
+  },
+  {
+    account: "pilots04",
+    role: "督導",
     homeTitle: "查詢總覽",
     pages: ["查詢總覽", "行程查詢"]
   }
@@ -53,7 +75,7 @@ async function login(
 ) {
   if (!demoPassword) {
     throw new Error(
-      "UAT_DEMO_PASSWORD is not configured for the automated UAT run."
+      "UAT_DEMO_PASSWORD is not available for this workflow event."
     );
   }
 
@@ -105,7 +127,12 @@ test("API health endpoint is healthy", async ({ request }) => {
 });
 
 for (const role of roles) {
-  test(`${role.account} can login and open all role pages`, async ({ page }) => {
+  test(`${role.account} (${role.role}) can login and open all role pages`, async ({ page }) => {
+    test.skip(
+      !demoPassword,
+      "Login smoke is skipped when this workflow event cannot access UAT_DEMO_PASSWORD."
+    );
+
     const pageErrors: string[] = [];
     const serverErrors: string[] = [];
 
@@ -138,9 +165,14 @@ for (const role of roles) {
   });
 }
 
-test("visitor mobile shell loads correctly", async ({ page }) => {
+test("pilotv01 mobile shell loads correctly", async ({ page }) => {
+  test.skip(
+    !demoPassword,
+    "Mobile login smoke is skipped when this workflow event cannot access UAT_DEMO_PASSWORD."
+  );
+
   await page.setViewportSize({ width: 390, height: 844 });
-  await login(page, "visitor01", "今日行程");
+  await login(page, "pilotv01", "今日行程");
 
   await expect(page.locator(".mobile-tabs")).toBeVisible();
   await expect(
