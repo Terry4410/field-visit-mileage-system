@@ -125,17 +125,14 @@ public sealed class V170PeopleAdminController(
             || file.Length == 0)
         {
             throw new InvalidOperationException(
-                "請選擇 Excel 檔案。");
+                "請選擇匯入檔案。");
         }
 
-        if (!Path.GetExtension(
-                file.FileName)
-            .Equals(
-                ".xlsx",
-                StringComparison.OrdinalIgnoreCase))
+        if (!ImportFileCompatibility.IsSupported(
+                file.FileName))
         {
             throw new InvalidOperationException(
-                "只支援 .xlsx 檔案。");
+                "只支援 .xlsx、.xls、.csv 檔案。");
         }
 
         await using var ms =
@@ -145,9 +142,15 @@ public sealed class V170PeopleAdminController(
             ms,
             ct);
 
+        var content =
+            ImportFileCompatibility.NormalizeToXlsx(
+                file.FileName,
+                ms.ToArray(),
+                "people");
+
         return Ok(
             await service.PreviewBulkAsync(
-                ms.ToArray(),
+                content,
                 ct));
     }
 

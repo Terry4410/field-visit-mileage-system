@@ -147,11 +147,12 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
     [RequestSizeLimit(10 * 1024 * 1024)]
     public async Task<ActionResult<ImportPreviewDto>> PreviewImport(string type, IFormFile file, CancellationToken ct)
     {
-        if (file is null || file.Length == 0) throw new InvalidOperationException("請選擇 Excel 檔案。");
-        if (!Path.GetExtension(file.FileName).Equals(".xlsx", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("只支援 .xlsx 檔案。");
+        if (file is null || file.Length == 0) throw new InvalidOperationException("請選擇匯入檔案。");
+        if (!ImportFileCompatibility.IsSupported(file.FileName)) throw new InvalidOperationException("只支援 .xlsx、.xls、.csv 檔案。");
         await using var ms = new MemoryStream();
         await file.CopyToAsync(ms, ct);
-        return Ok(await service.PreviewImportAsync(type, ms.ToArray(), ct));
+        var content = ImportFileCompatibility.NormalizeToXlsx(file.FileName, ms.ToArray(), type);
+        return Ok(await service.PreviewImportAsync(type, content, ct));
     }
 
     [HttpGet("imports/{importBatchId:guid}/errors.xlsx")]

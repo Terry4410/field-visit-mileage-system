@@ -103,7 +103,7 @@ export default function PeopleBulkPanel({
   const doPreview=async()=>{
     if(!file){
       setMessage(
-        "請先選擇 .xlsx 檔案。"
+        "請先選擇 .xlsx、.xls 或 .csv 檔案。"
       );
       return;
     }
@@ -238,7 +238,7 @@ export default function PeopleBulkPanel({
       <div className="section-title">
         <div>
           <h2>
-            Excel 批次維護人員與權限
+            批次維護人員與權限
           </h2>
 
           <div className="sub">
@@ -274,7 +274,7 @@ export default function PeopleBulkPanel({
       <div className="actions">
         <input
           type="file"
-          accept=".xlsx"
+          accept=".xlsx,.xls,.csv"
           disabled={busy}
           onChange={e=>{
             setFile(
