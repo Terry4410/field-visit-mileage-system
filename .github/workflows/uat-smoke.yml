@@ -24,7 +24,7 @@ jobs:
     env:
       UAT_BASE_URL: ${{ github.event.inputs.base_url || 'https://terry4410.github.io/field-visit-mileage-system/' }}
       UAT_API_HEALTH_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health
-      UAT_DEMO_PASSWORD: "123456"
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -34,6 +34,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Validate UAT login secret
+        shell: bash
+        run: |
+          if [ -z "${UAT_DEMO_PASSWORD:-}" ]; then
+            echo "::error::Repository secret UAT_DEMO_PASSWORD is not configured."
+            exit 1
+          fi
 
       - name: Install UAT dependencies
         working-directory: uat
