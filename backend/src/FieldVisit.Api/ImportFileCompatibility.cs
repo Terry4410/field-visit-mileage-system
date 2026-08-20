@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
@@ -206,6 +207,22 @@ internal static class ImportFileCompatibility
         DataFormatter formatter,
         IFormulaEvaluator evaluator)
     {
+        // Legacy .xls may store dates as numeric Excel cells
+        // with display formats such as M/d/yy.
+        // Normalize real date cells to ISO so the existing
+        // import business rules can parse them consistently.
+        if (cell.CellType == CellType.Numeric
+            && DateUtil.IsCellDateFormatted(cell))
+        {
+            var dateValue =
+                DateUtil.GetJavaDate(
+                    cell.NumericCellValue);
+
+            return dateValue.ToString(
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture);
+        }
+
         try
         {
             return formatter.FormatCellValue(
