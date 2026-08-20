@@ -177,13 +177,21 @@ internal static class ImportFileCompatibility
                             cellIndex,
                             MissingCellPolicy.RETURN_BLANK_AS_NULL);
 
+                    if (sourceCell is null)
+                    {
+                        continue;
+                    }
+
                     var value =
-                        sourceCell is null
-                            ? ""
-                            : FormatCell(
-                                sourceCell,
-                                formatter,
-                                evaluator);
+                        FormatCell(
+                            sourceCell,
+                            formatter,
+                            evaluator);
+
+                    if (string.IsNullOrEmpty(value))
+                    {
+                        continue;
+                    }
 
                     targetRow
                         .CreateCell(
@@ -448,12 +456,19 @@ internal static class ImportFileCompatibility
                      cellIndex < sourceRow.Length;
                      cellIndex++)
                 {
+                    var value =
+                        sourceRow[cellIndex]
+                        ?? "";
+
+                    if (string.IsNullOrEmpty(value))
+                    {
+                        continue;
+                    }
+
                     row.CreateCell(
                             cellIndex,
                             CellType.String)
-                        .SetCellValue(
-                            sourceRow[cellIndex]
-                            ?? "");
+                        .SetCellValue(value);
                 }
             }
         }
