@@ -6,6 +6,11 @@ on:
       - chore/it-local-package-v172
     paths:
       - .github/workflows/build-it-local-package-v172.yml
+  pull_request:
+    branches:
+      - v1.7.0-uat-candidate
+    paths:
+      - .github/workflows/build-it-local-package-v172.yml
 
 permissions:
   contents: read
@@ -228,14 +233,11 @@ jobs:
           - 設定 TenantId、Audience、RequiredScope
           - Frontend `AUTH_MODE` 改為 `Entra`
           - 設定 SPA Client ID、API Scope、Redirect URI
-          
+
           請勿沿用 UAT 的憑證到 Local/正式環境。
           EOF
 
-          # Produce checksums for traceability.
           (cd "$PKG" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$PKG/CHECKSUMS.sha256"
-
-          # Make one portable ZIP inside the artifact as well.
           zip -qr "FieldVisit_UAT_v1.7.2_IT_Local_Deployment_${{ steps.version.outputs.short_sha }}.zip" "$PKG"
 
       - name: Upload IT local deployment package
