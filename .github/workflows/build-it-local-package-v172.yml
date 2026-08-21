@@ -1,0 +1,168 @@
+name: Build v1.7.2 IT Local Package
+
+on:
+  pull_request:
+    branches: [v1.7.0-uat-candidate]
+    paths: [.github/workflows/build-it-local-package-v172.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact UAT candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: v1.7.0-uat-candidate
+          fetch-depth: 1
+
+      - name: Build package
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          SHORT_SHA=$(git rev-parse --short=12 HEAD)
+          PKG=it-local-package
+          mkdir -p "$PKG/01_Source_Code" "$PKG/02_DB_Schema" "$PKG/03_Config_Templates" "$PKG/04_Deployment_Guide"
+
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='it-local-package/' \
+            --exclude='FieldVisit_UAT_v1.7.2_IT_Local_Deployment_*.zip' \
+            --exclude='外訪行程里程管理系統_Gate1_設計簽核包_v1.0.zip' \
+            ./ "$PKG/01_Source_Code/"
+          cp -R database/. "$PKG/02_DB_Schema/"
+
+          cat > "$PKG/VERSION.txt" <<EOF
+          System: 外訪行程與里程管理系統
+          Package: IT Local Deployment Package
+          UAT Application Version: 1.7.2-uat-candidate
+          DB Schema Version: 1.7.0-008
+          Source Branch: v1.7.0-uat-candidate
+          Source Commit: $SHA
+          Generated UTC: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          EOF
+
+          cat > "$PKG/03_Config_Templates/appsettings.Local.example.json" <<'EOF'
+          {
+            "App": {"Version":"1.7.2-local","DbSchemaVersion":"1.7.0-008","BusinessTimeZone":"Asia/Taipei"},
+            "ConnectionStrings": {"DefaultConnection":"Server=localhost;Database=FieldVisitLocal;Trusted_Connection=True;TrustServerCertificate=True;"},
+            "Auth": {
+              "Mode":"Demo","Issuer":"FieldVisit.Local","Audience":"FieldVisit.Local.Users",
+              "JwtKey":"REPLACE-WITH-LOCAL-KEY-AT-LEAST-32-CHARS",
+              "DemoPassword":"REPLACE-WITH-LOCAL-DEMO-PASSWORD",
+              "Entra":{"Instance":"https://login.microsoftonline.com","TenantId":"","Audience":"","RequiredScope":"access_as_user","AllowFirstLoginEmailBinding":false}
+            },
+            "Cors":{"AllowedOrigins":["http://localhost:5173"]},
+            "Providers":{"Route":"Mock","Geocoding":"Mock"},
+            "BackgroundJobs":{"WorkerEnabled":true,"RecoverOnStartup":true},
+            "Swagger":{"Enabled":true}
+          }
+          EOF
+
+          cat > "$PKG/03_Config_Templates/config.local.example.js" <<'EOF'
+          window.APP_CONFIG = {
+            API_BASE_URL: "http://localhost:5000/api/v1",
+            AUTH_MODE: "Demo",
+            ENTRA: {TENANT_ID:"", SPA_CLIENT_ID:"", API_SCOPE:"", REDIRECT_URI:"http://localhost:5173/"}
+          };
+          EOF
+
+          cat > "$PKG/02_DB_Schema/LOCAL_SETUP_ORDER.md" <<'EOF'
+          # Local DB 建置順序 — Schema 1.7.0-008
+
+          建立空白 SQL Server 資料庫後，依序執行：
+          1. `migrations/1600_001_foundation/Up.sql`
+          2. `migrations/1600_002_final/Up.sql`
+          3. `migrations/1700_001_identity_access/Up.sql`
+          4. `migrations/1700_002_location_scale/Up.sql`
+          5. `migrations/1700_003_auth_people_bulk/Up.sql`
+          6. `migrations/1700_004_legacy_supervisor_normalization/Up.sql`
+          7. `migrations/1700_005_people_bulk_confirm_claim/Up.sql`
+          8. `migrations/1700_006_legacy_uat_supervisor_export/Up.sql`
+          9. `migrations/1700_007_orphan_temporary_location_cleanup/Up.sql`
+          10. `migrations/1700_008_location_promotion_history_action/Up.sql`
+
+          每一步完成後建議執行同資料夾的 `Verify.sql`。
+
+          ## UAT 測試資料（選用）
+          - `020_uat_demo_seed.sql`：Demo 帳號／基礎測試資料。
+          - `030_uat_sample_transactions.sql`：範例交易資料。
+
+          正式或準正式 Local 環境若不需要測試帳號，請勿執行 UAT seed。
+          EOF
+
+          cat > "$PKG/04_Deployment_Guide/LOCAL_DEPLOYMENT_README.md" <<'EOF'
+          # 外訪行程與里程管理系統 — IT Local 部署指南
+
+          ## 版本基準
+          - Application：`1.7.2-uat-candidate`
+          - DB Schema：`1.7.0-008`
+          - Backend：ASP.NET Core / .NET 8
+          - Frontend：React 18 + TypeScript + Vite
+          - DB：Microsoft SQL Server 2019+ / Azure SQL 相容
+
+          ## 目錄
+          - `01_Source_Code/`：UAT candidate 完整原始碼快照
+          - `02_DB_Schema/`：完整 SQL migration / Verify / UAT seed
+          - `03_Config_Templates/`：Local 設定範本，不含真實 Secret
+          - `04_Deployment_Guide/`：Local 部署說明
+          - `VERSION.txt`：精確來源 Commit
+          - `CHECKSUMS.sha256`：檔案校驗值
+
+          ## 建議前置環境
+          .NET SDK 8.x、Node.js 20 LTS + npm、SQL Server 2019+、SSMS 或 sqlcmd。
+
+          ## 1. Database
+          建立空白 DB（例如 `FieldVisitLocal`），再依 `02_DB_Schema/LOCAL_SETUP_ORDER.md` 套用 migration。
+
+          ## 2. Backend
+          將 `03_Config_Templates/appsettings.Local.example.json` 複製為：
+          `01_Source_Code/backend/src/FieldVisit.Api/appsettings.Local.json`
+
+          修改 Local SQL connection string、Local JWT key（至少 32 字元）、Local Demo Password。
+
+          ```powershell
+          cd 01_Source_Code
+          dotnet restore backend/FieldVisitSystem.sln
+          dotnet build backend/FieldVisitSystem.sln --configuration Release
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release
+          dotnet run --project backend/src/FieldVisit.Api/FieldVisit.Api.csproj --urls http://localhost:5000
+          ```
+
+          驗證：`http://localhost:5000/health`；Local Swagger：`http://localhost:5000/swagger`。
+
+          ## 3. Frontend
+          將 `03_Config_Templates/config.local.example.js` 套用至 `01_Source_Code/frontend/public/config.js`。
+
+          ```powershell
+          cd 01_Source_Code/frontend
+          npm ci
+          npm run test
+          npm run build
+          npm run dev -- --host 0.0.0.0
+          ```
+
+          瀏覽：`http://localhost:5173`
+
+          ## 4. Local Smoke Test
+          至少驗證：登入、外訪員建立/送出、小組長里程計算與核准/退回、管理者地點批次匯入 `.xlsx/.xls/.csv`、督導唯讀查詢/匯出。
+
+          ## 不包含的機密資料
+          本包不含 Azure SQL 真實 Connection String、App Service Publish Profile、GitHub Actions Secrets、UAT_DEMO_PASSWORD 真實值、Entra credentials。IT 應依公司環境自行建立。
+          EOF
+
+          (cd "$PKG" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$PKG/CHECKSUMS.sha256"
+          zip -qr "FieldVisit_UAT_v1.7.2_IT_Local_Deployment_${SHORT_SHA}.zip" "$PKG"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FieldVisit-UAT-v1.7.2-IT-Local-Deployment
+          path: |
+            it-local-package/
+            FieldVisit_UAT_v1.7.2_IT_Local_Deployment_*.zip
+          if-no-files-found: error
+          retention-days: 14
