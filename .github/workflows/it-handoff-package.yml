@@ -1,0 +1,65 @@
+name: Build IT Handoff Package
+
+on:
+  pull_request:
+    branches:
+      - v1.7.0-uat-candidate
+    paths:
+      - '.github/workflows/it-handoff-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact UAT candidate base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Record version
+        shell: bash
+        run: |
+          mkdir -p handoff-out
+          {
+            echo 'Field Visit Mileage System - IT Handoff Package'
+            echo "Generated UTC: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "Source branch: ${{ github.event.pull_request.base.ref }}"
+            echo "Source commit: ${{ github.event.pull_request.base.sha }}"
+            echo 'Application version: 1.7.2-uat-candidate'
+            echo 'DB schema version: 1.7.0-008'
+          } > handoff-out/VERSION.txt
+
+      - name: Build source ZIP
+        shell: bash
+        run: |
+          git archive --format=zip \
+            --output=handoff-out/field-visit-mileage-system_v1.7.2_source.zip \
+            HEAD \
+            backend frontend contracts uat scripts .github \
+            README.md IT-HANDOFF.md CHANGELOG.md \
+            release-manifest.json pilot-manifest.json .gitignore
+
+      - name: Build database ZIP
+        shell: bash
+        run: |
+          git archive --format=zip \
+            --output=handoff-out/field-visit-mileage-system_v1.7.2_database.zip \
+            HEAD database docs/SCHEMA_MAPPING.md
+
+      - name: Build repository manifest
+        shell: bash
+        run: |
+          git ls-tree -r HEAD > handoff-out/GIT_TREE_MANIFEST.txt
+          git show -s --format='commit=%H%nsubject=%s%nauthor_date=%aI%ncommit_date=%cI' HEAD > handoff-out/GIT_COMMIT.txt
+
+      - name: Upload handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-visit-mileage-system-it-handoff-v1.7.2
+          path: handoff-out/*
+          if-no-files-found: error
+          retention-days: 14
