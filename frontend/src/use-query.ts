@@ -44,7 +44,7 @@ export function usePagedQuery<T>(path: string, filters: Filters, enabled = true)
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
     // Serialized filters define request identity; no request on every render.
-  }, [requestKey, enabled, rawText]);
+  }, [requestKey, enabled, rawText, settledText]);
   const data: PagedResult<T> = enabled && result?.key === requestKey ? result.data :
     { items: [], page, pageSize, totalCount: 0, totalPages: 0 };
   return {
