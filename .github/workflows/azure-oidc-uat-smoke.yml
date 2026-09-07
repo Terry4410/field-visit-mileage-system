@@ -12,8 +12,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce post-uat/v1.8.0 dispatch branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
+            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
+            exit 1
+          fi
+
   oidc-smoke:
-    if: github.ref == 'refs/heads/post-uat/v1.8.0'
+    needs: branch-guard
     runs-on: ubuntu-latest
     environment: uat
     timeout-minutes: 10
