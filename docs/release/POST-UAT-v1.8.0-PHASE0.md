@@ -78,3 +78,22 @@ Sources:
 
 Current tools can access GitHub. No Azure connector was found in plugin discovery. Azure login/approved SQL execution route still required.
 Frozen document section 14 defers actual vehicle rates, Google project/billing/quota/key, email provider/sender/text, code naming convention and log retention to IT/Business. Do not invent operational configuration. Framework development can proceed independently where these choices do not affect frozen rules.
+
+## Executed verification result (2026-09-07)
+
+Verified source commit: 3b27955a62cf6b8115c392127a883c9a138b36ea.
+This commit changes only this inspection document and the isolated CI workflow. Business source, tests and SQL are byte-for-byte the approved baseline.
+
+GitHub Actions run: https://github.com/Terry4410/field-visit-mileage-system/actions/runs/34119310678
+Conclusion: success.
+- Frontend: 11 test files, 45 passed; build passed.
+- Backend API: build passed, 0 errors; test suite 162 passed, 0 failed, 0 skipped.
+- Pre-existing warnings: CS8604 in ReportDocumentService.cs; xUnit2031 in V170InternalUserAccessRulesTests.cs.
+- Versioned TRX/JUnit and tested SHA are in the run artifact post-uat-v180-verification.
+- Live Playwright UAT, Google, email delivery, SQL schema/Verify and historical database checks were not run.
+
+Execution access blocker before Epic A:
+The current local executor has no .NET SDK, and its SDK download ended because network approval was cancelled. Remote CI verified unchanged business source. To obey the requested build/test/regression-before-commit sequence for subsequent business changes, use an approved executor with .NET 8 and dependency access. No rule permits untested Epic commits merely to get CI to execute them.
+No Azure connector or Azure authentication capability is exposed here. An approved Azure/SQL UAT execution and secure login path is also needed; signing in to a separate personal browser does not itself grant this executor access. Never send credentials in chat or relax network/security policy.
+
+No Epic A–G implementation, 1800 migration, UAT deployment, Production change, or main merge has occurred.
