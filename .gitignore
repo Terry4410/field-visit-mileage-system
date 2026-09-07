@@ -13,4 +13,7 @@ appsettings.Local.json
 .DS_Store
 Thumbs.db
 frontend/*.tsbuildinfo
+uat/node_modules/
+uat/playwright-report/
+uat/test-results/
 field-visit-mileage-system_*.zip

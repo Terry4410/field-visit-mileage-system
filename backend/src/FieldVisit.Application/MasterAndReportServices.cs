@@ -246,7 +246,7 @@ public sealed class MasterService(
             VisitTypeCode = request.VisitTypeCode.Trim(),
             VisitTypeName = request.VisitTypeName.Trim(),
             Description = request.Description?.Trim(),
-            SortOrder = request.SortOrder,
+            SortOrder = request.SortOrder ?? checked((await masters.GetVisitTypesAsync(true, ct)).Select(x => x.SortOrder).DefaultIfEmpty(0).Max() + 10),
             IsActive = request.IsActive,
             CreatedAt = DateTime.UtcNow
         };
@@ -265,7 +265,7 @@ public sealed class MasterService(
         row.VisitTypeCode = request.VisitTypeCode.Trim();
         row.VisitTypeName = request.VisitTypeName.Trim();
         row.Description = request.Description?.Trim();
-        row.SortOrder = request.SortOrder;
+        if (request.SortOrder.HasValue) row.SortOrder = request.SortOrder.Value;
         row.IsActive = request.IsActive;
         row.UpdatedAt = DateTime.UtcNow;
         await workflow.AddAuditAsync(Audit(user.UserId, "VisitType", visitTypeId.ToString(), "VisitTypeUpdate", request), ct);

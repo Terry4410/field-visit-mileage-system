@@ -539,7 +539,7 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     {
         var q = db.VisitTypes.AsNoTracking().AsQueryable();
         if (!includeInactive) q = q.Where(x => x.IsActive);
-        return q.OrderBy(x => x.SortOrder).ThenBy(x => x.VisitTypeName).ToListAsync(ct);
+        return q.OrderBy(x => x.SortOrder).ThenBy(x => x.VisitTypeName).ThenBy(x => x.VisitTypeId).ToListAsync(ct);
     }
     public Task<VisitType?> GetVisitTypeAsync(int visitTypeId, bool tracking, CancellationToken ct) =>
         (tracking ? db.VisitTypes.AsQueryable() : db.VisitTypes.AsNoTracking()).FirstOrDefaultAsync(x => x.VisitTypeId == visitTypeId, ct);

@@ -40,6 +40,16 @@ jobs:
         run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
       - name: Backend tests
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger "trx;LogFileName=backend.trx" --results-directory verification
+      - name: Epic A browser dependencies
+        working-directory: uat
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Epic A isolated browser regression
+        working-directory: uat
+        env:
+          UAT_BASE_URL: http://127.0.0.1:4173/
+        run: npm run test:epic-a
       - name: Record exact tested source
         if: always()
         run: |
@@ -50,5 +60,8 @@ jobs:
         if: always()
         with:
           name: post-uat-v180-verification
-          path: verification/
+          path: |
+            verification/
+            uat/playwright-report/
+            uat/test-results/
           retention-days: 30

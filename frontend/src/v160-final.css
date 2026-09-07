@@ -6,3 +6,11 @@ button,.btn,a.btn,input,select,textarea{min-height:44px}.btn.small{min-height:44
 .btn.danger{color:#fff!important}
 .team-inactive{opacity:.62}
 .team-inactive td{background:#fafafa}
+
+/* Epic A query controls and modal scroll boundaries. */
+.grid > label:not(.check-row){display:flex;flex-direction:column;gap:7px;margin:12px 0;font-size:13px;font-weight:700}
+.grid > label:not(.check-row) > input,.grid > label:not(.check-row) > select{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);min-width:0}
+.modal,.modal-panel{overscroll-behavior:contain}
+.modal-panel{position:relative;-webkit-overflow-scrolling:touch}
+.modal-close{position:sticky;top:0;float:right;z-index:6;background:#fff!important;margin:0 0 8px 12px}
+@media(max-width:600px){.quick-filters{flex-wrap:wrap}.pager{flex-wrap:wrap}.route-item .actions{max-width:150px}.modal-panel{max-height:calc(100dvh - 16px)}}

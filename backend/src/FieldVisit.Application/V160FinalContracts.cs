@@ -12,7 +12,8 @@ public sealed record TripQueryRequest(
     bool IncludeCancelled = false,
     int Page = 1,
     int PageSize = 50,
-    string Sort = "date_desc");
+    string Sort = "date_desc",
+    string? Keyword = null);
 
 public sealed record QueryStopDto(
     int StopSequence,

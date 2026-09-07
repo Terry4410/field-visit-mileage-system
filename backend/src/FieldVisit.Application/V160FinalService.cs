@@ -174,8 +174,9 @@ public sealed class V160FinalService(
 
     private static TripQueryRequest NormalizeQuery(TripQueryRequest request)
     {
-        var page = Math.Max(1, request.Page);
+        var page = Math.Clamp(request.Page, 1, int.MaxValue / 100);
         var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
+        var keyword = V180QueryRules.Normalize(new V180SearchRequest(Keyword: request.Keyword)).Keyword;
         var start = request.StartDate;
         var end = request.EndDate;
         if (start.HasValue && end.HasValue && end < start) throw new InvalidOperationException("查詢結束日期不可早於開始日期。");
@@ -185,6 +186,6 @@ public sealed class V160FinalService(
             start = new DateOnly(today.Year, today.Month, 1);
             end = today;
         }
-        return request with { StartDate = start, EndDate = end, Page = page, PageSize = pageSize };
+        return request with { StartDate = start, EndDate = end, Page = page, PageSize = pageSize, Keyword = keyword };
     }
 }

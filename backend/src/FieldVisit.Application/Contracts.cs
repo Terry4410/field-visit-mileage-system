@@ -116,7 +116,7 @@ public sealed record BatchPublishLocationsResult(int Success, int Failed, IReadO
 public sealed record ProjectDto(int ProjectId, int? TeamId, string ProjectCode, string ProjectName, string? Description, string LocationMode, DateOnly? StartDate, DateOnly? EndDate, bool IsActive);
 public sealed record SaveProjectRequest(int? TeamId, string ProjectCode, string ProjectName, string? Description, string LocationMode, DateOnly? StartDate, DateOnly? EndDate, bool IsActive);
 public sealed record VisitTypeDto(int VisitTypeId, string VisitTypeCode, string VisitTypeName, string? Description, int SortOrder, bool IsActive);
-public sealed record SaveVisitTypeRequest(string VisitTypeCode, string VisitTypeName, string? Description, int SortOrder, bool IsActive);
+public sealed record SaveVisitTypeRequest(string VisitTypeCode, string VisitTypeName, string? Description, int? SortOrder, bool IsActive);
 public sealed record TeamDto(int TeamId, int OrganizationId, string TeamCode, string TeamName);
 
 public sealed record MileageRateDto(int MileageRateRuleId, int? OrganizationId, string RuleName, string VehicleType, decimal RatePerKm, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive);

@@ -2,6 +2,11 @@ namespace FieldVisit.Application;
 
 public interface IV160FinalRepository
 {
+    Task<PagedResult<AdminUserAccessDto>> SearchUsersAsync(CurrentUserDto user, V180SearchRequest request, CancellationToken ct);
+    Task<PagedResult<V180TeamRow>> SearchTeamsAsync(CurrentUserDto user, V180SearchRequest request, CancellationToken ct);
+    Task<PagedResult<V180ProjectRow>> SearchProjectsAsync(CurrentUserDto user, V180SearchRequest request, CancellationToken ct);
+    Task<PagedResult<CorrectionRequestDto>> SearchCorrectionsAsync(CurrentUserDto user, V180SearchRequest request, CancellationToken ct);
+    Task<IReadOnlyList<VisitTypeDto>> MoveVisitTypeAsync(CurrentUserDto user, int id, V180MoveVisitTypeRequest request, CancellationToken ct);
     Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(CurrentUserDto user, TripQueryRequest request, bool exportAll, CancellationToken ct);
     Task<CorrectionDraftDto> GetCorrectionDraftAsync(CurrentUserDto user, long visitTripId, CancellationToken ct);
     Task<CorrectionRequestDto> CreateCorrectionAsync(CurrentUserDto user, CreateCorrectionRequest request, CancellationToken ct);

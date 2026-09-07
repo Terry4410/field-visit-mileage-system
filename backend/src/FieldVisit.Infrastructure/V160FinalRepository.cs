@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Infrastructure;
 
-public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl access) : IV160FinalRepository
+public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessControl access) : IV160FinalRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -79,6 +79,8 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
                 ? latestSnapshotQ.Any(s => s.VisitTripId == t.VisitTripId && s.Stops.Any(st => st.VisitTypeId == visitTypeId))
                 : t.Stops.Any(st => st.VisitTypeId == visitTypeId));
         }
+
+        q = V180TripKeywordQuery.Apply(q, latestSnapshotQ, db.Users, db.Projects, db.VisitTypes, request.Keyword);
 
         var candidate = q.Select(t => new
         {
@@ -277,7 +279,7 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
         return await MapCorrectionAsync(row.CorrectionRequestId, ct);
     }
 
-    public async Task<IReadOnlyList<CorrectionRequestDto>> GetCorrectionsAsync(CurrentUserDto user, string? status, CancellationToken ct)
+    private async Task<IQueryable<CorrectionRequest>> ScopedCorrectionsAsync(CurrentUserDto user, CancellationToken ct)
     {
         var q = db.CorrectionRequests.AsNoTracking().AsQueryable();
         if (HasRole(user, "admin"))
@@ -333,6 +335,12 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
         }
         else if (HasRole(user, "visitor")) q = q.Where(x => x.RequestedByUserId == user.UserId);
         else q = q.Where(x => false);
+        return q;
+    }
+
+    public async Task<IReadOnlyList<CorrectionRequestDto>> GetCorrectionsAsync(CurrentUserDto user, string? status, CancellationToken ct)
+    {
+        var q = await ScopedCorrectionsAsync(user, ct);
         if (!string.IsNullOrWhiteSpace(status)) q = q.Where(x => x.Status == status);
         var ids = await q.OrderByDescending(x => x.RequestedAt).Select(x => x.CorrectionRequestId).ToListAsync(ct);
         var result = new List<CorrectionRequestDto>(ids.Count);
@@ -494,6 +502,11 @@ public sealed class V160FinalRepository(AppDbContext db, IV170AccessControl acce
     {
         var orgId = RequireOrganization(user);
         var users = await db.Users.AsNoTracking().Where(x => x.OrganizationId == orgId).OrderBy(x => x.EmployeeNo).ToListAsync(ct);
+        return await MapUsersAsync(users, ct);
+    }
+
+    private async Task<IReadOnlyList<AdminUserAccessDto>> MapUsersAsync(List<User> users, CancellationToken ct)
+    {
         var ids = users.Select(x => x.UserId).ToList();
         var roles = await (from ur in db.UserRoles.AsNoTracking() join r in db.Roles.AsNoTracking() on ur.RoleId equals r.RoleId where ids.Contains(ur.UserId) select new { ur.UserId, r.RoleCode }).ToListAsync(ct);
         var scopes = await (from s in db.UserTeamScopes.AsNoTracking() join t in db.Teams.AsNoTracking() on s.TeamId equals t.TeamId where ids.Contains(s.UserId) && s.IsActive select new { s.UserId, Dto = new TeamScopeDto(t.TeamId, t.TeamName, s.IsPrimary) }).ToListAsync(ct);
