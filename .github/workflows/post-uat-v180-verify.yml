@@ -1,0 +1,54 @@
+name: Post-UAT v1.8.0 verification
+on:
+  push:
+    branches: [post-uat/v1.8.0]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: post-uat-v180-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/post-uat/v1.8.0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check approved baseline ancestry
+        run: git merge-base --is-ancestor 2fc51db91922ff95b605eec3b8127cd7b8c4e641 HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install CJK font required by PDF tests
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test -- --reporter=default --reporter=junit --outputFile=../verification/frontend.xml
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+      - name: Backend build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Backend tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger "trx;LogFileName=backend.trx" --results-directory verification
+      - name: Record exact tested source
+        if: always()
+        run: |
+          mkdir -p verification
+          git rev-parse HEAD > verification/source-commit.txt
+          git diff --name-only 2fc51db91922ff95b605eec3b8127cd7b8c4e641 HEAD > verification/changed-files.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: post-uat-v180-verification
+          path: verification/
+          retention-days: 30
