@@ -69,7 +69,7 @@ public sealed class V180QueryRegressionTests
         Assert.DoesNotContain(result.Items, x => x.UserId == 999);
         var email = await Repo(db).SearchUsersAsync(Actor(), new(Keyword: "u125@"), default);
         Assert.Equal(125, Assert.Single(email.Items).UserId);
-        Assert.Empty(db.ChangeTracker.Entries().Where(x => x.State == EntityState.Modified));
+        Assert.DoesNotContain(db.ChangeTracker.Entries(), x => x.State == EntityState.Modified);
     }
 
     [Theory]
