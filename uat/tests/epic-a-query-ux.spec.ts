@@ -58,7 +58,7 @@ test("automatic query debounces text and ignores a late stale response", async (
   });
 
   await page.goto("./#/admin/query");
-  await expect(page.getByRole("heading", { name: "行程查詢" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "行程查詢", level: 2 })).toBeVisible();
   const keyword = page.getByPlaceholder("工號、姓名、地點、專案或行程編號");
   await keyword.fill("old");
   await oldRequestStarted;
