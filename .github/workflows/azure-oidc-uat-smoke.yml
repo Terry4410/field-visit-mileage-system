@@ -1,0 +1,86 @@
+name: Azure OIDC UAT smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: azure-oidc-uat-smoke
+  cancel-in-progress: false
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce post-uat/v1.8.0 dispatch branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
+            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
+            exit 1
+          fi
+
+  oidc-smoke:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 10
+    steps:
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify Azure subscription
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED_SUBSCRIPTION_ID"
+          az account show \
+            --query '{id:id,name:name,tenantId:tenantId,state:state,isDefault:isDefault}' \
+            --output json
+          actual_subscription_id="$(az account show --query id --output tsv)"
+          test "$actual_subscription_id" = "$EXPECTED_SUBSCRIPTION_ID"
+
+      - name: Verify UAT resource group exists
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AZURE_RESOURCE_GROUP"
+          az group show \
+            --name "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --query '{name:name,id:id,location:location}' \
+            --output json
+
+      - name: Verify UAT SQL server exists
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AZURE_SQL_SERVER_NAME"
+          az sql server show \
+            --name "$AZURE_SQL_SERVER_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --query '{name:name,id:id,resourceGroup:resourceGroup,location:location,state:state,fullyQualifiedDomainName:fullyQualifiedDomainName}' \
+            --output json
+
+      - name: Sign out of Azure
+        if: always()
+        run: az logout
