@@ -13,8 +13,8 @@ The sole business baseline is `v1.8.0 Post-UAT Requirement Freeze & Impact Analy
 | 3 | `1800_003_deployment_sites` | `1.8.0-002` | Site master, relocation history, Team-Site and Employment-Site assignment |
 | 4 | `1800_004_location_governance` | `1.8.0-003` | TaxId, master note, inactivation/duplicate marker and Team Location Note audit |
 | 5 | `1800_005_project_visit_rate_lifecycle` | `1.8.0-004` | Project/Visit Type lifecycle and effective Motorcycle/Car rates |
-| 6 | `1800_006_notification_framework` | `1.8.0-005` | UAT Test-mode policy, allowlist, event settings, outbox and mail log |
-| 7 | `1800_007_mileage_google_governance` | `1.8.0-006` | Geocoding/route metadata, Snapshot-based retry, manual fallback and mileage audit |
+| 6 | `1800_006_notification_framework` | `1.8.0-005` | Mandatory Transaction semantics, optional Reminder preference, UAT Test/Disabled/empty allowlist, outbox/log |
+| 7 | `1800_007_mileage_google_governance` | `1.8.0-006` | Provider request audit and company-approved mileage evidence without unapproved Google-output retention |
 
 Every `Up.sql` is single-transaction, obtains the same SQL application lock, checks its exact predecessor, refuses reapplication and stops on a partially modified schema. Every `Verify.sql` throws on failure so GitHub Actions can act as a hard gate.
 
@@ -26,8 +26,8 @@ Every `Up.sql` is single-transaction, obtains the same SQL application lock, che
 - `1800_003` does not invent Center/Site/Location ownership. Business-approved Site master and assignment data must be loaded later through application or approved import flows.
 - `1800_004` does not merge, re-key or deactivate any Location. TaxId is deliberately indexed but not unique.
 - `1800_005` keeps every existing rate value and date. It stops if unknown vehicle codes or overlapping active periods are found; it does not normalize them automatically.
-- `1800_006` creates an empty UAT allowlist and a disabled UAT policy in `Test` mode. No email is sent by migration.
-- `1800_007` sets only new governance defaults (`ManualFallbackUsed = 0`) and does not change existing distances, rates, amounts or Snapshot content.
+- `1800_006` creates `OptionalEmailNotificationEnabled`; Transaction/System events do not honor it, Reminder events do. UAT starts with an empty allowlist and a disabled `Test` policy. No email is sent.
+- `1800_007` sets only new governance defaults (`ManualFallbackUsed = 0`) and does not change existing distances, rates, amounts or Snapshot content. It does not persist Google-derived coordinates, route distance/duration, provider request ID, polyline, turn-by-turn or raw response.
 
 ## Rollback policy
 
@@ -35,13 +35,14 @@ No `Rollback.sql` is supplied. Although the migrations are additive, dropping th
 
 ## Future UAT execution gate (not performed)
 
-Before applying any `Up.sql`, the pipeline must:
+Before applying any `Up.sql`, the separately approved pipeline must:
 
-1. Require `post-uat/v1.8.0`, GitHub `uat` environment and OIDC.
-2. Prove subscription, resource group, SQL server and `DB_NAME() = db-fieldvisit-uat`.
-3. Prove current latest schema is exactly `1.7.0-008` before `1800_001`.
-4. Capture/confirm an IT-approved UAT restore point and prevent concurrent application writes during Up + Verify.
-5. Apply one folder at a time: `Up.sql`, its `Verify.sql`, then rerun `1800_001/Verify.sql` to prove the original v1.7.2 content fingerprint is unchanged.
-6. Stop immediately on any `THROW`; do not edit data, broaden firewall rules or expand database roles to make the run pass.
+1. Keep `gh-fieldvisit-uat` read-only; use a distinct migration identity such as `gh-fieldvisit-uat-migrate`.
+2. Require `post-uat/v1.8.0`, a separate GitHub `uat-migration` environment, `workflow_dispatch`, Required approval and OIDC.
+3. Prove subscription, resource group, SQL server and `DB_NAME() = db-fieldvisit-uat`.
+4. Prove current latest schema is the exact predecessor of the single selected migration.
+5. Capture/confirm an IT-approved UAT restore point and prevent concurrent application writes during Up + Verify.
+6. Apply exactly one approved folder per dispatch: `Up.sql`, its `Verify.sql`, then rerun `1800_001/Verify.sql`; do not execute `001`–`007` in one run.
+7. Stop immediately on any `THROW`; do not edit data, broaden firewall rules or expand database roles to make the run pass.
 
 The currently verified `db_datareader` principal is intentionally sufficient only for read-only smoke testing. These scripts must not be run until a separate, least-privilege migration execution design is reviewed and approved; no role increase is part of this package.

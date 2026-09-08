@@ -10,7 +10,8 @@ IF OBJECT_ID(N'dbo.NotificationEnvironmentPolicies', N'U') IS NULL
    OR OBJECT_ID(N'dbo.NotificationSettingRecipients', N'U') IS NULL
    OR OBJECT_ID(N'dbo.MailOutbox', N'U') IS NULL
    OR OBJECT_ID(N'dbo.MailDeliveryLogs', N'U') IS NULL
-   OR COL_LENGTH(N'dbo.Employments', N'EmailNotificationEnabled') IS NULL
+   OR COL_LENGTH(N'dbo.Employments', N'OptionalEmailNotificationEnabled') IS NULL
+   OR COL_LENGTH(N'dbo.NotificationSettings', N'HonorsOptionalPreference') IS NULL
     THROW 54101, N'Verify failed: notification framework schema 不完整。', 1;
 
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.NotificationEmailAllowlist') AND name=N'UX_NotificationEmailAllowlist_Environment_Email')
@@ -56,8 +57,27 @@ IF EXISTS
 )
     THROW 54103, N'Verify failed: UAT 不得使用 Live Email mode。', 1;
 
+IF EXISTS
+(
+    SELECT 1 FROM dbo.NotificationEmailAllowlist
+    WHERE EnvironmentCode = N'UAT' AND IsActive = 1
+)
+    THROW 54110, N'Verify failed: UAT initial Email allowlist 必須為空。', 1;
+
 IF (SELECT COUNT(*) FROM dbo.NotificationSettings) <> 14
     THROW 54104, N'Verify failed: notification event seed 數量不正確。', 1;
+
+IF EXISTS
+(
+    SELECT 1 FROM dbo.NotificationSettings
+    WHERE (NotificationType = N'Transaction' AND HonorsOptionalPreference <> 0)
+       OR (NotificationType = N'Reminder' AND HonorsOptionalPreference <> 1)
+       OR (NotificationType = N'System' AND HonorsOptionalPreference <> 0)
+)
+    THROW 54111, N'Verify failed: Transaction/System 通知不得受個人 Optional preference 關閉；Reminder 必須套用該 preference。', 1;
+
+IF COL_LENGTH(N'dbo.Employments', N'EmailNotificationEnabled') IS NOT NULL
+    THROW 54112, N'Verify failed: 不得使用語意模糊的 EmailNotificationEnabled 欄位。', 1;
 
 IF EXISTS
 (
@@ -104,9 +124,10 @@ SELECT
     s.EventCode,
     s.NotificationType,
     s.IsEnabled,
+    s.HonorsOptionalPreference,
     s.ReminderDays,
     STRING_AGG(r.RecipientRuleCode, N',') WITHIN GROUP(ORDER BY r.RecipientRuleCode) AS RecipientRules
 FROM dbo.NotificationSettings s
 JOIN dbo.NotificationSettingRecipients r ON r.NotificationSettingId = s.NotificationSettingId AND r.IsActive = 1
-GROUP BY s.EventCode, s.NotificationType, s.IsEnabled, s.ReminderDays
+GROUP BY s.EventCode, s.NotificationType, s.IsEnabled, s.HonorsOptionalPreference, s.ReminderDays
 ORDER BY s.EventCode;

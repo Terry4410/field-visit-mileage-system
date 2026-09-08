@@ -27,12 +27,13 @@ BEGIN TRY
        OR OBJECT_ID(N'dbo.NotificationSettingRecipients', N'U') IS NOT NULL
        OR OBJECT_ID(N'dbo.MailOutbox', N'U') IS NOT NULL
        OR OBJECT_ID(N'dbo.MailDeliveryLogs', N'U') IS NOT NULL
+       OR COL_LENGTH(N'dbo.Employments', N'OptionalEmailNotificationEnabled') IS NOT NULL
        OR COL_LENGTH(N'dbo.Employments', N'EmailNotificationEnabled') IS NOT NULL
         THROW 54003, N'偵測到 1.8.0-006 部分物件或欄位已存在；請由 IT Review。', 1;
 
     ALTER TABLE dbo.Employments ADD
-        EmailNotificationEnabled BIT NOT NULL
-            CONSTRAINT DF_Employments_EmailNotificationEnabled DEFAULT(1) WITH VALUES;
+        OptionalEmailNotificationEnabled BIT NOT NULL
+            CONSTRAINT DF_Employments_OptionalEmailNotificationEnabled DEFAULT(1) WITH VALUES;
 
     CREATE TABLE dbo.NotificationEnvironmentPolicies
     (
@@ -79,6 +80,7 @@ BEGIN TRY
         EventCode NVARCHAR(80) NOT NULL,
         NotificationType NVARCHAR(20) NOT NULL,
         IsEnabled BIT NOT NULL,
+        HonorsOptionalPreference BIT NOT NULL,
         ReminderDays INT NULL,
         TemplateCode NVARCHAR(80) NOT NULL,
         CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_NotificationSettings_CreatedAt DEFAULT(SYSUTCDATETIME()),
@@ -87,26 +89,32 @@ BEGIN TRY
         RowVersion ROWVERSION NOT NULL,
         CONSTRAINT FK_NotificationSettings_UpdatedByUser FOREIGN KEY(UpdatedByUserId) REFERENCES dbo.Users(UserId),
         CONSTRAINT CK_NotificationSettings_Type CHECK(NotificationType IN(N'Transaction', N'Reminder', N'System')),
+        CONSTRAINT CK_NotificationSettings_OptionalPreference CHECK
+        (
+            (NotificationType = N'Reminder' AND HonorsOptionalPreference = 1)
+            OR
+            (NotificationType IN(N'Transaction', N'System') AND HonorsOptionalPreference = 0)
+        ),
         CONSTRAINT CK_NotificationSettings_ReminderDays CHECK(ReminderDays IS NULL OR ReminderDays BETWEEN 0 AND 365),
         CONSTRAINT UQ_NotificationSettings_EventCode UNIQUE(EventCode)
     );
 
-    INSERT dbo.NotificationSettings(EventCode, NotificationType, IsEnabled, ReminderDays, TemplateCode)
+    INSERT dbo.NotificationSettings(EventCode, NotificationType, IsEnabled, HonorsOptionalPreference, ReminderDays, TemplateCode)
     VALUES
-        (N'TripSubmitted', N'Transaction', 1, NULL, N'TripSubmitted.v1'),
-        (N'TripApproved', N'Transaction', 1, NULL, N'TripApproved.v1'),
-        (N'TripReturned', N'Transaction', 1, NULL, N'TripReturned.v1'),
-        (N'CorrectionRequested', N'Transaction', 1, NULL, N'CorrectionRequested.v1'),
-        (N'CorrectionApproved', N'Transaction', 1, NULL, N'CorrectionApproved.v1'),
-        (N'CorrectionReturned', N'Transaction', 1, NULL, N'CorrectionReturned.v1'),
-        (N'LocationReviewRequested', N'Transaction', 1, NULL, N'LocationReviewRequested.v1'),
-        (N'LocationApproved', N'Transaction', 1, NULL, N'LocationApproved.v1'),
-        (N'LocationReturned', N'Transaction', 1, NULL, N'LocationReturned.v1'),
-        (N'EmploymentAuthorizationExpiring', N'Reminder', 0, 30, N'EmploymentAuthorizationExpiring.v1'),
-        (N'DeploymentSiteChangeEffective', N'Reminder', 0, 0, N'DeploymentSiteChangeEffective.v1'),
-        (N'ProjectExpiring', N'Reminder', 0, 30, N'ProjectExpiring.v1'),
-        (N'ImportCompleted', N'System', 1, NULL, N'ImportCompleted.v1'),
-        (N'ImportFailed', N'System', 1, NULL, N'ImportFailed.v1');
+        (N'TripSubmitted', N'Transaction', 1, 0, NULL, N'TripSubmitted.v1'),
+        (N'TripApproved', N'Transaction', 1, 0, NULL, N'TripApproved.v1'),
+        (N'TripReturned', N'Transaction', 1, 0, NULL, N'TripReturned.v1'),
+        (N'CorrectionRequested', N'Transaction', 1, 0, NULL, N'CorrectionRequested.v1'),
+        (N'CorrectionApproved', N'Transaction', 1, 0, NULL, N'CorrectionApproved.v1'),
+        (N'CorrectionReturned', N'Transaction', 1, 0, NULL, N'CorrectionReturned.v1'),
+        (N'LocationReviewRequested', N'Transaction', 1, 0, NULL, N'LocationReviewRequested.v1'),
+        (N'LocationApproved', N'Transaction', 1, 0, NULL, N'LocationApproved.v1'),
+        (N'LocationReturned', N'Transaction', 1, 0, NULL, N'LocationReturned.v1'),
+        (N'EmploymentAuthorizationExpiring', N'Reminder', 0, 1, 30, N'EmploymentAuthorizationExpiring.v1'),
+        (N'DeploymentSiteChangeEffective', N'Reminder', 0, 1, 0, N'DeploymentSiteChangeEffective.v1'),
+        (N'ProjectExpiring', N'Reminder', 0, 1, 30, N'ProjectExpiring.v1'),
+        (N'ImportCompleted', N'System', 1, 0, NULL, N'ImportCompleted.v1'),
+        (N'ImportFailed', N'System', 1, 0, NULL, N'ImportFailed.v1');
 
     CREATE TABLE dbo.NotificationSettingRecipients
     (
@@ -205,7 +213,7 @@ BEGIN TRY
     VALUES
     (
         N'1.8.0-006',
-        N'Notification settings, UAT Test-mode allowlist, transactional outbox and delivery audit log',
+        N'Notification settings with mandatory transaction semantics, optional reminder preference, UAT Test-mode allowlist, transactional outbox and delivery audit log',
         SYSUTCDATETIME(),
         N'v1.8.0 Post-UAT'
     );

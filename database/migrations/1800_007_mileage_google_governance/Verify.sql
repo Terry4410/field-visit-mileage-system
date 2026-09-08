@@ -8,15 +8,18 @@ IF OBJECT_ID(N'dbo.RouteCalculationAttempts', N'U') IS NULL
    OR OBJECT_ID(N'dbo.GeocodingAttempts', N'U') IS NULL
    OR OBJECT_ID(N'dbo.MileageGovernanceEvents', N'U') IS NULL
    OR COL_LENGTH(N'dbo.MileageCalculations', N'SelectedRouteCalculationAttemptId') IS NULL
-   OR COL_LENGTH(N'dbo.VisitTripSnapshotStops', N'LatitudeSnapshot') IS NULL
-   OR COL_LENGTH(N'dbo.VisitTripSnapshotStops', N'LongitudeSnapshot') IS NULL
+   OR COL_LENGTH(N'dbo.MileageCalculations', N'DistanceDecisionGovernanceVersion') IS NULL
+   OR COL_LENGTH(N'dbo.MileageCalculations', N'ApprovedDistanceSource') IS NULL
+   OR COL_LENGTH(N'dbo.MileageCalculations', N'ApprovalBasisHash') IS NULL
    OR COL_LENGTH(N'dbo.VisitTripSnapshots', N'MileageRouteAttemptIdSnapshot') IS NULL
+   OR COL_LENGTH(N'dbo.VisitTripSnapshots', N'ApprovedDistanceSourceSnapshot') IS NULL
    OR COL_LENGTH(N'dbo.Locations', N'SelectedGeocodingAttemptId') IS NULL
     THROW 54301, N'Verify failed: mileage / Google governance schema 不完整。', 1;
 
 IF OBJECT_ID(N'dbo.TR_RouteCalculationAttempts_BasisTrip', N'TR') IS NULL
    OR OBJECT_ID(N'dbo.TR_Locations_SelectedGeocodingAttempt', N'TR') IS NULL
    OR OBJECT_ID(N'dbo.TR_MileageCalculations_SelectedRouteTrip', N'TR') IS NULL
+   OR OBJECT_ID(N'dbo.TR_MileageCalculations_DecisionEvidence', N'TR') IS NULL
    OR OBJECT_ID(N'dbo.TR_VisitTripSnapshots_RouteAttemptTrip', N'TR') IS NULL
     THROW 54310, N'Verify failed: 1.8.0-007 cross-entity guard trigger 不完整。', 1;
 
@@ -94,6 +97,18 @@ IF EXISTS
 
 IF EXISTS
 (
+    SELECT 1 FROM dbo.MileageCalculations
+    WHERE DistanceDecisionGovernanceVersion = N'1.8.0'
+      AND
+      (
+          ApprovedDistanceSource IS NULL OR ApprovalBasisCode IS NULL OR ApprovalBasisHash IS NULL
+          OR DistanceApprovedAt IS NULL OR DistanceApprovedByUserId IS NULL
+      )
+)
+    THROW 54313, N'Verify failed: ApprovedDistanceKm 缺少公司核定來源、basis hash、核定人或時間。', 1;
+
+IF EXISTS
+(
     SELECT 1
     FROM sys.columns
     WHERE object_id IN(OBJECT_ID(N'dbo.RouteCalculationAttempts'), OBJECT_ID(N'dbo.GeocodingAttempts'), OBJECT_ID(N'dbo.MileageGovernanceEvents'))
@@ -103,10 +118,19 @@ IF EXISTS
           OR name LIKE N'%TurnByTurn%'
           OR name LIKE N'%Alternative%'
           OR name LIKE N'%Optimized%'
-          OR name IN(N'ResponseJson', N'RawResponse', N'RoutePayload')
+          OR name IN
+          (
+              N'ResponseJson', N'RawResponse', N'RoutePayload', N'ProviderRequestId',
+              N'DistanceMeters', N'DurationSeconds', N'Latitude', N'Longitude',
+              N'LatitudeSnapshot', N'LongitudeSnapshot'
+          )
       )
 )
-    THROW 54304, N'Verify failed: 不得永久保存完整路線、多路徑或最佳化 response。', 1;
+    THROW 54304, N'Verify failed: 未經 IT/Legal retention 核准，不得永久保存 Google-derived coordinates、distance、duration、provider request id、完整路線或 response。', 1;
+
+IF COL_LENGTH(N'dbo.VisitTripSnapshotStops', N'LatitudeSnapshot') IS NOT NULL
+   OR COL_LENGTH(N'dbo.VisitTripSnapshotStops', N'LongitudeSnapshot') IS NOT NULL
+    THROW 54314, N'Verify failed: Trip Snapshot 不得永久保存 Google-derived coordinates。', 1;
 
 IF EXISTS
 (
@@ -151,8 +175,6 @@ SELECT TOP(20)
     RequestedVehicleType,
     TravelMode,
     Provider,
-    DistanceMeters,
-    DurationSeconds,
     Status,
     ErrorCode,
     CorrelationId,

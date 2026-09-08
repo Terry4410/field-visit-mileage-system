@@ -6,7 +6,7 @@ Status: preparation for review. Migration scripts exist but have not been execut
 
 Each Epic follows: `Impact Analysis → Coding → Commit to post-uat/v1.8.0 → GitHub Actions Build/Test → Regression`. A failed gate is analyzed and fixed in a new commit; the next Epic cannot start until all required checks pass.
 
-Database migrations are not part of a normal build job. When separately approved, a UAT migration job must be manual, branch/environment restricted, serialized, target-verified and blocked from application deployment until Up + Verify and historical fingerprints pass.
+Database migrations are not part of a normal build job. `gh-fieldvisit-uat` remains read-only. When separately approved, migration uses a distinct identity such as `gh-fieldvisit-uat-migrate` and a separate `uat-migration` GitHub Environment with `workflow_dispatch`, Required approval and a `post-uat/v1.8.0` branch restriction. Each approved migration folder runs separately; no job executes `001`–`007` as one batch.
 
 ## Epic sequence and dependencies
 
@@ -16,8 +16,8 @@ Database migrations are not part of a normal build job. When separately approved
 | B | Organization / People / Team | `1800_001`, then `1800_002` | Rehire/new employee number, leave/return/termination, Center/Team as-of, single Primary Team, multiple/delegated leaders, role/data scope | This preparation package approved; actual UAT migration access/role and execution separately approved |
 | C | Deployment Site | `1800_003` | Team-visible sites, one Primary, start/end default, historical/backdated as-of and unchanged Snapshot | Epic B Actions + regression pass |
 | D | Location / Project / Visit Type / Rate | `1800_004`, then `1800_005` | TaxId non-unique search, duplicate warning/no merge, Team Note scope/audit, batch preview, project soft delete, VisitDate+Vehicle rate | Epic C passes |
-| E | Notification framework | `1800_006` | UAT Test mode/allowlist, leader/delegate recipients, opt-out, outbox transaction, delivery failure isolation and audit | Epic D passes; provider/sender decision may remain mocked |
-| F | Google Maps Platform | `1800_007` | Routes + Geocoding + map, one ordered route, Car/Motorcycle mapping, failure/manual fallback, Snapshot retry, correction invalidation, no response persistence | Epic E passes; restricted UAT keys and TWO_WHEELER review required only for live smoke |
+| E | Notification framework | `1800_006` | UAT Test/Disabled/empty allowlist, mandatory Transaction notifications, optional Reminder preference, outbox transaction, failure isolation/audit | Epic D passes; provider/sender decision may remain mocked |
+| F | Google Maps Platform | `1800_007` | One ordered route, vehicle mapping, fallback/Snapshot retry, attribution, Terms/Privacy and no unapproved Google-output persistence | Epic E passes; IT/Legal retention and contract gates required before live smoke |
 | G | Supervisor retirement | No new table planned; any persistent role-status change requires a reviewed versioned forward migration | UI/assignment removal while UserRole, DataScope, export, audit and historical transaction evidence remain readable | Epic F passes |
 
 ## Planned implementation boundaries
@@ -46,18 +46,34 @@ Database migrations are not part of a normal build job. When separately approved
 
 - Persist outbox in the same transaction as the business event, then deliver asynchronously.
 - UAT refuses non-allowlisted recipients and cannot be switched to Live mode by schema/config data.
+- Transaction workflow notifications ignore the individual's optional email preference; Reminder events honor `OptionalEmailNotificationEnabled`.
 - Fixed templates only. Provider failure updates outbox/log but never rolls back the business transaction.
 
 ### Epic F
 
 - Follow `POST-UAT-v1.8.0-EPIC-F-GOOGLE-IMPACT.md` exactly.
 - Keep live credentials outside GitHub; mock external APIs in normal CI.
-- Never store full polylines, turn-by-turn data, alternative routes or optimized stop order.
+- Keep Google-derived coordinates, route distance/duration and provider request IDs transient until IT/Legal approves exact contractual retention. Never store polylines, turn-by-turn data, raw responses, alternatives or optimized order.
+- Persist the company-approved distance decision and its source/basis hash, approver and timestamps; do not use durable `SystemDistanceKm` as a Google-result cache.
+- Display required Google Maps attribution and block live UAT until applicable Terms of Use and Privacy Policy review is approved.
 
 ### Epic G
 
 - Remove navigation/page and prohibit new Supervisor assignment.
 - Do not delete historical Supervisor role, scope, capabilities, exports, audits or transaction evidence.
+
+## Migration execution preparation (design only)
+
+| Control | Required design |
+|---|---|
+| Read-only identity | `gh-fieldvisit-uat`; unchanged and never used for migration |
+| Migration identity | Separate workload identity, recommended `gh-fieldvisit-uat-migrate`; least privilege requires later review |
+| GitHub Environment | `uat-migration`, separate from `uat` |
+| Trigger/approval | `workflow_dispatch` plus Required reviewers/approval |
+| Branch | Only `post-uat/v1.8.0`; fail before OIDC when any other ref is selected |
+| Execution unit | Exactly one approved migration folder per dispatch: Up → Verify → historical fingerprint Verify → stop |
+| Sequence | Epic B `001`, then separately `002`; C `003`; D `004`, then separately `005`; E `006`; F `007` |
+| Prohibited | Broad role, permanent firewall change, Production access, automatic `001`–`007`, application deployment |
 
 ## Final release gate
 
