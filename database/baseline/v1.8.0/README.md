@@ -15,4 +15,6 @@ This directory is the future clean-install entry point for new environments. It 
 7. Run `Verify.sql`, Fast Regression, and Full AI Validation.
 8. Record the artifact SHA-256 in `manifest.json` and freeze it only at Final UAT Candidate.
 
+`scripts/validate-v180-baseline-package.sh` accepts only the current fail-closed pending state or a verified schema whose recorded SHA matches and which contains no database users, role changes, grants, denies, revokes, updates, deletes, or merges.
+
 No step here authorizes execution against `db-fieldvisit-uat`.

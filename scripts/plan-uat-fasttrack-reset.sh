@@ -15,11 +15,11 @@ done
 
 grep -Fq '"executionEnabled": false' "${plan}"
 grep -Fq '"requiresHumanGate": "HUMAN GATE A"' "${plan}"
-grep -Fq '"status": "fail-closed-pending-isolated-generation"' "${manifest}"
-grep -Fq 'THROW 55000' "${schema}"
+baseline_status="$(sed -n 's/^[[:space:]]*"status":[[:space:]]*"\([^"]*\)".*/\1/p' "${manifest}")"
+bash scripts/validate-v180-baseline-package.sh >/dev/null
 
 echo "UAT reset plan validation: PASS (planning only)"
 echo "Target: db-fieldvisit-uat"
-echo "Baseline: fail closed; isolated generation and verification still required"
+echo "Baseline status: ${baseline_status}"
 echo "Azure mutation: NOT STARTED"
 echo "Required before execution: HUMAN GATE A"

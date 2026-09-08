@@ -30,6 +30,7 @@ for required in \
   database/baseline/v1.8.0/schema.sql \
   database/baseline/v1.8.0/manifest.json \
   database/baseline/v1.8.0/Verify.sql \
+  scripts/validate-v180-baseline-package.sh \
   database/reset/v1.8.0/plan.json \
   test-data/automated/README.md \
   test-data/templates/README.md \
@@ -40,7 +41,6 @@ done
 grep -Fq 'UAT FAST-TRACK DEVELOPMENT' docs/ai/PROJECT-STATE.md
 grep -Fiq 'Protected Baseline' docs/ai/ARCHITECTURE-DECISIONS.md
 grep -Fq 'BUG -> FIX -> PERMANENT REGRESSION TEST' docs/ai/DEFINITION-OF-DONE.md
-grep -Fq 'THROW 55000' database/baseline/v1.8.0/schema.sql
 grep -Fq '"executionEnabled": false' database/reset/v1.8.0/plan.json
 
 if find test-data/uat -type f ! -name README.md ! -name .gitignore -print -quit | grep -q .; then
@@ -55,6 +55,7 @@ if grep -ERni --include='*.csv' -E '@(gmail|outlook|hotmail|yahoo|icloud|live)\.
 fi
 
 bash scripts/validate-v180-migration-readiness.sh >/dev/null
+bash scripts/validate-v180-baseline-package.sh >/dev/null
 bash scripts/plan-uat-fasttrack-reset.sh >/dev/null
 
 echo "Fast-Track strategy static validation passed."
