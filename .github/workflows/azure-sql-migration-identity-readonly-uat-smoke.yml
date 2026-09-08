@@ -205,9 +205,11 @@ jobs:
             )
           }
 
-          $databaseResult = Invoke-ReadOnlyQuery @'
+          $databaseResult = @(
+            Invoke-ReadOnlyQuery @'
           SELECT DB_NAME() AS DatabaseName, SYSUTCDATETIME() AS ObservedAtUtc;
           '@
+          )
           if ($databaseResult.Count -ne 1) {
             throw "Expected one DB_NAME() result row; received $($databaseResult.Count)."
           }
@@ -218,18 +220,22 @@ jobs:
           Write-Output "DatabaseName=$databaseName"
           Write-Output "DatabaseObservedAtUtc=$($databaseResult[0].ObservedAtUtc.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'))"
 
-          $schemaVersionsObject = Invoke-ReadOnlyQuery @'
+          $schemaVersionsObject = @(
+            Invoke-ReadOnlyQuery @'
           SELECT OBJECT_ID(N'dbo.SchemaVersions', N'U') AS SchemaVersionsObjectId;
           '@
+          )
           if ($schemaVersionsObject.Count -ne 1 -or [DBNull]::Value.Equals($schemaVersionsObject[0].SchemaVersionsObjectId)) {
             throw 'Preflight failed: dbo.SchemaVersions is missing.'
           }
 
-          $latestSchema = Invoke-ReadOnlyQuery @'
+          $latestSchema = @(
+            Invoke-ReadOnlyQuery @'
           SELECT TOP (1) VersionNumber, Description, AppliedAt, AppliedBy
           FROM dbo.SchemaVersions
           ORDER BY AppliedAt DESC, VersionNumber DESC;
           '@
+          )
           if ($latestSchema.Count -ne 1) {
             throw "Preflight failed: expected one latest SchemaVersions row; received $($latestSchema.Count)."
           }
@@ -242,11 +248,13 @@ jobs:
             throw "Preflight failed: latest schema is not exact predecessor 1.7.0-008; received $latestVersion."
           }
 
-          $versionState = Invoke-ReadOnlyQuery @'
+          $versionState = @(
+            Invoke-ReadOnlyQuery @'
           SELECT
               (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions WHERE VersionNumber = N'1.7.0-008') AS PredecessorCount,
               (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions WHERE VersionNumber = N'1.8.0-001') AS TargetVersionCount;
           '@
+          )
           $predecessorCount = [int64]$versionState[0].PredecessorCount
           $targetVersionCount = [int64]$versionState[0].TargetVersionCount
           Write-Output "PredecessorCount=$predecessorCount"
@@ -255,7 +263,8 @@ jobs:
             throw 'Preflight failed: predecessor/target SchemaVersions state is not clean.'
           }
 
-          $partialObjects = Invoke-ReadOnlyQuery @'
+          $partialObjects = @(
+            Invoke-ReadOnlyQuery @'
           SELECT s.name AS SchemaName, t.name AS ObjectName
           FROM sys.tables AS t
           JOIN sys.schemas AS s ON s.schema_id = t.schema_id
@@ -263,13 +272,15 @@ jobs:
             AND t.name IN (N'SchemaMigrationDataBaselines', N'Centers', N'TeamCenterAssignments')
           ORDER BY t.name;
           '@
+          )
           Write-Output "PartialObjectCount=$($partialObjects.Count)"
           if ($partialObjects.Count -ne 0) {
             $partialObjects | Format-Table -AutoSize
             throw 'Preflight failed: partial 1800_001 objects exist.'
           }
 
-          $partialColumns = Invoke-ReadOnlyQuery @'
+          $partialColumns = @(
+            Invoke-ReadOnlyQuery @'
           SELECT s.name AS SchemaName, t.name AS TableName, c.name AS ColumnName
           FROM sys.columns AS c
           JOIN sys.tables AS t ON t.object_id = c.object_id
@@ -283,18 +294,21 @@ jobs:
             )
           ORDER BY t.name, c.name;
           '@
+          )
           Write-Output "PartialColumnCount=$($partialColumns.Count)"
           if ($partialColumns.Count -ne 0) {
             $partialColumns | Format-Table -AutoSize
             throw 'Preflight failed: partial 1800_001 columns exist.'
           }
 
-          $historicalCounts = Invoke-ReadOnlyQuery @'
+          $historicalCounts = @(
+            Invoke-ReadOnlyQuery @'
           SELECT
               (SELECT COUNT_BIG(*) FROM dbo.VisitTrips) AS VisitTripsCount,
               (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS VisitTripSnapshotsCount,
               (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshotStops) AS VisitTripSnapshotStopsCount;
           '@
+          )
           Write-Output "VisitTripsCount=$([int64]$historicalCounts[0].VisitTripsCount)"
           Write-Output "VisitTripSnapshotsCount=$([int64]$historicalCounts[0].VisitTripSnapshotsCount)"
           Write-Output "VisitTripSnapshotStopsCount=$([int64]$historicalCounts[0].VisitTripSnapshotStopsCount)"
