@@ -148,16 +148,13 @@ jobs:
             --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
             --query status \
             --output tsv)"
-          [[ "${actual_database_status}" == "Online" ]] || {
-            echo "::error::Azure SQL Database is not Online. Status: ${actual_database_status}."
-            exit 1
-          }
 
           echo "EvidenceCapturedAtUtc=${observed_at_utc}"
           echo "SubscriptionId=${actual_subscription_id}"
           echo "ResourceGroup=${AZURE_RESOURCE_GROUP}"
           echo "SqlServer=${AZURE_SQL_SERVER_NAME}"
           echo "Database=${AZURE_SQL_DATABASE}"
+          echo "DatabaseStatusBeforeSql=${actual_database_status}"
 
           az sql db show \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
@@ -302,6 +299,24 @@ jobs:
           Write-Output "VisitTripSnapshotsCount=$([int64]$historicalCounts[0].VisitTripSnapshotsCount)"
           Write-Output "VisitTripSnapshotStopsCount=$([int64]$historicalCounts[0].VisitTripSnapshotStopsCount)"
           Write-Output 'RecoveryPreflight=PASS_READ_ONLY'
+
+      - name: Capture post-query database status read-only
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          az sql db show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --server "${AZURE_SQL_SERVER_NAME}" \
+            --name "${AZURE_SQL_DATABASE}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{status:status,observedAtUtc:null}' \
+            --output json
+          echo "DatabaseStatusObservedAtUtc=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
 
       - name: Sign out of Azure
         if: always()

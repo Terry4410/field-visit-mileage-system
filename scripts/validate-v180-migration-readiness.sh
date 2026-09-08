@@ -109,6 +109,8 @@ grep -Fq -- 'PartialColumnCount=' "${recovery_preflight_workflow}"
 grep -Fq -- 'VisitTripsCount=' "${recovery_preflight_workflow}"
 grep -Fq -- 'VisitTripSnapshotsCount=' "${recovery_preflight_workflow}"
 grep -Fq -- 'VisitTripSnapshotStopsCount=' "${recovery_preflight_workflow}"
+grep -Fq -- 'DatabaseStatusBeforeSql=' "${recovery_preflight_workflow}"
+grep -Fq -- 'Capture post-query database status read-only' "${recovery_preflight_workflow}"
 
 if grep -Eq -- '-InputFile|database/migrations/.+\.sql' "${recovery_preflight_workflow}"; then
   echo "Recovery preflight workflow must not execute a SQL file." >&2
