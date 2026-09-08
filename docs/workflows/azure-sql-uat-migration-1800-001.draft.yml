@@ -8,10 +8,6 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: read
-  id-token: write
-
 concurrency:
   group: azure-sql-uat-migration-1800-001
   cancel-in-progress: false
@@ -20,6 +16,9 @@ jobs:
   branch-guard:
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      contents: none
+      id-token: none
     steps:
       - name: Enforce branch and fixed migration unit
         env:
@@ -41,29 +40,94 @@ jobs:
     runs-on: ubuntu-latest
     environment: uat-migration
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Check out the reviewed dispatch commit
-        uses: actions/checkout@v4
+      - name: Validate approved dispatch commit before checkout
+        env:
+          APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${APPROVED_MIGRATION_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::APPROVED_MIGRATION_COMMIT_SHA must be one exact lowercase 40-character commit SHA."
+            exit 1
+          fi
+          if [[ "${GITHUB_SHA}" != "${APPROVED_MIGRATION_COMMIT_SHA}" ]]; then
+            echo "::error::GITHUB_SHA does not equal the user-approved migration commit."
+            exit 1
+          fi
 
-      - name: Validate fixed scripts and embedded migration controls
+      - name: Check out the reviewed dispatch commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate approved commit and SQL SHA-256 locks
+        env:
+          APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+          EXPECTED_UP_SHA256: 7a2f5409b1ed5aaa52686c8d4be8346dd60c25f00b42a52489314ad63b00214c
+          EXPECTED_VERIFY_SHA256: 4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026
         shell: bash
         run: |
           set -euo pipefail
           up_script="database/migrations/1800_001_organization_center_team_lifecycle/Up.sql"
           verify_script="database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql"
 
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "${checked_out_sha}" != "${APPROVED_MIGRATION_COMMIT_SHA}" ]]; then
+            echo "::error::Checked-out source does not equal the user-approved migration commit."
+            exit 1
+          fi
+
           [[ -f "${up_script}" && -f "${verify_script}" ]] || {
             echo "::error::The fixed 1800_001 Up/Verify script pair is missing."
             exit 1
           }
+
+          actual_up_sha256="$(sha256sum "${up_script}" | awk '{print $1}')"
+          actual_verify_sha256="$(sha256sum "${verify_script}" | awk '{print $1}')"
+          if [[ "${actual_up_sha256}" != "${EXPECTED_UP_SHA256}" ]]; then
+            echo "::error::1800_001 Up.sql SHA-256 does not match the reviewed lock."
+            exit 1
+          fi
+          if [[ "${actual_verify_sha256}" != "${EXPECTED_VERIFY_SHA256}" ]]; then
+            echo "::error::1800_001 Verify.sql SHA-256 does not match the reviewed lock."
+            exit 1
+          fi
+
           rg --fixed-strings --quiet 'SET XACT_ABORT ON' "${up_script}"
           rg --fixed-strings --quiet 'sys.sp_getapplock' "${up_script}"
           rg --fixed-strings --quiet 'FieldVisit.SchemaMigration' "${up_script}"
           rg --fixed-strings --quiet 'SchemaMigrationDataBaselines' "${verify_script}"
           rg --fixed-strings --quiet 'VisitTripSnapshotStops' "${verify_script}"
 
+          echo "Approved commit: ${checked_out_sha}"
+          echo "1800_001 Up.sql SHA-256: ${actual_up_sha256}"
+          echo "1800_001 Verify.sql SHA-256: ${actual_verify_sha256}"
+
+      - name: Install pinned SQL Server PowerShell module before Azure login
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module `
+            -Name SqlServer `
+            -RequiredVersion 22.4.5.1 `
+            -Repository PSGallery `
+            -Scope CurrentUser `
+            -Force `
+            -AllowClobber
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force
+          $loadedVersion = (Get-Module SqlServer).Version.ToString()
+          if ($loadedVersion -ne '22.4.5.1') {
+            throw "Unexpected SqlServer module version: $loadedVersion"
+          }
+
       - name: Sign in to Azure with migration OIDC identity
-        uses: azure/login@v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -118,18 +182,6 @@ jobs:
             --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
             --query '{name:name,status:status,id:id}' \
             --output json
-
-      - name: Install pinned SQL Server PowerShell module
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Install-Module `
-            -Name SqlServer `
-            -RequiredVersion 22.4.5.1 `
-            -Repository PSGallery `
-            -Scope CurrentUser `
-            -Force `
-            -AllowClobber
 
       - name: Validate database name, predecessor and clean 1800_001 state
         env:
