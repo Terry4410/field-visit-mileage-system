@@ -1,4 +1,4 @@
-name: DRAFT - Azure SQL UAT migration 1800_001
+name: Azure SQL UAT migration 1800_001
 
 on:
   workflow_dispatch:
