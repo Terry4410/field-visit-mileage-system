@@ -36,42 +36,42 @@ actual_verify_sha="$(sha256sum "${verify_script}" | awk '{print $1}')"
 [[ "${actual_verify_sha}" == "${expected_verify_sha}" ]] || { echo "Unexpected Verify.sql SHA-256" >&2; exit 1; }
 
 diff -u <(tail -n +2 "${draft}") <(tail -n +2 "${workflow}")
-rg --fixed-strings --quiet 'name: Azure SQL UAT migration 1800_001' "${workflow}"
-rg --fixed-strings --quiet 'workflow_dispatch:' "${workflow}"
-if rg --quiet '^  (push|pull_request|schedule|workflow_call):' "${workflow}"; then
+grep -Fq -- 'name: Azure SQL UAT migration 1800_001' "${workflow}"
+grep -Fq -- 'workflow_dispatch:' "${workflow}"
+if grep -Eq '^  (push|pull_request|schedule|workflow_call):' "${workflow}"; then
   echo "Executable migration workflow has a forbidden trigger." >&2
   exit 1
 fi
 
-rg --fixed-strings --quiet 'refs/heads/post-uat/v1.8.0' "${workflow}"
-rg --fixed-strings --quiet 'environment: uat-migration' "${workflow}"
-rg --fixed-strings --quiet 'APPROVED_MIGRATION_COMMIT_SHA' "${workflow}"
-rg --fixed-strings --quiet "actions/checkout@${checkout_sha}" "${workflow}"
-rg --fixed-strings --quiet "azure/login@${azure_login_sha}" "${workflow}"
-rg --fixed-strings --quiet 'persist-credentials: false' "${workflow}"
-rg --fixed-strings --quiet "EXPECTED_UP_SHA256: ${expected_up_sha}" "${workflow}"
-rg --fixed-strings --quiet "EXPECTED_VERIFY_SHA256: ${expected_verify_sha}" "${workflow}"
-rg --fixed-strings --quiet 'client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}' "${workflow}"
-rg --fixed-strings --quiet 'USER_NAME() <> N'"'"'gh-fieldvisit-uat-migrate'"'"'' "${workflow}"
-rg --fixed-strings --quiet '1.7.0-008' "${workflow}"
-rg --fixed-strings --quiet 'partial 1.8.0-001 columns exist' "${workflow}"
-rg --fixed-strings --quiet 'FieldVisit.SchemaMigration' "${up_script}"
-rg --fixed-strings --quiet 'STOP_FOR_REVIEW' "${workflow}"
+grep -Fq -- 'refs/heads/post-uat/v1.8.0' "${workflow}"
+grep -Fq -- 'environment: uat-migration' "${workflow}"
+grep -Fq -- 'APPROVED_MIGRATION_COMMIT_SHA' "${workflow}"
+grep -Fq -- "actions/checkout@${checkout_sha}" "${workflow}"
+grep -Fq -- "azure/login@${azure_login_sha}" "${workflow}"
+grep -Fq -- 'persist-credentials: false' "${workflow}"
+grep -Fq -- "EXPECTED_UP_SHA256: ${expected_up_sha}" "${workflow}"
+grep -Fq -- "EXPECTED_VERIFY_SHA256: ${expected_verify_sha}" "${workflow}"
+grep -Fq -- 'client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}' "${workflow}"
+grep -Fq -- 'USER_NAME() <> N'"'"'gh-fieldvisit-uat-migrate'"'"'' "${workflow}"
+grep -Fq -- '1.7.0-008' "${workflow}"
+grep -Fq -- 'partial 1.8.0-001 columns exist' "${workflow}"
+grep -Fq -- 'FieldVisit.SchemaMigration' "${up_script}"
+grep -Fq -- 'STOP_FOR_REVIEW' "${workflow}"
 
-if rg --quiet 'uses:\s+(actions/checkout|azure/login)@v[0-9]' "${workflow}"; then
+if grep -Eq 'uses:[[:space:]]+(actions/checkout|azure/login)@v[0-9]' "${workflow}"; then
   echo "Executable migration workflow contains a floating action tag." >&2
   exit 1
 fi
 
-install_line="$(rg -n 'Install pinned SQL Server PowerShell module before Azure login' "${workflow}" | cut -d: -f1)"
-login_line="$(rg -n 'Sign in to Azure with migration OIDC identity' "${workflow}" | cut -d: -f1)"
-hash_line="$(rg -n 'Validate approved commit and SQL SHA-256 locks' "${workflow}" | cut -d: -f1)"
+install_line="$(grep -nF -- 'Install pinned SQL Server PowerShell module before Azure login' "${workflow}" | cut -d: -f1)"
+login_line="$(grep -nF -- 'Sign in to Azure with migration OIDC identity' "${workflow}" | cut -d: -f1)"
+hash_line="$(grep -nF -- 'Validate approved commit and SQL SHA-256 locks' "${workflow}" | cut -d: -f1)"
 [[ "${hash_line}" -lt "${install_line}" && "${install_line}" -lt "${login_line}" ]] || {
   echo "Hash/dependency/login ordering is unsafe." >&2
   exit 1
 }
 
-mapfile -t sql_refs < <(rg -o 'database/migrations/[A-Za-z0-9_./-]+\.sql' "${workflow}" | sort -u)
+mapfile -t sql_refs < <(grep -Eo 'database/migrations/[A-Za-z0-9_./-]+\.sql' "${workflow}" | sort -u)
 [[ "${#sql_refs[@]}" -eq 2 ]] || { echo "Workflow must reference exactly two SQL files." >&2; exit 1; }
 [[ "${sql_refs[0]}" == "${up_script}" && "${sql_refs[1]}" == "${verify_script}" ]] || {
   echo "Workflow SQL references are not the fixed 1800_001 Up/Verify pair." >&2
@@ -79,32 +79,32 @@ mapfile -t sql_refs < <(rg -o 'database/migrations/[A-Za-z0-9_./-]+\.sql' "${wor
 }
 
 for forbidden in 1800_002 1800_003 1800_004 1800_005 1800_006 1800_007 sqlcmd; do
-  if rg --fixed-strings --quiet "${forbidden}" "${workflow}"; then
+  if grep -Fq -- "${forbidden}" "${workflow}"; then
     echo "Forbidden executable workflow content: ${forbidden}" >&2
     exit 1
   fi
 done
 
-if rg --ignore-case --quiet '(seed|data[ -]?import|firewall|deploy(ment)?|database copy|restore)' "${workflow}"; then
+if grep -Eiq '(seed|data[ -]?import|firewall|deploy(ment)?|database copy|restore)' "${workflow}"; then
   echo "Executable workflow contains a forbidden operation category." >&2
   exit 1
 fi
 
-if rg --fixed-strings --quiet 'database/migrations/security/uat/' "${workflow}"; then
+if grep -Fq -- 'database/migrations/security/uat/' "${workflow}"; then
   echo "Executable workflow must not run Grant/Verify/Revoke security scripts." >&2
   exit 1
 fi
 
-rg --fixed-strings --quiet 'ALTER ROLE db_ddladmin ADD MEMBER [gh-fieldvisit-uat-migrate]' "${grant_script}"
-rg --fixed-strings --quiet 'GRANT INSERT ON SCHEMA::dbo TO [gh-fieldvisit-uat-migrate]' "${grant_script}"
-rg --fixed-strings --quiet 'GRANT UPDATE ON OBJECT::dbo.Organizations TO [gh-fieldvisit-uat-migrate]' "${grant_script}"
-rg --fixed-strings --quiet 'ALTER ROLE db_ddladmin DROP MEMBER [gh-fieldvisit-uat-migrate]' "${revoke_script}"
+grep -Fq -- 'ALTER ROLE db_ddladmin ADD MEMBER [gh-fieldvisit-uat-migrate]' "${grant_script}"
+grep -Fq -- 'GRANT INSERT ON SCHEMA::dbo TO [gh-fieldvisit-uat-migrate]' "${grant_script}"
+grep -Fq -- 'GRANT UPDATE ON OBJECT::dbo.Organizations TO [gh-fieldvisit-uat-migrate]' "${grant_script}"
+grep -Fq -- 'ALTER ROLE db_ddladmin DROP MEMBER [gh-fieldvisit-uat-migrate]' "${revoke_script}"
 
-if rg --fixed-strings --quiet '[gh-fieldvisit-uat]' database/migrations/security/uat; then
+if grep -RFq -- '[gh-fieldvisit-uat]' database/migrations/security/uat; then
   echo "Security scripts must not modify gh-fieldvisit-uat." >&2
   exit 1
 fi
-if rg --quiet 'ALTER ROLE\s+(db_owner|db_securityadmin|db_datawriter)\s+ADD MEMBER' database/migrations/security/uat; then
+if grep -ERq 'ALTER ROLE[[:space:]]+(db_owner|db_securityadmin|db_datawriter)[[:space:]]+ADD MEMBER' database/migrations/security/uat; then
   echo "Security scripts contain a forbidden broad-role grant." >&2
   exit 1
 fi

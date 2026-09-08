@@ -99,11 +99,11 @@ jobs:
             exit 1
           fi
 
-          rg --fixed-strings --quiet 'SET XACT_ABORT ON' "${up_script}"
-          rg --fixed-strings --quiet 'sys.sp_getapplock' "${up_script}"
-          rg --fixed-strings --quiet 'FieldVisit.SchemaMigration' "${up_script}"
-          rg --fixed-strings --quiet 'SchemaMigrationDataBaselines' "${verify_script}"
-          rg --fixed-strings --quiet 'VisitTripSnapshotStops' "${verify_script}"
+          grep -Fq -- 'SET XACT_ABORT ON' "${up_script}"
+          grep -Fq -- 'sys.sp_getapplock' "${up_script}"
+          grep -Fq -- 'FieldVisit.SchemaMigration' "${up_script}"
+          grep -Fq -- 'SchemaMigrationDataBaselines' "${verify_script}"
+          grep -Fq -- 'VisitTripSnapshotStops' "${verify_script}"
 
           echo "Approved commit: ${checked_out_sha}"
           echo "1800_001 Up.sql SHA-256: ${actual_up_sha256}"
