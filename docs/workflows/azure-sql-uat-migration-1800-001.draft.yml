@@ -1,0 +1,303 @@
+name: DRAFT - Azure SQL UAT migration 1800_001
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_migration:
+        description: Type 1800_001 to confirm the single approved execution unit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: azure-sql-uat-migration-1800-001
+  cancel-in-progress: false
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce branch and fixed migration unit
+        env:
+          CONFIRM_MIGRATION: ${{ inputs.confirm_migration }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
+            echo "::error::Migration may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
+            exit 1
+          fi
+          if [[ "${CONFIRM_MIGRATION}" != "1800_001" ]]; then
+            echo "::error::Confirmation must be exactly 1800_001."
+            exit 1
+          fi
+
+  migrate-1800-001:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat-migration
+    timeout-minutes: 30
+    steps:
+      - name: Check out the reviewed dispatch commit
+        uses: actions/checkout@v4
+
+      - name: Validate fixed scripts and embedded migration controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          up_script="database/migrations/1800_001_organization_center_team_lifecycle/Up.sql"
+          verify_script="database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql"
+
+          [[ -f "${up_script}" && -f "${verify_script}" ]] || {
+            echo "::error::The fixed 1800_001 Up/Verify script pair is missing."
+            exit 1
+          }
+          rg --fixed-strings --quiet 'SET XACT_ABORT ON' "${up_script}"
+          rg --fixed-strings --quiet 'sys.sp_getapplock' "${up_script}"
+          rg --fixed-strings --quiet 'FieldVisit.SchemaMigration' "${up_script}"
+          rg --fixed-strings --quiet 'SchemaMigrationDataBaselines' "${verify_script}"
+          rg --fixed-strings --quiet 'VisitTripSnapshotStops' "${verify_script}"
+
+      - name: Sign in to Azure with migration OIDC identity
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate fixed Azure UAT target metadata
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "${AZURE_RESOURCE_GROUP}" == "rg-fieldvisit-uat" ]] || {
+            echo "::error::AZURE_RESOURCE_GROUP is not the frozen UAT resource group."
+            exit 1
+          }
+          [[ "${AZURE_SQL_SERVER_NAME}" == "sql-fieldvisit-jpe-uat" ]] || {
+            echo "::error::AZURE_SQL_SERVER_NAME is not the frozen UAT SQL Server."
+            exit 1
+          }
+          [[ "${AZURE_SQL_DATABASE}" == "db-fieldvisit-uat" ]] || {
+            echo "::error::AZURE_SQL_DATABASE is not the frozen UAT database."
+            exit 1
+          }
+
+          actual_subscription_id="$(az account show --query id --output tsv)"
+          [[ "${actual_subscription_id}" == "${EXPECTED_SUBSCRIPTION_ID}" ]] || {
+            echo "::error::Azure subscription does not match the protected UAT value."
+            exit 1
+          }
+
+          az group show \
+            --name "${AZURE_RESOURCE_GROUP}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{name:name,id:id}' \
+            --output json
+
+          az sql server show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --name "${AZURE_SQL_SERVER_NAME}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{name:name,state:state,id:id}' \
+            --output json
+
+          az sql db show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --server "${AZURE_SQL_SERVER_NAME}" \
+            --name "${AZURE_SQL_DATABASE}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{name:name,status:status,id:id}' \
+            --output json
+
+      - name: Install pinned SQL Server PowerShell module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module `
+            -Name SqlServer `
+            -RequiredVersion 22.4.5.1 `
+            -Repository PSGallery `
+            -Scope CurrentUser `
+            -Force `
+            -AllowClobber
+
+      - name: Validate database name, predecessor and clean 1800_001 state
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $accessToken = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+          }
+          Write-Output "::add-mask::$accessToken"
+
+          $query = @'
+          SET NOCOUNT ON;
+          SET XACT_ABORT ON;
+
+          IF DB_NAME() <> N'db-fieldvisit-uat'
+              THROW 53900, N'Preflight failed: DB_NAME() is not db-fieldvisit-uat.', 1;
+
+          IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
+              THROW 53901, N'Preflight failed: dbo.SchemaVersions is missing.', 1;
+
+          IF NOT EXISTS
+          (
+              SELECT 1 FROM dbo.SchemaVersions
+              WHERE VersionNumber = N'1.7.0-008'
+          )
+              THROW 53902, N'Preflight failed: predecessor 1.7.0-008 is missing.', 1;
+
+          IF
+          (
+              SELECT TOP (1) VersionNumber
+              FROM dbo.SchemaVersions
+              ORDER BY AppliedAt DESC, VersionNumber DESC
+          ) <> N'1.7.0-008'
+              THROW 53905, N'Preflight failed: latest schema is not exact predecessor 1.7.0-008.', 1;
+
+          IF EXISTS
+          (
+              SELECT 1 FROM dbo.SchemaVersions
+              WHERE VersionNumber = N'1.8.0-001'
+          )
+              THROW 53903, N'Preflight failed: 1.8.0-001 is already applied.', 1;
+
+          IF OBJECT_ID(N'dbo.SchemaMigrationDataBaselines', N'U') IS NOT NULL
+             OR OBJECT_ID(N'dbo.Centers', N'U') IS NOT NULL
+             OR OBJECT_ID(N'dbo.TeamCenterAssignments', N'U') IS NOT NULL
+              THROW 53904, N'Preflight failed: partial 1.8.0-001 objects exist.', 1;
+
+          SELECT DB_NAME() AS DatabaseName, N'1.7.0-008' AS RequiredPredecessor;
+          '@
+
+          Invoke-Sqlcmd `
+            -ServerInstance $server `
+            -Database $env:AZURE_SQL_DATABASE `
+            -AccessToken $accessToken `
+            -ConnectionTimeout 15 `
+            -QueryTimeout 60 `
+            -AbortOnError `
+            -OutputSqlErrors $true `
+            -Query $query | Format-Table -AutoSize
+
+      - name: Apply only 1800_001 Up with SQL application lock
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $accessToken = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+          }
+          Write-Output "::add-mask::$accessToken"
+
+          $upScript = Join-Path $env:GITHUB_WORKSPACE `
+            'database/migrations/1800_001_organization_center_team_lifecycle/Up.sql'
+          Invoke-Sqlcmd `
+            -ServerInstance $server `
+            -Database $env:AZURE_SQL_DATABASE `
+            -AccessToken $accessToken `
+            -ConnectionTimeout 15 `
+            -QueryTimeout 600 `
+            -AbortOnError `
+            -OutputSqlErrors $true `
+            -InputFile $upScript
+
+      - name: Verify 1800_001 and historical fingerprints
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $accessToken = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+          }
+          Write-Output "::add-mask::$accessToken"
+
+          $verifyScript = Join-Path $env:GITHUB_WORKSPACE `
+            'database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql'
+          $result = Invoke-Sqlcmd `
+            -ServerInstance $server `
+            -Database $env:AZURE_SQL_DATABASE `
+            -AccessToken $accessToken `
+            -ConnectionTimeout 15 `
+            -QueryTimeout 600 `
+            -AbortOnError `
+            -OutputSqlErrors $true `
+            -InputFile $verifyScript
+          $result | Format-Table -AutoSize
+
+      - name: Confirm 1800_001 and stop for Review
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $accessToken = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+          }
+          Write-Output "::add-mask::$accessToken"
+
+          $query = @'
+          SET NOCOUNT ON;
+          IF DB_NAME() <> N'db-fieldvisit-uat'
+              THROW 53910, N'Post-check failed: DB_NAME() is not db-fieldvisit-uat.', 1;
+          IF NOT EXISTS
+          (
+              SELECT 1 FROM dbo.SchemaVersions
+              WHERE VersionNumber = N'1.8.0-001'
+          )
+              THROW 53911, N'Post-check failed: SchemaVersion 1.8.0-001 is missing.', 1;
+          SELECT N'STOP_FOR_REVIEW' AS ExecutionGate, DB_NAME() AS DatabaseName,
+                 N'1.8.0-001' AS AppliedVersion;
+          '@
+
+          Invoke-Sqlcmd `
+            -ServerInstance $server `
+            -Database $env:AZURE_SQL_DATABASE `
+            -AccessToken $accessToken `
+            -ConnectionTimeout 15 `
+            -QueryTimeout 60 `
+            -AbortOnError `
+            -OutputSqlErrors $true `
+            -Query $query | Format-Table -AutoSize
+
+      - name: Sign out of Azure
+        if: always()
+        run: az logout

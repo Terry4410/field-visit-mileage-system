@@ -37,12 +37,12 @@ No `Rollback.sql` is supplied. Although the migrations are additive, dropping th
 
 Before applying any `Up.sql`, the separately approved pipeline must:
 
-1. Keep `gh-fieldvisit-uat` read-only; use a distinct migration identity such as `gh-fieldvisit-uat-migrate`.
+1. Keep `gh-fieldvisit-uat` unchanged at `Reader + db_datareader`; use the distinct migration identity `gh-fieldvisit-uat-migrate` only after separate approval.
 2. Require `post-uat/v1.8.0`, a separate GitHub `uat-migration` environment, `workflow_dispatch`, Required approval and OIDC.
 3. Prove subscription, resource group, SQL server and `DB_NAME() = db-fieldvisit-uat`.
 4. Prove current latest schema is the exact predecessor of the single selected migration.
 5. Capture/confirm an IT-approved UAT restore point and prevent concurrent application writes during Up + Verify.
-6. Apply exactly one approved folder per dispatch: `Up.sql`, its `Verify.sql`, then rerun `1800_001/Verify.sql`; do not execute `001`–`007` in one run.
+6. The first future executable unit is fixed to `1800_001/Up.sql` followed by `1800_001/Verify.sql` (including historical fingerprint verification), then stop for Review. `1800_002` is not selectable and requires a later, separate approval; never execute `001`–`007` in one run.
 7. Stop immediately on any `THROW`; do not edit data, broaden firewall rules or expand database roles to make the run pass.
 
-The currently verified `db_datareader` principal is intentionally sufficient only for read-only smoke testing. These scripts must not be run until a separate, least-privilege migration execution design is reviewed and approved; no role increase is part of this package.
+The existing `gh-fieldvisit-uat` principal remains intentionally limited to `Reader + db_datareader` for read-only checks. These scripts must not be run until the separate, least-privilege migration execution design is reviewed and approved; no role increase is part of this package.

@@ -48,7 +48,7 @@ Business must provide and own the following through the reviewed workbook descri
 - Team → Center effective assignment.
 - Deployment Site master and Location relationship.
 - Team → Deployment Site effective availability.
-- Employment → Primary Deployment Site effective assignment.
+- Employment → Deployment Site effective assignments, including the Business-designated Primary flag.
 - Motorcycle and Car mileage rates with effective dates.
 
 SQL and AI must not infer these values. UAT email allowlist/sender and Google project/key/retention decisions are separate IT/Legal inputs and are not Business master-data seed rows.
@@ -57,7 +57,7 @@ SQL and AI must not infer these values. UAT email allowlist/sender and Google pr
 
 All period tables use inclusive `EffectiveFrom`/`EffectiveTo`; open end is treated as `9999-12-31`. Adjacent records therefore start the day after the prior end. The same date cannot belong to two primary/active periods.
 
-Primary uniqueness is interval-based: one Team-Center, Employment status, Primary Team, Site Location, Primary Employment-Site, and active Organization+Vehicle rate for any date. Multiple effective Team leaders are allowed. Delegation does not erase the original leader assignment.
+Primary uniqueness is interval-based: one Team-Center, Employment status, Primary Team, Site Location, Primary Employment-Site, and active Organization+Vehicle rate for any date. An Employment may have multiple active non-Primary and one active Primary Site assignment on the same date, but Primary periods cannot overlap. Each Employment-Site period must be covered by an effective Team membership and that Team's effective Team-Site availability. Multiple effective Team leaders are allowed. Delegation does not erase the original leader assignment.
 
 All new business/audit foreign keys use `NO ACTION`; migrations create referenced tables/columns before dependent FKs and indexes. Each `Up.sql` checks its exact predecessor and partial objects. Each `Verify.sql` checks required indexes and trusted FK/CHECK constraints.
 
@@ -69,15 +69,14 @@ For any future migration execution, application writes must be paused or gated. 
 
 ## Future migration execution design — not authorized
 
-- Existing `gh-fieldvisit-uat` remains read-only and is not granted migration rights.
-- Use a distinct Microsoft Entra workload identity such as `gh-fieldvisit-uat-migrate` with separately reviewed least privilege and no Production access.
+- Existing `gh-fieldvisit-uat` remains exactly `Reader + db_datareader`; it is not granted migration rights or any elevation.
+- Use the distinct Microsoft Entra workload identity `gh-fieldvisit-uat-migrate` with separately reviewed least privilege and no Production access.
 - Use a distinct GitHub Environment named `uat-migration`, separate from normal `uat` smoke/read-only operations.
 - The migration workflow must use `workflow_dispatch`, `permissions: contents: read, id-token: write`, `environment: uat-migration`, Required reviewers/approval and a branch restriction allowing only `post-uat/v1.8.0`.
 - Fail the branch/target guard before requesting the environment token or Azure OIDC login.
 - Verify subscription, resource group, server and `DB_NAME() = db-fieldvisit-uat`; never create/relax a firewall rule.
-- Execute by Epic and approval batch, not `1800_001` through `1800_007` in one run. Each dispatch selects exactly one approved migration folder, runs its `Up.sql`, its `Verify.sql`, and `1800_001/Verify.sql`, then stops.
-- Suggested batches: Epic B=`001` then separately `002`; Epic C=`003`; Epic D=`004` then separately `005`; Epic E=`006`; Epic F=`007`. A failed batch blocks all later batches.
-- No migration workflow, identity, role assignment or environment is created by this correction package.
+- Never execute `1800_001` through `1800_007` in one run. The first future executable unit is fixed to `1800_001/Up.sql` followed by `1800_001/Verify.sql`, whose historical fingerprint checks must pass; the workflow must then stop for Review. Only a later, separate approval may design or enable `1800_002` execution.
+- This correction adds only an inert, non-registered workflow draft and the design in `POST-UAT-v1.8.0-MIGRATION-EXECUTION-DESIGN.md`. No migration workflow is registered, and no identity, role assignment or GitHub Environment is created.
 
 ## Stop conditions
 

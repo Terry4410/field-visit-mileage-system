@@ -18,7 +18,7 @@ The workbook is not an executable SQL script. A completed workbook must pass Bus
 | 2 | `Team-Center` | Effective Team → Center ownership | Existing `TeamCode`; completed Center |
 | 3 | `Deployment Sites` | Site master and its authoritative Location | Center; existing `LocationCode` |
 | 4 | `Team-Site` | Sites a Team may use during a period | Team-Center and Deployment Site |
-| 5 | `Employment-Primary Site` | One Primary Deployment Site per Employment/date | Existing `EmployeeNo`; Team-Site/Site |
+| 5 | `Employment-Site` | Effective Sites available to an Employment, with at most one Primary per date | Existing `EmployeeNo`; effective Team membership and Team-Site/Site |
 | 6 | `Mileage Rates` | Organization-specific Motorcycle/Car rate lifecycle | Existing `OrganizationCode` |
 
 ## Mandatory validation rules
@@ -30,7 +30,9 @@ The workbook is not an executable SQL script. A completed workbook must pass Bus
 - Center and Team must belong to the same Organization.
 - Deployment Site period must sit within its Center period.
 - Team-Site must sit within a valid same-Center Team-Center assignment.
-- Employment Primary Site must have `IsPrimary=TRUE`; one Employment cannot have overlapping Primary Site periods.
+- One Employment may have multiple active Employment-Site assignments on the same date.
+- For the same Employment and date, at most one active Employment-Site assignment may have `IsPrimary=TRUE`; Primary periods must not overlap.
+- Every Employment-Site period must be covered by an effective Team assignment for that Employment and an effective Team-Site assignment for the same Site. A Site that the Employment's Team cannot use is a blocking error.
 - Mileage rate must be numeric, non-negative and use only `Motorcycle` or `Car`; active periods cannot overlap for the same Organization + VehicleType.
 - `LocationCode`, `EmployeeNo`, Team and Organization keys must already exist or be included in an earlier approved import source; fuzzy/name matching is prohibited.
 - Blank required fields, unresolved key matches, overlaps and duplicate business keys are blocking errors—not values for AI or the importer to repair.
@@ -59,11 +61,13 @@ Required: `OrganizationCode`, `CenterCode`, `SiteCode`, `SiteName`, `LocationCod
 
 Required: `OrganizationCode`, `TeamCode`, `SiteCode`, `EffectiveFrom`. Optional: `EffectiveTo`.
 
-### Employment-Primary Site
+### Employment-Site
 
 Required: `OrganizationCode`, `EmployeeNo`, `SiteCode`, `IsPrimary`, `EffectiveFrom`. Optional: `EffectiveTo`.
 
-This template is for Primary assignments, so Business must enter `TRUE` for `IsPrimary`; secondary-site requirements, if any, require a separate decision.
+Business key: `OrganizationCode + EmployeeNo + SiteCode + EffectiveFrom`.
+
+Enter one row for each usable Employment-Site period. `IsPrimary` accepts `TRUE` or `FALSE`, so one Employment may have multiple simultaneously active Site assignments. Across all rows for the same Employment, no date may be covered by more than one `IsPrimary=TRUE` period. The full assignment period must also be covered by an effective Team-Site relationship for a Team assigned to that Employment at that time; the importer must reject gaps, partial coverage and ineligible Sites rather than infer another Team or Site.
 
 ### Mileage Rates
 
@@ -79,6 +83,7 @@ Business must provide both Motorcycle and Car decisions where those vehicles are
 - [ ] Effective-date overlaps and gaps have been reviewed by Business.
 - [ ] Motorcycle/Car rates and effective dates have Finance/Business approval.
 - [ ] Cross-sheet key validation and duplicate report are zero-error.
+- [ ] Employment-Site validation confirms multiple active assignments are allowed, Primary periods do not overlap, and every assignment is covered by the Employment's effective Team-Site eligibility.
 - [ ] Import preview row counts and reject report are approved.
 - [ ] Import identity/environment/workflow is separately approved.
 - [ ] UAT restore/concurrency gate is approved before any write.

@@ -6,7 +6,7 @@ Status: preparation for review. Migration scripts exist but have not been execut
 
 Each Epic follows: `Impact Analysis → Coding → Commit to post-uat/v1.8.0 → GitHub Actions Build/Test → Regression`. A failed gate is analyzed and fixed in a new commit; the next Epic cannot start until all required checks pass.
 
-Database migrations are not part of a normal build job. `gh-fieldvisit-uat` remains read-only. When separately approved, migration uses a distinct identity such as `gh-fieldvisit-uat-migrate` and a separate `uat-migration` GitHub Environment with `workflow_dispatch`, Required approval and a `post-uat/v1.8.0` branch restriction. Each approved migration folder runs separately; no job executes `001`–`007` as one batch.
+Database migrations are not part of a normal build job. `gh-fieldvisit-uat` remains exactly `Reader + db_datareader`. When separately approved, migration uses the distinct identity `gh-fieldvisit-uat-migrate` and a separate `uat-migration` GitHub Environment with `workflow_dispatch`, Required approval and a `post-uat/v1.8.0` branch restriction. No job executes `001`–`007` as one batch; the first future run is fixed to `1800_001 Up → Verify → stop for Review`.
 
 ## Epic sequence and dependencies
 
@@ -66,14 +66,16 @@ Database migrations are not part of a normal build job. `gh-fieldvisit-uat` rema
 
 | Control | Required design |
 |---|---|
-| Read-only identity | `gh-fieldvisit-uat`; unchanged and never used for migration |
-| Migration identity | Separate workload identity, recommended `gh-fieldvisit-uat-migrate`; least privilege requires later review |
+| Read-only identity | `gh-fieldvisit-uat`; unchanged at `Reader + db_datareader` and never used for migration |
+| Migration identity | Distinct workload identity `gh-fieldvisit-uat-migrate`; creation and least-privilege grants require later review |
 | GitHub Environment | `uat-migration`, separate from `uat` |
 | Trigger/approval | `workflow_dispatch` plus Required reviewers/approval |
 | Branch | Only `post-uat/v1.8.0`; fail before OIDC when any other ref is selected |
-| Execution unit | Exactly one approved migration folder per dispatch: Up → Verify → historical fingerprint Verify → stop |
-| Sequence | Epic B `001`, then separately `002`; C `003`; D `004`, then separately `005`; E `006`; F `007` |
+| First execution unit | Only `1800_001/Up.sql → 1800_001/Verify.sql` (including historical fingerprint verification) → stop for Review |
+| Later sequence | `1800_002` is not selectable in the first workflow and requires a separate post-001 approval; later units remain separately gated |
 | Prohibited | Broad role, permanent firewall change, Production access, automatic `001`–`007`, application deployment |
+
+The authoritative execution design and non-registered workflow draft are `POST-UAT-v1.8.0-MIGRATION-EXECUTION-DESIGN.md` and `docs/workflows/azure-sql-uat-migration-1800-001.draft.yml`. They are design artifacts only and cannot be dispatched from GitHub Actions in this state.
 
 ## Final release gate
 
