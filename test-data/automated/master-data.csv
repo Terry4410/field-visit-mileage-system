@@ -1,0 +1,8 @@
+RecordType,PrimaryCode,ParentCode,DisplayName,EffectiveFrom,EffectiveTo,Email,IsPrimary
+Organization,TEST-ORG-001,,Test Organization A,2026-01-01,,,false
+Center,TEST-CENTER-001,TEST-ORG-001,Test Center A,2026-01-01,,,false
+Team,TEST-TEAM-001,TEST-CENTER-001,Test Team A,2026-01-01,,,false
+Employee,TEST-EMP-001,TEST-ORG-001,Test Employee 001,2026-01-01,,test.employee.001@example.invalid,false
+TeamMembership,TEST-EMP-001,TEST-TEAM-001,Test Employee 001,2026-01-01,,,true
+Location,TEST-LOC-001,TEST-ORG-001,Test Location A,2026-01-01,,,false
+Project,TEST-PROJ-001,TEST-ORG-001,Test Project A,2026-01-01,,,false

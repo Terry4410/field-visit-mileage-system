@@ -1,0 +1,12 @@
+{
+  "release": "v1.8.0",
+  "schemaVersion": "1.8.0-007",
+  "status": "fail-closed-pending-isolated-generation",
+  "installationEntryPoint": "database/baseline/v1.8.0/schema.sql",
+  "verification": "database/baseline/v1.8.0/Verify.sql",
+  "schemaSha256": null,
+  "upgradeFrameworkPreserved": true,
+  "sourceMigrationRange": "1600_001 through 1800_007",
+  "containsBusinessData": false,
+  "containsSecurityPrincipals": false
+}

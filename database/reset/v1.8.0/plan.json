@@ -1,0 +1,19 @@
+{
+  "target": "db-fieldvisit-uat",
+  "release": "v1.8.0",
+  "executionEnabled": false,
+  "requiresHumanGate": "HUMAN GATE A",
+  "steps": [
+    "replace-or-reset-approved-uat-target",
+    "apply-clean-baseline",
+    "apply-system-configuration",
+    "import-one-approved-data-profile",
+    "verify-baseline-and-data-integrity",
+    "run-fast-regression",
+    "run-role-e2e"
+  ],
+  "dataProfiles": [
+    "synthetic-automated",
+    "real-uat-master-data-outside-git"
+  ]
+}
