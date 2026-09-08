@@ -1,0 +1,179 @@
+name: Migration identity read-only UAT smoke test
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: azure-sql-migration-identity-readonly-uat-smoke
+  cancel-in-progress: false
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: none
+      id-token: none
+    steps:
+      - name: Enforce post-uat/v1.8.0 dispatch branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
+            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
+            exit 1
+          fi
+
+  migration-identity-readonly-smoke:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat-migration
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate fixed UAT variable names before Azure login
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${AZURE_RESOURCE_GROUP}" == "rg-fieldvisit-uat" ]] || {
+            echo "::error::AZURE_RESOURCE_GROUP is not the frozen UAT resource group."
+            exit 1
+          }
+          [[ "${AZURE_SQL_SERVER_NAME}" == "sql-fieldvisit-jpe-uat" ]] || {
+            echo "::error::AZURE_SQL_SERVER_NAME is not the frozen UAT SQL Server."
+            exit 1
+          }
+          [[ "${AZURE_SQL_DATABASE}" == "db-fieldvisit-uat" ]] || {
+            echo "::error::AZURE_SQL_DATABASE is not the frozen UAT database."
+            exit 1
+          }
+
+      - name: Install pinned SQL Server PowerShell module before Azure login
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module `
+            -Name SqlServer `
+            -RequiredVersion 22.4.5.1 `
+            -Repository PSGallery `
+            -Scope CurrentUser `
+            -Force `
+            -AllowClobber
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force
+          $loadedVersion = (Get-Module SqlServer).Version.ToString()
+          if ($loadedVersion -ne '22.4.5.1') {
+            throw "Unexpected SqlServer module version: $loadedVersion"
+          }
+
+      - name: Sign in to Azure with migration identity OIDC
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Azure subscription and UAT resource metadata
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          actual_subscription_id="$(az account show --query id --output tsv)"
+          [[ "${actual_subscription_id}" == "${EXPECTED_SUBSCRIPTION_ID}" ]] || {
+            echo "::error::Azure subscription does not match the protected UAT value."
+            exit 1
+          }
+
+          az account show \
+            --query '{id:id,name:name,state:state,tenantId:tenantId}' \
+            --output json
+
+          az group show \
+            --name "${AZURE_RESOURCE_GROUP}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{name:name,id:id}' \
+            --output json
+
+          az sql server show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --name "${AZURE_SQL_SERVER_NAME}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{name:name,state:state,id:id}' \
+            --output json
+
+          az sql db show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --server "${AZURE_SQL_SERVER_NAME}" \
+            --name "${AZURE_SQL_DATABASE}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{name:name,status:status,id:id}' \
+            --output json
+
+      - name: Run only approved read-only Azure SQL queries
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $accessToken = az account get-access-token `
+            --resource https://database.windows.net/ `
+            --query accessToken `
+            --output tsv
+
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+          }
+          Write-Output "::add-mask::$accessToken"
+
+          $databaseResult = @(
+            Invoke-Sqlcmd `
+              -ServerInstance $server `
+              -Database $env:AZURE_SQL_DATABASE `
+              -AccessToken $accessToken `
+              -ApplicationIntent ReadOnly `
+              -ConnectionTimeout 15 `
+              -QueryTimeout 30 `
+              -AbortOnError `
+              -OutputSqlErrors $true `
+              -Query 'SELECT DB_NAME() AS DatabaseName;'
+          )
+          if ($databaseResult.Count -ne 1) {
+            throw "Expected one DB_NAME() result row; received $($databaseResult.Count)."
+          }
+          $databaseName = [string]$databaseResult[0].DatabaseName
+          if ($databaseName -ne 'db-fieldvisit-uat') {
+            throw "Connected to unexpected database: $databaseName"
+          }
+          Write-Output "DatabaseName=$databaseName"
+
+          $tableResult = @(
+            Invoke-Sqlcmd `
+              -ServerInstance $server `
+              -Database $env:AZURE_SQL_DATABASE `
+              -AccessToken $accessToken `
+              -ApplicationIntent ReadOnly `
+              -ConnectionTimeout 15 `
+              -QueryTimeout 30 `
+              -AbortOnError `
+              -OutputSqlErrors $true `
+              -Query 'SELECT TOP 5 name FROM sys.tables ORDER BY name;'
+          )
+          Write-Output "sys.tables read-only query succeeded; rows returned: $($tableResult.Count)"
+          $tableResult | Select-Object name | Format-Table -AutoSize
+
+      - name: Sign out of Azure
+        if: always()
+        shell: bash
+        run: az logout || true
