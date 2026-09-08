@@ -8,6 +8,7 @@ up_script="database/migrations/1800_001_organization_center_team_lifecycle/Up.sq
 verify_script="database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql"
 draft="docs/workflows/azure-sql-uat-migration-1800-001.draft.yml"
 workflow=".github/workflows/azure-sql-uat-migration-1800-001.yml"
+recovery_preflight_workflow=".github/workflows/azure-sql-migration-identity-readonly-uat-smoke.yml"
 grant_script="database/migrations/security/uat/Grant-gh-fieldvisit-uat-migrate-1800_001.sql"
 permission_verify_script="database/migrations/security/uat/Verify-gh-fieldvisit-uat-migrate-1800_001.sql"
 revoke_script="database/migrations/security/uat/Revoke-gh-fieldvisit-uat-migrate-1800_001.sql"
@@ -22,6 +23,7 @@ for required_file in \
   "${verify_script}" \
   "${draft}" \
   "${workflow}" \
+  "${recovery_preflight_workflow}" \
   "${grant_script}" \
   "${permission_verify_script}" \
   "${revoke_script}" \
@@ -92,6 +94,32 @@ fi
 
 if grep -Fq -- 'database/migrations/security/uat/' "${workflow}"; then
   echo "Executable workflow must not run Grant/Verify/Revoke security scripts." >&2
+  exit 1
+fi
+
+grep -Fq -- 'environment: uat-migration' "${recovery_preflight_workflow}"
+grep -Fq -- 'client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}' "${recovery_preflight_workflow}"
+grep -Fq -- 'az sql db show' "${recovery_preflight_workflow}"
+grep -Fq -- 'az sql db str-policy show' "${recovery_preflight_workflow}"
+grep -Fq -- 'earliestRestoreDate:earliestRestoreDate' "${recovery_preflight_workflow}"
+grep -Fq -- 'LatestSchemaVersion=' "${recovery_preflight_workflow}"
+grep -Fq -- 'TargetVersion1800_001Count=' "${recovery_preflight_workflow}"
+grep -Fq -- 'PartialObjectCount=' "${recovery_preflight_workflow}"
+grep -Fq -- 'PartialColumnCount=' "${recovery_preflight_workflow}"
+grep -Fq -- 'VisitTripsCount=' "${recovery_preflight_workflow}"
+grep -Fq -- 'VisitTripSnapshotsCount=' "${recovery_preflight_workflow}"
+grep -Fq -- 'VisitTripSnapshotStopsCount=' "${recovery_preflight_workflow}"
+
+if grep -Eq -- '-InputFile|database/migrations/.+\.sql' "${recovery_preflight_workflow}"; then
+  echo "Recovery preflight workflow must not execute a SQL file." >&2
+  exit 1
+fi
+if grep -Eiq '(^|[[:space:]])(CREATE|ALTER|DROP|TRUNCATE|INSERT|UPDATE|DELETE|MERGE|EXEC(UTE)?)[[:space:]]' "${recovery_preflight_workflow}"; then
+  echo "Recovery preflight workflow contains a non-read-only SQL verb." >&2
+  exit 1
+fi
+if grep -Eiq 'az[[:space:]]+sql[[:space:]]+(db[[:space:]]+(restore|copy|update)|server[[:space:]]+firewall-rule)|(^|[[:space:]])(seed|deploy(ment)?)[[:space:]]' "${recovery_preflight_workflow}"; then
+  echo "Recovery preflight workflow contains a forbidden Azure or application operation category." >&2
   exit 1
 fi
 

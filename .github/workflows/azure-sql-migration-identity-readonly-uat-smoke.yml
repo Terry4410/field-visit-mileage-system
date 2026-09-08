@@ -78,9 +78,10 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Validate Azure subscription and UAT resource metadata
+      - name: Capture and validate Azure SQL recovery metadata
         env:
           EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          EXPECTED_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
           AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
@@ -88,38 +89,93 @@ jobs:
         run: |
           set -euo pipefail
 
+          observed_at_utc="$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')"
           actual_subscription_id="$(az account show --query id --output tsv)"
           [[ "${actual_subscription_id}" == "${EXPECTED_SUBSCRIPTION_ID}" ]] || {
             echo "::error::Azure subscription does not match the protected UAT value."
             exit 1
           }
+          actual_tenant_id="$(az account show --query tenantId --output tsv)"
+          [[ "${actual_tenant_id,,}" == "${EXPECTED_TENANT_ID,,}" ]] || {
+            echo "::error::Azure tenant does not match the protected UAT value."
+            exit 1
+          }
 
           az account show \
-            --query '{id:id,name:name,state:state,tenantId:tenantId}' \
+            --query '{subscriptionId:id,state:state,tenantId:tenantId}' \
             --output json
 
-          az group show \
+          expected_rg_id="/subscriptions/${EXPECTED_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}"
+          actual_rg_id="$(az group show \
             --name "${AZURE_RESOURCE_GROUP}" \
             --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
-            --query '{name:name,id:id}' \
-            --output json
+            --query id \
+            --output tsv)"
+          [[ "${actual_rg_id,,}" == "${expected_rg_id,,}" ]] || {
+            echo "::error::Azure resource group ID does not match the fixed UAT target."
+            exit 1
+          }
 
-          az sql server show \
+          expected_server_id="${expected_rg_id}/providers/Microsoft.Sql/servers/${AZURE_SQL_SERVER_NAME}"
+          actual_server_id="$(az sql server show \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --name "${AZURE_SQL_SERVER_NAME}" \
             --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
-            --query '{name:name,state:state,id:id}' \
-            --output json
+            --query id \
+            --output tsv)"
+          [[ "${actual_server_id,,}" == "${expected_server_id,,}" ]] || {
+            echo "::error::Azure SQL Server ID does not match the fixed UAT target."
+            exit 1
+          }
+
+          expected_database_id="${expected_server_id}/databases/${AZURE_SQL_DATABASE}"
+          actual_database_id="$(az sql db show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --server "${AZURE_SQL_SERVER_NAME}" \
+            --name "${AZURE_SQL_DATABASE}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query id \
+            --output tsv)"
+          [[ "${actual_database_id,,}" == "${expected_database_id,,}" ]] || {
+            echo "::error::Azure SQL Database ID does not match the fixed UAT target."
+            exit 1
+          }
+
+          actual_database_status="$(az sql db show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --server "${AZURE_SQL_SERVER_NAME}" \
+            --name "${AZURE_SQL_DATABASE}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query status \
+            --output tsv)"
+          [[ "${actual_database_status}" == "Online" ]] || {
+            echo "::error::Azure SQL Database is not Online. Status: ${actual_database_status}."
+            exit 1
+          }
+
+          echo "EvidenceCapturedAtUtc=${observed_at_utc}"
+          echo "SubscriptionId=${actual_subscription_id}"
+          echo "ResourceGroup=${AZURE_RESOURCE_GROUP}"
+          echo "SqlServer=${AZURE_SQL_SERVER_NAME}"
+          echo "Database=${AZURE_SQL_DATABASE}"
 
           az sql db show \
             --resource-group "${AZURE_RESOURCE_GROUP}" \
             --server "${AZURE_SQL_SERVER_NAME}" \
             --name "${AZURE_SQL_DATABASE}" \
             --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
-            --query '{name:name,status:status,id:id}' \
+            --query '{id:id,name:name,status:status,location:location,skuName:sku.name,tier:sku.tier,currentServiceObjectiveName:currentServiceObjectiveName,earliestRestoreDate:earliestRestoreDate,creationDate:creationDate}' \
             --output json
 
-      - name: Run only approved read-only Azure SQL queries
+          az sql db str-policy show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --server "${AZURE_SQL_SERVER_NAME}" \
+            --name "${AZURE_SQL_DATABASE}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query '{id:id,name:name,retentionDays:retentionDays,diffBackupIntervalInHours:diffBackupIntervalInHours}' \
+            --output json
+
+      - name: Capture and validate read-only database preflight evidence
         env:
           AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
           AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
@@ -137,18 +193,24 @@ jobs:
           }
           Write-Output "::add-mask::$accessToken"
 
-          $databaseResult = @(
-            Invoke-Sqlcmd `
-              -ServerInstance $server `
-              -Database $env:AZURE_SQL_DATABASE `
-              -AccessToken $accessToken `
-              -ApplicationIntent ReadOnly `
-              -ConnectionTimeout 15 `
-              -QueryTimeout 30 `
-              -AbortOnError `
-              -OutputSqlErrors $true `
-              -Query 'SELECT DB_NAME() AS DatabaseName;'
-          )
+          function Invoke-ReadOnlyQuery([string] $Query) {
+            return @(
+              Invoke-Sqlcmd `
+                -ServerInstance $server `
+                -Database $env:AZURE_SQL_DATABASE `
+                -AccessToken $accessToken `
+                -ApplicationIntent ReadOnly `
+                -ConnectionTimeout 15 `
+                -QueryTimeout 60 `
+                -AbortOnError `
+                -OutputSqlErrors $true `
+                -Query $Query
+            )
+          }
+
+          $databaseResult = Invoke-ReadOnlyQuery @'
+          SELECT DB_NAME() AS DatabaseName, SYSUTCDATETIME() AS ObservedAtUtc;
+          '@
           if ($databaseResult.Count -ne 1) {
             throw "Expected one DB_NAME() result row; received $($databaseResult.Count)."
           }
@@ -157,21 +219,89 @@ jobs:
             throw "Connected to unexpected database: $databaseName"
           }
           Write-Output "DatabaseName=$databaseName"
+          Write-Output "DatabaseObservedAtUtc=$($databaseResult[0].ObservedAtUtc.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'))"
 
-          $tableResult = @(
-            Invoke-Sqlcmd `
-              -ServerInstance $server `
-              -Database $env:AZURE_SQL_DATABASE `
-              -AccessToken $accessToken `
-              -ApplicationIntent ReadOnly `
-              -ConnectionTimeout 15 `
-              -QueryTimeout 30 `
-              -AbortOnError `
-              -OutputSqlErrors $true `
-              -Query 'SELECT TOP 5 name FROM sys.tables ORDER BY name;'
-          )
-          Write-Output "sys.tables read-only query succeeded; rows returned: $($tableResult.Count)"
-          $tableResult | Select-Object name | Format-Table -AutoSize
+          $schemaVersionsObject = Invoke-ReadOnlyQuery @'
+          SELECT OBJECT_ID(N'dbo.SchemaVersions', N'U') AS SchemaVersionsObjectId;
+          '@
+          if ($schemaVersionsObject.Count -ne 1 -or [DBNull]::Value.Equals($schemaVersionsObject[0].SchemaVersionsObjectId)) {
+            throw 'Preflight failed: dbo.SchemaVersions is missing.'
+          }
+
+          $latestSchema = Invoke-ReadOnlyQuery @'
+          SELECT TOP (1) VersionNumber, Description, AppliedAt, AppliedBy
+          FROM dbo.SchemaVersions
+          ORDER BY AppliedAt DESC, VersionNumber DESC;
+          '@
+          if ($latestSchema.Count -ne 1) {
+            throw "Preflight failed: expected one latest SchemaVersions row; received $($latestSchema.Count)."
+          }
+          $latestVersion = [string]$latestSchema[0].VersionNumber
+          Write-Output "LatestSchemaVersion=$latestVersion"
+          Write-Output "LatestSchemaDescription=$([string]$latestSchema[0].Description)"
+          Write-Output "LatestSchemaAppliedAt=$($latestSchema[0].AppliedAt)"
+          Write-Output "LatestSchemaAppliedBy=$([string]$latestSchema[0].AppliedBy)"
+          if ($latestVersion -ne '1.7.0-008') {
+            throw "Preflight failed: latest schema is not exact predecessor 1.7.0-008; received $latestVersion."
+          }
+
+          $versionState = Invoke-ReadOnlyQuery @'
+          SELECT
+              (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions WHERE VersionNumber = N'1.7.0-008') AS PredecessorCount,
+              (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions WHERE VersionNumber = N'1.8.0-001') AS TargetVersionCount;
+          '@
+          $predecessorCount = [int64]$versionState[0].PredecessorCount
+          $targetVersionCount = [int64]$versionState[0].TargetVersionCount
+          Write-Output "PredecessorCount=$predecessorCount"
+          Write-Output "TargetVersion1800_001Count=$targetVersionCount"
+          if ($predecessorCount -ne 1 -or $targetVersionCount -ne 0) {
+            throw 'Preflight failed: predecessor/target SchemaVersions state is not clean.'
+          }
+
+          $partialObjects = Invoke-ReadOnlyQuery @'
+          SELECT s.name AS SchemaName, t.name AS ObjectName
+          FROM sys.tables AS t
+          JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+          WHERE s.name = N'dbo'
+            AND t.name IN (N'SchemaMigrationDataBaselines', N'Centers', N'TeamCenterAssignments')
+          ORDER BY t.name;
+          '@
+          Write-Output "PartialObjectCount=$($partialObjects.Count)"
+          if ($partialObjects.Count -ne 0) {
+            $partialObjects | Format-Table -AutoSize
+            throw 'Preflight failed: partial 1800_001 objects exist.'
+          }
+
+          $partialColumns = Invoke-ReadOnlyQuery @'
+          SELECT s.name AS SchemaName, t.name AS TableName, c.name AS ColumnName
+          FROM sys.columns AS c
+          JOIN sys.tables AS t ON t.object_id = c.object_id
+          JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+          WHERE s.name = N'dbo'
+            AND
+            (
+                (t.name = N'Organizations' AND c.name IN (N'Notes', N'InactivatedAt', N'InactivatedByUserId', N'RowVersion'))
+                OR (t.name = N'Teams' AND c.name IN (N'EffectiveFrom', N'EffectiveTo', N'Notes', N'InactivatedByUserId', N'RowVersion'))
+                OR (t.name = N'VisitTripSnapshots' AND c.name IN (N'CenterIdSnapshot', N'CenterCodeSnapshot', N'CenterNameSnapshot', N'TeamCodeSnapshot'))
+            )
+          ORDER BY t.name, c.name;
+          '@
+          Write-Output "PartialColumnCount=$($partialColumns.Count)"
+          if ($partialColumns.Count -ne 0) {
+            $partialColumns | Format-Table -AutoSize
+            throw 'Preflight failed: partial 1800_001 columns exist.'
+          }
+
+          $historicalCounts = Invoke-ReadOnlyQuery @'
+          SELECT
+              (SELECT COUNT_BIG(*) FROM dbo.VisitTrips) AS VisitTripsCount,
+              (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS VisitTripSnapshotsCount,
+              (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshotStops) AS VisitTripSnapshotStopsCount;
+          '@
+          Write-Output "VisitTripsCount=$([int64]$historicalCounts[0].VisitTripsCount)"
+          Write-Output "VisitTripSnapshotsCount=$([int64]$historicalCounts[0].VisitTripSnapshotsCount)"
+          Write-Output "VisitTripSnapshotStopsCount=$([int64]$historicalCounts[0].VisitTripSnapshotStopsCount)"
+          Write-Output 'RecoveryPreflight=PASS_READ_ONLY'
 
       - name: Sign out of Azure
         if: always()
