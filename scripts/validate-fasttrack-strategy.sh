@@ -48,7 +48,8 @@ if find test-data/uat -type f ! -name README.md ! -name .gitignore -print -quit 
   exit 1
 fi
 
-if rg -n -i --glob '*.csv' '@(gmail|outlook|hotmail|yahoo|icloud|live)\.' test-data/automated test-data/templates; then
+if grep -ERni --include='*.csv' -E '@(gmail|outlook|hotmail|yahoo|icloud|live)\.' \
+  test-data/automated test-data/templates; then
   echo "Public email domain found in repository test data." >&2
   exit 1
 fi
