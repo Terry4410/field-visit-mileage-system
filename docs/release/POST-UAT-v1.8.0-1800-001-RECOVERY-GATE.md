@@ -1,20 +1,54 @@
 # v1.8.0 / 1800_001 Azure SQL UAT Recovery Gate
 
-Status: **design and evidence checklist only**. This gate does not restore, copy, pause, scale, seed, migrate, change a firewall, or modify any Azure resource.
+Status: **TECHNICALLY READY — PENDING HUMAN EXECUTION APPROVAL**. This is a recovery-evidence status only; it is not Migration GO authorization. This gate did not grant permissions, restore, copy, pause, scale, seed, migrate, change a firewall, deploy, or modify Azure SQL schema/data.
 
 Target: Azure SQL Database `db-fieldvisit-uat` on `sql-fieldvisit-jpe-uat` in `rg-fieldvisit-uat`.
 
 ## Current conclusion
 
-Azure SQL Database provides automated backups and Point-in-Time Restore (PITR) across service tiers, but the **specific UAT database's short-term retention and earliest restore point have not been verified in this preparation session**. The local preparation environment has no Azure CLI/authenticated Azure session, and no permission was expanded or token reused to obtain that metadata.
+The specific UAT database's Point-in-Time Restore (PITR) metadata, short-term retention, fixed Azure target, and read-only database preflight were captured through `GitHub Actions → uat-migration → OIDC → gh-fieldvisit-uat-migrate` on 2026-09-08. The successful evidence run used the existing Resource Group Reader and Azure SQL `db_datareader`; no permission was expanded.
 
-Therefore, `1800_001` is **NO-GO** until IT records the read-only evidence below and confirms that the proposed restore timestamp is inside the available restore window. A successful historical fingerprint check does not replace recoverability.
+Technical recovery evidence is complete for this gate. `1800_001` nevertheless remains **NO-GO / NOT DISPATCHED** until a human names the Recovery owner, approves an exact write-free UTC maintenance window, separately authorizes and verifies the temporary SQL permission grant, reviews the new branch head/approved-commit lock, and gives explicit Migration Execution approval. A successful historical count/fingerprint check does not replace recoverability.
 
 Microsoft documents that Azure SQL Database PITR creates a **new database** and cannot overwrite the current database in place. Restore requires separate Azure RBAC such as Contributor or SQL Server Contributor; the migration identity's Resource Group Reader role must not be expanded for recovery.
 
-## Read-only Azure metadata evidence
+## Actual recovery and preflight evidence
 
-Run these commands manually from an IT-controlled, already-authenticated Azure CLI session. They are inspection commands only; do not run any `set`, `update`, `restore`, `copy`, `pause`, or `scale` command.
+Evidence source: [Migration identity read-only UAT smoke test run #4](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/34191519774), branch `post-uat/v1.8.0`, commit `a52cbcd74e314dfaf8f4c54b067bd03b1ce36eab`, Environment `uat-migration`.
+
+| Evidence | Captured value |
+|---|---|
+| Azure evidence captured at UTC | `2026-09-08T05:40:49.516Z` |
+| Database evidence observed at UTC | `2026-09-08T05:40:59.315Z` |
+| Subscription ID | `07cda8ca-d5bc-4095-8821-8e039a8cea27` (`Enabled`) |
+| Resource Group | `rg-fieldvisit-uat` |
+| SQL Server | `sql-fieldvisit-jpe-uat` |
+| Database | `db-fieldvisit-uat` |
+| Azure region / tier | `japaneast` / `GeneralPurpose` (`GP_S_Gen5`, objective `GP_S_Gen5_2`) |
+| Database status | `Online` before SQL and `Online` at `2026-09-08T05:41:01.193Z` after SQL |
+| Earliest restore point | `2026-09-01T05:40:54.777968Z` |
+| Short-term retention | `7` days |
+| Differential backup interval | `12` hours |
+| Latest schema version | exactly `1.7.0-008` (`PredecessorCount = 1`) |
+| Target schema version | `1.8.0-001` count = `0` |
+| Partial `1800_001` objects | `0` of `SchemaMigrationDataBaselines`, `Centers`, `TeamCenterAssignments` present |
+| Partial `1800_001` columns | `0` of the reviewed Organization, Team, and Snapshot additions present |
+| `VisitTrips` count | `25` |
+| `VisitTripSnapshots` count | `15` |
+| `VisitTripSnapshotStops` count | `33` |
+| Read-only result | `RecoveryPreflight=PASS_READ_ONLY` |
+
+The immediately preceding attempt recorded `Paused` before SQL and then hit a single 15-second post-login timeout while Azure SQL serverless was waking. A retry of the same SELECT-only workflow observed `Online` and completed. This is retained as operational evidence; it does not justify a Firewall, scale, timeout, or permission change.
+
+Recovery method: use Azure SQL PITR to create a **new UAT database** at the Business/IT-selected timestamp if the restore decision matrix below selects recovery. A separately authorized Recovery owner must validate the restored database and own any later cutover decision. The migration identity remains Reader and must not perform restore/copy.
+
+Recovery owner: **PENDING Business/IT assignment**.
+
+Proposed write-free maintenance window: reserve **60 minutes**, with the exact UTC start/end **PENDING Business/IT approval**. Use the first 15 minutes to quiesce and prove writes are drained, capture a fresh `T0_UTC` plus the same metadata/schema/count evidence, allow up to 15 minutes for the single `1800_001 Up → Verify` execution unit only after a separate approval, and reserve the final 30 minutes for Review/forward-fix-or-PITR decision. Keep writes disabled until human Review accepts Verify and fingerprints. This proposal is not a schedule or execution authorization.
+
+## Re-capture commands for the future execution window
+
+The evidence above must be re-captured immediately before the future migration approval because `earliestRestoreDate`, status, and schema/data counts are time-sensitive. Run these inspection commands only through the reviewed `uat-migration` OIDC path or an IT-controlled, already-authenticated Azure CLI session; do not run any `set`, `update`, `restore`, `copy`, `pause`, or `scale` command.
 
 ```bash
 az account show \
@@ -38,7 +72,7 @@ az sql db str-policy show \
   --output json
 ```
 
-Record the raw JSON as a Review attachment. If `earliestRestoreDate` is absent, null, later than the planned recovery point, or the short-term retention query is denied, stop and ask the Azure owner to verify the same fields in Azure Portal. Do not elevate `gh-fieldvisit-uat-migrate` merely to inspect or restore backups.
+Retain the workflow log/raw JSON as Review evidence. If `earliestRestoreDate` is absent, null, later than the planned recovery point, or the short-term retention query is denied, stop and ask the Azure owner to verify the same fields in Azure Portal. Do not elevate `gh-fieldvisit-uat-migrate` merely to inspect or restore backups.
 
 ## Mandatory pre-migration evidence record
 
@@ -56,7 +90,7 @@ All values must be captured immediately before the future Environment approval a
 | Partial schema | All three new tables and all new columns from `1800_001` absent |
 | Historical state | Pre-migration counts and a durable copy of the `Up.sql`/`Verify.sql` fingerprint evidence for bounded Trip, Snapshot, and Snapshot Stop rows |
 | Application state | Named Business owner confirms a write-free window; background jobs and API writes are quiesced; no deployment is running |
-| Recovery owner | Named Azure operator who already holds approved restore permission; migration identity remains Reader at Azure scope |
+| Recovery owner | **Still pending:** named Azure operator who already holds approved restore permission; migration identity remains Reader at Azure scope |
 
 Recommended read-only SQL evidence (run only through a separately reviewed read-only check or during the future migration workflow preflight):
 
@@ -103,7 +137,7 @@ If a write occurs after `T0_UTC`, stop. A full PITR replacement could discard th
 | PITR/retention evidence is absent or `T0_UTC` is outside the recoverable window | No migration execution | Recovery cannot be demonstrated. A separately approved database copy or corrected backup policy decision is required before rescheduling. |
 | Restore is selected | Restore to a new database, validate it, then perform a separately approved replacement/cutover | Azure SQL Database PITR does not overwrite the source database. Restore/cutover is a distinct incident procedure, not part of the migration workflow. |
 
-## Hard stops
+## Hard stops before Migration Execution
 
 - Required reviewer evidence, write-free owner, Recovery owner, or PITR evidence is missing.
 - `earliestRestoreDate`/retention does not cover the recorded `T0_UTC`.
