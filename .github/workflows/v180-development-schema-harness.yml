@@ -178,6 +178,7 @@ jobs:
             /p:ScriptDatabaseOptions=False \
             '/p:ExcludeObjectTypes=Users;DatabaseRoles;RoleMembership;Permissions;Logins;Credentials;DatabaseScopedCredentials'
           test -s artifacts/v180-development-schema.sql
+          python3 -c 'from pathlib import Path; p=Path("artifacts/v180-development-schema.sql"); d=p.read_bytes(); p.write_bytes(d[3:] if d.startswith(b"\xef\xbb\xbf") else d)'
           "${sqlcmd[@]}" -d DevV18EmptyProof < artifacts/v180-development-schema.sql
           "${sqlcmd[@]}" -d DevV18EmptyProof < database/development/v1.8.0/SchemaVersions.sql
           "${sqlcmd[@]}" -d DevV18EmptyProof < database/baseline/v1.8.0/Verify.sql
