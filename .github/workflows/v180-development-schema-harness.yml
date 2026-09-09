@@ -195,6 +195,17 @@ jobs:
           {"status":"mutable-development-harness-pass","finalBaseline":false,"frozen":false,"azureUatMutation":false,"source":"one-read-only-UAT-schema-only-extraction","migrationRange":"1800_001 through 1800_007"}
           JSON
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci --no-audit --no-fund
+
       - name: Run Fast Regression once
         shell: bash
         run: bash scripts/test-fast-regression.sh
