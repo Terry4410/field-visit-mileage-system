@@ -1,31 +1,30 @@
 # NEXT WORK TASK
 
-## Conditional next task
+## Current task
 
-Epic C-B — Deployment Site management UI plus VisitTrip / VisitTripSnapshot integration required by `1800_003`.
+Epic C-B1 — Validate and publish the Deployment Site management UI candidate.
 
-Start only after the current Epic C-A backend-authority implementation commit passes the automatic UAT Fast-Track. If C-A fails, repair only the exact protected-regression failure first.
+The C-A backend authority is READY after automatic UAT Fast-Track run `34364217670`.
 
-## Starting state after C-A validation
+## Starting state
 
 - Branch: `feature/uat-fasttrack-v180`
 - `FULL EPIC B = COMPLETE`
-- `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY = READY` only after protected validation succeeds
-- `EPIC C-B UI / TRIP / SNAPSHOT INTEGRATION = NEXT` only after that success
+- `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY = READY`
+- `EPIC C-B1 DEPLOYMENT SITE MANAGEMENT UI = IMPLEMENTATION CANDIDATE / VALIDATION PENDING`
+- `EPIC C-B2 TRIP / SNAPSHOT INTEGRATION = BLOCKED ON C-B1 VALIDATION`
 - `DEVELOPMENT SCHEMA = READY / MUTABLE / NON-FINAL`
 - Azure UAT remains pre-v1.8.
 
-## C-B scope
+## C-B1 scope
 
 - Add admin Deployment Site UI using the C-A v1.8 APIs.
 - Manage Site lifecycle under Center with RowVersion conflict handling.
 - Manage history-preserving Site↔Location assignments.
 - Manage Team↔Deployment Site assignments subject to Team/Center containment.
 - Manage Employment↔Deployment Site assignments including one-primary behavior.
-- Add the `1800_003` VisitTrips `StartDeploymentSiteId` / `EndDeploymentSiteId` model and write-flow integration only where required by the existing trip workflow.
-- Populate the `1800_003` Start/End Deployment Site snapshot fields when snapshots are created; historical snapshots remain immutable.
-- Preserve current trip behavior when Deployment Site is not used unless the v1.8 business rule explicitly requires it.
-- Add permanent frontend/backend/browser regression coverage.
+- Add permanent frontend/backend regression coverage and preserve the existing browser suite.
+- Do not begin C-B2 VisitTrip or snapshot integration in this batch.
 
 ## Hard rules
 
@@ -39,11 +38,11 @@ Start only after the current Epic C-A backend-authority implementation commit pa
 
 ## Completion state
 
-After C-B targeted tests, full protected validation and exactly one automatic UAT Fast-Track succeed, report:
+After C-B1 targeted tests, full protected validation and exactly one automatic UAT Fast-Track succeed, report:
 
 - `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY = READY`
-- `EPIC C-B UI / TRIP / SNAPSHOT INTEGRATION = READY`
-- `FULL EPIC C = COMPLETE`
-- `EPIC D = NEXT`
+- `EPIC C-B1 DEPLOYMENT SITE UI = READY`
+- `EPIC C-B2 TRIP / SNAPSHOT INTEGRATION = NEXT`
+- `FULL EPIC C = NOT COMPLETE`
 
-Do not start Final Clean Baseline work yet.
+Do not begin C-B2 or Final Clean Baseline work in the C-B1 task.

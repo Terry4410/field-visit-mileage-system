@@ -30,8 +30,9 @@ The development harness uses one schema-only extraction of the current trusted U
 
 ## Epic C status
 
-- `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY`: **IMPLEMENTATION CANDIDATE / VALIDATION PENDING**. The repository candidate models the `1800_003` DeploymentSites, DeploymentSiteLocationAssignments, TeamDeploymentSiteAssignments and EmploymentDeploymentSiteAssignments structures, with authoritative admin reads/writes, inclusive effective dates, history preservation, organization/Center containment and RowVersion concurrency.
-- `EPIC C-B UI / TRIP / SNAPSHOT INTEGRATION`: **NOT STARTED**. Do not start until C-A protected validation passes.
+- `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY`: **READY**. The `1800_003` DeploymentSites, DeploymentSiteLocationAssignments, TeamDeploymentSiteAssignments and EmploymentDeploymentSiteAssignments structures have authoritative admin reads/writes, inclusive effective dates, history preservation, organization/Center containment and RowVersion concurrency. Automatic UAT Fast-Track run `34364217670` passed.
+- `EPIC C-B1 DEPLOYMENT SITE MANAGEMENT UI`: **IMPLEMENTATION CANDIDATE / VALIDATION PENDING**. The admin UI uses only C-A v1.8 APIs for Site lifecycle and Location/Team/Employment assignment history-preserving writes. It does not integrate VisitTrips or snapshots.
+- `EPIC C-B2 TRIP / SNAPSHOT INTEGRATION`: **BLOCKED ON C-B1 VALIDATION**.
 - `FULL EPIC C`: **NOT COMPLETE**.
 
 C-A deliberately does not change the existing VisitTrip write flow or snapshot production. `1800_003` Trip/VisitTripSnapshot integration remains isolated to C-B so Deployment Site authority can be regression-tested independently.
@@ -53,13 +54,13 @@ Evidence captured 2026-09-08 UTC:
 
 ## Active blockers
 
-- C-A must pass exactly one automatic UAT Fast-Track before C-B starts.
+- C-B1 must pass local protected validation and exactly one automatic UAT Fast-Track before C-B2 starts.
 - The final clean-install baseline remains intentionally deferred until Epic B-G and Full AI Validation are complete.
 - A destructive Azure UAT reset remains behind Human Gate A.
 
 ## Next recommended batch
 
-If C-A automatic Fast-Track passes, proceed to Epic C-B — Deployment Site management UI and the explicitly scoped VisitTrip / VisitTripSnapshot integration required by `1800_003`. If C-A fails, stop and repair only the exact protected-regression failure first.
+Complete C-B1 protected validation and its single automatic UAT Fast-Track. After success, proceed to C-B2 — the explicitly scoped VisitTrip / VisitTripSnapshot integration required by `1800_003`.
 
 ## Human gates
 

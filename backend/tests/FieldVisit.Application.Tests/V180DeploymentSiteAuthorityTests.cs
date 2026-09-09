@@ -196,6 +196,33 @@ public sealed class V180DeploymentSiteAuthorityTests
         }
     }
 
+    [Fact]
+    public void Deployment_site_admin_ui_uses_authoritative_routes_and_existing_pickers()
+    {
+        var page = Source("frontend/src/pages/V180DeploymentSiteAdminPage.tsx");
+        var paths = Source("frontend/src/v180-deployment-site-ui.ts");
+        var app = Source("frontend/src/App.tsx");
+
+        Assert.Contains("<SmartLocationPicker", page);
+        Assert.Contains("/admin/v180/people", page);
+        Assert.Contains("employmentPrimary", page);
+        Assert.Contains("IsPrimary", page);
+        Assert.Contains("/admin/deployment-sites", app);
+        Assert.Contains("label:'派駐點'", app);
+
+        foreach (var path in new[]
+        {
+            "/admin/v180/deployment-sites",
+            "/admin/v180/deployment-site-location-assignments",
+            "/admin/v180/team-deployment-site-assignments",
+            "/admin/v180/employment-deployment-site-assignments"
+        })
+            Assert.Contains(path, paths);
+
+        Assert.DoesNotContain("/admin/deployment-site", paths);
+        Assert.DoesNotContain("/admin/deployment-sites", paths);
+    }
+
     private static async Task<AppDbContext> SeedCoreAsync()
     {
         var db = MemoryDb();
@@ -230,4 +257,13 @@ public sealed class V180DeploymentSiteAuthorityTests
         CenterId = id, OrganizationId = org, CenterCode = $"C{id}", CenterName = $"Center {id}",
         EffectiveFrom = Start, EffectiveTo = End, IsActive = true, CreatedAt = DateTime.UtcNow
     };
+
+    private static string Source(string relative)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "backend", "FieldVisitSystem.sln")))
+            directory = directory.Parent;
+        Assert.NotNull(directory);
+        return File.ReadAllText(Path.Combine(directory!.FullName, relative));
+    }
 }
