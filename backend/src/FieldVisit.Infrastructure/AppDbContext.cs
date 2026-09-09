@@ -48,6 +48,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
     public DbSet<TeamLeaderAssignment> TeamLeaderAssignments => Set<TeamLeaderAssignment>();
     public DbSet<TeamLeaderDelegation> TeamLeaderDelegations => Set<TeamLeaderDelegation>();
+    public DbSet<DeploymentSite> DeploymentSites => Set<DeploymentSite>();
+    public DbSet<DeploymentSiteLocationAssignment> DeploymentSiteLocationAssignments => Set<DeploymentSiteLocationAssignment>();
+    public DbSet<TeamDeploymentSiteAssignment> TeamDeploymentSiteAssignments => Set<TeamDeploymentSiteAssignment>();
+    public DbSet<EmploymentDeploymentSiteAssignment> EmploymentDeploymentSiteAssignments => Set<EmploymentDeploymentSiteAssignment>();
 
     // v1.7 Location Scale foundation.
     public DbSet<GovernmentLocationSource> GovernmentLocationSources => Set<GovernmentLocationSource>();
@@ -302,6 +306,50 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => new { x.DelegateEmploymentId, x.EffectiveFrom, x.EffectiveTo, x.TeamLeaderAssignmentId }).HasDatabaseName("IX_TeamLeaderDelegations_AsOf");
             e.HasOne<TeamLeaderAssignment>().WithMany().HasForeignKey(x => x.TeamLeaderAssignmentId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Employment>().WithMany().HasForeignKey(x => x.DelegateEmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // v1.8 Deployment Site authority. Mirrors 1800_003; schema changes remain script-owned.
+        b.Entity<DeploymentSite>(e =>
+        {
+            e.ToTable("DeploymentSites"); e.HasKey(x => x.DeploymentSiteId); e.Property(x => x.DeploymentSiteId).ValueGeneratedOnAdd();
+            e.Property(x => x.SiteCode).HasMaxLength(50); e.Property(x => x.SiteName).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.CenterId, x.SiteCode }).IsUnique().HasDatabaseName("UQ_DeploymentSites_Center_Code");
+            e.HasIndex(x => new { x.CenterId, x.IsActive, x.EffectiveFrom, x.EffectiveTo }).HasDatabaseName("IX_DeploymentSites_Center_Effective");
+            e.HasOne(x => x.Center).WithMany(x => x.DeploymentSites).HasForeignKey(x => x.CenterId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InactivatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<DeploymentSiteLocationAssignment>(e =>
+        {
+            e.ToTable("DeploymentSiteLocationAssignments"); e.HasKey(x => x.DeploymentSiteLocationAssignmentId); e.Property(x => x.DeploymentSiteLocationAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.ChangeReason).HasMaxLength(500); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.DeploymentSiteId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_DeploymentSiteLocationAssignments_Start");
+            e.HasIndex(x => new { x.DeploymentSiteId, x.EffectiveFrom, x.EffectiveTo, x.LocationId }).HasDatabaseName("IX_DeploymentSiteLocationAssignments_AsOf");
+            e.HasOne(x => x.DeploymentSite).WithMany(x => x.LocationAssignments).HasForeignKey(x => x.DeploymentSiteId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<TeamDeploymentSiteAssignment>(e =>
+        {
+            e.ToTable("TeamDeploymentSiteAssignments"); e.HasKey(x => x.TeamDeploymentSiteAssignmentId); e.Property(x => x.TeamDeploymentSiteAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.TeamId, x.DeploymentSiteId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_TeamDeploymentSiteAssignments_Start");
+            e.HasIndex(x => new { x.TeamId, x.EffectiveFrom, x.EffectiveTo, x.DeploymentSiteId }).HasDatabaseName("IX_TeamDeploymentSiteAssignments_Team_AsOf");
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.DeploymentSite).WithMany(x => x.TeamAssignments).HasForeignKey(x => x.DeploymentSiteId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<EmploymentDeploymentSiteAssignment>(e =>
+        {
+            e.ToTable("EmploymentDeploymentSiteAssignments"); e.HasKey(x => x.EmploymentDeploymentSiteAssignmentId); e.Property(x => x.EmploymentDeploymentSiteAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.EmploymentId, x.DeploymentSiteId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_EmploymentDeploymentSiteAssignments_Start");
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom, x.EffectiveTo, x.IsPrimary, x.DeploymentSiteId }).HasDatabaseName("IX_EmploymentDeploymentSiteAssignments_AsOf");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.DeploymentSite).WithMany(x => x.EmploymentAssignments).HasForeignKey(x => x.DeploymentSiteId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
         });
 
