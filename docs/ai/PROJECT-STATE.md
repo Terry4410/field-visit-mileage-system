@@ -36,11 +36,12 @@ Evidence captured 2026-09-08 UTC:
 
 - `database/baseline/v1.8.0/schema.sql` is deliberately non-executable until a latest-schema snapshot is generated and validated in an isolated disposable SQL environment.
 - The existing repository has migrations from prior releases but no complete clean-install foundation script.
+- The first development-harness run (GitHub Actions `34301971053`) was admitted but failed before a runner started (`steps=[]`, `runner_id=0`); no Azure extraction or ephemeral SQL proof occurred. The existing `uat-migration` environment admission/branch policy must be reviewed by an existing GitHub administrator before rerunning. No policy or privilege change was made here.
 - A destructive Azure UAT reset remains behind Human Gate A.
 
 ## Next recommended batch
 
-Complete the isolated v1.8.0 baseline build/verification, then implement the existing Epic B Organization / People / Team slice with minimal changes and protected v1.6/v1.7 regression coverage.
+Resolve the read-only harness admission blocker through the existing GitHub administrator, run the one manual development-harness validation, then implement the existing Epic B Organization / People / Team slice with minimal changes and protected v1.6/v1.7 regression coverage.
 
 ## Human gates
 
