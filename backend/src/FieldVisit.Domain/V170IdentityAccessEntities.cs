@@ -34,6 +34,7 @@ public static class CapabilityCodes
 public sealed class UserIdentityProfile
 {
     public int UserId { get; set; }
+    public long? EmploymentId { get; set; }
     public string UserType { get; set; } = UserTypes.Internal;
     public string UserCode { get; set; } = "";
     public string IdentityProvider { get; set; } = "Demo";

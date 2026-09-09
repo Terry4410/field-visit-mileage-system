@@ -8,6 +8,10 @@ public sealed class Organization
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public string? Notes { get; set; }
+    public DateTime? InactivatedAt { get; set; }
+    public int? InactivatedByUserId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
 }
 
 public sealed class Team
@@ -19,6 +23,11 @@ public sealed class Team
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public DateOnly? EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public string? Notes { get; set; }
+    public int? InactivatedByUserId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
 }
 
 public sealed class User
@@ -132,6 +141,7 @@ public sealed class VisitTrip
     public long VisitTripId { get; set; }
     public string TripNo { get; set; } = "";
     public int UserId { get; set; }
+    public long? EmploymentId { get; set; }
     public int OrganizationId { get; set; }
     public int? TeamId { get; set; }
     public DateOnly VisitDate { get; set; }

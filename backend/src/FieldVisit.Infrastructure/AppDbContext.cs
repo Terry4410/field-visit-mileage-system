@@ -39,6 +39,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserTeamAssignment> UserTeamAssignments => Set<UserTeamAssignment>();
     public DbSet<UserDataScope> UserDataScopes => Set<UserDataScope>();
     public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
+    public DbSet<Center> Centers => Set<Center>();
+    public DbSet<TeamCenterAssignment> TeamCenterAssignments => Set<TeamCenterAssignment>();
+    public DbSet<Person> Persons => Set<Person>();
+    public DbSet<Employment> Employments => Set<Employment>();
+    public DbSet<EmploymentStatusPeriod> EmploymentStatusPeriods => Set<EmploymentStatusPeriod>();
+    public DbSet<EmploymentRoleAssignment> EmploymentRoleAssignments => Set<EmploymentRoleAssignment>();
+    public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
+    public DbSet<TeamLeaderAssignment> TeamLeaderAssignments => Set<TeamLeaderAssignment>();
+    public DbSet<TeamLeaderDelegation> TeamLeaderDelegations => Set<TeamLeaderDelegation>();
 
     // v1.7 Location Scale foundation.
     public DbSet<GovernmentLocationSource> GovernmentLocationSources => Set<GovernmentLocationSource>();
@@ -48,8 +57,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     protected override void OnModelCreating(ModelBuilder b)
     {
-        b.Entity<Organization>(e => { e.ToTable("Organizations"); e.HasKey(x => x.OrganizationId); e.Property(x => x.OrganizationId).ValueGeneratedOnAdd(); });
-        b.Entity<Team>(e => { e.ToTable("Teams"); e.HasKey(x => x.TeamId); e.Property(x => x.TeamId).ValueGeneratedOnAdd(); });
+        b.Entity<Organization>(e =>
+        {
+            e.ToTable("Organizations"); e.HasKey(x => x.OrganizationId); e.Property(x => x.OrganizationId).ValueGeneratedOnAdd();
+            e.Property(x => x.OrganizationCode).HasMaxLength(50); e.Property(x => x.OrganizationName).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InactivatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<Team>(e =>
+        {
+            e.ToTable("Teams"); e.HasKey(x => x.TeamId); e.Property(x => x.TeamId).ValueGeneratedOnAdd();
+            e.Property(x => x.TeamCode).HasMaxLength(50); e.Property(x => x.TeamName).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.OrganizationId, x.TeamCode }).IsUnique().HasDatabaseName("UX_Teams_Organization_TeamCode");
+            e.HasIndex(x => new { x.OrganizationId, x.IsActive, x.EffectiveFrom, x.EffectiveTo }).HasDatabaseName("IX_Teams_Organization_Effective");
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InactivatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
         b.Entity<User>(e => { e.ToTable("Users"); e.HasKey(x => x.UserId); e.Property(x => x.UserId).ValueGeneratedOnAdd(); e.Property(x => x.EmployeeNo).IsRequired(false); });
         b.Entity<Role>(e => { e.ToTable("Roles"); e.HasKey(x => x.RoleId); e.Property(x => x.RoleId).ValueGeneratedOnAdd(); });
         b.Entity<UserRole>(e => { e.ToTable("UserRoles"); e.HasKey(x => x.UserRoleId); e.Property(x => x.UserRoleId).ValueGeneratedOnAdd(); });
@@ -70,6 +94,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             e.ToTable("VisitTrips"); e.HasKey(x => x.VisitTripId); e.Property(x => x.VisitTripId).ValueGeneratedOnAdd();
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
             e.HasMany(x => x.Stops).WithOne(x => x.VisitTrip).HasForeignKey(x => x.VisitTripId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.MileageCalculation).WithOne(x => x.VisitTrip).HasForeignKey<MileageCalculation>(x => x.VisitTripId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -128,6 +153,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => new { x.EntraTenantId, x.EntraObjectId })
                 .IsUnique()
                 .HasFilter("[EntraTenantId] IS NOT NULL AND [EntraObjectId] IS NOT NULL");
+            e.HasIndex(x => x.EmploymentId).IsUnique()
+                .HasFilter("[EmploymentId] IS NOT NULL")
+                .HasDatabaseName("UX_UserIdentityProfiles_Employment");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
         });
 
         b.Entity<UserEmploymentPeriod>(e =>
@@ -173,6 +202,107 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 x.CapabilityCode,
                 x.EffectiveFrom
             }).IsUnique();
+        });
+
+        // v1.8 Organization / People / Team read foundation. These mappings
+        // mirror 1800_001 and 1800_002; schema changes remain script-owned.
+        b.Entity<Center>(e =>
+        {
+            e.ToTable("Centers"); e.HasKey(x => x.CenterId); e.Property(x => x.CenterId).ValueGeneratedOnAdd();
+            e.Property(x => x.CenterCode).HasMaxLength(50); e.Property(x => x.CenterName).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.OrganizationId, x.CenterCode }).IsUnique().HasDatabaseName("UQ_Centers_Organization_Code");
+            e.HasIndex(x => new { x.OrganizationId, x.IsActive, x.EffectiveFrom, x.EffectiveTo }).HasDatabaseName("IX_Centers_Organization_Effective");
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InactivatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<TeamCenterAssignment>(e =>
+        {
+            e.ToTable("TeamCenterAssignments"); e.HasKey(x => x.TeamCenterAssignmentId); e.Property(x => x.TeamCenterAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.ChangeReason).HasMaxLength(500); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.TeamId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_TeamCenterAssignments_Team_Start");
+            e.HasIndex(x => new { x.CenterId, x.EffectiveFrom, x.EffectiveTo, x.TeamId }).HasDatabaseName("IX_TeamCenterAssignments_Center_Effective");
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Center>().WithMany().HasForeignKey(x => x.CenterId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<Person>(e =>
+        {
+            e.ToTable("Persons"); e.HasKey(x => x.PersonId); e.Property(x => x.PersonId).ValueGeneratedOnAdd();
+            e.Property(x => x.DisplayName).HasMaxLength(200); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => x.LegacyUserId).IsUnique().HasFilter("[LegacyUserId] IS NOT NULL").HasDatabaseName("UX_Persons_LegacyUserId");
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.LegacyUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<Employment>(e =>
+        {
+            e.ToTable("Employments"); e.HasKey(x => x.EmploymentId); e.Property(x => x.EmploymentId).ValueGeneratedOnAdd();
+            e.Property(x => x.EmployeeNo).HasMaxLength(50); e.Property(x => x.Email).HasMaxLength(320);
+            e.Property(x => x.SourceType).HasMaxLength(30); e.Property(x => x.SourceReference).HasMaxLength(200);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.OrganizationId, x.EmployeeNo }).IsUnique().HasFilter("[EmployeeNo] IS NOT NULL").HasDatabaseName("UX_Employments_Organization_EmployeeNo");
+            e.HasIndex(x => x.LegacyUserId).IsUnique().HasFilter("[LegacyUserId] IS NOT NULL").HasDatabaseName("UX_Employments_LegacyUserId");
+            e.HasIndex(x => new { x.PersonId, x.HireDate, x.TerminationDate }).HasDatabaseName("IX_Employments_Person");
+            e.HasIndex(x => x.Email).HasFilter("[Email] IS NOT NULL").HasDatabaseName("IX_Employments_Email");
+            e.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.LegacyUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<EmploymentStatusPeriod>(e =>
+        {
+            e.ToTable("EmploymentStatusPeriods"); e.HasKey(x => x.EmploymentStatusPeriodId); e.Property(x => x.EmploymentStatusPeriodId).ValueGeneratedOnAdd();
+            e.Property(x => x.EmploymentStatus).HasMaxLength(30); e.Property(x => x.SourceType).HasMaxLength(30); e.Property(x => x.SourceReference).HasMaxLength(200);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_EmploymentStatusPeriods_Start");
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom, x.EffectiveTo, x.EmploymentStatus }).HasDatabaseName("IX_EmploymentStatusPeriods_AsOf");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<EmploymentRoleAssignment>(e =>
+        {
+            e.ToTable("EmploymentRoleAssignments"); e.HasKey(x => x.EmploymentRoleAssignmentId); e.Property(x => x.EmploymentRoleAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.EmploymentId, x.RoleId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_EmploymentRoleAssignments_Start");
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom, x.EffectiveTo, x.RoleId }).HasDatabaseName("IX_EmploymentRoleAssignments_AsOf");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<TeamMembership>(e =>
+        {
+            e.ToTable("TeamMemberships"); e.HasKey(x => x.TeamMembershipId); e.Property(x => x.TeamMembershipId).ValueGeneratedOnAdd();
+            e.Property(x => x.ChangeReason).HasMaxLength(500); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.EmploymentId, x.TeamId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_TeamMemberships_Start");
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom, x.EffectiveTo, x.IsPrimary, x.TeamId }).HasDatabaseName("IX_TeamMemberships_Employment_AsOf");
+            e.HasIndex(x => new { x.TeamId, x.EffectiveFrom, x.EffectiveTo, x.EmploymentId }).HasDatabaseName("IX_TeamMemberships_Team_AsOf");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<TeamLeaderAssignment>(e =>
+        {
+            e.ToTable("TeamLeaderAssignments"); e.HasKey(x => x.TeamLeaderAssignmentId); e.Property(x => x.TeamLeaderAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.TeamId, x.EmploymentId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_TeamLeaderAssignments_Start");
+            e.HasIndex(x => new { x.TeamId, x.EffectiveFrom, x.EffectiveTo, x.EmploymentId }).HasDatabaseName("IX_TeamLeaderAssignments_Team_AsOf");
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<TeamLeaderDelegation>(e =>
+        {
+            e.ToTable("TeamLeaderDelegations"); e.HasKey(x => x.TeamLeaderDelegationId); e.Property(x => x.TeamLeaderDelegationId).ValueGeneratedOnAdd();
+            e.Property(x => x.Reason).HasMaxLength(500); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.TeamLeaderAssignmentId, x.DelegateEmploymentId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_TeamLeaderDelegations_Start");
+            e.HasIndex(x => new { x.DelegateEmploymentId, x.EffectiveFrom, x.EffectiveTo, x.TeamLeaderAssignmentId }).HasDatabaseName("IX_TeamLeaderDelegations_AsOf");
+            e.HasOne<TeamLeaderAssignment>().WithMany().HasForeignKey(x => x.TeamLeaderAssignmentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.DelegateEmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
         });
 
         // v1.7 Location Scale foundation.

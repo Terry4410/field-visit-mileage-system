@@ -1,7 +1,7 @@
 # Project state
 
 - Phase: `UAT FAST-TRACK DEVELOPMENT`
-- Current workstream: `DEVELOPMENT SCHEMA HARNESS`
+- Current workstream: `EPIC B — ORGANIZATION / PEOPLE / TEAM`
 - Working branch: `feature/uat-fasttrack-v180`
 - Target release: `v1.8.0`
 - Protected trace point: `post-uat/v1.8.0@e0c18ac69e55a5f559114e59ed343cb20dd51eb6`
@@ -16,6 +16,11 @@
 - `FINAL RELEASE CLEAN BASELINE`: **NOT YET CREATED / NOT FROZEN**. It is created only after Epic B-G and Full AI Validation, then proven on an empty database, SHA-locked, and handed to IT.
 
 The development harness uses one schema-only extraction of the current trusted UAT v1.7 structure when available, then evaluates the ordered 1.8 migrations only in disposable SQL. It never mutates `db-fieldvisit-uat`.
+
+## Epic B status
+
+- `EPIC B1 BACKEND FOUNDATION`: **READY**. The additive v1.8 domain model, exact EF mappings, fail-closed as-of resolution, and admin read APIs are available without changing v1.7 authority or write behavior.
+- `EPIC B2 UI/WRITE CUTOVER`: **NEXT**. It remains a separate protected-baseline change and requires impact analysis plus expanded regression coverage before implementation.
 
 ## Cost guardrail (hard rule)
 
@@ -34,14 +39,12 @@ Evidence captured 2026-09-08 UTC:
 
 ## Active blockers
 
-- `database/baseline/v1.8.0/schema.sql` is deliberately non-executable until a latest-schema snapshot is generated and validated in an isolated disposable SQL environment.
-- The existing repository has migrations from prior releases but no complete clean-install foundation script.
-- The first development-harness run (GitHub Actions `34301971053`) was admitted but failed before a runner started (`steps=[]`, `runner_id=0`); no Azure extraction or ephemeral SQL proof occurred. The existing `uat-migration` environment admission/branch policy must be reviewed by an existing GitHub administrator before rerunning. No policy or privilege change was made here.
+- The final clean-install baseline remains intentionally deferred until Epic B-G and Full AI Validation are complete.
 - A destructive Azure UAT reset remains behind Human Gate A.
 
 ## Next recommended batch
 
-Resolve the read-only harness admission blocker through the existing GitHub administrator, run the one manual development-harness validation, then implement the existing Epic B Organization / People / Team slice with minimal changes and protected v1.6/v1.7 regression coverage.
+Perform Epic B2 impact analysis, add regression coverage for every affected v1.7 people/team write path, then cut over UI/write authority in one minimal reviewed batch.
 
 ## Human gates
 
