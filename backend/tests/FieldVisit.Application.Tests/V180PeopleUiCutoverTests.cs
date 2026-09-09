@@ -85,7 +85,7 @@ public sealed class V180PeopleUiCutoverTests
     public void Team_membership_ui_reads_and_writes_v180_employment_authority()
     {
         var source = Source("frontend/src/pages/TeamManagementPage.tsx");
-        Assert.Contains("usePagedQuery<V180PersonRow>('/admin/v180/people'", source);
+        Assert.Contains("usePagedQuery<V180PersonRow>(\"/admin/v180/people\"", source);
         Assert.Contains("internalOnly:true", source);
         Assert.Contains("teamId:onlyMembers?selectedTeamId:undefined", source);
         Assert.Contains("/admin/v180/people/${u.employmentId}/access", source);
@@ -109,11 +109,15 @@ public sealed class V180PeopleUiCutoverTests
     }
 
     [Fact]
-    public void Team_master_ui_stays_on_legacy_adapter_until_b2_b2()
+    public void Team_master_ui_is_now_cut_over_to_v18_lifecycle_authority()
     {
         var source = Source("frontend/src/pages/TeamManagementPage.tsx");
-        Assert.Contains("'/admin/teams/search'", source);
-        Assert.Contains("api(\"/admin/teams\"", source);
+        Assert.Contains("usePagedQuery<V180TeamAdmin>(\"/admin/v180/teams\"", source);
+        Assert.Contains("api(\"/admin/v180/teams\"", source);
+        Assert.Contains("/admin/v180/teams/${editTeam.teamId}", source);
+        Assert.Contains("/admin/v180/teams/${t.teamId}/deactivate", source);
+        Assert.DoesNotContain("'/admin/teams/search'", source);
+        Assert.DoesNotContain("api(\"/admin/teams\"", source);
     }
 
     private static string Source(string relative)
