@@ -112,6 +112,25 @@ public sealed class V180AuthoritativePeopleWriteTests
     }
 
     [Fact]
+    public void Legacy_adapters_have_no_direct_write_fallbacks()
+    {
+        var v170 = Source("backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs");
+        var old = Source("backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs");
+        Assert.DoesNotContain("#pragma warning disable CS0162", v170);
+        Assert.DoesNotContain("#pragma warning disable CS0162", old);
+
+        var internalAdapter = Slice(v170, "UpdateInternalUserAccessAsync", "private async Task EnsureIdentityBindingAvailableAsync");
+        foreach (var legacySet in new[] { "UserRoleAssignments", "UserTeamAssignments", "UserRoles", "UserTeamScopes" })
+            Assert.DoesNotContain(legacySet, internalAdapter);
+        Assert.Contains("v180Writer.UpdateAccessFromLegacyAsync", internalAdapter);
+
+        var oldAdapter = Slice(old, "SaveUserAccessAsync", "public async Task<IReadOnlyList<ManagedTeamDto>>");
+        foreach (var legacySet in new[] { "UserRoles", "UserTeamScopes" })
+            Assert.DoesNotContain(legacySet, oldAdapter);
+        Assert.Contains("v180PeopleWriter.UpdateAccessAsync", oldAdapter);
+    }
+
+    [Fact]
     public void Compatibility_projection_covers_all_required_v17_structures()
     {
         var source = Source("backend/src/FieldVisit.Infrastructure/V180OrganizationPeopleWriter.cs");
