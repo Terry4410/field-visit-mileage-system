@@ -100,9 +100,9 @@ public sealed class V180PeopleUiCutoverTests
     {
         var source = Source("frontend/src/pages/TeamManagementPage.tsx");
         Assert.Contains("停用中的小組不可新增成員", source);
-        Assert.Contains("visitor", source);
-        Assert.Contains("leader", source);
-        Assert.Contains("至少需要一個小組", source);
+        Assert.Contains("const requiresTeam=v180RoleCodes(u).some(r=>[\"visitor\",\"leader\"].includes(r));", source);
+        Assert.Contains("if(requiresTeam&&next.length===0)", source);
+        Assert.Contains("return setMsg(`${u.displayName} 具有「外訪員／小組長」角色", source);
         Assert.Contains("主要小組", source);
         Assert.DoesNotContain("v1.7 小組成員設定", source);
         Assert.Contains("v1.8：以 Employment 與有效 TeamMembership", source);
