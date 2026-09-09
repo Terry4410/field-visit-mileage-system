@@ -251,7 +251,7 @@ public sealed class V180AuthoritativePeopleWriteTests
     private static string Source(string relative)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "backend", "FieldVisit.sln")))
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "backend", "FieldVisitSystem.sln")))
             directory = directory.Parent;
         Assert.NotNull(directory);
         return File.ReadAllText(Path.Combine(directory!.FullName, relative));
