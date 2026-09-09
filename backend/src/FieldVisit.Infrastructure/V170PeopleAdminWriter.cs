@@ -15,7 +15,8 @@ namespace FieldVisit.Infrastructure;
 /// - receive export permission only through UserCapabilities
 /// </summary>
 public sealed class V170PeopleAdminWriter(
-    AppDbContext db)
+    AppDbContext db,
+    IV180OrganizationPeopleWriter v180Writer)
     : IV170PeopleAdminWriter
 {
     public async Task<int> CreateExternalSupervisorAsync(
@@ -150,12 +151,24 @@ public sealed class V170PeopleAdminWriter(
                     user.UserId,
                     ct);
 
+                var externalIdentity =
+                    await v180Writer.CreateExternalIdentityAsync(
+                        admin,
+                        user,
+                        request,
+                        supervisorRole.RoleId,
+                        now,
+                        ct);
+
                 await db.UserIdentityProfiles
                     .AddAsync(
                         new UserIdentityProfile
                         {
                             UserId =
                                 user.UserId,
+
+                            EmploymentId =
+                                externalIdentity.EmploymentId,
 
                             UserType =
                                 UserTypes.External,
@@ -189,46 +202,6 @@ public sealed class V170PeopleAdminWriter(
                                 now
                         },
                         ct);
-
-                // Effective-dated source of truth.
-                await db.UserRoleAssignments
-                    .AddAsync(
-                        new UserRoleAssignment
-                        {
-                            UserId =
-                                user.UserId,
-
-                            RoleId =
-                                supervisorRole.RoleId,
-
-                            EffectiveFrom =
-                                request.AuthorizationFrom,
-
-                            EffectiveTo =
-                                request.AuthorizationTo,
-
-                            AssignedByUserId =
-                                admin.UserId,
-
-                            CreatedAt =
-                                now
-                        },
-                        ct);
-
-                // v1.6 compatibility projection.
-                await db.UserRoles.AddAsync(
-                    new UserRole
-                    {
-                        UserId =
-                            user.UserId,
-
-                        RoleId =
-                            supervisorRole.RoleId,
-
-                        AssignedAt =
-                            now
-                    },
-                    ct);
 
                 if (request.ScopeType
                     == DataScopeTypes.Organization)
@@ -310,6 +283,11 @@ public sealed class V170PeopleAdminWriter(
                     now,
                     ct);
 
+                await db.SaveChangesAsync(ct);
+
+                await v180Writer.ProjectExternalCompatibilityAsync(
+                    admin, user, externalIdentity.EmploymentId, now, ct);
+
                 await AddCapabilityAsync(
                     user.UserId,
                     CapabilityCodes.ExportPdf,
@@ -341,6 +319,9 @@ public sealed class V170PeopleAdminWriter(
                                 {
                                     UserCode =
                                         userCode,
+
+                                    externalIdentity.PersonId,
+                                    externalIdentity.EmploymentId,
 
                                     request.DisplayName,
                                     request.Email,
@@ -512,20 +493,14 @@ public sealed class V170PeopleAdminWriter(
                     ?? throw new InvalidOperationException(
                         "找不到 Supervisor Role。");
 
-                var roleAssignments =
-                    await db.UserRoleAssignments
-                        .Where(
-                            x =>
-                                x.UserId == userId
-                                && x.RoleId
-                                   == supervisorRole.RoleId)
-                        .ToListAsync(ct);
-
-                if (roleAssignments.Count != 1)
-                {
-                    throw new InvalidOperationException(
-                        "External Supervisor Role Assignment 資料不完整，請由 IT 檢查。");
-                }
+                var externalIdentity = await v180Writer.UpdateExternalIdentityAsync(
+                    admin,
+                    user,
+                    identity,
+                    request,
+                    supervisorRole.RoleId,
+                    now,
+                    ct);
 
                 var scopesBefore =
                     await db.UserDataScopes
@@ -619,15 +594,6 @@ public sealed class V170PeopleAdminWriter(
 
                 identity.UpdatedAt =
                     now;
-
-                var roleAssignment =
-                    roleAssignments.Single();
-
-                roleAssignment.EffectiveFrom =
-                    request.AuthorizationFrom;
-
-                roleAssignment.EffectiveTo =
-                    request.AuthorizationTo;
 
                 await PrepareScopeVersionAsync(
                     userId,
@@ -726,6 +692,11 @@ public sealed class V170PeopleAdminWriter(
                     now,
                     ct);
 
+                await db.SaveChangesAsync(ct);
+
+                await v180Writer.ProjectExternalCompatibilityAsync(
+                    admin, user, externalIdentity.EmploymentId, now, ct);
+
                 await AddCapabilityAsync(
                     userId,
                     CapabilityCodes.ExportPdf,
@@ -764,6 +735,8 @@ public sealed class V170PeopleAdminWriter(
                                         new
                                         {
                                             request.DisplayName,
+                                            externalIdentity.PersonId,
+                                            externalIdentity.EmploymentId,
                                             request.Email,
                                             request.ExternalOrganization,
                                             request.ExternalTitle,
@@ -800,6 +773,24 @@ public sealed class V170PeopleAdminWriter(
         UpdateInternalUserAccessRequest request,
         CancellationToken ct)
     {
+        {
+            var normalized = V170InternalUserAccessRules.Normalize(request, BusinessTime.Today);
+            var employmentId = await v180Writer.ResolveEmploymentIdAsync(userId, ct);
+            var version = await v180Writer.GetVersionAsync(employmentId, ct);
+            var identity = V170IdentityBindingRules.Normalize(normalized.IdentityProvider,
+                normalized.EntraTenantId, normalized.EntraObjectId, defaultToDemo: false);
+            await v180Writer.UpdateAccessFromLegacyAsync(admin, employmentId,
+                new V180UpdatePeopleAccessRequest(
+                    normalized.Roles,
+                    normalized.TeamAssignments.Select(x =>
+                        new V180TeamMembershipWriteDto(x.TeamId, x.IsPrimary)).ToList(),
+                    normalized.AdminEnabled,
+                    normalized.ChangeEffectiveFrom,
+                    normalized.ConfirmRetroactive,
+                    version), identity, ct);
+            return;
+        }
+#pragma warning disable CS0162
         var today =
             BusinessTime.Today;
 
@@ -1136,6 +1127,7 @@ public sealed class V170PeopleAdminWriter(
 
                 await tx.CommitAsync(ct);
             });
+#pragma warning restore CS0162
     }
 
     private async Task PrepareInternalRoleVersionsAsync(

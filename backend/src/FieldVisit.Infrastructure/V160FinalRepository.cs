@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Infrastructure;
 
-public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessControl access) : IV160FinalRepository
+public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessControl access,
+    IV180OrganizationPeopleWriter v180PeopleWriter) : IV160FinalRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -518,6 +519,20 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task<AdminUserAccessDto> SaveUserAccessAsync(CurrentUserDto user, int userId, SaveUserAccessRequest request, CancellationToken ct)
     {
+        {
+            var employmentId = await v180PeopleWriter.ResolveEmploymentIdAsync(userId, ct);
+            var version = await v180PeopleWriter.GetVersionAsync(employmentId, ct);
+            await v180PeopleWriter.UpdateAccessAsync(user, employmentId,
+                new V180UpdatePeopleAccessRequest(
+                    request.Roles,
+                    request.TeamScopes.Select(x => new V180TeamMembershipWriteDto(x.TeamId, x.IsPrimary)).ToList(),
+                    request.IsActive,
+                    BusinessTime.Today,
+                    false,
+                    version), ct);
+            return (await GetUsersAsync(user, ct)).First(x => x.UserId == userId);
+        }
+#pragma warning disable CS0162
         var orgId = RequireOrganization(user);
         var allowedRoles = new HashSet<string>(new[] { "visitor", "leader", "admin", "supervisor" }, StringComparer.OrdinalIgnoreCase);
         var requestedRoles = request.Roles.Select(NormalizeRole).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -587,6 +602,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         });
 
         return (await GetUsersAsync(user, ct)).First(x => x.UserId == userId);
+#pragma warning restore CS0162
     }
 
     public async Task<IReadOnlyList<ManagedTeamDto>> GetManagedTeamsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)

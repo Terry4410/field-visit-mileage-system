@@ -31,6 +31,104 @@ public interface IV180OrganizationPeopleReader
     Task<PagedResult<V180CenterAdminDto>> SearchCentersAsync(CurrentUserDto user, V180AdminAsOfQuery query, CancellationToken ct);
 }
 
+public sealed record V180TeamMembershipWriteDto(int TeamId, bool IsPrimary);
+public sealed record V180UpdatePeopleAccessRequest(
+    IReadOnlyList<string> Roles,
+    IReadOnlyList<V180TeamMembershipWriteDto> TeamMemberships,
+    bool AdminEnabled,
+    DateOnly ChangeEffectiveFrom,
+    bool ConfirmRetroactive,
+    string Version);
+public sealed record V180PeopleAccessWriteResult(long PersonId, long EmploymentId,
+    int LegacyUserId, string Version);
+public sealed record V180ExternalIdentityWriteResult(long PersonId, long EmploymentId);
+
+public interface IV180OrganizationPeopleWriter
+{
+    Task<long> ResolveEmploymentIdAsync(int legacyUserId, CancellationToken ct);
+    Task<string> GetVersionAsync(long employmentId, CancellationToken ct);
+    Task<V180PeopleAccessWriteResult> UpdateAccessAsync(CurrentUserDto admin, long employmentId,
+        V180UpdatePeopleAccessRequest request, CancellationToken ct);
+    Task<V180PeopleAccessWriteResult> UpdateAccessFromLegacyAsync(CurrentUserDto admin, long employmentId,
+        V180UpdatePeopleAccessRequest request, V170IdentityBindingInput identity, CancellationToken ct);
+    Task<V180ExternalIdentityWriteResult> CreateExternalIdentityAsync(CurrentUserDto admin, User user,
+        SaveExternalSupervisorRequest request, int supervisorRoleId, DateTime now, CancellationToken ct);
+    Task<V180ExternalIdentityWriteResult> UpdateExternalIdentityAsync(CurrentUserDto admin, User user, UserIdentityProfile profile,
+        UpdateExternalSupervisorRequest request, int supervisorRoleId, DateTime now, CancellationToken ct);
+    Task ProjectExternalCompatibilityAsync(CurrentUserDto admin, User user, long employmentId,
+        DateTime now, CancellationToken ct);
+}
+
+public static class V180PeopleAccessRules
+{
+    private static readonly HashSet<string> InternalRoles =
+        new(["visitor", "leader", "admin"], StringComparer.OrdinalIgnoreCase);
+
+    public static V180UpdatePeopleAccessRequest Normalize(
+        V180UpdatePeopleAccessRequest request, DateOnly today)
+    {
+        var roles = (request.Roles ?? []).Select(V170InternalUserAccessRules.NormalizeRole)
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList();
+        if (roles.Count == 0 || roles.Any(x => !InternalRoles.Contains(x)))
+            throw new InvalidOperationException("Internal Employment 只允許 visitor、leader、admin，且至少需要一個角色。");
+        var teams = (request.TeamMemberships ?? []).ToList();
+        if (teams.Any(x => x.TeamId <= 0) || teams.Select(x => x.TeamId).Distinct().Count() != teams.Count)
+            throw new InvalidOperationException("TeamMemberships 包含無效或重複 TeamId。");
+        if (teams.Count > 0 && teams.Count(x => x.IsPrimary) != 1)
+            throw new InvalidOperationException("有 TeamMembership 時必須且只能指定一個 Primary Team。");
+        if (teams.Count == 0 && roles.Any(x => x is "visitor" or "leader"))
+            throw new InvalidOperationException("Visitor 或 Leader 至少需要一個 TeamMembership。");
+        if (request.ChangeEffectiveFrom < today && !request.ConfirmRetroactive)
+            throw new InvalidOperationException("異動生效日早於今天，請二次確認回溯異動。");
+        DecodeVersion(request.Version);
+        return request with { Roles = roles, TeamMemberships = teams };
+    }
+
+    public static byte[] DecodeVersion(string version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+            throw new InvalidOperationException("Version 必填。");
+        try
+        {
+            var bytes = Convert.FromBase64String(version);
+            if (bytes.Length != 8) throw new FormatException();
+            return bytes;
+        }
+        catch (FormatException)
+        {
+            throw new InvalidOperationException("Version 必須是有效的 SQL rowversion Base64 token。");
+        }
+    }
+}
+
+public static class V180IdentityBridgeRules
+{
+    public static long ResolveEmploymentId(
+        IReadOnlyCollection<long> profileEmploymentIds,
+        IReadOnlyCollection<long> legacyEmploymentIds)
+    {
+        var profiles = profileEmploymentIds.Distinct().Take(2).ToArray();
+        var legacy = legacyEmploymentIds.Distinct().Take(2).ToArray();
+        if (profiles.Length > 1 || legacy.Length > 1)
+            throw new InvalidOperationException("AMBIGUOUS_IDENTITY_BRIDGE：UserId 對應多個 Employment。");
+        if (profiles.Length == 1 && legacy.Length == 1 && profiles[0] != legacy[0])
+            throw new InvalidOperationException("IDENTITY_BRIDGE_MISMATCH：UserIdentityProfile 與 Employment.LegacyUserId 不一致。");
+        if (profiles.Length == 1) return profiles[0];
+        if (legacy.Length == 1) return legacy[0];
+        throw new InvalidOperationException("找不到 UserId 對應的 Employment；不得以姓名或 Email 推測。");
+    }
+}
+
+public static class V180LeaderAssignmentRules
+{
+    public static IReadOnlyList<int> DeriveTeamIds(
+        IReadOnlyCollection<string> roles,
+        IReadOnlyCollection<V180TeamMembershipWriteDto> memberships) =>
+        roles.Contains("leader", StringComparer.OrdinalIgnoreCase)
+            ? memberships.Select(x => x.TeamId).Distinct().OrderBy(x => x).ToList()
+            : [];
+}
+
 public sealed record V180PersonStableLink(long? PersonId = null, int? LegacyUserId = null,
     int? OrganizationId = null, string? EmployeeNo = null);
 

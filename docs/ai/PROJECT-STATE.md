@@ -20,7 +20,12 @@ The development harness uses one schema-only extraction of the current trusted U
 ## Epic B status
 
 - `EPIC B1 BACKEND FOUNDATION`: **READY**. The additive v1.8 domain model, exact EF mappings, fail-closed as-of resolution, and admin read APIs are available without changing v1.7 authority or write behavior.
-- `EPIC B2 UI/WRITE CUTOVER`: **NEXT**. It remains a separate protected-baseline change and requires impact analysis plus expanded regression coverage before implementation.
+- `EPIC B2-A1 AUTHORITATIVE PEOPLE WRITE`: **READY**. Person/Employment role and TeamMembership writes are authoritative, atomic, rowversion-protected, and synchronously projected to the v1.7 compatibility structures. Legacy write routes and bulk confirm are adapters to the same writer.
+- `EPIC B2-A2 TEAM/CENTER LIFECYCLE WRITE`: **NEXT**.
+- `EPIC B2-B UI CUTOVER`: **NOT STARTED**.
+- `FULL EPIC B`: **NOT COMPLETE**.
+
+`UserDataScopes` and `UserCapabilities` remain authoritative for External Supervisor visibility/export capabilities because v1.8 has no replacement. Azure UAT remains pre-v1.8; repository readiness is not deployment readiness.
 
 ## Cost guardrail (hard rule)
 
@@ -44,7 +49,7 @@ Evidence captured 2026-09-08 UTC:
 
 ## Next recommended batch
 
-Perform Epic B2 impact analysis, add regression coverage for every affected v1.7 people/team write path, then cut over UI/write authority in one minimal reviewed batch.
+Implement Epic B2-A2 Team/Center/TeamCenter lifecycle writes as a separate backend batch. Do not start the frontend B2-B cutover until A2 is complete and protected regression passes.
 
 ## Human gates
 
