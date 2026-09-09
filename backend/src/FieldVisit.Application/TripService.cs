@@ -11,8 +11,12 @@ public sealed class TripService(
     IMileageRepository mileage,
     IWorkflowRepository workflow,
     IV170AccessControl access,
+    IV180TripContextReader tripContext,
     IUnitOfWork uow)
 {
+    public Task<V180TripContextDto> ContextAsync(DateOnly visitDate, int? teamId, CancellationToken ct) =>
+        tripContext.ResolveAsync(RequireRole("visitor"), visitDate, teamId, ct);
+
     public async Task<TripDto> CreateAsync(SaveTripRequest request, CancellationToken ct)
     {
         var user = RequireRole("visitor");

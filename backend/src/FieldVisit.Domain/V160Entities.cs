@@ -32,6 +32,16 @@ public sealed class VisitTripSnapshot
     public int? CenterIdSnapshot { get; set; }
     public string? CenterCodeSnapshot { get; set; }
     public string? CenterNameSnapshot { get; set; }
+    public int? StartDeploymentSiteIdSnapshot { get; set; }
+    public string? StartDeploymentSiteCodeSnapshot { get; set; }
+    public string? StartDeploymentSiteNameSnapshot { get; set; }
+    public int? StartDeploymentLocationIdSnapshot { get; set; }
+    public string? StartDeploymentAddressSnapshot { get; set; }
+    public int? EndDeploymentSiteIdSnapshot { get; set; }
+    public string? EndDeploymentSiteCodeSnapshot { get; set; }
+    public string? EndDeploymentSiteNameSnapshot { get; set; }
+    public int? EndDeploymentLocationIdSnapshot { get; set; }
+    public string? EndDeploymentAddressSnapshot { get; set; }
     public DateOnly VisitDate { get; set; }
     public TimeOnly? StartTime { get; set; }
     public TimeOnly? EndTime { get; set; }

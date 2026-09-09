@@ -9,6 +9,12 @@ namespace FieldVisit.Api.Controllers;
 [Route("api/v1")]
 public sealed class TripsController(TripService trips, LeaderService leader) : ControllerBase
 {
+    [HttpGet("trips/context")]
+    [Authorize(Roles = "visitor")]
+    public async Task<ActionResult<V180TripContextDto>> Context(
+        [FromQuery] DateOnly visitDate, [FromQuery] int? teamId, CancellationToken ct) =>
+        Ok(await trips.ContextAsync(visitDate, teamId, ct));
+
     [HttpPost("trips")]
     [Authorize(Roles = "visitor")]
     public async Task<ActionResult<TripDto>> Create(SaveTripRequest request, CancellationToken ct) => Ok(await trips.CreateAsync(request, ct));
