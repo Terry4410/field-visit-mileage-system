@@ -123,7 +123,7 @@ jobs:
         run: |
           set -euo pipefail
           sqlcmd=(docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -I -b -d DevV17Foundation)
-          "${sqlcmd[@]}" -Q "SET NOCOUNT ON; SELECT cc.parent_object_id, cc.type_desc, cc.is_disabled, cc.is_not_trusted, cc.definition AS RawDefinition, LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(cc.definition, N'[', N''), N']', N''), N'(', N''), N')', N''), N' ', N''), CHAR(13), N''), CHAR(10), N''), CHAR(9), N'')) AS NormalizedDefinition FROM sys.check_constraints cc WHERE cc.parent_object_id = OBJECT_ID(N'dbo.MileageRateRules') AND cc.name = N'CK_MileageRateRules_VehicleType'; SELECT VehicleType, COUNT_BIG(*) AS RowCount FROM dbo.MileageRateRules GROUP BY VehicleType ORDER BY VehicleType;" | tee artifacts/1800_005-predecessor-constraint.txt
+          "${sqlcmd[@]}" -Q "SET NOCOUNT ON; SELECT cc.parent_object_id, cc.type_desc, cc.is_disabled, cc.is_not_trusted, cc.definition AS RawDefinition, LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(cc.definition, N'[', N''), N']', N''), N'(', N''), N')', N''), N' ', N''), CHAR(13), N''), CHAR(10), N''), CHAR(9), N'')) AS NormalizedDefinition FROM sys.check_constraints cc WHERE cc.parent_object_id = OBJECT_ID(N'dbo.MileageRateRules') AND cc.name = N'CK_MileageRateRules_VehicleType'; SELECT VehicleType, COUNT_BIG(*) AS VehicleCount FROM dbo.MileageRateRules GROUP BY VehicleType ORDER BY VehicleType;" | tee artifacts/1800_005-predecessor-constraint.txt
 
       - name: Apply development compatibility evolution and every original Verify.sql to database A
         shell: bash
