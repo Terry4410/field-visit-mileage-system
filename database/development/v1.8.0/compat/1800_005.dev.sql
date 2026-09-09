@@ -75,6 +75,13 @@ BEGIN TRY
        OR @ProjectsDateDefinition <> N'enddateisnullorstartdateisnullorenddate>=startdate'
         THROW 53808, N'Development compatibility failed: CK_Projects_DateRange definition differs from intended date-range semantics.', 1;
 
+    DECLARE @RateVehicleRawDefinition NVARCHAR(MAX) =
+    (
+        SELECT definition
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.MileageRateRules')
+          AND name = N'CK_MileageRateRules_VehicleType'
+    );
     DECLARE @RateVehicleDefinition NVARCHAR(MAX) =
     (
         SELECT LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(definition,
@@ -84,8 +91,12 @@ BEGIN TRY
           AND name = N'CK_MileageRateRules_VehicleType'
           AND is_disabled = 0 AND is_not_trusted = 0
     );
-    IF @RateVehicleDefinition IS NULL
-       OR @RateVehicleDefinition NOT IN
+    PRINT N'1800_005 predecessor CK_MileageRateRules_VehicleType raw definition: '
+        + COALESCE(@RateVehicleRawDefinition, N'<NULL>');
+    PRINT N'1800_005 predecessor CK_MileageRateRules_VehicleType normalized definition: '
+        + COALESCE(@RateVehicleDefinition, N'<NULL>');
+
+    DECLARE @RateVehicleStateA BIT = CASE WHEN @RateVehicleDefinition IN
     (
         N'vehicletype=n''motorcycle''orvehicletype=n''car''',
         N'vehicletype=n''car''orvehicletype=n''motorcycle''',
@@ -93,8 +104,42 @@ BEGIN TRY
         N'vehicletype=''car''orvehicletype=''motorcycle''',
         N'vehicletypeinn''motorcycle'',n''car''',
         N'vehicletypein''motorcycle'',''car'''
-    )
-        THROW 53809, N'Development compatibility failed: CK_MileageRateRules_VehicleType definition differs from intended Motorcycle/Car semantics.', 1;
+    ) THEN 1 ELSE 0 END;
+    DECLARE @RateVehicleStateB BIT = CASE WHEN @RateVehicleDefinition IN
+    (
+        N'vehicletype=n''motorcycle''',
+        N'vehicletype=''motorcycle''',
+        N'vehicletypeinn''motorcycle''',
+        N'vehicletypein''motorcycle'''
+    ) THEN 1 ELSE 0 END;
+    IF @RateVehicleStateA = 0 AND @RateVehicleStateB = 0
+        THROW 53809, N'Development compatibility failed: CK_MileageRateRules_VehicleType definition is unrecognized. Raw='
+            + COALESCE(@RateVehicleRawDefinition, N'<NULL>') + N'; normalized='
+            + COALESCE(@RateVehicleDefinition, N'<NULL>'), 1;
+
+    IF @RateVehicleStateB = 1
+    BEGIN
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N'dbo.MileageRateRules')
+              AND name = N'CK_MileageRateRules_VehicleType'
+              AND type = 'C' AND is_disabled = 0 AND is_not_trusted = 0
+        )
+            THROW 53813, N'Development compatibility refused: Motorcycle-only predecessor constraint is not enabled and trusted.', 1;
+        IF EXISTS
+        (
+            SELECT 1 FROM dbo.MileageRateRules
+            WHERE VehicleType NOT IN (N'Motorcycle', N'Car') OR VehicleType IS NULL
+        )
+            THROW 53812, N'Development compatibility refused: existing MileageRateRules data is outside the v1.8 VehicleType target set.', 1;
+        ALTER TABLE dbo.MileageRateRules DROP CONSTRAINT CK_MileageRateRules_VehicleType;
+        ALTER TABLE dbo.MileageRateRules WITH CHECK ADD
+            CONSTRAINT CK_MileageRateRules_VehicleType
+            CHECK (VehicleType IN (N'Motorcycle', N'Car'));
+        ALTER TABLE dbo.MileageRateRules CHECK CONSTRAINT CK_MileageRateRules_VehicleType;
+    END;
 
     DECLARE @RateDateDefinition NVARCHAR(MAX) =
     (
