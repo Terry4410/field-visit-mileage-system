@@ -1,4 +1,5 @@
 name: v1.8 development schema harness
+# Trigger-only comment: 2026-09-09 consolidated harness execution; no logic change.
 
 on:
   push:
