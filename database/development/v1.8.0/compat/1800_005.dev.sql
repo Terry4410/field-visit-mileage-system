@@ -107,6 +107,14 @@ BEGIN TRY
     ) THEN 1 ELSE 0 END;
     DECLARE @RateVehicleStateB BIT = CASE WHEN @RateVehicleDefinition IN
     (
+        N'vehicletype=''other''orvehicletype=''motorcycle''orvehicletype=''car''',
+        N'vehicletype=''car''orvehicletype=''motorcycle''orvehicletype=''other''',
+        N'vehicletype=''motorcycle''orvehicletype=''car''orvehicletype=''other''',
+        N'vehicletype=n''other''orvehicletype=n''motorcycle''orvehicletype=n''car''',
+        N'vehicletype=n''car''orvehicletype=n''motorcycle''orvehicletype=n''other''',
+        N'vehicletype=n''motorcycle''orvehicletype=n''car''orvehicletype=n''other''',
+        N'vehicletypein''other'',''motorcycle'',''car''',
+        N'vehicletypeinn''other'',n''motorcycle'',n''car''',
         N'vehicletype=n''motorcycle''',
         N'vehicletype=''motorcycle''',
         N'vehicletypeinn''motorcycle''',
@@ -139,6 +147,14 @@ BEGIN TRY
             CONSTRAINT CK_MileageRateRules_VehicleType
             CHECK (VehicleType IN (N'Motorcycle', N'Car'));
         ALTER TABLE dbo.MileageRateRules CHECK CONSTRAINT CK_MileageRateRules_VehicleType;
+        IF NOT EXISTS
+        (
+            SELECT 1 FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N'dbo.MileageRateRules')
+              AND name = N'CK_MileageRateRules_VehicleType'
+              AND type = 'C' AND is_disabled = 0 AND is_not_trusted = 0
+        )
+            THROW 53814, N'Development compatibility failed: recreated VehicleType constraint is not enabled and trusted.', 1;
     END;
 
     DECLARE @RateDateDefinition NVARCHAR(MAX) =

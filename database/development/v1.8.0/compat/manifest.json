@@ -48,7 +48,7 @@
       "verify": "database/migrations/1800_005_project_visit_rate_lifecycle/Verify.sql",
       "verifySha256": "c88c81f5d13031608a3b0aefc379a1a1d732444a15cce29f8a82f03e8db242b1",
       "developmentApply": "database/development/v1.8.0/compat/1800_005.dev.sql",
-      "developmentApplySha256": "84e0c10a008988ccec248d3d3fdda0016113b2f26be9cdb9ae7f902fb5fb9be1"
+      "developmentApplySha256": "1878c18fd306585a99dab69abb364f90a91dc533ee11c4eae74913c6afedab6c"
     },
     {
       "migration": "1800_006",

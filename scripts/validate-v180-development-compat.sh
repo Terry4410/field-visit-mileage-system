@@ -83,7 +83,23 @@ grep -Fq -- '-C -I -b' "$harness"
 # Known predecessor hazards must remain explicitly guarded, rather than being
 # silently hidden by a name-only object check.
 grep -Fq 'UX_Teams_Organization_TeamCode definition differs' database/development/v1.8.0/compat/1800_001.dev.sql
-grep -Fq 'CK_MileageRateRules_VehicleType definition differs' database/development/v1.8.0/compat/1800_005.dev.sql
+vehicle_adapter=database/development/v1.8.0/compat/1800_005.dev.sql
+for guard in \
+  'RateVehicleRawDefinition' \
+  'RateVehicleDefinition' \
+  'is_disabled = 0 AND is_not_trusted = 0' \
+  "vehicletype=''other''orvehicletype=''motorcycle''orvehicletype=''car''" \
+  "VehicleType NOT IN (N'Motorcycle', N'Car') OR VehicleType IS NULL" \
+  'definition is unrecognized' \
+  'DROP CONSTRAINT CK_MileageRateRules_VehicleType' \
+  'WITH CHECK ADD' \
+  "CHECK (VehicleType IN (N'Motorcycle', N'Car'))" \
+  'recreated VehicleType constraint is not enabled and trusted'; do
+  grep -Fq "$guard" "$vehicle_adapter" || {
+    echo "1800_005 safety guard missing: $guard" >&2
+    exit 1
+  }
+done
 for migration in 1800_001 1800_002 1800_004 1800_007; do
   grep -Fq 'EXEC sys.sp_executesql' "database/development/v1.8.0/compat/${migration}.dev.sql"
 done
