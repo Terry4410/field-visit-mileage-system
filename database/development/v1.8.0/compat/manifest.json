@@ -2,6 +2,8 @@
   "status": "development-only-migration-compatibility",
   "productionUpgradePath": false,
   "azureExecutionAllowed": false,
+  "sessionOptions": "database/development/v1.8.0/compat/session-options.sql",
+  "sessionOptionsSha256": "6c9455dbc2f6e3a4c10504e29f4964dc180e496b5d8a345794cabacc798e6df5",
   "entries": [
     {
       "migration": "1800_001",

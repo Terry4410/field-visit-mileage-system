@@ -19,6 +19,25 @@ jq -e '
   ([.entries[].migration] == ["1800_001","1800_002","1800_003","1800_004","1800_005","1800_006","1800_007"])
 ' "$manifest" >/dev/null
 
+session_options="$(jq -r '.sessionOptions' "$manifest")"
+session_options_hash="$(jq -r '.sessionOptionsSha256' "$manifest")"
+[[ -f "$session_options" && "$session_options_hash" != "TO_BE_FILLED" ]] || {
+  echo 'Pinned SQL session-options file is missing or uninitialized.' >&2
+  exit 1
+}
+[[ "$(sha256sum "$session_options" | awk '{print $1}')" == "$session_options_hash" ]] || {
+  echo 'SQL session-options file drifted; compatibility review required.' >&2
+  exit 1
+}
+for option in 'SET ANSI_NULLS ON;' 'SET ANSI_PADDING ON;' 'SET ANSI_WARNINGS ON;' \
+  'SET ARITHABORT ON;' 'SET CONCAT_NULL_YIELDS_NULL ON;' \
+  'SET QUOTED_IDENTIFIER ON;' 'SET NUMERIC_ROUNDABORT OFF;'; do
+  grep -Fqx "$option" "$session_options" || {
+    echo "Required SQL session option missing: $option" >&2
+    exit 1
+  }
+done
+
 while IFS=$'\t' read -r migration source source_hash verify verify_hash apply apply_hash; do
   for path in "$source" "$verify" "$apply"; do
     [[ -f "$path" ]] || { echo "$migration missing pinned file: $path" >&2; exit 1; }
@@ -56,6 +75,8 @@ mapfile -t workflow_refs < <(grep -RIl 'database/development/v1.8.0/compat' .git
 
 grep -Fq 'environment: uat' "$harness"
 grep -Fq 'TargetFile:"$RUNNER_TEMP/uat-v17-schema.dacpac"' "$harness"
+grep -Fq 'session-options.sql' "$harness"
+grep -Fq -- '-C -I -b' "$harness"
 ! grep -Fq 'uat-migration' "$harness"
 ! grep -Fq 'AZURE_MIGRATION_CLIENT_ID' "$harness"
 

@@ -123,10 +123,11 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts
           : > artifacts/v180-development-migration-matrix.txt
-          sqlcmd=(docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -b -d DevV17Foundation)
+          sqlcmd=(docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -I -b -d DevV17Foundation)
+          session_options=database/development/v1.8.0/compat/session-options.sql
           while IFS=$'\t' read -r migration apply verify; do
             echo "::group::$migration DEV APPLY"
-            if "${sqlcmd[@]}" < "$apply"; then
+            if cat "$session_options" "$apply" | "${sqlcmd[@]}"; then
               echo "$migration DEV APPLY | PASS" | tee -a artifacts/v180-development-migration-matrix.txt
             else
               echo "$migration DEV APPLY | FAIL" | tee -a artifacts/v180-development-migration-matrix.txt
@@ -135,7 +136,7 @@ jobs:
             echo '::endgroup::'
 
             echo "::group::$migration ORIGINAL VERIFY"
-            if "${sqlcmd[@]}" < "$verify"; then
+            if cat "$session_options" "$verify" | "${sqlcmd[@]}"; then
               echo "$migration ORIGINAL VERIFY | PASS" | tee -a artifacts/v180-development-migration-matrix.txt
             else
               echo "$migration ORIGINAL VERIFY | FAIL" | tee -a artifacts/v180-development-migration-matrix.txt
