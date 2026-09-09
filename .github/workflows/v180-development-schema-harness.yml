@@ -1,5 +1,5 @@
 name: v1.8 development schema harness
-# Trigger-only comment: 2026-09-09 1800_005 THROW syntax correction validation; no harness logic change.
+# Trigger-only comment: 2026-09-09 BOM-normalized empty-db proof; no other harness logic change.
 
 on:
   push:
