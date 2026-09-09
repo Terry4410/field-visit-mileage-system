@@ -132,6 +132,21 @@ public sealed class V180OrganizationPeopleFoundationTests
     }
 
     [Fact]
+    public void Snapshot_identity_columns_are_mapped_only_to_visit_trip_snapshot()
+    {
+        using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+        var snapshot = db.Model.FindEntityType(typeof(VisitTripSnapshot))!;
+        Assert.NotNull(snapshot.FindProperty(nameof(VisitTripSnapshot.PersonIdSnapshot)));
+        Assert.NotNull(snapshot.FindProperty(nameof(VisitTripSnapshot.EmploymentIdSnapshot)));
+
+        var legacyScope = db.Model.FindEntityType(typeof(UserTeamScope))!;
+        Assert.Null(legacyScope.FindProperty("PersonIdSnapshot"));
+        Assert.Null(legacyScope.FindProperty("EmploymentIdSnapshot"));
+    }
+
+    [Fact]
     public void V170_route_contract_remains_unchanged_and_v180_is_additive()
     {
         var v170 = Assert.Single(typeof(V170PeopleAdminController).GetCustomAttributes(

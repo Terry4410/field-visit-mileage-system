@@ -4,8 +4,6 @@ public sealed class UserTeamScope
 {
     public int UserTeamScopeId { get; set; }
     public int UserId { get; set; }
-    public long? PersonIdSnapshot { get; set; }
-    public long? EmploymentIdSnapshot { get; set; }
     public int TeamId { get; set; }
     public bool IsPrimary { get; set; }
     public bool IsActive { get; set; } = true;
@@ -22,6 +20,8 @@ public sealed class VisitTripSnapshot
     public string SnapshotType { get; set; } = "Approved";
     public string TripNo { get; set; } = "";
     public int UserId { get; set; }
+    public long? PersonIdSnapshot { get; set; }
+    public long? EmploymentIdSnapshot { get; set; }
     public string EmployeeNoSnapshot { get; set; } = "";
     public string DisplayNameSnapshot { get; set; } = "";
     public int OrganizationId { get; set; }
