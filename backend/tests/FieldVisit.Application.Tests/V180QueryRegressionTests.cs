@@ -15,7 +15,8 @@ public sealed class V180QueryRegressionTests
     private static CurrentUserDto Actor(string role = "admin", int org = 1, int id = 1, int team = 10) =>
         new(id, "A", "Actor", null, org, team, "Team", [role]);
     private static V160FinalRepository Repo(AppDbContext db) =>
-        new(db, new V170AccessControl(db), new V180OrganizationPeopleWriter(db));
+        new(db, new V170AccessControl(db), new V180OrganizationPeopleWriter(db),
+            new V180TeamCenterLifecycleWriter(db));
 
     [Fact]
     public void Query_limits_and_validation_are_enforced()

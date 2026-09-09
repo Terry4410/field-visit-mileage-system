@@ -59,6 +59,87 @@ public interface IV180OrganizationPeopleWriter
         DateTime now, CancellationToken ct);
 }
 
+public sealed record V180CreateTeamRequest(string Code, string Name, DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo = null, string? Notes = null, bool IsActive = true);
+public sealed record V180UpdateTeamRequest(string Code, string Name, DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo, string? Notes, bool IsActive, string Version);
+public sealed record V180DeactivateRequest(DateOnly EffectiveTo, string Version);
+public sealed record V180TeamWriteResult(int TeamId, int OrganizationId, string Code, string Name,
+    DateOnly? EffectiveFrom, DateOnly? EffectiveTo, bool IsActive, string? Notes, string Version);
+
+public sealed record V180CreateCenterRequest(string Code, string Name, DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo = null, string? Notes = null, bool IsActive = true);
+public sealed record V180UpdateCenterRequest(string Code, string Name, DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo, string? Notes, bool IsActive, string Version);
+public sealed record V180CenterWriteResult(int CenterId, int OrganizationId, string Code, string Name,
+    DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive, string? Notes, string Version);
+
+public sealed record V180CreateTeamCenterAssignmentRequest(int TeamId, int CenterId,
+    DateOnly EffectiveFrom, DateOnly? EffectiveTo = null, string? ChangeReason = null);
+public sealed record V180UpdateTeamCenterAssignmentRequest(int CenterId, DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo, string? ChangeReason, string Version);
+public sealed record V180EndTeamCenterAssignmentRequest(DateOnly EffectiveTo, string Version);
+public sealed record V180TeamCenterAssignmentWriteResult(long TeamCenterAssignmentId, int TeamId,
+    int CenterId, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? ChangeReason, string Version);
+
+public interface IV180TeamCenterLifecycleWriter
+{
+    Task<string> GetTeamVersionAsync(int teamId, int organizationId, CancellationToken ct);
+    Task<V180TeamWriteResult> CreateTeamAsync(CurrentUserDto admin, V180CreateTeamRequest request, CancellationToken ct);
+    Task<V180TeamWriteResult> UpdateTeamAsync(CurrentUserDto admin, int teamId, V180UpdateTeamRequest request, CancellationToken ct);
+    Task<V180TeamWriteResult> DeactivateTeamAsync(CurrentUserDto admin, int teamId, V180DeactivateRequest request, CancellationToken ct);
+    Task<V180CenterWriteResult> CreateCenterAsync(CurrentUserDto admin, V180CreateCenterRequest request, CancellationToken ct);
+    Task<V180CenterWriteResult> UpdateCenterAsync(CurrentUserDto admin, int centerId, V180UpdateCenterRequest request, CancellationToken ct);
+    Task<V180CenterWriteResult> DeactivateCenterAsync(CurrentUserDto admin, int centerId, V180DeactivateRequest request, CancellationToken ct);
+    Task<V180TeamCenterAssignmentWriteResult> CreateTeamCenterAssignmentAsync(CurrentUserDto admin,
+        V180CreateTeamCenterAssignmentRequest request, CancellationToken ct);
+    Task<V180TeamCenterAssignmentWriteResult> UpdateTeamCenterAssignmentAsync(CurrentUserDto admin, long assignmentId,
+        V180UpdateTeamCenterAssignmentRequest request, CancellationToken ct);
+    Task<V180TeamCenterAssignmentWriteResult> EndTeamCenterAssignmentAsync(CurrentUserDto admin, long assignmentId,
+        V180EndTeamCenterAssignmentRequest request, CancellationToken ct);
+}
+
+public static class V180TeamCenterLifecycleRules
+{
+    public static string NormalizeCode(string? value, string label)
+    {
+        var normalized = (value ?? "").Trim().ToUpperInvariant();
+        if (normalized.Length == 0) throw new InvalidOperationException($"{label}代碼必填。");
+        if (normalized.Length > 50) throw new InvalidOperationException($"{label}代碼不可超過 50 個字元。");
+        return normalized;
+    }
+
+    public static string NormalizeName(string? value, string label)
+    {
+        var normalized = (value ?? "").Trim();
+        if (normalized.Length == 0) throw new InvalidOperationException($"{label}名稱必填。");
+        if (normalized.Length > 200) throw new InvalidOperationException($"{label}名稱不可超過 200 個字元。");
+        return normalized;
+    }
+
+    public static string? NormalizeNotes(string? value, int maxLength, string label)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        if (normalized?.Length > maxLength) throw new InvalidOperationException($"{label}不可超過 {maxLength} 個字元。");
+        return normalized;
+    }
+
+    public static void ValidatePeriod(DateOnly from, DateOnly? to, string label)
+    {
+        if (to.HasValue && to.Value < from)
+            throw new InvalidOperationException($"{label}結束日不得早於開始日。");
+    }
+
+    public static bool Overlaps(DateOnly leftFrom, DateOnly? leftTo, DateOnly rightFrom, DateOnly? rightTo) =>
+        leftFrom <= (rightTo ?? DateOnly.MaxValue) && rightFrom <= (leftTo ?? DateOnly.MaxValue);
+
+    public static bool IsWithin(DateOnly from, DateOnly? to, DateOnly? ownerFrom, DateOnly? ownerTo) =>
+        (!ownerFrom.HasValue || ownerFrom.Value <= from) &&
+        (!ownerTo.HasValue || (to.HasValue && to.Value <= ownerTo.Value));
+
+    public static byte[] DecodeVersion(string version) => V180PeopleAccessRules.DecodeVersion(version);
+}
+
 public static class V180PeopleAccessRules
 {
     private static readonly HashSet<string> InternalRoles =

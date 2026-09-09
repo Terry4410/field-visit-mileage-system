@@ -7,7 +7,8 @@ using Microsoft.EntityFrameworkCore;
 namespace FieldVisit.Infrastructure;
 
 public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessControl access,
-    IV180OrganizationPeopleWriter v180PeopleWriter) : IV160FinalRepository
+    IV180OrganizationPeopleWriter v180PeopleWriter,
+    IV180TeamCenterLifecycleWriter v180TeamCenterWriter) : IV160FinalRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -546,56 +547,36 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task<ManagedTeamDto> CreateManagedTeamAsync(CurrentUserDto user, SaveManagedTeamRequest request, CancellationToken ct)
     {
-        var orgId = RequireOrganization(user);
-        var code = NormalizeTeamCode(request.TeamCode);
-        var name = NormalizeTeamName(request.TeamName);
-        if (await db.Teams.AnyAsync(x => x.OrganizationId == orgId && x.TeamCode == code, ct))
-            throw new InvalidOperationException("小組代碼已存在。");
-        var row = new Team
-        {
-            OrganizationId = orgId,
-            TeamCode = code,
-            TeamName = name,
-            IsActive = request.IsActive,
-            CreatedAt = DateTime.UtcNow
-        };
-        await db.Teams.AddAsync(row, ct);
-        AddAudit(user.UserId, "Team", null, "TeamCreate", new { row.TeamCode, row.TeamName, row.IsActive });
-        await db.SaveChangesAsync(ct);
-        return new ManagedTeamDto(row.TeamId, row.OrganizationId, row.TeamCode, row.TeamName, row.IsActive);
+        var today = BusinessTime.Today;
+        var result = await v180TeamCenterWriter.CreateTeamAsync(user,
+            new(NormalizeLegacyTeamCode(request.TeamCode), NormalizeLegacyTeamName(request.TeamName),
+                today, request.IsActive ? null : today,
+                IsActive: request.IsActive), ct);
+        return MapManagedTeam(result);
     }
 
     public async Task<ManagedTeamDto> UpdateManagedTeamAsync(CurrentUserDto user, int teamId, SaveManagedTeamRequest request, CancellationToken ct)
     {
         var orgId = RequireOrganization(user);
-        var row = await db.Teams.FirstOrDefaultAsync(x => x.TeamId == teamId && x.OrganizationId == orgId, ct)
+        var row = await db.Teams.AsNoTracking().FirstOrDefaultAsync(x => x.TeamId == teamId && x.OrganizationId == orgId, ct)
             ?? throw new KeyNotFoundException("找不到小組。");
-        var code = NormalizeTeamCode(request.TeamCode);
-        var name = NormalizeTeamName(request.TeamName);
-        if (await db.Teams.AnyAsync(x => x.OrganizationId == orgId && x.TeamId != teamId && x.TeamCode == code, ct))
-            throw new InvalidOperationException("小組代碼已存在。");
-        if (row.IsActive && !request.IsActive) await EnsureTeamCanDeactivateAsync(teamId, ct);
-        var before = new { row.TeamCode, row.TeamName, row.IsActive };
-        row.TeamCode = code;
-        row.TeamName = name;
-        row.IsActive = request.IsActive;
-        row.UpdatedAt = DateTime.UtcNow;
-        AddAudit(user.UserId, "Team", teamId.ToString(), "TeamUpdate", new { before, after = new { row.TeamCode, row.TeamName, row.IsActive } });
-        await db.SaveChangesAsync(ct);
-        return new ManagedTeamDto(row.TeamId, row.OrganizationId, row.TeamCode, row.TeamName, row.IsActive);
+        var today = BusinessTime.Today;
+        var result = await v180TeamCenterWriter.UpdateTeamAsync(user, teamId,
+            new(NormalizeLegacyTeamCode(request.TeamCode), NormalizeLegacyTeamName(request.TeamName),
+                row.EffectiveFrom ?? today,
+                request.IsActive ? (row.IsActive ? row.EffectiveTo : null) : today,
+                row.Notes, request.IsActive, Convert.ToBase64String(row.RowVersion)), ct);
+        return MapManagedTeam(result);
     }
 
     public async Task DeactivateManagedTeamAsync(CurrentUserDto user, int teamId, CancellationToken ct)
     {
         var orgId = RequireOrganization(user);
-        var row = await db.Teams.FirstOrDefaultAsync(x => x.TeamId == teamId && x.OrganizationId == orgId, ct)
+        var row = await db.Teams.AsNoTracking().FirstOrDefaultAsync(x => x.TeamId == teamId && x.OrganizationId == orgId, ct)
             ?? throw new KeyNotFoundException("找不到小組。");
         if (!row.IsActive) return;
-        await EnsureTeamCanDeactivateAsync(teamId, ct);
-        row.IsActive = false;
-        row.UpdatedAt = DateTime.UtcNow;
-        AddAudit(user.UserId, "Team", teamId.ToString(), "TeamDeactivate", new { row.TeamCode, row.TeamName });
-        await db.SaveChangesAsync(ct);
+        await v180TeamCenterWriter.DeactivateTeamAsync(user, teamId,
+            new(BusinessTime.Today, Convert.ToBase64String(row.RowVersion)), ct);
     }
 
     public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
@@ -915,15 +896,15 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         return q;
     }
 
-    private async Task EnsureTeamCanDeactivateAsync(int teamId, CancellationToken ct)
+    private async Task EnsureManagedLocationTeamAsync(CurrentUserDto user, int? teamId, CancellationToken ct)
     {
-        var hasScopes = await db.UserTeamScopes.AnyAsync(x => x.TeamId == teamId, ct);
-        var hasPrimaryUsers = await db.Users.AnyAsync(x => x.TeamId == teamId, ct);
-        if (hasScopes || hasPrimaryUsers)
-            throw new InvalidOperationException("小組仍有成員或主要小組關聯，請先在小組成員維護移除或轉移後再停用。");
+        if (!teamId.HasValue) return;
+        var orgId = RequireOrganization(user);
+        var valid = await db.Teams.AsNoTracking().AnyAsync(x => x.TeamId == teamId.Value && x.OrganizationId == orgId && x.IsActive, ct);
+        if (!valid) throw new InvalidOperationException("所選小組不存在、已停用或不屬於目前 Organization。");
     }
 
-    private static string NormalizeTeamCode(string value)
+    private static string NormalizeLegacyTeamCode(string value)
     {
         var code = (value ?? "").Trim().ToUpperInvariant();
         if (string.IsNullOrWhiteSpace(code)) throw new InvalidOperationException("小組代碼必填。");
@@ -931,20 +912,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         return code;
     }
 
-    private static string NormalizeTeamName(string value)
+    private static string NormalizeLegacyTeamName(string value)
     {
         var name = (value ?? "").Trim();
         if (string.IsNullOrWhiteSpace(name)) throw new InvalidOperationException("小組名稱必填。");
         if (name.Length > 100) throw new InvalidOperationException("小組名稱不可超過 100 個字元。");
         return name;
-    }
-
-    private async Task EnsureManagedLocationTeamAsync(CurrentUserDto user, int? teamId, CancellationToken ct)
-    {
-        if (!teamId.HasValue) return;
-        var orgId = RequireOrganization(user);
-        var valid = await db.Teams.AsNoTracking().AnyAsync(x => x.TeamId == teamId.Value && x.OrganizationId == orgId && x.IsActive, ct);
-        if (!valid) throw new InvalidOperationException("所選小組不存在、已停用或不屬於目前 Organization。");
     }
 
     private void ValidateLocationRequest(CurrentUserDto user, SaveManagedLocationRequest request)
@@ -1071,6 +1044,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     private static ManagedLocationDto MapManagedLocation(Location x, string? teamName) => new(
         x.LocationId, x.LocationCode ?? "", x.TeamId, teamName, x.LocationName, x.LocationType, x.City, x.District, x.Address, x.PlusCode,
         x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []));
+
+    private static ManagedTeamDto MapManagedTeam(V180TeamWriteResult x) =>
+        new(x.TeamId, x.OrganizationId, x.Code, x.Name, x.IsActive);
 
     private static void EnsureRowVersion(byte[] currentValue, string? expectedBase64)
     {

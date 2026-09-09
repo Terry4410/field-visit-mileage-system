@@ -21,8 +21,8 @@ The development harness uses one schema-only extraction of the current trusted U
 
 - `EPIC B1 BACKEND FOUNDATION`: **READY**. The additive v1.8 domain model, exact EF mappings, fail-closed as-of resolution, and admin read APIs are available without changing v1.7 authority or write behavior.
 - `EPIC B2-A1 AUTHORITATIVE PEOPLE WRITE`: **READY**. Person/Employment role and TeamMembership writes are authoritative, atomic, rowversion-protected, and synchronously projected to the v1.7 compatibility structures. Legacy write routes and bulk confirm are adapters to the same writer.
-- `EPIC B2-A2 TEAM/CENTER LIFECYCLE WRITE`: **NEXT**.
-- `EPIC B2-B UI CUTOVER`: **NOT STARTED**.
+- `EPIC B2-A2 TEAM/CENTER LIFECYCLE WRITE`: **IMPLEMENTED / VALIDATION PENDING**. The prepared backend changes use one v1.8 lifecycle writer with inclusive effective dates, fail-closed dependency/overlap checks, and Base64 rowversion concurrency. Legacy v1.7 Team write routes delegate to that writer. It must not be marked READY until full protected validation and the automatic UAT Fast-Track pass.
+- `EPIC B2-B UI CUTOVER`: **BLOCKED ON B2-A2 VALIDATION**.
 - `FULL EPIC B`: **NOT COMPLETE**.
 
 `UserDataScopes` and `UserCapabilities` remain authoritative for External Supervisor visibility/export capabilities because v1.8 has no replacement. Azure UAT remains pre-v1.8; repository readiness is not deployment readiness.
@@ -49,7 +49,7 @@ Evidence captured 2026-09-08 UTC:
 
 ## Next recommended batch
 
-Implement Epic B2-A2 Team/Center/TeamCenter lifecycle writes as a separate backend batch. Do not start the frontend B2-B cutover until A2 is complete and protected regression passes.
+Complete local full protected validation and the single automatic UAT Fast-Track run for B2-A2. Only after both pass, begin Epic B2-B UI cutover against the authoritative People and Team/Center APIs.
 
 ## Human gates
 
