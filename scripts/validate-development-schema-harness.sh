@@ -11,8 +11,10 @@ grep -Fq '"status": "mutable-development-harness"' "$manifest"
 grep -Fq '"finalBaseline": false' "$manifest"
 grep -Fq '"frozen": false' "$manifest"
 grep -Fq 'workflow_dispatch:' "$workflow"
-grep -Fq 'feature/uat-fasttrack-v180' "$workflow"
-grep -Fq '.github/workflows/v180-development-schema-harness.yml' "$workflow"
+if grep -Eq '^[[:space:]]+push:' "$workflow"; then
+  echo 'Development schema harness push trigger must remain retired after cleanup.' >&2
+  exit 1
+fi
 grep -Fq 'database/development/v1.8.0/Verify.sql' "$workflow"
 grep -Fq 'database/baseline/v1.8.0/Verify.sql' "$workflow"
 grep -Fq 'TargetFile:"$RUNNER_TEMP/uat-v17-schema.dacpac"' "$workflow"
