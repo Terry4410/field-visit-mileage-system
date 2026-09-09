@@ -120,10 +120,13 @@ BEGIN TRY
         N'vehicletypeinn''motorcycle''',
         N'vehicletypein''motorcycle'''
     ) THEN 1 ELSE 0 END;
+    DECLARE @RateVehicleErrorMessage NVARCHAR(2048) =
+        N'Development compatibility failed: CK_MileageRateRules_VehicleType definition is unrecognized. Raw='
+        + COALESCE(@RateVehicleRawDefinition, N'<NULL>')
+        + N'; normalized='
+        + COALESCE(@RateVehicleDefinition, N'<NULL>');
     IF @RateVehicleStateA = 0 AND @RateVehicleStateB = 0
-        THROW 53809, N'Development compatibility failed: CK_MileageRateRules_VehicleType definition is unrecognized. Raw='
-            + COALESCE(@RateVehicleRawDefinition, N'<NULL>') + N'; normalized='
-            + COALESCE(@RateVehicleDefinition, N'<NULL>'), 1;
+        THROW 53809, @RateVehicleErrorMessage, 1;
 
     IF @RateVehicleStateB = 1
     BEGIN
