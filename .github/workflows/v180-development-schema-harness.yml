@@ -1,6 +1,11 @@
 name: v1.8 development schema harness
 
 on:
+  push:
+    branches:
+      - feature/uat-fasttrack-v180
+    paths:
+      - .github/workflows/v180-development-schema-harness.yml
   workflow_dispatch:
 
 concurrency:
@@ -72,10 +77,10 @@ jobs:
             /SourceServerName:"${AZURE_SQL_SERVER_NAME}.database.windows.net" \
             /SourceDatabaseName:"$AZURE_SQL_DATABASE" \
             /AccessToken:"$token" \
-            /TargetFile:artifacts/uat-v17-schema.dacpac \
+            /TargetFile:"$RUNNER_TEMP/uat-v17-schema.dacpac" \
             /p:VerifyExtraction=True \
             /p:CommandTimeout=120
-          test -s artifacts/uat-v17-schema.dacpac
+          test -s "$RUNNER_TEMP/uat-v17-schema.dacpac"
 
       - name: Start disposable SQL Server
         shell: bash
@@ -99,9 +104,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sqlpackage /Action:Publish /SourceFile:artifacts/uat-v17-schema.dacpac \
+          sqlpackage /Action:Publish /SourceFile:"$RUNNER_TEMP/uat-v17-schema.dacpac" \
             /TargetConnectionString:"Server=localhost,1433;Database=DevV17Foundation;User ID=sa;Password=$DEV_SQL_SA_PASSWORD;Encrypt=False;TrustServerCertificate=True" \
-            /p:CreateNewDatabase=True /p:BlockOnPossibleDataLoss=False
+            /p:CreateNewDatabase=True /p:BlockOnPossibleDataLoss=False \
+            '/p:ExcludeObjectTypes=Users;DatabaseRoles;RoleMembership;Permissions;Logins;Credentials;DatabaseScopedCredentials'
           docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -b -d DevV17Foundation <<'SQL'
           IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber = N'1.7.0-008')
               INSERT dbo.SchemaVersions (VersionNumber, Description, AppliedAt, AppliedBy)
@@ -135,7 +141,7 @@ jobs:
             /TargetConnectionString:"Server=localhost,1433;Database=DevV18EmptyProof;User ID=sa;Password=$DEV_SQL_SA_PASSWORD;Encrypt=False;TrustServerCertificate=True" \
             /OutputPath:artifacts/v180-development-schema.sql \
             /p:ScriptDatabaseOptions=False \
-            /p:ExcludeObjectTypes=Users;DatabaseRoles;RoleMembership;Permissions;Logins;Credentials;DatabaseScopedCredentials
+            '/p:ExcludeObjectTypes=Users;DatabaseRoles;RoleMembership;Permissions;Logins;Credentials;DatabaseScopedCredentials'
           test -s artifacts/v180-development-schema.sql
           "${sqlcmd[@]}" -d DevV18EmptyProof < artifacts/v180-development-schema.sql
           "${sqlcmd[@]}" -d DevV18EmptyProof < database/development/v1.8.0/SchemaVersions.sql

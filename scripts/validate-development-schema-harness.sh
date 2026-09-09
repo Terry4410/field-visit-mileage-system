@@ -11,8 +11,13 @@ grep -Fq '"status": "mutable-development-harness"' "$manifest"
 grep -Fq '"finalBaseline": false' "$manifest"
 grep -Fq '"frozen": false' "$manifest"
 grep -Fq 'workflow_dispatch:' "$workflow"
+grep -Fq 'feature/uat-fasttrack-v180' "$workflow"
+grep -Fq '.github/workflows/v180-development-schema-harness.yml' "$workflow"
 grep -Fq 'database/development/v1.8.0/Verify.sql' "$workflow"
 grep -Fq 'database/baseline/v1.8.0/Verify.sql' "$workflow"
+grep -Fq 'TargetFile:"$RUNNER_TEMP/uat-v17-schema.dacpac"' "$workflow"
+! grep -Fq 'TargetFile:artifacts/uat-v17-schema.dacpac' "$workflow"
+grep -Fq "'/p:ExcludeObjectTypes=Users;DatabaseRoles;RoleMembership;Permissions;Logins;Credentials;DatabaseScopedCredentials'" "$workflow"
 
 mapfile -t dirs < <(find database/migrations -maxdepth 1 -type d -name '1800_0*' | sort)
 [[ "${#dirs[@]}" -eq 7 ]] || { echo 'Expected exactly seven 1.8 migration directories.' >&2; exit 1; }
