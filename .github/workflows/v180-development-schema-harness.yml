@@ -33,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/validate-fasttrack-strategy.sh
+          bash scripts/validate-v180-development-compat.sh
           mapfile -t ups < <(find database/migrations -maxdepth 2 -path '*/1800_00*/Up.sql' | sort)
           mapfile -t verifies < <(find database/migrations -maxdepth 2 -path '*/1800_00*/Verify.sql' | sort)
           [[ "${#ups[@]}" -eq 7 && "${#verifies[@]}" -eq 7 ]] || { echo 'Expected exactly seven 1.8 migration pairs.' >&2; exit 1; }
@@ -114,17 +115,40 @@ jobs:
               VALUES (N'1.7.0-008', N'Trusted v1.7 schema extraction marker', SYSUTCDATETIME(), N'development-harness');
           SQL
 
-      - name: Apply 1800_001 through 1800_007 and every Verify.sql to database A
+      - name: Apply development compatibility evolution and every original Verify.sql to database A
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          : > artifacts/v180-development-migration-matrix.txt
+          sqlcmd=(docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -b -d DevV17Foundation)
+          while IFS=$'\t' read -r migration apply verify; do
+            echo "::group::$migration DEV APPLY"
+            if "${sqlcmd[@]}" < "$apply"; then
+              echo "$migration DEV APPLY | PASS" | tee -a artifacts/v180-development-migration-matrix.txt
+            else
+              echo "$migration DEV APPLY | FAIL" | tee -a artifacts/v180-development-migration-matrix.txt
+              exit 1
+            fi
+            echo '::endgroup::'
+
+            echo "::group::$migration ORIGINAL VERIFY"
+            if "${sqlcmd[@]}" < "$verify"; then
+              echo "$migration ORIGINAL VERIFY | PASS" | tee -a artifacts/v180-development-migration-matrix.txt
+            else
+              echo "$migration ORIGINAL VERIFY | FAIL" | tee -a artifacts/v180-development-migration-matrix.txt
+              exit 1
+            fi
+            echo '::endgroup::'
+          done < <(jq -r '.entries[] | [.migration,.developmentApply,.verify] | @tsv' database/development/v1.8.0/compat/manifest.json)
+
+      - name: Prove database A structure and cleanliness
         shell: bash
         run: |
           set -euo pipefail
           sqlcmd=(docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -b -d DevV17Foundation)
-          for dir in $(find database/migrations -maxdepth 1 -type d -name '1800_0*' | sort); do
-            echo "Applying $dir/Up.sql"
-            "${sqlcmd[@]}" < "$dir/Up.sql"
-            echo "Verifying $dir/Verify.sql"
-            "${sqlcmd[@]}" < "$dir/Verify.sql"
-          done
+          "${sqlcmd[@]}" < database/baseline/v1.8.0/Verify.sql
+          "${sqlcmd[@]}" < database/development/v1.8.0/Verify.sql
 
       - name: Generate schema-only script and prove empty database B
         shell: bash
@@ -164,6 +188,7 @@ jobs:
         run: bash scripts/test-fast-regression.sh
 
       - name: Upload disposable harness evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v180-development-schema-harness-${{ github.sha }}

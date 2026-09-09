@@ -1,0 +1,70 @@
+{
+  "status": "development-only-migration-compatibility",
+  "productionUpgradePath": false,
+  "azureExecutionAllowed": false,
+  "entries": [
+    {
+      "migration": "1800_001",
+      "source": "database/migrations/1800_001_organization_center_team_lifecycle/Up.sql",
+      "sourceSha256": "7a2f5409b1ed5aaa52686c8d4be8346dd60c25f00b42a52489314ad63b00214c",
+      "verify": "database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql",
+      "verifySha256": "4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026",
+      "developmentApply": "database/development/v1.8.0/compat/1800_001.dev.sql",
+      "developmentApplySha256": "1a79c2a802cd7a1e916f5baec888634e4efa5f18bd0e90452003d8b3d27a7a82"
+    },
+    {
+      "migration": "1800_002",
+      "source": "database/migrations/1800_002_person_employment_role_membership/Up.sql",
+      "sourceSha256": "465fc7f6886fcd837401113b363ecc0256a2706b684c59bf0f9bebbf52c99b4f",
+      "verify": "database/migrations/1800_002_person_employment_role_membership/Verify.sql",
+      "verifySha256": "f153ff787a160682e3e965cdc14c4e886adf3d9044d7194bf99a150a54d00358",
+      "developmentApply": "database/development/v1.8.0/compat/1800_002.dev.sql",
+      "developmentApplySha256": "82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87"
+    },
+    {
+      "migration": "1800_003",
+      "source": "database/migrations/1800_003_deployment_sites/Up.sql",
+      "sourceSha256": "3e78c2a55168cb2a147c64cc37be63230d0d667cd6879a52c0746de0259a35fd",
+      "verify": "database/migrations/1800_003_deployment_sites/Verify.sql",
+      "verifySha256": "fdd47dc8f6d6aafe74d51414b7a5869666a2e0bffade1328379830ce04ef4e8e",
+      "developmentApply": "database/migrations/1800_003_deployment_sites/Up.sql",
+      "developmentApplySha256": "3e78c2a55168cb2a147c64cc37be63230d0d667cd6879a52c0746de0259a35fd"
+    },
+    {
+      "migration": "1800_004",
+      "source": "database/migrations/1800_004_location_governance/Up.sql",
+      "sourceSha256": "09459d72ab6ad5436ffaf3e8bbc6e5dc4d388444e70f9b11be4b98b172d7f361",
+      "verify": "database/migrations/1800_004_location_governance/Verify.sql",
+      "verifySha256": "76917dc84899eefa7aa7de8b4e6686031134369c9cd9339e8afbc88597f78f8e",
+      "developmentApply": "database/development/v1.8.0/compat/1800_004.dev.sql",
+      "developmentApplySha256": "e73634e6f9691febc1855a070f4b16f44503d87b58e6ba8b38470262c3596f4e"
+    },
+    {
+      "migration": "1800_005",
+      "source": "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql",
+      "sourceSha256": "b728263039547bdbd10bedcc6fdbdbb2e8a1a126b397be7f4cf3896a3469ea08",
+      "verify": "database/migrations/1800_005_project_visit_rate_lifecycle/Verify.sql",
+      "verifySha256": "c88c81f5d13031608a3b0aefc379a1a1d732444a15cce29f8a82f03e8db242b1",
+      "developmentApply": "database/development/v1.8.0/compat/1800_005.dev.sql",
+      "developmentApplySha256": "004ff0d21f24be7f97a3a06d8c6796eacbe84f1fa825211d4e9bbbe7cc681519"
+    },
+    {
+      "migration": "1800_006",
+      "source": "database/migrations/1800_006_notification_framework/Up.sql",
+      "sourceSha256": "ccbd50d7ec88148e68b48218a76aeb01628d56a08029cd9ea32d4269f5cf8c5a",
+      "verify": "database/migrations/1800_006_notification_framework/Verify.sql",
+      "verifySha256": "8244f2f2a47304e96b84ce873bd06d3a230dd308b11a4ffed0ac2d0c4298cc06",
+      "developmentApply": "database/migrations/1800_006_notification_framework/Up.sql",
+      "developmentApplySha256": "ccbd50d7ec88148e68b48218a76aeb01628d56a08029cd9ea32d4269f5cf8c5a"
+    },
+    {
+      "migration": "1800_007",
+      "source": "database/migrations/1800_007_mileage_google_governance/Up.sql",
+      "sourceSha256": "2a0d2034f0a0eb1cbb763fce880c5b36b1433ec77d2a3bd46e073a9297feac54",
+      "verify": "database/migrations/1800_007_mileage_google_governance/Verify.sql",
+      "verifySha256": "06817efb78227b984e93d625dc6f5728481d5713d1c1640798804804b09dc925",
+      "developmentApply": "database/development/v1.8.0/compat/1800_007.dev.sql",
+      "developmentApplySha256": "d89a061c15c95427a0cb1793b762a7fce306cd8019f276bb26664f617ffa364d"
+    }
+  ]
+}

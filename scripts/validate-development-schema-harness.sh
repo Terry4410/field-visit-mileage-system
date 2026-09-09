@@ -18,6 +18,8 @@ grep -Fq 'database/baseline/v1.8.0/Verify.sql' "$workflow"
 grep -Fq 'TargetFile:"$RUNNER_TEMP/uat-v17-schema.dacpac"' "$workflow"
 ! grep -Fq 'TargetFile:artifacts/uat-v17-schema.dacpac' "$workflow"
 grep -Fq "'/p:ExcludeObjectTypes=Users;DatabaseRoles;RoleMembership;Permissions;Logins;Credentials;DatabaseScopedCredentials'" "$workflow"
+grep -Fq 'database/development/v1.8.0/compat/manifest.json' "$workflow"
+grep -Fq 'v180-development-migration-matrix.txt' "$workflow"
 
 mapfile -t dirs < <(find database/migrations -maxdepth 1 -type d -name '1800_0*' | sort)
 [[ "${#dirs[@]}" -eq 7 ]] || { echo 'Expected exactly seven 1.8 migration directories.' >&2; exit 1; }
@@ -25,6 +27,8 @@ for i in {1..7}; do
   printf '%s\n' "${dirs[$((i-1))]}" | grep -Eq "/1800_00${i}_"
   [[ -f "${dirs[$((i-1))]}/Up.sql" && -f "${dirs[$((i-1))]}/Verify.sql" ]]
 done
+
+bash scripts/validate-v180-development-compat.sh >/dev/null
 
 if grep -REIn --include='*.sql' -E '\b(GRANT|DENY|ALTER[[:space:]]+ROLE|CREATE[[:space:]]+USER|ALTER[[:space:]]+USER)\b' database/development/v1.8.0; then
   echo 'Development harness package must not provision security principals.' >&2

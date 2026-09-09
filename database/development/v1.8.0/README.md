@@ -2,7 +2,9 @@
 
 This is a **DEVELOPMENT BASELINE** (status: **MUTABLE**), not the final clean-install baseline.
 
-The harness performs one schema-only extraction of the trusted current UAT v1.7 structure, publishes it into disposable SQL database A, applies `1800_001` through `1800_007` in order, and generates a schema-only script for empty database B. Every migration `Verify.sql` is run in order. No migration in this harness is executed against Azure UAT.
+The harness performs one schema-only extraction of the trusted current UAT v1.7 structure, publishes it into disposable SQL database A, applies the SHA-pinned development-only compatibility evolution for `1800_001` through `1800_007` in order, and generates a schema-only script for empty database B. Every original migration `Verify.sql` is run in order. No migration or compatibility SQL in this harness is executed against Azure UAT.
+
+The reviewed adapters are under `compat/`. They resolve known SQL Server compilation-order and predecessor-object conflicts without modifying the original migration files. Migrations without a deterministic conflict use their original `Up.sql` as explicitly pinned pass-through entries. This compatibility layer must not be used as the production upgrade path.
 
 The generated SQL and logs are CI artifacts. They are not release-frozen and must not be used for IT handover. `database/baseline/v1.8.0/` remains the future final-release entry point and stays fail-closed until the later Final Clean Baseline gate.
 
