@@ -4,7 +4,7 @@ This backlog reorders only previously documented v1.8.0 work; it does not add bu
 
 | Priority | Batch | Existing scope | Completion gate |
 |---|---|---|---|
-| 0 | Baseline and reset enablement | Generate the latest v1.8.0 clean-install schema in an isolated disposable SQL environment; validate system configuration, synthetic seed, reset ordering, and baseline verification | Clean install reaches `1.8.0-007`; no Azure UAT reset without Human Gate A |
+| 0 | Development schema harness | Establish a trusted v1.7 schema-only foundation and evaluate 1800_001-007 in isolated disposable SQL; keep the development schema mutable | Ordered Verify.sql checks pass; no Azure UAT mutation; Final Clean Baseline remains not frozen |
 | 1 | Epic B — Organization / People / Team | Center and Team lifecycle; Person/Employment; status/role/team membership; leaders and delegation; compatibility projection | Rehire/new employee number, leave/return/termination, as-of Center/Team, one Primary Team, multiple/delegated leaders, role/data-scope regression |
 | 2 | Epic C — Deployment Site | Site master/history plus Team-Site and Employment-Site assignment; VisitDate eligibility and Snapshot preservation | Primary/effective-date/history regression passes |
 | 3 | Epic D — Location / Project / Visit Type / Rate | Existing lifecycle, search, duplicate advisory, Team Note audit, batch preview, soft delete, ordering, and VisitDate+Vehicle rate rules | Boundary, concurrency, duplicate, audit, import, and mileage regression passes |
@@ -22,4 +22,4 @@ This backlog reorders only previously documented v1.8.0 work; it does not add bu
 
 ## Next modification batch
 
-After Batch 0 produces a verified baseline, implement Epic B as one bounded vertical slice: domain and mappings first, read/write service contracts second, Admin UI and import integration third. Preserve the current `Users`, `UserRoles`, `UserTeamScopes`, v1.7 assignment behavior, Trip/Snapshot reads, and role/data-scope enforcement until compatibility tests prove replacement behavior.
+After the Development Schema Harness passes, implement Epic B as one bounded vertical slice: domain and mappings first, read/write service contracts second, Admin UI and import integration third. Preserve the current `Users`, `UserRoles`, `UserTeamScopes`, v1.7 assignment behavior, Trip/Snapshot reads, and role/data-scope enforcement until compatibility tests prove replacement behavior. Final Clean Baseline work is deferred until Epic B-G and Full AI Validation.

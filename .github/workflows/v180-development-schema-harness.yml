@@ -1,0 +1,166 @@
+name: v1.8 development schema harness
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: v180-development-schema-harness
+  cancel-in-progress: false
+
+jobs:
+  harness:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-latest
+    environment: uat-migration
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate protected migration artifacts and ordered inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/validate-fasttrack-strategy.sh
+          mapfile -t ups < <(find database/migrations -maxdepth 2 -path '*/1800_00*/Up.sql' | sort)
+          mapfile -t verifies < <(find database/migrations -maxdepth 2 -path '*/1800_00*/Verify.sql' | sort)
+          [[ "${#ups[@]}" -eq 7 && "${#verifies[@]}" -eq 7 ]] || { echo 'Expected exactly seven 1.8 migration pairs.' >&2; exit 1; }
+          printf '%s\n' "${ups[@]}" | grep -q '1800_001_' 
+          printf '%s\n' "${ups[@]}" | grep -q '1800_007_'
+
+      - name: Install SqlPackage
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://aka.ms/sqlpackage-linux -o /tmp/sqlpackage.zip
+          mkdir -p "$RUNNER_TEMP/sqlpackage"
+          unzip -q /tmp/sqlpackage.zip -d "$RUNNER_TEMP/sqlpackage"
+          chmod +x "$RUNNER_TEMP/sqlpackage/sqlpackage"
+          echo "$RUNNER_TEMP/sqlpackage" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/sqlpackage/sqlpackage" /Version
+
+      - name: Sign in to Azure with read-only migration identity
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate fixed UAT target and extract one schema-only v1.7 source
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$AZURE_RESOURCE_GROUP" == rg-fieldvisit-uat ]] || exit 1
+          [[ "$AZURE_SQL_SERVER_NAME" == sql-fieldvisit-jpe-uat ]] || exit 1
+          [[ "$AZURE_SQL_DATABASE" == db-fieldvisit-uat ]] || exit 1
+          az sql db show --resource-group "$AZURE_RESOURCE_GROUP" --server "$AZURE_SQL_SERVER_NAME" --name "$AZURE_SQL_DATABASE" --subscription "$EXPECTED_SUBSCRIPTION_ID" --query '{name:name,status:status}' --output json
+          mkdir -p artifacts
+          token="$(az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv)"
+          [[ -n "$token" ]] || { echo 'Azure SQL access token unavailable' >&2; exit 1; }
+          sqlpackage /Action:Extract \
+            /SourceServerName:"${AZURE_SQL_SERVER_NAME}.database.windows.net" \
+            /SourceDatabaseName:"$AZURE_SQL_DATABASE" \
+            /AccessToken:"$token" \
+            /TargetFile:artifacts/uat-v17-schema.dacpac \
+            /p:VerifyExtraction=True \
+            /p:CommandTimeout=120
+          test -s artifacts/uat-v17-schema.dacpac
+
+      - name: Start disposable SQL Server
+        shell: bash
+        env:
+          SA_PASSWORD: ${{ secrets.DEV_SQL_SA_PASSWORD }}
+        run: |
+          set -euo pipefail
+          password="${SA_PASSWORD:-DevHarness-$(openssl rand -hex 16)-Aa1!}"
+          echo "DEV_SQL_SA_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker run --detach --name v180-dev-sql \
+            --env ACCEPT_EULA=Y --env MSSQL_PID=Developer --env MSSQL_SA_PASSWORD="$password" \
+            --publish 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          for i in $(seq 1 60); do
+            if docker exec v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$password" -C -Q 'SELECT 1' >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          docker logs v180-dev-sql
+          exit 1
+
+      - name: Publish v1.7 foundation into disposable database A
+        shell: bash
+        run: |
+          set -euo pipefail
+          sqlpackage /Action:Publish /SourceFile:artifacts/uat-v17-schema.dacpac \
+            /TargetConnectionString:"Server=localhost,1433;Database=DevV17Foundation;User ID=sa;Password=$DEV_SQL_SA_PASSWORD;Encrypt=False;TrustServerCertificate=True" \
+            /p:CreateNewDatabase=True /p:BlockOnPossibleDataLoss=False
+          docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -b -d DevV17Foundation <<'SQL'
+          IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber = N'1.7.0-008')
+              INSERT dbo.SchemaVersions (VersionNumber, Description, AppliedAt, AppliedBy)
+              VALUES (N'1.7.0-008', N'Trusted v1.7 schema extraction marker', SYSUTCDATETIME(), N'development-harness');
+          SQL
+
+      - name: Apply 1800_001 through 1800_007 and every Verify.sql to database A
+        shell: bash
+        run: |
+          set -euo pipefail
+          sqlcmd=(docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -b -d DevV17Foundation)
+          for dir in $(find database/migrations -maxdepth 1 -type d -name '1800_0*' | sort); do
+            echo "Applying $dir/Up.sql"
+            "${sqlcmd[@]}" < "$dir/Up.sql"
+            echo "Verifying $dir/Verify.sql"
+            "${sqlcmd[@]}" < "$dir/Verify.sql"
+          done
+
+      - name: Generate schema-only script and prove empty database B
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          sqlpackage /Action:Extract \
+            /SourceConnectionString:"Server=localhost,1433;Database=DevV17Foundation;User ID=sa;Password=$DEV_SQL_SA_PASSWORD;Encrypt=False;TrustServerCertificate=True" \
+            /TargetFile:artifacts/v180-development.dacpac \
+            /p:ExtractAllTableData=False /p:VerifyExtraction=True
+          sqlcmd=(docker exec -i v180-dev-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$DEV_SQL_SA_PASSWORD" -C -b)
+          "${sqlcmd[@]}" -d master -Q 'CREATE DATABASE DevV18EmptyProof'
+          sqlpackage /Action:Script /SourceFile:artifacts/v180-development.dacpac \
+            /TargetConnectionString:"Server=localhost,1433;Database=DevV18EmptyProof;User ID=sa;Password=$DEV_SQL_SA_PASSWORD;Encrypt=False;TrustServerCertificate=True" \
+            /OutputPath:artifacts/v180-development-schema.sql \
+            /p:ScriptDatabaseOptions=False \
+            /p:ExcludeObjectTypes=Users;DatabaseRoles;RoleMembership;Permissions;Logins;Credentials;DatabaseScopedCredentials
+          test -s artifacts/v180-development-schema.sql
+          "${sqlcmd[@]}" -d DevV18EmptyProof < artifacts/v180-development-schema.sql
+          "${sqlcmd[@]}" -d DevV18EmptyProof < database/development/v1.8.0/SchemaVersions.sql
+          "${sqlcmd[@]}" -d DevV18EmptyProof < database/baseline/v1.8.0/Verify.sql
+          "${sqlcmd[@]}" -d DevV18EmptyProof < database/development/v1.8.0/Verify.sql
+          "${sqlcmd[@]}" -d DevV18EmptyProof -Q "SELECT COUNT(*) AS CustomPrincipalCount FROM sys.database_principals WHERE name NOT IN (N'dbo',N'guest',N'INFORMATION_SCHEMA',N'sys',N'public') AND type IN ('S','U','G','E','X'); SELECT COUNT(*) AS UserRows FROM dbo.Users; SELECT COUNT(*) AS TripRows FROM dbo.VisitTrips;"
+
+      - name: Normalize and hash development artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/\r$//' artifacts/v180-development-schema.sql
+          sha256sum artifacts/v180-development-schema.sql | tee artifacts/v180-development-schema.sha256
+          cat > artifacts/v180-development-result.json <<'JSON'
+          {"status":"mutable-development-harness-pass","finalBaseline":false,"frozen":false,"azureUatMutation":false,"source":"one-read-only-UAT-schema-only-extraction","migrationRange":"1800_001 through 1800_007"}
+          JSON
+
+      - name: Run Fast Regression once
+        shell: bash
+        run: bash scripts/test-fast-regression.sh
+
+      - name: Upload disposable harness evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: v180-development-schema-harness-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7

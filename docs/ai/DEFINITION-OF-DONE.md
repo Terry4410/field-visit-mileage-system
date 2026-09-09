@@ -34,3 +34,9 @@ Every change must satisfy all applicable items.
 - Database baseline and reset changes pass static safety validation and isolated database verification before any Azure execution request.
 - No secrets or real employee personal data are committed.
 - Required Human Gates are recorded and honored.
+
+## Cost guardrail (hard rule)
+
+- Use the minimum GitHub Actions runs and standard runners; do not rerun successful jobs without a failure-specific reason.
+- Use at most one necessary read-only Azure schema extraction for this harness; never create, reset, scale, or replace Azure resources.
+- Stop at a Human Gate before any destructive database action, privilege/security expansion, or production deployment.

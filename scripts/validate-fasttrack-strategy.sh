@@ -56,6 +56,7 @@ fi
 
 bash scripts/validate-v180-migration-readiness.sh >/dev/null
 bash scripts/validate-v180-baseline-package.sh >/dev/null
+bash scripts/validate-development-schema-harness.sh >/dev/null
 bash scripts/plan-uat-fasttrack-reset.sh >/dev/null
 
 echo "Fast-Track strategy static validation passed."

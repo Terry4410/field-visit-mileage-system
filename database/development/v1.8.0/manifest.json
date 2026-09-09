@@ -1,0 +1,13 @@
+{
+  "release": "v1.8.0",
+  "status": "mutable-development-harness",
+  "purpose": "ephemeral-v17-foundation-plus-ordered-v18-migrations",
+  "source": "one-read-only-schema-only-extraction-of-current-UAT-v1.7-when-available",
+  "migrationRange": "1800_001 through 1800_007",
+  "schemaSha256": null,
+  "finalBaseline": false,
+  "frozen": false,
+  "azureUatMutation": false,
+  "securityProvisioning": "excluded",
+  "businessData": "excluded"
+}

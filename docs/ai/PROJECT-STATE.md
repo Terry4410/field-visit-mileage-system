@@ -1,6 +1,7 @@
 # Project state
 
 - Phase: `UAT FAST-TRACK DEVELOPMENT`
+- Current workstream: `DEVELOPMENT SCHEMA HARNESS`
 - Working branch: `feature/uat-fasttrack-v180`
 - Target release: `v1.8.0`
 - Protected trace point: `post-uat/v1.8.0@e0c18ac69e55a5f559114e59ed343cb20dd51eb6`
@@ -8,6 +9,17 @@
 - Database strategy: fresh installations use one validated latest-release baseline; environments with retained production data use reviewed versioned migrations.
 - Protected baseline: existing validated behavior changes only when unavoidable, with impact analysis and expanded regression coverage.
 - Test gates: Fast Regression for ordinary work; Full AI Validation plus Human UAT before candidate freeze.
+
+## Baseline states
+
+- `DEVELOPMENT BASELINE`: **MUTABLE**. It is the isolated schema harness used for Epic B-G coding, integration, and automated regression. It may change when implementation proves a schema correction is necessary and is not an IT handover artifact.
+- `FINAL RELEASE CLEAN BASELINE`: **NOT YET CREATED / NOT FROZEN**. It is created only after Epic B-G and Full AI Validation, then proven on an empty database, SHA-locked, and handed to IT.
+
+The development harness uses one schema-only extraction of the current trusted UAT v1.7 structure when available, then evaluates the ordered 1.8 migrations only in disposable SQL. It never mutates `db-fieldvisit-uat`.
+
+## Cost guardrail (hard rule)
+
+Use the minimum Azure read-only connections and GitHub Actions runs. Do not create or scale paid resources, repeatedly wake Azure SQL, or rerun successful jobs. Any destructive Azure/database action, privilege expansion, or production operation remains behind a Human Gate.
 
 ## Reconciled live UAT state
 

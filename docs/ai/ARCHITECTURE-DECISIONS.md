@@ -28,3 +28,15 @@ The handover package does not require old UAT transactions or reconstruction of 
 Fast Regression runs static policy checks plus the existing frontend and backend suites for ordinary feedback. Full AI Validation adds builds, isolated browser regression, boundary/negative/data-integrity scenario expansion, and later role E2E. Live write-flow UAT remains explicitly gated and Final Human UAT validates usability and business correctness.
 
 Every reproducible defect follows `BUG -> FIX -> PERMANENT REGRESSION TEST`.
+
+## ADR-007 — Mutable development schema harness
+
+During disposable UAT development, the working schema is a **DEVELOPMENT BASELINE** with status **MUTABLE**. It is a disposable integration foundation for Epic B-G and automated regression, not a clean-install handover baseline and not SHA-frozen. A trusted v1.7 schema-only extraction is evolved through the ordered 1.8 migrations only inside an ephemeral SQL environment. Migration defects are reviewed explicitly; historical 1800_001 remains immutable.
+
+## ADR-008 — Final baseline is a later release gate
+
+The **FINAL RELEASE CLEAN BASELINE** is **NOT YET CREATED / NOT FROZEN**. It is produced only after Epic B-G and Full AI Validation, followed by empty-database proof, deterministic hashing, and IT handover review. Clean installation and production upgrades remain separate paths.
+
+## ADR-009 — Cost guardrail
+
+Repository/static checks and one consolidated ephemeral validation run are preferred. Azure access is read-only and minimized to one schema extraction where required. No new Azure resources, paid scaling, repeated SQL wake-ups, duplicate Actions runs, or unnecessary runners are allowed. Destructive actions and permission/security changes require a Human Gate.
