@@ -1,163 +1,181 @@
 # NEXT WORK TASK
 
 ## Model
-Use **GPT-5.6 Sol Medium**.
-Reason: the architecture and correction strategy are already decided; this task requires focused SQL/migration compatibility implementation but does not need High reasoning.
+Use **GPT-5.6 Luna**.
+
+Reason: architecture and correction strategy are already decided. This is a narrow harness/session configuration fix plus one controlled CI execution. Do not redesign anything.
 
 ## Repository / Branch
 - Repository: `Terry4410/field-visit-mileage-system`
 - Branch: `feature/uat-fasttrack-v180`
+- Current known head: `b93e095d453d92fcf183ca2c52870d91e48822e6`
 
-## Approved Decision
-Use a **development-only migration compatibility layer** to unblock the mutable v1.8 Development Schema Harness.
+## Human Gate Decision
+**APPROVED**: apply the minimal disposable-harness SQL session-options correction and perform **one** new consolidated harness execution.
 
-Do **not** modify or supersede production migration artifacts in this task. Final production migration hardening will happen later before Final Release Candidate / IT handover.
+No other permission, security, Azure, production, or migration-artifact change is approved.
 
-Do not re-evaluate this architecture.
+## Verified Current State
+The development-only compatibility layer is implemented.
 
-## Confirmed Predecessor Analysis
-Actual v1.7 schema was extracted successfully from `db-fieldvisit-uat` and published into disposable SQL Server.
+Harness result so far:
 
-Confirmed issues:
+- `1800_001 DEV APPLY`: PASS
+- `1800_001 ORIGINAL VERIFY`: PASS
+- `1800_002 DEV APPLY`: FAIL
+- `1800_002 ORIGINAL VERIFY`: SKIPPED
+- `1800_003-007`: SKIPPED
+- Database B: NOT RUN
+- Harness Fast Regression: NOT RUN
 
-- `1800_001`: SQL Server same-batch compilation defect: `Teams.EffectiveFrom` / `EffectiveTo` are added and then referenced statically later in the same batch.
-- `1800_001`: actual v1.7 already contains `UX_Teams_Organization_TeamCode`; the migration attempts to create the same index again.
-- `1800_002`: high risk of same-batch reference to newly-added `UserIdentityProfiles.EmploymentId`.
-- `1800_004`: high risk of same-batch reference to newly-added `DuplicateOfLocationId` and related computed/index structures.
-- `1800_005`: actual v1.7 already contains `CK_MileageRateRules_VehicleType` and semantically overlapping date/rate constraints.
-- `1800_007`: high risk of same-batch references to newly-added MileageCalculation / Snapshot governance columns.
-- `1800_003` and `1800_006` currently appear lower risk.
+Exact failure:
 
-Protected `1800_001` hashes remain unchanged.
+`CREATE INDEX failed because SET option 'QUOTED_IDENTIFIER' has incorrect settings.`
 
-## Objective
-Implement a deterministic, container-only compatibility layer so this can succeed:
+The first failing object is filtered index `UX_Persons_LegacyUserId` in `1800_002.dev.sql`.
 
-`trusted v1.7 schema -> development compatibility evolution -> original Verify.sql files -> complete v1.8 development schema -> empty DB B proof -> Fast Regression`
+This is classified as a **disposable harness session-configuration defect**, not a schema-design defect.
 
-This is **DEVELOPMENT tooling only** and must never become the production upgrade path automatically.
+## Approved Correction
+Implement deterministic SQL session SET options for development compatibility execution.
 
-## Design
-Create an explicit development-only structure, preferably under:
+Create a clearly development-only file, e.g.:
 
-`database/development/v1.8.0/compat/`
+`database/development/v1.8.0/compat/session-options.sql`
 
-Use clear audited files such as `1800_001.dev.sql`, `1800_002.dev.sql`, etc., or an equally explicit design.
+with exactly the required deterministic session settings:
 
-Do not generate fragile runtime SQL by parsing arbitrary migration files. Prefer explicit reviewed development adapters derived from the intended schema outcome.
+```sql
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET NUMERIC_ROUNDABORT OFF;
+```
 
-## Source Immutability
-Do not modify original `Up.sql` / `Verify.sql` files for `1800_001` through `1800_007` in this task.
+The session-options file must execute in the **same sqlcmd connection** as each development apply script.
 
-At minimum, `1800_001` must remain protected exactly.
+Do not run it in a separate sqlcmd process and assume the settings persist.
 
-Pin source migration SHA-256 values in a development manifest. If a source migration changes unexpectedly, fail closed until reviewed.
+A safe pattern is equivalent to:
 
-## Compatibility Rules
-For same-batch compilation defects, use explicit safe execution boundaries such as separate batches or controlled dynamic SQL without changing intended schema semantics.
+```bash
+cat database/development/v1.8.0/compat/session-options.sql "$apply" | "${sqlcmd[@]}" -I
+```
 
-For predecessor objects that already exist, never merely check object name. Validate the intended definition before reuse.
+or another deterministic same-session implementation.
 
-For indexes validate at least uniqueness, ordered key columns, key direction if relevant, filter definition, and included columns.
+Use `sqlcmd -I` defensively as well.
 
-For constraints validate object/table, constraint type, and normalized intended semantics.
+## Hash / Manifest Requirement
+Pin the development session-options file in the existing development compatibility manifest or equivalent validation so unexpected changes fail closed.
 
-If exact compatibility cannot be proven, fail closed. Do not silently drop/recreate predecessor objects.
+Do not alter any original migration Up.sql or Verify.sql hashes.
 
-## 1800_001 Requirements
-The development adapter must:
+Protected `1800_001` must remain byte-for-byte unchanged.
 
-- add Organization lifecycle fields
-- add Team lifecycle fields
-- create Team effective-date checks safely after column creation
-- validate existing `UX_Teams_Organization_TeamCode`
-- reuse that index only if it is exactly compatible with UNIQUE `(OrganizationId, TeamCode)`
-- create Center / TeamCenterAssignment structures
-- create required trigger
-- add snapshot Center/Team fields
-- preserve intended `SchemaVersions` result
-- allow the **original** `1800_001/Verify.sql` to pass
+## Harness Scope
+Update only what is necessary for deterministic session configuration and its validation.
 
-## 1800_002 / 004 / 005 / 007
-Apply the same principle and resolve all already-identified deterministic compilation or duplicate-object problems before another CI run.
+Then perform all possible local/static checks before push.
 
-`1800_003` and `1800_006` may use the original `Up.sql` directly if proven safe, or use a pass-through compatibility entry.
+Make **one corrective commit/push**.
 
-Always run each **original Verify.sql** after the development evolution step.
+Allow the temporary harness push trigger to launch **one** new Development Schema Harness run.
 
-## Permanent Regression Guards
-Add validation that detects future risks including:
+Do not manually start a second harness run.
 
-- unsafe same-batch references to newly-added columns where deterministically detectable
-- known predecessor duplicate object conflicts
-- drift between original migration hashes and the development compatibility manifest
-- production/UAT workflows accidentally referencing the development compatibility layer
-- development compatibility SQL accidentally targeting Azure UAT
+Do not rerun on failure. If the run fails at any migration or proof stage, stop and report the exact failure.
 
-The development adapter must only be callable from the disposable schema harness.
+## Required Full Harness Proof
+The new run must attempt, in order:
 
-## Harness Update
-Update `.github/workflows/v180-development-schema-harness.yml` so the disposable SQL phase uses the development compatibility layer.
+- `1800_001 DEV APPLY` + original Verify
+- `1800_002 DEV APPLY` + original Verify
+- `1800_003 DEV APPLY` + original Verify
+- `1800_004 DEV APPLY` + original Verify
+- `1800_005 DEV APPLY` + original Verify
+- `1800_006 DEV APPLY` + original Verify
+- `1800_007 DEV APPLY` + original Verify
+- Database A structural / cleanliness proof
+- Database B empty reconstruction proof
+- development/baseline Verify checks
+- Fast Regression once
 
-Azure portion remains one read-only schema-only extraction from UAT. All schema evolution occurs only inside disposable SQL Server.
+Do not declare PASS if any required stage is skipped.
 
-No original `Up.sql` or compatibility SQL may execute against Azure UAT.
+## Hard Boundaries
+Do NOT:
 
-## CI / Cost Guardrail
-Do all possible static/repository checks before push.
+- modify original `1800_001-007` migration Up.sql / Verify.sql
+- modify protected migration hashes
+- execute compatibility SQL against Azure UAT
+- execute original 1800 migration SQL against Azure UAT
+- change SQL grants, including current temporary VIEW DEFINITION
+- change Azure RBAC
+- change firewall
+- create Azure resources
+- change GitHub Environment policy
+- remove temporary feature-branch admission yet
+- remove temporary harness push trigger yet
+- merge to main
+- start Epic B
+- make API/frontend/application behavior changes
+- perform unrelated refactoring
 
-Target **one new harness Actions run** only.
+Azure access remains one read-only schema-only extraction maximum for this run.
 
-One Azure schema-only extraction maximum.
+## Cost Guardrail
+Target one corrective push and one harness run.
 
-Do not create Azure resources, change paid tier, firewall, RBAC, SQL grants, GitHub Environment policy, or deploy to production.
+An automatic UAT Fast-Track verification caused by the branch push is acceptable; do not manually rerun it.
 
-Do not rerun unrelated successful workflows manually.
+No paid resource/tier changes.
 
-## Required Execution Matrix
-The harness must report individually for all seven migrations:
+## Success Handling
+If the full harness passes:
 
-- DEV APPLY
-- ORIGINAL VERIFY
+- report `DEVELOPMENT SCHEMA = READY / MUTABLE / NON-FINAL`
+- report `EPIC B = READY`
+- stop
+- do not perform cleanup automatically
+- do not start Epic B
 
-Do not report PASS if any stage was skipped.
+Cleanup will be handled as a separate controlled step:
 
-## Database A Proof
-After all seven, verify intended structures for Organization/Center/Team, Person/Employment, employment status/roles/memberships, Team leader/delegation, Deployment Sites, Location governance, Project/Visit Type/Rate, Notifications, and Mileage/Google governance.
+1. revoke temporary `VIEW DEFINITION`
+2. remove `feature/uat-fasttrack-v180` from GitHub `uat` Environment
+3. remove temporary harness push trigger
 
-No real UAT business data and no environment principals.
+## Failure Handling
+If any stage fails:
 
-## Database B Proof
-Generate a schema-only v1.8 DEVELOPMENT artifact from Database A, install it into a completely empty Database B, then run development Verify, applicable baseline structural Verify, and principal/data cleanliness checks.
-
-## Fast Regression
-Run Fast Regression once after schema proof. Existing Protected Baseline must remain green. No application behavior changes are authorized.
-
-## Non-Regression Hard Rule
-No unrelated refactor. No API/frontend changes. No Epic B implementation. No Azure UAT schema/data mutation. No RBAC/firewall/SQL permission changes. No GitHub Environment policy change. No main merge. No production deployment. Protected `1800_001` hashes must remain unchanged.
-
-## Success Criteria
-PASS only if source migration hashes validate; actual v1.7 predecessor is reconstructed; compatibility layer applies all `001-007`; every original Verify passes; Database A proof passes; Database B clean-install proof passes; no principal/business-data leaks; Fast Regression passes; protected `1800_001` remains unchanged; Azure UAT remains unchanged; Development Baseline remains MUTABLE / NON-FINAL.
-
-If any migration fails: **STOP**. Do not automatically start another Actions run. Report exact failure and proposed fix.
+- fail closed
+- do not modify original migration source
+- do not start another Actions run
+- identify whether it is harness/session, compatibility-adapter, predecessor-definition, or schema-design failure
+- propose the narrowest correction
+- stop
 
 ## End Report
 Return only:
 
-1. COMPATIBILITY LAYER DESIGN
-2. SOURCE HASH / PROTECTED 001 STATUS
-3. 1800_001-007 DEV APPLY + ORIGINAL VERIFY MATRIX
-4. DATABASE A RESULT
-5. DATABASE B RESULT
-6. DEVELOPMENT SCHEMA STATUS
-7. FAST REGRESSION RESULT
-8. FILES CHANGED + WHY
+1. SESSION-OPTIONS CORRECTION
+2. FILES CHANGED + WHY
+3. SOURCE HASH / PROTECTED 001 STATUS
+4. 1800_001-007 DEV APPLY + ORIGINAL VERIFY MATRIX
+5. DATABASE A RESULT
+6. DATABASE B RESULT
+7. DEVELOPMENT SCHEMA STATUS
+8. FAST REGRESSION RESULT
 9. ACTIONS RUN(S)
 10. AZURE UAT MUTATION STATUS
 11. COST / USAGE
-12. REMAINING MIGRATION RISKS
+12. REMAINING RISKS
 13. EPIC B READINESS
-14. CLEANUP ACTIONS NOW SAFE
+14. CLEANUP NOW SAFE: YES/NO
 15. HUMAN GATE, if any
 
-If fully PASS: STOP. Do not start Epic B in the same task.
+Begin now. Do not redesign the architecture.
