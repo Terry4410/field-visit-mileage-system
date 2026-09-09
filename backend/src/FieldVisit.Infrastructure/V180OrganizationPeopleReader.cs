@@ -24,6 +24,43 @@ public sealed class V180OrganizationPeopleReader(AppDbContext db) : IV180Organiz
             source = source.Where(x => db.EmploymentStatusPeriods.Any(s => s.EmploymentId == x.EmploymentId &&
                 s.EmploymentStatus == EmploymentStatuses.Active && s.EffectiveFrom <= asOf &&
                 (!s.EffectiveTo.HasValue || asOf <= s.EffectiveTo.Value)));
+        if (q.TeamId.HasValue)
+        {
+            var teamId = q.TeamId.Value;
+            source = source.Where(x => db.TeamMemberships.Any(m => m.EmploymentId == x.EmploymentId &&
+                m.TeamId == teamId && m.EffectiveFrom <= asOf &&
+                (!m.EffectiveTo.HasValue || asOf <= m.EffectiveTo.Value)));
+        }
+        if (!string.IsNullOrEmpty(q.Role))
+        {
+            var roleCodes = q.Role == "supervisor"
+                ? new[] { "supervisor", "government" }
+                : new[] { q.Role };
+            source = source.Where(x => db.EmploymentRoleAssignments.Any(a =>
+                a.EmploymentId == x.EmploymentId && a.EffectiveFrom <= asOf &&
+                (!a.EffectiveTo.HasValue || asOf <= a.EffectiveTo.Value) &&
+                db.Roles.Any(r => r.RoleId == a.RoleId && r.IsActive &&
+                    roleCodes.Contains(r.RoleCode.ToLower()))));
+        }
+        if (q.InternalOnly)
+        {
+            var externalRoleCodes = new[] { "supervisor", "government" };
+            source = source.Where(x => !db.EmploymentRoleAssignments.Any(a =>
+                a.EmploymentId == x.EmploymentId && a.EffectiveFrom <= asOf &&
+                (!a.EffectiveTo.HasValue || asOf <= a.EffectiveTo.Value) &&
+                db.Roles.Any(r => r.RoleId == a.RoleId && r.IsActive &&
+                    externalRoleCodes.Contains(r.RoleCode.ToLower()))));
+        }
+        if (q.AdminEnabled.HasValue)
+        {
+            var adminEnabled = q.AdminEnabled.Value;
+            source = source.Where(x =>
+                (x.LegacyUserId.HasValue && db.Users.Any(u =>
+                    u.UserId == x.LegacyUserId.Value && u.IsActive == adminEnabled)) ||
+                (!x.LegacyUserId.HasValue && db.Persons.Any(p =>
+                    p.PersonId == x.PersonId && p.LegacyUserId.HasValue && db.Users.Any(u =>
+                        u.UserId == p.LegacyUserId.Value && u.IsActive == adminEnabled))));
+        }
 
         var total = await source.CountAsync(ct);
         var rows = await source.OrderBy(x => x.EmployeeNo).ThenBy(x => x.EmploymentId)
@@ -143,24 +180,45 @@ public sealed class V180OrganizationPeopleReader(AppDbContext db) : IV180Organiz
         var memberships = await db.TeamMemberships.AsNoTracking().Where(x => employmentIds.Contains(x.EmploymentId)).ToListAsync(ct);
         var teamIds = memberships.Select(x => x.TeamId).Distinct().ToArray();
         var teams = await db.Teams.AsNoTracking().Where(x => teamIds.Contains(x.TeamId)).ToDictionaryAsync(x => x.TeamId, ct);
+        var legacyUserIds = employments
+            .Select(x => ResolveLegacyUserId(x, people[x.PersonId]))
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToArray();
+        var users = await db.Users.AsNoTracking().Where(x => legacyUserIds.Contains(x.UserId))
+            .ToDictionaryAsync(x => x.UserId, ct);
 
         return employments.Select(employment =>
         {
             var person = people[employment.PersonId];
             var organization = organizations[employment.OrganizationId];
+            var legacyUserId = ResolveLegacyUserId(employment, person);
+            bool? adminEnabled = null;
+            if (legacyUserId.HasValue)
+            {
+                if (!users.TryGetValue(legacyUserId.Value, out var loginUser))
+                    throw new InvalidOperationException("LegacyUserId 對應不到 User 登入帳號；不得推測 AdminEnabled。");
+                adminEnabled = loginUser.IsActive;
+            }
             var currentRoles = V180AsOfRules.EmploymentRoles(assignments.Where(x => x.EmploymentId == employment.EmploymentId), asOf);
             var currentMemberships = V180AsOfRules.TeamMemberships(memberships.Where(x => x.EmploymentId == employment.EmploymentId), asOf);
             var primary = V180AsOfRules.PrimaryTeam(currentMemberships, asOf);
             var membershipDtos = currentMemberships.Select(x => new V180TeamMembershipDto(x.TeamId,
                 teams[x.TeamId].TeamCode, teams[x.TeamId].TeamName, x.IsPrimary)).ToList();
             return new V180PersonRowDto(person.PersonId, employment.EmploymentId,
-                employment.LegacyUserId ?? person.LegacyUserId, employment.EmployeeNo, person.DisplayName,
+                legacyUserId, employment.EmployeeNo, person.DisplayName,
                 employment.Email, ToDto(organization),
                 V180AsOfRules.EmploymentStatus(statuses.Where(x => x.EmploymentId == employment.EmploymentId), asOf)?.EmploymentStatus,
                 currentRoles.Select(x => new V180RoleDto(x.RoleId, roles[x.RoleId].RoleCode, roles[x.RoleId].RoleName)).ToList(),
                 membershipDtos, primary is null ? null : membershipDtos.Single(x => x.TeamId == primary.TeamId),
-                Convert.ToBase64String(employment.RowVersion));
+                adminEnabled, Convert.ToBase64String(employment.RowVersion));
         }).ToList();
+    }
+
+    private static int? ResolveLegacyUserId(Employment employment, Person person)
+    {
+        if (employment.LegacyUserId.HasValue && person.LegacyUserId.HasValue &&
+            employment.LegacyUserId.Value != person.LegacyUserId.Value)
+            throw new InvalidOperationException("IDENTITY_BRIDGE_MISMATCH：Employment 與 Person 的 LegacyUserId 不一致。");
+        return employment.LegacyUserId ?? person.LegacyUserId;
     }
 
     private async Task<V180OrganizationDto> OrganizationAsync(int id, CancellationToken ct) =>
@@ -172,7 +230,11 @@ public sealed class V180OrganizationPeopleReader(AppDbContext db) : IV180Organiz
     {
         var keyword = string.IsNullOrWhiteSpace(input.Keyword) ? null : input.Keyword.Trim();
         if (keyword?.Length > 200) throw new InvalidOperationException("搜尋關鍵字不可超過 200 字。");
-        return input with { AsOf = input.AsOf ?? BusinessTime.Today, Keyword = keyword,
+        var role = string.IsNullOrWhiteSpace(input.Role) ? null : input.Role.Trim().ToLowerInvariant();
+        role = role == "government" ? "supervisor" : role;
+        if (role is not null && role is not ("visitor" or "leader" or "admin" or "supervisor"))
+            throw new InvalidOperationException("Role 篩選值不正確。");
+        return input with { AsOf = input.AsOf ?? BusinessTime.Today, Keyword = keyword, Role = role,
             Page = Math.Max(1, input.Page), PageSize = Math.Clamp(input.PageSize, 1, 100) };
     }
 

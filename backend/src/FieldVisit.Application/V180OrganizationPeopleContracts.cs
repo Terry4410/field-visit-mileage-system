@@ -3,7 +3,8 @@ using FieldVisit.Domain.Entities;
 namespace FieldVisit.Application;
 
 public sealed record V180AdminAsOfQuery(DateOnly? AsOf = null, string? Keyword = null,
-    bool IncludeInactive = false, int Page = 1, int PageSize = 50);
+    bool IncludeInactive = false, int Page = 1, int PageSize = 50,
+    string? Role = null, bool? AdminEnabled = null, int? TeamId = null, bool InternalOnly = false);
 
 public sealed record V180OrganizationDto(int OrganizationId, string Code, string Name);
 public sealed record V180RoleDto(int RoleId, string Code, string Name);
@@ -12,7 +13,7 @@ public sealed record V180PersonRowDto(long PersonId, long EmploymentId, int? Leg
     string? EmployeeNo, string DisplayName, string? Email, V180OrganizationDto Organization,
     string? EmploymentStatus, IReadOnlyList<V180RoleDto> Roles,
     IReadOnlyList<V180TeamMembershipDto> TeamMemberships, V180TeamMembershipDto? PrimaryTeam,
-    string Version);
+    bool? AdminEnabled, string Version);
 public sealed record V180LeaderDto(long EmploymentId, string DisplayName,
     long? DelegateEmploymentId, string? DelegateDisplayName);
 public sealed record V180TeamAdminDto(int TeamId, string Code, string Name,

@@ -63,6 +63,11 @@ export interface CorrectionRequest{correctionRequestId:number;visitTripId:number
 export interface AdminUserAccess{userId:number;employeeNo:string;displayName:string;email?:string;isActive:boolean;roles:string[];teamScopes:TeamScope[]}
 export interface V170CurrentTeamAssignment{teamId:number;teamCode:string;teamName:string;isPrimary:boolean}
 export interface V170PeopleRow{userId:number;userCode:string;userType:string;employeeNo?:string;displayName:string;email?:string;employmentStatus?:string;adminEnabled:boolean;actualAccess:boolean;roles:string[];teamAssignments:V170CurrentTeamAssignment[];primaryTeamId?:number;primaryTeamName?:string;authorizationFrom?:string;authorizationTo?:string}
+export interface V180Organization{organizationId:number;code:string;name:string}
+export interface V180Role{roleId:number;code:string;name:string}
+export interface V180TeamMembership{teamId:number;code:string;name:string;isPrimary:boolean}
+export interface V180PersonRow{personId:number;employmentId:number;legacyUserId?:number|null;employeeNo?:string|null;displayName:string;email?:string|null;organization:V180Organization;employmentStatus?:string|null;roles:V180Role[];teamMemberships:V180TeamMembership[];primaryTeam?:V180TeamMembership|null;adminEnabled?:boolean|null;version:string}
+export interface V180PeopleAccessWriteResult{personId:number;employmentId:number;legacyUserId:number;version:string}
 export interface ManagedTeam{teamId:number;organizationId:number;teamCode:string;teamName:string;isActive:boolean}
 export interface ManagedLocation{locationId:number;locationCode:string;teamId?:number;teamName?:string;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string}
 export interface ImportPreviewItem{rowNumber:number;entityType:string;action:string;status:string;displayKey:string;errorMessage?:string}
