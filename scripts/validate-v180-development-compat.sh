@@ -47,7 +47,7 @@ if grep -REIn --include='*.sql' -E \
   exit 1
 fi
 
-mapfile -t workflow_refs < <(rg -l 'database/development/v1\.8\.0/compat' .github/workflows || true)
+mapfile -t workflow_refs < <(grep -RIl 'database/development/v1.8.0/compat' .github/workflows || true)
 [[ "${#workflow_refs[@]}" -eq 1 && "${workflow_refs[0]}" == "$harness" ]] || {
   echo 'Development compatibility layer is referenced outside its disposable harness.' >&2
   printf '%s\n' "${workflow_refs[@]}" >&2

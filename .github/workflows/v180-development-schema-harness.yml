@@ -32,6 +32,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p artifacts
+          printf 'commit=%s\nenvironment=uat\nazureMutation=false\n' "$GITHUB_SHA" > artifacts/harness-context.txt
           bash scripts/validate-fasttrack-strategy.sh
           bash scripts/validate-v180-development-compat.sh
           mapfile -t ups < <(find database/migrations -maxdepth 2 -path '*/1800_00*/Up.sql' | sort)
