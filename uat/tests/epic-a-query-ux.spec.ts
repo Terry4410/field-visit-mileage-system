@@ -101,9 +101,23 @@ test("project and visit-type menus are separate and arrow order is server checke
 test("mobile permission modal has an explicit close and releases page scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await authenticatedAdmin(page, async (route, url) => {
-    if (!url.pathname.endsWith("/admin/users/search")) return false;
+    if (!url.pathname.endsWith("/admin/v180/people")) return false;
     await json(route, {
-      items: [{ userId: 1, employeeNo: "A001", displayName: "UAT Admin", email: "admin@example.test", isActive: true, roles: ["admin"], teamScopes: [] }],
+      items: [{
+        personId: 101,
+        employmentId: 201,
+        legacyUserId: 1,
+        employeeNo: "A001",
+        displayName: "UAT Admin",
+        email: "admin@example.test",
+        organization: { organizationId: 1, code: "ORG1", name: "UAT Org" },
+        employmentStatus: "ACTIVE",
+        roles: [{ roleId: 3, code: "admin", name: "管理員" }],
+        teamMemberships: [],
+        primaryTeam: null,
+        adminEnabled: true,
+        version: "AAAAAAAAAAA="
+      }],
       page: 1, pageSize: 50, totalCount: 1, totalPages: 1
     });
     return true;
@@ -111,9 +125,9 @@ test("mobile permission modal has an explicit close and releases page scroll", a
 
   await page.goto("./#/admin/users");
   await page.getByRole("button", { name: "維護" }).click();
-  await expect(page.getByRole("dialog", { name: "人員權限" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "v1.8 人員權限" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
   await page.getByRole("button", { name: "關閉人員權限視窗" }).click();
-  await expect(page.getByRole("dialog", { name: "人員權限" })).toBeHidden();
+  await expect(page.getByRole("dialog", { name: "v1.8 人員權限" })).toBeHidden();
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
 });
