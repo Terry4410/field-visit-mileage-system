@@ -1,8 +1,6 @@
 name: v1.8 development schema harness
 
 on:
-  push:
-    branches: [feature/uat-fasttrack-v180]
   workflow_dispatch:
 
 concurrency:
