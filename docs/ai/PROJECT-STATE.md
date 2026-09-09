@@ -1,7 +1,7 @@
 # Project state
 
 - Phase: `UAT FAST-TRACK DEVELOPMENT`
-- Current workstream: `EPIC B — ORGANIZATION / PEOPLE / TEAM`
+- Current workstream: `EPIC C — DEPLOYMENT SITE`
 - Working branch: `feature/uat-fasttrack-v180`
 - Target release: `v1.8.0`
 - Protected trace point: `post-uat/v1.8.0@e0c18ac69e55a5f559114e59ed343cb20dd51eb6`
@@ -19,14 +19,22 @@ The development harness uses one schema-only extraction of the current trusted U
 
 ## Epic B status
 
-- `EPIC B1 BACKEND FOUNDATION`: **READY**. The additive v1.8 domain model, exact EF mappings, fail-closed as-of resolution, and admin read APIs are available.
-- `EPIC B2-A1 AUTHORITATIVE PEOPLE WRITE`: **READY**. Person/Employment role and TeamMembership writes are authoritative, atomic, rowversion-protected, and synchronously projected to compatibility structures. Legacy write routes and bulk confirm are adapters to the same writer.
-- `EPIC B2-A2 TEAM/CENTER LIFECYCLE WRITE`: **READY**. Team, Center and TeamCenterAssignment lifecycle writes are authoritative, effective-dated, rowversion-protected, and legacy Team writes delegate to the v1.8 lifecycle writer. Automatic UAT Fast-Track run `34345145600` passed.
-- `EPIC B2-B1 PEOPLE/MEMBERSHIP UI CUTOVER`: **READY**. Admin People and Team membership UI use EmploymentId + Version against the v1.8 People APIs. The v1.8 People read contract exposes nullable `AdminEnabled` through the deterministic legacy-user bridge. External Supervisor and PeopleBulk flows remain preserved. Automatic UAT Fast-Track run `34350795074` passed.
-- `EPIC B2-B2 TEAM/CENTER UI CUTOVER`: **IMPLEMENTATION CANDIDATE / VALIDATION PENDING**. Team master, Center master, and TeamCenterAssignment UI are prepared against v1.8 lifecycle APIs with additive detail/history reads and RowVersion writes. This state becomes READY only after the implementation commit passes the automatic protected Fast-Track.
-- `FULL EPIC B`: **NOT COMPLETE UNTIL B2-B2 PROTECTED VALIDATION PASSES**.
+- `EPIC B1 BACKEND FOUNDATION`: **READY**.
+- `EPIC B2-A1 AUTHORITATIVE PEOPLE WRITE`: **READY**.
+- `EPIC B2-A2 TEAM/CENTER LIFECYCLE WRITE`: **READY**. Automatic UAT Fast-Track run `34345145600` passed.
+- `EPIC B2-B1 PEOPLE/MEMBERSHIP UI CUTOVER`: **READY**. Automatic UAT Fast-Track run `34350795074` passed.
+- `EPIC B2-B2 TEAM/CENTER UI CUTOVER`: **READY**. Team, Center and TeamCenterAssignment UI use v1.8 lifecycle APIs with RowVersion writes and additive detail/history reads. Automatic UAT Fast-Track run `34354945561` passed.
+- `FULL EPIC B`: **COMPLETE**.
 
 `UserDataScopes` and `UserCapabilities` remain authoritative for External Supervisor visibility/export capabilities because v1.8 has no replacement. Azure UAT remains pre-v1.8; repository readiness is not deployment readiness.
+
+## Epic C status
+
+- `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY`: **IMPLEMENTATION CANDIDATE / VALIDATION PENDING**. The repository candidate models the `1800_003` DeploymentSites, DeploymentSiteLocationAssignments, TeamDeploymentSiteAssignments and EmploymentDeploymentSiteAssignments structures, with authoritative admin reads/writes, inclusive effective dates, history preservation, organization/Center containment and RowVersion concurrency.
+- `EPIC C-B UI / TRIP / SNAPSHOT INTEGRATION`: **NOT STARTED**. Do not start until C-A protected validation passes.
+- `FULL EPIC C`: **NOT COMPLETE**.
+
+C-A deliberately does not change the existing VisitTrip write flow or snapshot production. `1800_003` Trip/VisitTripSnapshot integration remains isolated to C-B so Deployment Site authority can be regression-tested independently.
 
 ## Cost guardrail (hard rule)
 
@@ -45,13 +53,13 @@ Evidence captured 2026-09-08 UTC:
 
 ## Active blockers
 
-- Full Epic B remains incomplete until the B2-B2 implementation commit passes protected regression.
+- C-A must pass exactly one automatic UAT Fast-Track before C-B starts.
 - The final clean-install baseline remains intentionally deferred until Epic B-G and Full AI Validation are complete.
 - A destructive Azure UAT reset remains behind Human Gate A.
 
 ## Next recommended batch
 
-If B2-B2 automatic Fast-Track passes, close Epic B and proceed directly to Epic C — Deployment Site authoritative read/write and UI integration against the mutable development schema. If it fails, stop and repair only the exact regression before starting Epic C.
+If C-A automatic Fast-Track passes, proceed to Epic C-B — Deployment Site management UI and the explicitly scoped VisitTrip / VisitTripSnapshot integration required by `1800_003`. If C-A fails, stop and repair only the exact protected-regression failure first.
 
 ## Human gates
 

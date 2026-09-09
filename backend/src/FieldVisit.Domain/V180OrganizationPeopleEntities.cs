@@ -17,6 +17,7 @@ public sealed class Center
     public DateTime? InactivatedAt { get; set; }
     public int? InactivatedByUserId { get; set; }
     public byte[] RowVersion { get; set; } = [];
+    public List<DeploymentSite> DeploymentSites { get; set; } = [];
 }
 
 public sealed class TeamCenterAssignment
