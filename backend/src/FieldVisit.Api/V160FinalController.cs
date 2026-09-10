@@ -108,11 +108,19 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
     public async Task<ActionResult<ManagedLocationDto>> UpdateLocation(int locationId, SaveManagedLocationRequest request, CancellationToken ct) =>
         Ok(await service.UpdateManagedLocationAsync(locationId, request, ct));
 
+    [HttpPut("managed-locations/{locationId:int}/governance")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<ManagedLocationGovernanceDto>> UpdateLocationGovernance(
+        int locationId,
+        ManagedLocationGovernanceRequest request,
+        CancellationToken ct) =>
+        Ok(await service.UpdateManagedLocationGovernanceAsync(locationId, request, ct));
+
     [HttpDelete("managed-locations/{locationId:int}")]
     [Authorize(Roles = "admin")]
-    public async Task<IActionResult> DeactivateLocation(int locationId, CancellationToken ct)
+    public async Task<IActionResult> DeactivateLocation(int locationId, [FromQuery] string rowVersion, CancellationToken ct)
     {
-        await service.DeactivateManagedLocationAsync(locationId, ct);
+        await service.DeactivateManagedLocationAsync(locationId, rowVersion, ct);
         return NoContent();
     }
 

@@ -57,7 +57,6 @@ function Users({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void
  const rows=query.data.items;
  const load=()=>{query.reload()};
  useEffect(()=>{api<Team[]>('/teams').then(setTeams).catch(e=>setMsg(e.message))},[]);
-
  const open=(u:AdminUserAccess)=>{setEdit(u);setActive(u.isActive);setRoles([...u.roles]);setScopes(u.teamScopes.map(s=>({teamId:s.teamId,isPrimary:s.isPrimary})))};
  const toggleRole=(r:string)=>setRoles(x=>x.includes(r)?x.filter(v=>v!==r):[...x,r]);
  const toggleTeam=(id:number)=>setScopes(x=>x.some(s=>s.teamId===id)?x.filter(s=>s.teamId!==id):[...x,{teamId:id,isPrimary:x.length===0}]);
@@ -112,7 +111,7 @@ function Locations({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>
    }catch(e){setMsg(e instanceof Error?e.message:'建立工作失敗')}finally{setBusy(false)}
  };
 
- const deactivate=async(l:ManagedLocation)=>{if(!window.confirm(`確定停用地點「${l.locationName}」？歷史行程 Snapshot 不受影響。`))return;setBusy(true);try{await api(`/managed-locations/${l.locationId}`,{method:'DELETE'});setMsg('地點已停用。');await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
+ const deactivate=async(l:ManagedLocation)=>{if(!window.confirm(`確定停用地點「${l.locationName}」？歷史行程 Snapshot 不受影響。`))return;setBusy(true);try{await api(`/managed-locations/${l.locationId}?rowVersion=${encodeURIComponent(l.rowVersion)}`,{method:'DELETE'});setMsg('地點已停用。');await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
 
  const permanentDelete=async(l:ManagedLocation)=>{
    setBusy(true);
@@ -127,7 +126,6 @@ function Locations({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>
      setMsg(`地點「${l.locationName}」已永久刪除。`);clearSelection();await load();
    }catch(e){setMsg(e instanceof Error?e.message:'刪除失敗')}finally{setBusy(false)}
  };
-
  const promote=async(l:ManagedLocation)=>{if(!window.confirm(`確定將「${l.locationName}」轉為正式地點？
 
 轉換後可加入專案固定地點；既有歷史行程不會被修改。`))return;setBusy(true);try{await api(`/locations/${l.locationId}/promote`,{method:'POST',body:JSON.stringify({rowVersion:l.rowVersion})});setMsg(`地點「${l.locationName}」已轉為正式地點。`);await load()}catch(e){setMsg(e instanceof Error?e.message:'轉為正式地點失敗')}finally{setBusy(false)}};

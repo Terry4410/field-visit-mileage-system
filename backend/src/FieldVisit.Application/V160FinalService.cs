@@ -3,6 +3,7 @@ namespace FieldVisit.Application;
 public sealed class V160FinalService(
     ICurrentUserService current,
     IV160FinalRepository repository,
+    IV180ManagedLocationGovernanceRepository managedLocationGovernance,
     IReportDocumentService reports,
     IWorkbookImportService imports,
     IBackgroundJobService jobs,
@@ -104,16 +105,19 @@ public sealed class V160FinalService(
         repository.GetManagedLocationsAsync(RequireAny("admin", "leader"), includeInactive, ct);
 
     public Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(ManagedLocationQueryRequest request, CancellationToken ct) =>
-        repository.SearchManagedLocationsAsync(RequireAny("admin", "leader"), request, ct);
+        managedLocationGovernance.SearchManagedLocationsAsync(RequireAny("admin", "leader"), request, ct);
 
     public Task<ManagedLocationDto> CreateManagedLocationAsync(SaveManagedLocationRequest request, CancellationToken ct) =>
         repository.CreateManagedLocationAsync(RequireAny("admin", "leader"), request, ct);
 
     public Task<ManagedLocationDto> UpdateManagedLocationAsync(int id, SaveManagedLocationRequest request, CancellationToken ct) =>
-        repository.UpdateManagedLocationAsync(RequireAny("admin", "leader"), id, request, ct);
+        managedLocationGovernance.UpdateManagedLocationAsync(RequireAny("admin", "leader"), id, request, ct);
 
-    public Task DeactivateManagedLocationAsync(int id, CancellationToken ct) =>
-        repository.DeactivateManagedLocationAsync(RequireRole("admin"), id, ct);
+    public Task<ManagedLocationGovernanceDto> UpdateManagedLocationGovernanceAsync(int id, ManagedLocationGovernanceRequest request, CancellationToken ct) =>
+        managedLocationGovernance.UpdateGovernanceAsync(RequireRole("admin"), id, request, ct);
+
+    public Task DeactivateManagedLocationAsync(int id, string rowVersion, CancellationToken ct) =>
+        managedLocationGovernance.DeactivateManagedLocationAsync(RequireRole("admin"), id, rowVersion, ct);
 
     public Task<ManagedLocationDeleteImpactDto> ManagedLocationDeleteImpactAsync(int id, CancellationToken ct) =>
         repository.GetManagedLocationDeleteImpactAsync(RequireRole("admin"), id, ct);
