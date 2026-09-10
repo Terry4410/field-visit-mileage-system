@@ -6,6 +6,7 @@
   "scripts": {
     "test": "playwright test",
     "test:epic-a": "playwright test tests/epic-a-query-ux.spec.ts",
+    "test:protected": "playwright test tests/epic-a-query-ux.spec.ts tests/da-integration.spec.ts",
     "test:smoke": "playwright test tests/smoke.spec.ts",
     "test:lifecycle": "playwright test tests/trip-lifecycle.spec.ts"
   },

@@ -5,6 +5,10 @@ const normalizeBase = (raw:string) => {
   return /\/api\/v1$/i.test(base)?base:`${base}/api/v1`;
 };
 
+export class ApiError extends Error{
+  constructor(public readonly status:number,message:string){super(message);this.name="ApiError";}
+}
+
 export const apiBase=()=>normalizeBase(window.APP_CONFIG?.API_BASE_URL||"http://localhost:5080");
 export const getToken=()=>sessionStorage.getItem(TOKEN);
 export const setToken=(v:string)=>sessionStorage.setItem(TOKEN,v);
@@ -41,14 +45,14 @@ async function errorFrom(res:Response){
 export async function api<T>(path:string,init:RequestInit={},timeoutMs=30000):Promise<T>{
   const res=await request(path,init,timeoutMs);
   if(res.status===204)return undefined as T;
-  if(!res.ok)throw new Error(await errorFrom(res));
+  if(!res.ok)throw new ApiError(res.status,await errorFrom(res));
   const type=res.headers.get("content-type")||"";
   return (type.includes("json")?await res.json():await res.text()) as T;
 }
 
 export async function apiDownload(path:string,filenameFallback:string,timeoutMs=120000){
   const res=await request(path,{},timeoutMs);
-  if(!res.ok)throw new Error(await errorFrom(res));
+  if(!res.ok)throw new ApiError(res.status,await errorFrom(res));
   const blob=await res.blob();
   const cd=res.headers.get("content-disposition")||"";
   const utf=cd.match(/filename\*=UTF-8''([^;]+)/i)?.[1];

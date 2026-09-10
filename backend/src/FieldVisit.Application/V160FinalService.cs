@@ -113,6 +113,18 @@ public sealed class V160FinalService(
     public Task<ManagedLocationDto> UpdateManagedLocationAsync(int id, SaveManagedLocationRequest request, CancellationToken ct) =>
         managedLocationGovernance.UpdateManagedLocationAsync(RequireAny("admin", "leader"), id, request, ct);
 
+    public Task<ManagedLocationGovernanceDetailDto> GetManagedLocationGovernanceAsync(int id, CancellationToken ct) =>
+        managedLocationGovernance.GetGovernanceAsync(RequireRole("admin"), id, ct);
+
+    public Task<IReadOnlyList<ManagedLocationGovernanceSummaryDto>> GetManagedLocationGovernanceSummariesAsync(IReadOnlyList<int> locationIds, CancellationToken ct) =>
+        managedLocationGovernance.GetGovernanceSummariesAsync(RequireRole("admin"), locationIds, ct);
+
+    public Task<PagedResult<ManagedLocationGovernanceCandidateDto>> SearchManagedLocationGovernanceCandidatesAsync(int locationId, string? q, int page, int pageSize, CancellationToken ct) =>
+        managedLocationGovernance.SearchGovernanceCandidatesAsync(RequireRole("admin"), locationId, q, page, pageSize, ct);
+
+    public Task<ManagedLocationInactivationImpactDto> GetManagedLocationInactivationImpactAsync(int id, CancellationToken ct) =>
+        managedLocationGovernance.GetInactivationImpactAsync(RequireRole("admin"), id, ct);
+
     public Task<ManagedLocationGovernanceDto> UpdateManagedLocationGovernanceAsync(int id, ManagedLocationGovernanceRequest request, CancellationToken ct) =>
         managedLocationGovernance.UpdateGovernanceAsync(RequireRole("admin"), id, request, ct);
 

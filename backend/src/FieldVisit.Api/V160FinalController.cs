@@ -98,6 +98,23 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
         CancellationToken ct = default) =>
         Ok(await service.SearchManagedLocationsAsync(request, ct));
 
+    [HttpGet("managed-locations/governance-summaries")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<IReadOnlyList<ManagedLocationGovernanceSummaryDto>>> LocationGovernanceSummaries(
+        [FromQuery] List<int> locationIds,
+        CancellationToken ct) =>
+        Ok(await service.GetManagedLocationGovernanceSummariesAsync(locationIds, ct));
+
+    [HttpGet("managed-locations/governance-candidates")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<PagedResult<ManagedLocationGovernanceCandidateDto>>> LocationGovernanceCandidates(
+        [FromQuery] int locationId,
+        [FromQuery] string? q,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await service.SearchManagedLocationGovernanceCandidatesAsync(locationId, q, page, pageSize, ct));
+
     [HttpPost("managed-locations")]
     [Authorize(Roles = "admin,leader")]
     public async Task<ActionResult<ManagedLocationDto>> CreateLocation(SaveManagedLocationRequest request, CancellationToken ct) =>
@@ -108,6 +125,11 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
     public async Task<ActionResult<ManagedLocationDto>> UpdateLocation(int locationId, SaveManagedLocationRequest request, CancellationToken ct) =>
         Ok(await service.UpdateManagedLocationAsync(locationId, request, ct));
 
+    [HttpGet("managed-locations/{locationId:int}/governance")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<ManagedLocationGovernanceDetailDto>> LocationGovernance(int locationId, CancellationToken ct) =>
+        Ok(await service.GetManagedLocationGovernanceAsync(locationId, ct));
+
     [HttpPut("managed-locations/{locationId:int}/governance")]
     [Authorize(Roles = "admin")]
     public async Task<ActionResult<ManagedLocationGovernanceDto>> UpdateLocationGovernance(
@@ -115,6 +137,11 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
         ManagedLocationGovernanceRequest request,
         CancellationToken ct) =>
         Ok(await service.UpdateManagedLocationGovernanceAsync(locationId, request, ct));
+
+    [HttpGet("managed-locations/{locationId:int}/inactivation-impact")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<ManagedLocationInactivationImpactDto>> LocationInactivationImpact(int locationId, CancellationToken ct) =>
+        Ok(await service.GetManagedLocationInactivationImpactAsync(locationId, ct));
 
     [HttpDelete("managed-locations/{locationId:int}")]
     [Authorize(Roles = "admin")]

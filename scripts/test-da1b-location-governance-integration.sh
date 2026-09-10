@@ -48,3 +48,7 @@ export DA1B_CONNECTION_STRING="Server=127.0.0.1,$PORT;Database=$DB_NAME;User Id=
 echo "DA1B_REPOSITORY_INTEGRATION=START"
 dotnet run --project "$ROOT/backend/tests/FieldVisit.DA1b.Integration.Tests/FieldVisit.DA1b.Integration.Tests.csproj" --configuration Release
 echo "D-A1b real SQL Server repository integration regression passed."
+
+echo "DAI_REPOSITORY_INTEGRATION=START"
+dotnet run --project "$ROOT/backend/tests/FieldVisit.DAIntegration.Integration.Tests/FieldVisit.DAIntegration.Integration.Tests.csproj" --configuration Release
+echo "D-A Integration real SQL Server read-contract regression passed."

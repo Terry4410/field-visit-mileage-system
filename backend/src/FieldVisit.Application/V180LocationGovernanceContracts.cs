@@ -15,10 +15,50 @@ public sealed record ManagedLocationGovernanceDto(
     string? DuplicateReason,
     string RowVersion);
 
+public sealed record ManagedLocationGovernanceDetailDto(
+    int LocationId,
+    string LocationCode,
+    string LocationName,
+    string? Address,
+    string? TaxId,
+    string? MasterNote,
+    int? DuplicateOfLocationId,
+    string? DuplicateReason,
+    string RowVersion);
+
+public sealed record ManagedLocationGovernanceSummaryDto(
+    int LocationId,
+    string? TaxId,
+    bool HasDuplicateReference);
+
+public sealed record ManagedLocationGovernanceCandidateDto(
+    int LocationId,
+    string LocationCode,
+    string LocationName,
+    string? Address,
+    string? TaxId,
+    bool IsActive);
+
+public sealed record ManagedLocationInactivationBlockerDto(
+    int DeploymentSiteId,
+    string DeploymentSiteCode,
+    string DeploymentSiteName,
+    DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo);
+
+public sealed record ManagedLocationInactivationImpactDto(
+    int LocationId,
+    bool CanDeactivate,
+    IReadOnlyList<ManagedLocationInactivationBlockerDto> Blockers);
+
 public interface IV180ManagedLocationGovernanceRepository
 {
     Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(CurrentUserDto user, ManagedLocationQueryRequest request, CancellationToken ct);
     Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct);
+    Task<ManagedLocationGovernanceDetailDto> GetGovernanceAsync(CurrentUserDto user, int locationId, CancellationToken ct);
+    Task<IReadOnlyList<ManagedLocationGovernanceSummaryDto>> GetGovernanceSummariesAsync(CurrentUserDto user, IReadOnlyList<int> locationIds, CancellationToken ct);
+    Task<PagedResult<ManagedLocationGovernanceCandidateDto>> SearchGovernanceCandidatesAsync(CurrentUserDto user, int locationId, string? q, int page, int pageSize, CancellationToken ct);
+    Task<ManagedLocationInactivationImpactDto> GetInactivationImpactAsync(CurrentUserDto user, int locationId, CancellationToken ct);
     Task<ManagedLocationGovernanceDto> UpdateGovernanceAsync(CurrentUserDto user, int locationId, ManagedLocationGovernanceRequest request, CancellationToken ct);
     Task DeactivateManagedLocationAsync(CurrentUserDto user, int locationId, string rowVersion, CancellationToken ct);
 }
