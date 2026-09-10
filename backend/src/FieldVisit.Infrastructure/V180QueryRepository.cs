@@ -146,7 +146,7 @@ public sealed partial class V160FinalRepository
             }
             await tx.CommitAsync(ct);
             return (IReadOnlyList<VisitTypeDto>)rows.OrderBy(x => x.SortOrder).ThenBy(x => x.VisitTypeName).ThenBy(x => x.VisitTypeId)
-                .Select(x => new VisitTypeDto(x.VisitTypeId, x.VisitTypeCode, x.VisitTypeName, x.Description, x.SortOrder, x.IsActive)).ToList();
+                .Select(x => new VisitTypeDto(x.VisitTypeId, x.VisitTypeCode, x.VisitTypeName, x.Description, x.SortOrder, x.IsActive, x.InactivatedAt, x.InactivatedByUserId, Convert.ToBase64String(x.RowVersion ?? []))).ToList();
         });
     }
 }
