@@ -35,7 +35,7 @@
     {
       "migration": "1800_004",
       "source": "database/migrations/1800_004_location_governance/Up.sql",
-      "sourceSha256": "3a1b5e20aea5c5dcb05f3cd157b1b14259c4f8c9e8016aa711bb63f0028321cd",
+      "sourceSha256": "f7ab917e9fd0c10f5e88a5cd6534f5f91c27bb372615ad733e7b7c1fc22d9cb6",
       "verify": "database/migrations/1800_004_location_governance/Verify.sql",
       "verifySha256": "250997d5ec4a3f185d35c664af48bc347f527ff2c4e3427542cab858b12f8d9f",
       "developmentApply": "database/development/v1.8.0/compat/1800_004.dev.sql",

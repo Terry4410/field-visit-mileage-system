@@ -49,27 +49,29 @@ BEGIN TRY
         NormalizedAddress AS
         (UPPER(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(Address, N''))), N' ', N''), N'　', N''))) PERSISTED;
 
-    ALTER TABLE dbo.Locations WITH CHECK ADD
-        CONSTRAINT FK_Locations_InactivatedByUser
-            FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId),
-        CONSTRAINT FK_Locations_DuplicateOf
-            FOREIGN KEY(DuplicateOfLocationId) REFERENCES dbo.Locations(LocationId),
-        CONSTRAINT CK_Locations_DuplicateReference
-            CHECK(DuplicateOfLocationId IS NULL OR DuplicateOfLocationId <> LocationId);
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.Locations WITH CHECK ADD
+            CONSTRAINT FK_Locations_InactivatedByUser
+                FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId),
+            CONSTRAINT FK_Locations_DuplicateOf
+                FOREIGN KEY(DuplicateOfLocationId) REFERENCES dbo.Locations(LocationId),
+            CONSTRAINT CK_Locations_DuplicateReference
+                CHECK(DuplicateOfLocationId IS NULL OR DuplicateOfLocationId <> LocationId);';
 
     /* TaxId is searchable evidence, never a unique Location key. */
-    CREATE INDEX IX_Locations_Organization_TaxId
-        ON dbo.Locations(OrganizationId, TaxId, IsActive)
-        INCLUDE(LocationCode, LocationName, Address)
-        WHERE TaxId IS NOT NULL;
+    EXEC sys.sp_executesql N'
+        CREATE INDEX IX_Locations_Organization_TaxId
+            ON dbo.Locations(OrganizationId, TaxId, IsActive)
+            INCLUDE(LocationCode, LocationName, Address)
+            WHERE TaxId IS NOT NULL;
 
-    CREATE INDEX IX_Locations_NormalizedNameAddress
-        ON dbo.Locations(OrganizationId, NormalizedLocationName, NormalizedAddress, IsActive)
-        INCLUDE(LocationCode, LocationName, TaxId);
+        CREATE INDEX IX_Locations_NormalizedNameAddress
+            ON dbo.Locations(OrganizationId, NormalizedLocationName, NormalizedAddress, IsActive)
+            INCLUDE(LocationCode, LocationName, TaxId);
 
-    CREATE INDEX IX_Locations_DuplicateOf
-        ON dbo.Locations(DuplicateOfLocationId)
-        WHERE DuplicateOfLocationId IS NOT NULL;
+        CREATE INDEX IX_Locations_DuplicateOf
+            ON dbo.Locations(DuplicateOfLocationId)
+            WHERE DuplicateOfLocationId IS NOT NULL;';
 
     CREATE TABLE dbo.TeamLocationNotes
     (
