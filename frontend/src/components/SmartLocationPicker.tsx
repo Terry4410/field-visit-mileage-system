@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import {api} from "../api";
+import TeamLocationNoteViewer from "./TeamLocationNoteViewer";
 
 import {
   buildLocationSearchPath,
@@ -813,6 +814,13 @@ export default function SmartLocationPicker({
           }
         </div>
       </>}
+
+      {teamId&&selectedLocationId&&
+        <TeamLocationNoteViewer
+          teamId={teamId}
+          locationId={selectedLocationId}
+        />
+      }
     </div>
   );
 }
