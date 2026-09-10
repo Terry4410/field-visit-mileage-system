@@ -203,6 +203,8 @@ public sealed class V180DeploymentSiteWriter(AppDbContext db) : IV180DeploymentS
         var site = await RequireSiteAsync(input.DeploymentSiteId, organizationId, ct);
         var employment = await RequireEmploymentAsync(input.EmploymentId, organizationId, ct);
         ValidateAssignmentPeriod(site, input.EffectiveFrom, input.EffectiveTo, "Employment-Site");
+        await EnsureNoEmploymentSiteOverlapAsync(input.EmploymentId, input.DeploymentSiteId,
+            input.EffectiveFrom, input.EffectiveTo, null, ct);
         if (input.IsPrimary)
             await EnsureNoPrimaryEmploymentOverlapAsync(input.EmploymentId, input.EffectiveFrom, input.EffectiveTo, null, ct);
         var row = new EmploymentDeploymentSiteAssignment
@@ -225,6 +227,8 @@ public sealed class V180DeploymentSiteWriter(AppDbContext db) : IV180DeploymentS
         EnsureVersion(row.RowVersion, input.Version);
         await RequireEmploymentAsync(row.EmploymentId, organizationId, ct);
         ValidateAssignmentPeriod(row.DeploymentSite, input.EffectiveFrom, input.EffectiveTo, "Employment-Site");
+        await EnsureNoEmploymentSiteOverlapAsync(row.EmploymentId, row.DeploymentSiteId,
+            input.EffectiveFrom, input.EffectiveTo, assignmentId, ct);
         if (input.IsPrimary)
             await EnsureNoPrimaryEmploymentOverlapAsync(row.EmploymentId, input.EffectiveFrom, input.EffectiveTo, assignmentId, ct);
         row.IsPrimary = input.IsPrimary; row.EffectiveFrom = input.EffectiveFrom; row.EffectiveTo = input.EffectiveTo;
@@ -240,6 +244,10 @@ public sealed class V180DeploymentSiteWriter(AppDbContext db) : IV180DeploymentS
         var row = await RequireEmploymentAssignmentAsync(assignmentId, organizationId, ct);
         EnsureVersion(row.RowVersion, input.Version);
         ValidateAssignmentPeriod(row.DeploymentSite, row.EffectiveFrom, input.EffectiveTo, "Employment-Site");
+        if (row.EffectiveTo.HasValue && input.EffectiveTo > row.EffectiveTo.Value)
+            throw new InvalidOperationException("EMPLOYMENT_SITE_END_EXTENSION_NOT_ALLOWED：End 僅能縮短或結束有效期間；延長請使用 Update。");
+        await EnsureNoEmploymentSiteOverlapAsync(row.EmploymentId, row.DeploymentSiteId,
+            row.EffectiveFrom, input.EffectiveTo, assignmentId, ct);
         row.EffectiveTo = input.EffectiveTo;
         AddAudit(admin.UserId, "EmploymentDeploymentSiteAssignment", assignmentId.ToString(), "V180EmploymentDeploymentEnd", input);
         await db.SaveChangesAsync(ct);
@@ -326,6 +334,16 @@ public sealed class V180DeploymentSiteWriter(AppDbContext db) : IV180DeploymentS
                 (!excludedId.HasValue || x.TeamDeploymentSiteAssignmentId != excludedId.Value)).ToListAsync(ct);
         if (rows.Any(x => V180DeploymentSiteRules.Overlaps(from, to, x.EffectiveFrom, x.EffectiveTo)))
             throw new InvalidOperationException("TEAM_SITE_OVERLAP：相同 Team/Site effective periods 不得重疊。");
+    }
+
+    private async Task EnsureNoEmploymentSiteOverlapAsync(long employmentId, int siteId,
+        DateOnly from, DateOnly? to, long? excludedId, CancellationToken ct)
+    {
+        var rows = await db.Set<EmploymentDeploymentSiteAssignment>().AsNoTracking()
+            .Where(x => x.EmploymentId == employmentId && x.DeploymentSiteId == siteId &&
+                (!excludedId.HasValue || x.EmploymentDeploymentSiteAssignmentId != excludedId.Value)).ToListAsync(ct);
+        if (rows.Any(x => V180DeploymentSiteRules.Overlaps(from, to, x.EffectiveFrom, x.EffectiveTo)))
+            throw new InvalidOperationException("EMPLOYMENT_SITE_OVERLAP：相同 Employment/Site effective periods 不得重疊。");
     }
 
     private async Task EnsureNoPrimaryEmploymentOverlapAsync(long employmentId, DateOnly from, DateOnly? to,

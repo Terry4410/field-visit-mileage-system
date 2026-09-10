@@ -19,8 +19,11 @@ IF COL_LENGTH(N'dbo.VisitTrips', N'StartDeploymentSiteId') IS NULL
 IF OBJECT_ID(N'dbo.TR_DeploymentSites_CenterPeriod', N'TR') IS NULL
    OR OBJECT_ID(N'dbo.TR_DeploymentSiteLocations_NoOverlap', N'TR') IS NULL
    OR OBJECT_ID(N'dbo.TR_TeamDeploymentSites_NoOverlap', N'TR') IS NULL
+   OR OBJECT_ID(N'dbo.TR_EmploymentDeploymentSites_SameSiteNoOverlap', N'TR') IS NULL
    OR OBJECT_ID(N'dbo.TR_EmploymentDeploymentSites_OnePrimary', N'TR') IS NULL
-    THROW 53510, N'Verify failed: 1.8.0-003 effective-date trigger 不完整。', 1;
+   OR OBJECT_ID(N'dbo.TR_TeamCenterAssignments_ProtectTeamSites', N'TR') IS NULL
+   OR OBJECT_ID(N'dbo.TR_DeploymentSites_ProtectTeamSites', N'TR') IS NULL
+    THROW 53510, N'Verify failed: 1.8.0-003 effective-date/reverse-protection trigger 不完整。', 1;
 
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.DeploymentSites') AND name=N'IX_DeploymentSites_Center_Effective')
    OR NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.TeamDeploymentSiteAssignments') AND name=N'IX_TeamDeploymentSiteAssignments_Team_AsOf')
@@ -60,6 +63,20 @@ IF EXISTS
 )
     THROW 53503, N'Verify failed: Deployment Site Location periods 存在重疊。', 1;
 
+/* A1: inclusive periods for the same Employment + DeploymentSite must never overlap. */
+IF EXISTS
+(
+    SELECT 1 FROM dbo.EmploymentDeploymentSiteAssignments a
+    JOIN dbo.EmploymentDeploymentSiteAssignments b
+      ON b.EmploymentId = a.EmploymentId
+     AND b.DeploymentSiteId = a.DeploymentSiteId
+     AND b.EmploymentDeploymentSiteAssignmentId > a.EmploymentDeploymentSiteAssignmentId
+     AND a.EffectiveFrom <= ISNULL(b.EffectiveTo, CONVERT(date, N'99991231'))
+     AND b.EffectiveFrom <= ISNULL(a.EffectiveTo, CONVERT(date, N'99991231'))
+)
+    THROW 53513, N'Verify failed A1: 相同 Employment/Site effective periods 存在重疊。', 1;
+
+/* A2: an Employment may have at most one Primary DeploymentSite on an effective date. */
 IF EXISTS
 (
     SELECT 1 FROM dbo.EmploymentDeploymentSiteAssignments a
@@ -70,7 +87,7 @@ IF EXISTS
      AND a.EffectiveFrom <= ISNULL(b.EffectiveTo, CONVERT(date, N'99991231'))
      AND b.EffectiveFrom <= ISNULL(a.EffectiveTo, CONVERT(date, N'99991231'))
 )
-    THROW 53504, N'Verify failed: 同期間存在多個 Primary Deployment Site。', 1;
+    THROW 53504, N'Verify failed A2: 同期間存在多個 Primary Deployment Site。', 1;
 
 IF EXISTS
 (
@@ -92,6 +109,7 @@ IF EXISTS
 )
     THROW 53507, N'Verify failed: Site Location period 超出 Site 有效期間。', 1;
 
+/* B1: every Team-Site period must be fully covered by Team-Center for the Site Center. */
 IF EXISTS
 (
     SELECT 1
@@ -109,7 +127,7 @@ IF EXISTS
                 AND ISNULL(tc.EffectiveTo, CONVERT(date, N'99991231')) >= ISNULL(a.EffectiveTo, CONVERT(date, N'99991231'))
           )
 )
-    THROW 53508, N'Verify failed: Team-Site Center 或有效期間不一致。', 1;
+    THROW 53508, N'Verify failed B1: Team-Site Center 或完整有效期間 coverage 不一致。', 1;
 
 IF EXISTS
 (

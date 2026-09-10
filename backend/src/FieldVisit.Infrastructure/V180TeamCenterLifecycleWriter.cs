@@ -188,6 +188,8 @@ public sealed class V180TeamCenterLifecycleWriter(AppDbContext db) : IV180TeamCe
         var center = await FindCenterForAssignmentAsync(input.CenterId, ct);
         ValidateAssignment(team, center, input.EffectiveFrom, input.EffectiveTo);
         await EnsureNoAssignmentOverlapAsync(row.TeamId, input.EffectiveFrom, input.EffectiveTo, assignmentId, ct);
+        await EnsureTeamSiteCoverageAfterAssignmentChangeAsync(assignmentId, row.TeamId,
+            input.CenterId, input.EffectiveFrom, input.EffectiveTo, ct);
         row.CenterId = input.CenterId; row.EffectiveFrom = input.EffectiveFrom; row.EffectiveTo = input.EffectiveTo;
         row.ChangeReason = V180TeamCenterLifecycleRules.NormalizeNotes(input.ChangeReason, 500, "異動原因");
         AddAudit(admin.UserId, "TeamCenterAssignment", assignmentId.ToString(), "V180TeamCenterUpdate", input);
@@ -202,10 +204,35 @@ public sealed class V180TeamCenterLifecycleWriter(AppDbContext db) : IV180TeamCe
         var row = await FindAssignmentAsync(assignmentId, organizationId, ct);
         EnsureVersion(row.RowVersion, input.Version);
         V180TeamCenterLifecycleRules.ValidatePeriod(row.EffectiveFrom, input.EffectiveTo, "Team-Center 有效期間");
+        await EnsureTeamSiteCoverageAfterAssignmentChangeAsync(assignmentId, row.TeamId,
+            row.CenterId, row.EffectiveFrom, input.EffectiveTo, ct);
         row.EffectiveTo = input.EffectiveTo;
         AddAudit(admin.UserId, "TeamCenterAssignment", assignmentId.ToString(), "V180TeamCenterEnd", input);
         await db.SaveChangesAsync(ct);
         return Map(row);
+    }
+
+    private async Task EnsureTeamSiteCoverageAfterAssignmentChangeAsync(long assignmentId, int teamId,
+        int proposedCenterId, DateOnly proposedFrom, DateOnly? proposedTo, CancellationToken ct)
+    {
+        var teamSites = await db.Set<TeamDeploymentSiteAssignment>().AsNoTracking()
+            .Include(x => x.DeploymentSite).Where(x => x.TeamId == teamId).ToListAsync(ct);
+        if (teamSites.Count == 0) return;
+
+        var otherAssignments = await db.TeamCenterAssignments.AsNoTracking()
+            .Where(x => x.TeamId == teamId && x.TeamCenterAssignmentId != assignmentId).ToListAsync(ct);
+        foreach (var teamSite in teamSites)
+        {
+            var coveredByProposed = teamSite.DeploymentSite.CenterId == proposedCenterId &&
+                V180TeamCenterLifecycleRules.IsWithin(teamSite.EffectiveFrom, teamSite.EffectiveTo,
+                    proposedFrom, proposedTo);
+            var coveredByOther = otherAssignments.Any(x =>
+                x.CenterId == teamSite.DeploymentSite.CenterId &&
+                V180TeamCenterLifecycleRules.IsWithin(teamSite.EffectiveFrom, teamSite.EffectiveTo,
+                    x.EffectiveFrom, x.EffectiveTo));
+            if (!coveredByProposed && !coveredByOther)
+                throw new InvalidOperationException("TEAM_CENTER_DEPENDENCY_CONFLICT：調整 Team-Center 會使既有或未來 Team-Site 缺少完整 coverage。");
+        }
     }
 
     private async Task EnsureTeamCanDeactivateAsync(int teamId, DateOnly end, CancellationToken ct)
