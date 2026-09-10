@@ -46,6 +46,7 @@ ALTER TABLE dbo.Locations ADD
     CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_DA1B_Locations_CreatedAt DEFAULT(SYSUTCDATETIME()),
     UpdatedAt DATETIME2(3) NULL,
     RowVersion ROWVERSION NOT NULL;
+GO
 
 CREATE TABLE dbo.Organizations
 (
