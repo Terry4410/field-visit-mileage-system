@@ -32,8 +32,8 @@ The development harness uses one schema-only extraction of the current trusted U
 
 - `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY`: **READY**. The `1800_003` DeploymentSites, DeploymentSiteLocationAssignments, TeamDeploymentSiteAssignments and EmploymentDeploymentSiteAssignments structures have authoritative admin reads/writes, inclusive effective dates, history preservation, organization/Center containment and RowVersion concurrency. Automatic UAT Fast-Track run `34364217670` passed.
 - `EPIC C-B1 DEPLOYMENT SITE MANAGEMENT UI`: **READY**. The admin UI uses only C-A v1.8 APIs for Site lifecycle and Location/Team/Employment assignment history-preserving writes. Automatic UAT Fast-Track run `34370111646` passed.
-- `EPIC C-B2-A AS-OF TRIP CONTEXT FOUNDATION`: **IMPLEMENTATION CANDIDATE / VALIDATION PENDING**. The visitor-safe read path resolves UserId→EmploymentId, employment status, historical TeamMembership and the Employment-Site ∩ Team-Site intersection with an effective Location. It adds the `1800_003` Trip/Snapshot domain and EF fields without changing Trip writes.
-- `EPIC C-B2-B TRIP / SNAPSHOT INTEGRATION`: **NOT STARTED**.
+- `EPIC C-B2-A AS-OF TRIP CONTEXT FOUNDATION`: **READY**. The visitor-safe read path resolves UserId→EmploymentId, employment status, historical TeamMembership and the Employment-Site ∩ Team-Site intersection with an effective Location. Automatic UAT Fast-Track run `34372269130` passed.
+- `EPIC C-B2-B TRIP / SNAPSHOT INTEGRATION`: **IMPLEMENTATION CANDIDATE / VALIDATION PENDING**. New v1.8 trips use authoritative Employment/Team/Site context; Submitted snapshots freeze the business basis and Approved snapshots copy that immutable basis. Legacy trips retain their v1.7 compatibility path.
 - `FULL EPIC C`: **NOT COMPLETE**.
 
 C-A deliberately does not change the existing VisitTrip write flow or snapshot production. `1800_003` Trip/VisitTripSnapshot integration remains isolated to C-B so Deployment Site authority can be regression-tested independently.
@@ -55,13 +55,13 @@ Evidence captured 2026-09-08 UTC:
 
 ## Active blockers
 
-- C-B2-A must pass protected validation and exactly one automatic UAT Fast-Track before C-B2-B starts.
+- C-B2-B must pass protected validation and automatic UAT Fast-Track before Full Epic C can be complete.
 - The final clean-install baseline remains intentionally deferred until Epic B-G and Full AI Validation are complete.
 - A destructive Azure UAT reset remains behind Human Gate A.
 
 ## Next recommended batch
 
-Validate C-B2-A through the single automatic UAT Fast-Track. After success, proceed to C-B2-B — the explicitly scoped VisitTrip persistence and submitted/approved snapshot integration required by `1800_003`.
+Validate C-B2-B through the automatic UAT Fast-Track. After success, perform the read-only `1800_004` Location Governance schema preflight before starting Epic D-A.
 
 ## Human gates
 

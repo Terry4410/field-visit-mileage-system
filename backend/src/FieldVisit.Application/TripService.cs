@@ -12,6 +12,7 @@ public sealed class TripService(
     IWorkflowRepository workflow,
     IV170AccessControl access,
     IV180TripContextReader tripContext,
+    ITripSnapshotRepository snapshots,
     IUnitOfWork uow)
 {
     public Task<V180TripContextDto> ContextAsync(DateOnly visitDate, int? teamId, CancellationToken ct) =>
@@ -22,10 +23,11 @@ public sealed class TripService(
         var user = RequireRole("visitor");
         ValidateRequest(request);
 
-        var tripTeamId =
-            V170TripTeamSelectionRules.Resolve(
-                user,
-                request.TeamId);
+        var context = await tripContext.ResolveAsync(user, request.VisitDate, request.TeamId, ct);
+        var sites = V180TripPersistenceRules.ResolveDraftSites(
+            context, request.StartDeploymentSiteId, request.EndDeploymentSiteId);
+        var tripTeamId = context.SelectedTeamId
+            ?? throw new InvalidOperationException($"{context.ValidationCode}：{context.ValidationMessage}");
 
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, null), ct);
@@ -34,8 +36,11 @@ var now = DateTime.UtcNow;
         {
             TripNo = BuildTripNo(request.VisitDate),
             UserId = user.UserId,
+            EmploymentId = context.EmploymentId,
             OrganizationId = user.OrganizationId ?? throw new InvalidOperationException("使用者未設定 Organization。"),
             TeamId = tripTeamId,
+            StartDeploymentSiteId = sites.Start,
+            EndDeploymentSiteId = sites.End,
             VisitDate = request.VisitDate,
             StartTime = request.StartTime,
             EndTime = request.EndTime,
@@ -84,10 +89,23 @@ var now = DateTime.UtcNow;
 
         EnsureRowVersion(trip.RowVersion, rowVersion);
 
-        var tripTeamId =
-            V170TripTeamSelectionRules.Resolve(
-                user,
-                request.TeamId);
+        int? tripTeamId;
+        if (trip.EmploymentId.HasValue)
+        {
+            var context = await tripContext.ResolveAsync(user, request.VisitDate, request.TeamId, ct);
+            var sites = V180TripPersistenceRules.ResolveDraftSites(
+                context, request.StartDeploymentSiteId, request.EndDeploymentSiteId,
+                trip.StartDeploymentSiteId, trip.EndDeploymentSiteId);
+            if (context.EmploymentId != trip.EmploymentId.Value)
+                throw new InvalidOperationException("TRIP_CONTEXT_EMPLOYMENT_CHANGED：人員資料已變更，請重新開啟行程。");
+            tripTeamId = context.SelectedTeamId;
+            trip.StartDeploymentSiteId = sites.Start;
+            trip.EndDeploymentSiteId = sites.End;
+        }
+        else
+        {
+            tripTeamId = V170TripTeamSelectionRules.Resolve(user, request.TeamId);
+        }
 
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, tripId), ct);
@@ -174,9 +192,15 @@ var now = DateTime.UtcNow;
             ?? throw new KeyNotFoundException("找不到行程。");
 
         EnsureVisitorOwns(user, trip);
-        V170TripTeamSelectionRules.EnsureStillAllowed(
-            user,
-            trip.TeamId);
+        V180TripContextDto? authoritativeContext = null;
+        if (trip.EmploymentId.HasValue)
+        {
+            authoritativeContext = await tripContext.ResolveAsync(user, trip.VisitDate, trip.TeamId, ct);
+            V180TripPersistenceRules.EnsureReadyForSubmit(
+                authoritativeContext, trip.EmploymentId.Value, trip.TeamId,
+                trip.StartDeploymentSiteId, trip.EndDeploymentSiteId);
+        }
+        else V170TripTeamSelectionRules.EnsureStillAllowed(user, trip.TeamId);
 
         if (trip.Status is not (TripStatuses.Draft or TripStatuses.Returned))
             throw new InvalidOperationException("此狀態不能送出。");
@@ -233,6 +257,8 @@ var now = DateTime.UtcNow;
             overlap.HasOverlap ? "使用者已確認時間重疊" : null,
             ct);
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripSubmit", null, new { trip.TripNo }, ct);
+        if (authoritativeContext is not null)
+            await snapshots.AddSubmittedSnapshotAsync(trip, user, authoritativeContext, ct);
         await uow.SaveChangesAsync(ct);
         return await GetDtoAsync(tripId, ct);
     }
@@ -317,6 +343,13 @@ var now = DateTime.UtcNow;
                     ct)
                 : null;
         var calc = trip.MileageCalculation ?? await mileage.GetByTripAsync(trip.VisitTripId, false, ct);
+        var displaySnapshot = trip.EmploymentId.HasValue &&
+            trip.Status is not (TripStatuses.Draft or TripStatuses.Returned)
+            ? await snapshots.GetLatestAsync(
+                trip.VisitTripId,
+                trip.Status == TripStatuses.Approved ? "Approved" : "Submitted",
+                ct)
+            : null;
 
         return new TripDto(
             trip.VisitTripId,
@@ -340,6 +373,15 @@ var now = DateTime.UtcNow;
             calc?.ApprovedDistanceKm,
             calc?.RatePerKmSnapshot,
             calc?.ApprovedAmount,
+            trip.EmploymentId,
+            displaySnapshot?.StartDeploymentSiteIdSnapshot ?? trip.StartDeploymentSiteId,
+            displaySnapshot?.StartDeploymentSiteCodeSnapshot,
+            displaySnapshot?.StartDeploymentSiteNameSnapshot,
+            displaySnapshot?.StartDeploymentAddressSnapshot,
+            displaySnapshot?.EndDeploymentSiteIdSnapshot ?? trip.EndDeploymentSiteId,
+            displaySnapshot?.EndDeploymentSiteCodeSnapshot,
+            displaySnapshot?.EndDeploymentSiteNameSnapshot,
+            displaySnapshot?.EndDeploymentAddressSnapshot,
             trip.Stops.OrderBy(x => x.StopSequence).Select(x => new TripStopInput(
                 x.LocationId, x.ProjectId, x.VisitTypeId,
                 x.LocationId.HasValue ? "Master" : "Temporary",

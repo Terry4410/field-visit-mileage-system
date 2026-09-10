@@ -150,13 +150,17 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 rows[trip.VisitTripId] = new TripQueryRowDto(
                     trip.VisitTripId, snapshot.TripNo, snapshot.VisitDate, snapshot.StartTime, snapshot.EndTime,
                     snapshot.UserId, snapshot.EmployeeNoSnapshot, snapshot.DisplayNameSnapshot,
-                    snapshot.TeamId, snapshot.TeamNameSnapshot, string.Join(" → ", stops.Select(x => x.LocationName)),
+                    snapshot.TeamId, snapshot.TeamNameSnapshot, BuildRoute(snapshot.StartDeploymentSiteNameSnapshot, stops, snapshot.EndDeploymentSiteNameSnapshot),
                     JoinDistinct(stops.Select(x => x.ProjectName)), JoinDistinct(stops.Select(x => x.VisitTypeName)),
                     snapshot.ClaimedDistanceKmSnapshot, snapshot.SystemDistanceKmSnapshot, snapshot.ApprovedDistanceKmSnapshot,
                     snapshot.RatePerKmSnapshot, snapshot.SubsidyAmountSnapshot,
                     stops.Count < 2 ? "NotApplicable" : snapshot.SystemDistanceKmSnapshot.HasValue ? "Calculated" : "Pending",
                     TripStatuses.Approved, TripStatuses.Display(TripStatuses.Approved), snapshot.SnapshotVersion, true,
-                    snapshot.NotesSnapshot, null, correction, stops);
+                    snapshot.NotesSnapshot, null, correction, snapshot.EmploymentIdSnapshot,
+                    snapshot.StartDeploymentSiteIdSnapshot, snapshot.StartDeploymentSiteCodeSnapshot,
+                    snapshot.StartDeploymentSiteNameSnapshot, snapshot.StartDeploymentAddressSnapshot,
+                    snapshot.EndDeploymentSiteIdSnapshot, snapshot.EndDeploymentSiteCodeSnapshot,
+                    snapshot.EndDeploymentSiteNameSnapshot, snapshot.EndDeploymentAddressSnapshot, stops);
             }
             else
             {
@@ -174,11 +178,22 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 rows[trip.VisitTripId] = new TripQueryRowDto(
                     trip.VisitTripId, trip.TripNo, trip.VisitDate, trip.StartTime, trip.EndTime, trip.UserId,
                     profile?.EmployeeNo ?? "", profile?.DisplayName ?? $"User {trip.UserId}", trip.TeamId, team?.TeamName,
-                    string.Join(" → ", stops.Select(x => x.LocationName)), JoinDistinct(stops.Select(x => x.ProjectName)),
+                    BuildRoute(
+                        trip.Status == TripStatuses.Returned ? null : snapshot?.StartDeploymentSiteNameSnapshot,
+                        stops,
+                        trip.Status == TripStatuses.Returned ? null : snapshot?.EndDeploymentSiteNameSnapshot), JoinDistinct(stops.Select(x => x.ProjectName)),
                     JoinDistinct(stops.Select(x => x.VisitTypeName)), calc?.ClaimedDistanceKm, calc?.SystemDistanceKm,
                     calc?.ApprovedDistanceKm, calc?.RatePerKmSnapshot, calc?.ApprovedAmount,
                     stops.Count < 2 ? "NotApplicable" : calc?.SystemDistanceKm.HasValue == true ? "Calculated" : "Pending",
-                    trip.Status, TripStatuses.Display(trip.Status), 0, false, trip.Notes, trip.ReturnReason, correction, stops);
+                    trip.Status, TripStatuses.Display(trip.Status), 0, false, trip.Notes, trip.ReturnReason, correction,
+                    trip.EmploymentId, trip.StartDeploymentSiteId,
+                    trip.Status == TripStatuses.Returned ? null : snapshot?.StartDeploymentSiteCodeSnapshot,
+                    trip.Status == TripStatuses.Returned ? null : snapshot?.StartDeploymentSiteNameSnapshot,
+                    trip.Status == TripStatuses.Returned ? null : snapshot?.StartDeploymentAddressSnapshot,
+                    trip.EndDeploymentSiteId,
+                    trip.Status == TripStatuses.Returned ? null : snapshot?.EndDeploymentSiteCodeSnapshot,
+                    trip.Status == TripStatuses.Returned ? null : snapshot?.EndDeploymentSiteNameSnapshot,
+                    trip.Status == TripStatuses.Returned ? null : snapshot?.EndDeploymentAddressSnapshot, stops);
             }
         }
 
@@ -984,9 +999,24 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var snapshot = new VisitTripSnapshot
         {
             VisitTripId = baseSnapshot.VisitTripId, SnapshotVersion = maxVersion + 1, SnapshotType = "Correction",
-            TripNo = baseSnapshot.TripNo, UserId = baseSnapshot.UserId, EmployeeNoSnapshot = baseSnapshot.EmployeeNoSnapshot,
+            TripNo = baseSnapshot.TripNo, UserId = baseSnapshot.UserId,
+            PersonIdSnapshot = baseSnapshot.PersonIdSnapshot, EmploymentIdSnapshot = baseSnapshot.EmploymentIdSnapshot,
+            EmployeeNoSnapshot = baseSnapshot.EmployeeNoSnapshot,
             DisplayNameSnapshot = baseSnapshot.DisplayNameSnapshot, OrganizationId = baseSnapshot.OrganizationId,
-            OrganizationNameSnapshot = baseSnapshot.OrganizationNameSnapshot, TeamId = baseSnapshot.TeamId, TeamNameSnapshot = baseSnapshot.TeamNameSnapshot,
+            OrganizationNameSnapshot = baseSnapshot.OrganizationNameSnapshot, TeamId = baseSnapshot.TeamId,
+            TeamCodeSnapshot = baseSnapshot.TeamCodeSnapshot, TeamNameSnapshot = baseSnapshot.TeamNameSnapshot,
+            CenterIdSnapshot = baseSnapshot.CenterIdSnapshot, CenterCodeSnapshot = baseSnapshot.CenterCodeSnapshot,
+            CenterNameSnapshot = baseSnapshot.CenterNameSnapshot,
+            StartDeploymentSiteIdSnapshot = baseSnapshot.StartDeploymentSiteIdSnapshot,
+            StartDeploymentSiteCodeSnapshot = baseSnapshot.StartDeploymentSiteCodeSnapshot,
+            StartDeploymentSiteNameSnapshot = baseSnapshot.StartDeploymentSiteNameSnapshot,
+            StartDeploymentLocationIdSnapshot = baseSnapshot.StartDeploymentLocationIdSnapshot,
+            StartDeploymentAddressSnapshot = baseSnapshot.StartDeploymentAddressSnapshot,
+            EndDeploymentSiteIdSnapshot = baseSnapshot.EndDeploymentSiteIdSnapshot,
+            EndDeploymentSiteCodeSnapshot = baseSnapshot.EndDeploymentSiteCodeSnapshot,
+            EndDeploymentSiteNameSnapshot = baseSnapshot.EndDeploymentSiteNameSnapshot,
+            EndDeploymentLocationIdSnapshot = baseSnapshot.EndDeploymentLocationIdSnapshot,
+            EndDeploymentAddressSnapshot = baseSnapshot.EndDeploymentAddressSnapshot,
             VisitDate = proposal.VisitDate, StartTime = proposal.StartTime, EndTime = proposal.EndTime, StatusSnapshot = TripStatuses.Approved,
             VehicleTypeSnapshot = baseSnapshot.VehicleTypeSnapshot, ClaimedDistanceKmSnapshot = proposal.ClaimedDistanceKm,
             SystemDistanceKmSnapshot = baseSnapshot.SystemDistanceKmSnapshot, ApprovedDistanceKmSnapshot = proposal.ApprovedDistanceKm,
@@ -1036,6 +1066,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     }
 
     private static string JoinDistinct(IEnumerable<string?> values) => string.Join("、", values.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).Distinct());
+    private static string BuildRoute(string? startSite, IReadOnlyList<QueryStopDto> stops, string? endSite) =>
+        string.Join(" → ", new[] { startSite }.Concat(stops.Select(x => x.LocationName)).Append(endSite)
+            .Where(x => !string.IsNullOrWhiteSpace(x)));
     private static bool HasRole(CurrentUserDto user, string role) => user.Roles.Any(x => x.Equals(role, StringComparison.OrdinalIgnoreCase));
     private static string NormalizeRole(string role) => role.Trim().ToLowerInvariant() switch { "government" => "supervisor", var x => x };
     private static int RequireOrganization(CurrentUserDto user) => user.OrganizationId ?? throw new InvalidOperationException("目前帳號缺少 OrganizationId。");

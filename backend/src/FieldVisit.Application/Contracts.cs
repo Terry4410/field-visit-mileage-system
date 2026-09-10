@@ -48,7 +48,9 @@ public sealed record SaveTripRequest(
     string? Notes,
     bool TimeOverlapConfirmed,
     IReadOnlyList<TripStopInput> Stops,
-    int? TeamId = null);
+    int? TeamId = null,
+    int? StartDeploymentSiteId = null,
+    int? EndDeploymentSiteId = null);
 
 public sealed record SubmitTripRequest(bool ConfirmTimeOverlap);
 public sealed record TimeOverlapRequest(DateOnly VisitDate, TimeOnly StartTime, TimeOnly EndTime, long? ExcludeVisitTripId);
@@ -77,6 +79,15 @@ public sealed record TripDto(
     decimal? ApprovedDistanceKm,
     decimal? RatePerKmSnapshot,
     decimal? ApprovedAmount,
+    long? EmploymentId,
+    int? StartDeploymentSiteId,
+    string? StartDeploymentSiteCode,
+    string? StartDeploymentSiteName,
+    string? StartDeploymentAddress,
+    int? EndDeploymentSiteId,
+    string? EndDeploymentSiteCode,
+    string? EndDeploymentSiteName,
+    string? EndDeploymentAddress,
     IReadOnlyList<TripStopInput> Stops,
     string RowVersion);
 

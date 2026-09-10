@@ -6,7 +6,8 @@ import SmartLocationPicker from "../components/SmartLocationPicker";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
-import type {Project,SmartLocationItem,Trip,TripStopInput,VisitType} from "../types";
+import {canSubmitV180Trip,deploymentSiteWarning,reconcileDeploymentSite,V180_TRIP_CONTEXT_API} from "../trip-deployment-context";
+import type {Project,SmartLocationItem,Trip,TripStopInput,V180TripContext,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
 type LocationMethod="existing"|"temporary";
@@ -35,9 +36,11 @@ export default function VisitorPage(){
     [user]
   );
 
-  const [tripTeamId,setTripTeamId]=useState(
-    user?.teamId?String(user.teamId):""
-  );
+  const [tripTeamId,setTripTeamId]=useState("");
+  const [tripContext,setTripContext]=useState<V180TripContext>();
+  const [editingEmploymentId,setEditingEmploymentId]=useState<number|null>();
+  const [startDeploymentSiteId,setStartDeploymentSiteId]=useState<number>();
+  const [endDeploymentSiteId,setEndDeploymentSiteId]=useState<number>();
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
   const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
@@ -49,11 +52,6 @@ export default function VisitorPage(){
 
   const [projectId,setProjectId]=useState(""),[visitTypeId,setVisitTypeId]=useState("");
   const [tempName,setTempName]=useState(""),[tempAddress,setTempAddress]=useState("");
-
-  useEffect(()=>{
-    if(!editId&&user?.teamId)
-      setTripTeamId(String(user.teamId));
-  },[user?.teamId,editId]);
 
   useEffect(()=>{
     Promise.all([
@@ -72,6 +70,22 @@ export default function VisitorPage(){
   useEffect(()=>{
     if(!editId)return;
     api<Trip>(`/trips/${editId}`).then(t=>{
+      setEditingEmploymentId(t.employmentId??null);
+      setStartDeploymentSiteId(t.startDeploymentSiteId);
+      setEndDeploymentSiteId(t.endDeploymentSiteId);
+      if(t.employmentId){
+        setDate(t.visitDate);
+        setTripTeamId(t.teamId?String(t.teamId):"");
+        setStart((t.startTime||"").slice(0,5));
+        setEnd((t.endTime||"").slice(0,5));
+        setNotes(t.notes||"");
+        setRowVersion(t.rowVersion);
+        setReturnReason(t.status==="Returned"?(t.returnReason||""):"");
+        setKm(String(t.claimedDistanceKm||""));
+        setStops(t.stops);
+        setMsg(`已載入 ${t.tripNo}，修改完成後可重新送出。`);
+        return;
+      }
       const teamResolution=
         resolveTripTeamForEdit(
           t.teamId,
@@ -122,6 +136,20 @@ export default function VisitorPage(){
   },[editId,user?.teamId,user?.teamName,teamScopes]);
 
   useEffect(()=>{
+    if(!date||(editId&&editingEmploymentId===undefined)||editingEmploymentId===null)return;
+    const team=tripTeamId?`&teamId=${encodeURIComponent(tripTeamId)}`:"";
+    api<V180TripContext>(`${V180_TRIP_CONTEXT_API}?visitDate=${encodeURIComponent(date)}${team}`)
+      .then(context=>{
+        setTripContext(context);
+        if(context.selectedTeamId&&!tripTeamId)setTripTeamId(String(context.selectedTeamId));
+        const ids=context.eligibleDeploymentSites.map(x=>x.deploymentSiteId);
+        setStartDeploymentSiteId(current=>reconcileDeploymentSite(current,ids,context.defaultStartDeploymentSiteId));
+        setEndDeploymentSiteId(current=>reconcileDeploymentSite(current,ids,context.defaultEndDeploymentSiteId));
+      })
+      .catch(e=>{setTripContext(undefined);setMsg(e instanceof Error?e.message:"無法取得行程派駐點設定")});
+  },[date,tripTeamId,editId,editingEmploymentId]);
+
+  useEffect(()=>{
     const timer=setTimeout(()=>{
       if(!date||!start||!end){setOverlap({hasOverlap:false});return}
       if(end<=start){setOverlap({hasOverlap:true,message:"結束時間必須晚於出發時間，請確認輸入是否正確。"});return}
@@ -136,10 +164,8 @@ export default function VisitorPage(){
   const selectedTeamId=
     tripTeamId?Number(tripTeamId):undefined;
 
-  const selectedTripTeam=
-    teamScopes.find(
-      x=>x.teamId===selectedTeamId
-    );
+  const availableTripTeams=tripContext?.teams.map(x=>({teamId:x.teamId,teamName:x.name,isPrimary:x.isPrimary}))??teamScopes;
+  const selectedTripTeam=availableTripTeams.find(x=>x.teamId===selectedTeamId);
 
   const availableProjects=useMemo(
     ()=>projects.filter(
@@ -186,7 +212,7 @@ export default function VisitorPage(){
 
   const reset=()=>{
     setSp({});
-    setTripTeamId(user?.teamId?String(user.teamId):"");
+    setTripTeamId("");setEditingEmploymentId(undefined);setTripContext(undefined);setStartDeploymentSiteId(undefined);setEndDeploymentSiteId(undefined);
     setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
   };
 
@@ -204,6 +230,9 @@ export default function VisitorPage(){
     }
 
     setTripTeamId(value);
+    setTripContext(undefined);
+    setStartDeploymentSiteId(undefined);
+    setEndDeploymentSiteId(undefined);
     setStops([]);
     setKm("");
     setProjectId("");
@@ -212,6 +241,13 @@ export default function VisitorPage(){
     setMsg(
       "已切換行程歸屬小組；地點與專案將依新小組重新篩選。"
     );
+  };
+
+  const changeTripDate=(value:string)=>{
+    setDate(value);
+    setTripContext(undefined);
+    setStartDeploymentSiteId(undefined);
+    setEndDeploymentSiteId(undefined);
   };
 
   const clearStopEditor=()=>{
@@ -338,6 +374,10 @@ export default function VisitorPage(){
     const mileageError=validateTripMileageForSubmit(stops.length,km);
     if(mileageError){setMsg(mileageError);return false}
     if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
+    if(editingEmploymentId!==null&&!canSubmitV180Trip(tripContext,startDeploymentSiteId,endDeploymentSiteId)){
+      setMsg(tripContext?deploymentSiteWarning(tripContext)||"送出前請選擇有效的出發與返回派駐點。":"行程派駐點設定尚未載入。");
+      return false;
+    }
     return true;
   };
 
@@ -350,7 +390,7 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null};
+      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null,startDeploymentSiteId:startDeploymentSiteId??null,endDeploymentSiteId:endDeploymentSiteId??null};
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
@@ -380,15 +420,15 @@ export default function VisitorPage(){
     <div className="card" style={{marginTop:18}}>
       <div className="section-title"><h2>基本資料</h2><span className="pill warn">可補登</span></div>
       <div className="grid cols-2">
-        <div className="field"><label>行程日期</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
+        <div className="field"><label>行程日期</label><input type="date" value={date} onChange={e=>changeTripDate(e.target.value)}/></div>
         <div className="field">
           <label>行程歸屬小組</label>
-          {teamScopes.length>1
+          {availableTripTeams.length>1
             ?<select
               value={tripTeamId}
               onChange={e=>changeTripTeam(e.target.value)}
             >
-              {teamScopes.map(team=>
+              {availableTripTeams.map(team=>
                 <option
                   key={team.teamId}
                   value={team.teamId}
@@ -402,12 +442,19 @@ export default function VisitorPage(){
               disabled
             />
           }
-          {teamScopes.length>1&&
+          {availableTripTeams.length>1&&
             <div className="hint">
               預設為主要小組 ★；此選擇只影響本次行程，不會修改人員主檔。
             </div>
           }
         </div>
+        {editingEmploymentId===null
+          ?<div className="note">此為舊版行程，未記錄派駐點。</div>
+          :<>
+            <div className="field"><label>出發派駐點</label><select value={startDeploymentSiteId??""} onChange={e=>setStartDeploymentSiteId(e.target.value?Number(e.target.value):undefined)}><option value="">請選擇</option>{tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{site.siteCode}｜{site.siteName}</option>)}</select></div>
+            <div className="field"><label>返回派駐點</label><select value={endDeploymentSiteId??""} onChange={e=>setEndDeploymentSiteId(e.target.value?Number(e.target.value):undefined)}><option value="">請選擇</option>{tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{site.siteCode}｜{site.siteName}</option>)}</select></div>
+            {tripContext&&deploymentSiteWarning(tripContext)&&<div className="note">{deploymentSiteWarning(tripContext)}</div>}
+          </>}
         <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
         <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
       </div>

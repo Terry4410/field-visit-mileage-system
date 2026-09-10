@@ -57,6 +57,15 @@ public sealed record TripQueryRowDto(
     string? Notes,
     string? ReturnReason,
     string? CorrectionStatus,
+    long? EmploymentId,
+    int? StartDeploymentSiteId,
+    string? StartDeploymentSiteCode,
+    string? StartDeploymentSiteName,
+    string? StartDeploymentAddress,
+    int? EndDeploymentSiteId,
+    string? EndDeploymentSiteCode,
+    string? EndDeploymentSiteName,
+    string? EndDeploymentAddress,
     IReadOnlyList<QueryStopDto> Stops);
 
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount)

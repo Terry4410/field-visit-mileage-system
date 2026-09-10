@@ -2,7 +2,7 @@
 
 ## Current task
 
-Epic C-B2-A — Validate and publish the as-of Trip Context foundation candidate.
+Epic C-B2-B — Validate Trip / Deployment Site / immutable Snapshot integration.
 
 The C-A backend authority is READY after automatic UAT Fast-Track run `34364217670`.
 
@@ -12,19 +12,18 @@ The C-A backend authority is READY after automatic UAT Fast-Track run `343642176
 - `FULL EPIC B = COMPLETE`
 - `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY = READY`
 - `EPIC C-B1 DEPLOYMENT SITE MANAGEMENT UI = READY` (`34370111646`)
-- `EPIC C-B2-A AS-OF TRIP CONTEXT = IMPLEMENTATION CANDIDATE / VALIDATION PENDING`
-- `EPIC C-B2-B TRIP / SNAPSHOT INTEGRATION = NOT STARTED`
+- `EPIC C-B2-A AS-OF TRIP CONTEXT = READY` (`34372269130`)
+- `EPIC C-B2-B TRIP / SNAPSHOT INTEGRATION = IMPLEMENTATION CANDIDATE / VALIDATION PENDING`
 - `DEVELOPMENT SCHEMA = READY / MUTABLE / NON-FINAL`
 - Azure UAT remains pre-v1.8.
 
-## C-B2-A scope
+## C-B2-B scope
 
-- Add a visitor-safe `GET /api/v1/trips/context` read path.
-- Resolve UserId→UserIdentityProfile→EmploymentId and all status/team/site facts as of VisitDate.
-- Intersect Employment-Site and Team-Site assignments and require one effective Site Location.
-- Add exact `1800_003` VisitTrip and VisitTripSnapshot domain/EF fields without changing writes.
-- Add permanent regression coverage and preserve existing Trip Create/Update/Submit/Approve behavior.
-- Do not begin Visitor UI, Trip persistence, snapshot production or Google mileage work in this batch.
+- Persist server-authoritative Employment, Team and Start/End Deployment Sites for new v1.8 trips.
+- Revalidate authoritative context immediately before submit.
+- Create immutable Submitted snapshots; build v1.8 Approved snapshots only by copying the latest Submitted basis.
+- Preserve legacy v1.7 trips and correction snapshot copy-forward compatibility.
+- Integrate visitor Site selection without using admin APIs or changing mileage formulas.
 
 ## Hard rules
 
@@ -38,12 +37,13 @@ The C-A backend authority is READY after automatic UAT Fast-Track run `343642176
 
 ## Completion state
 
-After C-B2-A targeted tests, full protected validation and exactly one automatic UAT Fast-Track succeed, report:
+After C-B2-B tests, full protected validation and automatic UAT Fast-Track succeed, report:
 
 - `EPIC C-A DEPLOYMENT SITE BACKEND AUTHORITY = READY`
 - `EPIC C-B1 DEPLOYMENT SITE UI = READY`
 - `EPIC C-B2-A AS-OF TRIP CONTEXT = READY`
-- `EPIC C-B2-B TRIP / SNAPSHOT INTEGRATION = NEXT`
-- `FULL EPIC C = NOT COMPLETE`
+- `EPIC C-B2-B TRIP / SNAPSHOT INTEGRATION = READY`
+- `FULL EPIC C = COMPLETE`
+- `EPIC D-A LOCATION GOVERNANCE PREFLIGHT = NEXT`
 
-Do not begin C-B2-B or Final Clean Baseline work in the C-B2-A task.
+Do not begin the Final Clean Baseline or any Azure operation in this task.

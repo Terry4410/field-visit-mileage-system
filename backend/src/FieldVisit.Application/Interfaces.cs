@@ -84,7 +84,13 @@ public interface IMileageRepository
 
 public interface ITripSnapshotRepository
 {
+    Task AddSubmittedSnapshotAsync(
+        VisitTrip trip,
+        CurrentUserDto submitter,
+        V180TripContextDto context,
+        CancellationToken ct);
     Task AddApprovedSnapshotAsync(VisitTrip trip, CurrentUserDto approver, CancellationToken ct);
+    Task<VisitTripSnapshot?> GetLatestAsync(long tripId, string snapshotType, CancellationToken ct);
 }
 
 public interface IWorkflowRepository
