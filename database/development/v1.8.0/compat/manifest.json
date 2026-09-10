@@ -35,11 +35,11 @@
     {
       "migration": "1800_004",
       "source": "database/migrations/1800_004_location_governance/Up.sql",
-      "sourceSha256": "09459d72ab6ad5436ffaf3e8bbc6e5dc4d388444e70f9b11be4b98b172d7f361",
+      "sourceSha256": "6fc311fd0cfe0434611cd28b4f024fc6e867459d3c28c62a89963b1a6132613f",
       "verify": "database/migrations/1800_004_location_governance/Verify.sql",
-      "verifySha256": "76917dc84899eefa7aa7de8b4e6686031134369c9cd9339e8afbc88597f78f8e",
+      "verifySha256": "19f5d9eff117bff36cbca1dbd2c79704606ab0a83aabf73a8dee5641b8424a68",
       "developmentApply": "database/development/v1.8.0/compat/1800_004.dev.sql",
-      "developmentApplySha256": "e73634e6f9691febc1855a070f4b16f44503d87b58e6ba8b38470262c3596f4e"
+      "developmentApplySha256": "27ed6ab5be506b65ed105d31835891e235190bbaff626a47c4543c10a8cda275"
     },
     {
       "migration": "1800_005",

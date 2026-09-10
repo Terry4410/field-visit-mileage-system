@@ -12,9 +12,32 @@ IF OBJECT_ID(N'dbo.TeamLocationNotes', N'U') IS NULL
    OR COL_LENGTH(N'dbo.Locations', N'NormalizedAddress') IS NULL
     THROW 53701, N'Verify failed: Location governance schema 不完整。', 1;
 
+IF EXISTS
+(
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.TeamLocationNotes')
+      AND name = N'Note'
+      AND is_nullable = 0
+)
+    THROW 53708, N'Verify failed: TeamLocationNotes.Note 必須允許 NULL 作為 Cleared tombstone。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.TeamLocationNotes')
+      AND name = N'Note'
+      AND is_nullable = 1
+)
+    THROW 53709, N'Verify failed: TeamLocationNotes.Note 欄位不存在或 nullable metadata 不正確。', 1;
+
+IF COL_LENGTH(N'dbo.TeamLocationNotes', N'RowVersion') IS NULL
+    THROW 53710, N'Verify failed: TeamLocationNotes.RowVersion 不存在。', 1;
+
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Locations') AND name=N'IX_Locations_Organization_TaxId')
    OR NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Locations') AND name=N'IX_Locations_NormalizedNameAddress')
-   OR NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.TeamLocationNotes') AND name=N'UQ_TeamLocationNotes_Team_Location')
+   OR NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.TeamLocationNotes') AND name=N'UQ_TeamLocationNotes_Team_Location' AND is_unique=1)
    OR NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.TeamLocationNoteHistory') AND name=N'IX_TeamLocationNoteHistory_Note_Changed')
     THROW 53706, N'Verify failed: 1.8.0-004 必要 index 不存在。', 1;
 
@@ -48,11 +71,12 @@ IF EXISTS
     (
         N'FK_Locations_DuplicateOf',
         N'FK_TeamLocationNotes_Locations',
-        N'FK_TeamLocationNoteHistory_Location'
+        N'FK_TeamLocationNoteHistory_Location',
+        N'FK_TeamLocationNoteHistory_Note'
     )
       AND delete_referential_action_desc <> N'NO_ACTION'
 )
-    THROW 53703, N'Verify failed: Location governance FK 不得 Cascade Delete。', 1;
+    THROW 53703, N'Verify failed: Location governance / Note History FK 不得 Cascade Delete。', 1;
 
 IF EXISTS
 (
@@ -62,6 +86,44 @@ IF EXISTS
     HAVING COUNT(*) > 1
 )
     THROW 53704, N'Verify failed: Team/Location 共用備註不唯一。', 1;
+
+IF EXISTS
+(
+    SELECT 1
+    FROM dbo.TeamLocationNotes
+    WHERE Note IS NOT NULL
+      AND LEN(LTRIM(RTRIM(Note))) = 0
+)
+    THROW 53711, N'Verify failed: TeamLocationNotes.Note 不得為 empty/whitespace；NULL 才代表 Cleared。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.TeamLocationNotes')
+      AND name = N'CK_TeamLocationNotes_NotBlank'
+      AND is_disabled = 0
+      AND is_not_trusted = 0
+      AND LOWER(definition) LIKE N'%note%is null%'
+      AND LOWER(definition) LIKE N'%len%'
+      AND LOWER(definition) LIKE N'%ltrim%'
+      AND LOWER(definition) LIKE N'%rtrim%'
+)
+    THROW 53712, N'Verify failed: TeamLocationNotes nullable/nonblank constraint definition 不正確。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.TeamLocationNoteHistory')
+      AND name = N'CK_TeamLocationNoteHistory_Action'
+      AND is_disabled = 0
+      AND is_not_trusted = 0
+      AND definition LIKE N'%Created%'
+      AND definition LIKE N'%Updated%'
+      AND definition LIKE N'%Cleared%'
+)
+    THROW 53713, N'Verify failed: TeamLocationNoteHistory Action 必須維持 Created / Updated / Cleared。', 1;
 
 IF EXISTS
 (
@@ -85,6 +147,7 @@ SELECT
     N'1.8.0-004' AS MigrationVersion,
     (SELECT COUNT_BIG(*) FROM dbo.Locations) AS LocationCount,
     (SELECT COUNT_BIG(*) FROM dbo.TeamLocationNotes) AS TeamLocationNoteCount,
+    (SELECT COUNT_BIG(*) FROM dbo.TeamLocationNotes WHERE Note IS NULL) AS ClearedTeamLocationNoteCount,
     (SELECT COUNT_BIG(*) FROM dbo.Locations WHERE DuplicateOfLocationId IS NOT NULL) AS MarkedDuplicateCount;
 
 SELECT TOP(20)

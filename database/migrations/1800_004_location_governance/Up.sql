@@ -76,7 +76,7 @@ BEGIN TRY
         TeamLocationNoteId BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TeamLocationNotes PRIMARY KEY,
         TeamId INT NOT NULL,
         LocationId INT NOT NULL,
-        Note NVARCHAR(1000) NOT NULL,
+        Note NVARCHAR(1000) NULL,
         CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_TeamLocationNotes_CreatedAt DEFAULT(SYSUTCDATETIME()),
         CreatedByUserId INT NOT NULL,
         UpdatedAt DATETIME2(3) NULL,
@@ -86,7 +86,7 @@ BEGIN TRY
         CONSTRAINT FK_TeamLocationNotes_Locations FOREIGN KEY(LocationId) REFERENCES dbo.Locations(LocationId),
         CONSTRAINT FK_TeamLocationNotes_CreatedByUser FOREIGN KEY(CreatedByUserId) REFERENCES dbo.Users(UserId),
         CONSTRAINT FK_TeamLocationNotes_UpdatedByUser FOREIGN KEY(UpdatedByUserId) REFERENCES dbo.Users(UserId),
-        CONSTRAINT CK_TeamLocationNotes_NotBlank CHECK(LEN(LTRIM(RTRIM(Note))) > 0),
+        CONSTRAINT CK_TeamLocationNotes_NotBlank CHECK(Note IS NULL OR LEN(LTRIM(RTRIM(Note))) > 0),
         CONSTRAINT UQ_TeamLocationNotes_Team_Location UNIQUE(TeamId, LocationId)
     );
     CREATE INDEX IX_TeamLocationNotes_Location_Team
