@@ -90,9 +90,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
         b.Entity<LocationApprovalHistory>(e => { e.ToTable("LocationApprovalHistory"); e.HasKey(x => x.LocationApprovalHistoryId); e.Property(x => x.LocationApprovalHistoryId).ValueGeneratedOnAdd(); });
 
-        b.Entity<Project>(e => { e.ToTable("Projects"); e.HasKey(x => x.ProjectId); e.Property(x => x.ProjectId).ValueGeneratedOnAdd(); });
+        b.Entity<Project>(e =>
+        {
+            e.ToTable("Projects"); e.HasKey(x => x.ProjectId); e.Property(x => x.ProjectId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InactivatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
         b.Entity<ProjectLocation>(e => { e.ToTable("ProjectLocations"); e.HasKey(x => x.ProjectLocationId); e.Property(x => x.ProjectLocationId).ValueGeneratedOnAdd(); });
-        b.Entity<VisitType>(e => { e.ToTable("VisitTypes"); e.HasKey(x => x.VisitTypeId); e.Property(x => x.VisitTypeId).ValueGeneratedOnAdd(); });
+        b.Entity<VisitType>(e =>
+        {
+            e.ToTable("VisitTypes"); e.HasKey(x => x.VisitTypeId); e.Property(x => x.VisitTypeId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InactivatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
 
         b.Entity<VisitTrip>(e =>
         {
@@ -112,7 +122,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.SystemDistanceKm).HasPrecision(10,2); e.Property(x => x.ClaimedDistanceKm).HasPrecision(10,2); e.Property(x => x.ApprovedDistanceKm).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2); e.Property(x => x.ClaimedAmount).HasPrecision(12,2); e.Property(x => x.ApprovedAmount).HasPrecision(12,2);
         });
-        b.Entity<MileageRateRule>(e => { e.ToTable("MileageRateRules"); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd(); e.Property(x => x.RatePerKm).HasPrecision(10,2); });
+        b.Entity<MileageRateRule>(e =>
+        {
+            e.ToTable("MileageRateRules", tb => tb.UseSqlOutputClause(false)); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd();
+            e.Property(x => x.RatePerKm).HasPrecision(10,2); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InactivatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
         b.Entity<ApprovalRecord>(e => { e.ToTable("ApprovalRecords"); e.HasKey(x => x.ApprovalRecordId); e.Property(x => x.ApprovalRecordId).ValueGeneratedOnAdd(); });
         b.Entity<VisitTripStatusHistory>(e => { e.ToTable("VisitTripStatusHistory"); e.HasKey(x => x.VisitTripStatusHistoryId); e.Property(x => x.VisitTripStatusHistoryId).ValueGeneratedOnAdd(); });
         b.Entity<AuditLog>(e => { e.ToTable("AuditLogs"); e.HasKey(x => x.AuditLogId); e.Property(x => x.AuditLogId).ValueGeneratedOnAdd(); });

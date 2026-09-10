@@ -210,6 +210,26 @@ var now = DateTime.UtcNow;
             throw new InvalidOperationException("送出前必須填寫起訖時間。");
 
         // Defense in depth:
+        // A draft/returned trip may remain open while the current Project master
+        // is deactivated, moved to another team/org, or its date range changes.
+        // Revalidate each distinct non-null ProjectId against the CURRENT master
+        // before any successful submit/resubmit mutation, history, audit or snapshot.
+        foreach (var projectId in trip.Stops
+                     .Where(x => x.ProjectId.HasValue)
+                     .Select(x => x.ProjectId!.Value)
+                     .Distinct())
+        {
+            var project = await masters.GetProjectAsync(projectId, false, ct)
+                ?? throw new KeyNotFoundException($"找不到專案 {projectId}。");
+
+            if (project.OrganizationId != trip.OrganizationId)
+                throw new UnauthorizedAccessException("此專案不屬於本次行程的 Organization。");
+            if (project.TeamId.HasValue && project.TeamId != trip.TeamId)
+                throw new UnauthorizedAccessException("此專案不屬於本次行程的歸屬小組。");
+
+            V170ProjectDateRules.EnsureAvailableOn(project, trip.VisitDate);
+        }
+
         // A draft can remain open while an administrator disables a VisitType.
         // Normal UI editing revalidates the Stop through BuildStopsAsync, but a
         // caller could otherwise invoke /submit directly without re-saving the
