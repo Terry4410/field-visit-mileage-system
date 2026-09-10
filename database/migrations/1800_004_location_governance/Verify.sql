@@ -224,6 +224,10 @@ IF CHARINDEX(N'sys.sp_getapplock', @LocationTriggerNormalized) = 0
    OR CHARINDEX(N'@invariantlockresult<0', @AssignmentTriggerNormalized) = 0
     THROW 53720, N'Verify failed: 兩個 trigger 必須使用完全相同的 Exclusive/Transaction invariant applock。', 1;
 
+IF CHARINDEX(N'joindbo.deploymentsitelocationassignmentsawith(updlock,holdlock)', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'joindbo.locationslwith(updlock,holdlock)', @AssignmentTriggerNormalized) = 0
+    THROW 53724, N'Verify failed: 兩個 invariant base-table read 都必須使用 UPDLOCK + HOLDLOCK。', 1;
+
 IF CHARINDEX(N'd.isactive=1', @LocationTriggerNormalized) = 0
    OR CHARINDEX(N'i.isactive=0', @LocationTriggerNormalized) = 0
    OR CHARINDEX(N'a.effectivetoisnull', @LocationTriggerNormalized) = 0

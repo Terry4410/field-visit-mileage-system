@@ -166,6 +166,7 @@ BEGIN TRY
                 FROM inserted i
                 JOIN deleted d ON d.LocationId = i.LocationId
                 JOIN dbo.DeploymentSiteLocationAssignments a
+                    WITH (UPDLOCK, HOLDLOCK)
                   ON a.LocationId = i.LocationId
                 WHERE d.IsActive = 1
                   AND i.IsActive = 0
@@ -201,7 +202,9 @@ BEGIN TRY
             (
                 SELECT 1
                 FROM inserted i
-                JOIN dbo.Locations l ON l.LocationId = i.LocationId
+                JOIN dbo.Locations l
+                    WITH (UPDLOCK, HOLDLOCK)
+                  ON l.LocationId = i.LocationId
                 WHERE l.IsActive = 0
                   AND
                   (
