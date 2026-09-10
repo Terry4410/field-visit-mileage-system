@@ -49,7 +49,7 @@ public sealed class V180TripContextReader(AppDbContext db) : IV180TripContextRea
         foreach (var membership in memberships)
         {
             if (!teamsById.TryGetValue(membership.TeamId, out var team) ||
-                team.OrganizationId != organizationId || !team.IsActive ||
+                team.OrganizationId != organizationId ||
                 (team.EffectiveFrom.HasValue && visitDate < team.EffectiveFrom.Value) ||
                 (team.EffectiveTo.HasValue && team.EffectiveTo.Value < visitDate))
                 throw new InvalidOperationException("TRIP_CONTEXT_TEAM_INVALID：TeamMembership 對應不到同 Organization 的有效 Team。");
@@ -120,7 +120,7 @@ public sealed class V180TripContextReader(AppDbContext db) : IV180TripContextRea
 
         var teamSiteIds = teamAssignments.Select(x => x.DeploymentSiteId).ToHashSet();
         var candidateIds = employmentSiteIds.Where(teamSiteIds.Contains).ToHashSet();
-        var candidateSites = assignedSites.Where(x => candidateIds.Contains(x.DeploymentSiteId) && x.IsActive &&
+        var candidateSites = assignedSites.Where(x => candidateIds.Contains(x.DeploymentSiteId) &&
             x.EffectiveFrom <= visitDate && (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value)).ToList();
 
         var locationAssignments = await db.DeploymentSiteLocationAssignments.AsNoTracking()

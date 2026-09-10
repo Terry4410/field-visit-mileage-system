@@ -77,6 +77,21 @@ public sealed class V180TripContextTests
     }
 
     [Fact]
+    public async Task Historical_VisitDate_is_not_invalidated_by_today_inactive_flags()
+    {
+        await using var db = await SeedAsync();
+        db.Teams.Single().IsActive = false;
+        db.DeploymentSites.Single().IsActive = false;
+        await db.SaveChangesAsync();
+
+        var result = await new V180TripContextReader(db).ResolveAsync(Visitor(), VisitDate, null, default);
+
+        Assert.True(result.EligibleForTrip);
+        Assert.Equal(100, result.SelectedTeamId);
+        Assert.Equal(300, result.EligibleDeploymentSites.Single().DeploymentSiteId);
+    }
+
+    [Fact]
     public async Task Team_membership_uses_VisitDate_and_does_not_expose_future_membership_early()
     {
         await using var db = await SeedAsync();
@@ -195,18 +210,18 @@ public sealed class V180TripContextTests
     }
 
     [Fact]
-    public void Visitor_route_is_not_admin_and_existing_write_contracts_remain_unchanged()
+    public void Visitor_route_is_not_admin_and_write_contract_includes_frozen_deployment_site_ids()
     {
         var route = typeof(TripsController).GetMethod("Context")!
             .GetCustomAttributes<HttpMethodAttribute>().Single();
         Assert.Equal("trips/context", route.Template);
         Assert.DoesNotContain("admin", route.Template!, StringComparison.OrdinalIgnoreCase);
 
-        Assert.Null(typeof(SaveTripRequest).GetProperty("StartDeploymentSiteId"));
-        Assert.Null(typeof(SaveTripRequest).GetProperty("EndDeploymentSiteId"));
+        Assert.Equal(typeof(int?), typeof(SaveTripRequest).GetProperty("StartDeploymentSiteId")!.PropertyType);
+        Assert.Equal(typeof(int?), typeof(SaveTripRequest).GetProperty("EndDeploymentSiteId")!.PropertyType);
         var tripService = Source("backend/src/FieldVisit.Application/TripService.cs");
-        Assert.DoesNotContain("StartDeploymentSiteId =", tripService);
-        Assert.DoesNotContain("EndDeploymentSiteId =", tripService);
+        Assert.Contains("StartDeploymentSiteId =", tripService);
+        Assert.Contains("EndDeploymentSiteId =", tripService);
     }
 
     [Fact]

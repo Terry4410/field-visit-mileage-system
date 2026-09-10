@@ -7,7 +7,8 @@ public sealed class V160FinalService(
     IWorkbookImportService imports,
     IBackgroundJobService jobs,
     IBackgroundJobSignal backgroundJobSignal,
-    IV170AccessControl access)
+    IV170AccessControl access,
+    ITripRepository trips)
 {
     public async Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(
         TripQueryRequest request,
@@ -55,8 +56,19 @@ public sealed class V160FinalService(
     public Task<CorrectionDraftDto> GetCorrectionDraftAsync(long tripId, CancellationToken ct) =>
         repository.GetCorrectionDraftAsync(RequireRole("visitor"), tripId, ct);
 
-    public Task<CorrectionRequestDto> CreateCorrectionAsync(CreateCorrectionRequest request, CancellationToken ct) =>
-        repository.CreateCorrectionAsync(RequireRole("visitor"), request, ct);
+    public async Task<CorrectionRequestDto> CreateCorrectionAsync(CreateCorrectionRequest request, CancellationToken ct)
+    {
+        var user = RequireRole("visitor");
+        var trip = await trips.GetAsync(request.VisitTripId, false, ct)
+            ?? throw new KeyNotFoundException("找不到行程。");
+        if (trip.EmploymentId.HasValue)
+        {
+            var draft = await repository.GetCorrectionDraftAsync(user, request.VisitTripId, ct);
+            if (request.Proposal.VisitDate != draft.Proposal.VisitDate)
+                throw new InvalidOperationException("V180_CORRECTION_VISIT_DATE_NOT_SUPPORTED：v1.8 行程目前不支援更正 VisitDate。");
+        }
+        return await repository.CreateCorrectionAsync(user, request, ct);
+    }
 
     public Task<IReadOnlyList<CorrectionRequestDto>> CorrectionsAsync(string? status, CancellationToken ct) =>
         repository.GetCorrectionsAsync(current.GetRequired(), status, ct);
