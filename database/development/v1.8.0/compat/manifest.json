@@ -26,11 +26,11 @@
     {
       "migration": "1800_003",
       "source": "database/migrations/1800_003_deployment_sites/Up.sql",
-      "sourceSha256": "3e78c2a55168cb2a147c64cc37be63230d0d667cd6879a52c0746de0259a35fd",
+      "sourceSha256": "7298f48089a953795ca6cc18f5e599a09d21ba93df5b267f1213db746cf426b5",
       "verify": "database/migrations/1800_003_deployment_sites/Verify.sql",
-      "verifySha256": "fdd47dc8f6d6aafe74d51414b7a5869666a2e0bffade1328379830ce04ef4e8e",
+      "verifySha256": "ac779a839918fc41c70eb6f8e7a005d397b87770d388c2b518811959e534f597",
       "developmentApply": "database/migrations/1800_003_deployment_sites/Up.sql",
-      "developmentApplySha256": "3e78c2a55168cb2a147c64cc37be63230d0d667cd6879a52c0746de0259a35fd"
+      "developmentApplySha256": "7298f48089a953795ca6cc18f5e599a09d21ba93df5b267f1213db746cf426b5"
     },
     {
       "migration": "1800_004",
