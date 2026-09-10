@@ -129,7 +129,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         }
         AddAudit(user.UserId, "ImportBatch", importBatchId.ToString(), "ImportErrorReport", new { Count = errors.Count });
         await db.SaveChangesAsync(ct);
-        return new ReportExportContext($"匯入錯誤_{batch.ImportType}_{importBatchId:N}.xlsx", stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        return new ReportExportContext($"匯入錯誤_{batch.ImportType}_{importBatchId:N}.xlsx", stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     }
 
     public async Task<ImportConfirmResultDto> ConfirmAsync(CurrentUserDto user, Guid importBatchId, CancellationToken ct)
