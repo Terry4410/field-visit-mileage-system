@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using Microsoft.Data.SqlClient;
@@ -76,6 +77,16 @@ public sealed class V180ManagedLocationGovernanceRepository(AppDbContext db) : I
         if (request.IsActive != row.IsActive)
             throw new InvalidOperationException("LOCATION_ACTIVE_STATE_REQUIRES_DEACTIVATION_ROUTE：一般地點修改不可變更啟用狀態。");
 
+        var before = new
+        {
+            row.LocationName,
+            row.TeamId,
+            row.City,
+            row.District,
+            row.Address,
+            row.PlusCode,
+            row.IsActive
+        };
         row.TeamId = request.TeamId;
         row.LocationName = request.LocationName.Trim();
         row.LocationType = string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType.Trim();
@@ -85,6 +96,7 @@ public sealed class V180ManagedLocationGovernanceRepository(AppDbContext db) : I
         row.PlusCode = NormalizeOptional(request.PlusCode);
         row.GeocodingStatus = "Pending";
         row.UpdatedAt = DateTime.UtcNow;
+        AddAudit(user.UserId, locationId, "LocationUpdate", new { before, after = request });
         await db.SaveChangesAsync(ct);
         var teamName = row.TeamId.HasValue
             ? await db.Teams.AsNoTracking().Where(x => x.TeamId == row.TeamId.Value).Select(x => x.TeamName).FirstOrDefaultAsync(ct)
@@ -163,9 +175,11 @@ WHERE LocationId={locationId} AND RowVersion={expected};", ct);
             {
                 var affected = await db.Database.ExecuteSqlInterpolatedAsync($@"
 UPDATE dbo.Locations
-SET IsActive=0, InactivatedAt=SYSUTCDATETIME(), InactivatedByUserId={user.UserId}
+SET IsActive=0, InactivatedAt=SYSUTCDATETIME(), InactivatedByUserId={user.UserId}, UpdatedAt=SYSUTCDATETIME()
 WHERE LocationId={locationId} AND RowVersion={expected} AND IsActive=1;", ct);
                 if (affected != 1) throw new DbUpdateConcurrencyException("ROWVERSION_CONFLICT：資料已被其他人更新，請重新整理後再試。");
+                AddAudit(user.UserId, locationId, "LocationDeactivate", new { locationId });
+                await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
             }
             catch (SqlException ex) when (ex.Number is 53605 or 53606)
@@ -260,6 +274,20 @@ WHERE LocationId={locationId} AND RowVersion={expected} AND IsActive=1;", ct);
     {
         if (!current.SequenceEqual(expected))
             throw new DbUpdateConcurrencyException("ROWVERSION_CONFLICT：資料已被其他人更新，請重新整理後再試。");
+    }
+
+    private void AddAudit(int userId, int locationId, string action, object values)
+    {
+        db.AuditLogs.Add(new AuditLog
+        {
+            UserId = userId,
+            EntityType = "Location",
+            EntityId = locationId.ToString(),
+            Action = action,
+            NewValues = JsonSerializer.Serialize(values),
+            CorrelationId = Guid.NewGuid(),
+            CreatedAt = DateTime.UtcNow
+        });
     }
 
     private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
