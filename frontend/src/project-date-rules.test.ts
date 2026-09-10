@@ -9,7 +9,8 @@ const project:Project={
   locationMode:"List",
   startDate:"2026-08-10",
   endDate:"2026-08-31",
-  isActive:true
+  isActive:true,
+  rowVersion:"AQIDBA=="
 };
 
 describe("isProjectAvailableOn",()=>{
