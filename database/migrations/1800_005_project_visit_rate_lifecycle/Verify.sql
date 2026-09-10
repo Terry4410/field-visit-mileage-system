@@ -82,8 +82,8 @@ IF @Def NOT LIKE N'%fieldvisit.mileagerateseries|org=%'
  OR @Def NOT LIKE N'%lockmode=n''exclusive''%'
  OR @Def NOT LIKE N'%lockowner=n''transaction''%'
  OR @Compact NOT LIKE N'%@locktimeout=10000%'
- OR @Def NOT LIKE N'%order by resourcename asc%'
-    THROW 53922,N'Verify failed: canonical applock or deterministic multi-series lock order missing.',1;
+ OR @Def NOT LIKE N'%order by resourcename collate latin1_general_100_bin2 asc%'
+    THROW 53922,N'Verify failed: canonical applock or binary deterministic multi-series lock order missing.',1;
 IF @Def NOT LIKE N'%updlock,holdlock%'
  OR @Def NOT LIKE N'%r.organizationid=a.organizationid or (r.organizationid is null and a.organizationid is null)%'
     THROW 53923,N'Verify failed: SNAPSHOT-safe current read or NULL-safe exact-series equality missing.',1;
@@ -98,6 +98,12 @@ IF @Def NOT LIKE N'%physical delete is prohibited%'
     THROW 53925,N'Verify failed: DELETE protection or system-derived EffectiveTo contract missing.',1;
 IF @Def NOT LIKE N'%inactive mileagerate effectiveto is historical system evidence%'
     THROW 53926,N'Verify failed: inactive historical EffectiveTo protection missing.',1;
+IF @Def NOT LIKE N'%mileagerate canonical vehicletype final invariant failed%'
+ OR @Def NOT LIKE N'%mileagerate duplicate active effectivefrom final invariant failed%'
+ OR @Def NOT LIKE N'%mileagerate active exact-series overlap detected%'
+ OR @Def NOT LIKE N'%mileagerate derived effectiveto final invariant failed%'
+ OR @Def NOT LIKE N'%mileagerate terminal effectiveto final invariant failed%'
+    THROW 53927,N'Verify failed: outer final base-table invariant revalidation incomplete.',1;
 
 IF EXISTS(
  SELECT 1 FROM dbo.MileageRateRules a

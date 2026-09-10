@@ -216,7 +216,8 @@ BEGIN
 
   DECLARE @Resource NVARCHAR(255), @LockResult INT;
   DECLARE series_cursor CURSOR LOCAL FAST_FORWARD FOR
-      SELECT ResourceName FROM @Affected ORDER BY ResourceName ASC;
+      SELECT ResourceName FROM @Affected
+      ORDER BY ResourceName COLLATE Latin1_General_100_BIN2 ASC;
   OPEN series_cursor;
   FETCH NEXT FROM series_cursor INTO @Resource;
   WHILE @@FETCH_STATUS=0
@@ -266,6 +267,29 @@ BEGIN
 
   IF EXISTS(
       SELECT 1
+      FROM dbo.MileageRateRules r WITH (UPDLOCK,HOLDLOCK)
+      JOIN @Affected a
+        ON (r.OrganizationId=a.OrganizationId OR (r.OrganizationId IS NULL AND a.OrganizationId IS NULL))
+       AND r.VehicleType=a.VehicleType
+      WHERE r.VehicleType COLLATE Latin1_General_100_BIN2 NOT IN
+            (N''MOTORCYCLE'' COLLATE Latin1_General_100_BIN2,N''CAR'' COLLATE Latin1_General_100_BIN2)
+  )
+      THROW 53836, N''MileageRate canonical VehicleType final invariant failed.'', 1;
+
+  IF EXISTS(
+      SELECT 1
+      FROM dbo.MileageRateRules r WITH (UPDLOCK,HOLDLOCK)
+      JOIN @Affected a
+        ON (r.OrganizationId=a.OrganizationId OR (r.OrganizationId IS NULL AND a.OrganizationId IS NULL))
+       AND r.VehicleType=a.VehicleType
+      WHERE r.IsActive=1
+      GROUP BY r.OrganizationId,r.VehicleType,r.EffectiveFrom
+      HAVING COUNT_BIG(*)>1
+  )
+      THROW 53837, N''MileageRate duplicate active EffectiveFrom final invariant failed.'', 1;
+
+  IF EXISTS(
+      SELECT 1
       FROM dbo.MileageRateRules a WITH (UPDLOCK,HOLDLOCK)
       JOIN dbo.MileageRateRules b WITH (UPDLOCK,HOLDLOCK)
         ON (a.OrganizationId=b.OrganizationId OR (a.OrganizationId IS NULL AND b.OrganizationId IS NULL))
@@ -293,10 +317,27 @@ BEGIN
            AND r.VehicleType=a.VehicleType
           WHERE r.IsActive=1
       ) v
-      WHERE (v.NextFrom IS NULL AND v.EffectiveTo IS NOT NULL)
-         OR (v.NextFrom IS NOT NULL AND (v.EffectiveTo IS NULL OR v.EffectiveTo<>DATEADD(day,-1,v.NextFrom)))
+      WHERE v.NextFrom IS NOT NULL
+        AND (v.EffectiveTo IS NULL OR v.EffectiveTo<>DATEADD(day,-1,v.NextFrom))
   )
-      THROW 53835, N''MileageRate derived EffectiveTo invariant failed.'', 1;
+      THROW 53835, N''MileageRate derived EffectiveTo final invariant failed.'', 1;
+
+  IF EXISTS(
+      SELECT 1
+      FROM (
+          SELECT r.MileageRateRuleId,r.OrganizationId,r.VehicleType,r.EffectiveTo,
+                 LEAD(r.EffectiveFrom) OVER(
+                     PARTITION BY r.OrganizationId,r.VehicleType
+                     ORDER BY r.EffectiveFrom,r.MileageRateRuleId) AS NextFrom
+          FROM dbo.MileageRateRules r WITH (UPDLOCK,HOLDLOCK)
+          JOIN @Affected a
+            ON (r.OrganizationId=a.OrganizationId OR (r.OrganizationId IS NULL AND a.OrganizationId IS NULL))
+           AND r.VehicleType=a.VehicleType
+          WHERE r.IsActive=1
+      ) v
+      WHERE v.NextFrom IS NULL AND v.EffectiveTo IS NOT NULL
+  )
+      THROW 53838, N''MileageRate terminal EffectiveTo final invariant failed.'', 1;
 END;';
 
     INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy)

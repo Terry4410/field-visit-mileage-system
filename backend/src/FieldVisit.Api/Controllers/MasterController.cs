@@ -30,8 +30,6 @@ public sealed class MasterController(MasterService master) : ControllerBase
     public async Task<ActionResult<ProjectDto>> DeactivateProject(int projectId,LifecycleRequest request,CancellationToken ct)=>Ok(await master.DeactivateProjectAsync(projectId,request.RowVersion,ct));
     [HttpPost("projects/{projectId:int}/reactivate")][Authorize(Roles="admin")]
     public async Task<ActionResult<ProjectDto>> ReactivateProject(int projectId,LifecycleRequest request,CancellationToken ct)=>Ok(await master.ReactivateProjectAsync(projectId,request,ct));
-    [HttpDelete("projects/{projectId:int}")][Authorize(Roles="admin")]
-    public async Task<IActionResult> DeleteProject(int projectId,[FromQuery] string rowVersion,CancellationToken ct){await master.DeleteProjectAsync(projectId,rowVersion,ct);return NoContent();}
     [HttpGet("projects/{projectId:int}/locations")]
     public async Task<ActionResult<List<LocationDto>>> ProjectLocations(int projectId,CancellationToken ct)=>Ok(await master.ProjectLocationsAsync(projectId,ct));
 
@@ -47,8 +45,6 @@ public sealed class MasterController(MasterService master) : ControllerBase
     public async Task<ActionResult<VisitTypeDto>> ReactivateVisitType(int visitTypeId,LifecycleRequest request,CancellationToken ct)=>Ok(await master.ReactivateVisitTypeAsync(visitTypeId,request,ct));
     [HttpPost("visit-types/reorder")][Authorize(Roles="admin")]
     public async Task<ActionResult<List<VisitTypeDto>>> ReorderVisitTypes(VisitTypeReorderRequest request,CancellationToken ct)=>Ok(await master.ReorderVisitTypesAsync(request,ct));
-    [HttpDelete("visit-types/{visitTypeId:int}")][Authorize(Roles="admin")]
-    public async Task<IActionResult> DeleteVisitType(int visitTypeId,[FromQuery] string rowVersion,CancellationToken ct){await master.DeleteVisitTypeAsync(visitTypeId,rowVersion,ct);return NoContent();}
 
     [HttpGet("mileage-rate-rules")]
     public async Task<ActionResult<List<MileageRateDto>>> Rates(CancellationToken ct)=>Ok(await master.RatesAsync(ct));
