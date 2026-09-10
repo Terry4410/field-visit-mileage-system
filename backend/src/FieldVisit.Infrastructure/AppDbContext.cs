@@ -84,7 +84,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<Location>(e =>
         {
-            e.ToTable("Locations"); e.HasKey(x => x.LocationId); e.Property(x => x.LocationId).ValueGeneratedOnAdd();
+            e.ToTable("Locations", tb => tb.UseSqlOutputClause(false)); e.HasKey(x => x.LocationId); e.Property(x => x.LocationId).ValueGeneratedOnAdd();
             e.Property(x => x.Latitude).HasPrecision(10, 7); e.Property(x => x.Longitude).HasPrecision(10, 7);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
         });
