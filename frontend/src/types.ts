@@ -47,8 +47,8 @@ export interface LocationNearbyItem extends SmartLocationItem{
   distanceKm:number;
 }
 export interface Team{teamId:number;organizationId:number;teamCode:string;teamName:string}
-export interface Project{projectId:number;teamId?:number;projectCode:string;projectName:string;description?:string;locationMode:string;startDate?:string;endDate?:string;isActive:boolean}
-export interface VisitType{visitTypeId:number;visitTypeCode:string;visitTypeName:string;description?:string;sortOrder:number;isActive:boolean}
+export interface Project{projectId:number;teamId?:number;projectCode:string;projectName:string;description?:string;locationMode:string;startDate?:string;endDate?:string;isActive:boolean;inactivatedAt?:string;inactivatedByUserId?:number;rowVersion:string}
+export interface VisitType{visitTypeId:number;visitTypeCode:string;visitTypeName:string;description?:string;sortOrder:number;isActive:boolean;inactivatedAt?:string;inactivatedByUserId?:number;rowVersion:string}
 export interface MileageRate{mileageRateRuleId:number;organizationId?:number;ruleName:string;vehicleType:string;ratePerKm:number;effectiveFrom:string;effectiveTo?:string;isActive:boolean}
 export interface MileageReport{tripNo:string;visitDate:string;visitorName:string;teamName?:string;route:string;claimedDistanceKm?:number;systemDistanceKm?:number;approvedDistanceKm?:number;ratePerKmSnapshot?:number;approvedAmount?:number;status:string;statusName:string}
 
