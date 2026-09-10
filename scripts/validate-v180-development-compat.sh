@@ -27,9 +27,9 @@ done
 entry_005_source="$(jq -r '.entries[] | select(.migration=="1800_005") | .source' "$manifest")"
 entry_005_verify="$(jq -r '.entries[] | select(.migration=="1800_005") | .verify' "$manifest")"
 entry_005_apply="$(jq -r '.entries[] | select(.migration=="1800_005") | .developmentApply' "$manifest")"
-echo "DBW1_1800_005_SOURCE_SHA256=$(sha256sum "$entry_005_source" | awk '{print $1}')"
-echo "DBW1_1800_005_VERIFY_SHA256=$(sha256sum "$entry_005_verify" | awk '{print $1}')"
-echo "DBW1_1800_005_DEVELOPMENT_APPLY_SHA256=$(sha256sum "$entry_005_apply" | awk '{print $1}')"
+echo "DBW1_1800_005_SOURCE_SHA256=$(sha256sum "$entry_005_source" | awk '{print $1}')" >&2
+echo "DBW1_1800_005_VERIFY_SHA256=$(sha256sum "$entry_005_verify" | awk '{print $1}')" >&2
+echo "DBW1_1800_005_DEVELOPMENT_APPLY_SHA256=$(sha256sum "$entry_005_apply" | awk '{print $1}')" >&2
 
 while IFS=$'\t' read -r migration source source_hash verify verify_hash apply apply_hash; do
   for path in "$source" "$verify" "$apply"; do
