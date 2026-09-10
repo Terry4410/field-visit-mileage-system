@@ -1,3 +1,4 @@
+using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -18,14 +19,53 @@ public sealed class V180Cbb2bRecoveryGateTests
     }
 
     [Fact]
-    public void Approval_copies_latest_submitted_business_basis_and_legacy_has_compatibility_path()
+    public async Task Approval_copies_latest_submitted_business_basis_and_legacy_has_compatibility_path()
     {
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+        var older = SubmittedSnapshot(1, 7, 1, "P-OLD", "Old Project", "VT-OLD", "Old Visit Type");
+        var latest = SubmittedSnapshot(2, 7, 3, "P-FROZEN", "Frozen Project", "VT-FROZEN", "Frozen Visit Type");
+        db.VisitTripSnapshots.AddRange(older, latest);
+        await db.SaveChangesAsync();
+
+        var trip = new VisitTrip
+        {
+            VisitTripId = 7,
+            EmploymentId = 20,
+            Status = "Approved",
+            ApprovedAt = DateTime.UtcNow,
+            MileageCalculation = new MileageCalculation
+            {
+                ApprovedDistanceKm = 5,
+                RatePerKmSnapshot = 2,
+                ApprovedAmount = 10
+            }
+        };
+
+        await new TripSnapshotRepository(db).AddApprovedSnapshotAsync(
+            trip,
+            new CurrentUserDto(9, "A", "Approver", null, 1, null, null, ["leader"]),
+            default);
+        await db.SaveChangesAsync();
+
+        var approved = await db.VisitTripSnapshots.Include(x => x.Stops)
+            .SingleAsync(x => x.SnapshotType == "Approved");
+        var stop = Assert.Single(approved.Stops);
+
+        Assert.Equal(4, approved.SnapshotVersion);
+        Assert.Equal("Frozen Team", approved.TeamNameSnapshot);
+        Assert.Equal("Frozen Start Address", approved.StartDeploymentAddressSnapshot);
+        Assert.Equal("Frozen End Address", approved.EndDeploymentAddressSnapshot);
+        Assert.Equal("Frozen Location", stop.LocationNameSnapshot);
+        Assert.Equal("Frozen Location Address", stop.AddressSnapshot);
+        Assert.Equal("P-FROZEN", stop.ProjectCodeSnapshot);
+        Assert.Equal("Frozen Project", stop.ProjectNameSnapshot);
+        Assert.Equal("VT-FROZEN", stop.VisitTypeCodeSnapshot);
+        Assert.Equal("Frozen Visit Type", stop.VisitTypeNameSnapshot);
+
         var source = Source("backend/src/FieldVisit.Infrastructure/V160Repositories.cs");
-        Assert.Contains("GetLatestAsync(trip.VisitTripId, \"Submitted\"", source);
-        Assert.Contains("CopySnapshot(submitted", source);
         Assert.Contains("else snapshot = await BuildLegacyApprovedSnapshotAsync", source);
-        Assert.Contains("ProjectCodeSnapshot = source.ProjectCodeSnapshot", source);
-        Assert.Contains("VisitTypeCodeSnapshot = source.VisitTypeCodeSnapshot", source);
     }
 
     [Fact]
@@ -81,6 +121,65 @@ public sealed class V180Cbb2bRecoveryGateTests
 
         var teamCenterMigration = Source("database/migrations/1800_001_organization_center_team_lifecycle/Up.sql");
         Assert.DoesNotContain("TeamDeploymentSiteAssignments", teamCenterMigration);
+    }
+
+    private static VisitTripSnapshot SubmittedSnapshot(
+        long id, long tripId, int version,
+        string projectCode, string projectName,
+        string visitTypeCode, string visitTypeName)
+    {
+        var snapshot = new VisitTripSnapshot
+        {
+            VisitTripSnapshotId = id,
+            VisitTripId = tripId,
+            SnapshotVersion = version,
+            SnapshotType = "Submitted",
+            TripNo = "T1",
+            UserId = 1,
+            PersonIdSnapshot = 10,
+            EmploymentIdSnapshot = 20,
+            EmployeeNoSnapshot = "E1",
+            DisplayNameSnapshot = "Visitor",
+            OrganizationId = 1,
+            OrganizationNameSnapshot = "Frozen Org",
+            TeamId = 100,
+            TeamCodeSnapshot = "T-FROZEN",
+            TeamNameSnapshot = "Frozen Team",
+            CenterIdSnapshot = 200,
+            CenterCodeSnapshot = "C-FROZEN",
+            CenterNameSnapshot = "Frozen Center",
+            StartDeploymentSiteIdSnapshot = 300,
+            StartDeploymentSiteCodeSnapshot = "S-START",
+            StartDeploymentSiteNameSnapshot = "Frozen Start Site",
+            StartDeploymentLocationIdSnapshot = 400,
+            StartDeploymentAddressSnapshot = "Frozen Start Address",
+            EndDeploymentSiteIdSnapshot = 301,
+            EndDeploymentSiteCodeSnapshot = "S-END",
+            EndDeploymentSiteNameSnapshot = "Frozen End Site",
+            EndDeploymentLocationIdSnapshot = 401,
+            EndDeploymentAddressSnapshot = "Frozen End Address",
+            VisitDate = new DateOnly(2026, 9, 1),
+            StatusSnapshot = "Submitted",
+            CreatedAt = DateTime.UtcNow
+        };
+        snapshot.Stops.Add(new VisitTripSnapshotStop
+        {
+            StopSequence = 1,
+            LocationId = 500,
+            LocationCodeSnapshot = "L-FROZEN",
+            LocationNameSnapshot = "Frozen Location",
+            AddressSnapshot = "Frozen Location Address",
+            ProjectId = 600,
+            ProjectCodeSnapshot = projectCode,
+            ProjectNameSnapshot = projectName,
+            VisitTypeId = 700,
+            VisitTypeCodeSnapshot = visitTypeCode,
+            VisitTypeNameSnapshot = visitTypeName,
+            VisitPurposeSnapshot = "Frozen Purpose",
+            NotesSnapshot = "Frozen Stop Notes",
+            CreatedAt = DateTime.UtcNow
+        });
+        return snapshot;
     }
 
     private static string Method(string source, string startMarker, string endMarker)
