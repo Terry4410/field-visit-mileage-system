@@ -7,6 +7,7 @@ cd "${repo_root}"
 bash scripts/test-fast-regression.sh
 bash scripts/test-da0b-snapshot-concurrency.sh
 bash scripts/test-da1b-location-governance-integration.sh
+bash scripts/test-db-work1-concurrency.sh
 npm --prefix frontend run build
 dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --no-restore
 
