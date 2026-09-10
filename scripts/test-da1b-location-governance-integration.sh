@@ -23,20 +23,22 @@ for _ in $(seq 1 90); do
 done
 [[ -n "$SQLCMD" ]] || { echo "sqlcmd unavailable in D-A1b SQL image." >&2; exit 1; }
 for _ in $(seq 1 90); do
-  if docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -Q "SELECT 1" >/dev/null 2>&1; then break; fi
+  if docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -I -Q "SELECT 1" >/dev/null 2>&1; then break; fi
   sleep 1
 done
-docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -Q "SELECT 1" >/dev/null
+docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -I -b -Q "SELECT 1" >/dev/null
 
-docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -Q "CREATE DATABASE [$DB_NAME]; ALTER DATABASE [$DB_NAME] SET READ_COMMITTED_SNAPSHOT ON; ALTER DATABASE [$DB_NAME] SET ALLOW_SNAPSHOT_ISOLATION ON;"
+docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -I -b -Q "CREATE DATABASE [$DB_NAME]; ALTER DATABASE [$DB_NAME] SET READ_COMMITTED_SNAPSHOT ON; ALTER DATABASE [$DB_NAME] SET ALLOW_SNAPSHOT_ISOLATION ON;"
+docker cp "$ROOT/database/development/v1.8.0/compat/session-options.sql" "$CONTAINER:/tmp/session-options.sql"
 docker cp "$ROOT/scripts/fixtures/da0b-prereq.sql" "$CONTAINER:/tmp/da0b-prereq.sql"
 docker cp "$ROOT/database/migrations/1800_004_location_governance/Up.sql" "$CONTAINER:/tmp/1800_004.sql"
 docker cp "$ROOT/scripts/fixtures/da1b-runtime-prereq.sql" "$CONTAINER:/tmp/da1b-runtime-prereq.sql"
-docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -d "$DB_NAME" -i /tmp/da0b-prereq.sql
-docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -d "$DB_NAME" -i /tmp/1800_004.sql
-docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -d "$DB_NAME" -i /tmp/da1b-runtime-prereq.sql
+for target in da0b-prereq 1800_004 da1b-runtime-prereq; do
+  docker exec "$CONTAINER" sh -c "cat /tmp/session-options.sql /tmp/${target}.sql > /tmp/${target}.with-session-options.sql"
+  docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -I -b -d "$DB_NAME" -i "/tmp/${target}.with-session-options.sql"
+done
 
-docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -b -d "$DB_NAME" -Q "SELECT 'DA1B_SQL_VERSION=' + CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(100)) + '|' + CAST(SERVERPROPERTY('ProductLevel') AS nvarchar(100)) + '|' + CAST(SERVERPROPERTY('Edition') AS nvarchar(100)); SELECT 'DA1B_READ_COMMITTED_SNAPSHOT=' + CASE WHEN is_read_committed_snapshot_on=1 THEN 'ON' ELSE 'OFF' END + '|DA1B_ALLOW_SNAPSHOT_ISOLATION=' + CASE WHEN snapshot_isolation_state=1 THEN 'ON' ELSE 'OFF' END FROM sys.databases WHERE name=DB_NAME();" -h -1 -W
+docker exec "$CONTAINER" "$SQLCMD" -S localhost -U sa -P "$SA_PASSWORD" -C -I -b -d "$DB_NAME" -Q "SELECT 'DA1B_SQL_VERSION=' + CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(100)) + '|' + CAST(SERVERPROPERTY('ProductLevel') AS nvarchar(100)) + '|' + CAST(SERVERPROPERTY('Edition') AS nvarchar(100)); SELECT 'DA1B_READ_COMMITTED_SNAPSHOT=' + CASE WHEN is_read_committed_snapshot_on=1 THEN 'ON' ELSE 'OFF' END + '|DA1B_ALLOW_SNAPSHOT_ISOLATION=' + CASE WHEN snapshot_isolation_state=1 THEN 'ON' ELSE 'OFF' END FROM sys.databases WHERE name=DB_NAME();" -h -1 -W
 
 PORT_LINE="$(docker port "$CONTAINER" 1433/tcp | head -n1)"
 PORT="${PORT_LINE##*:}"
