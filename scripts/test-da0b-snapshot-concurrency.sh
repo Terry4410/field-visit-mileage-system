@@ -9,6 +9,7 @@ container_name="fieldvisit-da0b-${GITHUB_RUN_ID:-local}-$$"
 sa_password='Da0b!SnapshotSafe2026_TestOnly'
 tmp_dir="$(mktemp -d)"
 sqlcmd_path=''
+session_options_file='database/development/v1.8.0/compat/session-options.sql'
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -41,7 +42,7 @@ if [[ -z "$sqlcmd_path" ]]; then
   exit 1
 fi
 
-sqlcmd_base=(docker exec -i "$container_name" "$sqlcmd_path" -S localhost -U sa -P "$sa_password" -C -b -r1)
+sqlcmd_base=(docker exec -i "$container_name" "$sqlcmd_path" -S localhost -U sa -P "$sa_password" -C -I -b -r1)
 
 ready=0
 for _ in $(seq 1 90); do
@@ -67,7 +68,7 @@ sql_with_session_options_and_file() {
   local database="$1"
   local file="$2"
   {
-    cat database/development/v1.8.0/compat/session-options.sql
+    cat "$session_options_file"
     cat "$file"
   } | "${sqlcmd_base[@]}" -d "$database"
 }
@@ -75,7 +76,10 @@ sql_with_session_options_and_file() {
 sql_query() {
   local database="$1"
   local query="$2"
-  "${sqlcmd_base[@]}" -d "$database" -Q "$query"
+  {
+    cat "$session_options_file"
+    printf '%s\n' "$query"
+  } | "${sqlcmd_base[@]}" -d "$database"
 }
 
 sql_scalar() {
@@ -105,6 +109,58 @@ wait_lock_held() {
   done
   echo "Timed out waiting for deterministic barrier lock: $resource" >&2
   return 1
+}
+
+validate_loser_error() {
+  local case_id="$1"
+  local direction="$2"
+  local winner_log="$3"
+  local loser_log="$4"
+  local rollback_count rollback_line error_number
+
+  rollback_count="$(tr -d '\r' < "$loser_log" | grep -Ec '^DA0B_LOSER_ROLLBACK ERROR=[0-9]+$' || true)"
+  if [[ "$rollback_count" != 1 ]]; then
+    echo "$case_id expected exactly one machine-readable loser rollback result; found $rollback_count." >&2
+    cat "$winner_log" >&2
+    cat "$loser_log" >&2
+    return 1
+  fi
+
+  rollback_line="$(tr -d '\r' < "$loser_log" | grep -E '^DA0B_LOSER_ROLLBACK ERROR=[0-9]+$')"
+  error_number="${rollback_line##*=}"
+
+  case "$direction" in
+    location)
+      case "$error_number" in
+        53606|3960|1205) ;;
+        *)
+          echo "$case_id rejected unexpected Location-loser SQL error: $error_number" >&2
+          cat "$winner_log" >&2
+          cat "$loser_log" >&2
+          return 1
+          ;;
+      esac
+      ;;
+    assignment)
+      case "$error_number" in
+        53608|3960|1205) ;;
+        *)
+          echo "$case_id rejected unexpected assignment-loser SQL error: $error_number" >&2
+          cat "$winner_log" >&2
+          cat "$loser_log" >&2
+          return 1
+          ;;
+      esac
+      ;;
+    *)
+      echo "$case_id unknown loser direction: $direction" >&2
+      cat "$winner_log" >&2
+      cat "$loser_log" >&2
+      return 1
+      ;;
+  esac
+
+  echo "${case_id}_LOSER_ERROR=$error_number"
 }
 
 create_database() {
@@ -246,10 +302,10 @@ EXEC sys.sp_releaseapplock @Resource=N'$ready_resource', @LockOwner=N'Session';
 EXEC sys.sp_releaseapplock @Resource=N'$release_resource', @LockOwner=N'Session';
 SQL
 
-  "${sqlcmd_base[@]}" -d "$database" < "$winner_sql" >"$winner_log" 2>&1 &
+  sql_with_session_options_and_file "$database" "$winner_sql" >"$winner_log" 2>&1 &
   local winner_pid=$!
   wait_lock_held "$database" "$release_resource" || { kill "$winner_pid" 2>/dev/null || true; return 1; }
-  "${sqlcmd_base[@]}" -d "$database" < "$loser_sql" >"$loser_log" 2>&1 &
+  sql_with_session_options_and_file "$database" "$loser_sql" >"$loser_log" 2>&1 &
   local loser_pid=$!
 
   local winner_status=0 loser_status=0
@@ -261,8 +317,8 @@ SQL
     return 1
   fi
   grep -Fq 'DA0B_WINNER_COMMIT' "$winner_log" || { cat "$winner_log" >&2; return 1; }
-  grep -Fq 'DA0B_LOSER_ROLLBACK' "$loser_log" || { cat "$loser_log" >&2; return 1; }
   ! grep -Fq 'DA0B_LOSER_COMMIT' "$loser_log" || { cat "$loser_log" >&2; return 1; }
+  validate_loser_error "$case_id" location "$winner_log" "$loser_log" || return 1
 
   sql_query "$database" "
 IF (SELECT IsActive FROM dbo.Locations WHERE LocationId=$location_id) <> 1
@@ -350,10 +406,10 @@ EXEC sys.sp_releaseapplock @Resource=N'$ready_resource', @LockOwner=N'Session';
 EXEC sys.sp_releaseapplock @Resource=N'$release_resource', @LockOwner=N'Session';
 SQL
 
-  "${sqlcmd_base[@]}" -d "$database" < "$winner_sql" >"$winner_log" 2>&1 &
+  sql_with_session_options_and_file "$database" "$winner_sql" >"$winner_log" 2>&1 &
   local winner_pid=$!
   wait_lock_held "$database" "$release_resource" || { kill "$winner_pid" 2>/dev/null || true; return 1; }
-  "${sqlcmd_base[@]}" -d "$database" < "$loser_sql" >"$loser_log" 2>&1 &
+  sql_with_session_options_and_file "$database" "$loser_sql" >"$loser_log" 2>&1 &
   local loser_pid=$!
 
   local winner_status=0 loser_status=0
@@ -365,8 +421,8 @@ SQL
     return 1
   fi
   grep -Fq 'DA0B_WINNER_COMMIT' "$winner_log" || { cat "$winner_log" >&2; return 1; }
-  grep -Fq 'DA0B_LOSER_ROLLBACK' "$loser_log" || { cat "$loser_log" >&2; return 1; }
   ! grep -Fq 'DA0B_LOSER_COMMIT' "$loser_log" || { cat "$loser_log" >&2; return 1; }
+  validate_loser_error "$case_id" assignment "$winner_log" "$loser_log" || return 1
 
   sql_query "$database" "
 IF (SELECT IsActive FROM dbo.Locations WHERE LocationId=$location_id) <> 0
@@ -455,10 +511,10 @@ EXEC sys.sp_releaseapplock @Resource=N'$ready_resource', @LockOwner=N'Session';
 EXEC sys.sp_releaseapplock @Resource=N'$release_resource', @LockOwner=N'Session';
 SQL
 
-  "${sqlcmd_base[@]}" -d "$database" < "$winner_sql" >"$winner_log" 2>&1 &
+  sql_with_session_options_and_file "$database" "$winner_sql" >"$winner_log" 2>&1 &
   local winner_pid=$!
   wait_lock_held "$database" "$release_resource" || { kill "$winner_pid" 2>/dev/null || true; return 1; }
-  "${sqlcmd_base[@]}" -d "$database" < "$loser_sql" >"$loser_log" 2>&1 &
+  sql_with_session_options_and_file "$database" "$loser_sql" >"$loser_log" 2>&1 &
   local loser_pid=$!
 
   local winner_status=0 loser_status=0
@@ -470,8 +526,8 @@ SQL
     return 1
   fi
   grep -Fq 'DA0B_WINNER_COMMIT' "$winner_log" || { cat "$winner_log" >&2; return 1; }
-  grep -Fq 'DA0B_LOSER_ROLLBACK' "$loser_log" || { cat "$loser_log" >&2; return 1; }
   ! grep -Fq 'DA0B_LOSER_COMMIT' "$loser_log" || { cat "$loser_log" >&2; return 1; }
+  validate_loser_error "$case_id" assignment "$winner_log" "$loser_log" || return 1
 
   sql_query "$database" "
 DECLARE @BusinessToday date = CONVERT(date, DATEADD(HOUR, 8, SYSUTCDATETIME()));
