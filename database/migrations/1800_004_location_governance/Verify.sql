@@ -125,6 +125,126 @@ IF NOT EXISTS
 )
     THROW 53713, N'Verify failed: TeamLocationNoteHistory Action 必須維持 Created / Updated / Cleared。', 1;
 
+DECLARE @BusinessToday date =
+    CONVERT(date, DATEADD(HOUR, 8, SYSUTCDATETIME()));
+
+IF EXISTS
+(
+    SELECT 1
+    FROM dbo.Locations l
+    JOIN dbo.DeploymentSiteLocationAssignments a
+      ON a.LocationId = l.LocationId
+    WHERE l.IsActive = 0
+      AND
+      (
+          a.EffectiveTo IS NULL
+          OR a.EffectiveTo >= @BusinessToday
+      )
+)
+    THROW 53714, N'Verify failed: inactive Location 不得存在 current/future Deployment Site Location assignment。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.triggers t
+    JOIN sys.objects p ON p.object_id = t.parent_id
+    JOIN sys.schemas s ON s.schema_id = p.schema_id
+    WHERE t.object_id = OBJECT_ID(N'dbo.TR_Locations_ProtectCurrentDeploymentSiteLocations')
+      AND t.name = N'TR_Locations_ProtectCurrentDeploymentSiteLocations'
+      AND s.name = N'dbo'
+      AND p.name = N'Locations'
+      AND t.is_disabled = 0
+)
+    THROW 53715, N'Verify failed: Location reverse-protection trigger 不存在、parent 不正確或已停用。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.triggers t
+    JOIN sys.objects p ON p.object_id = t.parent_id
+    JOIN sys.schemas s ON s.schema_id = p.schema_id
+    WHERE t.object_id = OBJECT_ID(N'dbo.TR_DeploymentSiteLocationAssignments_ProtectActiveLocation')
+      AND t.name = N'TR_DeploymentSiteLocationAssignments_ProtectActiveLocation'
+      AND s.name = N'dbo'
+      AND p.name = N'DeploymentSiteLocationAssignments'
+      AND t.is_disabled = 0
+)
+    THROW 53716, N'Verify failed: assignment forward-protection trigger 不存在、parent 不正確或已停用。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.trigger_events
+    WHERE object_id = OBJECT_ID(N'dbo.TR_Locations_ProtectCurrentDeploymentSiteLocations')
+      AND type_desc = N'UPDATE'
+)
+    THROW 53717, N'Verify failed: Location reverse-protection trigger 必須涵蓋 UPDATE。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.trigger_events
+    WHERE object_id = OBJECT_ID(N'dbo.TR_DeploymentSiteLocationAssignments_ProtectActiveLocation')
+      AND type_desc = N'INSERT'
+)
+   OR NOT EXISTS
+(
+    SELECT 1
+    FROM sys.trigger_events
+    WHERE object_id = OBJECT_ID(N'dbo.TR_DeploymentSiteLocationAssignments_ProtectActiveLocation')
+      AND type_desc = N'UPDATE'
+)
+    THROW 53718, N'Verify failed: assignment forward-protection trigger 必須同時涵蓋 INSERT / UPDATE。', 1;
+
+DECLARE @LocationTriggerDefinition NVARCHAR(MAX) =
+    OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_Locations_ProtectCurrentDeploymentSiteLocations'));
+DECLARE @AssignmentTriggerDefinition NVARCHAR(MAX) =
+    OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_DeploymentSiteLocationAssignments_ProtectActiveLocation'));
+
+DECLARE @LocationTriggerNormalized NVARCHAR(MAX) =
+    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(@LocationTriggerDefinition, N' ', N''), CHAR(9), N''), CHAR(10), N''), CHAR(13), N''));
+DECLARE @AssignmentTriggerNormalized NVARCHAR(MAX) =
+    LOWER(REPLACE(REPLACE(REPLACE(REPLACE(@AssignmentTriggerDefinition, N' ', N''), CHAR(9), N''), CHAR(10), N''), CHAR(13), N''));
+
+IF @LocationTriggerDefinition IS NULL
+   OR @AssignmentTriggerDefinition IS NULL
+    THROW 53719, N'Verify failed: 無法讀取 Location active invariant trigger definition。', 1;
+
+IF CHARINDEX(N'sys.sp_getapplock', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'fieldvisit.locationdeploymentassignmentactiveinvariant', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'@lockmode=n''exclusive''', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'@lockowner=n''transaction''', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'@locktimeout=10000', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'@invariantlockresult<0', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'sys.sp_getapplock', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'fieldvisit.locationdeploymentassignmentactiveinvariant', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'@lockmode=n''exclusive''', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'@lockowner=n''transaction''', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'@locktimeout=10000', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'@invariantlockresult<0', @AssignmentTriggerNormalized) = 0
+    THROW 53720, N'Verify failed: 兩個 trigger 必須使用完全相同的 Exclusive/Transaction invariant applock。', 1;
+
+IF CHARINDEX(N'd.isactive=1', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'i.isactive=0', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'a.effectivetoisnull', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'a.effectiveto>=@businesstoday', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'convert(date,dateadd(hour,8,sysutcdatetime()))', @LocationTriggerNormalized) = 0
+   OR CHARINDEX(N'getdate(', @LocationTriggerNormalized) > 0
+    THROW 53721, N'Verify failed: Location trigger 必須只保護 1→0，並以 Taipei BusinessToday 阻擋 current/future dependency。', 1;
+
+IF CHARINDEX(N'l.isactive=0', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'i.effectivetoisnull', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'i.effectiveto>=@businesstoday', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'convert(date,dateadd(hour,8,sysutcdatetime()))', @AssignmentTriggerNormalized) = 0
+   OR CHARINDEX(N'getdate(', @AssignmentTriggerNormalized) > 0
+    THROW 53722, N'Verify failed: assignment trigger 必須以 Taipei BusinessToday 阻擋 inactive Location 的 current/future resulting row。', 1;
+
+IF CHARINDEX(N'updatedbo.deploymentsitelocationassignments', @LocationTriggerNormalized) > 0
+   OR CHARINDEX(N'deletefromdbo.deploymentsitelocationassignments', @LocationTriggerNormalized) > 0
+   OR CHARINDEX(N'updatedbo.locations', @AssignmentTriggerNormalized) > 0
+   OR CHARINDEX(N'deletefromdbo.locations', @AssignmentTriggerNormalized) > 0
+    THROW 53723, N'Verify failed: active invariant trigger 不得自動修復或改寫 Location / assignment。', 1;
+
 IF EXISTS
 (
     SELECT TaxId
@@ -145,10 +265,18 @@ SELECT
     N'PASS' AS VerifyStatus,
     DB_NAME() AS DatabaseName,
     N'1.8.0-004' AS MigrationVersion,
+    @BusinessToday AS BusinessToday,
     (SELECT COUNT_BIG(*) FROM dbo.Locations) AS LocationCount,
     (SELECT COUNT_BIG(*) FROM dbo.TeamLocationNotes) AS TeamLocationNoteCount,
     (SELECT COUNT_BIG(*) FROM dbo.TeamLocationNotes WHERE Note IS NULL) AS ClearedTeamLocationNoteCount,
-    (SELECT COUNT_BIG(*) FROM dbo.Locations WHERE DuplicateOfLocationId IS NOT NULL) AS MarkedDuplicateCount;
+    (SELECT COUNT_BIG(*) FROM dbo.Locations WHERE DuplicateOfLocationId IS NOT NULL) AS MarkedDuplicateCount,
+    (
+        SELECT COUNT_BIG(*)
+        FROM dbo.Locations l
+        JOIN dbo.DeploymentSiteLocationAssignments a ON a.LocationId = l.LocationId
+        WHERE l.IsActive = 0
+          AND a.EffectiveTo < @BusinessToday
+    ) AS HistoricalInactiveLocationAssignmentCount;
 
 SELECT TOP(20)
     OrganizationId,
