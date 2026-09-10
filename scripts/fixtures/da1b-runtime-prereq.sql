@@ -28,6 +28,10 @@ ALTER TABLE dbo.Teams ADD
     InactivatedByUserId INT NULL,
     RowVersion ROWVERSION NOT NULL;
 
+ALTER TABLE dbo.DeploymentSites ADD
+    SiteCode NVARCHAR(100) NULL,
+    SiteName NVARCHAR(200) NULL;
+
 ALTER TABLE dbo.Locations ALTER COLUMN OrganizationId INT NULL;
 ALTER TABLE dbo.Locations ADD
     TeamId INT NULL,
