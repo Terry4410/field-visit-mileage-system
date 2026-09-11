@@ -1,0 +1,331 @@
+name: 1800_005 migration identity read-only UAT preflight
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: azure-sql-1800-005-identity-readonly-uat-smoke
+  cancel-in-progress: false
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: none
+      id-token: none
+    steps:
+      - name: Enforce post-uat/v1.8.0 dispatch branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
+            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
+            exit 1
+          fi
+
+  preflight-1800-005:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat-migration
+    timeout-minutes: 15
+    permissions:
+      contents: none
+      id-token: write
+    steps:
+      - name: Validate fixed UAT variable names before Azure login
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${AZURE_RESOURCE_GROUP}" == "rg-fieldvisit-uat" ]] || {
+            echo "::error::AZURE_RESOURCE_GROUP is not the frozen UAT resource group."
+            exit 1
+          }
+          [[ "${AZURE_SQL_SERVER_NAME}" == "sql-fieldvisit-jpe-uat" ]] || {
+            echo "::error::AZURE_SQL_SERVER_NAME is not the frozen UAT SQL Server."
+            exit 1
+          }
+          [[ "${AZURE_SQL_DATABASE}" == "db-fieldvisit-uat" ]] || {
+            echo "::error::AZURE_SQL_DATABASE is not the frozen UAT database."
+            exit 1
+          }
+
+      - name: Install pinned SQL Server PowerShell module before Azure login
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module `
+            -Name SqlServer `
+            -RequiredVersion 22.4.5.1 `
+            -Repository PSGallery `
+            -Scope CurrentUser `
+            -Force `
+            -AllowClobber
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force
+          $loadedVersion = (Get-Module SqlServer).Version.ToString()
+          if ($loadedVersion -ne '22.4.5.1') {
+            throw "Unexpected SqlServer module version: $loadedVersion"
+          }
+
+      - name: Sign in to Azure with migration identity OIDC
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate exact Azure UAT target read-only
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          EXPECTED_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          actual_subscription_id="$(az account show --query id --output tsv)"
+          [[ "${actual_subscription_id}" == "${EXPECTED_SUBSCRIPTION_ID}" ]] || {
+            echo "::error::Azure subscription does not match the protected UAT value."
+            exit 1
+          }
+
+          actual_tenant_id="$(az account show --query tenantId --output tsv)"
+          [[ "${actual_tenant_id,,}" == "${EXPECTED_TENANT_ID,,}" ]] || {
+            echo "::error::Azure tenant does not match the protected UAT value."
+            exit 1
+          }
+
+          expected_rg_id="/subscriptions/${EXPECTED_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}"
+          actual_rg_id="$(az group show \
+            --name "${AZURE_RESOURCE_GROUP}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query id \
+            --output tsv)"
+          [[ "${actual_rg_id,,}" == "${expected_rg_id,,}" ]] || {
+            echo "::error::Azure resource group ID does not match the fixed UAT target."
+            exit 1
+          }
+
+          expected_server_id="${expected_rg_id}/providers/Microsoft.Sql/servers/${AZURE_SQL_SERVER_NAME}"
+          actual_server_id="$(az sql server show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --name "${AZURE_SQL_SERVER_NAME}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query id \
+            --output tsv)"
+          [[ "${actual_server_id,,}" == "${expected_server_id,,}" ]] || {
+            echo "::error::Azure SQL Server ID does not match the fixed UAT target."
+            exit 1
+          }
+
+          expected_database_id="${expected_server_id}/databases/${AZURE_SQL_DATABASE}"
+          actual_database_id="$(az sql db show \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --server "${AZURE_SQL_SERVER_NAME}" \
+            --name "${AZURE_SQL_DATABASE}" \
+            --subscription "${EXPECTED_SUBSCRIPTION_ID}" \
+            --query id \
+            --output tsv)"
+          [[ "${actual_database_id,,}" == "${expected_database_id,,}" ]] || {
+            echo "::error::Azure SQL Database ID does not match the fixed UAT target."
+            exit 1
+          }
+
+          echo "TARGET_RESOURCE_GROUP=${AZURE_RESOURCE_GROUP}"
+          echo "TARGET_SQL_SERVER=${AZURE_SQL_SERVER_NAME}"
+          echo "TARGET_DATABASE=${AZURE_SQL_DATABASE}"
+
+      - name: Capture 1800_005 read-only migration identity evidence
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+
+          try {
+            $accessToken = az account get-access-token `
+              --resource https://database.windows.net/ `
+              --query accessToken `
+              --output tsv
+
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+              throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+            }
+            Write-Output "::add-mask::$accessToken"
+
+            function Invoke-ReadOnlyQuery([string] $Query) {
+              return @(
+                Invoke-Sqlcmd `
+                  -ServerInstance $server `
+                  -Database $env:AZURE_SQL_DATABASE `
+                  -AccessToken $accessToken `
+                  -ApplicationIntent ReadOnly `
+                  -ConnectionTimeout 15 `
+                  -QueryTimeout 60 `
+                  -AbortOnError `
+                  -OutputSqlErrors $true `
+                  -Query $Query
+              )
+            }
+
+            $databaseResult = @(
+              Invoke-ReadOnlyQuery @'
+          SELECT DB_NAME() AS DatabaseName;
+          '@
+            )
+            if ($databaseResult.Count -ne 1) {
+              throw "Expected one DB_NAME() result row; received $($databaseResult.Count)."
+            }
+            $databaseName = [string]$databaseResult[0].DatabaseName
+            if ($databaseName -ne 'db-fieldvisit-uat') {
+              throw "Connected to unexpected database: $databaseName"
+            }
+            Write-Output "DATABASE_NAME=$databaseName"
+
+            $schemaVersionsObject = @(
+              Invoke-ReadOnlyQuery @'
+          SELECT OBJECT_ID(N'dbo.SchemaVersions', N'U') AS SchemaVersionsObjectId;
+          '@
+            )
+            if ($schemaVersionsObject.Count -ne 1) {
+              throw "Expected one SchemaVersions object result row; received $($schemaVersionsObject.Count)."
+            }
+
+            $schemaVersionsPresent = -not [DBNull]::Value.Equals($schemaVersionsObject[0].SchemaVersionsObjectId)
+            Write-Output ("SCHEMA_VERSIONS_OBJECT_PRESENT=" + $(if ($schemaVersionsPresent) { 'YES' } else { 'NO' }))
+
+            [int64] $schemaVersionCount = 0
+            if ($schemaVersionsPresent) {
+              $schemaVersionResult = @(
+                Invoke-ReadOnlyQuery @'
+          SELECT COUNT_BIG(*) AS TargetVersionCount
+          FROM dbo.SchemaVersions
+          WHERE VersionNumber = N'1.8.0-005';
+          '@
+              )
+              if ($schemaVersionResult.Count -ne 1) {
+                throw "Expected one 1.8.0-005 SchemaVersions count row; received $($schemaVersionResult.Count)."
+              }
+              $schemaVersionCount = [int64]$schemaVersionResult[0].TargetVersionCount
+            }
+            Write-Output "SCHEMA_VERSION_1800_005_COUNT=$schemaVersionCount"
+
+            $characteristicColumns = @(
+              Invoke-ReadOnlyQuery @'
+          SELECT s.name AS SchemaName, t.name AS TableName, c.name AS ColumnName
+          FROM sys.columns AS c
+          JOIN sys.tables AS t ON t.object_id = c.object_id
+          JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+          WHERE s.name = N'dbo'
+            AND
+            (
+                (t.name = N'Projects'
+                 AND c.name IN (N'InactivatedAt', N'InactivatedByUserId', N'RowVersion'))
+                OR
+                (t.name = N'VisitTypes'
+                 AND c.name IN (N'InactivatedAt', N'InactivatedByUserId', N'RowVersion'))
+                OR
+                (t.name = N'MileageRateRules'
+                 AND c.name IN (N'CreatedByUserId', N'UpdatedByUserId', N'InactivatedAt', N'InactivatedByUserId', N'RowVersion'))
+            )
+          ORDER BY t.name, c.name;
+          '@
+            )
+            $characteristicColumnCount = [int64]$characteristicColumns.Count
+            Write-Output "CHARACTERISTIC_1800_005_COLUMN_COUNT=$characteristicColumnCount"
+            foreach ($column in $characteristicColumns) {
+              Write-Output "CHARACTERISTIC_1800_005_COLUMN=$($column.SchemaName).$($column.TableName).$($column.ColumnName)"
+            }
+
+            $triggerResult = @(
+              Invoke-ReadOnlyQuery @'
+          SELECT CASE
+              WHEN OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries', N'TR') IS NULL THEN CAST(0 AS bigint)
+              ELSE CAST(1 AS bigint)
+          END AS TriggerCount;
+          '@
+            )
+            if ($triggerResult.Count -ne 1) {
+              throw "Expected one trigger count row; received $($triggerResult.Count)."
+            }
+            $triggerCount = [int64]$triggerResult[0].TriggerCount
+            Write-Output "TR_MILEAGERATERULES_PROTECTSERIES_COUNT=$triggerCount"
+
+            $characteristicIndexes = @(
+              Invoke-ReadOnlyQuery @'
+          SELECT s.name AS SchemaName, t.name AS TableName, i.name AS IndexName
+          FROM sys.indexes AS i
+          JOIN sys.tables AS t ON t.object_id = i.object_id
+          JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+          WHERE s.name = N'dbo'
+            AND i.name IN
+            (
+                N'IX_Projects_Search',
+                N'UX_VisitTypes_VisitTypeCode',
+                N'IX_VisitTypes_Active_Sort',
+                N'UX_MileageRateRules_Scope_Vehicle_Start',
+                N'IX_MileageRateRules_AsOf'
+            )
+          ORDER BY t.name, i.name;
+          '@
+            )
+            $characteristicIndexCount = [int64]$characteristicIndexes.Count
+            Write-Output "CHARACTERISTIC_1800_005_INDEX_COUNT=$characteristicIndexCount"
+            foreach ($index in $characteristicIndexes) {
+              Write-Output "CHARACTERISTIC_1800_005_INDEX=$($index.SchemaName).$($index.TableName).$($index.IndexName)"
+            }
+
+            if ($schemaVersionCount -gt 0) {
+              $preflight = 'STOP_PRESENT'
+              $canRewrite = 'NO'
+            }
+            elseif ($characteristicColumnCount -gt 0 -or $triggerCount -gt 0 -or $characteristicIndexCount -gt 0) {
+              $preflight = 'STOP_PARTIAL'
+              $canRewrite = 'NO'
+            }
+            else {
+              $preflight = 'CLEAN'
+              $canRewrite = 'YES'
+            }
+
+            Write-Output "PREFLIGHT=$preflight"
+            Write-Output "CAN_REWRITE_CANONICAL_1800_005=$canRewrite"
+            Write-Output 'SQL_WRITE_EXECUTED=NO'
+            Write-Output 'DDL_EXECUTED=NO'
+            Write-Output 'MIGRATION_EXECUTED=NO'
+            Write-Output 'AZURE_CONFIGURATION_CHANGED=NO'
+          }
+          catch {
+            Write-Output 'PREFLIGHT=BLOCKED_BY_ACCESS'
+            Write-Output 'CAN_REWRITE_CANONICAL_1800_005=NO'
+            Write-Output 'SQL_WRITE_EXECUTED=NO'
+            Write-Output 'DDL_EXECUTED=NO'
+            Write-Output 'MIGRATION_EXECUTED=NO'
+            Write-Output 'AZURE_CONFIGURATION_CHANGED=NO'
+            Write-Error ($_ | Out-String)
+            throw
+          }
+
+      - name: Emit blocked classification for pre-query technical failure
+        if: failure()
+        shell: bash
+        run: |
+          echo 'PREFLIGHT=BLOCKED_BY_ACCESS'
+          echo 'CAN_REWRITE_CANONICAL_1800_005=NO'
+          echo 'SQL_WRITE_EXECUTED=NO'
+          echo 'DDL_EXECUTED=NO'
+          echo 'MIGRATION_EXECUTED=NO'
+          echo 'AZURE_CONFIGURATION_CHANGED=NO'
+
+      - name: Sign out of Azure
+        if: always()
+        shell: bash
+        run: az logout || true
