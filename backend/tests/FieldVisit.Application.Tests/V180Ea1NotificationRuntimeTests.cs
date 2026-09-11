@@ -6,27 +6,33 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180Ea1NotificationRuntimeTests
 {
     [Fact]
-    public void Catalog_has_exact_14_frozen_events_and_versioned_templates()
+    public void Event_code_vocabulary_has_exact_14_frozen_identifiers_only()
     {
-        var rows = NotificationEventCatalog.All.OrderBy(x => x.EventCode).ToArray();
-        Assert.Equal(14, rows.Length);
         Assert.Equal(new[]
         {
-            "CorrectionApproved|Transaction|False|CorrectionApproved.v1",
-            "CorrectionRequested|Transaction|False|CorrectionRequested.v1",
-            "CorrectionReturned|Transaction|False|CorrectionReturned.v1",
-            "DeploymentSiteChangeEffective|Reminder|True|DeploymentSiteChangeEffective.v1",
-            "EmploymentAuthorizationExpiring|Reminder|True|EmploymentAuthorizationExpiring.v1",
-            "ImportCompleted|System|False|ImportCompleted.v1",
-            "ImportFailed|System|False|ImportFailed.v1",
-            "LocationApproved|Transaction|False|LocationApproved.v1",
-            "LocationReturned|Transaction|False|LocationReturned.v1",
-            "LocationReviewRequested|Transaction|False|LocationReviewRequested.v1",
-            "ProjectExpiring|Reminder|True|ProjectExpiring.v1",
-            "TripApproved|Transaction|False|TripApproved.v1",
-            "TripReturned|Transaction|False|TripReturned.v1",
-            "TripSubmitted|Transaction|False|TripSubmitted.v1"
-        }, rows.Select(x => $"{x.EventCode}|{x.Category}|{x.HonorsOptionalPreference}|{x.TemplateCode}").ToArray());
+            "CorrectionApproved",
+            "CorrectionRequested",
+            "CorrectionReturned",
+            "DeploymentSiteChangeEffective",
+            "EmploymentAuthorizationExpiring",
+            "ImportCompleted",
+            "ImportFailed",
+            "LocationApproved",
+            "LocationReturned",
+            "LocationReviewRequested",
+            "ProjectExpiring",
+            "TripApproved",
+            "TripReturned",
+            "TripSubmitted"
+        }, NotificationEventCodes.All.OrderBy(x => x, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public void No_duplicate_runtime_source_defines_type_preference_or_template_semantics()
+    {
+        var assembly = typeof(NotificationEventCodes).Assembly;
+        Assert.Null(assembly.GetType("FieldVisit.Application.NotificationEventDefinition"));
+        Assert.Null(assembly.GetType("FieldVisit.Application.NotificationEventCatalog"));
     }
 
     [Fact]
@@ -48,22 +54,46 @@ public sealed class V180Ea1NotificationRuntimeTests
         Assert.Throws<ArgumentOutOfRangeException>(() => NotificationBusinessKeyAuthority.ForUser(0));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-an-email")]
+    [InlineData("user@")]
+    [InlineData("@example.com")]
+    [InlineData("a b@example.com")]
+    [InlineData("a@example")]
+    public void Email_usability_rejects_null_blank_and_malformed_values(string? value)
+        => Assert.Null(NotificationEmailAuthority.NormalizeUsable(value));
+
     [Fact]
-    public void Typed_v1_template_payload_is_deterministic()
+    public void Email_usability_normalizes_only_valid_delivery_address()
+        => Assert.Equal("user@example.invalid", NotificationEmailAuthority.NormalizeUsable(" User@Example.Invalid "));
+
+    [Fact]
+    public void Typed_v1_template_payload_is_deterministic_for_db_selected_v1_template()
     {
         var payload = new NotificationTemplatePayloadV1("REF-1", "detail");
         Assert.Equal(
             "{\"version\":1,\"reference\":\"REF-1\",\"detail\":\"detail\"}",
-            NotificationTemplatePayloadAuthority.Serialize("TripSubmitted.v1", payload));
+            NotificationTemplatePayloadAuthority.Serialize("RuntimeSelectedTemplate.v1", payload));
     }
 
     [Fact]
-    public void Arbitrary_payload_type_or_template_version_is_rejected()
+    public void Incompatible_db_template_version_is_payload_contract_mismatch_not_setting_drift()
     {
-        Assert.Throws<InvalidOperationException>(() =>
-            NotificationTemplatePayloadAuthority.Serialize("TripSubmitted.v1", new UnsupportedPayload()));
-        Assert.Throws<InvalidOperationException>(() =>
+        var ex = Assert.Throws<InvalidOperationException>(() =>
             NotificationTemplatePayloadAuthority.Serialize("TripSubmitted.v2", new NotificationTemplatePayloadV1("REF-1")));
+        Assert.Contains("payload-contract/version mismatch", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("setting drift", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Arbitrary_payload_type_is_rejected_even_when_version_number_matches()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            NotificationTemplatePayloadAuthority.Serialize("TripSubmitted.v1", new UnsupportedPayload()));
+        Assert.Contains("payload-contract/version mismatch", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

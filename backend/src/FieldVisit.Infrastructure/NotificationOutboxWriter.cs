@@ -13,7 +13,7 @@ public sealed class EfNotificationOutboxWriter(
     public async Task<NotificationQueueResult> QueueAsync(NotificationEventContext context, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var definition = NotificationEventCatalog.GetRequired(context.EventCode);
+        var eventCode = NotificationEventCodes.Validate(context.EventCode);
         var environmentCode = runtimeEnvironment.GetRequiredCode();
         var businessEventKey = NotificationBusinessKeyAuthority.ValidateBusinessEventKey(context.BusinessEventKey);
 
@@ -22,13 +22,11 @@ public sealed class EfNotificationOutboxWriter(
             throw new InvalidOperationException($"Notification environment policy not found: {environmentCode}");
 
         var setting = await db.Set<NotificationSetting>().AsNoTracking()
-            .SingleOrDefaultAsync(x => x.EventCode == definition.EventCode, ct)
-            ?? throw new InvalidOperationException($"Notification setting not found: {definition.EventCode}");
+            .SingleOrDefaultAsync(x => x.EventCode == eventCode, ct)
+            ?? throw new InvalidOperationException($"Notification setting not found: {eventCode}");
 
-        if (!string.Equals(setting.NotificationType, definition.Category, StringComparison.Ordinal)
-            || setting.HonorsOptionalPreference != definition.HonorsOptionalPreference
-            || !string.Equals(setting.TemplateCode, definition.TemplateCode, StringComparison.Ordinal))
-            throw new InvalidOperationException($"Notification setting drift detected for {definition.EventCode}.");
+        if (!NotificationCategories.IsKnown(setting.NotificationType))
+            throw new InvalidOperationException($"Notification setting has unsupported NotificationType: {setting.NotificationType}");
 
         if (!setting.IsEnabled)
             return Result(businessEventKey, NotificationQueueOutcomes.Suppressed, 0, 0, 0, 0, 0, 0);
@@ -40,7 +38,8 @@ public sealed class EfNotificationOutboxWriter(
         if (rules.Count == 0)
             return Result(businessEventKey, NotificationQueueOutcomes.NoRecipient, 0, 0, 0, 0, 0, 0);
 
-        // R3: resolve the complete set first, then canonicalize independently of query order.
+        // Resolve the complete event-time set first. Canonicalization and email dedup are deliberately
+        // performed after resolution so query order cannot become authority.
         var resolved = await recipientResolver.ResolveAsync(context, rules, ct);
         if (resolved.Count == 0)
             return Result(businessEventKey, NotificationQueueOutcomes.NoRecipient, rules.Count, 0, 0, 0, 0, 0);
@@ -48,9 +47,11 @@ public sealed class EfNotificationOutboxWriter(
         var canonical = CanonicalizeRecipients(resolved);
         var eligible = new List<NotificationRecipient>(canonical.Count);
         var preferenceSuppressed = 0;
+        var honorsOptionalPreference = string.Equals(setting.NotificationType, NotificationCategories.Reminder, StringComparison.Ordinal)
+                                       && setting.HonorsOptionalPreference;
         foreach (var recipient in canonical)
         {
-            if (definition.HonorsOptionalPreference && !recipient.OptionalEmailNotificationEnabled)
+            if (honorsOptionalPreference && !recipient.OptionalEmailNotificationEnabled)
             {
                 preferenceSuppressed++;
                 continue;
@@ -71,13 +72,15 @@ public sealed class EfNotificationOutboxWriter(
             .Select(x => x.NormalizedRecipientEmail!)
             .ToHashSet(StringComparer.Ordinal);
 
-        var templateDataJson = NotificationTemplatePayloadAuthority.Serialize(definition.TemplateCode, context.TemplatePayload);
+        // NotificationSettings is the sole runtime authority for the selected versioned template.
+        // The caller supplies a typed payload; the DB-selected TemplateCode determines compatibility.
+        var templateDataJson = NotificationTemplatePayloadAuthority.Serialize(setting.TemplateCode, context.TemplatePayload);
         var queuedCount = 0;
         var existingCount = 0;
         var unusableEmailEvidenceCount = 0;
         foreach (var recipient in eligible)
         {
-            var normalizedEmail = NotificationBusinessKeyAuthority.NormalizeEmail(recipient.Email);
+            var normalizedEmail = NotificationEmailAuthority.NormalizeUsable(recipient.Email);
             if (existingKeys.Contains(recipient.RecipientKey)
                 || (normalizedEmail is not null && existingEmails.Contains(normalizedEmail)))
             {
@@ -90,7 +93,7 @@ public sealed class EfNotificationOutboxWriter(
             {
                 row = MailOutbox.CreateRecipientEmailFailure(
                     environmentCode,
-                    definition.EventCode,
+                    eventCode,
                     businessEventKey,
                     context.EventOccurredAt,
                     Required(context.AggregateType, nameof(context.AggregateType)),
@@ -98,7 +101,7 @@ public sealed class EfNotificationOutboxWriter(
                     recipient.RecipientKey,
                     recipient.EmploymentId,
                     recipient.UserId,
-                    definition.TemplateCode,
+                    setting.TemplateCode,
                     templateDataJson,
                     context.CorrelationId,
                     timeProvider.GetUtcNow().UtcDateTime);
@@ -108,7 +111,7 @@ public sealed class EfNotificationOutboxWriter(
             {
                 row = MailOutbox.CreatePending(
                     environmentCode,
-                    definition.EventCode,
+                    eventCode,
                     businessEventKey,
                     context.EventOccurredAt,
                     Required(context.AggregateType, nameof(context.AggregateType)),
@@ -117,7 +120,7 @@ public sealed class EfNotificationOutboxWriter(
                     recipient.EmploymentId,
                     recipient.UserId,
                     normalizedEmail,
-                    definition.TemplateCode,
+                    setting.TemplateCode,
                     templateDataJson,
                     context.CorrelationId);
             }
@@ -134,7 +137,8 @@ public sealed class EfNotificationOutboxWriter(
                 ? NotificationQueueOutcomes.Idempotent
                 : NotificationQueueOutcomes.NoRecipient;
 
-        // Deliberately no SaveChanges here. E-A2/caller owns the business transaction commit and concurrent collision translation.
+        // Deliberately no SaveChanges here. E-A2/caller owns the business transaction commit and
+        // concurrent unique-collision translation. General database errors are not swallowed here.
         return Result(
             businessEventKey,
             outcome,
@@ -148,8 +152,6 @@ public sealed class EfNotificationOutboxWriter(
 
     private static List<NotificationRecipient> CanonicalizeRecipients(IReadOnlyList<NotificationRecipient> resolved)
     {
-        // Employment-backed identity wins before USER fallback. For otherwise duplicate normalized emails,
-        // the lowest canonical RecipientKey wins. Stable ordering makes query order irrelevant.
         var byRecipientKey = resolved
             .OrderBy(x => x.EmploymentId.HasValue ? 0 : 1)
             .ThenBy(x => x.RecipientKey, StringComparer.Ordinal)
@@ -163,7 +165,7 @@ public sealed class EfNotificationOutboxWriter(
                      .OrderBy(x => x.EmploymentId.HasValue ? 0 : 1)
                      .ThenBy(x => x.RecipientKey, StringComparer.Ordinal))
         {
-            var normalized = NotificationBusinessKeyAuthority.NormalizeEmail(recipient.Email);
+            var normalized = NotificationEmailAuthority.NormalizeUsable(recipient.Email);
             if (normalized is not null && !emails.Add(normalized))
                 continue;
             selected.Add(recipient);

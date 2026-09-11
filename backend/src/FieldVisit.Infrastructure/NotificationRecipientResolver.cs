@@ -20,12 +20,12 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
             {
                 case NotificationRecipientRuleCodes.TripOwner:
                     if (context.TripOwnerEmploymentId is long ownerEmploymentId)
-                        await AddEmploymentAsync(result, rule, ownerEmploymentId, asOf, ct);
+                        await AddEmploymentAsync(result, rule, ownerEmploymentId, asOf, null, ct);
                     break;
 
                 case NotificationRecipientRuleCodes.AffectedEmployment:
                     if (context.AffectedEmploymentId is long affectedEmploymentId)
-                        await AddEmploymentAsync(result, rule, affectedEmploymentId, asOf, ct);
+                        await AddEmploymentAsync(result, rule, affectedEmploymentId, asOf, null, ct);
                     break;
 
                 case NotificationRecipientRuleCodes.Initiator:
@@ -41,7 +41,7 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
                             .Distinct()
                             .ToListAsync(ct);
                         foreach (var employmentId in employmentIds)
-                            await AddEmploymentAsync(result, rule, employmentId, asOf, ct);
+                            await AddEmploymentAsync(result, rule, employmentId, asOf, null, ct);
                     }
                     break;
 
@@ -57,7 +57,7 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
                             .Distinct()
                             .ToListAsync(ct);
                         foreach (var employmentId in delegateEmploymentIds)
-                            await AddEmploymentAsync(result, rule, employmentId, asOf, ct);
+                            await AddEmploymentAsync(result, rule, employmentId, asOf, null, ct);
                     }
                     break;
 
@@ -79,7 +79,7 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
                             .Distinct()
                             .ToListAsync(ct);
                         foreach (var employmentId in adminEmploymentIds)
-                            await AddEmploymentAsync(result, rule, employmentId, asOf, ct);
+                            await AddEmploymentAsync(result, rule, employmentId, asOf, null, ct);
                     }
                     break;
 
@@ -105,6 +105,7 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
         string rule,
         long employmentId,
         DateOnly asOf,
+        int? preferredUserId,
         CancellationToken ct)
     {
         var employment = await db.Employments.AsNoTracking()
@@ -114,15 +115,28 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
             || (employment.TerminationDate is DateOnly termination && termination < asOf))
             return;
 
-        string? email = NotificationBusinessKeyAuthority.NormalizeEmail(employment.Email);
-        int? userId = employment.LegacyUserId;
-        if (email is null && userId is int legacyUserId)
+        var userId = preferredUserId ?? employment.LegacyUserId;
+        var email = NotificationEmailAuthority.NormalizeUsable(employment.Email);
+
+        if (email is null)
         {
-            email = NotificationBusinessKeyAuthority.NormalizeEmail(
-                await db.Users.AsNoTracking()
-                    .Where(x => x.UserId == legacyUserId && x.IsActive)
-                    .Select(x => x.Email)
-                    .SingleOrDefaultAsync(ct));
+            if (userId is null)
+            {
+                userId = await db.UserIdentityProfiles.AsNoTracking()
+                    .Where(x => x.EmploymentId == employment.EmploymentId)
+                    .OrderBy(x => x.UserId)
+                    .Select(x => (int?)x.UserId)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            if (userId is int fallbackUserId)
+            {
+                email = NotificationEmailAuthority.NormalizeUsable(
+                    await db.Users.AsNoTracking()
+                        .Where(x => x.UserId == fallbackUserId && x.IsActive)
+                        .Select(x => x.Email)
+                        .SingleOrDefaultAsync(ct));
+            }
         }
 
         result.Add(new NotificationRecipient(
@@ -146,8 +160,6 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
             .Select(x => x.EmploymentId)
             .SingleOrDefaultAsync(ct);
 
-        // R2: Employment is canonical when either the identity bridge or legacy user link
-        // proves that USER and EMP represent the same logical person.
         if (employmentId is not long)
         {
             employmentId = await db.Employments.AsNoTracking()
@@ -160,7 +172,7 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
 
         if (employmentId is long linkedEmploymentId)
         {
-            await AddEmploymentAsync(result, rule, linkedEmploymentId, asOf, ct);
+            await AddEmploymentAsync(result, rule, linkedEmploymentId, asOf, userId, ct);
             return;
         }
 
@@ -171,7 +183,7 @@ public sealed class EfNotificationRecipientResolver(AppDbContext db) : INotifica
             NotificationBusinessKeyAuthority.ForUser(user.UserId),
             null,
             user.UserId,
-            NotificationBusinessKeyAuthority.NormalizeEmail(user.Email),
+            NotificationEmailAuthority.NormalizeUsable(user.Email),
             true));
     }
 }

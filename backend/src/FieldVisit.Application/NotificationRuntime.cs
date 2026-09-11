@@ -8,6 +8,11 @@ public static class NotificationCategories
     public const string Transaction = "Transaction";
     public const string Reminder = "Reminder";
     public const string System = "System";
+
+    public static bool IsKnown(string? value)
+        => string.Equals(value, Transaction, StringComparison.Ordinal)
+           || string.Equals(value, Reminder, StringComparison.Ordinal)
+           || string.Equals(value, System, StringComparison.Ordinal);
 }
 
 public static class NotificationEventCodes
@@ -26,6 +31,35 @@ public static class NotificationEventCodes
     public const string ProjectExpiring = "ProjectExpiring";
     public const string ImportCompleted = "ImportCompleted";
     public const string ImportFailed = "ImportFailed";
+
+    private static readonly string[] FrozenCodes =
+    [
+        TripSubmitted,
+        TripApproved,
+        TripReturned,
+        CorrectionRequested,
+        CorrectionApproved,
+        CorrectionReturned,
+        LocationReviewRequested,
+        LocationApproved,
+        LocationReturned,
+        EmploymentAuthorizationExpiring,
+        DeploymentSiteChangeEffective,
+        ProjectExpiring,
+        ImportCompleted,
+        ImportFailed
+    ];
+
+    private static readonly HashSet<string> FrozenSet = new(FrozenCodes, StringComparer.Ordinal);
+
+    public static IReadOnlyCollection<string> All => Array.AsReadOnly(FrozenCodes);
+
+    public static string Validate(string? eventCode)
+    {
+        if (string.IsNullOrWhiteSpace(eventCode) || !FrozenSet.Contains(eventCode))
+            throw new InvalidOperationException($"Unknown notification event code: {eventCode}");
+        return eventCode;
+    }
 }
 
 public static class NotificationRecipientRuleCodes
@@ -47,45 +81,6 @@ public static class NotificationQueueOutcomes
     public const string Idempotent = "Idempotent";
 }
 
-public sealed record NotificationEventDefinition(
-    string EventCode,
-    string Category,
-    bool HonorsOptionalPreference,
-    string TemplateCode);
-
-public static class NotificationEventCatalog
-{
-    private static readonly IReadOnlyDictionary<string, NotificationEventDefinition> ByCode =
-        new Dictionary<string, NotificationEventDefinition>(StringComparer.Ordinal)
-        {
-            [NotificationEventCodes.TripSubmitted] = Tx(NotificationEventCodes.TripSubmitted),
-            [NotificationEventCodes.TripApproved] = Tx(NotificationEventCodes.TripApproved),
-            [NotificationEventCodes.TripReturned] = Tx(NotificationEventCodes.TripReturned),
-            [NotificationEventCodes.CorrectionRequested] = Tx(NotificationEventCodes.CorrectionRequested),
-            [NotificationEventCodes.CorrectionApproved] = Tx(NotificationEventCodes.CorrectionApproved),
-            [NotificationEventCodes.CorrectionReturned] = Tx(NotificationEventCodes.CorrectionReturned),
-            [NotificationEventCodes.LocationReviewRequested] = Tx(NotificationEventCodes.LocationReviewRequested),
-            [NotificationEventCodes.LocationApproved] = Tx(NotificationEventCodes.LocationApproved),
-            [NotificationEventCodes.LocationReturned] = Tx(NotificationEventCodes.LocationReturned),
-            [NotificationEventCodes.EmploymentAuthorizationExpiring] = Reminder(NotificationEventCodes.EmploymentAuthorizationExpiring),
-            [NotificationEventCodes.DeploymentSiteChangeEffective] = Reminder(NotificationEventCodes.DeploymentSiteChangeEffective),
-            [NotificationEventCodes.ProjectExpiring] = Reminder(NotificationEventCodes.ProjectExpiring),
-            [NotificationEventCodes.ImportCompleted] = SystemEvent(NotificationEventCodes.ImportCompleted),
-            [NotificationEventCodes.ImportFailed] = SystemEvent(NotificationEventCodes.ImportFailed)
-        };
-
-    public static IReadOnlyCollection<NotificationEventDefinition> All => ByCode.Values.ToArray();
-
-    public static NotificationEventDefinition GetRequired(string eventCode)
-        => ByCode.TryGetValue(eventCode, out var definition)
-            ? definition
-            : throw new InvalidOperationException($"Unknown notification event code: {eventCode}");
-
-    private static NotificationEventDefinition Tx(string code) => new(code, NotificationCategories.Transaction, false, $"{code}.v1");
-    private static NotificationEventDefinition Reminder(string code) => new(code, NotificationCategories.Reminder, true, $"{code}.v1");
-    private static NotificationEventDefinition SystemEvent(string code) => new(code, NotificationCategories.System, false, $"{code}.v1");
-}
-
 public sealed record NotificationRuntimeEnvironment(string EnvironmentCode)
 {
     public string GetRequiredCode()
@@ -105,8 +100,8 @@ public interface INotificationTemplatePayload
 }
 
 /// <summary>
-/// E-A1 typed/versioned immutable payload foundation. Business integrations may add
-/// additional typed payload records later, but raw JSON/property-bag authority is forbidden.
+/// E-A1 typed/versioned immutable payload foundation. Raw JSON/property-bag authority is forbidden.
+/// NotificationSettings.TemplateCode selects the authoritative version at enqueue time.
 /// </summary>
 public sealed record NotificationTemplatePayloadV1(string Reference, string? Detail = null) : INotificationTemplatePayload
 {
@@ -186,11 +181,51 @@ public static class NotificationBusinessKeyAuthority
         if (userId <= 0) throw new ArgumentOutOfRangeException(nameof(userId));
         return $"USER:{userId}";
     }
+}
 
-    public static string? NormalizeEmail(string? email)
+public static class NotificationEmailAuthority
+{
+    private const string LocalSpecials = "!#$%&'*+-/=?^_`{|}~.";
+
+    /// <summary>
+    /// Deterministic v1.8 email-usability authority. Null/blank/malformed values are unusable.
+    /// Only usable values are returned normalized for delivery/deduplication.
+    /// </summary>
+    public static string? NormalizeUsable(string? email)
     {
         var value = email?.Trim();
-        return string.IsNullOrWhiteSpace(value) ? null : value.ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 320)
+            return null;
+        if (value.Any(char.IsWhiteSpace) || value.Any(char.IsControl))
+            return null;
+
+        var at = value.IndexOf('@');
+        if (at <= 0 || at != value.LastIndexOf('@') || at == value.Length - 1)
+            return null;
+
+        var local = value[..at];
+        var domain = value[(at + 1)..];
+        if (local.Length > 64 || domain.Length > 253)
+            return null;
+        if (local.StartsWith(".", StringComparison.Ordinal)
+            || local.EndsWith(".", StringComparison.Ordinal)
+            || local.Contains("..", StringComparison.Ordinal))
+            return null;
+        if (!local.All(c => char.IsLetterOrDigit(c) || LocalSpecials.Contains(c)))
+            return null;
+
+        if (!domain.Contains('.'))
+            return null;
+        var labels = domain.Split('.');
+        if (labels.Any(label =>
+                label.Length == 0
+                || label.Length > 63
+                || label[0] == '-'
+                || label[^1] == '-'
+                || !label.All(c => char.IsLetterOrDigit(c) || c == '-')))
+            return null;
+
+        return value.ToLowerInvariant();
     }
 }
 
@@ -204,16 +239,35 @@ public static class NotificationTemplatePayloadAuthority
     public static string Serialize(string templateCode, INotificationTemplatePayload payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
-        if (!templateCode.EndsWith(".v1", StringComparison.Ordinal) || payload.Version != 1)
-            throw new InvalidOperationException($"Template payload version does not match fixed template authority: {templateCode}.");
+        var version = GetRequiredTemplateVersion(templateCode);
+        if (payload.Version != version)
+            throw PayloadMismatch(templateCode, payload.Version, version);
 
-        return payload switch
+        return (version, payload) switch
         {
-            NotificationTemplatePayloadV1 v1 => JsonSerializer.Serialize(
+            (1, NotificationTemplatePayloadV1 v1) => JsonSerializer.Serialize(
                 new PayloadEnvelopeV1(v1.Version, Required(v1.Reference), v1.Detail), JsonOptions),
-            _ => throw new InvalidOperationException($"Unsupported typed notification payload: {payload.GetType().Name}.")
+            _ => throw PayloadMismatch(templateCode, payload.Version, version)
         };
     }
+
+    private static int GetRequiredTemplateVersion(string? templateCode)
+    {
+        var value = templateCode?.Trim();
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException("Notification payload-contract/version mismatch: TemplateCode is blank.");
+
+        var marker = value.LastIndexOf(".v", StringComparison.Ordinal);
+        if (marker <= 0 || marker + 2 >= value.Length
+            || !int.TryParse(value[(marker + 2)..], out var version)
+            || version <= 0)
+            throw new InvalidOperationException($"Notification payload-contract/version mismatch: TemplateCode '{value}' is not versioned.");
+
+        return version;
+    }
+
+    private static InvalidOperationException PayloadMismatch(string? templateCode, int payloadVersion, int templateVersion)
+        => new($"Notification payload-contract/version mismatch: TemplateCode '{templateCode}' requires v{templateVersion}, payload is v{payloadVersion}.");
 
     private static string Required(string? value)
     {
