@@ -352,6 +352,117 @@ if (retry2Db.ChangeTracker.Entries<MailOutbox>().Any())
 await retry2Db.DisposeAsync();
 Console.WriteLine("EA1_R8_SEQUENTIAL_IDEMPOTENCY=PASS");
 
+// Closure: caller-owned transaction ROLLBACK must revert both business state and outbox.
+const string callerRollbackKey = "TRIP:9300:RETURNED:v1";
+await using (var callerRollbackDb = fx.NewDb())
+{
+    await using var callerRollbackTx = await callerRollbackDb.Database.BeginTransactionAsync();
+    var employment = await callerRollbackDb.Employments.SingleAsync(x => x.EmploymentId == 2006);
+    employment.SourceReference = "EA1-CALLER-TX-ROLLBACK";
+    var writer = new EfNotificationOutboxWriter(
+        callerRollbackDb,
+        new EfNotificationRecipientResolver(callerRollbackDb),
+        new NotificationRuntimeEnvironment("UAT"),
+        new FixedTimeProvider(new DateTimeOffset(fx.ProcessingAt, TimeSpan.Zero)));
+    var result = await writer.QueueAsync(fx.Ctx(NotificationEventCodes.TripReturned, callerRollbackKey, owner: 2006), CancellationToken.None);
+    if (result.QueuedCount != 1) throw new Exception("Caller rollback fixture did not track one outbox row.");
+    await callerRollbackDb.SaveChangesAsync();
+    await callerRollbackTx.RollbackAsync();
+}
+await using (var probe = fx.NewDb())
+{
+    var employment = await probe.Employments.AsNoTracking().SingleAsync(x => x.EmploymentId == 2006);
+    if (employment.SourceReference == "EA1-CALLER-TX-ROLLBACK"
+        || await probe.Set<MailOutbox>().AnyAsync(x => x.BusinessEventKey == callerRollbackKey))
+        throw new Exception("Caller rollback did not revert business state and outbox together.");
+}
+Console.WriteLine("EA1_CALLER_TX_ROLLBACK=PASS");
+
+// Closure: caller-owned transaction COMMIT persists both business state and outbox.
+const string callerCommitKey = "TRIP:9301:RETURNED:v1";
+await using (var callerCommitDb = fx.NewDb())
+{
+    await using var callerCommitTx = await callerCommitDb.Database.BeginTransactionAsync();
+    var employment = await callerCommitDb.Employments.SingleAsync(x => x.EmploymentId == 2006);
+    employment.SourceReference = "EA1-CALLER-TX-COMMIT";
+    var writer = new EfNotificationOutboxWriter(
+        callerCommitDb,
+        new EfNotificationRecipientResolver(callerCommitDb),
+        new NotificationRuntimeEnvironment("UAT"),
+        new FixedTimeProvider(new DateTimeOffset(fx.ProcessingAt, TimeSpan.Zero)));
+    var result = await writer.QueueAsync(fx.Ctx(NotificationEventCodes.TripReturned, callerCommitKey, owner: 2006), CancellationToken.None);
+    if (result.QueuedCount != 1) throw new Exception("Caller commit fixture did not track one outbox row.");
+    await callerCommitDb.SaveChangesAsync();
+    await callerCommitTx.CommitAsync();
+}
+await using (var probe = fx.NewDb())
+{
+    var employment = await probe.Employments.AsNoTracking().SingleAsync(x => x.EmploymentId == 2006);
+    if (employment.SourceReference != "EA1-CALLER-TX-COMMIT"
+        || !await probe.Set<MailOutbox>().AnyAsync(x => x.BusinessEventKey == callerCommitKey))
+        throw new Exception("Caller commit did not persist business state and outbox together.");
+}
+Console.WriteLine("EA1_CALLER_TX_COMMIT=PASS");
+
+// Closure: unknown EventCode fails deterministically with zero tracked and zero persisted outbox.
+const string unknownEventKey = "UNKNOWN:9302:v1";
+await using (var unknownDb = fx.NewDb())
+{
+    var writer = new EfNotificationOutboxWriter(
+        unknownDb,
+        new EfNotificationRecipientResolver(unknownDb),
+        new NotificationRuntimeEnvironment("UAT"),
+        new FixedTimeProvider(new DateTimeOffset(fx.ProcessingAt, TimeSpan.Zero)));
+    var rejected = false;
+    try
+    {
+        await writer.QueueAsync(fx.Ctx("UnsupportedEventCode", unknownEventKey, owner: 2006), CancellationToken.None);
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("Unknown notification event code", StringComparison.Ordinal))
+    {
+        rejected = true;
+    }
+    if (!rejected || unknownDb.ChangeTracker.Entries<MailOutbox>().Any())
+        throw new Exception("Unknown EventCode was not rejected before any MailOutbox Add.");
+}
+await using (var probe = fx.NewDb())
+    if (await probe.Set<MailOutbox>().AnyAsync(x => x.BusinessEventKey == unknownEventKey))
+        throw new Exception("Unknown EventCode persisted MailOutbox evidence.");
+Console.WriteLine("EA1_UNKNOWN_EVENT_ZERO_OUTBOX=PASS");
+
+// Closure: non-UAT runtime EnvironmentCode is bound from runtime config and snapshotted into outbox.
+await using (var environmentDb = fx.NewDb())
+{
+    await environmentDb.Database.ExecuteSqlRawAsync("""
+INSERT dbo.NotificationEnvironmentPolicies(EnvironmentCode,EmailMode,IsEnabled,SenderIdentityReference,UpdatedAt)
+VALUES(N'EA1TEST',N'Test',0,NULL,SYSUTCDATETIME());
+""");
+}
+const string nonUatKey = "TRIP:9303:RETURNED:v1";
+await using (var nonUatDb = fx.NewDb())
+{
+    var writer = new EfNotificationOutboxWriter(
+        nonUatDb,
+        new EfNotificationRecipientResolver(nonUatDb),
+        new NotificationRuntimeEnvironment("EA1TEST"),
+        new FixedTimeProvider(new DateTimeOffset(fx.ProcessingAt, TimeSpan.Zero)));
+    var result = await writer.QueueAsync(fx.Ctx(NotificationEventCodes.TripReturned, nonUatKey, owner: 2006), CancellationToken.None);
+    if (result.QueuedCount != 1) throw new Exception("EA1TEST runtime environment did not queue exactly one outbox row.");
+    await nonUatDb.SaveChangesAsync();
+}
+await using (var probe = fx.NewDb())
+{
+    var row = await probe.Set<MailOutbox>().SingleAsync(x => x.BusinessEventKey == nonUatKey);
+    if (row.EnvironmentCode != "EA1TEST" || row.Status != "Pending" || row.AttemptCount != 0)
+        throw new Exception("Non-UAT runtime EnvironmentCode was not persisted as enqueue authority.");
+    if (await probe.Set<MailDeliveryLog>().AnyAsync(x => x.MailOutboxId == row.MailOutboxId))
+        throw new Exception("Non-UAT enqueue evidence unexpectedly created provider/delivery activity.");
+    var uat = await probe.Set<NotificationEnvironmentPolicy>().AsNoTracking().SingleAsync(x => x.EnvironmentCode == "UAT");
+    if (uat.EmailMode != "Test" || uat.IsEnabled)
+        throw new Exception("Canonical UAT policy was modified by non-UAT environment evidence.");
+}
+Console.WriteLine("EA1_NON_UAT_RUNTIME_ENVIRONMENT=PASS");
+
 // EF mapping for corrected 1800_006 preference/RowVersion.
 await using (var finalDb = fx.NewDb())
 {
@@ -361,4 +472,4 @@ await using (var finalDb = fx.NewDb())
         throw new Exception("EF mapping for preference/RowVersion failed.");
 }
 Console.WriteLine("EA1_EF_MAPPING=PASS");
-Console.WriteLine("EA1_NOTIFICATION_RUNTIME_CORE_C1=29/29=PASS");
+Console.WriteLine("EA1_NOTIFICATION_RUNTIME_CORE_C1=33/33=PASS");
