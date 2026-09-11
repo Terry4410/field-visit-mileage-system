@@ -7,7 +7,8 @@
     "test": "playwright test",
     "test:epic-a": "playwright test tests/epic-a-query-ux.spec.ts",
     "test:db-work1": "playwright test tests/db-work1-master-data.spec.ts",
-    "test:protected": "playwright test tests/epic-a-query-ux.spec.ts tests/da-integration.spec.ts tests/db-work1-master-data.spec.ts",
+    "test:db-work2": "playwright test tests/db-work2-mileage.spec.ts",
+    "test:protected": "playwright test tests/epic-a-query-ux.spec.ts tests/da-integration.spec.ts tests/db-work1-master-data.spec.ts tests/db-work2-mileage.spec.ts",
     "test:smoke": "playwright test tests/smoke.spec.ts",
     "test:lifecycle": "playwright test tests/trip-lifecycle.spec.ts"
   },

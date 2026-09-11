@@ -12,7 +12,7 @@ var builder=WebApplication.CreateBuilder(args);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService,CurrentUserService>();
 builder.Services.AddScoped<ITokenService,TokenService>();
-builder.Services.AddScoped<AuthService>();builder.Services.AddScoped<TripService>();builder.Services.AddScoped<LeaderService>();builder.Services.AddScoped<MasterService>();builder.Services.AddScoped<V160FinalService>();builder.Services.AddScoped<V170PeopleAdminService>();builder.Services.AddScoped<V170LocationService>();builder.Services.AddScoped<V170ProjectLocationAdminService>();
+builder.Services.AddScoped<AuthService>();builder.Services.AddScoped<TripService>();builder.Services.AddScoped<LeaderService>();builder.Services.AddScoped<MasterService>();builder.Services.AddScoped<MileageRateRuntimeService>();builder.Services.AddScoped<V160FinalService>();builder.Services.AddScoped<V170PeopleAdminService>();builder.Services.AddScoped<V170LocationService>();builder.Services.AddScoped<V170ProjectLocationAdminService>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IBackgroundJobSignal,BackgroundJobSignal>();
 builder.Services.AddHostedService<BackgroundJobHostedService>();

@@ -9,7 +9,8 @@ public sealed class V160FinalService(
     IBackgroundJobService jobs,
     IBackgroundJobSignal backgroundJobSignal,
     IV170AccessControl access,
-    ITripRepository trips)
+    ITripRepository trips,
+    ITransactionBoundary transactions)
 {
     public async Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(
         TripQueryRequest request,
@@ -75,10 +76,14 @@ public sealed class V160FinalService(
         repository.GetCorrectionsAsync(current.GetRequired(), status, ct);
 
     public Task<CorrectionRequestDto> ReviewCorrectionAsync(long id, ReviewCorrectionRequest request, CancellationToken ct) =>
-        repository.ReviewCorrectionAsync(RequireRole("leader"), id, request, ct);
+        transactions.ExecuteAsync(
+            innerCt => repository.ReviewCorrectionAsync(RequireRole("leader"), id, request, innerCt),
+            ct);
 
     public Task<CorrectionRequestDto> CloseCorrectionAsync(long id, CloseCorrectionRequest request, CancellationToken ct) =>
-        repository.CloseCorrectionAsync(RequireRole("admin"), id, request, ct);
+        transactions.ExecuteAsync(
+            innerCt => repository.CloseCorrectionAsync(RequireRole("admin"), id, request, innerCt),
+            ct);
 
     public Task<IReadOnlyList<UserOptionDto>> VisitorsAsync(CancellationToken ct) =>
         repository.GetScopedVisitorsAsync(current.GetRequired(), ct);
