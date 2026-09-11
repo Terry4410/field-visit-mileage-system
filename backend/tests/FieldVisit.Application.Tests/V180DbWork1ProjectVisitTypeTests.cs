@@ -222,7 +222,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
     {
         await using var db=await VisitTypeDbAsync();
         var coordinator=new CountingCoordinator();
-        var result=await Master(db,Admin(),coordinator).DeactivateVisitTypeAsync(1,Token,default);
+        var result=await Master(db,Admin()).DeactivateVisitTypeAsync(1,Token,default);
         Assert.False(result.IsActive);
         Assert.Equal(1,coordinator.Calls);
         var row=await db.VisitTypes.SingleAsync(x=>x.VisitTypeId==1);
@@ -234,7 +234,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
     public async Task DB2_06_VisitType_stale_deactivate_has_zero_audit_or_mutation()
     {
         await using var db=await VisitTypeDbAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>Master(db,Admin()).DeactivateVisitTypeAsync(1,StaleToken),default);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>Master(db,Admin()).DeactivateVisitTypeAsync(1,StaleToken,default));
         Assert.True((await db.VisitTypes.SingleAsync(x=>x.VisitTypeId==1)).IsActive);
         Assert.Empty(db.AuditLogs);
     }
