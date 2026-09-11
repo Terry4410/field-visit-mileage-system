@@ -330,16 +330,19 @@ expect_verify_failure() {
 }
 expect_verify_failure A "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
+SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
 DECLARE @m nvarchar(max)=REPLACE(@d,N'AFTER INSERT, UPDATE, DELETE',N'AFTER INSERT, UPDATE');
 IF @m=@d THROW 54920,N'mutation A did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
 expect_verify_failure B "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
+SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
 DECLARE @m nvarchar(max)=REPLACE(@d,N'@LockMode=N''Exclusive''',N'@LockMode=N''Shared''');
 IF @m=@d THROW 54921,N'mutation B did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
 expect_verify_failure C "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
+SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
 DECLARE @m nvarchar(max)=REPLACE(@d,N'WITH (UPDLOCK,HOLDLOCK)',N'WITH (HOLDLOCK)');
 IF @m=@d THROW 54922,N'mutation C did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
@@ -350,6 +353,7 @@ UPDATE dbo.MileageRateRules SET EffectiveTo='2026-05-31' WHERE OrganizationId=90
 ENABLE TRIGGER dbo.TR_MileageRateRules_ProtectSeries ON dbo.MileageRateRules;"
 expect_verify_failure E "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
+SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
 DECLARE @m nvarchar(max)=REPLACE(@d,N'(r.OrganizationId=a.OrganizationId OR (r.OrganizationId IS NULL AND a.OrganizationId IS NULL))',N'ISNULL(r.OrganizationId,-1)=ISNULL(a.OrganizationId,-1)');
 IF @m=@d THROW 54923,N'mutation E did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
