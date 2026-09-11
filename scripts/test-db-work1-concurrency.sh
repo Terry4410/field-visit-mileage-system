@@ -314,6 +314,9 @@ echo "DBW1_RACE_FAMILIES=15/15"
 export DB_WORK1_SQL_CONNECTION="Server=127.0.0.1,${host_port};Database=${main_db};User ID=sa;Password=${sa_password};Encrypt=False;TrustServerCertificate=True"
 dotnet run --project backend/tests/FieldVisit.DBWork1.Integration.Tests/FieldVisit.DBWork1.Integration.Tests.csproj --configuration Release
 
+trigger_header="$(sql_scalar "$main_db" "SET NOCOUNT ON; DECLARE @d nvarchar(max)=LTRIM(OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'))); SELECT LEFT(@d,CHARINDEX(CHAR(10),@d+CHAR(10))-1);")"
+echo "DBW1_TRIGGER_DEFINITION_HEADER=$trigger_header"
+
 mutation_pass=0
 expect_verify_failure() {
   local id="$1" mutation="$2"
@@ -330,19 +333,25 @@ expect_verify_failure() {
 }
 expect_verify_failure A "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
-SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
+DECLARE @p int=CHARINDEX(N'TRIGGER',UPPER(@d));
+IF @p<=0 THROW 54919,N'trigger definition header not found',1;
+SET @d=N'ALTER '+SUBSTRING(@d,@p,LEN(@d)-@p+1);
 DECLARE @m nvarchar(max)=REPLACE(@d,N'AFTER INSERT, UPDATE, DELETE',N'AFTER INSERT, UPDATE');
 IF @m=@d THROW 54920,N'mutation A did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
 expect_verify_failure B "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
-SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
+DECLARE @p int=CHARINDEX(N'TRIGGER',UPPER(@d));
+IF @p<=0 THROW 54919,N'trigger definition header not found',1;
+SET @d=N'ALTER '+SUBSTRING(@d,@p,LEN(@d)-@p+1);
 DECLARE @m nvarchar(max)=REPLACE(@d,N'@LockMode=N''Exclusive''',N'@LockMode=N''Shared''');
 IF @m=@d THROW 54921,N'mutation B did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
 expect_verify_failure C "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
-SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
+DECLARE @p int=CHARINDEX(N'TRIGGER',UPPER(@d));
+IF @p<=0 THROW 54919,N'trigger definition header not found',1;
+SET @d=N'ALTER '+SUBSTRING(@d,@p,LEN(@d)-@p+1);
 DECLARE @m nvarchar(max)=REPLACE(@d,N'WITH (UPDLOCK,HOLDLOCK)',N'WITH (HOLDLOCK)');
 IF @m=@d THROW 54922,N'mutation C did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
@@ -353,7 +362,9 @@ UPDATE dbo.MileageRateRules SET EffectiveTo='2026-05-31' WHERE OrganizationId=90
 ENABLE TRIGGER dbo.TR_MileageRateRules_ProtectSeries ON dbo.MileageRateRules;"
 expect_verify_failure E "
 DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
-SET @d=REPLACE(@d,N'CREATE TRIGGER',N'ALTER TRIGGER');
+DECLARE @p int=CHARINDEX(N'TRIGGER',UPPER(@d));
+IF @p<=0 THROW 54919,N'trigger definition header not found',1;
+SET @d=N'ALTER '+SUBSTRING(@d,@p,LEN(@d)-@p+1);
 DECLARE @m nvarchar(max)=REPLACE(@d,N'(r.OrganizationId=a.OrganizationId OR (r.OrganizationId IS NULL AND a.OrganizationId IS NULL))',N'ISNULL(r.OrganizationId,-1)=ISNULL(a.OrganizationId,-1)');
 IF @m=@d THROW 54923,N'mutation E did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
