@@ -290,7 +290,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
     public static IEnumerable<object[]> InvalidExpectedOrders()=>new[]
     {
         new object[]{Array.Empty<int>()},
-        new object[]{new[]{1,1}},
+        new object[]{new[]{1}},
         new object[]{new[]{1,99}},
         new object[]{new[]{1,2,99}},
         new object[]{new[]{1,2,3}}
