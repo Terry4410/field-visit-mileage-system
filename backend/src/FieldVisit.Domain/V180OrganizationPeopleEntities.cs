@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace FieldVisit.Domain.Entities;
 
 public sealed class Center
@@ -52,6 +54,7 @@ public sealed class Employment
     public int OrganizationId { get; set; }
     public string? EmployeeNo { get; set; }
     public string? Email { get; set; }
+    [NotMapped]
     public bool OptionalEmailNotificationEnabled { get; set; } = true;
     public DateOnly? HireDate { get; set; }
     public DateOnly? TerminationDate { get; set; }
