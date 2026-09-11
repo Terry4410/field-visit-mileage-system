@@ -96,8 +96,85 @@ SET NOCOUNT ON;
 SET XACT_ABORT OFF;
 
 DECLARE @Rejected BIT;
+DECLARE @ErrorMessage NVARCHAR(4000);
 
--- A. Same BusinessEventKey + same RecipientKey is rejected, even with NULL email.
+-- Exact frozen 14-event seed equality and deterministic fingerprint.
+DECLARE @ExpectedSeed TABLE
+(
+    EventCode NVARCHAR(80) NOT NULL PRIMARY KEY,
+    NotificationType NVARCHAR(20) NOT NULL,
+    IsEnabled BIT NOT NULL,
+    HonorsOptionalPreference BIT NOT NULL,
+    ReminderDays INT NULL,
+    TemplateCode NVARCHAR(80) NOT NULL
+);
+INSERT @ExpectedSeed(EventCode, NotificationType, IsEnabled, HonorsOptionalPreference, ReminderDays, TemplateCode)
+VALUES
+(N'TripSubmitted',N'Transaction',1,0,NULL,N'TripSubmitted.v1'),
+(N'TripApproved',N'Transaction',1,0,NULL,N'TripApproved.v1'),
+(N'TripReturned',N'Transaction',1,0,NULL,N'TripReturned.v1'),
+(N'CorrectionRequested',N'Transaction',1,0,NULL,N'CorrectionRequested.v1'),
+(N'CorrectionApproved',N'Transaction',1,0,NULL,N'CorrectionApproved.v1'),
+(N'CorrectionReturned',N'Transaction',1,0,NULL,N'CorrectionReturned.v1'),
+(N'LocationReviewRequested',N'Transaction',1,0,NULL,N'LocationReviewRequested.v1'),
+(N'LocationApproved',N'Transaction',1,0,NULL,N'LocationApproved.v1'),
+(N'LocationReturned',N'Transaction',1,0,NULL,N'LocationReturned.v1'),
+(N'EmploymentAuthorizationExpiring',N'Reminder',0,1,30,N'EmploymentAuthorizationExpiring.v1'),
+(N'DeploymentSiteChangeEffective',N'Reminder',0,1,0,N'DeploymentSiteChangeEffective.v1'),
+(N'ProjectExpiring',N'Reminder',0,1,30,N'ProjectExpiring.v1'),
+(N'ImportCompleted',N'System',1,0,NULL,N'ImportCompleted.v1'),
+(N'ImportFailed',N'System',1,0,NULL,N'ImportFailed.v1');
+
+IF EXISTS
+(
+    SELECT EventCode, NotificationType, IsEnabled, HonorsOptionalPreference, ReminderDays, TemplateCode FROM @ExpectedSeed
+    EXCEPT
+    SELECT EventCode, NotificationType, IsEnabled, HonorsOptionalPreference, ReminderDays, TemplateCode FROM dbo.NotificationSettings
+)
+OR EXISTS
+(
+    SELECT EventCode, NotificationType, IsEnabled, HonorsOptionalPreference, ReminderDays, TemplateCode FROM dbo.NotificationSettings
+    EXCEPT
+    SELECT EventCode, NotificationType, IsEnabled, HonorsOptionalPreference, ReminderDays, TemplateCode FROM @ExpectedSeed
+)
+    THROW 54200, N'EA0 frozen notification seed differs from the exact 14-event contract.', 1;
+
+DECLARE @ExpectedSeedPayload NVARCHAR(MAX);
+DECLARE @ActualSeedPayload NVARCHAR(MAX);
+DECLARE @SeedFingerprint VARCHAR(64);
+
+SELECT @ExpectedSeedPayload =
+    STRING_AGG(
+        CONVERT(NVARCHAR(MAX), CONCAT(
+            EventCode,N'|',NotificationType,N'|',
+            CONVERT(NVARCHAR(1),CONVERT(INT,IsEnabled)),N'|',
+            CONVERT(NVARCHAR(1),CONVERT(INT,HonorsOptionalPreference)),N'|',
+            COALESCE(CONVERT(NVARCHAR(11),ReminderDays),N'<NULL>'),N'|',TemplateCode
+        )),
+        N';'
+    ) WITHIN GROUP (ORDER BY EventCode)
+FROM @ExpectedSeed;
+
+SELECT @ActualSeedPayload =
+    STRING_AGG(
+        CONVERT(NVARCHAR(MAX), CONCAT(
+            EventCode,N'|',NotificationType,N'|',
+            CONVERT(NVARCHAR(1),CONVERT(INT,IsEnabled)),N'|',
+            CONVERT(NVARCHAR(1),CONVERT(INT,HonorsOptionalPreference)),N'|',
+            COALESCE(CONVERT(NVARCHAR(11),ReminderDays),N'<NULL>'),N'|',TemplateCode
+        )),
+        N';'
+    ) WITHIN GROUP (ORDER BY EventCode)
+FROM dbo.NotificationSettings;
+
+IF @ActualSeedPayload <> @ExpectedSeedPayload
+    THROW 54201, N'EA0 deterministic notification seed fingerprint payload differs.', 1;
+
+SET @SeedFingerprint = CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', CONVERT(VARBINARY(MAX), @ActualSeedPayload)), 2);
+PRINT N'EA0_SEED_EXACT_EQUALITY=PASS';
+PRINT N'EA0_SEED_FINGERPRINT_SHA256=' + @SeedFingerprint;
+
+-- A. Same BusinessEventKey + same RecipientKey rejects via the exact recipient-key index.
 INSERT dbo.MailOutbox
 (
     EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
@@ -105,7 +182,9 @@ INSERT dbo.MailOutbox
 )
 VALUES
 (N'UAT',N'TripSubmitted',N'EA0-A',SYSUTCDATETIME(),N'Trip',N'1',N'EMP:1001',NULL,N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID());
+
 SET @Rejected = 0;
+SET @ErrorMessage = NULL;
 BEGIN TRY
     INSERT dbo.MailOutbox
     (
@@ -116,9 +195,15 @@ BEGIN TRY
     (N'UAT',N'TripSubmitted',N'EA0-A',SYSUTCDATETIME(),N'Trip',N'1',N'EMP:1001',NULL,N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID());
 END TRY
 BEGIN CATCH
-    IF ERROR_NUMBER() IN(2601,2627) SET @Rejected = 1; ELSE THROW;
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER() IN(2601,2627)
+       AND CHARINDEX(N'UX_MailOutbox_BusinessEvent_RecipientKey', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54200, N'EA0-A expected duplicate BusinessEventKey + RecipientKey rejection.', 1;
+IF @Rejected = 0 THROW 54202, N'EA0-A wrong or missing duplicate RecipientKey rejection source.', 1;
+PRINT N'EA0_PROVENANCE_A=UX_MailOutbox_BusinessEvent_RecipientKey';
 PRINT N'EA0_CASE_A=PASS';
 
 -- NULL email rows do not collide when RecipientKey differs.
@@ -131,10 +216,10 @@ VALUES
 (N'UAT',N'TripSubmitted',N'EA0-A-NULL',SYSUTCDATETIME(),N'Trip',N'2',N'EMP:1002',NULL,N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID()),
 (N'UAT',N'TripSubmitted',N'EA0-A-NULL',SYSUTCDATETIME(),N'Trip',N'2',N'EMP:1003',NULL,N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID());
 IF (SELECT COUNT(*) FROM dbo.MailOutbox WHERE BusinessEventKey=N'EA0-A-NULL') <> 2
-    THROW 54201, N'EA0 null-email distinct recipients should coexist.', 1;
+    THROW 54203, N'EA0 null-email distinct recipients should coexist.', 1;
 PRINT N'EA0_NULL_EMAIL_DISTINCT_RECIPIENTS=PASS';
 
--- B. Same business event + equivalent normalized non-null email is rejected.
+-- B. Same business event + equivalent normalized non-null email rejects via the exact normalized-email index.
 INSERT dbo.MailOutbox
 (
     EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
@@ -142,7 +227,9 @@ INSERT dbo.MailOutbox
 )
 VALUES
 (N'UAT',N'TripSubmitted',N'EA0-B',SYSUTCDATETIME(),N'Trip',N'3',N'RULE:ONE',N'  Test.User@Example.invalid  ',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID());
+
 SET @Rejected = 0;
+SET @ErrorMessage = NULL;
 BEGIN TRY
     INSERT dbo.MailOutbox
     (
@@ -153,9 +240,15 @@ BEGIN TRY
     (N'UAT',N'TripSubmitted',N'EA0-B',SYSUTCDATETIME(),N'Trip',N'3',N'RULE:TWO',N'test.user@example.invalid',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID());
 END TRY
 BEGIN CATCH
-    IF ERROR_NUMBER() IN(2601,2627) SET @Rejected = 1; ELSE THROW;
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER() IN(2601,2627)
+       AND CHARINDEX(N'UX_MailOutbox_BusinessEvent_NormalizedRecipientEmail', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54202, N'EA0-B expected normalized email duplicate rejection.', 1;
+IF @Rejected = 0 THROW 54204, N'EA0-B wrong or missing normalized-email rejection source.', 1;
+PRINT N'EA0_PROVENANCE_B=UX_MailOutbox_BusinessEvent_NormalizedRecipientEmail';
 PRINT N'EA0_CASE_B=PASS';
 
 -- C. Different legitimate BusinessEventKey values are allowed.
@@ -168,11 +261,12 @@ VALUES
 (N'UAT',N'TripSubmitted',N'EA0-C-RETURN',SYSUTCDATETIME(),N'Trip',N'4',N'EMP:2001',N'c@example.invalid',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID()),
 (N'UAT',N'TripSubmitted',N'EA0-C-RESUBMIT',SYSUTCDATETIME(),N'Trip',N'4',N'EMP:2001',N'c@example.invalid',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID());
 IF (SELECT COUNT(*) FROM dbo.MailOutbox WHERE BusinessEventKey IN(N'EA0-C-RETURN',N'EA0-C-RESUBMIT')) <> 2
-    THROW 54203, N'EA0-C distinct BusinessEventKey values should be allowed.', 1;
+    THROW 54205, N'EA0-C distinct BusinessEventKey values should be allowed.', 1;
 PRINT N'EA0_CASE_C=PASS';
 
--- D. Processing without token/lease is rejected.
+-- D0. Processing without token/lease rejects via CK_MailOutbox_ProcessingOwnership.
 SET @Rejected = 0;
+SET @ErrorMessage = NULL;
 BEGIN TRY
     INSERT dbo.MailOutbox
     (
@@ -180,16 +274,68 @@ BEGIN TRY
         RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt, CorrelationId
     )
     VALUES
-    (N'UAT',N'TripSubmitted',N'EA0-D',SYSUTCDATETIME(),N'Trip',N'5',N'EMP:3001',N'd@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),NEWID());
+    (N'UAT',N'TripSubmitted',N'EA0-D0',SYSUTCDATETIME(),N'Trip',N'5',N'EMP:3000',N'd0@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),NEWID());
 END TRY
 BEGIN CATCH
-    IF ERROR_NUMBER()=547 SET @Rejected = 1; ELSE THROW;
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_ProcessingOwnership', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54204, N'EA0-D Processing without token/lease should fail.', 1;
-PRINT N'EA0_CASE_D=PASS';
+IF @Rejected = 0 THROW 54206, N'EA0-D0 wrong or missing ProcessingOwnership rejection.', 1;
+PRINT N'EA0_PROVENANCE_D0=CK_MailOutbox_ProcessingOwnership';
 
--- E. Non-Processing with active token/lease is rejected.
+-- D1. Processing token only rejects via the same exact CHECK.
 SET @Rejected = 0;
+SET @ErrorMessage = NULL;
+BEGIN TRY
+    INSERT dbo.MailOutbox
+    (
+        EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
+        RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt,
+        ProcessingToken, CorrelationId
+    )
+    VALUES
+    (N'UAT',N'TripSubmitted',N'EA0-D1',SYSUTCDATETIME(),N'Trip',N'5',N'EMP:3001',N'd1@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),NEWID(),NEWID());
+END TRY
+BEGIN CATCH
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_ProcessingOwnership', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
+END CATCH;
+IF @Rejected = 0 THROW 54207, N'EA0-D1 token-only Processing wrong or missing rejection.', 1;
+PRINT N'EA0_PROVENANCE_D1=CK_MailOutbox_ProcessingOwnership';
+
+-- D2. Processing lease only rejects via the same exact CHECK.
+SET @Rejected = 0;
+SET @ErrorMessage = NULL;
+BEGIN TRY
+    INSERT dbo.MailOutbox
+    (
+        EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
+        RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt,
+        ProcessingLeaseUntil, CorrelationId
+    )
+    VALUES
+    (N'UAT',N'TripSubmitted',N'EA0-D2',SYSUTCDATETIME(),N'Trip',N'5',N'EMP:3002',N'd2@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),DATEADD(MINUTE,5,SYSUTCDATETIME()),NEWID());
+END TRY
+BEGIN CATCH
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_ProcessingOwnership', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
+END CATCH;
+IF @Rejected = 0 THROW 54208, N'EA0-D2 lease-only Processing wrong or missing rejection.', 1;
+PRINT N'EA0_PROVENANCE_D2=CK_MailOutbox_ProcessingOwnership';
+PRINT N'EA0_PROCESSING_PARTIAL_OWNERSHIP_MATRIX=3/3=PASS';
+
+-- E. Non-Processing with active token/lease also rejects via ProcessingOwnership.
+SET @Rejected = 0;
+SET @ErrorMessage = NULL;
 BEGIN TRY
     INSERT dbo.MailOutbox
     (
@@ -198,15 +344,20 @@ BEGIN TRY
         ProcessingToken, ProcessingLeaseUntil, CorrelationId
     )
     VALUES
-    (N'UAT',N'TripSubmitted',N'EA0-E',SYSUTCDATETIME(),N'Trip',N'6',N'EMP:3002',N'e@example.invalid',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID(),DATEADD(MINUTE,5,SYSUTCDATETIME()),NEWID());
+    (N'UAT',N'TripSubmitted',N'EA0-E',SYSUTCDATETIME(),N'Trip',N'6',N'EMP:3003',N'e@example.invalid',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID(),DATEADD(MINUTE,5,SYSUTCDATETIME()),NEWID());
 END TRY
 BEGIN CATCH
-    IF ERROR_NUMBER()=547 SET @Rejected = 1; ELSE THROW;
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_ProcessingOwnership', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54205, N'EA0-E non-Processing ownership should fail.', 1;
+IF @Rejected = 0 THROW 54209, N'EA0-E wrong or missing non-Processing ownership rejection.', 1;
+PRINT N'EA0_PROVENANCE_E=CK_MailOutbox_ProcessingOwnership';
 PRINT N'EA0_CASE_E=PASS';
 
--- F. Processing with token + lease is allowed.
+-- F. Legal Processing is accepted, then terminal update finalizes and clears ownership.
 INSERT dbo.MailOutbox
 (
     EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
@@ -214,13 +365,43 @@ INSERT dbo.MailOutbox
     ProcessingToken, ProcessingLeaseUntil, CorrelationId
 )
 VALUES
-(N'UAT',N'TripSubmitted',N'EA0-F',SYSUTCDATETIME(),N'Trip',N'7',N'EMP:3003',N'f@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),NEWID(),DATEADD(MINUTE,5,SYSUTCDATETIME()),NEWID());
-IF NOT EXISTS(SELECT 1 FROM dbo.MailOutbox WHERE BusinessEventKey=N'EA0-F' AND Status=N'Processing' AND ProcessingToken IS NOT NULL AND ProcessingLeaseUntil IS NOT NULL)
-    THROW 54206, N'EA0-F Processing with token + lease should be allowed.', 1;
+(N'UAT',N'TripSubmitted',N'EA0-F',SYSUTCDATETIME(),N'Trip',N'7',N'EMP:3004',N'f@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),NEWID(),DATEADD(MINUTE,5,SYSUTCDATETIME()),NEWID());
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM dbo.MailOutbox
+    WHERE BusinessEventKey=N'EA0-F'
+      AND Status=N'Processing'
+      AND ProcessingToken IS NOT NULL
+      AND ProcessingLeaseUntil IS NOT NULL
+      AND FinalizedAt IS NULL
+)
+    THROW 54210, N'EA0-F legal Processing row was not persisted as expected.', 1;
+
+UPDATE dbo.MailOutbox
+SET Status=N'Sent',
+    SentAt=SYSUTCDATETIME(),
+    FinalizedAt=SYSUTCDATETIME(),
+    ProcessingToken=NULL,
+    ProcessingLeaseUntil=NULL
+WHERE BusinessEventKey=N'EA0-F';
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM dbo.MailOutbox
+    WHERE BusinessEventKey=N'EA0-F'
+      AND Status=N'Sent'
+      AND FinalizedAt IS NOT NULL
+      AND ProcessingToken IS NULL
+      AND ProcessingLeaseUntil IS NULL
+)
+    THROW 54211, N'EA0-F terminal transition did not finalize and clear ownership.', 1;
+PRINT N'EA0_PROCESSING_TO_TERMINAL_QUERYBACK=PASS';
 PRINT N'EA0_CASE_F=PASS';
 
--- G. Final status without FinalizedAt is rejected.
+-- G1. Sent without FinalizedAt rejects via CK_MailOutbox_Finalization.
 SET @Rejected = 0;
+SET @ErrorMessage = NULL;
 BEGIN TRY
     INSERT dbo.MailOutbox
     (
@@ -228,16 +409,66 @@ BEGIN TRY
         RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt, CorrelationId
     )
     VALUES
-    (N'UAT',N'TripSubmitted',N'EA0-G',SYSUTCDATETIME(),N'Trip',N'8',N'EMP:4001',N'g@example.invalid',N'TripSubmitted.v1',N'{}',N'Failed',SYSUTCDATETIME(),NEWID());
+    (N'UAT',N'TripSubmitted',N'EA0-G-SENT',SYSUTCDATETIME(),N'Trip',N'8',N'EMP:4001',N'gs@example.invalid',N'TripSubmitted.v1',N'{}',N'Sent',SYSUTCDATETIME(),NEWID());
 END TRY
 BEGIN CATCH
-    IF ERROR_NUMBER()=547 SET @Rejected = 1; ELSE THROW;
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_Finalization', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54207, N'EA0-G final status without FinalizedAt should fail.', 1;
-PRINT N'EA0_CASE_G=PASS';
+IF @Rejected = 0 THROW 54212, N'EA0-G-SENT wrong or missing Finalization rejection.', 1;
+PRINT N'EA0_PROVENANCE_G_SENT=CK_MailOutbox_Finalization';
 
--- H. Pending and Processing with FinalizedAt are rejected.
+-- G2. Cancelled without FinalizedAt rejects via CK_MailOutbox_Finalization.
 SET @Rejected = 0;
+SET @ErrorMessage = NULL;
+BEGIN TRY
+    INSERT dbo.MailOutbox
+    (
+        EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
+        RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt, CorrelationId
+    )
+    VALUES
+    (N'UAT',N'TripSubmitted',N'EA0-G-CANCELLED',SYSUTCDATETIME(),N'Trip',N'8',N'EMP:4002',N'gc@example.invalid',N'TripSubmitted.v1',N'{}',N'Cancelled',SYSUTCDATETIME(),NEWID());
+END TRY
+BEGIN CATCH
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_Finalization', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
+END CATCH;
+IF @Rejected = 0 THROW 54213, N'EA0-G-CANCELLED wrong or missing Finalization rejection.', 1;
+PRINT N'EA0_PROVENANCE_G_CANCELLED=CK_MailOutbox_Finalization';
+
+-- G3. Failed without FinalizedAt also rejects via CK_MailOutbox_Finalization.
+SET @Rejected = 0;
+SET @ErrorMessage = NULL;
+BEGIN TRY
+    INSERT dbo.MailOutbox
+    (
+        EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
+        RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt, CorrelationId
+    )
+    VALUES
+    (N'UAT',N'TripSubmitted',N'EA0-G-FAILED',SYSUTCDATETIME(),N'Trip',N'8',N'EMP:4003',N'gf@example.invalid',N'TripSubmitted.v1',N'{}',N'Failed',SYSUTCDATETIME(),NEWID());
+END TRY
+BEGIN CATCH
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_Finalization', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
+END CATCH;
+IF @Rejected = 0 THROW 54214, N'EA0-G-FAILED wrong or missing Finalization rejection.', 1;
+PRINT N'EA0_PROVENANCE_G_FAILED=CK_MailOutbox_Finalization';
+PRINT N'EA0_TERMINAL_WITHOUT_FINALIZED_MATRIX=3/3=PASS';
+
+-- H. Pending and Processing with FinalizedAt reject via CK_MailOutbox_Finalization.
+SET @Rejected = 0;
+SET @ErrorMessage = NULL;
 BEGIN TRY
     INSERT dbo.MailOutbox
     (
@@ -245,14 +476,20 @@ BEGIN TRY
         RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt, FinalizedAt, CorrelationId
     )
     VALUES
-    (N'UAT',N'TripSubmitted',N'EA0-H-PENDING',SYSUTCDATETIME(),N'Trip',N'9',N'EMP:4002',N'hp@example.invalid',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),SYSUTCDATETIME(),NEWID());
+    (N'UAT',N'TripSubmitted',N'EA0-H-PENDING',SYSUTCDATETIME(),N'Trip',N'9',N'EMP:4004',N'hp@example.invalid',N'TripSubmitted.v1',N'{}',N'Pending',SYSUTCDATETIME(),SYSUTCDATETIME(),NEWID());
 END TRY
 BEGIN CATCH
-    IF ERROR_NUMBER()=547 SET @Rejected = 1; ELSE THROW;
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_Finalization', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54208, N'EA0-H Pending with FinalizedAt should fail.', 1;
+IF @Rejected = 0 THROW 54215, N'EA0-H Pending with FinalizedAt wrong or missing rejection.', 1;
+PRINT N'EA0_PROVENANCE_H_PENDING=CK_MailOutbox_Finalization';
 
 SET @Rejected = 0;
+SET @ErrorMessage = NULL;
 BEGIN TRY
     INSERT dbo.MailOutbox
     (
@@ -261,12 +498,17 @@ BEGIN TRY
         ProcessingToken, ProcessingLeaseUntil, FinalizedAt, CorrelationId
     )
     VALUES
-    (N'UAT',N'TripSubmitted',N'EA0-H-PROCESSING',SYSUTCDATETIME(),N'Trip',N'10',N'EMP:4003',N'hpr@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),NEWID(),DATEADD(MINUTE,5,SYSUTCDATETIME()),SYSUTCDATETIME(),NEWID());
+    (N'UAT',N'TripSubmitted',N'EA0-H-PROCESSING',SYSUTCDATETIME(),N'Trip',N'10',N'EMP:4005',N'hpr@example.invalid',N'TripSubmitted.v1',N'{}',N'Processing',SYSUTCDATETIME(),NEWID(),DATEADD(MINUTE,5,SYSUTCDATETIME()),SYSUTCDATETIME(),NEWID());
 END TRY
 BEGIN CATCH
-    IF ERROR_NUMBER()=547 SET @Rejected = 1; ELSE THROW;
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER()=547 AND CHARINDEX(N'CK_MailOutbox_Finalization', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54209, N'EA0-H Processing with FinalizedAt should fail.', 1;
+IF @Rejected = 0 THROW 54216, N'EA0-H Processing with FinalizedAt wrong or missing rejection.', 1;
+PRINT N'EA0_PROVENANCE_H_PROCESSING=CK_MailOutbox_Finalization';
 PRINT N'EA0_CASE_H=PASS';
 
 -- I. Terminal Failed row with RecipientEmail=NULL is allowed.
@@ -278,8 +520,15 @@ INSERT dbo.MailOutbox
 )
 VALUES
 (N'UAT',N'TripSubmitted',N'EA0-I',SYSUTCDATETIME(),N'Trip',N'11',N'EMP:5001',NULL,N'TripSubmitted.v1',N'{}',N'Failed',SYSUTCDATETIME(),SYSUTCDATETIME(),N'NO_USABLE_EMAIL',NEWID());
-IF NOT EXISTS(SELECT 1 FROM dbo.MailOutbox WHERE BusinessEventKey=N'EA0-I' AND Status=N'Failed' AND RecipientEmail IS NULL AND FinalizedAt IS NOT NULL)
-    THROW 54210, N'EA0-I terminal Failed NULL-email row should be allowed.', 1;
+IF NOT EXISTS
+(
+    SELECT 1 FROM dbo.MailOutbox
+    WHERE BusinessEventKey=N'EA0-I'
+      AND Status=N'Failed'
+      AND RecipientEmail IS NULL
+      AND FinalizedAt IS NOT NULL
+)
+    THROW 54217, N'EA0-I terminal Failed NULL-email row should be allowed.', 1;
 PRINT N'EA0_CASE_I=PASS';
 
 -- J. ProjectManager rule is dormant; Administrator remains active.
@@ -289,14 +538,14 @@ IF NOT EXISTS
     JOIN dbo.NotificationSettingRecipients r ON r.NotificationSettingId=s.NotificationSettingId
     WHERE s.EventCode=N'ProjectExpiring' AND r.RecipientRuleCode=N'ProjectManager' AND r.IsActive=0
 )
-    THROW 54211, N'EA0-J ProjectManager must be inactive.', 1;
+    THROW 54218, N'EA0-J ProjectManager must be inactive.', 1;
 IF NOT EXISTS
 (
     SELECT 1 FROM dbo.NotificationSettings s
     JOIN dbo.NotificationSettingRecipients r ON r.NotificationSettingId=s.NotificationSettingId
     WHERE s.EventCode=N'ProjectExpiring' AND r.RecipientRuleCode=N'Administrator' AND r.IsActive=1
 )
-    THROW 54212, N'EA0-J Administrator must remain active.', 1;
+    THROW 54219, N'EA0-J Administrator must remain active.', 1;
 PRINT N'EA0_CASE_J=PASS';
 
 -- K. UAT Live remains rejected.
@@ -307,10 +556,65 @@ END TRY
 BEGIN CATCH
     IF ERROR_NUMBER()=547 SET @Rejected = 1; ELSE THROW;
 END CATCH;
-IF @Rejected = 0 THROW 54213, N'EA0-K UAT Live should be rejected.', 1;
-IF NOT EXISTS(SELECT 1 FROM dbo.NotificationEnvironmentPolicies WHERE EnvironmentCode=N'UAT' AND EmailMode=N'Test' AND IsEnabled=0)
-    THROW 54214, N'EA0-K UAT policy changed unexpectedly.', 1;
+IF @Rejected = 0 THROW 54220, N'EA0-K UAT Live should be rejected.', 1;
+IF NOT EXISTS
+(
+    SELECT 1 FROM dbo.NotificationEnvironmentPolicies
+    WHERE EnvironmentCode=N'UAT' AND EmailMode=N'Test' AND IsEnabled=0
+)
+    THROW 54221, N'EA0-K UAT policy changed unexpectedly.', 1;
 PRINT N'EA0_CASE_K=PASS';
+
+-- L. MailDeliveryLogs DML matrix.
+INSERT dbo.MailOutbox
+(
+    EnvironmentCode, EventCode, BusinessEventKey, EventOccurredAt, AggregateType, AggregateId,
+    RecipientKey, RecipientEmail, TemplateCode, TemplateDataJson, Status, AvailableAt, CorrelationId
+)
+VALUES
+(N'UAT',N'ImportCompleted',N'EA0-L1',SYSUTCDATETIME(),N'ImportBatch',N'101',N'USER:9001',N'l1@example.invalid',N'ImportCompleted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID()),
+(N'UAT',N'ImportCompleted',N'EA0-L2',SYSUTCDATETIME(),N'ImportBatch',N'102',N'USER:9002',N'l2@example.invalid',N'ImportCompleted.v1',N'{}',N'Pending',SYSUTCDATETIME(),NEWID());
+
+DECLARE @OutboxL1 BIGINT = (SELECT MailOutboxId FROM dbo.MailOutbox WHERE BusinessEventKey=N'EA0-L1');
+DECLARE @OutboxL2 BIGINT = (SELECT MailOutboxId FROM dbo.MailOutbox WHERE BusinessEventKey=N'EA0-L2');
+
+-- Same outbox attempts 1 then 2 are accepted.
+INSERT dbo.MailDeliveryLogs(MailOutboxId,AttemptNumber,Provider,Status,ProviderMessageId)
+VALUES(@OutboxL1,1,N'Mock',N'Sent',N'EA0-L1-A1');
+INSERT dbo.MailDeliveryLogs(MailOutboxId,AttemptNumber,Provider,Status,ProviderMessageId)
+VALUES(@OutboxL1,2,N'Mock',N'Failed',NULL);
+IF (SELECT COUNT(*) FROM dbo.MailDeliveryLogs WHERE MailOutboxId=@OutboxL1 AND AttemptNumber IN(1,2)) <> 2
+    THROW 54222, N'EA0-L same outbox attempts 1 then 2 should be accepted.', 1;
+PRINT N'EA0_DELIVERYLOG_SAME_OUTBOX_ATTEMPTS_1_2=PASS';
+
+-- Different outboxes each attempt 1 are accepted.
+INSERT dbo.MailDeliveryLogs(MailOutboxId,AttemptNumber,Provider,Status,ProviderMessageId)
+VALUES(@OutboxL2,1,N'Mock',N'Sent',N'EA0-L2-A1');
+IF NOT EXISTS(SELECT 1 FROM dbo.MailDeliveryLogs WHERE MailOutboxId=@OutboxL1 AND AttemptNumber=1)
+   OR NOT EXISTS(SELECT 1 FROM dbo.MailDeliveryLogs WHERE MailOutboxId=@OutboxL2 AND AttemptNumber=1)
+    THROW 54223, N'EA0-L different outboxes each attempt 1 should be accepted.', 1;
+PRINT N'EA0_DELIVERYLOG_DIFFERENT_OUTBOX_ATTEMPT_1=PASS';
+
+-- Duplicate same outbox + attempt number rejects via exact UQ_MailDeliveryLogs_Attempt.
+SET @Rejected = 0;
+SET @ErrorMessage = NULL;
+BEGIN TRY
+    INSERT dbo.MailDeliveryLogs(MailOutboxId,AttemptNumber,Provider,Status,ProviderMessageId)
+    VALUES(@OutboxL1,1,N'Mock',N'Sent',N'DUPLICATE-SHOULD-FAIL');
+END TRY
+BEGIN CATCH
+    SET @ErrorMessage = ERROR_MESSAGE();
+    IF ERROR_NUMBER() IN(2601,2627)
+       AND CHARINDEX(N'UQ_MailDeliveryLogs_Attempt', @ErrorMessage) > 0
+        SET @Rejected = 1;
+    ELSE
+        THROW;
+END CATCH;
+IF @Rejected = 0 THROW 54224, N'EA0-L wrong or missing MailDeliveryLogs duplicate rejection source.', 1;
+PRINT N'EA0_PROVENANCE_DELIVERYLOG=UQ_MailDeliveryLogs_Attempt';
+PRINT N'EA0_MAILDELIVERYLOG_DML_MATRIX=3/3=PASS';
+
+PRINT N'EA0_QA_CLOSURE_BLOCKERS=4/4=PASS';
 SQL
 
 cat database/development/v1.8.0/compat/session-options.sql \
