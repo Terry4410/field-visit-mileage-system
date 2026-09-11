@@ -52,6 +52,7 @@ public sealed class Employment
     public int OrganizationId { get; set; }
     public string? EmployeeNo { get; set; }
     public string? Email { get; set; }
+    public bool OptionalEmailNotificationEnabled { get; set; } = true;
     public DateOnly? HireDate { get; set; }
     public DateOnly? TerminationDate { get; set; }
     public int? LegacyUserId { get; set; }
