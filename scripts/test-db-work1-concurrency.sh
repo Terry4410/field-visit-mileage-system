@@ -57,7 +57,8 @@ sql_apply() { local database="$1" file="$2"; { cat "$session_options"; cat "$fil
 sql_query() { local database="$1" query="$2"; { cat "$session_options"; printf '%s\n' "$query"; } | "${sqlcmd_base[@]}" -d "$database"; }
 sql_scalar() {
   local database="$1" query="$2"
-  docker exec -i "$container_name" "$sqlcmd_path" -S localhost -U sa -P "$sa_password" -C -b -r1 -h -1 -W -d "$database" -Q "$query" \
+  { cat "$session_options"; printf '%s\n' "$query"; } \
+    | "${sqlcmd_base[@]}" -h -1 -W -d "$database" \
     | tr -d '\r' | sed '/^[[:space:]]*$/d' | tail -n1
 }
 wait_lock_held() {
