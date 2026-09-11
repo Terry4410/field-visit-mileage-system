@@ -82,21 +82,25 @@ public sealed class V180Cbb2bRecoveryGateTests
     }
 
     [Fact]
-    public void Submit_and_approve_queue_business_writes_before_one_savechanges_commit()
+    public void Submit_and_approve_materialize_occurrence_then_flush_notification_inside_outer_transaction()
     {
         var submit = Method(Source("backend/src/FieldVisit.Application/TripService.cs"),
-            "public async Task<TripDto> SubmitAsync", "public async Task<TimeOverlapResult> CheckOverlapAsync");
+            "private async Task<TripDto> SubmitCoreAsync", "public async Task<TimeOverlapResult> CheckOverlapAsync");
         Assert.Contains("AddHistoryAsync", submit);
         Assert.Contains("AuditAsync", submit);
         Assert.Contains("AddSubmittedSnapshotAsync", submit);
+        Assert.Contains("TRIP_SUBMITTED:HIST:", submit);
+        Assert.Contains("NotificationSaveChanges.SaveAsync", submit);
         Assert.Equal(1, Count(submit, "uow.SaveChangesAsync(ct)"));
 
         var approve = Method(Source("backend/src/FieldVisit.Application/LeaderService.cs"),
-            "public async Task<TripDto> ApproveAsync", "public async Task<TripDto> ReturnAsync");
+            "private async Task<TripDto> ApproveCoreAsync", "public Task<TripDto> ReturnAsync");
         Assert.Contains("AddApprovalAsync", approve);
         Assert.Contains("AddStatusHistoryAsync", approve);
         Assert.Contains("AddAuditAsync", approve);
         Assert.Contains("AddApprovedSnapshotAsync", approve);
+        Assert.Contains("TRIP_APPROVED:APPROVAL:", approve);
+        Assert.Contains("NotificationSaveChanges.SaveAsync", approve);
         Assert.Equal(1, Count(approve, "uow.SaveChangesAsync(ct)"));
     }
 

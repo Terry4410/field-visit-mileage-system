@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<INotificationRecipientResolver,EfNotificationRecipientResolver>();
         services.AddScoped<INotificationOutboxWriter,EfNotificationOutboxWriter>();
+        services.AddScoped<INotificationCollisionTranslator,EfNotificationCollisionTranslator>();
         var route=(configuration["Providers:Route"]??"Mock").Trim();var geo=(configuration["Providers:Geocoding"]??"Mock").Trim();
         if(!route.Equals("Mock",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("v1.6.0 僅允許 Providers:Route=Mock；Google Routes 請於 v1.7.0 啟用。");
         if(!geo.Equals("Mock",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("v1.6.0 僅允許 Providers:Geocoding=Mock。");

@@ -13,7 +13,10 @@ public sealed class TripService(
     IV170AccessControl access,
     IV180TripContextReader tripContext,
     ITripSnapshotRepository snapshots,
-    IUnitOfWork uow)
+    IUnitOfWork uow,
+    ITransactionBoundary? transactions = null,
+    INotificationOutboxWriter? notifications = null,
+    INotificationCollisionTranslator? collisionTranslator = null)
 {
     public Task<V180TripContextDto> ContextAsync(DateOnly visitDate, int? teamId, CancellationToken ct) =>
         tripContext.ResolveAsync(RequireRole("visitor"), visitDate, teamId, ct);
@@ -185,7 +188,16 @@ var now = DateTime.UtcNow;
         }
     }
 
-    public async Task<TripDto> SubmitAsync(long tripId, SubmitTripRequest request, string rowVersion, CancellationToken ct)
+    public Task<TripDto> SubmitAsync(long tripId, SubmitTripRequest request, string rowVersion, CancellationToken ct)
+    {
+        return transactions is null
+            ? SubmitCoreAsync(tripId, request, rowVersion, ct)
+            : transactions.ExecuteAsync(
+                innerCt => SubmitCoreAsync(tripId, request, rowVersion, innerCt),
+                ct);
+    }
+
+    private async Task<TripDto> SubmitCoreAsync(long tripId, SubmitTripRequest request, string rowVersion, CancellationToken ct)
     {
         var user = RequireRole("visitor");
         var trip = await trips.GetAsync(tripId, true, ct)
@@ -260,26 +272,53 @@ var now = DateTime.UtcNow;
             throw new InvalidOperationException("TIME_OVERLAP_WARNING：請確認時間重疊後再送出。");
 
         var previous = trip.Status;
+        var transitionAt = DateTime.UtcNow;
         trip.Status = TripStatuses.Submitted;
         trip.HasTimeOverlapWarning = overlap.HasOverlap;
         trip.TimeOverlapConfirmed = overlap.HasOverlap && request.ConfirmTimeOverlap;
-        trip.SubmittedAt = DateTime.UtcNow;
+        trip.SubmittedAt = transitionAt;
         trip.ReturnReason = null;
-        trip.UpdatedAt = DateTime.UtcNow;
+        trip.UpdatedAt = transitionAt;
         trip.UpdatedByUserId = user.UserId;
 
-        await AddHistoryAsync(
+        var history = await AddHistoryAsync(
             trip,
             previous,
             TripStatuses.Submitted,
             previous == TripStatuses.Returned ? "Resubmit" : "Submit",
             user.UserId,
             overlap.HasOverlap ? "使用者已確認時間重疊" : null,
+            transitionAt,
             ct);
-        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripSubmit", null, new { trip.TripNo }, ct);
+        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripSubmit", null, new { trip.TripNo }, transitionAt, ct);
         if (authoritativeContext is not null)
             await snapshots.AddSubmittedSnapshotAsync(trip, user, authoritativeContext, ct);
+
+        // The history identity is database-generated.  Materialize it before
+        // constructing the canonical occurrence key, while keeping all
+        // business/status/history/snapshot writes inside the caller-owned
+        // outer transaction.
         await uow.SaveChangesAsync(ct);
+
+        if (notifications is not null)
+        {
+            await notifications.QueueAsync(
+                new NotificationEventContext(
+                    NotificationEventCodes.TripSubmitted,
+                    "VisitTrip",
+                    trip.VisitTripId.ToString(),
+                    $"TRIP_SUBMITTED:HIST:{history.VisitTripStatusHistoryId}",
+                    history.ActionAt,
+                    trip.OrganizationId,
+                    trip.TeamId,
+                    trip.EmploymentId,
+                    null,
+                    null,
+                    new NotificationTemplatePayloadV1(trip.TripNo, previous == TripStatuses.Returned ? "Resubmitted" : "Submitted"),
+                    Guid.NewGuid()),
+                ct);
+            await NotificationSaveChanges.SaveAsync(uow, collisionTranslator, ct);
+        }
         return await GetDtoAsync(tripId, ct);
     }
 
@@ -516,9 +555,12 @@ var now = DateTime.UtcNow;
 
     private static string BuildTripNo(DateOnly date) => $"T{date:yyyyMMdd}{DateTime.UtcNow:HHmmssfff}";
 
-    private async Task AddHistoryAsync(VisitTrip trip, string? previous, string next, string action, int userId, string? comments, CancellationToken ct)
+    private Task<VisitTripStatusHistory> AddHistoryAsync(VisitTrip trip, string? previous, string next, string action, int userId, string? comments, CancellationToken ct)
+        => AddHistoryAsync(trip, previous, next, action, userId, comments, DateTime.UtcNow, ct);
+
+    private async Task<VisitTripStatusHistory> AddHistoryAsync(VisitTrip trip, string? previous, string next, string action, int userId, string? comments, DateTime actionAt, CancellationToken ct)
     {
-        await workflow.AddStatusHistoryAsync(new VisitTripStatusHistory
+        var row = new VisitTripStatusHistory
         {
             VisitTripId = trip.VisitTripId,
             PreviousStatus = previous,
@@ -526,11 +568,16 @@ var now = DateTime.UtcNow;
             Action = action,
             ActionByUserId = userId,
             Comments = comments,
-            ActionAt = DateTime.UtcNow
-        }, ct);
+            ActionAt = actionAt
+        };
+        await workflow.AddStatusHistoryAsync(row, ct);
+        return row;
     }
 
     private async Task AuditAsync(int? userId, string entityType, string entityId, string action, object? oldValue, object? newValue, CancellationToken ct)
+        => await AuditAsync(userId, entityType, entityId, action, oldValue, newValue, DateTime.UtcNow, ct);
+
+    private async Task AuditAsync(int? userId, string entityType, string entityId, string action, object? oldValue, object? newValue, DateTime createdAt, CancellationToken ct)
     {
         await workflow.AddAuditAsync(new AuditLog
         {
@@ -541,7 +588,7 @@ var now = DateTime.UtcNow;
             OldValues = oldValue is null ? null : System.Text.Json.JsonSerializer.Serialize(oldValue),
             NewValues = newValue is null ? null : System.Text.Json.JsonSerializer.Serialize(newValue),
             CorrelationId = Guid.NewGuid(),
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = createdAt
         }, ct);
     }
 }

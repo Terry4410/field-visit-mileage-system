@@ -157,6 +157,44 @@ public interface INotificationOutboxWriter
     Task<NotificationQueueResult> QueueAsync(NotificationEventContext context, CancellationToken ct);
 }
 
+/// <summary>
+/// Caller-side, provider-aware translation for the two MailOutbox uniqueness
+/// authorities.  The translator is intentionally separate from the outbox
+/// writer: the writer only tracks rows, while the transaction owner decides
+/// whether a failed SaveChanges may be recovered and retried.
+/// </summary>
+public interface INotificationCollisionTranslator
+{
+    Task<bool> TryTranslateAsync(Exception exception, CancellationToken ct);
+}
+
+public static class NotificationSaveChanges
+{
+    /// <summary>
+    /// Saves caller-owned business state and, only for a verified equivalent
+    /// concurrent MailOutbox collision, detaches the losing notification row
+    /// and retries the business save.  Every other failure is rethrown.
+    /// </summary>
+    public static async Task<int> SaveAsync(
+        IUnitOfWork uow,
+        INotificationCollisionTranslator? collisionTranslator,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await uow.SaveChangesAsync(ct);
+        }
+        catch (Exception exception)
+        {
+            if (collisionTranslator is null
+                || !await collisionTranslator.TryTranslateAsync(exception, ct))
+                throw;
+
+            return await uow.SaveChangesAsync(ct);
+        }
+    }
+}
+
 public static class NotificationBusinessKeyAuthority
 {
     public static string ValidateBusinessEventKey(string? businessEventKey)

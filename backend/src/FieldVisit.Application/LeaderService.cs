@@ -11,7 +11,10 @@ public sealed class LeaderService(
     IWorkflowRepository workflow,
     ITripSnapshotRepository snapshots,
     IUnitOfWork uow,
-    TripService tripService)
+    TripService tripService,
+    ITransactionBoundary? transactions = null,
+    INotificationOutboxWriter? notifications = null,
+    INotificationCollisionTranslator? collisionTranslator = null)
 {
     public async Task<List<TripDto>> ReviewQueueAsync(CancellationToken ct)
     {
@@ -96,7 +99,16 @@ public sealed class LeaderService(
         return new MileageBatchResult(rows.Count, ok, failed, skipped, items);
     }
 
-    public async Task<TripDto> ApproveAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
+    public Task<TripDto> ApproveAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
+    {
+        return transactions is null
+            ? ApproveCoreAsync(tripId, request, ct)
+            : transactions.ExecuteAsync(
+                innerCt => ApproveCoreAsync(tripId, request, innerCt),
+                ct);
+    }
+
+    private async Task<TripDto> ApproveCoreAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
     {
         var user = RequireLeader();
         var trip = await GetScopedAsync(tripId, user, ct);
@@ -124,10 +136,11 @@ public sealed class LeaderService(
             ?? throw new InvalidOperationException("找不到行程日期適用的補助費率。");
 
         var previous = trip.Status;
+        var actionAt = DateTime.UtcNow;
         trip.Status = TripStatuses.Approved;
-        trip.ApprovedAt = DateTime.UtcNow;
+        trip.ApprovedAt = actionAt;
         trip.ReturnReason = null;
-        trip.UpdatedAt = DateTime.UtcNow;
+        trip.UpdatedAt = actionAt;
         trip.UpdatedByUserId = user.UserId;
 
         calc.MileageRateRuleId = rate.MileageRateRuleId;
@@ -139,15 +152,16 @@ public sealed class LeaderService(
         calc.ApprovedAmount = decimal.Round(request.ApprovedDistanceKm.Value * rate.RatePerKm, 2);
         calc.UpdatedAt = DateTime.UtcNow;
 
-        await workflow.AddApprovalAsync(new ApprovalRecord
+        var approval = new ApprovalRecord
         {
             VisitTripId = trip.VisitTripId,
             ApprovalStep = 1,
             ApproverUserId = user.UserId,
             Action = "Approved",
             Comments = request.Comments,
-            ActionAt = DateTime.UtcNow
-        }, ct);
+            ActionAt = actionAt
+        };
+        await workflow.AddApprovalAsync(approval, ct);
         await workflow.AddStatusHistoryAsync(new VisitTripStatusHistory
         {
             VisitTripId = trip.VisitTripId,
@@ -156,7 +170,7 @@ public sealed class LeaderService(
             Action = "Approve",
             ActionByUserId = user.UserId,
             Comments = $"ApprovedKm={request.ApprovedDistanceKm};Rate={rate.RatePerKm};Amount={calc.ApprovedAmount}",
-            ActionAt = DateTime.UtcNow
+            ActionAt = actionAt
         }, ct);
         await workflow.AddAuditAsync(Audit(
             user.UserId,
@@ -171,10 +185,39 @@ public sealed class LeaderService(
 
         await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
         await uow.SaveChangesAsync(ct);
+
+        if (notifications is not null)
+        {
+            await notifications.QueueAsync(
+                new NotificationEventContext(
+                    NotificationEventCodes.TripApproved,
+                    "VisitTrip",
+                    trip.VisitTripId.ToString(),
+                    $"TRIP_APPROVED:APPROVAL:{approval.ApprovalRecordId}",
+                    approval.ActionAt,
+                    trip.OrganizationId,
+                    trip.TeamId,
+                    trip.EmploymentId,
+                    null,
+                    null,
+                    new NotificationTemplatePayloadV1(trip.TripNo, "Approved"),
+                    Guid.NewGuid()),
+                ct);
+            await NotificationSaveChanges.SaveAsync(uow, collisionTranslator, ct);
+        }
         return await tripService.GetDtoAsync(tripId, ct);
     }
 
-    public async Task<TripDto> ReturnAsync(long tripId, ReturnTripRequest request, CancellationToken ct)
+    public Task<TripDto> ReturnAsync(long tripId, ReturnTripRequest request, CancellationToken ct)
+    {
+        return transactions is null
+            ? ReturnCoreAsync(tripId, request, ct)
+            : transactions.ExecuteAsync(
+                innerCt => ReturnCoreAsync(tripId, request, innerCt),
+                ct);
+    }
+
+    private async Task<TripDto> ReturnCoreAsync(long tripId, ReturnTripRequest request, CancellationToken ct)
     {
         var user = RequireLeader();
         if (string.IsNullOrWhiteSpace(request.Reason)) throw new InvalidOperationException("退回原因必填。");
@@ -184,20 +227,22 @@ public sealed class LeaderService(
         EnsureRowVersion(trip.RowVersion, request.RowVersion);
 
         var previous = trip.Status;
+        var actionAt = DateTime.UtcNow;
         trip.Status = TripStatuses.Returned;
         trip.ReturnReason = request.Reason.Trim();
-        trip.UpdatedAt = DateTime.UtcNow;
+        trip.UpdatedAt = actionAt;
         trip.UpdatedByUserId = user.UserId;
 
-        await workflow.AddApprovalAsync(new ApprovalRecord
+        var approval = new ApprovalRecord
         {
             VisitTripId = trip.VisitTripId,
             ApprovalStep = 1,
             ApproverUserId = user.UserId,
             Action = "Returned",
             Comments = request.Reason.Trim(),
-            ActionAt = DateTime.UtcNow
-        }, ct);
+            ActionAt = actionAt
+        };
+        await workflow.AddApprovalAsync(approval, ct);
         await workflow.AddStatusHistoryAsync(new VisitTripStatusHistory
         {
             VisitTripId = trip.VisitTripId,
@@ -206,10 +251,30 @@ public sealed class LeaderService(
             Action = "Return",
             ActionByUserId = user.UserId,
             Comments = request.Reason.Trim(),
-            ActionAt = DateTime.UtcNow
+            ActionAt = actionAt
         }, ct);
         await workflow.AddAuditAsync(Audit(user.UserId, trip.VisitTripId, "TripReturn", new { request.Reason }), ct);
         await uow.SaveChangesAsync(ct);
+
+        if (notifications is not null)
+        {
+            await notifications.QueueAsync(
+                new NotificationEventContext(
+                    NotificationEventCodes.TripReturned,
+                    "VisitTrip",
+                    trip.VisitTripId.ToString(),
+                    $"TRIP_RETURNED:APPROVAL:{approval.ApprovalRecordId}",
+                    approval.ActionAt,
+                    trip.OrganizationId,
+                    trip.TeamId,
+                    trip.EmploymentId,
+                    null,
+                    null,
+                    new NotificationTemplatePayloadV1(trip.TripNo, "Returned"),
+                    Guid.NewGuid()),
+                ct);
+            await NotificationSaveChanges.SaveAsync(uow, collisionTranslator, ct);
+        }
         return await tripService.GetDtoAsync(tripId, ct);
     }
 

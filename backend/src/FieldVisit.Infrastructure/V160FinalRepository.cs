@@ -8,7 +8,9 @@ namespace FieldVisit.Infrastructure;
 
 public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessControl access,
     IV180OrganizationPeopleWriter v180PeopleWriter,
-    IV180TeamCenterLifecycleWriter v180TeamCenterWriter) : IV160FinalRepository
+    IV180TeamCenterLifecycleWriter v180TeamCenterWriter,
+    INotificationOutboxWriter? notifications = null,
+    INotificationCollisionTranslator? collisionTranslator = null) : IV160FinalRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -268,6 +270,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var changes = Diff(snapshot, normalizedProposal);
         if (changes.Count == 0) throw new InvalidOperationException("更正內容與目前核准資料相同。");
 
+        var requestedAt = DateTime.UtcNow;
         var row = new CorrectionRequest
         {
             VisitTripId = request.VisitTripId,
@@ -276,7 +279,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             Reason = request.Reason.Trim(),
             ProposedChangesJson = JsonSerializer.Serialize(normalizedProposal, JsonOptions),
             RequestedByUserId = user.UserId,
-            RequestedAt = DateTime.UtcNow
+            RequestedAt = requestedAt
         };
         await db.CorrectionRequests.AddAsync(row, ct);
         await db.SaveChangesAsync(ct);
@@ -288,11 +291,38 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 FieldName = change.FieldName,
                 OldValue = change.OldValue,
                 NewValue = change.NewValue,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = requestedAt
             }, ct);
         }
-        AddAudit(user.UserId, "CorrectionRequest", row.CorrectionRequestId.ToString(), "CorrectionRequested", new { request.VisitTripId, request.Reason, Changes = changes.Count });
+        AddAudit(user.UserId, "CorrectionRequest", row.CorrectionRequestId.ToString(), "CorrectionRequested", new { request.VisitTripId, request.Reason, Changes = changes.Count }, requestedAt);
+
+        // Keep the generated request identity and all change/audit rows in the
+        // caller-owned transaction, but flush them before adding the outbox
+        // row.  The final notification SaveChanges therefore has only the
+        // intended MailOutbox entry in its failure set, which is required for
+        // surgical concurrent-collision translation.
         await db.SaveChangesAsync(ct);
+
+        if (notifications is not null)
+        {
+            await notifications.QueueAsync(
+                new NotificationEventContext(
+                    NotificationEventCodes.CorrectionRequested,
+                    "CorrectionRequest",
+                    row.CorrectionRequestId.ToString(),
+                    $"CORRECTION:{row.CorrectionRequestId}:REQUESTED",
+                    row.RequestedAt,
+                    trip.OrganizationId,
+                    trip.TeamId,
+                    null,
+                    null,
+                    null,
+                    new NotificationTemplatePayloadV1(row.CorrectionRequestId.ToString(), "Requested"),
+                    Guid.NewGuid()),
+                ct);
+        }
+
+        await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
         return await MapCorrectionAsync(row.CorrectionRequestId, ct);
     }
 
@@ -374,8 +404,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var trip = await db.VisitTrips.AsNoTracking().FirstAsync(x => x.VisitTripId == row.VisitTripId, ct);
         if (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value)) throw new UnauthorizedAccessException("無權審核未授權小組資料。");
 
+        var transitionAt = DateTime.UtcNow;
         row.LeaderReviewedByUserId = user.UserId;
-        row.LeaderReviewedAt = DateTime.UtcNow;
+        row.LeaderReviewedAt = transitionAt;
         row.LeaderComments = request.Comments;
         if (!request.Approve)
         {
@@ -395,6 +426,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         }
         AddAudit(user.UserId, "CorrectionRequest", row.CorrectionRequestId.ToString(), request.Approve ? "CorrectionLeaderApproved" : "CorrectionLeaderRejected", new { request.Comments, row.Status });
         await db.SaveChangesAsync(ct);
+        await QueueCorrectionTerminalEventAsync(row, trip, transitionAt, ct);
+        if (notifications is not null)
+            await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
         return await MapCorrectionAsync(row.CorrectionRequestId, ct);
     }
 
@@ -407,8 +441,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var trip = await db.VisitTrips.AsNoTracking().FirstAsync(x => x.VisitTripId == row.VisitTripId, ct);
         if (user.OrganizationId.HasValue && trip.OrganizationId != user.OrganizationId.Value) throw new UnauthorizedAccessException("無權處理其他 Organization 資料。");
 
+        var transitionAt = DateTime.UtcNow;
         row.AdminClosedByUserId = user.UserId;
-        row.AdminClosedAt = DateTime.UtcNow;
+        row.AdminClosedAt = transitionAt;
         row.AdminComments = request.Comments;
         if (!request.Approve) row.Status = "Rejected";
         else
@@ -419,6 +454,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         }
         AddAudit(user.UserId, "CorrectionRequest", row.CorrectionRequestId.ToString(), request.Approve ? "CorrectionAdminClosed" : "CorrectionAdminRejected", new { request.Comments, row.Status });
         await db.SaveChangesAsync(ct);
+        await QueueCorrectionTerminalEventAsync(row, trip, transitionAt, ct);
+        if (notifications is not null)
+            await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
         return await MapCorrectionAsync(row.CorrectionRequestId, ct);
     }
 
@@ -991,6 +1029,49 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     private static bool RequiresAdminClose(IEnumerable<CorrectionRequestChange> changes) =>
         changes.Any(x => x.FieldName is "ApprovedDistanceKm" or "RatePerKm" or "SubsidyAmount");
 
+    private async Task QueueCorrectionTerminalEventAsync(
+        CorrectionRequest row,
+        VisitTrip trip,
+        DateTime transitionAt,
+        CancellationToken ct)
+    {
+        if (notifications is null)
+            return;
+
+        var (eventCode, action) = row.Status switch
+        {
+            "Closed" => (NotificationEventCodes.CorrectionApproved, "Approved"),
+            "Rejected" => (NotificationEventCodes.CorrectionReturned, "Returned"),
+            _ => (null, null)
+        };
+
+        // PendingAdminClose is intentionally not a terminal notification
+        // state.  Only Closed emits CorrectionApproved; both authoritative
+        // Rejected transitions emit CorrectionReturned.
+        if (eventCode is null)
+            return;
+
+        var keySuffix = eventCode == NotificationEventCodes.CorrectionApproved
+            ? "APPROVED"
+            : "RETURNED";
+
+        await notifications.QueueAsync(
+            new NotificationEventContext(
+                eventCode,
+                "CorrectionRequest",
+                row.CorrectionRequestId.ToString(),
+                $"CORRECTION:{row.CorrectionRequestId}:{keySuffix}",
+                transitionAt,
+                trip.OrganizationId,
+                trip.TeamId,
+                trip.EmploymentId,
+                null,
+                null,
+                new NotificationTemplatePayloadV1(row.CorrectionRequestId.ToString(), action),
+                Guid.NewGuid()),
+            ct);
+    }
+
     private async Task<VisitTripSnapshot> CreateCorrectionSnapshotAsync(CorrectionRequest row, int actorUserId, CancellationToken ct)
     {
         var baseSnapshot = await db.VisitTripSnapshots.AsNoTracking().Include(x => x.Stops).FirstAsync(x => x.VisitTripSnapshotId == row.BaseSnapshotId, ct);
@@ -1090,9 +1171,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         if (!currentValue.SequenceEqual(expected)) throw new InvalidOperationException("ROWVERSION_CONFLICT：資料已被其他使用者修改，請重新整理。");
     }
 
-    private void AddAudit(int? userId, string entityType, string? entityId, string action, object value) => db.AuditLogs.Add(new AuditLog
+    private void AddAudit(int? userId, string entityType, string? entityId, string action, object value) =>
+        AddAudit(userId, entityType, entityId, action, value, DateTime.UtcNow);
+
+    private void AddAudit(int? userId, string entityType, string? entityId, string action, object value, DateTime createdAt) => db.AuditLogs.Add(new AuditLog
     {
         UserId = userId, EntityType = entityType, EntityId = entityId, Action = action,
-        NewValues = JsonSerializer.Serialize(value, JsonOptions), CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow
+        NewValues = JsonSerializer.Serialize(value, JsonOptions), CorrelationId = Guid.NewGuid(), CreatedAt = createdAt
     });
 }

@@ -58,7 +58,12 @@ public sealed class V160FinalService(
     public Task<CorrectionDraftDto> GetCorrectionDraftAsync(long tripId, CancellationToken ct) =>
         repository.GetCorrectionDraftAsync(RequireRole("visitor"), tripId, ct);
 
-    public async Task<CorrectionRequestDto> CreateCorrectionAsync(CreateCorrectionRequest request, CancellationToken ct)
+    public Task<CorrectionRequestDto> CreateCorrectionAsync(CreateCorrectionRequest request, CancellationToken ct) =>
+        transactions.ExecuteAsync(
+            innerCt => CreateCorrectionCoreAsync(request, innerCt),
+            ct);
+
+    private async Task<CorrectionRequestDto> CreateCorrectionCoreAsync(CreateCorrectionRequest request, CancellationToken ct)
     {
         var user = RequireRole("visitor");
         var trip = await trips.GetAsync(request.VisitTripId, false, ct)
