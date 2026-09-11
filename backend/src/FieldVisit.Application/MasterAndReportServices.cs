@@ -219,7 +219,7 @@ public sealed class MasterService(
 
     public async Task<MileageRateDto> CreateRateAsync(CreateMileageRateRequest request,CancellationToken ct)
     {
-        var user=RequireAny("admin");ValidateRate(request.RuleName,request.RatePerKm,request.EffectiveFrom,null);var vehicle=NormalizeVehicleTypeForWork1(request.VehicleType);
+        var user=RequireAny("admin");RejectCallerEffectiveTo(request.EffectiveTo);ValidateRate(request.RuleName,request.RatePerKm,request.EffectiveFrom,null);var vehicle=NormalizeVehicleTypeForWork1(request.VehicleType);
         var series=await mileage.GetRateSeriesAsync(user.OrganizationId,vehicle,false,ct);if(series.Any(x=>x.IsActive&&x.EffectiveFrom==request.EffectiveFrom))throw new InvalidOperationException("同一車種不可有兩個同日生效的費率版本。");
         await EnsureRateHistoricalImpactAcknowledgedAsync(user.OrganizationId,vehicle,request.EffectiveFrom,request.AcknowledgeHistoricalImpact,ct);
         var row=new MileageRateRule{OrganizationId=user.OrganizationId,RuleName=request.RuleName.Trim(),VehicleType=vehicle,RatePerKm=request.RatePerKm,EffectiveFrom=request.EffectiveFrom,EffectiveTo=null,IsActive=true,CreatedAt=DateTime.UtcNow,CreatedByUserId=user.UserId};
@@ -230,7 +230,7 @@ public sealed class MasterService(
 
     public async Task<MileageRateDto> UpdateRateAsync(int mileageRateRuleId,UpdateMileageRateRequest request,CancellationToken ct)
     {
-        var user=RequireAny("admin");ValidateRate(request.RuleName,request.RatePerKm,request.EffectiveFrom,null);var row=await mileage.GetRateAsync(mileageRateRuleId,true,ct)??throw new KeyNotFoundException("找不到補助費率。");if(row.OrganizationId!=user.OrganizationId)throw new UnauthorizedAccessException("無權維護其他組織費率。");
+        var user=RequireAny("admin");RejectCallerEffectiveTo(request.EffectiveTo);ValidateRate(request.RuleName,request.RatePerKm,request.EffectiveFrom,null);var row=await mileage.GetRateAsync(mileageRateRuleId,true,ct)??throw new KeyNotFoundException("找不到補助費率。");if(row.OrganizationId!=user.OrganizationId)throw new UnauthorizedAccessException("無權維護其他組織費率。");
         var oldEffectiveFrom=row.EffectiveFrom;var vehicle=NormalizeVehicleTypeForWork1(request.VehicleType);var series=await mileage.GetRateSeriesAsync(user.OrganizationId,vehicle,false,ct);if(request.IsActive&&series.Any(x=>x.IsActive&&x.MileageRateRuleId!=mileageRateRuleId&&x.EffectiveFrom==request.EffectiveFrom))throw new InvalidOperationException("同一車種不可有兩個同日生效的費率版本。");
         var financialScheduleChanged=row.RatePerKm!=request.RatePerKm||row.EffectiveFrom!=request.EffectiveFrom||row.IsActive!=request.IsActive||!string.Equals(row.VehicleType,vehicle,StringComparison.OrdinalIgnoreCase);
         if(financialScheduleChanged){var impactFrom=oldEffectiveFrom<=request.EffectiveFrom?oldEffectiveFrom:request.EffectiveFrom;await EnsureRateHistoricalImpactAcknowledgedAsync(user.OrganizationId,vehicle,impactFrom,request.AcknowledgeHistoricalImpact,ct);}
@@ -259,6 +259,7 @@ public sealed class MasterService(
     {if(string.IsNullOrWhiteSpace(request.ProjectCode))throw new InvalidOperationException("專案代碼為必填。");if(string.IsNullOrWhiteSpace(request.ProjectName))throw new InvalidOperationException("專案名稱為必填。");if(request.EndDate.HasValue&&request.StartDate.HasValue&&request.EndDate.Value<request.StartDate.Value)throw new InvalidOperationException("專案結束日不可早於開始日。");_=NormalizeLocationMode(request.LocationMode);}
     private static string NormalizeLocationMode(string mode)=>mode?.Trim().ToLowerInvariant() switch{"list" or "清單"=>"List","selfmaintained" or "self-maintained" or "自行維護"=>"SelfMaintained",_=>throw new InvalidOperationException("地點模式只允許 List 或 SelfMaintained。")} ;
     private static void ValidateVisitTypeRequest(SaveVisitTypeRequest request){if(string.IsNullOrWhiteSpace(request.VisitTypeCode))throw new InvalidOperationException("拜訪形式代碼為必填。");if(string.IsNullOrWhiteSpace(request.VisitTypeName))throw new InvalidOperationException("拜訪形式名稱為必填。");}
+    private static void RejectCallerEffectiveTo(DateOnly? effectiveTo){if(effectiveTo.HasValue)throw new InvalidOperationException("MILEAGE_RATE_EFFECTIVE_TO_DB_AUTHORITY：EffectiveTo 由資料庫衍生；呼叫端不得提供非 null 值。");}
     private static void ValidateRate(string ruleName,decimal ratePerKm,DateOnly effectiveFrom,DateOnly? effectiveTo){if(string.IsNullOrWhiteSpace(ruleName))throw new InvalidOperationException("規則名稱為必填。");if(ratePerKm<0)throw new InvalidOperationException("每公里補助不可小於 0。");if(effectiveTo.HasValue&&effectiveTo.Value<effectiveFrom)throw new InvalidOperationException("失效日不可早於生效日。");}
     private static string NormalizeVehicleTypeForWork1(string? value)=>value?.Trim().ToUpperInvariant() switch{"" or null=>"MOTORCYCLE","MOTORCYCLE"=>"MOTORCYCLE","CAR"=>"CAR",_=>throw new InvalidOperationException("VehicleType 只允許 MOTORCYCLE 或 CAR。")} ;
     private CurrentUserDto RequireAny(params string[] roles){var user=current.GetRequired();if(!roles.Any(r=>HasRole(user,r)))throw new UnauthorizedAccessException("目前角色無權執行此操作。");return user;}

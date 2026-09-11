@@ -286,9 +286,22 @@ echo "DBW1_RACE_11=PASS WINNER=BOTH LOSER=NONE"
 
 sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(1012,N'One',N'MOTORCYCLE',2.5,'2026-01-01',NULL,1),(1012,N'Two',N'MOTORCYCLE',2.8,'2026-07-01',NULL,1);" >/dev/null
 id12="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId=1012 AND EffectiveFrom='2026-01-01';")"
-sql_query "$main_db" "UPDATE dbo.MileageRateRules SET EffectiveTo='2099-12-31' WHERE MileageRateRuleId=$id12;" >/dev/null
-[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$id12;")" == "2026-06-30" ]] || fail "R12 arbitrary EffectiveTo persisted."
-echo "DBW1_R12_A=COMMIT"; echo "DBW1_R12_B=N/A"; echo "DBW1_RACE_12=PASS WINNER=DB_AUTHORITY LOSER=CALLER_EFFECTIVETO"
+id12b="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId=1012 AND EffectiveFrom='2026-07-01';")"
+r12_count_before="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.MileageRateRules WHERE OrganizationId=1012 AND VehicleType=N'MOTORCYCLE';")"
+r12_version_before="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$id12;")"
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$id12;")" == "2026-06-30" ]] || fail "R12 seed first boundary wrong."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CASE WHEN EffectiveTo IS NULL THEN 'NULL' ELSE CONVERT(varchar(10),EffectiveTo,23) END FROM dbo.MileageRateRules WHERE MileageRateRuleId=$id12b;")" == "NULL" ]] || fail "R12 seed terminal boundary wrong."
+set +e
+r12_log="$(sql_query "$main_db" "UPDATE dbo.MileageRateRules SET EffectiveTo='2099-12-31' WHERE MileageRateRuleId=$id12;" 2>&1)"; r12_rc=$?
+set -e
+[[ "$r12_rc" != 0 ]] || fail "R12 caller-authored EffectiveTo unexpectedly committed."
+grep -q '53839' <<<"$r12_log" || { echo "$r12_log" >&2; fail "R12 failed for unexpected reason."; }
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$id12;")" == "2026-06-30" ]] || fail "R12 first boundary changed after rollback."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CASE WHEN EffectiveTo IS NULL THEN 'NULL' ELSE CONVERT(varchar(10),EffectiveTo,23) END FROM dbo.MileageRateRules WHERE MileageRateRuleId=$id12b;")" == "NULL" ]] || fail "R12 terminal boundary changed after rollback."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.MileageRateRules WHERE OrganizationId=1012 AND VehicleType=N'MOTORCYCLE';")" == "$r12_count_before" ]] || fail "R12 row count changed after rollback."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$id12;")" == "$r12_version_before" ]] || fail "R12 RowVersion changed despite statement rollback."
+echo "DBW1_R12_A=ERROR:53839"; echo "DBW1_R12_B=N/A"; echo "DBW1_RACE_12=PASS WINNER=PROTECTION LOSER=CALLER_EFFECTIVETO_ROLLBACK"
+echo "DBW1_ET_DB_02=PASS"
 
 id13="$(sql_scalar "$main_db" "SET NOCOUNT ON; INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(1013,N'Protected',N'CAR',3.0,'2026-01-01',NULL,1); SELECT CONVERT(int,SCOPE_IDENTITY());")"
 set +e
@@ -307,6 +320,83 @@ sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,Vehicl
 [[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE OrganizationId=2015 AND VehicleType=N'CAR' AND EffectiveFrom='2026-01-01';")" == "2026-06-30" ]] || fail "R15 new series not re-derived."
 echo "DBW1_R15_A=COMMIT"; echo "DBW1_R15_B=N/A"; echo "DBW1_RACE_15=PASS WINNER=MOVE LOSER=NONE"
 
+# ET-DB-01: active INSERT with caller-authored non-null EffectiveTo must fail closed.
+set +e
+et_db_01_log="$(sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(3101,N'Caller',N'MOTORCYCLE',2.5,'2026-01-01','2099-12-31',1);" 2>&1)"; et_db_01_rc=$?
+set -e
+[[ "$et_db_01_rc" != 0 ]] || fail "ET-DB-01 prohibited active INSERT committed."
+grep -q '53839' <<<"$et_db_01_log" || { echo "$et_db_01_log" >&2; fail "ET-DB-01 wrong SQL error."; }
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.MileageRateRules WHERE OrganizationId=3101;")" == 0 ]] || fail "ET-DB-01 row committed despite 53839."
+echo "DBW1_ET_DB_01=PASS ERROR=53839"
+
+# ET-DB-03: explicit NULL relinquishes authority and a legal series change is re-derived.
+sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(3103,N'One',N'MOTORCYCLE',2.5,'2026-01-01',NULL,1),(3103,N'Two',N'MOTORCYCLE',2.8,'2026-07-01',NULL,1);" >/dev/null
+et3_id="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId=3103 AND EffectiveFrom='2026-01-01';")"
+sql_query "$main_db" "UPDATE dbo.MileageRateRules SET EffectiveFrom='2026-02-01',EffectiveTo=NULL WHERE MileageRateRuleId=$et3_id;" >/dev/null
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et3_id;")" == "2026-06-30" ]] || fail "ET-DB-03 DB did not derive boundary after explicit NULL."
+echo "DBW1_ET_DB_03=PASS"
+
+# ET-DB-04: rate-only UPDATE must not be falsely rejected when current EffectiveTo is canonical non-null.
+sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(3104,N'One',N'MOTORCYCLE',2.5,'2026-01-01',NULL,1),(3104,N'Two',N'MOTORCYCLE',2.8,'2026-07-01',NULL,1);" >/dev/null
+et4_id="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId=3104 AND EffectiveFrom='2026-01-01';")"
+sql_query "$main_db" "UPDATE dbo.MileageRateRules SET RatePerKm=9.90 WHERE MileageRateRuleId=$et4_id;" >/dev/null
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et4_id;")" == "2026-06-30" ]] || fail "ET-DB-04 canonical EffectiveTo changed on rate-only update."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(20),RatePerKm) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et4_id;")" == "9.90" ]] || fail "ET-DB-04 legal RatePerKm update did not persist."
+echo "DBW1_ET_DB_04=PASS"
+
+# ET-DB-05: one prohibited value in a multi-row statement rolls back the whole statement.
+sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(3105,N'One',N'MOTORCYCLE',2.5,'2026-01-01',NULL,1),(3105,N'Two',N'MOTORCYCLE',2.8,'2026-07-01',NULL,1);" >/dev/null
+et5_id1="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId=3105 AND EffectiveFrom='2026-01-01';")"
+et5_id2="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId=3105 AND EffectiveFrom='2026-07-01';")"
+et5_v1="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et5_id1;")"
+et5_v2="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et5_id2;")"
+set +e
+et_db_05_log="$(sql_query "$main_db" "UPDATE dbo.MileageRateRules SET RuleName=N'BAD',EffectiveTo='2099-12-31' WHERE OrganizationId=3105 AND VehicleType=N'MOTORCYCLE';" 2>&1)"; et_db_05_rc=$?
+set -e
+[[ "$et_db_05_rc" != 0 ]] || fail "ET-DB-05 prohibited multi-row update committed."
+grep -q '53839' <<<"$et_db_05_log" || { echo "$et_db_05_log" >&2; fail "ET-DB-05 wrong SQL error."; }
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.MileageRateRules WHERE OrganizationId=3105 AND RuleName=N'BAD';")" == 0 ]] || fail "ET-DB-05 partial RuleName mutation escaped."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et5_id1;")" == "$et5_v1" ]] || fail "ET-DB-05 first RowVersion changed."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et5_id2;")" == "$et5_v2" ]] || fail "ET-DB-05 second RowVersion changed."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et5_id1;")" == "2026-06-30" ]] || fail "ET-DB-05 first boundary changed."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CASE WHEN EffectiveTo IS NULL THEN 'NULL' ELSE CONVERT(varchar(10),EffectiveTo,23) END FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et5_id2;")" == "NULL" ]] || fail "ET-DB-05 terminal boundary changed."
+echo "DBW1_ET_DB_05=PASS ERROR=53839 ATOMIC_ROLLBACK=YES"
+
+# ET-DB-06: GLOBAL NULL-Organization series has the same fail-closed authority rule.
+sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(NULL,N'Global One',N'CAR',3.5,'2028-01-01',NULL,1),(NULL,N'Global Two',N'CAR',3.8,'2028-07-01',NULL,1);" >/dev/null
+et6_id="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId IS NULL AND VehicleType=N'CAR' AND EffectiveFrom='2028-01-01';")"
+et6_version="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et6_id;")"
+set +e
+et_db_06_log="$(sql_query "$main_db" "UPDATE dbo.MileageRateRules SET EffectiveTo='2099-12-31' WHERE MileageRateRuleId=$et6_id;" 2>&1)"; et_db_06_rc=$?
+set -e
+[[ "$et_db_06_rc" != 0 ]] || fail "ET-DB-06 prohibited GLOBAL EffectiveTo committed."
+grep -q '53839' <<<"$et_db_06_log" || { echo "$et_db_06_log" >&2; fail "ET-DB-06 wrong SQL error."; }
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et6_id;")" == "2028-06-30" ]] || fail "ET-DB-06 GLOBAL canonical boundary changed."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et6_id;")" == "$et6_version" ]] || fail "ET-DB-06 GLOBAL RowVersion changed."
+echo "DBW1_ET_DB_06=PASS ERROR=53839"
+
+# Reactivation without EffectiveTo statement intent is legal even with inactive historical EffectiveTo.
+sql_query "$main_db" "INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive) VALUES(3107,N'Old',N'MOTORCYCLE',2.5,'2028-01-01',NULL,1),(3107,N'Future',N'MOTORCYCLE',2.8,'2028-07-01',NULL,1);" >/dev/null
+et7_id="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT MileageRateRuleId FROM dbo.MileageRateRules WHERE OrganizationId=3107 AND EffectiveFrom='2028-01-01';")"
+sql_query "$main_db" "UPDATE dbo.MileageRateRules SET IsActive=0,InactivatedAt=SYSUTCDATETIME(),InactivatedByUserId=99 WHERE MileageRateRuleId=$et7_id;" >/dev/null
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et7_id;")" == "2028-06-30" ]] || fail "ET reactivation fixture lost inactive historical EffectiveTo."
+sql_query "$main_db" "UPDATE dbo.MileageRateRules SET IsActive=1,InactivatedAt=NULL,InactivatedByUserId=NULL WHERE MileageRateRuleId=$et7_id;" >/dev/null
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CONVERT(varchar(10),EffectiveTo,23) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et7_id;")" == "2028-06-30" ]] || fail "ET reactivation without EffectiveTo intent failed to derive boundary."
+echo "DBW1_ET_DB_REACTIVATION_NO_INTENT=PASS"
+
+# Reactivation that explicitly authors non-null EffectiveTo is rejected and remains inactive.
+sql_query "$main_db" "UPDATE dbo.MileageRateRules SET IsActive=0,InactivatedAt=SYSUTCDATETIME(),InactivatedByUserId=99 WHERE MileageRateRuleId=$et7_id;" >/dev/null
+et7_version="$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et7_id;")"
+set +e
+et_reactivate_log="$(sql_query "$main_db" "UPDATE dbo.MileageRateRules SET IsActive=1,InactivatedAt=NULL,InactivatedByUserId=NULL,EffectiveTo='2099-12-31' WHERE MileageRateRuleId=$et7_id;" 2>&1)"; et_reactivate_rc=$?
+set -e
+[[ "$et_reactivate_rc" != 0 ]] || fail "ET reactivation with caller EffectiveTo unexpectedly committed."
+grep -q '53839' <<<"$et_reactivate_log" || { echo "$et_reactivate_log" >&2; fail "ET reactivation with caller EffectiveTo wrong SQL error."; }
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT CASE WHEN IsActive=0 THEN 1 ELSE 0 END FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et7_id;")" == 1 ]] || fail "ET prohibited reactivation changed lifecycle state."
+[[ "$(sql_scalar "$main_db" "SET NOCOUNT ON; SELECT sys.fn_varbintohexstr(RowVersion) FROM dbo.MileageRateRules WHERE MileageRateRuleId=$et7_id;")" == "$et7_version" ]] || fail "ET prohibited reactivation changed RowVersion."
+echo "DBW1_ET_DB_REACTIVATION_EXPLICIT_NON_NULL=PASS ERROR=53839"
+
+echo "DBW1_ET_DB_MATRIX=6/6"
 assert_global_invariants
 sql_file "$main_db" "$verify" >/dev/null
 echo "DBW1_RACE_FAMILIES=15/15"
@@ -368,6 +458,14 @@ SET @d=N'ALTER '+SUBSTRING(@d,@p,LEN(@d)-@p+1);
 DECLARE @m nvarchar(max)=REPLACE(@d,N'(r.OrganizationId=a.OrganizationId OR (r.OrganizationId IS NULL AND a.OrganizationId IS NULL))',N'ISNULL(r.OrganizationId,-1)=ISNULL(a.OrganizationId,-1)');
 IF @m=@d THROW 54923,N'mutation E did not alter trigger',1;
 EXEC sys.sp_executesql @m;"
-[[ "$mutation_pass" == 5 ]] || fail "Verify mutation resistance incomplete."
-echo "DBW1_VERIFY_MUTATION_RESISTANCE=5/5"
+expect_verify_failure F "
+DECLARE @d nvarchar(max)=OBJECT_DEFINITION(OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries'));
+DECLARE @p int=CHARINDEX(N'TRIGGER',UPPER(@d));
+IF @p<=0 THROW 54919,N'trigger definition header not found',1;
+SET @d=N'ALTER '+SUBSTRING(@d,@p,LEN(@d)-@p+1);
+DECLARE @m nvarchar(max)=REPLACE(@d,N'WHERE i.IsActive=1',N'WHERE i.IsActive=2');
+IF @m=@d THROW 54924,N'mutation F did not alter active EffectiveTo authority guard',1;
+EXEC sys.sp_executesql @m;"
+[[ "$mutation_pass" == 6 ]] || fail "Verify mutation resistance incomplete."
+echo "DBW1_VERIFY_MUTATION_RESISTANCE=6/6"
 echo "DBW1_SQL_CONCURRENCY=15/15"

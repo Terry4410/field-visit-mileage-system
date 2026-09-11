@@ -186,6 +186,19 @@ BEGIN
       SELECT 1
       FROM inserted i
       LEFT JOIN deleted d ON d.MileageRateRuleId=i.MileageRateRuleId
+      WHERE i.IsActive=1
+        AND i.EffectiveTo IS NOT NULL
+        AND (
+          d.MileageRateRuleId IS NULL
+          OR UPDATE(EffectiveTo)
+        )
+  )
+      THROW 53839, N''Active MileageRate EffectiveTo is database-derived; non-null caller-authored values are prohibited.'', 1;
+
+  IF EXISTS(
+      SELECT 1
+      FROM inserted i
+      LEFT JOIN deleted d ON d.MileageRateRuleId=i.MileageRateRuleId
       WHERE i.IsActive=0
         AND (
           (d.MileageRateRuleId IS NULL AND i.EffectiveTo IS NOT NULL)

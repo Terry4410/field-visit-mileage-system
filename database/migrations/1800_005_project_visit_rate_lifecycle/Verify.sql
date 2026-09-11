@@ -98,6 +98,9 @@ IF @Def NOT LIKE N'%physical delete is prohibited%'
     THROW 53925,N'Verify failed: DELETE protection or system-derived EffectiveTo contract missing.',1;
 IF @Def NOT LIKE N'%inactive mileagerate effectiveto is historical system evidence%'
     THROW 53926,N'Verify failed: inactive historical EffectiveTo protection missing.',1;
+IF @Compact NOT LIKE N'%wherei.isactive=1andi.effectivetoisnotnulland(d.mileagerateruleidisnullorupdate(effectiveto)))throw53839,%'
+ OR @Def NOT LIKE N'%active mileagerate effectiveto is database-derived; non-null caller-authored values are prohibited.%'
+    THROW 53928,N'Verify failed: active caller-authored EffectiveTo rejection contract missing.',1;
 IF @Def NOT LIKE N'%mileagerate canonical vehicletype final invariant failed%'
  OR @Def NOT LIKE N'%mileagerate duplicate active effectivefrom final invariant failed%'
  OR @Def NOT LIKE N'%mileagerate active exact-series overlap detected%'
