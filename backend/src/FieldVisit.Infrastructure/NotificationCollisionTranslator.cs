@@ -56,7 +56,7 @@ public sealed class EfNotificationCollisionTranslator(AppDbContext db) : INotifi
             .ToArray();
         var hasRecipientKeyAuthority = authorities.Any(x => x == CollisionAuthority.RecipientKey);
         var hasEmailAuthority = authorities.Any(x => x == CollisionAuthority.NormalizedRecipientEmail);
-        var matchedRows = new List<(EntityEntry Entry, MailOutbox Row, bool RecipientKeyMatch, bool EmailMatch)>();
+        var matchedRows = new List<(EntityEntry Entry, bool RecipientKeyMatch, bool EmailMatch)>();
 
         foreach (var tracked in trackedRows)
         {
@@ -82,7 +82,6 @@ public sealed class EfNotificationCollisionTranslator(AppDbContext db) : INotifi
             {
                 matchedRows.Add((
                     tracked.Entry,
-                    row,
                     hasRecipientKeyAuthority,
                     hasEmailAuthority && normalizedEmail is not null));
             }
