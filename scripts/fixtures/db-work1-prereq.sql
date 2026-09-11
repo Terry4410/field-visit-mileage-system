@@ -112,3 +112,37 @@ CREATE TABLE dbo.AuditLogs(
 CREATE TABLE dbo.VisitTripSnapshots(
     VisitTripSnapshotId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY
 );
+
+CREATE TABLE dbo.SchemaMigrationDataBaselines
+(
+    MigrationVersion nvarchar(30) NOT NULL
+        CONSTRAINT PK_DBW1_SchemaMigrationDataBaselines PRIMARY KEY,
+    CapturedAt datetime2(3) NOT NULL,
+    MaxVisitTripId bigint NOT NULL,
+    VisitTripCount bigint NOT NULL,
+    VisitTripHash varbinary(32) NOT NULL,
+    MaxVisitTripSnapshotId bigint NOT NULL,
+    VisitTripSnapshotCount bigint NOT NULL,
+    VisitTripSnapshotHash varbinary(32) NOT NULL,
+    MaxVisitTripSnapshotStopId bigint NOT NULL,
+    VisitTripSnapshotStopCount bigint NOT NULL,
+    VisitTripSnapshotStopHash varbinary(32) NOT NULL
+);
+
+DECLARE @EmptyHistoryHash varbinary(32) =
+    HASHBYTES(N'SHA2_256', CONVERT(varbinary(max), N'[]'));
+
+INSERT dbo.SchemaMigrationDataBaselines
+(
+    MigrationVersion, CapturedAt,
+    MaxVisitTripId, VisitTripCount, VisitTripHash,
+    MaxVisitTripSnapshotId, VisitTripSnapshotCount, VisitTripSnapshotHash,
+    MaxVisitTripSnapshotStopId, VisitTripSnapshotStopCount, VisitTripSnapshotStopHash
+)
+VALUES
+(
+    N'1.8.0-001', SYSUTCDATETIME(),
+    0, 0, @EmptyHistoryHash,
+    0, 0, @EmptyHistoryHash,
+    0, 0, @EmptyHistoryHash
+);
