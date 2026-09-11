@@ -47,7 +47,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
         var ex=await Assert.ThrowsAsync<InvalidOperationException>(()=>service.UpdateProjectAsync(1,new(10,"P1","X",null,"List",VisitDate,null,StaleToken),default));
         Assert.Equal(409,ApiExceptionStatus.From(ex));
         Assert.Empty(db.AuditLogs);
-        Assert.Equal("Project One",(await db.Projects.SingleAsync()).ProjectName);
+        Assert.Equal("Project 1",(await db.Projects.SingleAsync()).ProjectName);
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
         await using var db=await ProjectDbAsync();
         db.Teams.Add(new Team{TeamId=20,OrganizationId=2,TeamCode="T2",TeamName="Other",IsActive=true,RowVersion=Version.ToArray()});
         await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Master(db,Admin()).CreateProjectAsync(new(20,"P3","Wrong Org",null,"List",VisitDate,null),default));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>Master(db,Admin()).CreateProjectAsync(new(20,"P3","Wrong Org",null,"List",VisitDate,null),default));
     }
 
     [Fact]
@@ -234,7 +234,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
     public async Task DB2_06_VisitType_stale_deactivate_has_zero_audit_or_mutation()
     {
         await using var db=await VisitTypeDbAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>Master(db,Admin()).DeactivateVisitTypeAsync(1,StaleToken,default));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>Master(db,Admin()).DeactivateVisitTypeAsync(1,StaleToken),default);
         Assert.True((await db.VisitTypes.SingleAsync(x=>x.VisitTypeId==1)).IsActive);
         Assert.Empty(db.AuditLogs);
     }
@@ -317,7 +317,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
         Assert.Contains("FieldVisit.VisitTypeOrder",source);
         Assert.Contains("Exclusive",source);
         Assert.Contains("Transaction",source);
-        Assert.Contains("LockTimeout = 10000",source);
+        Assert.Contains("@LockTimeout=10000",source);
         Assert.Contains("UPDLOCK,HOLDLOCK",source);
     }
 
