@@ -222,7 +222,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
     {
         await using var db=await VisitTypeDbAsync();
         var coordinator=new CountingCoordinator();
-        var result=await Master(db,Admin()).DeactivateVisitTypeAsync(1,Token,default);
+        var result=await Master(db,Admin(),coordinator).DeactivateVisitTypeAsync(1,Token,default);
         Assert.False(result.IsActive);
         Assert.Equal(1,coordinator.Calls);
         var row=await db.VisitTypes.SingleAsync(x=>x.VisitTypeId==1);
@@ -290,7 +290,7 @@ public sealed class V180DbWork1ProjectVisitTypeTests
     public static IEnumerable<object[]> InvalidExpectedOrders()=>new[]
     {
         new object[]{Array.Empty<int>()},
-        new object[]{new[]{1}},
+        new object[]{new[]{1,1}},
         new object[]{new[]{1,99}},
         new object[]{new[]{1,2,99}},
         new object[]{new[]{1,2,3}}
