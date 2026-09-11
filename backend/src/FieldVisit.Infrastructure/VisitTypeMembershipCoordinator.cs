@@ -1,4 +1,6 @@
+using System.Data;
 using FieldVisit.Application;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Infrastructure;
@@ -13,10 +15,13 @@ public sealed class VisitTypeMembershipCoordinator(AppDbContext db) : IVisitType
         return await strategy.ExecuteAsync(async () =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            var lockResult = await db.Database.SqlQueryRaw<int>(
-                    "DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource={0}, @LockMode=N'Exclusive', @LockOwner=N'Transaction', @LockTimeout=10000; SELECT @r AS [Value];",
-                    Resource)
-                .SingleAsync(ct);
+            var resourceParameter = new SqlParameter("@resource", SqlDbType.NVarChar, 255) { Value = Resource };
+            var resultParameter = new SqlParameter("@result", SqlDbType.Int) { Direction = ParameterDirection.Output };
+            await db.Database.ExecuteSqlRawAsync(
+                "EXEC @result = sys.sp_getapplock @Resource=@resource, @LockMode=N'Exclusive', @LockOwner=N'Transaction', @LockTimeout=10000;",
+                new object[] { resultParameter, resourceParameter },
+                ct);
+            var lockResult = Convert.ToInt32(resultParameter.Value);
             if (lockResult < 0)
                 throw new InvalidOperationException("VISITTYPE_ORDER_LOCK_FAILED：無法取得拜訪形式排序鎖。");
 
