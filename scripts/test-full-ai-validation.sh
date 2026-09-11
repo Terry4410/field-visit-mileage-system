@@ -9,6 +9,7 @@ bash scripts/test-da0b-snapshot-concurrency.sh
 bash scripts/test-da1b-location-governance-integration.sh
 bash scripts/test-db-work1-concurrency.sh
 bash scripts/test-db-work2-correction-atomicity.sh
+bash scripts/test-ea0-notification-schema-authority.sh
 npm --prefix frontend run build
 dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --no-restore
 
