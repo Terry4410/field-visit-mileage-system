@@ -316,7 +316,8 @@ dotnet run --project backend/tests/FieldVisit.DBWork1.Integration.Tests/FieldVis
 
 mutation_pass=0
 expect_verify_failure() {
-  local id="$1" mutation="$2" db="FieldVisitDBW1_MUT_${id}_${GITHUB_RUN_ID:-local}_$$"
+  local id="$1" mutation="$2"
+  local db="FieldVisitDBW1_MUT_${id}_${GITHUB_RUN_ID:-local}_$$"
   create_database "$db"
   sql_query "$db" "$mutation" >/dev/null
   set +e
