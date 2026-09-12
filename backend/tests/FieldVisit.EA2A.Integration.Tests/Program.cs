@@ -228,10 +228,11 @@ static async Task RunApprovalRollbackAndBatchAsync(Ea2aFixture fx, Func<AppDbCon
 
 static async Task RunCorrectionRequestedAsync(Ea2aFixture fx, Func<AppDbContext> newDb)
 {
-    long tripId;
-    await using (var seed = newDb()) tripId = (await fx.AddTripAsync(seed, TripStatuses.Approved, fx.VisitorEmployment.EmploymentId, withSnapshot: true)).VisitTripId;
+    VisitTrip trip;
+    await using (var seed = newDb()) trip = await fx.AddTripAsync(seed, TripStatuses.Approved, fx.VisitorEmployment.EmploymentId, withSnapshot: true);
+    var tripId = trip.VisitTripId;
     await using var db = newDb();
-    var proposal = fx.Proposal("changed requested notes", 10m, 10m, 3m, 30m);
+    var proposal = fx.Proposal("changed requested notes", 10m, 10m, 3m, 30m) with { VisitDate = trip.VisitDate };
     var service = fx.CorrectionService(db, fx.Visitor, new StaticOutbox(db), new EfNotificationCollisionTranslator(db));
     var created = await service.CreateCorrectionAsync(new CreateCorrectionRequest(tripId, "EA2A requested", proposal), default);
     await using var verify = newDb();
@@ -243,13 +244,14 @@ static async Task RunCorrectionRequestedAsync(Ea2aFixture fx, Func<AppDbContext>
 
 static async Task RunCorrectionRollbackAsync(Ea2aFixture fx, Func<AppDbContext> newDb)
 {
-    long tripId;
-    await using (var seed = newDb()) tripId = (await fx.AddTripAsync(seed, TripStatuses.Approved, fx.VisitorEmployment.EmploymentId, withSnapshot: true)).VisitTripId;
+    VisitTrip trip;
+    await using (var seed = newDb()) trip = await fx.AddTripAsync(seed, TripStatuses.Approved, fx.VisitorEmployment.EmploymentId, withSnapshot: true);
+    var tripId = trip.VisitTripId;
     await using (var db = newDb())
     {
         var service = fx.CorrectionService(db, fx.Visitor, new ThrowingOutbox(), new EfNotificationCollisionTranslator(db));
         var failed = false;
-        try { await service.CreateCorrectionAsync(new CreateCorrectionRequest(tripId, "EA2A rollback", fx.Proposal("rollback", 10m, 10m, 3m, 30m)), default); }
+        try { await service.CreateCorrectionAsync(new CreateCorrectionRequest(tripId, "EA2A rollback", fx.Proposal("rollback", 10m, 10m, 3m, 30m) with { VisitDate = trip.VisitDate }), default); }
         catch (InvalidOperationException ex) when (ex.Message == "EA2A_INJECT_AFTER_FIRST_FLUSH") { failed = true; }
         Require(failed, "EA2-09 injected correction failure");
     }
@@ -307,8 +309,11 @@ static async Task RunCorrectionTerminalAsync(Ea2aFixture fx, Func<AppDbContext> 
 
 static async Task<CorrectionRequestDto> CreateAndReviewAsync(Ea2aFixture fx, Func<AppDbContext> newDb, CorrectionProposal proposal, bool approve)
 {
-    long tripId;
-    await using (var seed = newDb()) tripId = (await fx.AddTripAsync(seed, TripStatuses.Approved, fx.VisitorEmployment.EmploymentId, withSnapshot: true)).VisitTripId;
+    VisitTrip trip;
+    await using (var seed = newDb()) trip = await fx.AddTripAsync(seed, TripStatuses.Approved, fx.VisitorEmployment.EmploymentId, withSnapshot: true);
+    var tripId = trip.VisitTripId;
+    // Preserve the intentional same-date correction relationship and frozen snapshot rate.
+    proposal = proposal with { VisitDate = trip.VisitDate };
     CorrectionRequestDto created;
     await using (var createDb = newDb())
         created = await fx.CorrectionService(createDb, fx.Visitor, new StaticOutbox(createDb), new EfNotificationCollisionTranslator(createDb))
@@ -484,6 +489,7 @@ static string FindRepoRoot()
 
 sealed class Ea2aFixture
 {
+    private int tripDateSequence;
     public required Organization Organization { get; init; }
     public required Team Team { get; init; }
     public required User VisitorUser { get; init; }
@@ -552,7 +558,8 @@ sealed class Ea2aFixture
             EmploymentId = employmentId,
             OrganizationId = Organization.OrganizationId,
             TeamId = Team.TeamId,
-            VisitDate = new DateOnly(2026, 9, 11),
+            // Each new trip gets a deterministic isolated date; resubmit reuses the same trip.
+            VisitDate = new DateOnly(2026, 9, 11).AddDays(-tripDateSequence++),
             StartTime = new TimeOnly(9, 0),
             EndTime = new TimeOnly(10, 0),
             Status = status,
