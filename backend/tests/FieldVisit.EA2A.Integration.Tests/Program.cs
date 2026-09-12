@@ -370,13 +370,22 @@ static Task RunEventTimeAndNoSaveMarkersAsync()
 
 static async Task RunCollisionConcurrencyAsync(Ea2aFixture fx, Func<AppDbContext> newDb)
 {
-    var key = "EA2A-COLLISION-RECIPIENT";
+    await using var strategyDb = newDb();
+    var attempt = 0;
+    // Both explicit transactions belong to one execution-strategy unit. Each retry
+    // creates fresh independent sessions and an isolated deterministic event key.
+    await strategyDb.Database.CreateExecutionStrategy().ExecuteAsync(() =>
+        RunCollisionConcurrencyAttemptAsync(fx, newDb, $"EA2A-COLLISION-RECIPIENT:{++attempt}"));
+}
+
+static async Task RunCollisionConcurrencyAttemptAsync(Ea2aFixture fx, Func<AppDbContext> newDb, string key)
+{
     await using var a = newDb();
     await using var b = newDb();
     await using var txA = await a.Database.BeginTransactionAsync();
     await using var txB = await b.Database.BeginTransactionAsync();
     a.AuditLogs.Add(new AuditLog { EntityType = "EA2A", EntityId = "A", Action = "CollisionWinner", NewValues = "winner", CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow });
-    b.AuditLogs.Add(new AuditLog { EntityType = "EA2A", EntityId = "B", Action = "CollisionLoserBusiness", NewValues = "EA2A collision loser legal business", CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow });
+    b.AuditLogs.Add(new AuditLog { EntityType = "EA2A", EntityId = key, Action = "CollisionLoserBusiness", NewValues = "EA2A collision loser legal business", CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow });
     await a.SaveChangesAsync();
     await b.SaveChangesAsync();
     var writerA = new StaticOutbox(a, key, "EMP:999991", "collision@example.invalid");
@@ -395,10 +404,11 @@ static async Task RunCollisionConcurrencyAsync(Ea2aFixture fx, Func<AppDbContext
         Require(translated, "EA2-39 equivalent collision translator");
         await b.SaveChangesAsync();
     }
+    Require(translated, "EA2-39 concurrent uniqueness collision must occur");
     await txB.CommitAsync();
     await using var verify = newDb();
     Require(await verify.MailOutbox().AsNoTracking().CountAsync(x => x.BusinessEventKey == key) == 1, "EA2-39 one durable notification");
-    Require(await verify.AuditLogs.AsNoTracking().AnyAsync(x => x.Action == "CollisionLoserBusiness" && x.NewValues == "EA2A collision loser legal business"), "EA2-41 legal business commit");
+    Require(await verify.AuditLogs.AsNoTracking().AnyAsync(x => x.EntityId == key && x.Action == "CollisionLoserBusiness" && x.NewValues == "EA2A collision loser legal business"), "EA2-41 legal business commit");
     Console.WriteLine("EA2-39_RECIPIENTKEY_CONTROLLED_CONCURRENCY=PASS");
     Console.WriteLine("EA2-40_EXACT_COLLISION_PROVENANCE=PASS");
     Console.WriteLine("EA2-41_EQUIVALENT_COLLISION_LEGAL_COMMIT=PASS");
