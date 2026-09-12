@@ -15,11 +15,7 @@ var options = new DbContextOptionsBuilder<AppDbContext>()
 
 AppDbContext NewDb() => new(options);
 
-await using (var schemaDb = NewDb())
-{
-    if (!await schemaDb.Database.EnsureCreatedAsync())
-        throw new InvalidOperationException("EA2A disposable database was not empty before EnsureCreated.");
-}
+await Ea2aSchemaBootstrap.InitializeAsync(connectionString);
 
 var fx = await Ea2aFixture.SeedAsync(NewDb);
 Console.WriteLine("EA2A_REAL_SQL_DISPOSABLE=PASS");
@@ -512,25 +508,7 @@ sealed class Ea2aFixture
         db.TeamLeaderAssignments.Add(new TeamLeaderAssignment { TeamId = team.TeamId, EmploymentId = leaderEmployment.EmploymentId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now });
         db.Roles.AddRange(new Role { RoleCode = "visitor", RoleName = "Visitor", IsActive = true, CreatedAt = now }, new Role { RoleCode = "leader", RoleName = "Leader", IsActive = true, CreatedAt = now }, new Role { RoleCode = "admin", RoleName = "Admin", IsActive = true, CreatedAt = now });
         await db.SaveChangesAsync();
-        var codes = new[]
-        {
-            (NotificationEventCodes.TripSubmitted, new[] { NotificationRecipientRuleCodes.TeamLeader }),
-            (NotificationEventCodes.TripApproved, new[] { NotificationRecipientRuleCodes.TripOwner }),
-            (NotificationEventCodes.TripReturned, new[] { NotificationRecipientRuleCodes.TripOwner }),
-            (NotificationEventCodes.CorrectionRequested, new[] { NotificationRecipientRuleCodes.TeamLeader }),
-            (NotificationEventCodes.CorrectionApproved, new[] { NotificationRecipientRuleCodes.TripOwner }),
-            (NotificationEventCodes.CorrectionReturned, new[] { NotificationRecipientRuleCodes.TripOwner })
-        };
-        foreach (var (code, _) in codes)
-            db.Set<NotificationSetting>().Add(new NotificationSetting { EventCode = code, NotificationType = NotificationCategories.Transaction, IsEnabled = true, HonorsOptionalPreference = false, TemplateCode = $"{code}.v1", CreatedAt = now });
-        db.Set<NotificationEnvironmentPolicy>().Add(new NotificationEnvironmentPolicy { EnvironmentCode = "UAT", EmailMode = "Test", IsEnabled = false, UpdatedAt = now });
-        await db.SaveChangesAsync();
-        foreach (var (code, rules) in codes)
-        {
-            var settingId = await db.Set<NotificationSetting>().Where(x => x.EventCode == code).Select(x => x.NotificationSettingId).SingleAsync();
-            foreach (var rule in rules)
-                db.Set<NotificationSettingRecipient>().Add(new NotificationSettingRecipient { NotificationSettingId = settingId, RecipientRuleCode = rule, IsActive = true });
-        }
+        // Notification settings, recipient rules and disabled UAT policy are seeded by 1800_006.
         db.UserRoles.AddRange(new UserRole { UserId = visitor.UserId, RoleId = await db.Roles.Where(x => x.RoleCode == "visitor").Select(x => x.RoleId).SingleAsync(), AssignedAt = now }, new UserRole { UserId = leader.UserId, RoleId = await db.Roles.Where(x => x.RoleCode == "leader").Select(x => x.RoleId).SingleAsync(), AssignedAt = now }, new UserRole { UserId = admin.UserId, RoleId = await db.Roles.Where(x => x.RoleCode == "admin").Select(x => x.RoleId).SingleAsync(), AssignedAt = now });
         await db.SaveChangesAsync();
         return new Ea2aFixture
