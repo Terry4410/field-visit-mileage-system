@@ -132,14 +132,21 @@ static async Task RunImportAsync(Fixture fx, Func<AppDbContext> newDb)
     for (var cycle = 1; cycle <= 2; cycle++)
     {
         var rereview = await fx.ItemAsync(db, "Update", fx.Source("EA2B-rereview-" + cycle, location.LocationCode));
-        await fx.Imports(db).ConfirmAsync(fx.Creator, rereview.ImportBatchId, default);
+        var capture = new CapturingWriter(fx.Writer(db));
+        await fx.Imports(db, capture).ConfirmAsync(fx.Creator, rereview.ImportBatchId, default);
         using var envelope = JsonDocument.Parse(rereview.DataJson);
         var fact = envelope.RootElement.GetProperty("appliedMutation");
         Require(fact.GetProperty("locationId").GetInt32() == id && fact.GetProperty("transitionKind").GetString() == "REREVIEW"
             && fact.GetProperty("priorApprovalStatus").GetString() == "Approved" && fact.GetProperty("enteredPending").GetBoolean(), "REREVIEW fact");
-        Require(await db.Set<MailOutbox>().AnyAsync(x => x.BusinessEventKey == $"LOCATION:{id}:REVIEW_REQUESTED:IMPORT_ITEM:{rereview.ImportBatchItemId}:REREVIEW"), "distinct re-review key");
-        var review = await db.Set<MailOutbox>().SingleAsync(x => x.BusinessEventKey == $"LOCATION:{id}:REVIEW_REQUESTED:IMPORT_ITEM:{rereview.ImportBatchItemId}:REREVIEW");
-        Require(review.EventOccurredAt == await SqlMillisecondsAsync(db, location.UpdatedAt!.Value), "re-review authoritative transition time");
+        var key = $"LOCATION:{id}:REVIEW_REQUESTED:IMPORT_ITEM:{rereview.ImportBatchItemId}:REREVIEW";
+        var producerTransitionAt = capture.Contexts.Single(x => x.BusinessEventKey == key).EventOccurredAt;
+        var persistedLocationUpdatedAt = (await db.Locations.AsNoTracking().SingleAsync(x => x.LocationId == id)).UpdatedAt!.Value;
+        var persistedOutboxOccurredAt = (await db.Set<MailOutbox>().AsNoTracking().SingleAsync(x => x.BusinessEventKey == key)).EventOccurredAt;
+        var producerAt3 = await SqlMillisecondsAsync(db, producerTransitionAt);
+        var locationAt3 = await SqlMillisecondsAsync(db, persistedLocationUpdatedAt);
+        var outboxAt3 = await SqlMillisecondsAsync(db, persistedOutboxOccurredAt);
+        Console.WriteLine($"EA2B-06_TIME cycle={cycle} producer={producerTransitionAt:O} location_sql={persistedLocationUpdatedAt:O} outbox_sql={persistedOutboxOccurredAt:O} producer_datetime2_3={producerAt3:O} location_datetime2_3={locationAt3:O} outbox_datetime2_3={outboxAt3:O}");
+        Require(producerAt3 == locationAt3 && locationAt3 == outboxAt3, "re-review authoritative transition time");
         await fx.Master(db).BatchPublishAsync(new BatchPublishLocationsRequest([id]), default);
         Require((await EventsAsync(db, id, NotificationEventCodes.LocationApproved)).Count == 1, "monotonic later-cycle suppression");
     }
@@ -428,5 +435,14 @@ sealed class FailingWriter(INotificationOutboxWriter inner, string reference) : 
             throw new InvalidOperationException("EA2B_INJECT_AFTER_LOCATION_FLUSH_AND_OUTBOX_ADD");
         }
         return result;
+    }
+}
+sealed class CapturingWriter(INotificationOutboxWriter inner) : INotificationOutboxWriter
+{
+    public List<NotificationEventContext> Contexts { get; } = [];
+    public Task<NotificationQueueResult> QueueAsync(NotificationEventContext context, CancellationToken ct)
+    {
+        Contexts.Add(context);
+        return inner.QueueAsync(context, ct);
     }
 }
