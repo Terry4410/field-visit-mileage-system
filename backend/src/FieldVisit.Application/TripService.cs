@@ -16,12 +16,19 @@ public sealed class TripService(
     IUnitOfWork uow,
     ITransactionBoundary? transactions = null,
     INotificationOutboxWriter? notifications = null,
-    INotificationCollisionTranslator? collisionTranslator = null)
+    INotificationCollisionTranslator? collisionTranslator = null,
+    ILocationNotificationEvents? locationEvents = null,
+    ILocationMutationBoundary? locationTransactions = null)
 {
     public Task<V180TripContextDto> ContextAsync(DateOnly visitDate, int? teamId, CancellationToken ct) =>
         tripContext.ResolveAsync(RequireRole("visitor"), visitDate, teamId, ct);
 
-    public async Task<TripDto> CreateAsync(SaveTripRequest request, CancellationToken ct)
+    public Task<TripDto> CreateAsync(SaveTripRequest request, CancellationToken ct) =>
+        locationEvents is null ? CreateCoreAsync(request, ct)
+            : (locationTransactions ?? transactions ?? throw new InvalidOperationException("Location events require a caller transaction."))
+                .ExecuteAsync(token => CreateCoreAsync(request, token), ct);
+
+    private async Task<TripDto> CreateCoreAsync(SaveTripRequest request, CancellationToken ct)
     {
         var user = RequireRole("visitor");
         ValidateRequest(request);
@@ -59,9 +66,11 @@ var now = DateTime.UtcNow;
             UpdatedByUserId = user.UserId
         };
 
-        await BuildStopsAsync(trip, request.Stops, user, ct);
+        var temporaryLocations = await BuildStopsAsync(trip, request.Stops, user, ct);
         await trips.AddAsync(trip, ct);
         await uow.SaveChangesAsync(ct);
+
+        await CompleteTemporaryLocationsAsync(temporaryLocations, ct);
 
         await mileage.AddAsync(new MileageCalculation
         {
@@ -73,12 +82,17 @@ var now = DateTime.UtcNow;
 
         await AddHistoryAsync(trip, null, TripStatuses.Draft, "CreateDraft", user.UserId, null, ct);
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripCreateDraft", null, new { trip.TripNo }, ct);
-        await uow.SaveChangesAsync(ct);
+        await NotificationSaveChanges.SaveAsync(uow, collisionTranslator, ct);
 
         return await GetDtoAsync(trip.VisitTripId, ct);
     }
 
-    public async Task<TripDto> UpdateAsync(long tripId, SaveTripRequest request, string rowVersion, CancellationToken ct)
+    public Task<TripDto> UpdateAsync(long tripId, SaveTripRequest request, string rowVersion, CancellationToken ct) =>
+        locationEvents is null ? UpdateCoreAsync(tripId, request, rowVersion, ct)
+            : (locationTransactions ?? transactions ?? throw new InvalidOperationException("Location events require a caller transaction."))
+                .ExecuteAsync(token => UpdateCoreAsync(tripId, request, rowVersion, token), ct);
+
+    private async Task<TripDto> UpdateCoreAsync(long tripId, SaveTripRequest request, string rowVersion, CancellationToken ct)
     {
         var user = RequireRole("visitor");
         ValidateRequest(request);
@@ -125,7 +139,7 @@ var now = DateTime.UtcNow;
         trip.UpdatedByUserId = user.UserId;
 
         trip.Stops.Clear();
-        await BuildStopsAsync(trip, request.Stops, user, ct);
+        var temporaryLocations = await BuildStopsAsync(trip, request.Stops, user, ct);
 
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
         if (calc is null)
@@ -147,6 +161,8 @@ var now = DateTime.UtcNow;
         await AddHistoryAsync(trip, trip.Status, trip.Status, "Update", user.UserId, null, ct);
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripUpdate", null, new { request.VisitDate, request.StartTime, request.EndTime }, ct);
         await uow.SaveChangesAsync(ct);
+        await CompleteTemporaryLocationsAsync(temporaryLocations, ct);
+        if (locationEvents is not null) await NotificationSaveChanges.SaveAsync(uow, collisionTranslator, ct);
         return await GetDtoAsync(tripId, ct);
     }
 
@@ -448,8 +464,9 @@ var now = DateTime.UtcNow;
             Convert.ToBase64String(trip.RowVersion ?? []));
     }
 
-    private async Task BuildStopsAsync(VisitTrip trip, IReadOnlyList<TripStopInput> inputs, CurrentUserDto user, CancellationToken ct)
+    private async Task<List<Location>> BuildStopsAsync(VisitTrip trip, IReadOnlyList<TripStopInput> inputs, CurrentUserDto user, CancellationToken ct)
     {
+        var createdLocations = new List<Location>();
         var now = DateTime.UtcNow;
         var seq = 1;
         foreach (var input in inputs)
@@ -503,6 +520,7 @@ var now = DateTime.UtcNow;
                     ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId, IsActive = false, CreatedAt = now
                 };
                 await masters.AddLocationAsync(pendingLocation, ct);
+                createdLocations.Add(pendingLocation);
             }
 
             trip.Stops.Add(new VisitTripStop
@@ -518,6 +536,18 @@ var now = DateTime.UtcNow;
                 CreatedAt = now,
                 Location = pendingLocation
             });
+        }
+        return createdLocations;
+    }
+
+    private async Task CompleteTemporaryLocationsAsync(IEnumerable<Location> locations, CancellationToken ct)
+    {
+        if (locationEvents is null) return;
+        foreach (var location in locations)
+        {
+            await locationEvents.MarkInitialCycleAsync(location, ct);
+            await locationEvents.QueueReviewAsync(location,
+                $"LOCATION:{location.LocationId}:REVIEW_REQUESTED:TEMP_CREATE", location.CreatedAt, ct);
         }
     }
 

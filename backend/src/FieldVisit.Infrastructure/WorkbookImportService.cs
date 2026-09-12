@@ -8,7 +8,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Infrastructure;
 
-public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportService
+public sealed class WorkbookImportService(AppDbContext db,
+    ILocationNotificationEvents? locationEvents = null,
+    INotificationCollisionTranslator? collisionTranslator = null) : IWorkbookImportService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -151,28 +153,10 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 if (item.Action == "NoChange") { unchanged++; item.Status = "Applied"; await db.SaveChangesAsync(ct); continue; }
                 if (item.EntityType == "Location")
                 {
-                    var data = JsonSerializer.Deserialize<LocationImportRow>(item.DataJson, JsonOptions)!;
-                    if (item.Action == "Create")
-                    {
-                        var teamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
-                        await db.Locations.AddAsync(new FieldVisit.Domain.Entities.Location
-                        {
-                            OrganizationId = user.OrganizationId, TeamId = teamId, LocationCode = NewLocationCode(), LocationName = data.LocationName.Trim(),
-                            LocationType = "Customer", City = data.City?.Trim(), District = data.District?.Trim(), Address = data.Address?.Trim(), PlusCode = data.PlusCode?.Trim(),
-                            IsTemporary = false, ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId,
-                            IsActive = false, CreatedAt = DateTime.UtcNow
-                        }, ct);
-                        created++;
-                    }
-                    else
-                    {
-                        var row = await db.Locations.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
-                        EnsureLeaderTeam(user, row.TeamId);
-                        row.TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
-                        row.LocationName = data.LocationName.Trim(); row.City = data.City?.Trim(); row.District = data.District?.Trim(); row.Address = data.Address?.Trim(); row.PlusCode = data.PlusCode?.Trim();
-                        row.GeocodingStatus = "Pending"; row.ApprovalStatus = "Pending"; row.IsActive = false; row.UpdatedAt = DateTime.UtcNow;
-                        updated++;
-                    }
+                    var applied = await ApplyLocationItemAsync(user, item, ct);
+                    if (!applied) unchanged++;
+                    else if (item.Action == "Create") created++; else updated++;
+                    continue;
                 }
                 else if (item.EntityType == "Project")
                 {
@@ -272,6 +256,63 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         await db.SaveChangesAsync(ct);
         return new ImportConfirmResultDto(batch.ImportBatchId, created, updated, unchanged, failed, errors);
     }
+
+    private Task<bool> ApplyLocationItemAsync(CurrentUserDto user, ImportBatchItem item, CancellationToken ct) =>
+        LocationMutationTransaction.ExecuteAsync(db, async () =>
+        {
+            // Serialize application of this durable item, including parallel Confirm.
+            // An already-Applied item is immutable and cannot create a second Location.
+            await db.Database.SqlQuery<string>($"""
+                SELECT Status AS [Value] FROM dbo.ImportBatchItems WITH (UPDLOCK, HOLDLOCK)
+                WHERE ImportBatchItemId = {item.ImportBatchItemId}
+                """).SingleAsync(ct);
+            await db.Entry(item).ReloadAsync(ct);
+            if (item.Status == "Applied") return false;
+            if (item.Status != "Valid") throw new InvalidOperationException("Location import item is no longer applicable.");
+            var sourceJson = item.DataJson;
+            var data = LocationImportMutation.Source(sourceJson).Deserialize<LocationImportRow>(JsonOptions)!;
+            var transitionAt = DateTime.UtcNow;
+            Location row;
+            string? prior = null;
+            string kind;
+            if (item.Action == "Create")
+            {
+                row = new Location
+                {
+                    OrganizationId = user.OrganizationId, TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct),
+                    LocationCode = NewLocationCode(), LocationName = data.LocationName.Trim(), LocationType = "Customer",
+                    City = data.City?.Trim(), District = data.District?.Trim(), Address = data.Address?.Trim(), PlusCode = data.PlusCode?.Trim(),
+                    IsTemporary = false, ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId,
+                    IsActive = false, CreatedAt = transitionAt
+                };
+                db.Locations.Add(row);
+                kind = "CREATE";
+            }
+            else
+            {
+                // LocationCode resolves the source command's target only; after application,
+                // the exact persisted LocationId is the permanent business relationship.
+                row = await db.Locations.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
+                await db.Entry(row).ReloadAsync(ct);
+                EnsureLeaderTeam(user, row.TeamId);
+                prior = row.ApprovalStatus;
+                kind = prior == "Pending" ? "NO_NEW_REVIEW" : "REREVIEW";
+                row.TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
+                row.LocationName = data.LocationName.Trim(); row.City = data.City?.Trim(); row.District = data.District?.Trim();
+                row.Address = data.Address?.Trim(); row.PlusCode = data.PlusCode?.Trim();
+                row.GeocodingStatus = "Pending"; row.ApprovalStatus = "Pending"; row.IsActive = false; row.UpdatedAt = transitionAt;
+            }
+            await db.SaveChangesAsync(ct); // Materialize LocationId within this item's transaction.
+            var enteredPending = kind != "NO_NEW_REVIEW";
+            item.DataJson = LocationImportMutation.Applied(sourceJson,
+                new LocationImportMutation.Mutation(row.LocationId, kind, prior, enteredPending));
+            item.Status = "Applied";
+            if (enteredPending && locationEvents is not null)
+                await locationEvents.QueueReviewAsync(row,
+                    $"LOCATION:{row.LocationId}:REVIEW_REQUESTED:IMPORT_ITEM:{item.ImportBatchItemId}:{kind}", transitionAt, ct);
+            await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
+            return true;
+        }, ct);
 
     private async Task PreviewLocationsAsync(SpreadsheetDocument doc, CurrentUserDto user, ImportBatch batch, List<ImportPreviewItemDto> preview, CancellationToken ct)
     {

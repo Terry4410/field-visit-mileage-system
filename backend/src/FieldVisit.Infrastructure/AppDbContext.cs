@@ -6,6 +6,33 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
 {
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        GuardAppliedLocationMutations();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        GuardAppliedLocationMutations();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void GuardAppliedLocationMutations()
+    {
+        ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<ImportBatchItem>())
+        {
+            if (entry.State is not (EntityState.Modified or EntityState.Deleted)
+                || entry.OriginalValues.GetValue<string>(nameof(ImportBatchItem.EntityType)) != "Location"
+                || entry.OriginalValues.GetValue<string>(nameof(ImportBatchItem.Status)) != "Applied"
+                || !LocationImportMutation.IsAppliedEnvelope(entry.OriginalValues.GetValue<string>(nameof(ImportBatchItem.DataJson)))) continue;
+            if (entry.State == EntityState.Deleted || entry.Property(x => x.DataJson).IsModified
+                || entry.Property(x => x.Status).IsModified || entry.Property(x => x.EntityType).IsModified)
+                throw new InvalidOperationException("Applied Location mutation evidence is immutable.");
+        }
+    }
+
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<User> Users => Set<User>();

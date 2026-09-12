@@ -10,7 +10,8 @@ public sealed class V160FinalService(
     IBackgroundJobSignal backgroundJobSignal,
     IV170AccessControl access,
     ITripRepository trips,
-    ITransactionBoundary transactions)
+    ITransactionBoundary transactions,
+    ILocationMutationBoundary? locationTransactions = null)
 {
     public async Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(
         TripQueryRequest request,
@@ -118,7 +119,7 @@ public sealed class V160FinalService(
         managedLocationGovernance.SearchManagedLocationsAsync(RequireAny("admin", "leader"), request, ct);
 
     public Task<ManagedLocationDto> CreateManagedLocationAsync(SaveManagedLocationRequest request, CancellationToken ct) =>
-        repository.CreateManagedLocationAsync(RequireAny("admin", "leader"), request, ct);
+        (locationTransactions ?? transactions).ExecuteAsync(token => repository.CreateManagedLocationAsync(RequireAny("admin", "leader"), request, token), ct);
 
     public Task<ManagedLocationDto> UpdateManagedLocationAsync(int id, SaveManagedLocationRequest request, CancellationToken ct) =>
         managedLocationGovernance.UpdateManagedLocationAsync(RequireAny("admin", "leader"), id, request, ct);

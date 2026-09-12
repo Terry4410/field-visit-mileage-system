@@ -10,7 +10,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     IV180OrganizationPeopleWriter v180PeopleWriter,
     IV180TeamCenterLifecycleWriter v180TeamCenterWriter,
     INotificationOutboxWriter? notifications = null,
-    INotificationCollisionTranslator? collisionTranslator = null) : IV160FinalRepository
+    INotificationCollisionTranslator? collisionTranslator = null,
+    ILocationNotificationEvents? locationEvents = null) : IV160FinalRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -712,6 +713,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         await db.Locations.AddAsync(row, ct);
         AddAudit(user.UserId, "Location", null, "LocationCreate", new { row.LocationCode, row.LocationName, row.TeamId });
         await db.SaveChangesAsync(ct);
+        if (locationEvents is not null)
+        {
+            await locationEvents.MarkInitialCycleAsync(row, ct);
+            await locationEvents.QueueReviewAsync(row, $"LOCATION:{row.LocationId}:REVIEW_REQUESTED:CREATE", row.CreatedAt, ct);
+            await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
+        }
         var teamName = row.TeamId.HasValue ? await db.Teams.AsNoTracking().Where(x => x.TeamId == row.TeamId).Select(x => x.TeamName).FirstOrDefaultAsync(ct) : null;
         return MapManagedLocation(row, teamName);
     }

@@ -9,7 +9,9 @@ namespace FieldVisit.Infrastructure;
 public sealed class BackgroundJobService(
     AppDbContext db,
     IRouteCalculationService route,
-    IGeocodingService geocoding) : IBackgroundJobService
+    IGeocodingService geocoding,
+    ILocationNotificationEvents? locationEvents = null,
+    INotificationCollisionTranslator? collisionTranslator = null) : IBackgroundJobService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -210,9 +212,23 @@ public sealed class BackgroundJobService(
             {
                 var result = await geocoding.ResolveAsync(location.Address, location.PlusCode, ct);
                 if (!result.Success || !result.Latitude.HasValue || !result.Longitude.HasValue) throw new InvalidOperationException(result.ErrorMessage ?? result.ErrorCode ?? "地址解析失敗。");
-                location.LocationCode ??= NewLocationCode(); location.Latitude = result.Latitude; location.Longitude = result.Longitude; location.GeocodingStatus = "Completed"; location.GeocodedAt = DateTime.UtcNow; location.ApprovalStatus = "Approved"; location.IsActive = true; location.UpdatedAt = DateTime.UtcNow;
-                db.LocationApprovalHistories.Add(new LocationApprovalHistory { LocationId = location.LocationId, Action = "Approved", ReviewedByUserId = job.RequestedByUserId, Comments = "Background geocoding/publish", ActionAt = DateTime.UtcNow });
-                item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.Latitude, result.Longitude }, JsonOptions); job.SuccessCount++;
+                await LocationMutationTransaction.ExecuteAsync(db, async () =>
+                {
+                    await db.Entry(location).ReloadAsync(ct);
+                    var enteredApproved = location.ApprovalStatus == "Pending";
+                    var transitionAt = DateTime.UtcNow;
+                    location.LocationCode ??= NewLocationCode(); location.Latitude = result.Latitude; location.Longitude = result.Longitude;
+                    location.GeocodingStatus = "Completed"; location.GeocodedAt = transitionAt; location.ApprovalStatus = "Approved";
+                    location.IsActive = true; location.UpdatedAt = transitionAt;
+                    var history = new LocationApprovalHistory { LocationId = location.LocationId, Action = "Approved", ReviewedByUserId = job.RequestedByUserId, Comments = "Background geocoding/publish", ActionAt = transitionAt };
+                    db.LocationApprovalHistories.Add(history);
+                    item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.Latitude, result.Longitude }, JsonOptions);
+                    await db.SaveChangesAsync(ct);
+                    if (locationEvents is not null) await locationEvents.QueueApprovedAsync(location, history, enteredApproved, ct);
+                    await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
+                    return true;
+                }, ct);
+                job.SuccessCount++;
             }
             catch (Exception ex)
             {

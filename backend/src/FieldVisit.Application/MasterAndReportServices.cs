@@ -10,7 +10,11 @@ public sealed class MasterService(
     IGeocodingService geocoding,
     IWorkflowRepository workflow,
     IVisitTypeMembershipCoordinator visitTypeMembership,
-    IUnitOfWork uow)
+    IUnitOfWork uow,
+    ITransactionBoundary? transactions = null,
+    ILocationNotificationEvents? locationEvents = null,
+    INotificationCollisionTranslator? collisionTranslator = null,
+    ILocationMutationBoundary? locationTransactions = null)
 {
     public async Task<List<TeamDto>> TeamsAsync(CancellationToken ct)
     {
@@ -67,9 +71,15 @@ public sealed class MasterService(
         return MapLocation(row);
     }
 
-    public async Task<BatchPublishLocationsResult> BatchPublishAsync(BatchPublishLocationsRequest request, CancellationToken ct)
+    public Task<BatchPublishLocationsResult> BatchPublishAsync(BatchPublishLocationsRequest request, CancellationToken ct) =>
+        locationEvents is null ? BatchPublishCoreAsync(request, ct)
+            : (locationTransactions ?? transactions ?? throw new InvalidOperationException("Location events require a caller transaction."))
+                .ExecuteAsync(token => BatchPublishCoreAsync(request, token), ct);
+
+    private async Task<BatchPublishLocationsResult> BatchPublishCoreAsync(BatchPublishLocationsRequest request, CancellationToken ct)
     {
         var user = RequireAny("leader", "admin");
+        var occurrences = new List<(Location Location, LocationApprovalHistory History, bool EnteredApproved)>();
         int success=0, failed=0; var errors=new List<string>();
         foreach (var id in request.LocationIds.Distinct())
         {
@@ -79,11 +89,22 @@ public sealed class MasterService(
             if(HasRole(user,"admin")&&user.OrganizationId.HasValue&&row.OrganizationId.HasValue&&row.OrganizationId!=user.OrganizationId){failed++;errors.Add($"{id}: 無權限");continue;}
             var geo=await geocoding.ResolveAsync(row.Address,row.PlusCode,ct);
             if(!geo.Success||geo.Latitude is null||geo.Longitude is null){row.GeocodingStatus="Failed";failed++;errors.Add($"{id}: {geo.ErrorMessage}");continue;}
-            row.Latitude=geo.Latitude;row.Longitude=geo.Longitude;row.GeocodingStatus="Completed";row.GeocodedAt=DateTime.UtcNow;row.ApprovalStatus="Approved";row.IsActive=true;row.UpdatedAt=DateTime.UtcNow;
-            await workflow.AddLocationHistoryAsync(new LocationApprovalHistory{LocationId=row.LocationId,Action="Approved",ReviewedByUserId=user.UserId,Comments="UAT batch publish",ActionAt=DateTime.UtcNow},ct);success++;
+            var enteredApproved = row.ApprovalStatus == "Pending";
+            var transitionAt = DateTime.UtcNow;
+            row.Latitude=geo.Latitude;row.Longitude=geo.Longitude;row.GeocodingStatus="Completed";row.GeocodedAt=transitionAt;row.ApprovalStatus="Approved";row.IsActive=true;row.UpdatedAt=transitionAt;
+            var history = new LocationApprovalHistory{LocationId=row.LocationId,Action="Approved",ReviewedByUserId=user.UserId,Comments="UAT batch publish",ActionAt=transitionAt};
+            await workflow.AddLocationHistoryAsync(history,ct);
+            occurrences.Add((row, history, enteredApproved)); success++;
         }
         await workflow.AddAuditAsync(Audit(user.UserId,"Location",null,"LocationBatchPublish",new{success,failed}),ct);
-        await uow.SaveChangesAsync(ct); return new BatchPublishLocationsResult(success,failed,errors);
+        await uow.SaveChangesAsync(ct);
+        if (locationEvents is not null)
+        {
+            foreach (var occurrence in occurrences)
+                await locationEvents.QueueApprovedAsync(occurrence.Location, occurrence.History, occurrence.EnteredApproved, ct);
+            await NotificationSaveChanges.SaveAsync(uow, collisionTranslator, ct);
+        }
+        return new BatchPublishLocationsResult(success,failed,errors);
     }
 
     public async Task<List<ProjectDto>> ProjectsAsync(CancellationToken ct)
