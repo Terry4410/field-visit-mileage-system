@@ -247,18 +247,26 @@ static async Task RunCorrectionRollbackAsync(Ea2aFixture fx, Func<AppDbContext> 
     VisitTrip trip;
     await using (var seed = newDb()) trip = await fx.AddTripAsync(seed, TripStatuses.Approved, fx.VisitorEmployment.EmploymentId, withSnapshot: true);
     var tripId = trip.VisitTripId;
+    var throwingOutbox = new ThrowingOutbox();
     await using (var db = newDb())
     {
-        var service = fx.CorrectionService(db, fx.Visitor, new ThrowingOutbox(), new EfNotificationCollisionTranslator(db));
+        var service = fx.CorrectionService(db, fx.Visitor, throwingOutbox, new EfNotificationCollisionTranslator(db));
         var failed = false;
         try { await service.CreateCorrectionAsync(new CreateCorrectionRequest(tripId, "EA2A rollback", fx.Proposal("rollback", 10m, 10m, 3m, 30m) with { VisitDate = trip.VisitDate }), default); }
         catch (InvalidOperationException ex) when (ex.Message == "EA2A_INJECT_AFTER_FIRST_FLUSH") { failed = true; }
         Require(failed, "EA2-09 injected correction failure");
     }
+    // Capture the generated occurrence before the injected failure, even though its insert rolls back.
+    var attempted = throwingOutbox.AttemptedContext
+        ?? throw new InvalidOperationException("EA2-09 attempted notification context was not captured.");
+    var correctionId = long.Parse(attempted.AggregateId);
+    Require(correctionId > 0 && attempted.AggregateType == "CorrectionRequest"
+        && attempted.BusinessEventKey == $"CORRECTION:{correctionId}:REQUESTED", "EA2-09 occurrence scope");
     await using var verify = newDb();
     Require(!await verify.CorrectionRequests.AsNoTracking().AnyAsync(x => x.VisitTripId == tripId), "EA2-09 request rollback");
-    Require(!await verify.CorrectionRequestChanges.AsNoTracking().AnyAsync(), "EA2-09 changes rollback");
-    Require(!await verify.MailOutbox().AsNoTracking().AnyAsync(x => x.AggregateType == "CorrectionRequest"), "EA2-09 outbox rollback");
+    Require(!await verify.CorrectionRequestChanges.AsNoTracking().AnyAsync(x => x.CorrectionRequestId == correctionId), "EA2-09 changes rollback");
+    Require(!await verify.MailOutbox().AsNoTracking().AnyAsync(x => x.BusinessEventKey == attempted.BusinessEventKey
+        || (x.AggregateType == "CorrectionRequest" && x.AggregateId == attempted.AggregateId)), "EA2-09 outbox rollback");
     Console.WriteLine("EA2-09_CORRECTION_FIRST_SAVE_ROLLBACK=PASS");
 }
 
@@ -633,8 +641,13 @@ sealed class StaticOutbox(AppDbContext db, string? forcedKey = null, string? for
 
 sealed class ThrowingOutbox : INotificationOutboxWriter
 {
-    public Task<NotificationQueueResult> QueueAsync(NotificationEventContext context, CancellationToken ct) =>
+    public NotificationEventContext? AttemptedContext { get; private set; }
+
+    public Task<NotificationQueueResult> QueueAsync(NotificationEventContext context, CancellationToken ct)
+    {
+        AttemptedContext = context;
         throw new InvalidOperationException("EA2A_INJECT_AFTER_FIRST_FLUSH");
+    }
 }
 
 sealed class ConditionalThrowingOutbox(AppDbContext db, long aggregateId) : INotificationOutboxWriter
