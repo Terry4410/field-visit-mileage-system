@@ -272,12 +272,12 @@ public sealed class WorkbookImportService(AppDbContext db,
             var sourceJson = item.DataJson;
             var data = LocationImportMutation.Source(sourceJson).Deserialize<LocationImportRow>(JsonOptions)!;
             var transitionAt = DateTime.UtcNow;
-            Location row;
+            FieldVisit.Domain.Entities.Location row;
             string? prior = null;
             string kind;
             if (item.Action == "Create")
             {
-                row = new Location
+                row = new FieldVisit.Domain.Entities.Location
                 {
                     OrganizationId = user.OrganizationId, TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct),
                     LocationCode = NewLocationCode(), LocationName = data.LocationName.Trim(), LocationType = "Customer",
