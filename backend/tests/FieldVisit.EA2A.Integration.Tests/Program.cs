@@ -48,7 +48,7 @@ static async Task RunTripSubmittedInitialAsync(Ea2aFixture fx, Func<AppDbContext
     var key = $"TRIP_SUBMITTED:HIST:{history.VisitTripStatusHistoryId}";
     var outbox = await verify.MailOutbox().SingleAsync(x => x.BusinessEventKey == key);
     Require(outbox.EventCode == NotificationEventCodes.TripSubmitted, "EA2-01 event code");
-    Require(outbox.EventOccurredAt == history.ActionAt, "EA2-01 authoritative history time");
+    Require(outbox.EventOccurredAt == await NormalizeDatetime2MillisecondsAsync(verify, history.ActionAt), "EA2-01 authoritative history time");
     Console.WriteLine("EA2-01_TRIP_SUBMITTED_INITIAL=PASS");
 }
 
@@ -143,7 +143,7 @@ static async Task RunApprovalEventsAsync(Ea2aFixture fx, Func<AppDbContext> newD
         var approval = await verify.ApprovalRecords.AsNoTracking().SingleAsync(x => x.VisitTripId == trip.VisitTripId && x.Action == status);
         var key = $"{(code == NotificationEventCodes.TripApproved ? "TRIP_APPROVED" : "TRIP_RETURNED")}:APPROVAL:{approval.ApprovalRecordId}";
         var outbox = await verify.MailOutbox().AsNoTracking().SingleAsync(x => x.BusinessEventKey == key);
-        Require(outbox.EventCode == code && outbox.EventOccurredAt == approval.ActionAt, marker);
+        Require(outbox.EventCode == code && outbox.EventOccurredAt == await NormalizeDatetime2MillisecondsAsync(verify, approval.ActionAt), marker);
         Console.WriteLine($"{marker}=PASS");
     }
 }
@@ -237,7 +237,7 @@ static async Task RunCorrectionRequestedAsync(Ea2aFixture fx, Func<AppDbContext>
     await using var verify = newDb();
     var outbox = await verify.MailOutbox().AsNoTracking().SingleAsync(x => x.BusinessEventKey == $"CORRECTION:{created.CorrectionRequestId}:REQUESTED");
     var row = await verify.CorrectionRequests.AsNoTracking().SingleAsync(x => x.CorrectionRequestId == created.CorrectionRequestId);
-    Require(outbox.EventCode == NotificationEventCodes.CorrectionRequested && outbox.EventOccurredAt == row.RequestedAt, "EA2-08 exact occurrence");
+    Require(outbox.EventCode == NotificationEventCodes.CorrectionRequested && outbox.EventOccurredAt == await NormalizeDatetime2MillisecondsAsync(verify, row.RequestedAt), "EA2-08 exact occurrence");
     Console.WriteLine("EA2-08_CORRECTION_REQUESTED_EXACT=PASS");
 }
 
@@ -333,7 +333,7 @@ static async Task AssertCorrectionEventAsync(Func<AppDbContext> newDb, long id, 
     var expectedTime = code == NotificationEventCodes.CorrectionApproved
         ? row.Status == "Closed" ? row.AdminClosedAt ?? row.LeaderReviewedAt : null
         : row.AdminClosedAt ?? row.LeaderReviewedAt;
-    Require(outbox.EventCode == code && expectedTime.HasValue && outbox.EventOccurredAt == expectedTime.Value, $"correction event {id}");
+    Require(outbox.EventCode == code && expectedTime.HasValue && outbox.EventOccurredAt == await NormalizeDatetime2MillisecondsAsync(db, expectedTime.Value), $"correction event {id}");
 }
 
 static async Task<int> CountCorrectionEventsAsync(Func<AppDbContext> newDb, long id, string code)
@@ -451,6 +451,22 @@ static async Task RunCollisionNegativeMatrixAsync(Ea2aFixture fx, Func<AppDbCont
         Require(propagated, "EA2-42 mismatched notification propagates");
     }
     Console.WriteLine("EA2-42_NEGATIVE_COLLISION_MATRIX=PASS");
+}
+
+static async Task<DateTime> NormalizeDatetime2MillisecondsAsync(AppDbContext db, DateTime authoritativeTime)
+{
+    // Let the real SQL Server perform its exact datetime2(3) rounding, including second rollover.
+    // Preserve all seven fractional digits in the input parameter; normalize only the expected value.
+    await db.Database.OpenConnectionAsync();
+    await using var command = db.Database.GetDbConnection().CreateCommand();
+    command.CommandText = "SELECT CAST(@authoritativeTime AS datetime2(3));";
+    command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@authoritativeTime", System.Data.SqlDbType.DateTime2)
+    {
+        Scale = 7,
+        Value = authoritativeTime
+    });
+    return (DateTime)(await command.ExecuteScalarAsync()
+        ?? throw new InvalidOperationException("SQL datetime2(3) normalization returned NULL."));
 }
 
 static void Require(bool condition, string message)
