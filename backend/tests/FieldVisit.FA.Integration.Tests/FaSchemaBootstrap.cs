@@ -18,9 +18,11 @@ static class FaSchemaBootstrap
             CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(50) NOT NULL PRIMARY KEY,
                 Description nvarchar(500) NOT NULL,AppliedAt datetime2(3) NOT NULL,AppliedBy nvarchar(200) NULL);
             CREATE TABLE dbo.SchemaMigrationDataBaselines(MigrationVersion nvarchar(50) NOT NULL PRIMARY KEY,
-                VisitTripSnapshotCount bigint NOT NULL);
+                VisitTripCount bigint NOT NULL,
+                VisitTripSnapshotCount bigint NOT NULL,
+                VisitTripSnapshotStopCount bigint NOT NULL);
             INSERT dbo.SchemaVersions VALUES(N'1.8.0-005',N'F-A prerequisite',SYSUTCDATETIME(),N'F-A');
-            INSERT dbo.SchemaMigrationDataBaselines VALUES(N'1.8.0-001',0);
+            INSERT dbo.SchemaMigrationDataBaselines VALUES(N'1.8.0-001',0,0,0);
             """);
         var schemaDirectory = Path.Combine(AppContext.BaseDirectory, "Schema");
         var session = await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "session-options.sql"));
