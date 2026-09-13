@@ -3,6 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+authoritative_up="database/migrations/1800_007_mileage_google_governance/Up.sql"
+node scripts/scan-sql-add-column-order.mjs "$authoritative_up"
+echo "FA_1800_007_AUTHORITATIVE_ADD_COLUMN_SCAN=PASS"
 image="${FA_SQLSERVER_IMAGE:-mcr.microsoft.com/mssql/server:2022-latest}"
 container_name="fieldvisit-fa-${GITHUB_RUN_ID:-local}-$$"
 sa_password='Fa!GoogleMileage2026_TestOnly'

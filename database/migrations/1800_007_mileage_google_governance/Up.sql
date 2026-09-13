@@ -156,12 +156,13 @@ BEGIN TRY
         ON dbo.MileageGovernanceEvents(CorrelationId);
 
     ALTER TABLE dbo.Locations ADD SelectedGeocodingAttemptId BIGINT NULL;
-    ALTER TABLE dbo.Locations WITH CHECK ADD
-        CONSTRAINT FK_Locations_SelectedGeocodingAttempt
-        FOREIGN KEY(SelectedGeocodingAttemptId) REFERENCES dbo.GeocodingAttempts(GeocodingAttemptId);
-    CREATE INDEX IX_Locations_SelectedGeocodingAttempt
-        ON dbo.Locations(SelectedGeocodingAttemptId)
-        WHERE SelectedGeocodingAttemptId IS NOT NULL;
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.Locations WITH CHECK ADD
+            CONSTRAINT FK_Locations_SelectedGeocodingAttempt
+            FOREIGN KEY(SelectedGeocodingAttemptId) REFERENCES dbo.GeocodingAttempts(GeocodingAttemptId);
+        CREATE INDEX IX_Locations_SelectedGeocodingAttempt
+            ON dbo.Locations(SelectedGeocodingAttemptId)
+            WHERE SelectedGeocodingAttemptId IS NOT NULL;';
 
     EXEC sys.sp_executesql N'
         CREATE TRIGGER dbo.TR_Locations_SelectedGeocodingAttempt
@@ -190,25 +191,26 @@ BEGIN TRY
         InvalidatedAt DATETIME2(3) NULL,
         InvalidatedByUserId INT NULL,
         InvalidationReason NVARCHAR(100) NULL;
-    ALTER TABLE dbo.MileageCalculations WITH CHECK ADD
-        CONSTRAINT FK_MileageCalculations_SelectedRouteAttempt FOREIGN KEY(SelectedRouteCalculationAttemptId) REFERENCES dbo.RouteCalculationAttempts(RouteCalculationAttemptId),
-        CONSTRAINT FK_MileageCalculations_DistanceApprovedByUser FOREIGN KEY(DistanceApprovedByUserId) REFERENCES dbo.Users(UserId),
-        CONSTRAINT FK_MileageCalculations_InvalidatedByUser FOREIGN KEY(InvalidatedByUserId) REFERENCES dbo.Users(UserId);
-    ALTER TABLE dbo.MileageCalculations WITH CHECK ADD
-        CONSTRAINT CK_MileageCalculations_ApprovedDistanceSource CHECK
-        (
-            ApprovedDistanceSource IS NULL
-            OR ApprovedDistanceSource IN(N'Claimed', N'ProviderSuggested', N'LeaderAdjusted', N'ManualFallback')
-        ),
-        CONSTRAINT CK_MileageCalculations_ApprovalEvidence CHECK
-        (
-            DistanceDecisionGovernanceVersion IS NULL
-            OR
-            (DistanceDecisionGovernanceVersion = N'1.8.0'
-             AND ApprovedDistanceKm IS NOT NULL AND ApprovedDistanceSource IS NOT NULL
-             AND ApprovalBasisCode IS NOT NULL AND ApprovalBasisHash IS NOT NULL
-             AND DistanceApprovedAt IS NOT NULL AND DistanceApprovedByUserId IS NOT NULL)
-        );
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.MileageCalculations WITH CHECK ADD
+            CONSTRAINT FK_MileageCalculations_SelectedRouteAttempt FOREIGN KEY(SelectedRouteCalculationAttemptId) REFERENCES dbo.RouteCalculationAttempts(RouteCalculationAttemptId),
+            CONSTRAINT FK_MileageCalculations_DistanceApprovedByUser FOREIGN KEY(DistanceApprovedByUserId) REFERENCES dbo.Users(UserId),
+            CONSTRAINT FK_MileageCalculations_InvalidatedByUser FOREIGN KEY(InvalidatedByUserId) REFERENCES dbo.Users(UserId);
+        ALTER TABLE dbo.MileageCalculations WITH CHECK ADD
+            CONSTRAINT CK_MileageCalculations_ApprovedDistanceSource CHECK
+            (
+                ApprovedDistanceSource IS NULL
+                OR ApprovedDistanceSource IN(N''Claimed'', N''ProviderSuggested'', N''LeaderAdjusted'', N''ManualFallback'')
+            ),
+            CONSTRAINT CK_MileageCalculations_ApprovalEvidence CHECK
+            (
+                DistanceDecisionGovernanceVersion IS NULL
+                OR
+                (DistanceDecisionGovernanceVersion = N''1.8.0''
+                 AND ApprovedDistanceKm IS NOT NULL AND ApprovedDistanceSource IS NOT NULL
+                 AND ApprovalBasisCode IS NOT NULL AND ApprovalBasisHash IS NOT NULL
+                 AND DistanceApprovedAt IS NOT NULL AND DistanceApprovedByUserId IS NOT NULL)
+            );';
 
     EXEC sys.sp_executesql N'
         CREATE TRIGGER dbo.TR_MileageCalculations_SelectedRouteTrip
@@ -270,20 +272,21 @@ BEGIN TRY
         ApprovalBasisCodeSnapshot NVARCHAR(80) NULL,
         ApprovalBasisHashSnapshot VARBINARY(32) NULL,
         DistanceApprovedAtSnapshot DATETIME2(3) NULL;
-    ALTER TABLE dbo.VisitTripSnapshots WITH CHECK ADD
-        CONSTRAINT FK_VisitTripSnapshots_RouteAttempt FOREIGN KEY(MileageRouteAttemptIdSnapshot) REFERENCES dbo.RouteCalculationAttempts(RouteCalculationAttemptId),
-        CONSTRAINT CK_VisitTripSnapshots_RouteMode CHECK(RouteTravelModeSnapshot IS NULL OR RouteTravelModeSnapshot IN(N'DRIVE', N'TWO_WHEELER')),
-        CONSTRAINT CK_VisitTripSnapshots_RouteStatus CHECK(RouteCalculationStatusSnapshot IS NULL OR RouteCalculationStatusSnapshot IN(N'Succeeded', N'Failed', N'ManualFallback')),
-        CONSTRAINT CK_VisitTripSnapshots_ApprovedDistanceSource CHECK
-        (
-            ApprovedDistanceSourceSnapshot IS NULL
-            OR ApprovedDistanceSourceSnapshot IN(N'Claimed', N'ProviderSuggested', N'LeaderAdjusted', N'ManualFallback')
-        ),
-        CONSTRAINT CK_VisitTripSnapshots_ApprovalBasis CHECK
-        (
-            (ApprovalBasisCodeSnapshot IS NULL AND ApprovalBasisHashSnapshot IS NULL)
-            OR (ApprovalBasisCodeSnapshot IS NOT NULL AND ApprovalBasisHashSnapshot IS NOT NULL)
-        );
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.VisitTripSnapshots WITH CHECK ADD
+            CONSTRAINT FK_VisitTripSnapshots_RouteAttempt FOREIGN KEY(MileageRouteAttemptIdSnapshot) REFERENCES dbo.RouteCalculationAttempts(RouteCalculationAttemptId),
+            CONSTRAINT CK_VisitTripSnapshots_RouteMode CHECK(RouteTravelModeSnapshot IS NULL OR RouteTravelModeSnapshot IN(N''DRIVE'', N''TWO_WHEELER'')),
+            CONSTRAINT CK_VisitTripSnapshots_RouteStatus CHECK(RouteCalculationStatusSnapshot IS NULL OR RouteCalculationStatusSnapshot IN(N''Succeeded'', N''Failed'', N''ManualFallback'')),
+            CONSTRAINT CK_VisitTripSnapshots_ApprovedDistanceSource CHECK
+            (
+                ApprovedDistanceSourceSnapshot IS NULL
+                OR ApprovedDistanceSourceSnapshot IN(N''Claimed'', N''ProviderSuggested'', N''LeaderAdjusted'', N''ManualFallback'')
+            ),
+            CONSTRAINT CK_VisitTripSnapshots_ApprovalBasis CHECK
+            (
+                (ApprovalBasisCodeSnapshot IS NULL AND ApprovalBasisHashSnapshot IS NULL)
+                OR (ApprovalBasisCodeSnapshot IS NOT NULL AND ApprovalBasisHashSnapshot IS NOT NULL)
+            );';
 
     EXEC sys.sp_executesql N'
         CREATE TRIGGER dbo.TR_VisitTripSnapshots_RouteAttemptTrip
