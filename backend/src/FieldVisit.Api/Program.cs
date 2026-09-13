@@ -16,6 +16,7 @@ builder.Services.AddScoped<AuthService>();builder.Services.AddScoped<TripService
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IBackgroundJobSignal,BackgroundJobSignal>();
 builder.Services.AddHostedService<BackgroundJobHostedService>();
+builder.Services.AddHostedService<NotificationDeliveryHostedService>();
 
 var auth=builder.Configuration.GetSection("Auth").Get<AuthOptions>()??new AuthOptions();
 var authMode=V170AuthenticationRules.NormalizeMode(auth.Mode);

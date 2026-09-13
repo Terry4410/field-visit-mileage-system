@@ -28,6 +28,22 @@ public static class DependencyInjection
         services.AddScoped<IImportNotificationEvents,EfImportNotificationEvents>();
         services.AddScoped<ILocationNotificationEvents,EfLocationNotificationEvents>();
         services.AddScoped<ILocationMutationBoundary,EfLocationMutationBoundary>();
+        var providerTimeoutValue = configuration["Notifications:Delivery:ProviderTimeoutSeconds"];
+        var providerTimeoutSeconds = string.IsNullOrWhiteSpace(providerTimeoutValue)
+            ? 30
+            : int.TryParse(providerTimeoutValue, out var parsedProviderTimeoutSeconds)
+                ? parsedProviderTimeoutSeconds
+                : throw new InvalidOperationException("Notifications:Delivery:ProviderTimeoutSeconds must be an integer.");
+        var deliveryOptions = new NotificationDeliveryRuntimeOptions
+        {
+            ProviderTimeout = TimeSpan.FromSeconds(providerTimeoutSeconds)
+        };
+        deliveryOptions.Validate();
+        services.AddSingleton(deliveryOptions);
+        services.AddScoped<INotificationDeliveryStore,EfNotificationDeliveryStore>();
+        services.AddScoped<INotificationDeliveryPolicyEvaluator,EfNotificationDeliveryPolicyEvaluator>();
+        services.AddScoped<INotificationEmailProvider,UnconfiguredNotificationEmailProvider>();
+        services.AddScoped<INotificationDeliveryProcessor,NotificationDeliveryProcessor>();
         var route=(configuration["Providers:Route"]??"Mock").Trim();var geo=(configuration["Providers:Geocoding"]??"Mock").Trim();
         if(!route.Equals("Mock",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("v1.6.0 僅允許 Providers:Route=Mock；Google Routes 請於 v1.7.0 啟用。");
         if(!geo.Equals("Mock",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("v1.6.0 僅允許 Providers:Geocoding=Mock。");
