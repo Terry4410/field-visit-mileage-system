@@ -3,48 +3,43 @@ using FieldVisit.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 
-static class Ea2aSchemaBootstrap
+static class FaSchemaBootstrap
 {
     public static async Task InitializeAsync(string connectionString)
     {
-        // EF creates only disposable prerequisite business tables, never the notification schema.
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlServer(connectionString)
-            .ReplaceService<IModelCustomizer, Ea2aPrerequisiteModelCustomizer>()
+            .ReplaceService<IModelCustomizer, FaPrerequisiteModelCustomizer>()
             .Options;
         await using var db = new AppDbContext(options);
         if (!await db.Database.EnsureCreatedAsync())
-            throw new InvalidOperationException("EA2A disposable database was not empty before prerequisite setup.");
-
-        // Same prerequisite/version and snapshot-baseline setup used by the E-A0/E-A1 harnesses.
+            throw new InvalidOperationException("FA disposable database was not empty before prerequisite setup.");
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(50) NOT NULL PRIMARY KEY,
                 Description nvarchar(500) NOT NULL,AppliedAt datetime2(3) NOT NULL,AppliedBy nvarchar(200) NULL);
             CREATE TABLE dbo.SchemaMigrationDataBaselines(MigrationVersion nvarchar(50) NOT NULL PRIMARY KEY,
                 VisitTripSnapshotCount bigint NOT NULL);
-            INSERT dbo.SchemaVersions VALUES(N'1.8.0-005',N'EA2A prerequisite',SYSUTCDATETIME(),N'EA2A');
+            INSERT dbo.SchemaVersions VALUES(N'1.8.0-005',N'F-A prerequisite',SYSUTCDATETIME(),N'F-A');
             INSERT dbo.SchemaMigrationDataBaselines VALUES(N'1.8.0-001',0);
             """);
-
         var schemaDirectory = Path.Combine(AppContext.BaseDirectory, "Schema");
-        var sessionOptions = await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "session-options.sql"));
-        // Execute the unchanged authoritative scripts, including their own transaction and safety checks.
-        await db.Database.ExecuteSqlRawAsync(sessionOptions + "\n" + await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "Up.sql")));
-        Console.WriteLine("EA2A_1800_006_APPLY=PASS");
-        await db.Database.ExecuteSqlRawAsync(sessionOptions + "\n" + await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "Verify.sql")));
-        Console.WriteLine("EA2A_1800_006_VERIFY=PASS");
+        var session = await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "session-options.sql"));
+        await db.Database.ExecuteSqlRawAsync(session + "\n" + await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "1800_006.Up.sql")));
+        Console.WriteLine("FA_1800_006_APPLY=PASS");
+        await db.Database.ExecuteSqlRawAsync(session + "\n" + await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "1800_006.Verify.sql")));
+        Console.WriteLine("FA_1800_006_VERIFY=PASS");
+        await db.Database.ExecuteSqlRawAsync(session + "\n" + await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "1800_007.Up.sql")));
+        Console.WriteLine("FA_1800_007_APPLY=PASS");
+        await db.Database.ExecuteSqlRawAsync(session + "\n" + await File.ReadAllTextAsync(Path.Combine(schemaDirectory, "1800_007.Verify.sql")));
+        Console.WriteLine("FA_1800_007_VERIFY=PASS");
     }
 }
 
-sealed class Ea2aPrerequisiteModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies)
+sealed class FaPrerequisiteModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies)
 {
     public override void Customize(ModelBuilder modelBuilder, DbContext context)
     {
         base.Customize(modelBuilder, context);
-        // Added by authoritative 1800_006, not by EF conventions during prerequisite creation.
-        modelBuilder.Entity<Employment>().Ignore(x => x.OptionalEmailNotificationEnabled);
-        // 1800_007 is applied separately by the F-A harness. Keep the older
-        // E-A0/E-A1/E-A2 harnesses on their frozen 1800_006 prerequisite model.
         modelBuilder.Ignore<GeocodingAttempt>();
         modelBuilder.Ignore<RouteCalculationAttempt>();
         modelBuilder.Ignore<MileageGovernanceEvent>();

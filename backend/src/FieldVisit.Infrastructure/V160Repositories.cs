@@ -144,7 +144,17 @@ public sealed class TripSnapshotRepository(AppDbContext db) : ITripSnapshotRepos
             VisitDate = source.VisitDate, StartTime = source.StartTime, EndTime = source.EndTime,
             StatusSnapshot = source.StatusSnapshot, VehicleTypeSnapshot = source.VehicleTypeSnapshot,
             ClaimedDistanceKmSnapshot = source.ClaimedDistanceKmSnapshot, SubmittedAtSnapshot = source.SubmittedAtSnapshot,
-            NotesSnapshot = source.NotesSnapshot, CreatedAt = DateTime.UtcNow, CreatedByUserId = actorUserId
+            NotesSnapshot = source.NotesSnapshot, CreatedAt = DateTime.UtcNow, CreatedByUserId = actorUserId,
+            MileageRouteAttemptIdSnapshot = source.MileageRouteAttemptIdSnapshot,
+            RouteTravelModeSnapshot = source.RouteTravelModeSnapshot,
+            RouteCalculatedAtSnapshot = source.RouteCalculatedAtSnapshot,
+            RouteCalculationStatusSnapshot = source.RouteCalculationStatusSnapshot,
+            RouteErrorCodeSnapshot = source.RouteErrorCodeSnapshot,
+            RouteCorrelationIdSnapshot = source.RouteCorrelationIdSnapshot,
+            ApprovedDistanceSourceSnapshot = source.ApprovedDistanceSourceSnapshot,
+            ApprovalBasisCodeSnapshot = source.ApprovalBasisCodeSnapshot,
+            ApprovalBasisHashSnapshot = source.ApprovalBasisHashSnapshot?.ToArray(),
+            DistanceApprovedAtSnapshot = source.DistanceApprovedAtSnapshot
         };
         foreach (var stop in source.Stops.OrderBy(x => x.StopSequence))
             copy.Stops.Add(new VisitTripSnapshotStop
