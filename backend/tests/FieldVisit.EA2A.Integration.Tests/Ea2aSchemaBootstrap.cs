@@ -1,3 +1,5 @@
+global using NotificationModelCustomizer = Ea2aRuntimeModelCustomizer;
+
 using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -36,15 +38,10 @@ static class Ea2aSchemaBootstrap
     }
 }
 
-sealed class Ea2aPrerequisiteModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies)
+static class Ea2aLegacyModelIsolation
 {
-    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    public static void Ignore1800007(ModelBuilder modelBuilder)
     {
-        base.Customize(modelBuilder, context);
-        // Added by authoritative 1800_006, not by EF conventions during prerequisite creation.
-        modelBuilder.Entity<Employment>().Ignore(x => x.OptionalEmailNotificationEnabled);
-        // 1800_007 is applied separately by the F-A harness. Keep the older
-        // E-A0/E-A1/E-A2 harnesses on their frozen 1800_006 prerequisite model.
         modelBuilder.Ignore<GeocodingAttempt>();
         modelBuilder.Ignore<RouteCalculationAttempt>();
         modelBuilder.Ignore<MileageGovernanceEvent>();
@@ -61,5 +58,29 @@ sealed class Ea2aPrerequisiteModelCustomizer(ModelCustomizerDependencies depende
             .Ignore(x => x.RouteCorrelationIdSnapshot).Ignore(x => x.ApprovedDistanceSourceSnapshot)
             .Ignore(x => x.ApprovalBasisCodeSnapshot).Ignore(x => x.ApprovalBasisHashSnapshot)
             .Ignore(x => x.DistanceApprovedAtSnapshot);
+    }
+}
+
+sealed class Ea2aPrerequisiteModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies)
+{
+    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    {
+        base.Customize(modelBuilder, context);
+        // Added by authoritative 1800_006, not by EF conventions during prerequisite creation.
+        modelBuilder.Entity<Employment>().Ignore(x => x.OptionalEmailNotificationEnabled);
+        // 1800_007 is applied separately by the F-A harness. Keep the older
+        // E-A0/E-A1/E-A2 harnesses on their frozen 1800_006 prerequisite model.
+        Ea2aLegacyModelIsolation.Ignore1800007(modelBuilder);
+    }
+}
+
+sealed class Ea2aRuntimeModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies)
+{
+    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    {
+        // Preserve the complete authoritative 1800_006 notification mapping exactly once,
+        // then remove only the later 1800_007 model additions from these legacy E-A harnesses.
+        new FieldVisit.Infrastructure.NotificationModelCustomizer(dependencies).Customize(modelBuilder, context);
+        Ea2aLegacyModelIsolation.Ignore1800007(modelBuilder);
     }
 }
