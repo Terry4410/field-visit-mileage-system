@@ -1,6 +1,8 @@
 using FieldVisit.Application;
+using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace FieldVisit.DAIntegration.Integration.Tests;
 
@@ -10,7 +12,7 @@ internal static class Program
     public static async Task<int> Main(){Cs=Environment.GetEnvironmentVariable("DA1B_CONNECTION_STRING")??throw new InvalidOperationException("DA1B_CONNECTION_STRING required");
         await Run("DAI-IT-A governance GET same-org",GetSameOrg);await Run("DAI-IT-B governance GET cross/global fail",GetScopeFail);await Run("DAI-IT-C summary same-org",SummarySameOrg);await Run("DAI-IT-D summary global omitted",SummaryGlobal);await Run("DAI-IT-E candidates same-org only",CandidatesSameOrg);await Run("DAI-IT-F candidates self excluded",CandidatesSelf);await Run("DAI-IT-G candidates global excluded",CandidatesGlobal);await Run("DAI-IT-H duplicate TaxId multiple",CandidatesDuplicateTax);await Run("DAI-IT-I impact current boundaries",ImpactBoundaries);await Run("DAI-IT-J impact historical excluded",ImpactHistorical);await Run("DAI-IT-K blocker projection",ImpactProjection);await Run("DAI-IT-L Visitor/Leader governance reads denied",ReadSurfacesDenyNonAdmin);Console.WriteLine($"DAI_SQL_INTEGRATION={passed}/{total}=PASS");return 0;}
     static async Task Run(string n,Func<Task> f){total++;try{await f();passed++;Console.WriteLine($"{n}=PASS");}catch(Exception e){Console.Error.WriteLine($"{n}=FAIL: {e.GetType().Name}: {e.Message}");throw;}}
-    static AppDbContext Db()=>new(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(Cs).Options); static V180ManagedLocationGovernanceRepository Repo(AppDbContext d)=>new(d); static CurrentUserDto Admin()=>new(1,"E1","Admin",null,1,null,null,new[]{"admin"}); static CurrentUserDto Visitor()=>new(2,"E2","Visitor",null,1,10,"Alpha",new[]{"visitor"},new[]{new TeamScopeDto(10,"Alpha",true)}); static CurrentUserDto Leader()=>new(3,"E3","Leader",null,1,10,"Alpha",new[]{"leader"},new[]{new TeamScopeDto(10,"Alpha",true)});
+    static AppDbContext Db()=>new(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(Cs).ReplaceService<IModelCustomizer, DaIntegrationLegacyModelCustomizer>().Options); static V180ManagedLocationGovernanceRepository Repo(AppDbContext d)=>new(d); static CurrentUserDto Admin()=>new(1,"E1","Admin",null,1,null,null,new[]{"admin"}); static CurrentUserDto Visitor()=>new(2,"E2","Visitor",null,1,10,"Alpha",new[]{"visitor"},new[]{new TeamScopeDto(10,"Alpha",true)}); static CurrentUserDto Leader()=>new(3,"E3","Leader",null,1,10,"Alpha",new[]{"leader"},new[]{new TeamScopeDto(10,"Alpha",true)});
     static async Task Reset(){await using var d=Db();await d.Database.ExecuteSqlRawAsync("DELETE dbo.AuditLogs; DELETE dbo.DeploymentSiteLocationAssignments; DELETE dbo.DeploymentSites; DELETE dbo.EmploymentRoleAssignments; DELETE dbo.EmploymentStatusPeriods; DELETE dbo.UserIdentityProfiles; DELETE dbo.Employments; DELETE dbo.Persons; UPDATE dbo.Locations SET DuplicateOfLocationId=NULL,DuplicateReason=NULL; DELETE dbo.Locations; DELETE dbo.Users;");}
     static async Task SeedAuth(AppDbContext d){var today=BusinessTime.Today;await d.Database.ExecuteSqlRawAsync("INSERT dbo.Users(UserId,OrganizationId,EmployeeNo,DisplayName,IsActive) VALUES(1,1,'E1','Admin',1); INSERT dbo.Persons(PersonId,DisplayName,CreatedAt) VALUES(2001,'Admin',SYSUTCDATETIME()); INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,SourceType,CreatedAt) VALUES(1001,2001,1,'E1','Test',SYSUTCDATETIME());");await d.Database.ExecuteSqlInterpolatedAsync($"INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt) VALUES(1001,'Active',{today.AddDays(-10)},'Test',SYSUTCDATETIME())");await d.Database.ExecuteSqlInterpolatedAsync($"INSERT dbo.EmploymentRoleAssignments(EmploymentId,RoleId,EffectiveFrom,CreatedAt) VALUES(1001,1,{today.AddDays(-10)},SYSUTCDATETIME())");await d.Database.ExecuteSqlRawAsync("INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt) VALUES(1,1001,'Internal','U1','Test',SYSUTCDATETIME())");}
     static async Task Loc(AppDbContext d,int id,int? org=1,string name="Alpha",string? tax=null){await d.Database.ExecuteSqlInterpolatedAsync($@"INSERT dbo.Locations(LocationId,OrganizationId,TeamId,LocationCode,LocationName,LocationType,Address,IsTemporary,ApprovalStatus,GeocodingStatus,IsActive,CreatedAt,UpdatedAt,TaxId) VALUES({id},{org},{(org==1?(int?)10:org==2?20:null)},{"L"+id},{name},'Official',{"Addr "+id},0,'Approved','Success',1,SYSUTCDATETIME(),SYSUTCDATETIME(),{tax})");}
@@ -29,4 +31,28 @@ internal static class Program
     static async Task ImpactProjection(){await Setup();await using var d=Db();await Loc(d,1);var end=BusinessTime.Today.AddDays(2);await SeedSite(d,123,1,end,"SITE123","Site Name");var b=(await Repo(d).GetInactivationImpactAsync(Admin(),1,default)).Blockers.Single();Eq(123,b.DeploymentSiteId);Eq("SITE123",b.DeploymentSiteCode);Eq("Site Name",b.DeploymentSiteName);Eq(BusinessTime.Today.AddDays(-5),b.EffectiveFrom);Eq(end,b.EffectiveTo);}
     static async Task ReadSurfacesDenyNonAdmin(){await Setup();await using var d=Db();await Loc(d,1,tax:"SECRET");await Loc(d,2,1,"Beta","SECRET2");foreach(var actor in new[]{Visitor(),Leader()}){await Throws<UnauthorizedAccessException>(()=>Repo(d).GetGovernanceAsync(actor,1,default));await Throws<UnauthorizedAccessException>(()=>Repo(d).GetGovernanceSummariesAsync(actor,new[]{1},default));await Throws<UnauthorizedAccessException>(()=>Repo(d).SearchGovernanceCandidatesAsync(actor,1,null,1,20,default));await Throws<UnauthorizedAccessException>(()=>Repo(d).GetInactivationImpactAsync(actor,1,default));}}
     static async Task<T> Throws<T>(Func<Task> f)where T:Exception{try{await f();}catch(T e){return e;}throw new Exception($"Expected {typeof(T).Name}");}static void True(bool v){if(!v)throw new Exception("Assertion failed");}static void Eq<T>(T e,T a){if(!EqualityComparer<T>.Default.Equals(e,a))throw new Exception($"Expected {e}, got {a}");}static void Seq<T>(IEnumerable<T>e,IEnumerable<T>a){if(!e.SequenceEqual(a))throw new Exception("Sequence mismatch");}
+}
+
+sealed class DaIntegrationLegacyModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies)
+{
+    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    {
+        base.Customize(modelBuilder, context);
+        modelBuilder.Ignore<GeocodingAttempt>();
+        modelBuilder.Ignore<RouteCalculationAttempt>();
+        modelBuilder.Ignore<MileageGovernanceEvent>();
+        modelBuilder.Entity<Location>().Ignore(x => x.SelectedGeocodingAttemptId);
+        modelBuilder.Entity<MileageCalculation>().Ignore(x => x.SelectedRouteCalculationAttemptId)
+            .Ignore(x => x.ManualFallbackUsed).Ignore(x => x.DistanceDecisionGovernanceVersion)
+            .Ignore(x => x.ApprovedDistanceSource).Ignore(x => x.ApprovalBasisCode)
+            .Ignore(x => x.ApprovalBasisHash).Ignore(x => x.DistanceApprovedAt)
+            .Ignore(x => x.DistanceApprovedByUserId).Ignore(x => x.InvalidatedAt)
+            .Ignore(x => x.InvalidatedByUserId).Ignore(x => x.InvalidationReason);
+        modelBuilder.Entity<VisitTripSnapshot>().Ignore(x => x.MileageRouteAttemptIdSnapshot)
+            .Ignore(x => x.RouteTravelModeSnapshot).Ignore(x => x.RouteCalculatedAtSnapshot)
+            .Ignore(x => x.RouteCalculationStatusSnapshot).Ignore(x => x.RouteErrorCodeSnapshot)
+            .Ignore(x => x.RouteCorrelationIdSnapshot).Ignore(x => x.ApprovedDistanceSourceSnapshot)
+            .Ignore(x => x.ApprovalBasisCodeSnapshot).Ignore(x => x.ApprovalBasisHashSnapshot)
+            .Ignore(x => x.DistanceApprovedAtSnapshot);
+    }
 }

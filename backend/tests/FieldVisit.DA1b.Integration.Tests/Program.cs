@@ -1,9 +1,11 @@
 using System.Text.Json;
 using FieldVisit.Api;
 using FieldVisit.Application;
+using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace FieldVisit.DA1b.Integration.Tests;
 
@@ -77,7 +79,10 @@ internal static class Program
         catch(Exception ex) { Console.Error.WriteLine($"{name}=FAIL: {ex.GetType().Name}: {ex.Message}"); throw; }
     }
 
-    private static AppDbContext Db() => new(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(Cs, x=>x.EnableRetryOnFailure(3,TimeSpan.FromSeconds(1),null)).Options);
+    private static AppDbContext Db() => new(new DbContextOptionsBuilder<AppDbContext>()
+        .UseSqlServer(Cs, x=>x.EnableRetryOnFailure(3,TimeSpan.FromSeconds(1),null))
+        .ReplaceService<IModelCustomizer, Da1bLegacyModelCustomizer>()
+        .Options);
     private static V180ManagedLocationGovernanceRepository Repo(AppDbContext db)=>new(db);
     private static CurrentUserDto Admin(int id=1,int org=1)=>new(id,$"E{id}",$"Admin {id}",null,org,null,null,new[]{"admin"});
     private static CurrentUserDto Leader(int id=2,int org=1,int team=10)=>new(id,$"E{id}",$"Leader {id}",null,org,team,$"Team {team}",new[]{"leader"},new[]{new TeamScopeDto(team,$"Team {team}",true)});
@@ -188,4 +193,28 @@ VALUES({id},{org},{team},{"L"+id},{name},{"Official"},{city},{district},{address
     private sealed record GovState(string? TaxId,string? MasterNote,int? DuplicateId,string? DuplicateReason,byte[] RowVersion);
     private sealed record LocationState(bool IsActive,DateTime? InactivatedAt,int? InactivatedByUserId,DateTime? UpdatedAt,byte[] RowVersion,string Geocoding,string Name,string? City,string? District,string? Address,string? PlusCode,int? TeamId);
     private sealed record AuditState(string EntityType,string? EntityId,string Action,int? UserId,string? NewValues,Guid? CorrelationId);
+}
+
+sealed class Da1bLegacyModelCustomizer(ModelCustomizerDependencies dependencies) : ModelCustomizer(dependencies)
+{
+    public override void Customize(ModelBuilder modelBuilder, DbContext context)
+    {
+        base.Customize(modelBuilder, context);
+        modelBuilder.Ignore<GeocodingAttempt>();
+        modelBuilder.Ignore<RouteCalculationAttempt>();
+        modelBuilder.Ignore<MileageGovernanceEvent>();
+        modelBuilder.Entity<Location>().Ignore(x => x.SelectedGeocodingAttemptId);
+        modelBuilder.Entity<MileageCalculation>().Ignore(x => x.SelectedRouteCalculationAttemptId)
+            .Ignore(x => x.ManualFallbackUsed).Ignore(x => x.DistanceDecisionGovernanceVersion)
+            .Ignore(x => x.ApprovedDistanceSource).Ignore(x => x.ApprovalBasisCode)
+            .Ignore(x => x.ApprovalBasisHash).Ignore(x => x.DistanceApprovedAt)
+            .Ignore(x => x.DistanceApprovedByUserId).Ignore(x => x.InvalidatedAt)
+            .Ignore(x => x.InvalidatedByUserId).Ignore(x => x.InvalidationReason);
+        modelBuilder.Entity<VisitTripSnapshot>().Ignore(x => x.MileageRouteAttemptIdSnapshot)
+            .Ignore(x => x.RouteTravelModeSnapshot).Ignore(x => x.RouteCalculatedAtSnapshot)
+            .Ignore(x => x.RouteCalculationStatusSnapshot).Ignore(x => x.RouteErrorCodeSnapshot)
+            .Ignore(x => x.RouteCorrelationIdSnapshot).Ignore(x => x.ApprovedDistanceSourceSnapshot)
+            .Ignore(x => x.ApprovalBasisCodeSnapshot).Ignore(x => x.ApprovalBasisHashSnapshot)
+            .Ignore(x => x.DistanceApprovedAtSnapshot);
+    }
 }
