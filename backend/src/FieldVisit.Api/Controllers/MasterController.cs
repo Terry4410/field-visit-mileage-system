@@ -7,7 +7,10 @@ namespace FieldVisit.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1")]
-public sealed class MasterController(MasterService master, MileageRateRuntimeService mileageRates) : ControllerBase
+public sealed class MasterController(
+    MasterService master,
+    MileageRateRuntimeService mileageRates,
+    V180GoogleMileageOrchestrationService mileageOrchestration) : ControllerBase
 {
     [HttpGet("teams")]
     public async Task<ActionResult<List<TeamDto>>> Teams(CancellationToken ct) => Ok(await master.TeamsAsync(ct));
@@ -19,6 +22,12 @@ public sealed class MasterController(MasterService master, MileageRateRuntimeSer
     public async Task<ActionResult<LocationDto>> UpdateLocation(int locationId,UpdateLocationRequest request,CancellationToken ct)=>Ok(await master.UpdateLocationAsync(locationId,request,ct));
     [HttpPost("locations/{locationId:int}/promote")][Authorize(Roles="admin")]
     public async Task<ActionResult<LocationDto>> PromoteLocation(int locationId,PromoteLocationRequest request,CancellationToken ct)=>Ok(await master.PromoteTemporaryLocationAsync(locationId,request,ct));
+    [HttpPost("locations/{locationId:int}/geocode")][Authorize(Roles="leader,admin")]
+    public async Task<ActionResult<V180GeocodingOrchestrationResult>> GeocodeLocation(int locationId,CancellationToken ct)
+    {
+        var result=await mileageOrchestration.GeocodeLocationAsync(locationId,ct);
+        return result.Status=="Succeeded"?Ok(result):StatusCode(StatusCodes.Status502BadGateway,result);
+    }
 
     [HttpGet("projects")]
     public async Task<ActionResult<List<ProjectDto>>> Projects(CancellationToken ct)=>Ok(await master.ProjectsAsync(ct));

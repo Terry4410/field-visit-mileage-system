@@ -45,11 +45,14 @@ public sealed class MasterService(
         if (HasRole(user, "admin") && user.OrganizationId.HasValue && row.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId) throw new UnauthorizedAccessException("無權維護其他 Organization 地點。");
         EnsureRowVersion(row.RowVersion, request.RowVersion);
         if (string.IsNullOrWhiteSpace(request.Address) && string.IsNullOrWhiteSpace(request.PlusCode)) throw new InvalidOperationException("完整地址與 Plus Code 至少需要一項。");
+        var oldAddressBasisHash = V180MileageCanonicalization.HashAddress(row);
         var normalizedAddress = V170LocationGeocodingRules.Normalize(request.Address);
         var normalizedPlusCode = V170LocationGeocodingRules.Normalize(request.PlusCode);
         var geocodingInputChanged = V170LocationGeocodingRules.GeocodingInputChanged(row.Address, row.PlusCode, normalizedAddress, normalizedPlusCode);
         row.LocationName = request.LocationName.Trim(); row.City = request.City; row.District = request.District;
         row.Address = normalizedAddress; row.PlusCode = normalizedPlusCode;
+        if (!oldAddressBasisHash.SequenceEqual(V180MileageCanonicalization.HashAddress(row)))
+            row.SelectedGeocodingAttemptId = null;
         if (geocodingInputChanged) row.GeocodingStatus = "Pending";
         row.UpdatedAt = DateTime.UtcNow;
         await workflow.AddAuditAsync(Audit(user.UserId, "Location", id.ToString(), "LocationUpdate", new { request.LocationName, request.Address, request.PlusCode }), ct);

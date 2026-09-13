@@ -9,7 +9,7 @@ public sealed record CurrentUserDto(int UserId,string EmployeeNo,string DisplayN
 public sealed record DemoLoginRequest(string Account,string Password);
 public sealed record DemoLoginResponse(string AccessToken,DateTime ExpiresAtUtc,CurrentUserDto User);
 public sealed record TripStopInput(int? LocationId,int? ProjectId,int? VisitTypeId,string SourceType,string LocationName,string? Address,string? VisitPurpose,string? Notes);
-public sealed record SaveTripRequest(DateOnly VisitDate,TimeOnly StartTime,TimeOnly EndTime,decimal? ClaimedDistanceKm,string? Purpose,string? Notes,bool TimeOverlapConfirmed,IReadOnlyList<TripStopInput> Stops,int? TeamId=null,int? StartDeploymentSiteId=null,int? EndDeploymentSiteId=null);
+public sealed record SaveTripRequest(DateOnly VisitDate,TimeOnly StartTime,TimeOnly EndTime,decimal? ClaimedDistanceKm,string? Purpose,string? Notes,bool TimeOverlapConfirmed,IReadOnlyList<TripStopInput> Stops,int? TeamId=null,int? StartDeploymentSiteId=null,int? EndDeploymentSiteId=null,string? VehicleType=null);
 public sealed record SubmitTripRequest(bool ConfirmTimeOverlap);
 public sealed record TimeOverlapRequest(DateOnly VisitDate,TimeOnly StartTime,TimeOnly EndTime,long? ExcludeVisitTripId);
 public sealed record TimeOverlapItem(long VisitTripId,string TripNo,TimeOnly? StartTime,TimeOnly? EndTime,string Status);
@@ -18,7 +18,7 @@ public sealed record TripDto(long VisitTripId,string TripNo,int UserId,string Vi
 public sealed record MileageBatchRequest(string Mode,DateOnly? StartDate,DateOnly? EndDate,IReadOnlyList<long>? SelectedTripIds);
 public sealed record MileageBatchItem(long VisitTripId,string TripNo,string Status,decimal? SystemDistanceKm,string? ErrorCode,string? ErrorMessage);
 public sealed record MileageBatchResult(int Total,int Success,int Failed,int Skipped,IReadOnlyList<MileageBatchItem> Items);
-public sealed record ApproveTripRequest(decimal? ApprovedDistanceKm,string RowVersion,string? Comments);
+public sealed record ApproveTripRequest(decimal? ApprovedDistanceKm,string RowVersion,string? Comments,string? DistanceDecisionSource=null,long? RouteCalculationAttemptId=null);
 public sealed record ReturnTripRequest(string Reason,string RowVersion);
 public sealed record BatchApproveItem(long VisitTripId,decimal ApprovedDistanceKm,string RowVersion);
 public sealed record BatchApproveRequest(IReadOnlyList<BatchApproveItem> Items);

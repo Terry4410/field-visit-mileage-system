@@ -29,20 +29,129 @@ public sealed record V180MileageGovernanceEventRequest(
     string EventType, string? ReasonCode, string? Message, Guid CorrelationId,
     DateTime OccurredAt, int? ActorUserId);
 
+public sealed record V180RouteProviderRequest(
+    Guid CorrelationId,
+    string TravelMode,
+    string? StartAddress,
+    IReadOnlyList<string?> StopAddresses,
+    string? EndAddress);
+
+public sealed record V180RouteProviderResult(
+    bool Success,
+    decimal? SuggestedDistanceKm,
+    int? DurationSeconds,
+    string? EncodedPolyline,
+    string? ErrorCode,
+    string? ErrorMessage);
+
+public sealed record V180GeocodingProviderRequest(
+    Guid CorrelationId,
+    string? InputKind,
+    string? InputValue);
+
+public sealed record V180GeocodingProviderResult(
+    bool Success,
+    decimal? Latitude,
+    decimal? Longitude,
+    string? ErrorCode,
+    string? ErrorMessage);
+
+public sealed record V180RouteOrchestrationResult(
+    long RouteCalculationAttemptId,
+    Guid CorrelationId,
+    string Status,
+    decimal? SuggestedDistanceKm,
+    int? DurationSeconds,
+    string? EncodedPolyline,
+    string? ErrorCode,
+    string? ErrorMessage);
+
+public sealed record V180GeocodingOrchestrationResult(
+    long GeocodingAttemptId,
+    Guid CorrelationId,
+    string Status,
+    bool SelectedAsCurrent,
+    decimal? Latitude,
+    decimal? Longitude,
+    string? ErrorCode,
+    string? ErrorMessage);
+
+public interface IV180RouteProvider
+{
+    string ProviderName { get; }
+    Task<V180RouteProviderResult> CalculateAsync(V180RouteProviderRequest request, CancellationToken ct);
+}
+
+public interface IV180GeocodingProvider
+{
+    string ProviderName { get; }
+    Task<V180GeocodingProviderResult> GeocodeAsync(V180GeocodingProviderRequest request, CancellationToken ct);
+}
+
 public interface IV180GoogleMileageGovernanceRepository
 {
     Task<GeocodingAttempt> AddGeocodingAttemptAsync(V180GeocodingAttemptRequest request, CancellationToken ct);
     Task<RouteCalculationAttempt> AddRouteCalculationAttemptAsync(V180RouteCalculationAttemptRequest request, CancellationToken ct);
     Task<MileageGovernanceEvent> AddGovernanceEventAsync(V180MileageGovernanceEventRequest request, CancellationToken ct);
+    Task<RouteCalculationAttempt?> GetRouteCalculationAttemptAsync(long attemptId, CancellationToken ct);
+    Task<GeocodingAttempt?> GetGeocodingAttemptAsync(long attemptId, CancellationToken ct);
+    Task<bool> TryFinalizeRouteCalculationAttemptAsync(
+        long attemptId, string status, string? errorCode, string? errorMessage, DateTime completedAt, CancellationToken ct);
+    Task<bool> TryFinalizeGeocodingAttemptAsync(
+        long attemptId, string status, string? errorCode, string? errorMessage, DateTime completedAt, CancellationToken ct);
 }
 
 public static class V180MileageGovernanceRules
 {
+    public const string GovernanceVersion = "1.8.0";
+    public const string SubmittedSnapshotBasisCode = "SubmittedSnapshot";
+
     public static byte[] RequireHash32(byte[] value, string name)
     {
         ArgumentNullException.ThrowIfNull(value);
         if (value.Length != 32) throw new ArgumentException($"{name} must be exactly 32 bytes.", name);
         return value.ToArray();
+    }
+
+    public static string RequireDecisionSource(string? value) => value?.Trim() switch
+    {
+        "ProviderSuggested" => "ProviderSuggested",
+        "LeaderAdjusted" => "LeaderAdjusted",
+        "ManualFallback" => "ManualFallback",
+        _ => throw new InvalidOperationException("F_B_DECISION_SOURCE_INVALID：只允許 ProviderSuggested、LeaderAdjusted 或 ManualFallback。")
+    };
+
+    public static (string Code, string? Message) SanitizeProviderFailure(string? code, string? message)
+    {
+        var normalizedCode = Sanitize(code, 100, "PROVIDER_FAILURE", allowSpaces: false);
+        var normalizedMessage = Sanitize(message, 1000, "Provider operation failed.", allowSpaces: true);
+        return (normalizedCode, normalizedMessage);
+    }
+
+    public static void EnsureCurrentGeocodingSelection(Location location, GeocodingAttempt attempt)
+    {
+        ArgumentNullException.ThrowIfNull(location);
+        ArgumentNullException.ThrowIfNull(attempt);
+        if (attempt.LocationId != location.LocationId || attempt.Status != "Succeeded")
+            throw new InvalidOperationException(
+                "F_B_GEOCODING_ATTEMPT_INVALID：只能選取同一地點的成功 geocoding attempt。");
+        if (!attempt.AddressBasisHash.SequenceEqual(V180MileageCanonicalization.HashAddress(location)))
+            throw new InvalidOperationException(
+                "F_B_GEOCODING_ATTEMPT_STALE：geocoding attempt 不符合目前 F-ADDR-v1 basis。");
+    }
+
+    private static string Sanitize(string? value, int maxLength, string fallback, bool allowSpaces)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+        var builder = new StringBuilder(Math.Min(value.Length, maxLength));
+        foreach (var ch in value.Trim())
+        {
+            if (builder.Length >= maxLength) break;
+            if (char.IsLetterOrDigit(ch) || ch is '_' or '-' or '.' || (allowSpaces && char.IsWhiteSpace(ch)))
+                builder.Append(char.IsWhiteSpace(ch) ? ' ' : ch);
+        }
+        var result = builder.ToString().Trim();
+        return result.Length == 0 ? fallback : result;
     }
 }
 

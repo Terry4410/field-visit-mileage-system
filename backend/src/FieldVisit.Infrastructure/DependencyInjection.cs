@@ -44,6 +44,10 @@ public static class DependencyInjection
         services.AddScoped<INotificationDeliveryPolicyEvaluator,EfNotificationDeliveryPolicyEvaluator>();
         services.AddScoped<INotificationEmailProvider,UnconfiguredNotificationEmailProvider>();
         services.AddScoped<INotificationDeliveryProcessor,NotificationDeliveryProcessor>();
+        services.AddScoped<IV180GoogleMileageGovernanceRepository,V180GoogleMileageGovernanceRepository>();
+        services.AddScoped<IV180RouteProvider,UnconfiguredV180RouteProvider>();
+        services.AddScoped<IV180GeocodingProvider,UnconfiguredV180GeocodingProvider>();
+        services.AddScoped<V180GoogleMileageOrchestrationService>();
         var route=(configuration["Providers:Route"]??"Mock").Trim();var geo=(configuration["Providers:Geocoding"]??"Mock").Trim();
         if(!route.Equals("Mock",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("v1.6.0 僅允許 Providers:Route=Mock；Google Routes 請於 v1.7.0 啟用。");
         if(!geo.Equals("Mock",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("v1.6.0 僅允許 Providers:Geocoding=Mock。");

@@ -28,7 +28,7 @@ public sealed class TripSnapshotRepository(AppDbContext db) : ITripSnapshotRepos
             var submitted = await GetLatestAsync(trip.VisitTripId, "Submitted", ct)
                 ?? throw new InvalidOperationException("SUBMITTED_SNAPSHOT_REQUIRED：v1.8 行程缺少 Submitted Snapshot，禁止以目前主檔重建歷史。");
             snapshot = CopySnapshot(submitted, await NextVersionAsync(trip.VisitTripId, ct), "Approved", approver.UserId);
-            ApplyApproval(snapshot, trip, approver);
+            await ApplyApprovalAsync(snapshot, trip, approver, ct);
         }
         else snapshot = await BuildLegacyApprovedSnapshotAsync(trip, approver, ct);
         await db.VisitTripSnapshots.AddAsync(snapshot, ct);
@@ -169,9 +169,22 @@ public sealed class TripSnapshotRepository(AppDbContext db) : ITripSnapshotRepos
         return copy;
     }
 
-    private static void ApplyApproval(VisitTripSnapshot snapshot, VisitTrip trip, CurrentUserDto approver)
+    private async Task ApplyApprovalAsync(
+        VisitTripSnapshot snapshot, VisitTrip trip, CurrentUserDto approver, CancellationToken ct)
     {
-        var calc = trip.MileageCalculation;
+        var calc = trip.MileageCalculation
+            ?? db.MileageCalculations.Local.FirstOrDefault(x => x.VisitTripId == trip.VisitTripId)
+            ?? await db.MileageCalculations.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.VisitTripId == trip.VisitTripId, ct);
+        RouteCalculationAttempt? attempt = null;
+        if (calc?.SelectedRouteCalculationAttemptId is long attemptId)
+        {
+            attempt = await db.RouteCalculationAttempts.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.RouteCalculationAttemptId == attemptId, ct)
+                ?? throw new InvalidOperationException("F_B_ROUTE_ATTEMPT_NOT_FOUND：Approved Snapshot 找不到目前選取的 route attempt。");
+            if (attempt.VisitTripId != trip.VisitTripId || attempt.Status != "Succeeded")
+                throw new InvalidOperationException("F_B_ROUTE_ATTEMPT_INVALID：Approved Snapshot 只能投影同一行程的成功 route attempt。");
+        }
         snapshot.StatusSnapshot = trip.Status;
         snapshot.SystemDistanceKmSnapshot = calc?.SystemDistanceKm;
         snapshot.ApprovedDistanceKmSnapshot = calc?.ApprovedDistanceKm;
@@ -181,5 +194,17 @@ public sealed class TripSnapshotRepository(AppDbContext db) : ITripSnapshotRepos
         snapshot.ApprovedAtSnapshot = trip.ApprovedAt;
         snapshot.ApproverUserId = approver.UserId;
         snapshot.ApproverNameSnapshot = approver.DisplayName;
+        snapshot.MileageRouteAttemptIdSnapshot = attempt?.RouteCalculationAttemptId;
+        snapshot.RouteTravelModeSnapshot = attempt?.TravelMode;
+        snapshot.RouteCalculatedAtSnapshot = attempt?.CompletedAt;
+        snapshot.RouteCalculationStatusSnapshot = calc?.ManualFallbackUsed == true
+            ? "ManualFallback"
+            : attempt?.Status;
+        snapshot.RouteErrorCodeSnapshot = attempt?.ErrorCode;
+        snapshot.RouteCorrelationIdSnapshot = attempt?.CorrelationId;
+        snapshot.ApprovedDistanceSourceSnapshot = calc?.ApprovedDistanceSource;
+        snapshot.ApprovalBasisCodeSnapshot = calc?.ApprovalBasisCode;
+        snapshot.ApprovalBasisHashSnapshot = calc?.ApprovalBasisHash?.ToArray();
+        snapshot.DistanceApprovedAtSnapshot = calc?.DistanceApprovedAt;
     }
 }

@@ -7,7 +7,10 @@ namespace FieldVisit.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1")]
-public sealed class TripsController(TripService trips, LeaderService leader) : ControllerBase
+public sealed class TripsController(
+    TripService trips,
+    LeaderService leader,
+    V180GoogleMileageOrchestrationService mileageOrchestration) : ControllerBase
 {
     [HttpGet("trips/context")]
     [Authorize(Roles = "visitor")]
@@ -44,9 +47,25 @@ public sealed class TripsController(TripService trips, LeaderService leader) : C
     public async Task<ActionResult<TripDto>> Submit(long tripId, SubmitTripRequest request, [FromHeader(Name="If-Match")] string rowVersion, CancellationToken ct) =>
         Ok(await trips.SubmitAsync(tripId, request, rowVersion.Trim('"'), ct));
 
+    [HttpPost("trips/{tripId:long}/route-preview")]
+    [Authorize(Roles = "visitor")]
+    public async Task<ActionResult<V180RouteOrchestrationResult>> PreviewRoute(long tripId, CancellationToken ct)
+    {
+        var result = await mileageOrchestration.PreviewRouteAsync(tripId, ct);
+        return result.Status == "Succeeded" ? Ok(result) : StatusCode(StatusCodes.Status502BadGateway, result);
+    }
+
     [HttpGet("leader/review-queue")]
     [Authorize(Roles = "leader")]
     public async Task<ActionResult<List<TripDto>>> Queue(CancellationToken ct) => Ok(await leader.ReviewQueueAsync(ct));
+
+    [HttpPost("trips/{tripId:long}/route-retry")]
+    [Authorize(Roles = "leader")]
+    public async Task<ActionResult<V180RouteOrchestrationResult>> RetryRoute(long tripId, CancellationToken ct)
+    {
+        var result = await mileageOrchestration.RetryRouteAsync(tripId, ct);
+        return result.Status == "Succeeded" ? Ok(result) : StatusCode(StatusCodes.Status502BadGateway, result);
+    }
 
     [HttpPost("trips/{tripId:long}/approve")]
     [Authorize(Roles = "leader")]
