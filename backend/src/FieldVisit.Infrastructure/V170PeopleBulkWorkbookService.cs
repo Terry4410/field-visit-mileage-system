@@ -11,7 +11,9 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class V170PeopleBulkWorkbookService(
     AppDbContext db,
-    IV170PeopleAdminWriter writer)
+    IV170PeopleAdminWriter writer,
+    IImportNotificationEvents? importEvents = null,
+    INotificationCollisionTranslator? collisionTranslator = null)
     : IV170PeopleBulkWorkbookService
 {
     private const string ImportType =
@@ -1123,47 +1125,54 @@ public sealed class V170PeopleBulkWorkbookService(
         var confirmedAt =
             DateTime.UtcNow;
 
-        var finalizeCount =
-            await db.ImportBatches
-                .Where(
-                    x =>
-                        x.ImportBatchId
-                            == importBatchId
-                        && x.Status
-                            == "Confirming")
-                .ExecuteUpdateAsync(
-                    setters =>
-                        setters
-                            .SetProperty(
-                                x => x.Status,
-                                finalStatus)
-                            .SetProperty(
-                                x => x.ConfirmedAt,
-                                (DateTime?)confirmedAt),
-                    ct);
-
-        if (finalizeCount != 1)
+        await ImportBatchFinalizationTransaction.ExecuteAsync(db, async () =>
         {
-            throw new InvalidOperationException(
-                "匯入批次完成狀態更新失敗；請聯絡系統管理者確認批次狀態。");
-        }
+            var finalizeCount =
+                await db.ImportBatches
+                    .Where(
+                        x =>
+                            x.ImportBatchId
+                                == importBatchId
+                            && x.Status
+                                == "Confirming")
+                    .ExecuteUpdateAsync(
+                        setters =>
+                            setters
+                                .SetProperty(
+                                    x => x.Status,
+                                    finalStatus)
+                                .SetProperty(
+                                    x => x.ConfirmedAt,
+                                    (DateTime?)confirmedAt),
+                        ct);
 
-        AddAudit(
-            admin,
-            "PeopleBulkConfirm",
-            new
+            if (finalizeCount != 1)
             {
-                importBatchId,
-                created,
-                updated,
-                unchanged,
-                failed,
-                FinalStatus =
-                    finalStatus,
-                request.ConfirmRetroactive
-            });
+                throw new InvalidOperationException(
+                    "匯入批次完成狀態更新失敗；請聯絡系統管理者確認批次狀態。");
+            }
 
-        await db.SaveChangesAsync(ct);
+            AddAudit(
+                admin,
+                "PeopleBulkConfirm",
+                new
+                {
+                    importBatchId,
+                    created,
+                    updated,
+                    unchanged,
+                    failed,
+                    FinalStatus =
+                        finalStatus,
+                    request.ConfirmRetroactive
+                });
+
+            if (importEvents is not null)
+                await importEvents.QueueCompletedAsync(importBatchId, finalStatus, confirmedAt,
+                    batch.OrganizationId, batch.RequestedByUserId, ct);
+            await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
+            return true;
+        }, ct);
 
         return new V170PeopleBulkConfirmResultDto(
             importBatchId,

@@ -13,6 +13,7 @@ bash scripts/test-ea0-notification-schema-authority.sh
 bash scripts/test-ea1-notification-runtime.sh
 bash scripts/test-ea2a-business-event-integration.sh
 bash scripts/test-ea2b-location-event-integration.sh
+bash scripts/test-ea2c-import-completed-integration.sh
 npm --prefix frontend run build
 dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --no-restore
 

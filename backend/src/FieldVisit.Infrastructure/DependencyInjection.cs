@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationRecipientResolver,EfNotificationRecipientResolver>();
         services.AddScoped<INotificationOutboxWriter,EfNotificationOutboxWriter>();
         services.AddScoped<INotificationCollisionTranslator,EfNotificationCollisionTranslator>();
+        services.AddScoped<IImportNotificationEvents,EfImportNotificationEvents>();
         services.AddScoped<ILocationNotificationEvents,EfLocationNotificationEvents>();
         services.AddScoped<ILocationMutationBoundary,EfLocationMutationBoundary>();
         var route=(configuration["Providers:Route"]??"Mock").Trim();var geo=(configuration["Providers:Geocoding"]??"Mock").Trim();

@@ -10,7 +10,8 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class WorkbookImportService(AppDbContext db,
     ILocationNotificationEvents? locationEvents = null,
-    INotificationCollisionTranslator? collisionTranslator = null) : IWorkbookImportService
+    INotificationCollisionTranslator? collisionTranslator = null,
+    IImportNotificationEvents? importEvents = null) : IWorkbookImportService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -250,10 +251,25 @@ public sealed class WorkbookImportService(AppDbContext db,
                 await db.SaveChangesAsync(ct);
             }
         }
-        batch.Status = failed == 0 ? "Confirmed" : "PartiallyFailed";
-        batch.ConfirmedAt = DateTime.UtcNow;
-        AddAudit(user.UserId, "ImportBatch", batch.ImportBatchId.ToString(), "ImportConfirm", new { created, updated, unchanged, failed });
-        await db.SaveChangesAsync(ct);
+        var finalStatus = failed == 0 ? "Confirmed" : "PartiallyFailed";
+        var confirmedAt = DateTime.UtcNow;
+        await ImportBatchFinalizationTransaction.ExecuteAsync(db, async () =>
+        {
+            var finalizeCount = await db.ImportBatches
+                .Where(x => x.ImportBatchId == batch.ImportBatchId && x.Status == "Previewed")
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, finalStatus)
+                    .SetProperty(x => x.ConfirmedAt, (DateTime?)confirmedAt), ct);
+            if (finalizeCount != 1)
+                throw new InvalidOperationException("匯入批次完成狀態更新失敗；請聯絡系統管理者確認批次狀態。");
+
+            AddAudit(user.UserId, "ImportBatch", batch.ImportBatchId.ToString(), "ImportConfirm", new { created, updated, unchanged, failed });
+            if (importEvents is not null)
+                await importEvents.QueueCompletedAsync(batch.ImportBatchId, finalStatus, confirmedAt,
+                    batch.OrganizationId, batch.RequestedByUserId, ct);
+            await NotificationSaveChanges.SaveAsync(db, collisionTranslator, ct);
+            return true;
+        }, ct);
         return new ImportConfirmResultDto(batch.ImportBatchId, created, updated, unchanged, failed, errors);
     }
 
