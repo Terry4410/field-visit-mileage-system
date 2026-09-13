@@ -37,7 +37,7 @@ public sealed class V180GoogleMileageCanonicalizationTests
     {
         Assert.Equal("école centrale", V180MileageCanonicalization.NormalizeText(" e\u0301cole\u00a0  centrale "));
         Assert.NotEqual(V180MileageCanonicalization.NormalizeText("Main St"), V180MileageCanonicalization.NormalizeText("main st"));
-        Assert.Equal("A  B", V180MileageCanonicalization.NormalizeText("A\n\tB"));
+        Assert.Equal("A B", V180MileageCanonicalization.NormalizeText("A\n\tB"));
     }
 
     [Fact]
