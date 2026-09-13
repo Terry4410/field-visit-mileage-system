@@ -251,10 +251,12 @@ public sealed class WorkbookImportService(AppDbContext db,
                 await db.SaveChangesAsync(ct);
             }
         }
-        var finalStatus = failed == 0 ? "Confirmed" : "PartiallyFailed";
         var confirmedAt = DateTime.UtcNow;
         await ImportBatchFinalizationTransaction.ExecuteAsync(db, async () =>
         {
+            var hasDurableFailures = await db.ImportBatchItems.AsNoTracking()
+                .AnyAsync(x => x.ImportBatchId == batch.ImportBatchId && x.Status == "Failed", ct);
+            var finalStatus = hasDurableFailures ? "PartiallyFailed" : "Confirmed";
             var finalizeCount = await db.ImportBatches
                 .Where(x => x.ImportBatchId == batch.ImportBatchId && x.Status == "Previewed")
                 .ExecuteUpdateAsync(setters => setters

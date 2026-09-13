@@ -81,11 +81,13 @@ static async Task RunGenericConfirmedAsync(Fixture fx, Func<AppDbContext> newDb)
 static async Task RunGenericPartialAsync(Fixture fx, Func<AppDbContext> newDb)
 {
     await using var db = newDb();
-    var batch = await fx.BatchAsync(db, "projects", ("Project", "NoChange", "{}"), ("Unsupported", "Create", "{}"));
+    var batch = await fx.BatchAsync(db, "projects",
+        ("Project", "Create", ProjectJson("EA2C-PARTIAL-GOOD", "List")),
+        ("Project", "Create", ProjectJson("EA2C-PARTIAL-BAD", "INVALID_MODE")));
     var result = await fx.Generic(db).ConfirmAsync(fx.Initiator, batch.ImportBatchId, default);
     await RequireCompletedAsync(db, fx, batch.ImportBatchId, "PartiallyFailed");
     var items = await db.ImportBatchItems.AsNoTracking().Where(x => x.ImportBatchId == batch.ImportBatchId).OrderBy(x => x.RowNumber).ToListAsync();
-    Require(result.Unchanged == 1 && result.Failed == 1 && items[0].Status == "Applied" && items[1].Status == "Failed",
+    Require(result.Created == 1 && result.Failed == 1 && items[0].Status == "Applied" && items[1].Status == "Failed",
         "prior item commit survives later failure");
     Pass("EA2C-02_GENERIC_PARTIALLY_FAILED_PRIOR_ITEM_COMMIT");
 }
@@ -93,7 +95,9 @@ static async Task RunGenericPartialAsync(Fixture fx, Func<AppDbContext> newDb)
 static async Task RunGenericRollbackAsync(Fixture fx, Func<AppDbContext> newDb)
 {
     await using var db = newDb();
-    var batch = await fx.BatchAsync(db, "projects", ("Project", "NoChange", "{}"), ("Unsupported", "Create", "{}"));
+    var batch = await fx.BatchAsync(db, "projects",
+        ("Project", "Create", ProjectJson("EA2C-RETRY-GOOD", "List")),
+        ("Project", "Create", ProjectJson("EA2C-RETRY-BAD", "INVALID_MODE")));
     var failing = new FailingWriter(fx.Writer(db));
     await ExpectFailureAsync(() => fx.Generic(db, failing).ConfirmAsync(fx.Initiator, batch.ImportBatchId, default), "generic terminal notification failure");
     await using var check = newDb();
@@ -104,7 +108,19 @@ static async Task RunGenericRollbackAsync(Fixture fx, Func<AppDbContext> newDb)
     Require(!await check.Set<MailOutbox>().AnyAsync(x => x.BusinessEventKey == failing.Attempt!.BusinessEventKey), "generic outbox rolled back");
     Require(!await check.AuditLogs.AnyAsync(x => x.EntityType == "ImportBatch"
         && x.EntityId == batch.ImportBatchId.ToString() && x.Action == "ImportConfirm"), "generic terminal audit rolled back");
-    Pass("EA2C-03_GENERIC_FINALIZATION_OUTBOX_ROLLBACK");
+    Require(await check.Projects.CountAsync(x => x.ProjectCode == "EA2C-RETRY-GOOD") == 1,
+        "prior Applied project committed before terminal rollback");
+
+    await fx.Generic(db).ConfirmAsync(fx.Initiator, batch.ImportBatchId, default);
+    await using var final = newDb();
+    await RequireCompletedAsync(final, fx, batch.ImportBatchId, "PartiallyFailed");
+    var finalItems = await final.ImportBatchItems.AsNoTracking().Where(x => x.ImportBatchId == batch.ImportBatchId)
+        .OrderBy(x => x.RowNumber).ToListAsync();
+    Require(finalItems[0].Status == "Applied" && finalItems[1].Status == "Failed", "retry preserves durable item outcome");
+    Require(await final.Projects.CountAsync(x => x.ProjectCode == "EA2C-RETRY-GOOD") == 1,
+        "retry does not reapply prior Applied project");
+    Require((await EventsAsync(final, batch.ImportBatchId)).Count == 1, "retry creates exactly one ImportCompleted");
+    Pass("EA2C-03_GENERIC_FINALIZATION_ROLLBACK_RETRY_DURABLE_OUTCOME");
 }
 
 static async Task RunGenericCollisionAsync(Fixture fx, Func<AppDbContext> newDb)
@@ -176,6 +192,19 @@ static async Task RunDormantAsync(Func<AppDbContext> newDb)
 static string MissingPersonJson(int rowNumber) => JsonSerializer.Serialize(
     new V170InternalAuthorizationRow(rowNumber, "EA2C-MISSING", null, null, null, null, false,
         ["visitor"], [], null, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1), "Google", null, null));
+
+static string ProjectJson(string projectCode, string locationMode) => JsonSerializer.Serialize(new
+{
+    projectCode,
+    projectName = projectCode,
+    teamCode = (string?)null,
+    locationMode,
+    startDate = (string?)null,
+    endDate = (string?)null,
+    rowVersion = (string?)null,
+    status = (string?)null,
+    description = (string?)null
+});
 
 sealed class Fixture
 {

@@ -1117,16 +1117,27 @@ public sealed class V170PeopleBulkWorkbookService(
             }
         }
 
-        var finalStatus =
-            failed == 0
-                ? "Confirmed"
-                : "PartiallyFailed";
-
         var confirmedAt =
             DateTime.UtcNow;
 
         await ImportBatchFinalizationTransaction.ExecuteAsync(db, async () =>
         {
+            var hasDurableFailures =
+                await db.ImportBatchItems
+                    .AsNoTracking()
+                    .AnyAsync(
+                        x =>
+                            x.ImportBatchId
+                                == importBatchId
+                            && x.Status
+                                == "Failed",
+                        ct);
+
+            var finalStatus =
+                hasDurableFailures
+                    ? "PartiallyFailed"
+                    : "Confirmed";
+
             var finalizeCount =
                 await db.ImportBatches
                     .Where(
