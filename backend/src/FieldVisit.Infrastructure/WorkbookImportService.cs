@@ -266,6 +266,10 @@ public sealed class WorkbookImportService(AppDbContext db,
                 throw new InvalidOperationException("匯入批次完成狀態更新失敗；請聯絡系統管理者確認批次狀態。");
 
             AddAudit(user.UserId, "ImportBatch", batch.ImportBatchId.ToString(), "ImportConfirm", new { created, updated, unchanged, failed });
+            // Keep the collision translator surgical: the save that can collide must
+            // contain only the intended MailOutbox entry. This flush is still inside
+            // the caller-owned finalization transaction and rolls back with it.
+            await db.SaveChangesAsync(ct);
             if (importEvents is not null)
                 await importEvents.QueueCompletedAsync(batch.ImportBatchId, finalStatus, confirmedAt,
                     batch.OrganizationId, batch.RequestedByUserId, ct);

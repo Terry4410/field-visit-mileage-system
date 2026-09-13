@@ -134,6 +134,9 @@ static async Task RunGenericCollisionAsync(Fixture fx, Func<AppDbContext> newDb)
     Require((await EventsAsync(check, batch.ImportBatchId)).Count == 1, "equivalent SQL collision remains exactly once");
     Require(await check.ImportBatchItems.AnyAsync(x => x.ImportBatchId == batch.ImportBatchId && x.Status == "Applied"),
         "collision does not corrupt prior item commit");
+    Require(await check.AuditLogs.AnyAsync(x => x.EntityType == "ImportBatch"
+        && x.EntityId == batch.ImportBatchId.ToString() && x.Action == "ImportConfirm"),
+        "collision commits terminal audit");
     Pass("EA2C-04_GENERIC_EQUIVALENT_COLLISION_COMMITS_TERMINAL_STATE");
 }
 

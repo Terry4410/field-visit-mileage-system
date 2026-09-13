@@ -1178,6 +1178,10 @@ public sealed class V170PeopleBulkWorkbookService(
                     request.ConfirmRetroactive
                 });
 
+            // Keep the collision translator surgical: the save that can collide must
+            // contain only the intended MailOutbox entry. This flush is still inside
+            // the caller-owned finalization transaction and rolls back with it.
+            await db.SaveChangesAsync(ct);
             if (importEvents is not null)
                 await importEvents.QueueCompletedAsync(importBatchId, finalStatus, confirmedAt,
                     batch.OrganizationId, batch.RequestedByUserId, ct);
