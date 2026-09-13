@@ -64,7 +64,7 @@
       "source": "database/migrations/1800_007_mileage_google_governance/Up.sql",
       "sourceSha256": "d89a061c15c95427a0cb1793b762a7fce306cd8019f276bb26664f617ffa364d",
       "verify": "database/migrations/1800_007_mileage_google_governance/Verify.sql",
-      "verifySha256": "06817efb78227b984e93d625dc6f5728481d5713d1c1640798804804b09dc925",
+      "verifySha256": "c27e43aa0311be1c8f2c7f8a424ca8fff80faaac7a311335d56f69b0a72e395e",
       "developmentApply": "database/development/v1.8.0/compat/1800_007.dev.sql",
       "developmentApplySha256": "d89a061c15c95427a0cb1793b762a7fce306cd8019f276bb26664f617ffa364d"
     }

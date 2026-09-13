@@ -132,18 +132,40 @@ IF COL_LENGTH(N'dbo.VisitTripSnapshotStops', N'LatitudeSnapshot') IS NOT NULL
    OR COL_LENGTH(N'dbo.VisitTripSnapshotStops', N'LongitudeSnapshot') IS NOT NULL
     THROW 54314, N'Verify failed: Trip Snapshot 不得永久保存 Google-derived coordinates。', 1;
 
+DECLARE @ExpectedFAForeignKeys TABLE
+(
+    ForeignKeyName SYSNAME NOT NULL PRIMARY KEY,
+    ParentTableName SYSNAME NOT NULL,
+    ReferencedTableName SYSNAME NOT NULL
+);
+
+INSERT @ExpectedFAForeignKeys(ForeignKeyName, ParentTableName, ReferencedTableName)
+VALUES
+    (N'FK_GeocodingAttempts_Locations', N'GeocodingAttempts', N'Locations'),
+    (N'FK_GeocodingAttempts_RequestedByUser', N'GeocodingAttempts', N'Users'),
+    (N'FK_RouteCalculationAttempts_Trips', N'RouteCalculationAttempts', N'VisitTrips'),
+    (N'FK_RouteCalculationAttempts_BasisSnapshot', N'RouteCalculationAttempts', N'VisitTripSnapshots'),
+    (N'FK_RouteCalculationAttempts_RequestedByUser', N'RouteCalculationAttempts', N'Users'),
+    (N'FK_MileageGovernanceEvents_Trips', N'MileageGovernanceEvents', N'VisitTrips'),
+    (N'FK_MileageGovernanceEvents_Snapshot', N'MileageGovernanceEvents', N'VisitTripSnapshots'),
+    (N'FK_MileageGovernanceEvents_RouteAttempt', N'MileageGovernanceEvents', N'RouteCalculationAttempts'),
+    (N'FK_MileageGovernanceEvents_ActorUser', N'MileageGovernanceEvents', N'Users'),
+    (N'FK_Locations_SelectedGeocodingAttempt', N'Locations', N'GeocodingAttempts'),
+    (N'FK_MileageCalculations_SelectedRouteAttempt', N'MileageCalculations', N'RouteCalculationAttempts'),
+    (N'FK_MileageCalculations_DistanceApprovedByUser', N'MileageCalculations', N'Users'),
+    (N'FK_MileageCalculations_InvalidatedByUser', N'MileageCalculations', N'Users'),
+    (N'FK_VisitTripSnapshots_RouteAttempt', N'VisitTripSnapshots', N'RouteCalculationAttempts');
+
 IF EXISTS
 (
-    SELECT 1 FROM sys.foreign_keys
-    WHERE parent_object_id IN
-    (
-        OBJECT_ID(N'dbo.RouteCalculationAttempts'),
-        OBJECT_ID(N'dbo.GeocodingAttempts'),
-        OBJECT_ID(N'dbo.MileageGovernanceEvents'),
-        OBJECT_ID(N'dbo.MileageCalculations'),
-        OBJECT_ID(N'dbo.VisitTripSnapshots')
-    )
-      AND delete_referential_action_desc <> N'NO_ACTION'
+    SELECT 1
+    FROM @ExpectedFAForeignKeys expected
+    LEFT JOIN sys.foreign_keys fk
+      ON fk.name = expected.ForeignKeyName
+     AND fk.parent_object_id = OBJECT_ID(N'dbo.' + expected.ParentTableName, N'U')
+     AND fk.referenced_object_id = OBJECT_ID(N'dbo.' + expected.ReferencedTableName, N'U')
+    WHERE fk.object_id IS NULL
+       OR fk.delete_referential_action_desc <> N'NO_ACTION'
 )
     THROW 54305, N'Verify failed: Mileage/Snapshot audit FK 不得 Cascade Delete。', 1;
 
