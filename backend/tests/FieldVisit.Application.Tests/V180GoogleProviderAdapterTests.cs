@@ -58,16 +58,43 @@ public sealed class V180GoogleProviderAdapterTests
     }
 
     [Fact]
-    public async Task Routes_timeout_or_cancellation_is_not_retried()
+    public async Task Routes_internal_timeout_returns_failure_and_is_not_retried()
     {
         var handler = new BlockingHandler();
-        var provider = new GoogleRoutesV180RouteProvider(new HttpClient(handler), new V180GoogleProviderOptions
-        {
-            Enabled = true, RoutesApiKey = "R", GeocodingApiKey = "G", Timeout = TimeSpan.FromMilliseconds(10)
-        });
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.CalculateAsync(
-            new(Guid.NewGuid(), "DRIVE", "A", Array.Empty<string?>(), "B"), default));
+        var provider = new GoogleRoutesV180RouteProvider(new HttpClient(handler), ShortTimeoutOptions());
+        var result = await provider.CalculateAsync(
+            new(Guid.NewGuid(), "DRIVE", "A", Array.Empty<string?>(), "B"), default);
+        Assert.False(result.Success);
+        Assert.Equal("GOOGLE_ROUTES_TIMEOUT", result.ErrorCode);
+        Assert.Equal("Google Routes request timed out.", result.ErrorMessage);
         Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task Routes_caller_cancellation_still_propagates_and_is_not_retried()
+    {
+        var handler = new BlockingHandler();
+        var provider = new GoogleRoutesV180RouteProvider(new HttpClient(handler), Options());
+        using var caller = new CancellationTokenSource();
+        var operation = provider.CalculateAsync(
+            new(Guid.NewGuid(), "DRIVE", "A", Array.Empty<string?>(), "B"), caller.Token);
+        await handler.Started;
+        caller.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task Two_wheeler_internal_timeout_does_not_downgrade_or_retry()
+    {
+        var handler = new BlockingHandler();
+        var provider = new GoogleRoutesV180RouteProvider(new HttpClient(handler), ShortTimeoutOptions());
+        var result = await provider.CalculateAsync(
+            new(Guid.NewGuid(), "TWO_WHEELER", "A", Array.Empty<string?>(), "B"), default);
+        Assert.Equal("GOOGLE_ROUTES_TIMEOUT", result.ErrorCode);
+        Assert.Equal(1, handler.CallCount);
+        Assert.Contains("\"travelMode\":\"TWO_WHEELER\"", handler.Body);
+        Assert.DoesNotContain("\"DRIVE\"", handler.Body);
     }
 
     [Theory]
@@ -112,6 +139,31 @@ public sealed class V180GoogleProviderAdapterTests
     }
 
     [Fact]
+    public async Task Geocoding_internal_timeout_returns_failure_and_is_not_retried()
+    {
+        var handler = new BlockingHandler();
+        var provider = new GoogleGeocodingV180GeocodingProvider(new HttpClient(handler), ShortTimeoutOptions());
+        var result = await provider.GeocodeAsync(new(Guid.NewGuid(), "ADDRESS", "A"), default);
+        Assert.False(result.Success);
+        Assert.Equal("GOOGLE_GEOCODING_TIMEOUT", result.ErrorCode);
+        Assert.Equal("Google Geocoding request timed out.", result.ErrorMessage);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task Geocoding_caller_cancellation_still_propagates_and_is_not_retried()
+    {
+        var handler = new BlockingHandler();
+        var provider = new GoogleGeocodingV180GeocodingProvider(new HttpClient(handler), Options());
+        using var caller = new CancellationTokenSource();
+        var operation = provider.GeocodeAsync(new(Guid.NewGuid(), "PLUS_CODE", "2G2H+XP"), caller.Token);
+        await handler.Started;
+        caller.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
     public void Default_configuration_is_disabled_and_has_separate_keys()
     {
         var options = new V180GoogleProviderOptions();
@@ -126,6 +178,14 @@ public sealed class V180GoogleProviderAdapterTests
         RoutesApiKey = "ROUTES_TEST_KEY",
         GeocodingApiKey = "GEOCODING_TEST_KEY",
         Timeout = TimeSpan.FromSeconds(5)
+    };
+
+    private static V180GoogleProviderOptions ShortTimeoutOptions() => new()
+    {
+        Enabled = true,
+        RoutesApiKey = "ROUTES_TEST_KEY",
+        GeocodingApiKey = "GEOCODING_TEST_KEY",
+        Timeout = TimeSpan.FromMilliseconds(10)
     };
 
     private static HttpResponseMessage Json(HttpStatusCode status, string body) => new(status)
@@ -152,10 +212,15 @@ public sealed class V180GoogleProviderAdapterTests
 
     private sealed class BlockingHandler : HttpMessageHandler
     {
+        private readonly TaskCompletionSource<bool> _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int CallCount { get; private set; }
+        public string Body { get; private set; } = "";
+        public Task Started => _started.Task;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             CallCount++;
+            Body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+            _started.TrySetResult(true);
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("unreachable");
         }

@@ -72,12 +72,12 @@ public sealed class GoogleRoutesV180RouteProvider(HttpClient http, V180GooglePro
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(options.Timeout);
-        using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-        if (!response.IsSuccessStatusCode)
-            return Fail($"GOOGLE_ROUTES_HTTP_{(int)response.StatusCode}", "Google Routes request failed.");
-
         try
         {
+            using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (!response.IsSuccessStatusCode)
+                return Fail($"GOOGLE_ROUTES_HTTP_{(int)response.StatusCode}", "Google Routes request failed.");
+
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
             var routes = json.RootElement.GetProperty("routes");
@@ -91,6 +91,10 @@ public sealed class GoogleRoutesV180RouteProvider(HttpClient http, V180GooglePro
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or FormatException or OverflowException)
         {
             return Fail("GOOGLE_ROUTES_INVALID_RESPONSE", "Google Routes returned an invalid response.");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Fail("GOOGLE_ROUTES_TIMEOUT", "Google Routes request timed out.");
         }
     }
 
@@ -118,12 +122,12 @@ public sealed class GoogleGeocodingV180GeocodingProvider(HttpClient http, V180Go
         using var message = new HttpRequestMessage(HttpMethod.Get, url);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(options.Timeout);
-        using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-        if (!response.IsSuccessStatusCode)
-            return Fail($"GOOGLE_GEOCODING_HTTP_{(int)response.StatusCode}", "Google Geocoding request failed.");
-
         try
         {
+            using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (!response.IsSuccessStatusCode)
+                return Fail($"GOOGLE_GEOCODING_HTTP_{(int)response.StatusCode}", "Google Geocoding request failed.");
+
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
             if (json.RootElement.GetProperty("status").GetString() != "OK")
@@ -136,6 +140,10 @@ public sealed class GoogleGeocodingV180GeocodingProvider(HttpClient http, V180Go
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or FormatException or OverflowException)
         {
             return Fail("GOOGLE_GEOCODING_INVALID_RESPONSE", "Google Geocoding returned an invalid response.");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Fail("GOOGLE_GEOCODING_TIMEOUT", "Google Geocoding request timed out.");
         }
     }
 
