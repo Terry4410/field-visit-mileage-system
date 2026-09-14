@@ -1,5 +1,7 @@
 import type {V180RouteSuggestion} from "./types";
 
+export const parseExplicitGovernedMileage=(raw:string|undefined)=>{const entered=(raw??"").trim();if(!entered)return null;const value=Number(entered);return Number.isFinite(value)&&value>0?value:null};export const initialGovernedMileageInput=()=>"";
+
 export const GOOGLE_MAPS_ATTRIBUTION="Google Maps";
 export const visitorRoutePreviewPath=(tripId:number|string)=>`/trips/${tripId}/route-preview`;
 export const leaderRouteRetryPath=(tripId:number|string)=>`/trips/${tripId}/route-retry`;
@@ -25,10 +27,3 @@ export const routeSuggestionSummary=(result:V180RouteSuggestion)=>({
 
 export const explicitDecisionAttemptId=(source:string,result?:V180RouteSuggestion|null)=>
   source==="ManualFallback"?null:result?.status==="Succeeded"?result.routeCalculationAttemptId:null;
-
-export const parseExplicitGovernedMileage=(raw:string|undefined)=>{
-  const entered=(raw??"").trim();
-  if(!entered)return null;
-  const value=Number(entered);
-  return Number.isFinite(value)&&value>0?value:null;
-};
