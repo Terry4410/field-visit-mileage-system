@@ -10,9 +10,9 @@ dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Te
 
 npm --prefix frontend run test -- src/fc-google-map-ux.test.ts
 
-rg -q 'translate="no"' frontend/src/components/GoogleRouteSuggestionPanel.tsx
-rg -q 'libraries=geometry' frontend/src/fc-google-map-ux.ts
-if rg -n 'localStorage|sessionStorage' \
+grep -q 'translate="no"' frontend/src/components/GoogleRouteSuggestionPanel.tsx
+grep -q 'libraries=geometry' frontend/src/fc-google-map-ux.ts
+if grep -En 'localStorage|sessionStorage' \
   frontend/src/fc-google-map-ux.ts \
   frontend/src/components/GoogleRouteMap.tsx \
   frontend/src/components/GoogleRouteSuggestionPanel.tsx; then
