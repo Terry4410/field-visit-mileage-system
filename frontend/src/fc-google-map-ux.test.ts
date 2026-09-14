@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {explicitDecisionAttemptId,GOOGLE_MAPS_ATTRIBUTION,googleMapsScriptUrl,leaderRouteRetryPath,routeSuggestionSummary,visitorRoutePreviewPath} from "./fc-google-map-ux";
+import {explicitDecisionAttemptId,GOOGLE_MAPS_ATTRIBUTION,googleMapsScriptUrl,leaderRouteRetryPath,parseExplicitGovernedMileage,routeSuggestionSummary,visitorRoutePreviewPath} from "./fc-google-map-ux";
 
 describe("F-C Google map UX",()=>{
   it("is disabled by default and loads the browser map only after explicit UI action",()=>{
@@ -27,5 +27,15 @@ describe("F-C Google map UX",()=>{
     expect(routeSuggestionSummary({routeCalculationAttemptId:1,correlationId:"c",status:"Succeeded",encodedPolyline:"p"}).canMap).toBe(true);
     expect(visitorRoutePreviewPath(12)).toBe("/trips/12/route-preview");
     expect(leaderRouteRetryPath(12)).toBe("/trips/12/route-retry");
+  });
+
+  it("requires an explicitly entered positive governed mileage",()=>{
+    expect(parseExplicitGovernedMileage("")).toBeNull();
+    expect(parseExplicitGovernedMileage(" ")).toBeNull();
+    expect(parseExplicitGovernedMileage("0")).toBeNull();
+    expect(parseExplicitGovernedMileage("-1")).toBeNull();
+    expect(parseExplicitGovernedMileage("abc")).toBeNull();
+    expect(parseExplicitGovernedMileage("Infinity")).toBeNull();
+    expect(parseExplicitGovernedMileage("12.5")).toBe(12.5);
   });
 });

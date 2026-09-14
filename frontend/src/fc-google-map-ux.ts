@@ -25,3 +25,10 @@ export const routeSuggestionSummary=(result:V180RouteSuggestion)=>({
 
 export const explicitDecisionAttemptId=(source:string,result?:V180RouteSuggestion|null)=>
   source==="ManualFallback"?null:result?.status==="Succeeded"?result.routeCalculationAttemptId:null;
+
+export const parseExplicitGovernedMileage=(raw:string|undefined)=>{
+  const entered=(raw??"").trim();
+  if(!entered)return null;
+  const value=Number(entered);
+  return Number.isFinite(value)&&value>0?value:null;
+};
