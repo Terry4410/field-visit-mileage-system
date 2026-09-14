@@ -69,7 +69,7 @@ jobs:
       - name: Validate approved commit and SQL SHA-256 locks
         env:
           APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
-          EXPECTED_UP_SHA256: 7a2f5409b1ed5aaa52686c8d4be8346dd60c25f00b42a52489314ad63b00214c
+          EXPECTED_UP_SHA256: 6684e3865b3b3595ac938afe7409b6c6adc1e16076b2bdb1864ec3e4e9094ff1
           EXPECTED_VERIFY_SHA256: 4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026
         shell: bash
         run: |
