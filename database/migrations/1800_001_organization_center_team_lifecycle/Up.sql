@@ -147,9 +147,10 @@ BEGIN TRY
         InactivatedByUserId INT NULL,
         RowVersion ROWVERSION NOT NULL;
 
-    ALTER TABLE dbo.Organizations WITH CHECK ADD
-        CONSTRAINT FK_Organizations_InactivatedByUser
-        FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId);
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.Organizations WITH CHECK ADD
+            CONSTRAINT FK_Organizations_InactivatedByUser
+            FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId);';
 
     ALTER TABLE dbo.Teams ADD
         EffectiveFrom DATE NULL,
@@ -158,18 +159,20 @@ BEGIN TRY
         InactivatedByUserId INT NULL,
         RowVersion ROWVERSION NOT NULL;
 
-    ALTER TABLE dbo.Teams WITH CHECK ADD
-        CONSTRAINT CK_Teams_EffectiveDates
-            CHECK(EffectiveTo IS NULL OR EffectiveFrom IS NULL OR EffectiveTo >= EffectiveFrom),
-        CONSTRAINT FK_Teams_InactivatedByUser
-            FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId);
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.Teams WITH CHECK ADD
+            CONSTRAINT CK_Teams_EffectiveDates
+                CHECK(EffectiveTo IS NULL OR EffectiveFrom IS NULL OR EffectiveTo >= EffectiveFrom),
+            CONSTRAINT FK_Teams_InactivatedByUser
+                FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId);';
 
     CREATE UNIQUE INDEX UX_Teams_Organization_TeamCode
         ON dbo.Teams(OrganizationId, TeamCode);
 
-    CREATE INDEX IX_Teams_Organization_Effective
-        ON dbo.Teams(OrganizationId, IsActive, EffectiveFrom, EffectiveTo)
-        INCLUDE(TeamCode, TeamName);
+    EXEC sys.sp_executesql N'
+        CREATE INDEX IX_Teams_Organization_Effective
+            ON dbo.Teams(OrganizationId, IsActive, EffectiveFrom, EffectiveTo)
+            INCLUDE(TeamCode, TeamName);';
 
     CREATE TABLE dbo.Centers
     (
