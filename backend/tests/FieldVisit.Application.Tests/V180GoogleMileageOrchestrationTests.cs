@@ -3,6 +3,7 @@ using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Xunit;
 
 namespace FieldVisit.Application.Tests;
 
