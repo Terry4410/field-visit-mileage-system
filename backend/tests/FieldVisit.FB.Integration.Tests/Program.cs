@@ -227,10 +227,14 @@ returnedTrip.Status = TripStatuses.Returned;
 returnedTrip.UpdatedAt = DateTime.UtcNow;
 await db.SaveChangesAsync();
 var historicalRouteAttemptCount = await db.RouteCalculationAttempts.CountAsync();
+var editContext = new V180TripContextDto(
+    employment.EmploymentId, returnedTrip.VisitDate.AddDays(1), true, "OK", "OK",
+    [new V180TripContextTeamDto(team.TeamId, team.TeamCode, team.TeamName, true)], team.TeamId,
+    [], null, null, null);
 var visitorTripService = new TripService(
     new FixedCurrentUser(visitor), new FixedUserRepository(visitor), actualTripRepository,
     new MasterRepository(db), mileageRepository, workflowRepository,
-    new NoopAccessControl(), new FixedTripContextReader(context), snapshotRepository, db,
+    new NoopAccessControl(), new FixedTripContextReader(editContext), snapshotRepository, db,
     mileageGovernance: repository);
 await visitorTripService.UpdateAsync(
     returnedTrip.VisitTripId,
