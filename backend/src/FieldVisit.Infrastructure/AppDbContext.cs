@@ -182,7 +182,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
         b.Entity<VisitTripSnapshot>(e =>
         {
-            e.ToTable("VisitTripSnapshots"); e.HasKey(x => x.VisitTripSnapshotId); e.Property(x => x.VisitTripSnapshotId).ValueGeneratedOnAdd();
+            e.ToTable("VisitTripSnapshots", tb => tb.UseSqlOutputClause(false)); e.HasKey(x => x.VisitTripSnapshotId); e.Property(x => x.VisitTripSnapshotId).ValueGeneratedOnAdd();
             e.HasIndex(x => new { x.VisitTripId, x.SnapshotVersion }).IsUnique();
             e.Property(x => x.ClaimedDistanceKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.SystemDistanceKmSnapshot).HasPrecision(10,2);
@@ -542,7 +542,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
         b.Entity<RouteCalculationAttempt>(e =>
         {
-            e.ToTable("RouteCalculationAttempts"); e.HasKey(x => x.RouteCalculationAttemptId); e.Property(x => x.RouteCalculationAttemptId).ValueGeneratedOnAdd();
+            e.ToTable("RouteCalculationAttempts", tb => tb.UseSqlOutputClause(false)); e.HasKey(x => x.RouteCalculationAttemptId); e.Property(x => x.RouteCalculationAttemptId).ValueGeneratedOnAdd();
             e.Property(x => x.BasisType).HasMaxLength(30); e.Property(x => x.CalculationReason).HasMaxLength(30);
             e.Property(x => x.RequestedVehicleType).HasMaxLength(20); e.Property(x => x.TravelMode).HasMaxLength(20); e.Property(x => x.Provider).HasMaxLength(80);
             e.Property(x => x.RequestBasisHash).HasColumnType("varbinary(32)"); e.Property(x => x.Status).HasMaxLength(20);
