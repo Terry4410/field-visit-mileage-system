@@ -151,7 +151,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<MileageCalculation>(e =>
         {
-            e.ToTable("MileageCalculations"); e.HasKey(x => x.MileageCalculationId); e.Property(x => x.MileageCalculationId).ValueGeneratedOnAdd();
+            e.ToTable("MileageCalculations", tb => tb.UseSqlOutputClause(false)); e.HasKey(x => x.MileageCalculationId); e.Property(x => x.MileageCalculationId).ValueGeneratedOnAdd();
             e.Property(x => x.SystemDistanceKm).HasPrecision(10,2); e.Property(x => x.ClaimedDistanceKm).HasPrecision(10,2); e.Property(x => x.ApprovedDistanceKm).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2); e.Property(x => x.ClaimedAmount).HasPrecision(12,2); e.Property(x => x.ApprovedAmount).HasPrecision(12,2);
             e.Property(x => x.ApprovalBasisHash).HasColumnType("varbinary(32)");
