@@ -42,6 +42,18 @@
   .modal-sticky-actions{margin-left:-22px;margin-right:-22px}
 }
 
+/* F-C transient Google route presentation */
+.google-route-panel{margin-top:16px;padding:16px;border:1px solid #bfdbfe;border-radius:14px;background:#f8fbff}
+.google-route-panel h3{margin:0}
+.google-route-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+.google-route-metrics>div{padding:10px;border-radius:10px;background:#fff;border:1px solid var(--line)}
+.google-route-metrics span{display:block;color:var(--muted);font-size:12px}
+.google-route-metrics strong{display:block;margin-top:4px;font-size:16px}
+.google-route-map{width:100%;height:360px;margin-top:12px;border-radius:12px;overflow:hidden;background:#e5e7eb}
+.google-attribution{display:inline-block;margin-top:10px;padding:3px 7px;border-radius:4px;background:#fff;color:#3c4043;font:500 12px/1.4 Arial,sans-serif;box-shadow:0 1px 3px #0003}
+.google-decision-modal{width:min(760px,calc(100vw - 28px))}
+@media(max-width:600px){.google-route-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.google-route-map{height:280px}.google-attribution{font-size:13px}}
+
 /* v1.6.0 mobile-first accessibility baseline */
 @media(max-width:980px){
   body{font-size:15px;line-height:1.5}

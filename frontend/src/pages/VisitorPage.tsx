@@ -3,11 +3,13 @@ import {useSearchParams} from "react-router-dom";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
+import GoogleRouteSuggestionPanel from "../components/GoogleRouteSuggestionPanel";
+import {visitorRoutePreviewPath} from "../fc-google-map-ux";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
 import {canSubmitV180Trip,deploymentSiteWarning,reconcileDeploymentSite,V180_TRIP_CONTEXT_API} from "../trip-deployment-context";
-import type {Project,SmartLocationItem,Trip,TripStopInput,V180TripContext,VisitType} from "../types";
+import type {Project,SmartLocationItem,Trip,TripStopInput,V180RouteSuggestion,V180TripContext,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
 type LocationMethod="existing"|"temporary";
@@ -44,6 +46,7 @@ export default function VisitorPage(){
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
   const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
+  const [routeSuggestion,setRouteSuggestion]=useState<V180RouteSuggestion|null>(null),[routeBusy,setRouteBusy]=useState(false);
 
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
@@ -213,7 +216,7 @@ export default function VisitorPage(){
   const reset=()=>{
     setSp({});
     setTripTeamId("");setEditingEmploymentId(undefined);setTripContext(undefined);setStartDeploymentSiteId(undefined);setEndDeploymentSiteId(undefined);
-    setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setRouteSuggestion(null);setMsg("");
   };
 
   const changeTripTeam=(value:string)=>{
@@ -383,6 +386,14 @@ export default function VisitorPage(){
 
   const requestSubmit=()=>{if(!validateForSubmit())return;setModal("submit")};
 
+  const requestRoutePreview=async()=>{
+    if(!editId)return setMsg("請先儲存草稿，再主動取得 Google 路線建議。");
+    setRouteBusy(true);setRouteSuggestion(null);
+    try{setRouteSuggestion(await api<V180RouteSuggestion>(visitorRoutePreviewPath(editId),{method:"POST"},60000))}
+    catch(e){setRouteSuggestion({routeCalculationAttemptId:0,correlationId:"",status:"Failed",errorMessage:e instanceof Error?e.message:"無法取得 Google 路線建議。"})}
+    finally{setRouteBusy(false)}
+  };
+
   const save=async(submit:boolean)=>{
     setMsg("");
     if(end<=start)return setMsg("結束時間必須晚於出發時間。");
@@ -495,6 +506,8 @@ export default function VisitorPage(){
         <div className="field"><label>自行計算里程（公里）</label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)}/></div>
         <div className="note">請依實際拜訪順序自行計算並填入。送出後，小組長會由後台批次取得系統里程，兩者並列供核對。</div>
       </div>
+      <div className="actions" style={{marginTop:12}}><button className="btn outline" type="button" disabled={routeBusy||!editId} onClick={()=>void requestRoutePreview()}>{routeBusy?"正在取得路線…":"取得 Google 路線建議"}</button>{!editId&&<span className="muted">先儲存草稿後即可使用；系統不會自動送出請求。</span>}</div>
+      {routeSuggestion&&<GoogleRouteSuggestionPanel result={routeSuggestion} claimedDistanceKm={km.trim()?Number(km):undefined}/>}
     </div>
 
     <div className="card" style={{marginTop:18}}>

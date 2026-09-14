@@ -17,6 +17,7 @@ bash scripts/test-ea2c-import-completed-integration.sh
 bash scripts/test-ea3-notification-delivery.sh
 bash scripts/test-fa-google-mileage-foundation.sh
 bash scripts/test-fb-google-mileage-orchestration.sh
+bash scripts/test-fc-google-map-ux.sh
 npm --prefix frontend run build
 dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --no-restore
 

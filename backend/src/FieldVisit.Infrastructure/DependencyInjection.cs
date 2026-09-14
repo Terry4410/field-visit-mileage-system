@@ -45,8 +45,25 @@ public static class DependencyInjection
         services.AddScoped<INotificationEmailProvider,UnconfiguredNotificationEmailProvider>();
         services.AddScoped<INotificationDeliveryProcessor,NotificationDeliveryProcessor>();
         services.AddScoped<IV180GoogleMileageGovernanceRepository,V180GoogleMileageGovernanceRepository>();
-        services.AddScoped<IV180RouteProvider,UnconfiguredV180RouteProvider>();
-        services.AddScoped<IV180GeocodingProvider,UnconfiguredV180GeocodingProvider>();
+        var googleTimeoutValue = configuration["EpicF:Google:ProviderTimeoutSeconds"];
+        var googleOptions = new V180GoogleProviderOptions
+        {
+            Enabled = bool.TryParse(configuration["EpicF:Google:Enabled"], out var googleEnabled) && googleEnabled,
+            RoutesApiKey = (configuration["EpicF:Google:RoutesApiKey"] ?? "").Trim(),
+            GeocodingApiKey = (configuration["EpicF:Google:GeocodingApiKey"] ?? "").Trim(),
+            Timeout = TimeSpan.FromSeconds(string.IsNullOrWhiteSpace(googleTimeoutValue) ? 15
+                : int.TryParse(googleTimeoutValue, out var googleTimeoutSeconds) ? googleTimeoutSeconds
+                : throw new InvalidOperationException("EpicF:Google:ProviderTimeoutSeconds must be an integer."))
+        };
+        googleOptions.Validate();
+        services.AddSingleton(googleOptions);
+        services.AddSingleton(new HttpClient { Timeout = Timeout.InfiniteTimeSpan });
+        services.AddScoped<IV180RouteProvider>(sp => googleOptions.Enabled && !string.IsNullOrWhiteSpace(googleOptions.RoutesApiKey)
+            ? new GoogleRoutesV180RouteProvider(sp.GetRequiredService<HttpClient>(), googleOptions)
+            : new UnconfiguredV180RouteProvider());
+        services.AddScoped<IV180GeocodingProvider>(sp => googleOptions.Enabled && !string.IsNullOrWhiteSpace(googleOptions.GeocodingApiKey)
+            ? new GoogleGeocodingV180GeocodingProvider(sp.GetRequiredService<HttpClient>(), googleOptions)
+            : new UnconfiguredV180GeocodingProvider());
         services.AddScoped<V180GoogleMileageOrchestrationService>();
         var route=(configuration["Providers:Route"]??"Mock").Trim();var geo=(configuration["Providers:Geocoding"]??"Mock").Trim();
         if(!route.Equals("Mock",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("v1.6.0 僅允許 Providers:Route=Mock；Google Routes 請於 v1.7.0 啟用。");

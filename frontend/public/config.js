@@ -4,6 +4,12 @@ window.APP_CONFIG = {
   // Demo | Entra
   AUTH_MODE: "Demo",
 
+  // Disabled by default. Browser key is separate from backend Routes/Geocoding keys.
+  EPIC_F_GOOGLE: {
+    ENABLED: false,
+    MAPS_JS_API_KEY: ""
+  },
+
   ENTRA: {
     // Microsoft Entra Directory (tenant) ID
     TENANT_ID: "",
