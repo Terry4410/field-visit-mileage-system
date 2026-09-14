@@ -31,6 +31,19 @@ var user = new User
 db.Teams.Add(team);
 db.Users.Add(user);
 await db.SaveChangesAsync();
+var person = new Person
+{
+    DisplayName = user.DisplayName, CreatedAt = now, CreatedByUserId = user.UserId
+};
+db.Persons.Add(person);
+await db.SaveChangesAsync();
+var employment = new Employment
+{
+    PersonId = person.PersonId, OrganizationId = organization.OrganizationId,
+    EmployeeNo = "FB001", SourceType = "Test", CreatedAt = now, CreatedByUserId = user.UserId
+};
+db.Employments.Add(employment);
+await db.SaveChangesAsync();
 var location = new Location
 {
     OrganizationId = organization.OrganizationId, TeamId = team.TeamId,
@@ -40,8 +53,9 @@ var location = new Location
 };
 var persistedTrip = new VisitTrip
 {
-    TripNo = "FB-REAL-SQL-1", UserId = user.UserId, OrganizationId = organization.OrganizationId,
-    TeamId = team.TeamId, VisitDate = new DateOnly(2026, 9, 13),
+    TripNo = "FB-REAL-SQL-1", UserId = user.UserId, EmploymentId = employment.EmploymentId,
+    OrganizationId = organization.OrganizationId, TeamId = team.TeamId,
+    VisitDate = new DateOnly(2026, 9, 13),
     StartTime = new TimeOnly(9, 0), EndTime = new TimeOnly(10, 0),
     Status = TripStatuses.Submitted, VehicleType = "Car", SubmittedAt = now,
     CreatedAt = now, CreatedByUserId = user.UserId, UpdatedAt = now, UpdatedByUserId = user.UserId
@@ -63,10 +77,11 @@ db.VisitTripStops.AddRange(
 var submitted = new VisitTripSnapshot
 {
     VisitTripId = persistedTrip.VisitTripId, SnapshotVersion = 1, SnapshotType = "Submitted",
-    TripNo = persistedTrip.TripNo, UserId = user.UserId, EmployeeNoSnapshot = "FB001",
-    DisplayNameSnapshot = user.DisplayName, OrganizationId = organization.OrganizationId,
-    OrganizationNameSnapshot = organization.OrganizationName, TeamId = team.TeamId,
-    TeamCodeSnapshot = team.TeamCode, TeamNameSnapshot = team.TeamName,
+    TripNo = persistedTrip.TripNo, UserId = user.UserId,
+    PersonIdSnapshot = person.PersonId, EmploymentIdSnapshot = employment.EmploymentId,
+    EmployeeNoSnapshot = "FB001", DisplayNameSnapshot = user.DisplayName,
+    OrganizationId = organization.OrganizationId, OrganizationNameSnapshot = organization.OrganizationName,
+    TeamId = team.TeamId, TeamCodeSnapshot = team.TeamCode, TeamNameSnapshot = team.TeamName,
     StartDeploymentSiteCodeSnapshot = "START", StartDeploymentAddressSnapshot = "Start Road",
     EndDeploymentSiteCodeSnapshot = "END", EndDeploymentAddressSnapshot = "End Road",
     VisitDate = persistedTrip.VisitDate, StartTime = persistedTrip.StartTime, EndTime = persistedTrip.EndTime,
@@ -95,7 +110,7 @@ db.ChangeTracker.Clear();
 var trip = new VisitTrip
 {
     VisitTripId = persistedTrip.VisitTripId, TripNo = persistedTrip.TripNo,
-    UserId = user.UserId, EmploymentId = 100, OrganizationId = organization.OrganizationId,
+    UserId = user.UserId, EmploymentId = employment.EmploymentId, OrganizationId = organization.OrganizationId,
     TeamId = team.TeamId, StartDeploymentSiteId = 101, EndDeploymentSiteId = 102,
     VisitDate = persistedTrip.VisitDate, Status = TripStatuses.Draft, VehicleType = "Car",
     Stops =
@@ -107,7 +122,7 @@ var trip = new VisitTrip
 var visitor = Current(user, team, "visitor");
 var leader = Current(user, team, "leader");
 var context = new V180TripContextDto(
-    100, trip.VisitDate, true, "OK", "OK",
+    employment.EmploymentId, trip.VisitDate, true, "OK", "OK",
     [new V180TripContextTeamDto(team.TeamId, team.TeamCode, team.TeamName, true)], team.TeamId,
     [
         new V180TripContextDeploymentSiteDto(101, 1, "C", "Center", "START", "Start", 1, null, "Start", "Start Road", true),
