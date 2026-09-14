@@ -25,6 +25,68 @@ CONFIG = {
     "007": ("1800_007_mileage_google_governance", "1.8.0-006", "1.8.0-007", {"MileageCalculations"}),
 }
 
+GOVERNANCE = ROOT / "docs" / "migrations" / "UAT-MIGRATION-1800-002-007-GOVERNANCE.md"
+POST_UAT_VERIFY = ROOT / ".github" / "workflows" / "post-uat-v180-verify.yml"
+RECOVERY_MARKERS = (
+    "RECOVERY_MODEL=RESTORE_OR_REVIEWED_FORWARD_FIX",
+    "PRE_STAGE_RESTORE_POINT=REQUIRED",
+    "RECOVERY_OWNER=REQUIRED",
+    "WRITE_QUIESCENCE=REQUIRED",
+    "AUTO_RERUN=FORBIDDEN",
+    "AD_HOC_ROLLBACK_SQL=FORBIDDEN",
+    "IN_PLACE_SQL_REWRITE_AFTER_EXECUTION=FORBIDDEN",
+    "POST_STAGE_STOP_FOR_REVIEW=REQUIRED",
+)
+RECOVERY_POLICY_REQUIREMENTS = (
+    "This policy is mandatory for every stage 1800_002 through 1800_007.",
+    "verified pre-stage Azure SQL restore/PITR capability",
+    "recovery point exist;",
+    "a Recovery Owner is identified;",
+    "application writes are quiesced for the approved migration window;",
+    "the exact predecessor SchemaVersion is verified;",
+    "the historical fingerprint baseline is captured and verified; and",
+    "no partial target-stage state exists.",
+    "No stage may execute if this recovery gate is incomplete.",
+    "If any stage fails, STOP immediately.",
+    "Do not automatically rerun.",
+    "manually rerun without a new Control Tower authorization.",
+    "Do not edit the failed",
+    "`Up.sql` in place.",
+    "Do not bypass predecessor or clean-state checks.",
+    "There is no approved `Down.sql` for 1800_002 through 1800_007.",
+    "No improvised",
+    "rollback SQL, temporary hand-written reverse SQL, destructive schema reversal,",
+    "or manual cleanup intended to simulate `Down.sql` is permitted.",
+    "Every recovery",
+    "action requires explicit Control Tower review.",
+    "#### Case A — transaction failed or rolled back; clean exact predecessor remains",
+    "STOP and perform read-only verification.",
+    "Confirm the exact predecessor SchemaVersion.",
+    "Confirm that no partial objects, columns, or data state exists.",
+    "Confirm that historical fingerprints are unchanged.",
+    "Diagnose the failure.",
+    "Control Tower may explicitly authorize a retry of the same immutable stage.",
+    "Never retry automatically.",
+    "#### Case B — stage committed and additive state is understood; Verify fails",
+    "historical fingerprints remain intact.",
+    "STOP, freeze",
+    "writes, and do not use rollback SQL.",
+    "new separately",
+    "reviewed forward-fix migration with a new migration artifact/version,",
+    "independent review, immutable SQL hashes, a protected execution mechanism, QA",
+    "and governance review, and explicit Control Tower authorization.",
+    "Do not edit or",
+    "reuse the already executed stage SQL in place.",
+    "#### Case C — fingerprint mismatch, destructive or ambiguous change, or unproven partial state",
+    "STOP, freeze writes, do not retry, and do not forward-fix immediately.",
+    "restore/PITR assessment",
+    "use the verified pre-stage recovery point only when",
+    "After restore, rerun read-only preflight and prove the exact clean",
+    "predecessor before any new migration authorization.",
+    "`Up → Verify → SchemaVersion confirmation → historical fingerprint verification → STOP_FOR_REVIEW`",
+    "The next stage is never automatically authorized.",
+)
+
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -33,6 +95,55 @@ def sha256(path: Path) -> str:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+
+def validate_recovery_governance() -> None:
+    text = GOVERNANCE.read_text(encoding="utf-8")
+
+    for marker in RECOVERY_MARKERS:
+        require(text.count(marker) == 1, f"recovery governance marker missing or duplicated: {marker}")
+
+    for policy in RECOVERY_POLICY_REQUIREMENTS:
+        require(policy in text, f"recovery governance policy missing: {policy}")
+
+    required_headings = (
+        "### Pre-stage recovery gate",
+        "### Failure, rerun, and immutable-source rules",
+        "### Recovery decision matrix",
+        "### Mandatory post-stage stop",
+    )
+    for heading in required_headings:
+        require(text.count(heading) == 1, f"recovery governance section missing or duplicated: {heading}")
+
+    print("PASS RECOVERY_GOVERNANCE markers+gate+rerun+rollback+decision-matrix+STOP_FOR_REVIEW")
+
+
+def validate_post_uat_hook() -> None:
+    text = POST_UAT_VERIFY.read_text(encoding="utf-8")
+    parsed = yaml.load(text, Loader=yaml.BaseLoader)
+    require(isinstance(parsed, dict), "post-UAT verification: YAML root must be a mapping")
+
+    steps = parsed.get("jobs", {}).get("verify", {}).get("steps", [])
+    hook_steps = [
+        step for step in steps
+        if step.get("name") == "Recovery governance fail-closed validation"
+    ]
+    require(len(hook_steps) == 1, "post-UAT verification: recovery validator step missing or duplicated")
+    run = hook_steps[0].get("run", "")
+    require(
+        run.count("python3 scripts/validate_uat_migration_workflows.py") == 1,
+        "post-UAT verification: recovery validator invocation missing or duplicated",
+    )
+    require(
+        "python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3" in run,
+        "post-UAT verification: pinned PyYAML prerequisite missing",
+    )
+
+    for forbidden in ("azure/login@", "Invoke-Sqlcmd", "sqlcmd ", "az sql ", "-InputFile"):
+        require(forbidden not in text, f"post-UAT verification: forbidden mutation/execution token: {forbidden}")
+
+    print("PASS POST_UAT_VERIFY YAML+direct-validator-hook+repository-only")
 
 
 def validate(stage: str, directory: str, predecessor: str, target: str, update_objects: set[str]) -> None:
@@ -112,6 +223,8 @@ def validate(stage: str, directory: str, predecessor: str, target: str, update_o
 
 def main() -> int:
     try:
+        validate_recovery_governance()
+        validate_post_uat_hook()
         for stage, values in CONFIG.items():
             validate(stage, *values)
     except (AssertionError, OSError, yaml.YAMLError) as exc:

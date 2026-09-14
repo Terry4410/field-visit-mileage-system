@@ -23,6 +23,85 @@ Control Tower gate and is intentionally outside this change's authorization.
 There are no supporting files inside the 1800_003–007 migration directories
 other than `Up.sql` and `Verify.sql`. No `Down.sql` exists and none is introduced.
 
+## Mandatory recovery governance
+
+This policy is mandatory for every stage 1800_002 through 1800_007. It is a
+precondition to authorization, not permission to execute a migration.
+
+The following machine-verifiable markers are normative:
+
+```text
+RECOVERY_MODEL=RESTORE_OR_REVIEWED_FORWARD_FIX
+PRE_STAGE_RESTORE_POINT=REQUIRED
+RECOVERY_OWNER=REQUIRED
+WRITE_QUIESCENCE=REQUIRED
+AUTO_RERUN=FORBIDDEN
+AD_HOC_ROLLBACK_SQL=FORBIDDEN
+IN_PLACE_SQL_REWRITE_AFTER_EXECUTION=FORBIDDEN
+POST_STAGE_STOP_FOR_REVIEW=REQUIRED
+```
+
+### Pre-stage recovery gate
+
+Before any stage is authorized, all of the following must be satisfied:
+
+- verified pre-stage Azure SQL restore/PITR capability and a usable pre-stage
+  recovery point exist;
+- a Recovery Owner is identified;
+- application writes are quiesced for the approved migration window;
+- the exact predecessor SchemaVersion is verified;
+- the historical fingerprint baseline is captured and verified; and
+- no partial target-stage state exists.
+
+No stage may execute if this recovery gate is incomplete.
+
+### Failure, rerun, and immutable-source rules
+
+If any stage fails, STOP immediately. Do not automatically rerun. Do not
+manually rerun without a new Control Tower authorization. Do not edit the failed
+`Up.sql` in place. Do not bypass predecessor or clean-state checks.
+
+There is no approved `Down.sql` for 1800_002 through 1800_007. No improvised
+rollback SQL, temporary hand-written reverse SQL, destructive schema reversal,
+or manual cleanup intended to simulate `Down.sql` is permitted. Every recovery
+action requires explicit Control Tower review.
+
+### Recovery decision matrix
+
+#### Case A — transaction failed or rolled back; clean exact predecessor remains
+
+- STOP and perform read-only verification.
+- Confirm the exact predecessor SchemaVersion.
+- Confirm that no partial objects, columns, or data state exists.
+- Confirm that historical fingerprints are unchanged.
+- Diagnose the failure.
+- Control Tower may explicitly authorize a retry of the same immutable stage.
+- Never retry automatically.
+
+#### Case B — stage committed and additive state is understood; Verify fails
+
+This case applies only when historical fingerprints remain intact. STOP, freeze
+writes, and do not use rollback SQL. The recovery path is a new separately
+reviewed forward-fix migration with a new migration artifact/version,
+independent review, immutable SQL hashes, a protected execution mechanism, QA
+and governance review, and explicit Control Tower authorization. Do not edit or
+reuse the already executed stage SQL in place.
+
+#### Case C — fingerprint mismatch, destructive or ambiguous change, or unproven partial state
+
+STOP, freeze writes, do not retry, and do not forward-fix immediately. Perform a
+restore/PITR assessment and use the verified pre-stage recovery point only when
+authorized. After restore, rerun read-only preflight and prove the exact clean
+predecessor before any new migration authorization.
+
+### Mandatory post-stage stop
+
+After every successful stage, the required sequence is:
+
+`Up → Verify → SchemaVersion confirmation → historical fingerprint verification → STOP_FOR_REVIEW`
+
+The next stage is never automatically authorized.
+
 ## Immutable SQL locks
 
 | Stage | Up.sql SHA-256 | Verify.sql SHA-256 |

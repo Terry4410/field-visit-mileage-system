@@ -21,6 +21,10 @@ jobs:
         run: git merge-base --is-ancestor 2fc51db91922ff95b605eec3b8127cd7b8c4e641 HEAD
       - name: Migration workflow static and safety validation
         run: bash scripts/validate-v180-migration-readiness.sh
+      - name: Recovery governance fail-closed validation
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          python3 scripts/validate_uat_migration_workflows.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
