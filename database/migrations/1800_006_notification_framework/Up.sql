@@ -128,8 +128,14 @@ BEGIN TRY
         CONSTRAINT UQ_NotificationSettingRecipients_Rule UNIQUE(NotificationSettingId, RecipientRuleCode)
     );
 
-    INSERT dbo.NotificationSettingRecipients(NotificationSettingId, RecipientRuleCode)
-    SELECT s.NotificationSettingId, v.RecipientRuleCode
+    INSERT dbo.NotificationSettingRecipients(NotificationSettingId, RecipientRuleCode, IsActive)
+    SELECT
+        s.NotificationSettingId,
+        v.RecipientRuleCode,
+        CASE
+            WHEN s.EventCode = N'ProjectExpiring' AND v.RecipientRuleCode = N'ProjectManager' THEN 0
+            ELSE 1
+        END
     FROM dbo.NotificationSettings s
     JOIN
     (
@@ -159,18 +165,25 @@ BEGIN TRY
         MailOutboxId BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_MailOutbox PRIMARY KEY,
         EnvironmentCode NVARCHAR(20) NOT NULL,
         EventCode NVARCHAR(80) NOT NULL,
+        BusinessEventKey NVARCHAR(200) NOT NULL,
+        EventOccurredAt DATETIME2(3) NOT NULL,
         AggregateType NVARCHAR(80) NOT NULL,
         AggregateId NVARCHAR(100) NOT NULL,
+        RecipientKey NVARCHAR(200) NOT NULL,
         RecipientEmploymentId BIGINT NULL,
         RecipientUserId INT NULL,
-        RecipientEmail NVARCHAR(320) NOT NULL,
+        RecipientEmail NVARCHAR(320) NULL,
+        NormalizedRecipientEmail AS LOWER(LTRIM(RTRIM(RecipientEmail))) PERSISTED,
         TemplateCode NVARCHAR(80) NOT NULL,
         TemplateDataJson NVARCHAR(MAX) NOT NULL,
         Status NVARCHAR(20) NOT NULL CONSTRAINT DF_MailOutbox_Status DEFAULT(N'Pending'),
         AttemptCount INT NOT NULL CONSTRAINT DF_MailOutbox_AttemptCount DEFAULT(0),
         AvailableAt DATETIME2(3) NOT NULL,
+        ProcessingToken UNIQUEIDENTIFIER NULL,
+        ProcessingLeaseUntil DATETIME2(3) NULL,
         CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_MailOutbox_CreatedAt DEFAULT(SYSUTCDATETIME()),
         SentAt DATETIME2(3) NULL,
+        FinalizedAt DATETIME2(3) NULL,
         LastErrorCode NVARCHAR(100) NULL,
         LastErrorMessage NVARCHAR(2000) NULL,
         CorrelationId UNIQUEIDENTIFIER NOT NULL,
@@ -180,8 +193,25 @@ BEGIN TRY
         CONSTRAINT FK_MailOutbox_RecipientUser FOREIGN KEY(RecipientUserId) REFERENCES dbo.Users(UserId),
         CONSTRAINT CK_MailOutbox_Status CHECK(Status IN(N'Pending', N'Processing', N'Sent', N'Failed', N'Cancelled')),
         CONSTRAINT CK_MailOutbox_AttemptCount CHECK(AttemptCount >= 0),
-        CONSTRAINT CK_MailOutbox_TemplateDataJson CHECK(ISJSON(TemplateDataJson) = 1)
+        CONSTRAINT CK_MailOutbox_TemplateDataJson CHECK(ISJSON(TemplateDataJson) = 1),
+        CONSTRAINT CK_MailOutbox_ProcessingOwnership CHECK
+        (
+            (Status = N'Processing' AND ProcessingToken IS NOT NULL AND ProcessingLeaseUntil IS NOT NULL)
+            OR
+            (Status <> N'Processing' AND ProcessingToken IS NULL AND ProcessingLeaseUntil IS NULL)
+        ),
+        CONSTRAINT CK_MailOutbox_Finalization CHECK
+        (
+            (Status IN(N'Sent', N'Failed', N'Cancelled') AND FinalizedAt IS NOT NULL)
+            OR
+            (Status IN(N'Pending', N'Processing') AND FinalizedAt IS NULL)
+        )
     );
+    CREATE UNIQUE INDEX UX_MailOutbox_BusinessEvent_RecipientKey
+        ON dbo.MailOutbox(BusinessEventKey, RecipientKey);
+    CREATE UNIQUE INDEX UX_MailOutbox_BusinessEvent_NormalizedRecipientEmail
+        ON dbo.MailOutbox(BusinessEventKey, NormalizedRecipientEmail)
+        WHERE RecipientEmail IS NOT NULL;
     CREATE INDEX IX_MailOutbox_Dispatch
         ON dbo.MailOutbox(Status, AvailableAt, MailOutboxId)
         INCLUDE(EventCode, AttemptCount, EnvironmentCode);

@@ -49,34 +49,36 @@ BEGIN TRY
         NormalizedAddress AS
         (UPPER(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(Address, N''))), N' ', N''), N'　', N''))) PERSISTED;
 
-    ALTER TABLE dbo.Locations WITH CHECK ADD
-        CONSTRAINT FK_Locations_InactivatedByUser
-            FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId),
-        CONSTRAINT FK_Locations_DuplicateOf
-            FOREIGN KEY(DuplicateOfLocationId) REFERENCES dbo.Locations(LocationId),
-        CONSTRAINT CK_Locations_DuplicateReference
-            CHECK(DuplicateOfLocationId IS NULL OR DuplicateOfLocationId <> LocationId);
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.Locations WITH CHECK ADD
+            CONSTRAINT FK_Locations_InactivatedByUser
+                FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId),
+            CONSTRAINT FK_Locations_DuplicateOf
+                FOREIGN KEY(DuplicateOfLocationId) REFERENCES dbo.Locations(LocationId),
+            CONSTRAINT CK_Locations_DuplicateReference
+                CHECK(DuplicateOfLocationId IS NULL OR DuplicateOfLocationId <> LocationId);';
 
     /* TaxId is searchable evidence, never a unique Location key. */
-    CREATE INDEX IX_Locations_Organization_TaxId
-        ON dbo.Locations(OrganizationId, TaxId, IsActive)
-        INCLUDE(LocationCode, LocationName, Address)
-        WHERE TaxId IS NOT NULL;
+    EXEC sys.sp_executesql N'
+        CREATE INDEX IX_Locations_Organization_TaxId
+            ON dbo.Locations(OrganizationId, TaxId, IsActive)
+            INCLUDE(LocationCode, LocationName, Address)
+            WHERE TaxId IS NOT NULL;
 
-    CREATE INDEX IX_Locations_NormalizedNameAddress
-        ON dbo.Locations(OrganizationId, NormalizedLocationName, NormalizedAddress, IsActive)
-        INCLUDE(LocationCode, LocationName, TaxId);
+        CREATE INDEX IX_Locations_NormalizedNameAddress
+            ON dbo.Locations(OrganizationId, NormalizedLocationName, NormalizedAddress, IsActive)
+            INCLUDE(LocationCode, LocationName, TaxId);
 
-    CREATE INDEX IX_Locations_DuplicateOf
-        ON dbo.Locations(DuplicateOfLocationId)
-        WHERE DuplicateOfLocationId IS NOT NULL;
+        CREATE INDEX IX_Locations_DuplicateOf
+            ON dbo.Locations(DuplicateOfLocationId)
+            WHERE DuplicateOfLocationId IS NOT NULL;';
 
     CREATE TABLE dbo.TeamLocationNotes
     (
         TeamLocationNoteId BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TeamLocationNotes PRIMARY KEY,
         TeamId INT NOT NULL,
         LocationId INT NOT NULL,
-        Note NVARCHAR(1000) NOT NULL,
+        Note NVARCHAR(1000) NULL,
         CreatedAt DATETIME2(3) NOT NULL CONSTRAINT DF_TeamLocationNotes_CreatedAt DEFAULT(SYSUTCDATETIME()),
         CreatedByUserId INT NOT NULL,
         UpdatedAt DATETIME2(3) NULL,
@@ -86,7 +88,7 @@ BEGIN TRY
         CONSTRAINT FK_TeamLocationNotes_Locations FOREIGN KEY(LocationId) REFERENCES dbo.Locations(LocationId),
         CONSTRAINT FK_TeamLocationNotes_CreatedByUser FOREIGN KEY(CreatedByUserId) REFERENCES dbo.Users(UserId),
         CONSTRAINT FK_TeamLocationNotes_UpdatedByUser FOREIGN KEY(UpdatedByUserId) REFERENCES dbo.Users(UserId),
-        CONSTRAINT CK_TeamLocationNotes_NotBlank CHECK(LEN(LTRIM(RTRIM(Note))) > 0),
+        CONSTRAINT CK_TeamLocationNotes_NotBlank CHECK(Note IS NULL OR LEN(LTRIM(RTRIM(Note))) > 0),
         CONSTRAINT UQ_TeamLocationNotes_Team_Location UNIQUE(TeamId, LocationId)
     );
     CREATE INDEX IX_TeamLocationNotes_Location_Team
@@ -112,6 +114,108 @@ BEGIN TRY
     );
     CREATE INDEX IX_TeamLocationNoteHistory_Note_Changed
         ON dbo.TeamLocationNoteHistory(TeamLocationNoteId, ChangedAt DESC);
+
+    DECLARE @BusinessToday date =
+        CONVERT(date, DATEADD(HOUR, 8, SYSUTCDATETIME()));
+
+    IF EXISTS
+    (
+        SELECT 1
+        FROM dbo.Locations l
+        JOIN dbo.DeploymentSiteLocationAssignments a
+          ON a.LocationId = l.LocationId
+        WHERE l.IsActive = 0
+          AND
+          (
+              a.EffectiveTo IS NULL
+              OR a.EffectiveTo >= @BusinessToday
+          )
+    )
+        THROW 53604, N'1.8.0-004 preflight failed: inactive Location 仍有 current/future Deployment Site Location assignment。', 1;
+
+    EXEC sys.sp_executesql N'
+        CREATE TRIGGER dbo.TR_Locations_ProtectCurrentDeploymentSiteLocations
+        ON dbo.Locations AFTER UPDATE AS
+        BEGIN
+            SET NOCOUNT ON;
+
+            IF NOT EXISTS
+            (
+                SELECT 1
+                FROM inserted i
+                JOIN deleted d ON d.LocationId = i.LocationId
+                WHERE d.IsActive = 1
+                  AND i.IsActive = 0
+            )
+                RETURN;
+
+            DECLARE @InvariantLockResult INT;
+            EXEC @InvariantLockResult = sys.sp_getapplock
+                @Resource = N''FieldVisit.LocationDeploymentAssignmentActiveInvariant'',
+                @LockMode = N''Exclusive'',
+                @LockOwner = N''Transaction'',
+                @LockTimeout = 10000;
+
+            IF @InvariantLockResult < 0
+                THROW 53605, N''無法取得 Location deployment-assignment active invariant lock。'', 1;
+
+            DECLARE @BusinessToday date =
+                CONVERT(date, DATEADD(HOUR, 8, SYSUTCDATETIME()));
+
+            IF EXISTS
+            (
+                SELECT 1
+                FROM inserted i
+                JOIN deleted d ON d.LocationId = i.LocationId
+                JOIN dbo.DeploymentSiteLocationAssignments a
+                    WITH (UPDLOCK, HOLDLOCK)
+                  ON a.LocationId = i.LocationId
+                WHERE d.IsActive = 1
+                  AND i.IsActive = 0
+                  AND
+                  (
+                      a.EffectiveTo IS NULL
+                      OR a.EffectiveTo >= @BusinessToday
+                  )
+            )
+                THROW 53606, N''Location 仍有 current/future Deployment Site Location assignment，不得停用。'', 1;
+        END;';
+
+    EXEC sys.sp_executesql N'
+        CREATE TRIGGER dbo.TR_DeploymentSiteLocationAssignments_ProtectActiveLocation
+        ON dbo.DeploymentSiteLocationAssignments AFTER INSERT, UPDATE AS
+        BEGIN
+            SET NOCOUNT ON;
+
+            DECLARE @InvariantLockResult INT;
+            EXEC @InvariantLockResult = sys.sp_getapplock
+                @Resource = N''FieldVisit.LocationDeploymentAssignmentActiveInvariant'',
+                @LockMode = N''Exclusive'',
+                @LockOwner = N''Transaction'',
+                @LockTimeout = 10000;
+
+            IF @InvariantLockResult < 0
+                THROW 53607, N''無法取得 Location deployment-assignment active invariant lock。'', 1;
+
+            DECLARE @BusinessToday date =
+                CONVERT(date, DATEADD(HOUR, 8, SYSUTCDATETIME()));
+
+            IF EXISTS
+            (
+                SELECT 1
+                FROM inserted i
+                JOIN dbo.Locations l
+                    WITH (UPDLOCK, HOLDLOCK)
+                  ON l.LocationId = i.LocationId
+                WHERE l.IsActive = 0
+                  AND
+                  (
+                      i.EffectiveTo IS NULL
+                      OR i.EffectiveTo >= @BusinessToday
+                  )
+            )
+                THROW 53608, N''current/future Deployment Site Location assignment 不得引用 inactive Location。'', 1;
+        END;';
 
     INSERT dbo.SchemaVersions(VersionNumber, Description, AppliedAt, AppliedBy)
     VALUES

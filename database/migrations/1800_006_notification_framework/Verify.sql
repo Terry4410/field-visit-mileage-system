@@ -14,10 +14,111 @@ IF OBJECT_ID(N'dbo.NotificationEnvironmentPolicies', N'U') IS NULL
    OR COL_LENGTH(N'dbo.NotificationSettings', N'HonorsOptionalPreference') IS NULL
     THROW 54101, N'Verify failed: notification framework schema 不完整。', 1;
 
-IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.NotificationEmailAllowlist') AND name=N'UX_NotificationEmailAllowlist_Environment_Email')
-   OR NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MailOutbox') AND name=N'IX_MailOutbox_Dispatch')
-   OR NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MailDeliveryLogs') AND name=N'UQ_MailDeliveryLogs_Attempt')
-    THROW 54108, N'Verify failed: 1.8.0-006 必要 index 不存在。', 1;
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox') AND name = N'BusinessEventKey' AND is_nullable = 0
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox') AND name = N'EventOccurredAt' AND is_nullable = 0
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox') AND name = N'RecipientKey' AND is_nullable = 0
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox') AND name = N'ProcessingToken' AND is_nullable = 1
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox') AND name = N'ProcessingLeaseUntil' AND is_nullable = 1
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox') AND name = N'FinalizedAt' AND is_nullable = 1
+)
+    THROW 54113, N'Verify failed: MailOutbox E-A0 authority columns 不完整或 nullability 不正確。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox') AND name = N'RecipientEmail' AND is_nullable = 1
+)
+    THROW 54114, N'Verify failed: MailOutbox.RecipientEmail 必須允許 NULL。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.computed_columns
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox')
+      AND name = N'NormalizedRecipientEmail'
+      AND is_persisted = 1
+)
+    THROW 54115, N'Verify failed: MailOutbox.NormalizedRecipientEmail 必須為 persisted computed column。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.NotificationEmailAllowlist')
+      AND name = N'UX_NotificationEmailAllowlist_Environment_Email'
+      AND is_unique = 1
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox')
+      AND name = N'UX_MailOutbox_BusinessEvent_RecipientKey'
+      AND is_unique = 1
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox')
+      AND name = N'UX_MailOutbox_BusinessEvent_NormalizedRecipientEmail'
+      AND is_unique = 1
+      AND has_filter = 1
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.MailOutbox')
+      AND name = N'IX_MailOutbox_Dispatch'
+)
+   OR NOT EXISTS
+(
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.MailDeliveryLogs')
+      AND name = N'UQ_MailDeliveryLogs_Attempt'
+      AND is_unique = 1
+)
+    THROW 54108, N'Verify failed: 1.8.0-006 必要 unique/index protection 不存在。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.MailOutbox')
+      AND name = N'CK_MailOutbox_ProcessingOwnership'
+      AND is_disabled = 0
+      AND is_not_trusted = 0
+)
+    THROW 54116, N'Verify failed: MailOutbox Processing ownership constraint 不存在、停用或不受信任。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1 FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.MailOutbox')
+      AND name = N'CK_MailOutbox_Finalization'
+      AND is_disabled = 0
+      AND is_not_trusted = 0
+)
+    THROW 54117, N'Verify failed: MailOutbox FinalizedAt/status constraint 不存在、停用或不受信任。', 1;
 
 IF EXISTS
 (
@@ -60,7 +161,7 @@ IF EXISTS
 IF EXISTS
 (
     SELECT 1 FROM dbo.NotificationEmailAllowlist
-    WHERE EnvironmentCode = N'UAT' AND IsActive = 1
+    WHERE EnvironmentCode = N'UAT'
 )
     THROW 54110, N'Verify failed: UAT initial Email allowlist 必須為空。', 1;
 
@@ -79,6 +180,37 @@ IF EXISTS
 IF COL_LENGTH(N'dbo.Employments', N'EmailNotificationEnabled') IS NOT NULL
     THROW 54112, N'Verify failed: 不得使用語意模糊的 EmailNotificationEnabled 欄位。', 1;
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.NotificationSettings s
+    JOIN dbo.NotificationSettingRecipients r ON r.NotificationSettingId = s.NotificationSettingId
+    WHERE s.EventCode = N'ProjectExpiring'
+      AND r.RecipientRuleCode = N'ProjectManager'
+      AND r.IsActive = 0
+)
+   OR EXISTS
+(
+    SELECT 1
+    FROM dbo.NotificationSettings s
+    JOIN dbo.NotificationSettingRecipients r ON r.NotificationSettingId = s.NotificationSettingId
+    WHERE s.EventCode = N'ProjectExpiring'
+      AND r.RecipientRuleCode = N'ProjectManager'
+      AND r.IsActive = 1
+)
+    THROW 54118, N'Verify failed: ProjectExpiring ProjectManager recipient rule 必須 dormant/inactive。', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.NotificationSettings s
+    JOIN dbo.NotificationSettingRecipients r ON r.NotificationSettingId = s.NotificationSettingId
+    WHERE s.EventCode = N'ProjectExpiring'
+      AND r.RecipientRuleCode = N'Administrator'
+      AND r.IsActive = 1
+)
+    THROW 54119, N'Verify failed: ProjectExpiring 必須保留 active Administrator recipient rule。', 1;
+
 IF EXISTS
 (
     SELECT 1 FROM dbo.NotificationSettings s
@@ -88,7 +220,7 @@ IF EXISTS
         WHERE r.NotificationSettingId = s.NotificationSettingId AND r.IsActive = 1
     )
 )
-    THROW 54105, N'Verify failed: notification event 缺少收件規則。', 1;
+    THROW 54105, N'Verify failed: notification event 缺少 active 收件規則。', 1;
 
 IF EXISTS
 (

@@ -168,6 +168,13 @@ BEGIN TRY
         ON dbo.TeamDeploymentSiteAssignments AFTER INSERT, UPDATE AS
         BEGIN
             SET NOCOUNT ON;
+            DECLARE @InvariantLockResult INT;
+            EXEC @InvariantLockResult = sys.sp_getapplock
+                @Resource=N''FieldVisit.TeamSiteCoverageInvariant'', @LockMode=N''Exclusive'',
+                @LockOwner=N''Transaction'', @LockTimeout=10000;
+            IF @InvariantLockResult < 0
+                THROW 53426, N''無法取得 Team-Site coverage invariant lock。'', 1;
+
             IF EXISTS
             (
                 SELECT 1
@@ -196,10 +203,37 @@ BEGIN TRY
         END;';
 
     EXEC sys.sp_executesql N'
+        CREATE TRIGGER dbo.TR_EmploymentDeploymentSites_SameSiteNoOverlap
+        ON dbo.EmploymentDeploymentSiteAssignments AFTER INSERT, UPDATE AS
+        BEGIN
+            SET NOCOUNT ON;
+            DECLARE @InvariantLockResult INT;
+            EXEC @InvariantLockResult = sys.sp_getapplock
+                @Resource=N''FieldVisit.EmploymentSiteTemporalInvariant'', @LockMode=N''Exclusive'',
+                @LockOwner=N''Transaction'', @LockTimeout=10000;
+            IF @InvariantLockResult < 0
+                THROW 53427, N''無法取得 Employment-Site temporal invariant lock。'', 1;
+
+            IF EXISTS(SELECT 1 FROM inserted i JOIN dbo.EmploymentDeploymentSiteAssignments x
+                ON x.EmploymentId=i.EmploymentId AND x.DeploymentSiteId=i.DeploymentSiteId
+               AND x.EmploymentDeploymentSiteAssignmentId<>i.EmploymentDeploymentSiteAssignmentId
+               AND i.EffectiveFrom<=ISNULL(x.EffectiveTo,CONVERT(date,N''99991231''))
+               AND x.EffectiveFrom<=ISNULL(i.EffectiveTo,CONVERT(date,N''99991231'')))
+                THROW 53428, N''相同 Employment/Site effective periods 不得重疊。'', 1;
+        END;';
+
+    EXEC sys.sp_executesql N'
         CREATE TRIGGER dbo.TR_EmploymentDeploymentSites_OnePrimary
         ON dbo.EmploymentDeploymentSiteAssignments AFTER INSERT, UPDATE AS
         BEGIN
             SET NOCOUNT ON;
+            DECLARE @InvariantLockResult INT;
+            EXEC @InvariantLockResult = sys.sp_getapplock
+                @Resource=N''FieldVisit.EmploymentSiteTemporalInvariant'', @LockMode=N''Exclusive'',
+                @LockOwner=N''Transaction'', @LockTimeout=10000;
+            IF @InvariantLockResult < 0
+                THROW 53429, N''無法取得 Employment-Site temporal invariant lock。'', 1;
+
             IF EXISTS
             (
                 SELECT 1
@@ -217,6 +251,72 @@ BEGIN TRY
                AND i.EffectiveFrom<=ISNULL(x.EffectiveTo,CONVERT(date,N''99991231''))
                AND x.EffectiveFrom<=ISNULL(i.EffectiveTo,CONVERT(date,N''99991231'')))
                 THROW 53422, N''同一 Employment 同期間只能有一個 Primary Deployment Site。'', 1;
+        END;';
+
+    EXEC sys.sp_executesql N'
+        CREATE TRIGGER dbo.TR_TeamCenterAssignments_ProtectTeamSites
+        ON dbo.TeamCenterAssignments AFTER UPDATE, DELETE AS
+        BEGIN
+            SET NOCOUNT ON;
+            DECLARE @InvariantLockResult INT;
+            EXEC @InvariantLockResult = sys.sp_getapplock
+                @Resource=N''FieldVisit.TeamSiteCoverageInvariant'', @LockMode=N''Exclusive'',
+                @LockOwner=N''Transaction'', @LockTimeout=10000;
+            IF @InvariantLockResult < 0
+                THROW 53430, N''無法取得 Team-Site coverage invariant lock。'', 1;
+
+            IF EXISTS
+            (
+                SELECT 1
+                FROM dbo.TeamDeploymentSiteAssignments ts
+                JOIN dbo.DeploymentSites s ON s.DeploymentSiteId=ts.DeploymentSiteId
+                WHERE ts.TeamId IN
+                (
+                    SELECT TeamId FROM inserted
+                    UNION
+                    SELECT TeamId FROM deleted
+                )
+                  AND NOT EXISTS
+                  (
+                      SELECT 1
+                      FROM dbo.TeamCenterAssignments tc
+                      WHERE tc.TeamId=ts.TeamId AND tc.CenterId=s.CenterId
+                        AND tc.EffectiveFrom<=ts.EffectiveFrom
+                        AND ISNULL(tc.EffectiveTo,CONVERT(date,N''99991231''))>=ISNULL(ts.EffectiveTo,CONVERT(date,N''99991231''))
+                  )
+            )
+                THROW 53431, N''Team-Center 變更會破壞既有 Team-Site 完整 coverage。'', 1;
+        END;';
+
+    EXEC sys.sp_executesql N'
+        CREATE TRIGGER dbo.TR_DeploymentSites_ProtectTeamSites
+        ON dbo.DeploymentSites AFTER UPDATE AS
+        BEGIN
+            SET NOCOUNT ON;
+            IF NOT UPDATE(CenterId) RETURN;
+
+            DECLARE @InvariantLockResult INT;
+            EXEC @InvariantLockResult = sys.sp_getapplock
+                @Resource=N''FieldVisit.TeamSiteCoverageInvariant'', @LockMode=N''Exclusive'',
+                @LockOwner=N''Transaction'', @LockTimeout=10000;
+            IF @InvariantLockResult < 0
+                THROW 53432, N''無法取得 Team-Site coverage invariant lock。'', 1;
+
+            IF EXISTS
+            (
+                SELECT 1
+                FROM inserted i
+                JOIN dbo.TeamDeploymentSiteAssignments ts ON ts.DeploymentSiteId=i.DeploymentSiteId
+                WHERE NOT EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.TeamCenterAssignments tc
+                    WHERE tc.TeamId=ts.TeamId AND tc.CenterId=i.CenterId
+                      AND tc.EffectiveFrom<=ts.EffectiveFrom
+                      AND ISNULL(tc.EffectiveTo,CONVERT(date,N''99991231''))>=ISNULL(ts.EffectiveTo,CONVERT(date,N''99991231''))
+                )
+            )
+                THROW 53433, N''Deployment Site Center 變更會破壞既有 Team-Site 完整 coverage。'', 1;
         END;';
 
     ALTER TABLE dbo.VisitTrips ADD

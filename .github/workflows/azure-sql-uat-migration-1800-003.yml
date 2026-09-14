@@ -1,0 +1,287 @@
+name: Azure SQL UAT migration 1800_003
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_migration:
+        description: Type 1800_003 to confirm this single approved execution unit
+        required: true
+        type: string
+
+concurrency:
+  group: azure-sql-uat-migration-1800_003
+  cancel-in-progress: false
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: none
+      id-token: none
+    steps:
+      - name: Enforce branch and exact confirmation token
+        env:
+          CONFIRM_MIGRATION: ${{ inputs.confirm_migration }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == "refs/heads/post-uat/v1.8.0" ]] || {
+            echo "::error::Migration may only run from post-uat/v1.8.0."
+            exit 1
+          }
+          [[ "${CONFIRM_MIGRATION}" == "1800_003" ]] || {
+            echo "::error::Confirmation must be exactly 1800_003."
+            exit 1
+          }
+
+  migrate-1800_003:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat-migration
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate approved dispatch commit before checkout
+        env:
+          APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${APPROVED_MIGRATION_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::APPROVED_MIGRATION_COMMIT_SHA must be one exact lowercase 40-character SHA."
+            exit 1
+          }
+          [[ "${GITHUB_SHA}" == "${APPROVED_MIGRATION_COMMIT_SHA}" ]] || {
+            echo "::error::GITHUB_SHA does not equal the approved migration commit."
+            exit 1
+          }
+
+      - name: Check out the exact approved SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate exact source and immutable SQL locks
+        env:
+          APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+          EXPECTED_UP_SHA256: 7298f48089a953795ca6cc18f5e599a09d21ba93df5b267f1213db746cf426b5
+          EXPECTED_VERIFY_SHA256: ac779a839918fc41c70eb6f8e7a005d397b87770d388c2b518811959e534f597
+          EXPECTED_HISTORY_SHA256: 1d7f77dc200590c2ba3b989ed340442d835f8e02be9edbb57af68ae5e4e9cba0
+        shell: bash
+        run: |
+          set -euo pipefail
+          up_script="database/migrations/1800_003_deployment_sites/Up.sql"
+          verify_script="database/migrations/1800_003_deployment_sites/Verify.sql"
+          history_script="database/migrations/security/uat/Verify-v180-historical-fingerprints.sql"
+          [[ "$(git rev-parse HEAD)" == "${APPROVED_MIGRATION_COMMIT_SHA}" ]]
+          [[ -f "${up_script}" && -f "${verify_script}" && -f "${history_script}" ]]
+          [[ "$(sha256sum "${up_script}" | awk '{print $1}')" == "${EXPECTED_UP_SHA256}" ]]
+          [[ "$(sha256sum "${verify_script}" | awk '{print $1}')" == "${EXPECTED_VERIFY_SHA256}" ]]
+          [[ "$(sha256sum "${history_script}" | awk '{print $1}')" == "${EXPECTED_HISTORY_SHA256}" ]]
+          grep -Fq -- 'SET XACT_ABORT ON' "${up_script}"
+          grep -Fq -- 'sys.sp_getapplock' "${up_script}"
+          grep -Fq -- 'FieldVisit.SchemaMigration' "${up_script}"
+          grep -Fq -- "N'1.8.0-003'" "${up_script}"
+          grep -Fq -- "N'1.8.0-003'" "${verify_script}"
+
+      - name: Install pinned SQL Server PowerShell module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force
+          if ((Get-Module SqlServer).Version.ToString() -ne '22.4.5.1') {
+            throw 'Unexpected SqlServer module version.'
+          }
+
+      - name: Sign in to Azure with migration OIDC identity
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate exact Azure UAT target
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          EXPECTED_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${AZURE_RESOURCE_GROUP}" == "rg-fieldvisit-uat" ]]
+          [[ "${AZURE_SQL_SERVER_NAME}" == "sql-fieldvisit-jpe-uat" ]]
+          [[ "${AZURE_SQL_DATABASE}" == "db-fieldvisit-uat" ]]
+          [[ "$(az account show --query id -o tsv)" == "${EXPECTED_SUBSCRIPTION_ID}" ]]
+          [[ "$(az account show --query tenantId -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${EXPECTED_TENANT_ID}" | tr '[:upper:]' '[:lower:]')" ]]
+          expected_rg="/subscriptions/${EXPECTED_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}"
+          expected_server="${expected_rg}/providers/Microsoft.Sql/servers/${AZURE_SQL_SERVER_NAME}"
+          expected_db="${expected_server}/databases/${AZURE_SQL_DATABASE}"
+          [[ "$(az group show -g "${AZURE_RESOURCE_GROUP}" --subscription "${EXPECTED_SUBSCRIPTION_ID}" --query id -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${expected_rg}" | tr '[:upper:]' '[:lower:]')" ]]
+          [[ "$(az sql server show -g "${AZURE_RESOURCE_GROUP}" -n "${AZURE_SQL_SERVER_NAME}" --subscription "${EXPECTED_SUBSCRIPTION_ID}" --query id -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${expected_server}" | tr '[:upper:]' '[:lower:]')" ]]
+          [[ "$(az sql db show -g "${AZURE_RESOURCE_GROUP}" -s "${AZURE_SQL_SERVER_NAME}" -n "${AZURE_SQL_DATABASE}" --subscription "${EXPECTED_SUBSCRIPTION_ID}" --query id -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${expected_db}" | tr '[:upper:]' '[:lower:]')" ]]
+
+      - name: Validate predecessor, clean state, exact permissions, and capture fingerprints
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
+          $query = @'
+          SET NOCOUNT ON;
+          SET XACT_ABORT ON;
+          IF DB_NAME()<>N'db-fieldvisit-uat' THROW 55000,N'Unexpected database.',1;
+          IF USER_NAME()<>N'gh-fieldvisit-uat-migrate' THROW 55001,N'Unexpected database principal.',1;
+          IF OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NULL THROW 55002,N'SchemaVersions missing.',1;
+          IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-002')
+              THROW 55003,N'Exact predecessor missing.',1;
+          IF (SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC)<>N'1.8.0-002'
+              THROW 55004,N'Latest SchemaVersion is not the exact predecessor.',1;
+          IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-003')
+              THROW 55005,N'Target stage already applied.',1;
+          IF OBJECT_ID(N'dbo.DeploymentSites',N'U') IS NOT NULL
+             OR OBJECT_ID(N'dbo.DeploymentSiteLocationAssignments',N'U') IS NOT NULL
+             OR OBJECT_ID(N'dbo.TeamDeploymentSiteAssignments',N'U') IS NOT NULL
+             OR OBJECT_ID(N'dbo.EmploymentDeploymentSiteAssignments',N'U') IS NOT NULL
+             OR OBJECT_ID(N'dbo.TR_TeamCenterAssignments_ProtectTeamSites',N'TR') IS NOT NULL
+             OR COL_LENGTH(N'dbo.VisitTrips',N'StartDeploymentSiteId') IS NOT NULL
+             OR COL_LENGTH(N'dbo.VisitTrips',N'EndDeploymentSiteId') IS NOT NULL
+             OR COL_LENGTH(N'dbo.VisitTripSnapshots',N'StartDeploymentSiteIdSnapshot') IS NOT NULL
+             OR COL_LENGTH(N'dbo.VisitTripSnapshots',N'EndDeploymentSiteIdSnapshot') IS NOT NULL
+              THROW 55005,N'Preflight failed: partial 1.8.0-003 state exists.',1;
+          IF ISNULL(IS_ROLEMEMBER(N'db_datareader'),0)<>1
+             OR ISNULL(IS_ROLEMEMBER(N'db_ddladmin'),0)<>1
+             OR ISNULL(IS_ROLEMEMBER(N'db_owner'),0)=1
+             OR ISNULL(IS_ROLEMEMBER(N'db_securityadmin'),0)=1
+             OR ISNULL(IS_ROLEMEMBER(N'db_datawriter'),0)=1
+              THROW 55006,N'Least-privilege role gate failed.',1;
+          IF EXISTS(
+              SELECT 1 FROM sys.database_role_members drm
+              JOIN sys.database_principals r ON r.principal_id=drm.role_principal_id
+              WHERE drm.member_principal_id=USER_ID()
+                AND r.name NOT IN(N'db_datareader',N'db_ddladmin')
+          ) THROW 55007,N'Unexpected database role membership.',1;
+          IF EXISTS(
+              SELECT 1 FROM sys.database_permissions permission
+              WHERE permission.grantee_principal_id=USER_ID()
+                AND NOT(
+                    (permission.class=0 AND permission.permission_name=N'CONNECT' AND permission.state=N'G')
+                    OR (permission.class=3 AND SCHEMA_NAME(permission.major_id)=N'dbo' AND permission.permission_name=N'INSERT' AND permission.state=N'G')
+                    OR (permission.class=1 AND OBJECT_SCHEMA_NAME(permission.major_id)=N'dbo'
+                        AND (1=0)
+                        AND permission.permission_name=N'UPDATE' AND permission.state=N'G')
+                )
+          ) THROW 55008,N'Unexpected explicit database permission for 1800_003.',1;
+          IF HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE TABLE')<>1
+             OR HAS_PERMS_BY_NAME(N'dbo',N'SCHEMA',N'INSERT')<>1
+             OR HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')<>1
+             OR ISNULL(IS_ROLEMEMBER(N'public'),0)<>1
+             OR HAS_PERMS_BY_NAME(N'dbo.VisitTrips',N'OBJECT',N'ALTER')<>1
+             OR HAS_PERMS_BY_NAME(N'dbo.VisitTripSnapshots',N'OBJECT',N'ALTER')<>1
+             OR HAS_PERMS_BY_NAME(N'dbo.TeamCenterAssignments',N'OBJECT',N'ALTER')<>1
+              THROW 55009,N'Missing required DDL permission or unexpected UPDATE grant is present.',1;
+          IF OBJECT_ID(N'dbo.VisitTrips',N'U') IS NULL OR OBJECT_ID(N'dbo.VisitTripSnapshots',N'U') IS NULL
+              THROW 55010,N'Historical fingerprint tables missing.',1;
+          SELECT
+              (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions) AS SchemaVersionCount,
+              (SELECT COUNT_BIG(*) FROM dbo.VisitTrips) AS TripCount,
+              ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripId)) FROM dbo.VisitTrips),0) AS TripKeyChecksum,
+              (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS SnapshotCount,
+              ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripSnapshotId)) FROM dbo.VisitTripSnapshots),0) AS SnapshotKeyChecksum;
+          '@
+          $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
+          if ($result.Count -ne 1) { throw 'Expected one preflight fingerprint row.' }
+          "SCHEMA_VERSION_COUNT_BEFORE=$($result[0].SchemaVersionCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TRIP_COUNT_BEFORE=$($result[0].TripCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TRIP_CHECKSUM_BEFORE=$($result[0].TripKeyChecksum)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SNAPSHOT_COUNT_BEFORE=$($result[0].SnapshotCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SNAPSHOT_CHECKSUM_BEFORE=$($result[0].SnapshotKeyChecksum)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Apply only 1800_003 Up.sql
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
+          $up = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_003_deployment_sites/Up.sql'
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
+
+      - name: Run exact 1800_003 Verify.sql
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
+          $verify = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_003_deployment_sites/Verify.sql'
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
+
+      - name: Revalidate frozen v1.7.2 historical SHA-256 fingerprints
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
+          $history = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/security/uat/Verify-v180-historical-fingerprints.sql'
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $history | Format-Table -AutoSize
+
+      - name: Confirm exact result, historical fingerprints, and STOP_FOR_REVIEW
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
+          [long]$schemaCount = $env:SCHEMA_VERSION_COUNT_BEFORE
+          [long]$tripCount = $env:TRIP_COUNT_BEFORE
+          [int]$tripChecksum = $env:TRIP_CHECKSUM_BEFORE
+          [long]$snapshotCount = $env:SNAPSHOT_COUNT_BEFORE
+          [int]$snapshotChecksum = $env:SNAPSHOT_CHECKSUM_BEFORE
+          $query = @"
+          SET NOCOUNT ON;
+          IF DB_NAME()<>N'db-fieldvisit-uat' THROW 55020,N'Unexpected post-migration database.',1;
+          IF (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions)<>$($schemaCount+1) THROW 55021,N'SchemaVersion count did not advance by exactly one.',1;
+          IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-003') THROW 55022,N'Exact target SchemaVersion missing.',1;
+          IF (SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC)<>N'1.8.0-003' THROW 55023,N'Latest SchemaVersion is not the exact target.',1;
+          IF (SELECT COUNT_BIG(*) FROM dbo.VisitTrips)<>$tripCount OR ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripId)) FROM dbo.VisitTrips),0)<>$tripChecksum
+              THROW 55024,N'VisitTrips historical key fingerprint changed.',1;
+          IF (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots)<>$snapshotCount OR ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripSnapshotId)) FROM dbo.VisitTripSnapshots),0)<>$snapshotChecksum
+              THROW 55025,N'VisitTripSnapshots historical key fingerprint changed.',1;
+          SELECT N'STOP_FOR_REVIEW' AS ExecutionGate,DB_NAME() AS DatabaseName,N'1.8.0-003' AS AppliedVersion;
+          "@
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
+
+      - name: Sign out of Azure
+        if: always()
+        shell: bash
+        run: az logout || true
