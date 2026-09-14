@@ -49,6 +49,17 @@ var persistedTrip = new VisitTrip
 db.Locations.Add(location);
 db.VisitTrips.Add(persistedTrip);
 await db.SaveChangesAsync();
+db.VisitTripStops.AddRange(
+    new VisitTripStop
+    {
+        VisitTripId = persistedTrip.VisitTripId, StopSequence = 1, LocationId = location.LocationId,
+        LocationNameSnapshot = "A", AddressSnapshot = "A Road", CreatedAt = now
+    },
+    new VisitTripStop
+    {
+        VisitTripId = persistedTrip.VisitTripId, StopSequence = 2, LocationId = location.LocationId,
+        LocationNameSnapshot = "B", AddressSnapshot = "B Road", CreatedAt = now
+    });
 var submitted = new VisitTripSnapshot
 {
     VisitTripId = persistedTrip.VisitTripId, SnapshotVersion = 1, SnapshotType = "Submitted",
