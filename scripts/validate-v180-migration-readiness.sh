@@ -13,7 +13,7 @@ grant_script="database/migrations/security/uat/Grant-gh-fieldvisit-uat-migrate-1
 permission_verify_script="database/migrations/security/uat/Verify-gh-fieldvisit-uat-migrate-1800_001.sql"
 revoke_script="database/migrations/security/uat/Revoke-gh-fieldvisit-uat-migrate-1800_001.sql"
 
-expected_up_sha="7a2f5409b1ed5aaa52686c8d4be8346dd60c25f00b42a52489314ad63b00214c"
+expected_up_sha="6684e3865b3b3595ac938afe7409b6c6adc1e16076b2bdb1864ec3e4e9094ff1"
 expected_verify_sha="4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026"
 checkout_sha="11d5960a326750d5838078e36cf38b85af677262"
 azure_login_sha="7184910d9eb2b1c5e48f7073824a90609bb9b6d6"
@@ -59,6 +59,63 @@ grep -Fq -- '1.7.0-008' "${workflow}"
 grep -Fq -- 'partial 1.8.0-001 columns exist' "${workflow}"
 grep -Fq -- 'FieldVisit.SchemaMigration' "${up_script}"
 grep -Fq -- 'STOP_FOR_REVIEW' "${workflow}"
+
+python3 - "${up_script}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+
+required_dynamic_fragments = (
+    "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.Organizations WITH CHECK ADD",
+    "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.Teams WITH CHECK ADD",
+    "EXEC sys.sp_executesql N'\n        CREATE INDEX IX_Teams_Organization_Effective",
+)
+for fragment in required_dynamic_fragments:
+    if fragment not in text:
+        raise SystemExit(f"1800_001 deferred-binding guard missing: {fragment}")
+
+for pattern, label in (
+    (r"(?m)^    ALTER TABLE dbo\.Organizations WITH CHECK ADD$", "Organizations FK outer-batch binding"),
+    (r"(?m)^    ALTER TABLE dbo\.Teams WITH CHECK ADD$", "Teams constraint/FK outer-batch binding"),
+    (r"(?m)^    CREATE INDEX IX_Teams_Organization_Effective$", "Teams effective-index outer-batch binding"),
+):
+    if re.search(pattern, text):
+        raise SystemExit(f"1800_001 static binding regression detected: {label}")
+
+if re.search(r"(?mi)^\s*GO\s*$", text):
+    raise SystemExit("1800_001 must remain one outer batch; GO is forbidden")
+
+expected_counts = {
+    "BEGIN TRANSACTION;": 1,
+    "COMMIT TRANSACTION;": 1,
+    "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;": 1,
+}
+for marker, expected in expected_counts.items():
+    actual = text.count(marker)
+    if actual != expected:
+        raise SystemExit(
+            f"1800_001 transaction invariant failed for {marker!r}: expected {expected}, got {actual}"
+        )
+
+for marker in (
+    "SET XACT_ABORT ON;",
+    "sys.sp_getapplock",
+    "FieldVisit.SchemaMigration",
+    "WHERE VersionNumber = N'1.7.0-008'",
+    "SchemaMigrationDataBaselines",
+    "HASHBYTES(N'SHA2_256'",
+    "N'1.8.0-001'",
+):
+    if marker not in text:
+        raise SystemExit(f"1800_001 safety invariant missing: {marker}")
+
+if text.count("EXEC sys.sp_executesql N'") != 4:
+    raise SystemExit("1800_001 expected exactly four deferred dynamic DDL units")
+
+print("PASS 1800_001 deferred-binding+single-transaction static validation")
+PY
 
 if grep -Eq 'uses:[[:space:]]+(actions/checkout|azure/login)@v[0-9]' "${workflow}"; then
   echo "Executable migration workflow contains a floating action tag." >&2
