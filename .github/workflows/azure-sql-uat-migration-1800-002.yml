@@ -69,7 +69,7 @@ jobs:
       - name: Validate exact source and immutable SQL locks
         env:
           APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
-          EXPECTED_UP_SHA256: 465fc7f6886fcd837401113b363ecc0256a2706b684c59bf0f9bebbf52c99b4f
+          EXPECTED_UP_SHA256: 82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87
           EXPECTED_VERIFY_SHA256: f153ff787a160682e3e965cdc14c4e886adf3d9044d7194bf99a150a54d00358
           EXPECTED_HISTORY_SHA256: 1d7f77dc200590c2ba3b989ed340442d835f8e02be9edbb57af68ae5e4e9cba0
         shell: bash

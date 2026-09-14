@@ -322,9 +322,10 @@ BEGIN TRY
     ALTER TABLE dbo.VisitTrips ADD
         StartDeploymentSiteId INT NULL,
         EndDeploymentSiteId INT NULL;
-    ALTER TABLE dbo.VisitTrips WITH CHECK ADD
-        CONSTRAINT FK_VisitTrips_StartDeploymentSite FOREIGN KEY(StartDeploymentSiteId) REFERENCES dbo.DeploymentSites(DeploymentSiteId),
-        CONSTRAINT FK_VisitTrips_EndDeploymentSite FOREIGN KEY(EndDeploymentSiteId) REFERENCES dbo.DeploymentSites(DeploymentSiteId);
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.VisitTrips WITH CHECK ADD
+            CONSTRAINT FK_VisitTrips_StartDeploymentSite FOREIGN KEY(StartDeploymentSiteId) REFERENCES dbo.DeploymentSites(DeploymentSiteId),
+            CONSTRAINT FK_VisitTrips_EndDeploymentSite FOREIGN KEY(EndDeploymentSiteId) REFERENCES dbo.DeploymentSites(DeploymentSiteId);';
 
     ALTER TABLE dbo.VisitTripSnapshots ADD
         StartDeploymentSiteIdSnapshot INT NULL,

@@ -367,24 +367,26 @@ BEGIN TRY
       AND r.EffectiveFrom <= ISNULL(m.EffectiveTo, CONVERT(date, N'99991231'));
 
     ALTER TABLE dbo.UserIdentityProfiles ADD EmploymentId BIGINT NULL;
-    ALTER TABLE dbo.UserIdentityProfiles WITH CHECK ADD
-        CONSTRAINT FK_UserIdentityProfiles_Employments
-        FOREIGN KEY(EmploymentId) REFERENCES dbo.Employments(EmploymentId);
-    CREATE UNIQUE INDEX UX_UserIdentityProfiles_Employment
-        ON dbo.UserIdentityProfiles(EmploymentId) WHERE EmploymentId IS NOT NULL;
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.UserIdentityProfiles WITH CHECK ADD
+            CONSTRAINT FK_UserIdentityProfiles_Employments
+            FOREIGN KEY(EmploymentId) REFERENCES dbo.Employments(EmploymentId);
+        CREATE UNIQUE INDEX UX_UserIdentityProfiles_Employment
+            ON dbo.UserIdentityProfiles(EmploymentId) WHERE EmploymentId IS NOT NULL;
 
-    UPDATE p
-       SET EmploymentId = e.EmploymentId,
-           UpdatedAt = SYSUTCDATETIME()
-    FROM dbo.UserIdentityProfiles p
-    JOIN dbo.Employments e ON e.LegacyUserId = p.UserId;
+        UPDATE p
+           SET EmploymentId = e.EmploymentId,
+               UpdatedAt = SYSUTCDATETIME()
+        FROM dbo.UserIdentityProfiles p
+        JOIN dbo.Employments e ON e.LegacyUserId = p.UserId;';
 
     ALTER TABLE dbo.VisitTrips ADD EmploymentId BIGINT NULL;
-    ALTER TABLE dbo.VisitTrips WITH CHECK ADD
-        CONSTRAINT FK_VisitTrips_Employments
-        FOREIGN KEY(EmploymentId) REFERENCES dbo.Employments(EmploymentId);
-    CREATE INDEX IX_VisitTrips_Employment_VisitDate
-        ON dbo.VisitTrips(EmploymentId, VisitDate, Status) WHERE EmploymentId IS NOT NULL;
+    EXEC sys.sp_executesql N'
+        ALTER TABLE dbo.VisitTrips WITH CHECK ADD
+            CONSTRAINT FK_VisitTrips_Employments
+            FOREIGN KEY(EmploymentId) REFERENCES dbo.Employments(EmploymentId);
+        CREATE INDEX IX_VisitTrips_Employment_VisitDate
+            ON dbo.VisitTrips(EmploymentId, VisitDate, Status) WHERE EmploymentId IS NOT NULL;';
 
     ALTER TABLE dbo.VisitTripSnapshots ADD
         PersonIdSnapshot BIGINT NULL,

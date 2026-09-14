@@ -6,6 +6,8 @@ cd "${repo_root}"
 
 up_script="database/migrations/1800_001_organization_center_team_lifecycle/Up.sql"
 verify_script="database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql"
+up_script_002="database/migrations/1800_002_person_employment_role_membership/Up.sql"
+up_script_003="database/migrations/1800_003_deployment_sites/Up.sql"
 draft="docs/workflows/azure-sql-uat-migration-1800-001.draft.yml"
 workflow=".github/workflows/azure-sql-uat-migration-1800-001.yml"
 recovery_preflight_workflow=".github/workflows/azure-sql-migration-identity-readonly-uat-smoke.yml"
@@ -15,12 +17,16 @@ revoke_script="database/migrations/security/uat/Revoke-gh-fieldvisit-uat-migrate
 
 expected_up_sha="6684e3865b3b3595ac938afe7409b6c6adc1e16076b2bdb1864ec3e4e9094ff1"
 expected_verify_sha="4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026"
+expected_up_sha_002="82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87"
+expected_up_sha_003="e8dea828f29dc64c99b59a042be75580c08c4dfbc9f681223d30950dad3f4aab"
 checkout_sha="11d5960a326750d5838078e36cf38b85af677262"
 azure_login_sha="7184910d9eb2b1c5e48f7073824a90609bb9b6d6"
 
 for required_file in \
   "${up_script}" \
   "${verify_script}" \
+  "${up_script_002}" \
+  "${up_script_003}" \
   "${draft}" \
   "${workflow}" \
   "${recovery_preflight_workflow}" \
@@ -34,8 +40,12 @@ done
 
 actual_up_sha="$(sha256sum "${up_script}" | awk '{print $1}')"
 actual_verify_sha="$(sha256sum "${verify_script}" | awk '{print $1}')"
+actual_up_sha_002="$(sha256sum "${up_script_002}" | awk '{print $1}')"
+actual_up_sha_003="$(sha256sum "${up_script_003}" | awk '{print $1}')"
 [[ "${actual_up_sha}" == "${expected_up_sha}" ]] || { echo "Unexpected Up.sql SHA-256" >&2; exit 1; }
 [[ "${actual_verify_sha}" == "${expected_verify_sha}" ]] || { echo "Unexpected Verify.sql SHA-256" >&2; exit 1; }
+[[ "${actual_up_sha_002}" == "${expected_up_sha_002}" ]] || { echo "Unexpected 1800_002 Up.sql SHA-256" >&2; exit 1; }
+[[ "${actual_up_sha_003}" == "${expected_up_sha_003}" ]] || { echo "Unexpected 1800_003 Up.sql SHA-256" >&2; exit 1; }
 
 diff -u <(tail -n +2 "${draft}") <(tail -n +2 "${workflow}")
 grep -Fq -- 'name: Azure SQL UAT migration 1800_001' "${workflow}"
@@ -60,61 +70,116 @@ grep -Fq -- 'partial 1.8.0-001 columns exist' "${workflow}"
 grep -Fq -- 'FieldVisit.SchemaMigration' "${up_script}"
 grep -Fq -- 'STOP_FOR_REVIEW' "${workflow}"
 
-python3 - "${up_script}" <<'PY'
+python3 - "${up_script}" "${up_script_002}" "${up_script_003}" <<'PY'
 import re
 import sys
 from pathlib import Path
 
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
-
-required_dynamic_fragments = (
-    "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.Organizations WITH CHECK ADD",
-    "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.Teams WITH CHECK ADD",
-    "EXEC sys.sp_executesql N'\n        CREATE INDEX IX_Teams_Organization_Effective",
-)
-for fragment in required_dynamic_fragments:
-    if fragment not in text:
-        raise SystemExit(f"1800_001 deferred-binding guard missing: {fragment}")
-
-for pattern, label in (
-    (r"(?m)^    ALTER TABLE dbo\.Organizations WITH CHECK ADD$", "Organizations FK outer-batch binding"),
-    (r"(?m)^    ALTER TABLE dbo\.Teams WITH CHECK ADD$", "Teams constraint/FK outer-batch binding"),
-    (r"(?m)^    CREATE INDEX IX_Teams_Organization_Effective$", "Teams effective-index outer-batch binding"),
-):
-    if re.search(pattern, text):
-        raise SystemExit(f"1800_001 static binding regression detected: {label}")
-
-if re.search(r"(?mi)^\s*GO\s*$", text):
-    raise SystemExit("1800_001 must remain one outer batch; GO is forbidden")
-
-expected_counts = {
-    "BEGIN TRANSACTION;": 1,
-    "COMMIT TRANSACTION;": 1,
-    "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;": 1,
+scripts = {
+    "1800_001": Path(sys.argv[1]).read_text(encoding="utf-8"),
+    "1800_002": Path(sys.argv[2]).read_text(encoding="utf-8"),
+    "1800_003": Path(sys.argv[3]).read_text(encoding="utf-8"),
 }
-for marker, expected in expected_counts.items():
-    actual = text.count(marker)
-    if actual != expected:
-        raise SystemExit(
-            f"1800_001 transaction invariant failed for {marker!r}: expected {expected}, got {actual}"
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise SystemExit(message)
+
+
+def require_dynamic_fragments(stage: str, fragments: tuple[str, ...]) -> None:
+    text = scripts[stage]
+    for fragment in fragments:
+        require(fragment in text, f"{stage} deferred-binding guard missing: {fragment}")
+
+
+def reject_static_patterns(stage: str, patterns: tuple[tuple[str, str], ...]) -> None:
+    text = scripts[stage]
+    for pattern, label in patterns:
+        require(
+            re.search(pattern, text) is None,
+            f"{stage} static binding regression detected: {label}",
         )
 
-for marker in (
-    "SET XACT_ABORT ON;",
-    "sys.sp_getapplock",
-    "FieldVisit.SchemaMigration",
-    "WHERE VersionNumber = N'1.7.0-008'",
-    "SchemaMigrationDataBaselines",
-    "HASHBYTES(N'SHA2_256'",
-    "N'1.8.0-001'",
-):
-    if marker not in text:
-        raise SystemExit(f"1800_001 safety invariant missing: {marker}")
 
-if text.count("EXEC sys.sp_executesql N'") != 4:
-    raise SystemExit("1800_001 expected exactly four deferred dynamic DDL units")
+require_dynamic_fragments(
+    "1800_001",
+    (
+        "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.Organizations WITH CHECK ADD",
+        "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.Teams WITH CHECK ADD",
+        "EXEC sys.sp_executesql N'\n        CREATE INDEX IX_Teams_Organization_Effective",
+    ),
+)
+reject_static_patterns(
+    "1800_001",
+    (
+        (r"(?m)^    ALTER TABLE dbo\.Organizations WITH CHECK ADD$", "Organizations FK outer-batch binding"),
+        (r"(?m)^    ALTER TABLE dbo\.Teams WITH CHECK ADD$", "Teams constraint/FK outer-batch binding"),
+        (r"(?m)^    CREATE INDEX IX_Teams_Organization_Effective$", "Teams effective-index outer-batch binding"),
+    ),
+)
+
+require_dynamic_fragments(
+    "1800_002",
+    (
+        "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.UserIdentityProfiles WITH CHECK ADD",
+        "        CREATE UNIQUE INDEX UX_UserIdentityProfiles_Employment",
+        "        UPDATE p\n           SET EmploymentId = e.EmploymentId,",
+        "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.VisitTrips WITH CHECK ADD",
+        "        CREATE INDEX IX_VisitTrips_Employment_VisitDate",
+    ),
+)
+reject_static_patterns(
+    "1800_002",
+    (
+        (r"(?m)^    ALTER TABLE dbo\.UserIdentityProfiles WITH CHECK ADD$", "UserIdentityProfiles FK outer-batch binding"),
+        (r"(?m)^    CREATE UNIQUE INDEX UX_UserIdentityProfiles_Employment$", "UserIdentityProfiles index outer-batch binding"),
+        (r"(?m)^    UPDATE p\n       SET EmploymentId = e\.EmploymentId,", "UserIdentityProfiles UPDATE outer-batch binding"),
+        (r"(?m)^    ALTER TABLE dbo\.VisitTrips WITH CHECK ADD$", "VisitTrips Employment FK outer-batch binding"),
+        (r"(?m)^    CREATE INDEX IX_VisitTrips_Employment_VisitDate$", "VisitTrips Employment index outer-batch binding"),
+    ),
+)
+
+require_dynamic_fragments(
+    "1800_003",
+    (
+        "EXEC sys.sp_executesql N'\n        ALTER TABLE dbo.VisitTrips WITH CHECK ADD",
+        "            CONSTRAINT FK_VisitTrips_StartDeploymentSite FOREIGN KEY(StartDeploymentSiteId)",
+        "            CONSTRAINT FK_VisitTrips_EndDeploymentSite FOREIGN KEY(EndDeploymentSiteId)",
+    ),
+)
+reject_static_patterns(
+    "1800_003",
+    (
+        (r"(?m)^    ALTER TABLE dbo\.VisitTrips WITH CHECK ADD$", "VisitTrips deployment-site FK outer-batch binding"),
+    ),
+)
+
+stage_invariants = {
+    "1800_001": ("1.7.0-008", "1.8.0-001", "SchemaMigrationDataBaselines", "HASHBYTES(N'SHA2_256'"),
+    "1800_002": ("1.8.0-001", "1.8.0-002", "dbo.UserIdentityProfiles", "dbo.VisitTrips"),
+    "1800_003": ("1.8.0-002", "1.8.0-003", "dbo.VisitTrips", "dbo.VisitTripSnapshots"),
+}
+for stage, markers in stage_invariants.items():
+    text = scripts[stage]
+    require(re.search(r"(?mi)^\s*GO\s*$", text) is None, f"{stage} must remain one outer batch; GO is forbidden")
+    for marker, expected in (
+        ("BEGIN TRANSACTION;", 1),
+        ("COMMIT TRANSACTION;", 1),
+        ("IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;", 1),
+    ):
+        actual = text.count(marker)
+        require(actual == expected, f"{stage} transaction invariant failed for {marker!r}: expected {expected}, got {actual}")
+    for marker in ("SET NOCOUNT ON;", "SET XACT_ABORT ON;", "sys.sp_getapplock", "FieldVisit.SchemaMigration", *markers):
+        require(marker in text, f"{stage} safety invariant missing: {marker}")
+
+require(scripts["1800_001"].count("EXEC sys.sp_executesql N'") == 4, "1800_001 expected exactly four deferred dynamic DDL units")
+require(scripts["1800_002"].count("EXEC sys.sp_executesql N'") == 7, "1800_002 expected exactly seven deferred dynamic SQL units")
+require(scripts["1800_003"].count("EXEC sys.sp_executesql N'") == 8, "1800_003 expected exactly eight deferred dynamic SQL units")
 
 print("PASS 1800_001 deferred-binding+single-transaction static validation")
+print("PASS 1800_002 deferred-binding+single-transaction static validation")
+print("PASS 1800_003 deferred-binding+single-transaction static validation")
 PY
 
 if grep -Eq 'uses:[[:space:]]+(actions/checkout|azure/login)@v[0-9]' "${workflow}"; then
@@ -199,3 +264,5 @@ fi
 echo "Migration readiness static validation passed."
 echo "1800_001 Up.sql SHA-256: ${actual_up_sha}"
 echo "1800_001 Verify.sql SHA-256: ${actual_verify_sha}"
+echo "1800_002 Up.sql SHA-256: ${actual_up_sha_002}"
+echo "1800_003 Up.sql SHA-256: ${actual_up_sha_003}"
