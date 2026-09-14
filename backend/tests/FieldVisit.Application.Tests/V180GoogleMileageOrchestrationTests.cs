@@ -278,7 +278,7 @@ public sealed class V180GoogleMileageOrchestrationTests
             MileageCalculation = new MileageCalculation { VisitTripId = 301 }
         };
 
-        private static VisitTripSnapshot CreateSnapshot() => Snapshot();
+        public static VisitTripSnapshot CreateSnapshot() => Snapshot();
 
         private static VisitTripSnapshot Snapshot() => new()
         {
