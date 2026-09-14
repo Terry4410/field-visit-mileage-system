@@ -19,6 +19,8 @@ public sealed class V180GoogleMileageOrchestrationService(
     IV180GeocodingProvider geocodingProvider,
     IUnitOfWork uow)
 {
+    private static readonly TimeSpan PostProviderTerminalizationTimeout = TimeSpan.FromSeconds(30);
+
     public async Task<V180RouteOrchestrationResult> PreviewRouteAsync(long tripId, CancellationToken ct)
     {
         var user = RequireRole("visitor");
@@ -84,18 +86,27 @@ public sealed class V180GoogleMileageOrchestrationService(
 
         // The attempt identity and Pending state must be durable before provider I/O.
         await uow.SaveChangesAsync(ct);
+        ct.ThrowIfCancellationRequested();
 
         V180GeocodingProviderResult providerResult;
+        OperationCanceledException? providerCancellation = null;
         try
         {
             providerResult = await geocodingProvider.GeocodeAsync(
                 new V180GeocodingProviderRequest(correlationId, addressBasis.InputKind, addressBasis.InputValue), ct);
+        }
+        catch (OperationCanceledException ex)
+        {
+            providerCancellation = ex;
+            providerResult = new(false, null, null, "PROVIDER_CANCELLED", "Provider operation was cancelled.");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             providerResult = new(false, null, null, "PROVIDER_EXCEPTION", "Provider operation failed.");
         }
 
+        using var terminalizationCts = new CancellationTokenSource(PostProviderTerminalizationTimeout);
+        var terminalizationToken = terminalizationCts.Token;
         var validSuccess = providerResult.Success
             && providerResult.Latitude is >= -90 and <= 90
             && providerResult.Longitude is >= -180 and <= 180;
@@ -107,9 +118,12 @@ public sealed class V180GoogleMileageOrchestrationService(
                 providerResult.Success ? "Provider returned invalid coordinates." : providerResult.ErrorMessage);
         var finalized = await governance.TryFinalizeGeocodingAttemptAsync(
             attempt.GeocodingAttemptId, validSuccess ? "Succeeded" : "Failed",
-            failure.Code, failure.Message, completedAt, ct);
+            failure.Code, failure.Message, completedAt, terminalizationToken);
         if (!finalized)
             throw new InvalidOperationException("F_B_GEOCODING_ATTEMPT_TERMINAL：該 geocoding attempt 已結案，不得再次變更。");
+
+        if (providerCancellation is not null) throw providerCancellation;
+        ct.ThrowIfCancellationRequested();
 
         var selected = false;
         if (validSuccess)
@@ -166,8 +180,10 @@ public sealed class V180GoogleMileageOrchestrationService(
         // The Pending attempt commits before provider I/O. This service never
         // opens a transaction around I/O.
         await uow.SaveChangesAsync(ct);
+        ct.ThrowIfCancellationRequested();
 
         V180RouteProviderResult providerResult;
+        OperationCanceledException? providerCancellation = null;
         try
         {
             providerResult = await routeProvider.CalculateAsync(
@@ -176,11 +192,18 @@ public sealed class V180GoogleMileageOrchestrationService(
                     basis.Stops.OrderBy(x => x.StopSequence).Select(x => x.AddressSnapshot).ToArray(),
                     basis.End?.Address), ct);
         }
+        catch (OperationCanceledException ex)
+        {
+            providerCancellation = ex;
+            providerResult = new(false, null, null, null, "PROVIDER_CANCELLED", "Provider operation was cancelled.");
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             providerResult = new(false, null, null, null, "PROVIDER_EXCEPTION", "Provider operation failed.");
         }
 
+        using var terminalizationCts = new CancellationTokenSource(PostProviderTerminalizationTimeout);
+        var terminalizationToken = terminalizationCts.Token;
         var validSuccess = providerResult.Success && providerResult.SuggestedDistanceKm is > 0;
         var completedAt = DateTime.UtcNow;
         var failure = validSuccess
@@ -190,7 +213,7 @@ public sealed class V180GoogleMileageOrchestrationService(
                 providerResult.Success ? "Provider returned an invalid route result." : providerResult.ErrorMessage);
         var finalized = await governance.TryFinalizeRouteCalculationAttemptAsync(
             attempt.RouteCalculationAttemptId, validSuccess ? "Succeeded" : "Failed",
-            failure.Code, failure.Message, completedAt, ct);
+            failure.Code, failure.Message, completedAt, terminalizationToken);
         if (!finalized)
             throw new InvalidOperationException("F_B_ROUTE_ATTEMPT_TERMINAL：該 route attempt 已結案，不得再次變更。");
 
@@ -200,14 +223,17 @@ public sealed class V180GoogleMileageOrchestrationService(
                 new V180MileageGovernanceEventRequest(
                     trip.VisitTripId, basisSnapshotId, attempt.RouteCalculationAttemptId,
                     "LeaderRetry", null, "Leader requested a new route calculation attempt.",
-                    correlationId, requestedAt, actorUserId), ct);
+                    correlationId, requestedAt, actorUserId), terminalizationToken);
         }
         await governance.AddGovernanceEventAsync(
             new V180MileageGovernanceEventRequest(
                 trip.VisitTripId, basisSnapshotId, attempt.RouteCalculationAttemptId,
                 validSuccess ? "Calculated" : "CalculationFailed",
-                failure.Code, failure.Message, correlationId, completedAt, actorUserId), ct);
-        await uow.SaveChangesAsync(ct);
+                failure.Code, failure.Message, correlationId, completedAt, actorUserId), terminalizationToken);
+        await uow.SaveChangesAsync(terminalizationToken);
+
+        if (providerCancellation is not null) throw providerCancellation;
+        ct.ThrowIfCancellationRequested();
 
         return new V180RouteOrchestrationResult(
             attempt.RouteCalculationAttemptId, correlationId,

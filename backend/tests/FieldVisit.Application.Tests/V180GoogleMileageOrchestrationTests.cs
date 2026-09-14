@@ -59,6 +59,61 @@ public sealed class V180GoogleMileageOrchestrationTests
     }
 
     [Fact]
+    public async Task Route_cancellation_after_provider_invocation_terminalizes_without_replay()
+    {
+        var fixture = Fixture.Visitor("Car");
+        using var callerCancellation = new CancellationTokenSource();
+        fixture.RouteProvider.ThrowIfCancelled = true;
+        fixture.RouteProvider.OnCall = _ => callerCancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => fixture.Service.PreviewRouteAsync(
+                fixture.Trip.VisitTripId, callerCancellation.Token));
+
+        var attempt = Assert.Single(fixture.Governance.RouteAttempts);
+        Assert.Equal(1, fixture.RouteProvider.CallCount);
+        Assert.Equal("Failed", attempt.Status);
+        Assert.Equal("PROVIDER_CANCELLED", attempt.ErrorCode);
+        Assert.False(fixture.Governance.RouteFinalizationTokenWasCancelled);
+    }
+
+    [Fact]
+    public async Task Geocoding_cancellation_after_provider_invocation_terminalizes_without_replay()
+    {
+        var fixture = Fixture.Leader();
+        using var callerCancellation = new CancellationTokenSource();
+        fixture.GeocodingProvider.ThrowIfCancelled = true;
+        fixture.GeocodingProvider.OnCall = _ => callerCancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => fixture.Service.GeocodeLocationAsync(
+                fixture.Location.LocationId, callerCancellation.Token));
+
+        var attempt = Assert.Single(fixture.Governance.GeocodingAttempts);
+        Assert.Equal(1, fixture.GeocodingProvider.CallCount);
+        Assert.Equal("Failed", attempt.Status);
+        Assert.Equal("PROVIDER_CANCELLED", attempt.ErrorCode);
+        Assert.False(fixture.Governance.GeocodingFinalizationTokenWasCancelled);
+        Assert.Null(fixture.Location.SelectedGeocodingAttemptId);
+    }
+
+    [Fact]
+    public async Task Cancellation_before_provider_invocation_makes_zero_provider_calls()
+    {
+        var fixture = Fixture.Visitor("Motorcycle");
+        using var callerCancellation = new CancellationTokenSource();
+        callerCancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => fixture.Service.PreviewRouteAsync(
+                fixture.Trip.VisitTripId, callerCancellation.Token));
+
+        Assert.Equal(0, fixture.RouteProvider.CallCount);
+        Assert.Equal("Pending", Assert.Single(fixture.Governance.RouteAttempts).Status);
+        Assert.Empty(fixture.Governance.Events);
+    }
+
+    [Fact]
     public async Task Leader_retry_uses_latest_submitted_snapshot_and_new_correlation_each_time()
     {
         var fixture = Fixture.Leader();
@@ -318,11 +373,13 @@ public sealed class V180GoogleMileageOrchestrationTests
         public string ProviderName => "DeterministicFake";
         public int CallCount { get; private set; }
         public Action<V180RouteProviderRequest>? OnCall { get; set; }
+        public bool ThrowIfCancelled { get; set; }
         public V180RouteProviderResult Result { get; set; } = new(true, 12.34m, 900, "TRANSIENT_POLYLINE", null, null);
         public Task<V180RouteProviderResult> CalculateAsync(V180RouteProviderRequest request, CancellationToken ct)
         {
             CallCount++;
             OnCall?.Invoke(request);
+            if (ThrowIfCancelled) ct.ThrowIfCancellationRequested();
             return Task.FromResult(Result);
         }
     }
@@ -332,10 +389,12 @@ public sealed class V180GoogleMileageOrchestrationTests
         public string ProviderName => "DeterministicFake";
         public int CallCount { get; private set; }
         public Action<V180GeocodingProviderRequest>? OnCall { get; set; }
+        public bool ThrowIfCancelled { get; set; }
         public Task<V180GeocodingProviderResult> GeocodeAsync(V180GeocodingProviderRequest request, CancellationToken ct)
         {
             CallCount++;
             OnCall?.Invoke(request);
+            if (ThrowIfCancelled) ct.ThrowIfCancellationRequested();
             return Task.FromResult(new V180GeocodingProviderResult(true, 25.033m, 121.5654m, null, null));
         }
     }
@@ -345,6 +404,8 @@ public sealed class V180GoogleMileageOrchestrationTests
         private long _nextRouteId = 1;
         private long _nextGeoId = 1;
         public bool RejectRouteFinalization { get; set; }
+        public bool RouteFinalizationTokenWasCancelled { get; private set; }
+        public bool GeocodingFinalizationTokenWasCancelled { get; private set; }
         public List<RouteCalculationAttempt> RouteAttempts { get; } = [];
         public List<GeocodingAttempt> GeocodingAttempts { get; } = [];
         public List<MileageGovernanceEvent> Events { get; } = [];
@@ -399,6 +460,7 @@ public sealed class V180GoogleMileageOrchestrationTests
 
         public Task<bool> TryFinalizeRouteCalculationAttemptAsync(long attemptId, string status, string? errorCode, string? errorMessage, DateTime completedAt, CancellationToken ct)
         {
+            RouteFinalizationTokenWasCancelled = ct.IsCancellationRequested;
             if (RejectRouteFinalization) return Task.FromResult(false);
             var row = RouteAttempts.Single(x => x.RouteCalculationAttemptId == attemptId);
             if (row.Status != "Pending") return Task.FromResult(false);
@@ -408,6 +470,7 @@ public sealed class V180GoogleMileageOrchestrationTests
 
         public Task<bool> TryFinalizeGeocodingAttemptAsync(long attemptId, string status, string? errorCode, string? errorMessage, DateTime completedAt, CancellationToken ct)
         {
+            GeocodingFinalizationTokenWasCancelled = ct.IsCancellationRequested;
             var row = GeocodingAttempts.Single(x => x.GeocodingAttemptId == attemptId);
             if (row.Status != "Pending") return Task.FromResult(false);
             row.Status = status; row.ErrorCode = errorCode; row.ErrorMessage = errorMessage; row.CompletedAt = completedAt;
