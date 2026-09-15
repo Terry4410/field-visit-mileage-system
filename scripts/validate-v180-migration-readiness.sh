@@ -15,7 +15,7 @@ grant_script="database/migrations/security/uat/Grant-gh-fieldvisit-uat-migrate-1
 permission_verify_script="database/migrations/security/uat/Verify-gh-fieldvisit-uat-migrate-1800_001.sql"
 revoke_script="database/migrations/security/uat/Revoke-gh-fieldvisit-uat-migrate-1800_001.sql"
 
-expected_up_sha="9b9d2c29765bed3ed8fbf8110e7975158fcd34c9b74d4d91ab6a8d26bf61c3c3"
+expected_up_sha="8e21073a1cd8bf239ad20504e670ea8c0df69cf02f630bb92f473465fbd6726c"
 expected_verify_sha="4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026"
 expected_up_sha_002="82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87"
 expected_up_sha_003="e8dea828f29dc64c99b59a042be75580c08c4dfbc9f681223d30950dad3f4aab"
@@ -117,6 +117,11 @@ reject_static_patterns(
         (r"(?m)^    ALTER TABLE dbo\.Teams WITH CHECK ADD$", "Teams constraint/FK outer-batch binding"),
         (r"(?m)^    CREATE INDEX IX_Teams_Organization_Effective$", "Teams effective-index outer-batch binding"),
     ),
+)
+
+require(
+    scripts["1800_001"].lower().count("and ignore_dup_key = 0") == 1,
+    "1800_001 equivalent-index guard must require IGNORE_DUP_KEY=OFF exactly once",
 )
 
 require_dynamic_fragments(

@@ -182,6 +182,7 @@ BEGIN TRY
               AND name = N'UX_Teams_Organization_TeamCode'
               AND type = 2
               AND is_unique = 1
+              AND ignore_dup_key = 0
               AND is_primary_key = 0
               AND is_unique_constraint = 0
               AND is_disabled = 0
