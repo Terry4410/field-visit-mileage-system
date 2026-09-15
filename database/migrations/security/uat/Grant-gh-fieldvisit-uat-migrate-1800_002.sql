@@ -56,6 +56,17 @@ IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
 
 IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber = N'1.8.0-001')
     THROW 53907, N'Permission grant refused: exact predecessor 1.8.0-001 is missing.', 1;
+
+IF
+(
+    SELECT TOP (1) VersionNumber
+    FROM dbo.SchemaVersions
+    ORDER BY AppliedAt DESC, VersionNumber DESC
+) <> N'1.8.0-001'
+    THROW 53911,
+        N'Permission grant refused: latest SchemaVersion is not exact predecessor 1.8.0-001.',
+        1;
+
 IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber = N'1.8.0-002')
     THROW 53908, N'Permission grant refused: target 1.8.0-002 already exists.', 1;
 
