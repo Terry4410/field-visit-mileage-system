@@ -15,7 +15,7 @@ grant_script="database/migrations/security/uat/Grant-gh-fieldvisit-uat-migrate-1
 permission_verify_script="database/migrations/security/uat/Verify-gh-fieldvisit-uat-migrate-1800_001.sql"
 revoke_script="database/migrations/security/uat/Revoke-gh-fieldvisit-uat-migrate-1800_001.sql"
 
-expected_up_sha="6684e3865b3b3595ac938afe7409b6c6adc1e16076b2bdb1864ec3e4e9094ff1"
+expected_up_sha="9b9d2c29765bed3ed8fbf8110e7975158fcd34c9b74d4d91ab6a8d26bf61c3c3"
 expected_verify_sha="4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026"
 expected_up_sha_002="82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87"
 expected_up_sha_003="e8dea828f29dc64c99b59a042be75580c08c4dfbc9f681223d30950dad3f4aab"

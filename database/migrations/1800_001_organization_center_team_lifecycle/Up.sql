@@ -166,8 +166,103 @@ BEGIN TRY
             CONSTRAINT FK_Teams_InactivatedByUser
                 FOREIGN KEY(InactivatedByUserId) REFERENCES dbo.Users(UserId);';
 
-    CREATE UNIQUE INDEX UX_Teams_Organization_TeamCode
-        ON dbo.Teams(OrganizationId, TeamCode);
+    IF EXISTS
+    (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.Teams', N'U')
+          AND name = N'UX_Teams_Organization_TeamCode'
+    )
+    BEGIN
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'dbo.Teams', N'U')
+              AND name = N'UX_Teams_Organization_TeamCode'
+              AND type = 2
+              AND is_unique = 1
+              AND is_primary_key = 0
+              AND is_unique_constraint = 0
+              AND is_disabled = 0
+              AND is_hypothetical = 0
+              AND has_filter = 0
+              AND filter_definition IS NULL
+        )
+            THROW 53008, N'既有 UX_Teams_Organization_TeamCode 定義與 1.8.0-001 要求不一致；停止 Migration，不自動變更 index。', 1;
+
+        IF
+        (
+            SELECT COUNT_BIG(*)
+            FROM sys.indexes AS i
+            JOIN sys.index_columns AS ic
+              ON ic.object_id = i.object_id
+             AND ic.index_id = i.index_id
+            WHERE i.object_id = OBJECT_ID(N'dbo.Teams', N'U')
+              AND i.name = N'UX_Teams_Organization_TeamCode'
+              AND ic.key_ordinal > 0
+        ) <> 2
+        OR NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            JOIN sys.index_columns AS ic
+              ON ic.object_id = i.object_id
+             AND ic.index_id = i.index_id
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE i.object_id = OBJECT_ID(N'dbo.Teams', N'U')
+              AND i.name = N'UX_Teams_Organization_TeamCode'
+              AND ic.key_ordinal = 1
+              AND c.name = N'OrganizationId'
+              AND ic.is_descending_key = 0
+              AND ic.is_included_column = 0
+        )
+        OR NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            JOIN sys.index_columns AS ic
+              ON ic.object_id = i.object_id
+             AND ic.index_id = i.index_id
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE i.object_id = OBJECT_ID(N'dbo.Teams', N'U')
+              AND i.name = N'UX_Teams_Organization_TeamCode'
+              AND ic.key_ordinal = 2
+              AND c.name = N'TeamCode'
+              AND ic.is_descending_key = 0
+              AND ic.is_included_column = 0
+        )
+        OR EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            JOIN sys.index_columns AS ic
+              ON ic.object_id = i.object_id
+             AND ic.index_id = i.index_id
+            WHERE i.object_id = OBJECT_ID(N'dbo.Teams', N'U')
+              AND i.name = N'UX_Teams_Organization_TeamCode'
+              AND ic.is_included_column = 1
+        )
+            THROW 53009, N'既有 UX_Teams_Organization_TeamCode key/include 定義與 1.8.0-001 要求不一致；停止 Migration，不自動變更 index。', 1;
+    END
+    ELSE
+    BEGIN
+        IF EXISTS
+        (
+            SELECT 1
+            FROM sys.stats
+            WHERE object_id = OBJECT_ID(N'dbo.Teams', N'U')
+              AND name = N'UX_Teams_Organization_TeamCode'
+        )
+            THROW 53010, N'存在同名 statistics 但不存在相容 index；停止 Migration，不自動刪除 statistics。', 1;
+
+        CREATE UNIQUE INDEX UX_Teams_Organization_TeamCode
+            ON dbo.Teams(OrganizationId, TeamCode);
+    END;
 
     EXEC sys.sp_executesql N'
         CREATE INDEX IX_Teams_Organization_Effective
