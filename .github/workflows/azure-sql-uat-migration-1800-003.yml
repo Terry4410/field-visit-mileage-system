@@ -144,10 +144,7 @@ jobs:
               $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
               if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
               Write-Output "::add-mask::$token"
-              $query = @'
-              SET NOCOUNT ON;
-              SELECT DB_NAME() AS DatabaseName, USER_NAME() AS DatabasePrincipal;
-              '@
+              $query = 'SET NOCOUNT ON; SELECT DB_NAME() AS DatabaseName, USER_NAME() AS DatabasePrincipal;'
               $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
               if ($result.Count -ne 1) { throw 'Expected one primary connectivity warm-up row.' }
               $databaseName = [string]$result[0].DatabaseName
