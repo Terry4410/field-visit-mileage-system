@@ -128,6 +128,44 @@ jobs:
           [[ "$(az sql server show -g "${AZURE_RESOURCE_GROUP}" -n "${AZURE_SQL_SERVER_NAME}" --subscription "${EXPECTED_SUBSCRIPTION_ID}" --query id -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${expected_server}" | tr '[:upper:]' '[:lower:]')" ]]
           [[ "$(az sql db show -g "${AZURE_RESOURCE_GROUP}" -s "${AZURE_SQL_SERVER_NAME}" -n "${AZURE_SQL_DATABASE}" --subscription "${EXPECTED_SUBSCRIPTION_ID}" --query id -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${expected_db}" | tr '[:upper:]' '[:lower:]')" ]]
 
+      - name: Warm up primary Azure SQL connectivity
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $maxAttempts = 3
+          $backoffSeconds = 5
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Output "PRIMARY_CONNECTIVITY_ATTEMPT=$attempt"
+            try {
+              $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+              if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+              Write-Output "::add-mask::$token"
+              $query = @'
+              SET NOCOUNT ON;
+              SELECT DB_NAME() AS DatabaseName, USER_NAME() AS DatabasePrincipal;
+              '@
+              $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
+              if ($result.Count -ne 1) { throw 'Expected one primary connectivity warm-up row.' }
+              $databaseName = [string]$result[0].DatabaseName
+              $databasePrincipal = [string]$result[0].DatabasePrincipal
+              if ($databaseName -ne 'db-fieldvisit-uat') { throw 'Primary connectivity warm-up reached an unexpected database.' }
+              if ($databasePrincipal -ne 'gh-fieldvisit-uat-migrate') { throw 'Primary connectivity warm-up reached an unexpected database principal.' }
+              Write-Output 'PRIMARY_CONNECTIVITY_WARMUP=PASS'
+              Write-Output "DATABASE_NAME=$databaseName"
+              Write-Output "DATABASE_PRINCIPAL=$databasePrincipal"
+              Write-Output 'SQL_WRITE_EXECUTED=NO'
+              break
+            }
+            catch {
+              if ($attempt -ge $maxAttempts) { throw }
+              Start-Sleep -Seconds $backoffSeconds
+            }
+          }
+
       - name: Validate predecessor, clean state, exact permissions, and capture fingerprints
         env:
           AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
@@ -201,7 +239,7 @@ jobs:
               (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS SnapshotCount,
               ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripSnapshotId)) FROM dbo.VisitTripSnapshots),0) AS SnapshotKeyChecksum;
           '@
-          $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
+          $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
           if ($result.Count -ne 1) { throw 'Expected one preflight fingerprint row.' }
           "SCHEMA_VERSION_COUNT_BEFORE=$($result[0].SchemaVersionCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TRIP_COUNT_BEFORE=$($result[0].TripCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -221,7 +259,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
           Write-Output "::add-mask::$token"
           $up = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_003_deployment_sites/Up.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
 
       - name: Run exact 1800_003 Verify.sql
         env:
@@ -235,7 +273,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
           Write-Output "::add-mask::$token"
           $verify = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_003_deployment_sites/Verify.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
 
       - name: Revalidate frozen v1.7.2 historical SHA-256 fingerprints
         env:
@@ -249,7 +287,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
           Write-Output "::add-mask::$token"
           $history = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/security/uat/Verify-v180-historical-fingerprints.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $history | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $history | Format-Table -AutoSize
 
       - name: Confirm exact result, historical fingerprints, and STOP_FOR_REVIEW
         env:
@@ -279,7 +317,7 @@ jobs:
               THROW 55025,N'VisitTripSnapshots historical key fingerprint changed.',1;
           SELECT N'STOP_FOR_REVIEW' AS ExecutionGate,DB_NAME() AS DatabaseName,N'1.8.0-003' AS AppliedVersion;
           "@
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
 
       - name: Sign out of Azure
         if: always()
