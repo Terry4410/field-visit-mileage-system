@@ -183,6 +183,49 @@ def validate_stage_004_permission_tooling() -> None:
     workflow_path = ROOT / ".github" / "workflows" / "azure-sql-uat-migration-1800-004.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
     workflow_compact = compact_sql(workflow)
+    parsed = yaml.load(workflow, Loader=yaml.BaseLoader)
+    require(isinstance(parsed, dict), "004 workflow: YAML root must be a mapping")
+    steps = parsed.get("jobs", {}).get("migrate-1800_004", {}).get("steps", [])
+    require(isinstance(steps, list), "004 workflow: migration steps must be a list")
+
+    def exact_step(name: str) -> dict[str, str]:
+        matches = [step for step in steps if step.get("name") == name]
+        require(len(matches) == 1, f"004 workflow: step missing or duplicated: {name}")
+        return matches[0]
+
+    def step_run(name: str) -> str:
+        run = exact_step(name).get("run", "")
+        require(isinstance(run, str) and run, f"004 workflow: step has no run block: {name}")
+        return run
+
+    def validate_token_masking(name: str, run: str) -> None:
+        require(
+            run.count("az account get-access-token") == 1,
+            f"004 workflow: SQL step must obtain exactly one Azure SQL token: {name}",
+        )
+        require(
+            run.count('Write-Output "::add-mask::$token"') == 1,
+            f"004 workflow: token masking missing or duplicated: {name}",
+        )
+
+    def validate_timeout_profile(name: str, connection_timeout: int, query_timeout: int) -> str:
+        run = step_run(name)
+        invocations = [line.strip() for line in run.splitlines() if "Invoke-Sqlcmd" in line]
+        require(
+            len(invocations) == 1,
+            f"004 workflow: expected exactly one Invoke-Sqlcmd in step: {name}",
+        )
+        invocation = invocations[0]
+        require(
+            re.findall(r"-ConnectionTimeout\s+(\d+)", invocation) == [str(connection_timeout)],
+            f"004 workflow: incorrect ConnectionTimeout in step: {name}",
+        )
+        require(
+            re.findall(r"-QueryTimeout\s+(\d+)", invocation) == [str(query_timeout)],
+            f"004 workflow: incorrect QueryTimeout in step: {name}",
+        )
+        validate_token_masking(name, run)
+        return run
 
     scripts: dict[str, str] = {}
     for kind, path in STAGE_004_PERMISSION_SCRIPTS.items():
@@ -266,16 +309,96 @@ def validate_stage_004_permission_tooling() -> None:
             f"004 workflow: required REFERENCES gate missing for dbo.{object_name}",
         )
 
-    require(workflow.count("Warm up primary Azure SQL connectivity") == 1,
-            "004 workflow: primary connectivity warm-up missing or duplicated")
-    require("$maxAttempts = 3" in workflow and "$backoffSeconds = 5" in workflow,
-            "004 workflow: approved connectivity retry policy missing")
-    require("ApplicationIntent" not in workflow,
+    warmup_name = "Warm up primary Azure SQL connectivity"
+    preflight_name = "Validate predecessor, clean state, exact permissions, and capture fingerprints"
+    up_name = "Apply only 1800_004 Up.sql"
+    verify_name = "Run exact 1800_004 Verify.sql"
+    history_name = "Revalidate frozen v1.7.2 historical SHA-256 fingerprints"
+    final_name = "Confirm exact result, historical fingerprints, and STOP_FOR_REVIEW"
+    expected_sql_steps = {
+        warmup_name,
+        preflight_name,
+        up_name,
+        verify_name,
+        history_name,
+        final_name,
+    }
+
+    warmup_step = exact_step(warmup_name)
+    require(warmup_step.get("shell") == "pwsh", "004 workflow: warm-up shell must be exactly pwsh")
+    warmup = validate_timeout_profile(warmup_name, 60, 60)
+
+    query_matches = re.findall(r"(?m)^\s*\$query\s*=\s*'([^'\r\n]*)'\s*$", warmup)
+    require(len(query_matches) == 1, "004 workflow: warm-up must have one literal $query assignment")
+    normalized_query = re.sub(r"\s+", " ", query_matches[0]).strip()
+    approved_query = (
+        "SET NOCOUNT ON; SELECT DB_NAME() AS DatabaseName, "
+        "USER_NAME() AS DatabasePrincipal;"
+    )
+    require(normalized_query == approved_query, "004 workflow: warm-up query is not the exact read-only query")
+    require(
+        not re.search(
+            r"(?i)\b(?:INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|EXEC(?:UTE)?|FROM|JOIN)\b|dbo\.",
+            normalized_query,
+        ),
+        "004 workflow: warm-up query contains business-table SQL, DDL, or DML",
+    )
+    for forbidden in ("-InputFile", "Up.sql", "Verify.sql"):
+        require(forbidden not in warmup, f"004 workflow: warm-up contains forbidden token: {forbidden}")
+
+    require(
+        "if ($databaseName -ne 'db-fieldvisit-uat') { throw" in warmup,
+        "004 workflow: warm-up exact database fail-closed comparison missing",
+    )
+    require(
+        "if ($databasePrincipal -ne 'gh-fieldvisit-uat-migrate') { throw" in warmup,
+        "004 workflow: warm-up exact principal fail-closed comparison missing",
+    )
+    require(warmup.count("$maxAttempts = 3") == 1,
+            "004 workflow: warm-up maxAttempts must be exactly 3")
+    require(warmup.count("$backoffSeconds = 5") == 1,
+            "004 workflow: warm-up backoffSeconds must be exactly 5")
+    require(
+        len(re.findall(
+            r"for\s*\(\s*\$attempt\s*=\s*1\s*;\s*\$attempt\s*-le\s*\$maxAttempts\s*;\s*\$attempt\+\+\s*\)",
+            warmup,
+        )) == 1,
+        "004 workflow: warm-up retry loop must run through maxAttempts",
+    )
+    require(warmup.count("Start-Sleep -Seconds $backoffSeconds") == 1,
+            "004 workflow: warm-up retry sleep is missing or duplicated")
+    require(
+        len(re.findall(
+            r"if\s*\(\s*\$attempt\s*-ge\s*\$maxAttempts\s*\)\s*\{\s*throw\s*\}",
+            warmup,
+        )) == 1,
+        "004 workflow: warm-up final failed attempt must throw",
+    )
+
+    validate_timeout_profile(preflight_name, 60, 60)
+    validate_timeout_profile(up_name, 60, 600)
+    validate_timeout_profile(verify_name, 60, 600)
+    validate_timeout_profile(history_name, 60, 600)
+    validate_timeout_profile(final_name, 60, 60)
+
+    sql_step_names = {
+        step.get("name")
+        for step in steps
+        if isinstance(step.get("run"), str) and "Invoke-Sqlcmd" in step["run"]
+    }
+    require(
+        sql_step_names == expected_sql_steps,
+        "004 workflow: SQL execution steps differ from the frozen connectivity contract",
+    )
+    require(re.search(r"(?i)\bApplicationIntent\b", workflow) is None,
             "004 workflow: ApplicationIntent must not be used")
-    require("-ConnectionTimeout 15" not in workflow,
+    require(re.search(r"(?i)-ConnectionTimeout\s+15\b", workflow) is None,
             "004 workflow: all SQL connections must use ConnectionTimeout 60")
 
-    print("PASS 1800_004 permission-tooling+17-markers+negative-UPDATE+connectivity")
+    print(
+        "PASS 1800_004 permission-tooling+17-markers+negative-UPDATE+"
+        "step-bound-connectivity-contract"
+    )
 
 
 def validate(stage: str, directory: str, predecessor: str, target: str, update_objects: set[str]) -> None:
