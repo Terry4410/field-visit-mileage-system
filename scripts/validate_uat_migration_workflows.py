@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = {
     "002": ("1800_002_person_employment_role_membership", "1.8.0-001", "1.8.0-002", {"UserIdentityProfiles"}),
     "003": ("1800_003_deployment_sites", "1.8.0-002", "1.8.0-003", set()),
-    "004": ("1800_004_location_governance", "1.8.0-003", "1.8.0-004", {"Locations"}),
+    "004": ("1800_004_location_governance", "1.8.0-003", "1.8.0-004", set()),
     "005": ("1800_005_project_visit_rate_lifecycle", "1.8.0-004", "1.8.0-005", {"Projects", "VisitTypes", "MileageRateRules"}),
     "006": ("1800_006_notification_framework", "1.8.0-005", "1.8.0-006", {"Employments"}),
     "007": ("1800_007_mileage_google_governance", "1.8.0-006", "1.8.0-007", {"MileageCalculations"}),
@@ -87,6 +87,35 @@ RECOVERY_POLICY_REQUIREMENTS = (
     "The next stage is never automatically authorized.",
 )
 
+STAGE_004_PERMISSION_SCRIPTS = {
+    "grant": ROOT / "database" / "migrations" / "security" / "uat" / "Grant-gh-fieldvisit-uat-migrate-1800_004.sql",
+    "verify": ROOT / "database" / "migrations" / "security" / "uat" / "Verify-gh-fieldvisit-uat-migrate-1800_004.sql",
+    "revoke": ROOT / "database" / "migrations" / "security" / "uat" / "Revoke-gh-fieldvisit-uat-migrate-1800_004.sql",
+}
+
+STAGE_004_PARTIAL_MARKERS = (
+    "object_id(n'dbo.teamlocationnotes',n'u')",
+    "object_id(n'dbo.teamlocationnotehistory',n'u')",
+    "col_length(n'dbo.locations',n'taxid')",
+    "col_length(n'dbo.locations',n'masternote')",
+    "col_length(n'dbo.locations',n'inactivatedat')",
+    "col_length(n'dbo.locations',n'inactivatedbyuserid')",
+    "col_length(n'dbo.locations',n'duplicateoflocationid')",
+    "col_length(n'dbo.locations',n'duplicatereason')",
+    "col_length(n'dbo.locations',n'normalizedlocationname')",
+    "col_length(n'dbo.locations',n'normalizedaddress')",
+    "object_id(n'dbo.tr_locations_protectcurrentdeploymentsitelocations',n'tr')",
+    "object_id(n'dbo.tr_deploymentsitelocationassignments_protectactivelocation',n'tr')",
+)
+
+STAGE_004_INDEX_MARKERS = (
+    ("dbo.locations", "ix_locations_organization_taxid"),
+    ("dbo.locations", "ix_locations_normalizednameaddress"),
+    ("dbo.locations", "ix_locations_duplicateof"),
+    ("dbo.teamlocationnotes", "ix_teamlocationnotes_location_team"),
+    ("dbo.teamlocationnotehistory", "ix_teamlocationnotehistory_note_changed"),
+)
+
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -146,6 +175,109 @@ def validate_post_uat_hook() -> None:
     print("PASS POST_UAT_VERIFY YAML+direct-validator-hook+repository-only")
 
 
+def compact_sql(text: str) -> str:
+    return re.sub(r"\s+", "", text.lower())
+
+
+def validate_stage_004_permission_tooling() -> None:
+    workflow_path = ROOT / ".github" / "workflows" / "azure-sql-uat-migration-1800-004.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    workflow_compact = compact_sql(workflow)
+
+    scripts: dict[str, str] = {}
+    for kind, path in STAGE_004_PERMISSION_SCRIPTS.items():
+        require(path.is_file(), f"004: {kind} permission script is missing")
+        scripts[kind] = path.read_text(encoding="utf-8")
+
+    grant = scripts["grant"]
+    verify = scripts["verify"]
+    revoke = scripts["revoke"]
+    grant_compact = compact_sql(grant)
+
+    for marker in STAGE_004_PARTIAL_MARKERS:
+        require(marker in grant_compact, f"004 grant: partial-state marker missing: {marker}")
+        require(marker in workflow_compact, f"004 workflow: partial-state marker missing: {marker}")
+
+    for parent, index in STAGE_004_INDEX_MARKERS:
+        exact_index_pattern = (
+            rf"object_id=object_id\(n'{re.escape(parent)}',n'u'\)"
+            rf"andname=n'{re.escape(index)}'"
+        )
+        require(re.search(exact_index_pattern, grant_compact) is not None,
+                f"004 grant: exact parent+index marker missing: {parent}.{index}")
+        require(re.search(exact_index_pattern, workflow_compact) is not None,
+                f"004 workflow: exact parent+index marker missing: {parent}.{index}")
+
+    require("grant update" not in grant.lower(), "004 grant: object UPDATE grant is forbidden")
+    require("revoke update" not in revoke.lower(), "004 revoke: object UPDATE revoke is forbidden")
+    require("grant update" not in verify.lower(), "004 verify: object UPDATE grant token is forbidden")
+
+    required_grant_fragments = (
+        "ALTER ROLE db_ddladmin ADD MEMBER [gh-fieldvisit-uat-migrate]",
+        "GRANT INSERT ON SCHEMA::dbo TO [gh-fieldvisit-uat-migrate]",
+        "GRANT_PREPARED_FOR_1800_004",
+    )
+    for fragment in required_grant_fragments:
+        require(fragment in grant, f"004 grant: required fragment missing: {fragment}")
+
+    required_verify_fragments = (
+        "1800_004_PERMISSION_GATE",
+        "@CanAlterLocations <> 1",
+        "@CanAlterDeploymentAssignments <> 1",
+        "@CanReferenceUsers <> 1",
+        "@CanReferenceLocations <> 1",
+        "@CanReferenceTeams <> 1",
+        "@CanUpdateLocations <> 0",
+        "@CanUpdateOrganizations <> 0",
+        "@CanUpdateTeams <> 0",
+        "@CanUpdateStage002Profile <> 0",
+    )
+    for fragment in required_verify_fragments:
+        require(fragment in verify, f"004 verify: required fail-closed gate missing: {fragment}")
+
+    required_revoke_fragments = (
+        "REVOKE INSERT ON SCHEMA::dbo FROM [gh-fieldvisit-uat-migrate]",
+        "ALTER ROLE db_ddladmin DROP MEMBER [gh-fieldvisit-uat-migrate]",
+        "REVOKED_1800_004_ELEVATION",
+        "@CanUpdateLocations <> 0",
+        "@CanUpdateOrganizations <> 0",
+        "@CanUpdateTeams <> 0",
+        "@CanUpdateStage002Profile <> 0",
+    )
+    for fragment in required_revoke_fragments:
+        require(fragment in revoke, f"004 revoke: required fail-closed check missing: {fragment}")
+
+    require("permission.permission_name=N'UPDATE'" not in workflow,
+            "004 workflow: explicit permission allowlist must not permit UPDATE")
+    for object_name in ("Locations", "Organizations", "Teams", "UserIdentityProfiles"):
+        require(
+            f"HAS_PERMS_BY_NAME(N'dbo.{object_name}',N'OBJECT',N'UPDATE')<>0" in workflow,
+            f"004 workflow: effective UPDATE=0 gate missing for dbo.{object_name}",
+        )
+
+    for object_name in ("Locations", "DeploymentSiteLocationAssignments"):
+        require(
+            f"HAS_PERMS_BY_NAME(N'dbo.{object_name}',N'OBJECT',N'ALTER')<>1" in workflow,
+            f"004 workflow: required ALTER gate missing for dbo.{object_name}",
+        )
+    for object_name in ("Users", "Locations", "Teams"):
+        require(
+            f"HAS_PERMS_BY_NAME(N'dbo.{object_name}',N'OBJECT',N'REFERENCES')<>1" in workflow,
+            f"004 workflow: required REFERENCES gate missing for dbo.{object_name}",
+        )
+
+    require(workflow.count("Warm up primary Azure SQL connectivity") == 1,
+            "004 workflow: primary connectivity warm-up missing or duplicated")
+    require("$maxAttempts = 3" in workflow and "$backoffSeconds = 5" in workflow,
+            "004 workflow: approved connectivity retry policy missing")
+    require("ApplicationIntent" not in workflow,
+            "004 workflow: ApplicationIntent must not be used")
+    require("-ConnectionTimeout 15" not in workflow,
+            "004 workflow: all SQL connections must use ConnectionTimeout 60")
+
+    print("PASS 1800_004 permission-tooling+17-markers+negative-UPDATE+connectivity")
+
+
 def validate(stage: str, directory: str, predecessor: str, target: str, update_objects: set[str]) -> None:
     token = f"1800_{stage}"
     workflow = ROOT / ".github" / "workflows" / f"azure-sql-uat-migration-1800-{stage}.yml"
@@ -196,7 +328,10 @@ def validate(stage: str, directory: str, predecessor: str, target: str, update_o
     require("db_owner" in text and "db_securityadmin" in text and "db_datawriter" in text, f"{stage}: forbidden broad-role gate missing")
     require("Unexpected explicit database permission" in text, f"{stage}: exact explicit-permission allowlist missing")
     update_permission_checks = set(
-        re.findall(r"HAS_PERMS_BY_NAME\(N'dbo\.([A-Za-z0-9_]+)',N'OBJECT',N'UPDATE'\)", text)
+        re.findall(
+            r"HAS_PERMS_BY_NAME\(N'dbo\.([A-Za-z0-9_]+)',N'OBJECT',N'UPDATE'\)<>1",
+            text,
+        )
     )
     require(update_permission_checks == update_objects, f"{stage}: UPDATE permission gate is not exact")
 
@@ -225,6 +360,7 @@ def main() -> int:
     try:
         validate_recovery_governance()
         validate_post_uat_hook()
+        validate_stage_004_permission_tooling()
         for stage, values in CONFIG.items():
             validate(stage, *values)
     except (AssertionError, OSError, yaml.YAMLError) as exc:

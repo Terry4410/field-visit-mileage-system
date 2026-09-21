@@ -131,7 +131,7 @@ the applicable stage and revoked before the next stage:
 |---|---|---|
 | 1800_002 | `dbo.UserIdentityProfiles` | Explicit employment backfill UPDATE. |
 | 1800_003 | none | New tables plus nullable columns only. |
-| 1800_004 | `dbo.Locations` | Persisted computed columns materialize values for existing rows. |
+| 1800_004 | none | Existing-table changes are DDL-only; persisted computed columns do not require an explicit object `UPDATE` grant. |
 | 1800_005 | `dbo.Projects`, `dbo.VisitTypes`, `dbo.MileageRateRules` | ROWVERSION materialization; MileageRateRules also has explicit canonicalization and derived-range UPDATEs. |
 | 1800_006 | `dbo.Employments` | A NOT NULL defaulted column is applied to existing rows with `WITH VALUES`. |
 | 1800_007 | `dbo.MileageCalculations` | `ManualFallbackUsed` is NOT NULL/defaulted and applied with `WITH VALUES`. |
@@ -139,6 +139,14 @@ the applicable stage and revoked before the next stage:
 The workflows do not grant or revoke permissions. A DBA must perform any
 required permission change in a separate approved action. A mismatch blocks the
 stage before `Up.sql` can run.
+
+For 1800_004, the reviewed temporary permission model is exactly membership in
+`db_ddladmin` plus `INSERT ON SCHEMA::dbo`, with no object-level `UPDATE`
+permission. Its permission gate requires effective `ALTER` on `dbo.Locations`
+and `dbo.DeploymentSiteLocationAssignments`, effective `REFERENCES` on
+`dbo.Users`, `dbo.Locations`, and `dbo.Teams`, and effective `UPDATE` on
+`dbo.Locations` to remain zero. Stage 001/002 object-level `UPDATE` residue must
+also be absent.
 
 ## Execution invariants
 
