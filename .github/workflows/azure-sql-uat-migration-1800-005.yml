@@ -128,6 +128,41 @@ jobs:
           [[ "$(az sql server show -g "${AZURE_RESOURCE_GROUP}" -n "${AZURE_SQL_SERVER_NAME}" --subscription "${EXPECTED_SUBSCRIPTION_ID}" --query id -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${expected_server}" | tr '[:upper:]' '[:lower:]')" ]]
           [[ "$(az sql db show -g "${AZURE_RESOURCE_GROUP}" -s "${AZURE_SQL_SERVER_NAME}" -n "${AZURE_SQL_DATABASE}" --subscription "${EXPECTED_SUBSCRIPTION_ID}" --query id -o tsv | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "${expected_db}" | tr '[:upper:]' '[:lower:]')" ]]
 
+      - name: Warm up primary Azure SQL connectivity
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $maxAttempts = 3
+          $backoffSeconds = 5
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Output "PRIMARY_CONNECTIVITY_ATTEMPT=$attempt"
+            try {
+              $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+              if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+              Write-Output "::add-mask::$token"
+              $query = 'SET NOCOUNT ON; SELECT DB_NAME() AS DatabaseName, USER_NAME() AS DatabasePrincipal;'
+              $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
+              if ($result.Count -ne 1) { throw 'Expected one primary connectivity warm-up row.' }
+              $databaseName = [string]$result[0].DatabaseName
+              $databasePrincipal = [string]$result[0].DatabasePrincipal
+              if ($databaseName -ne 'db-fieldvisit-uat') { throw 'Primary connectivity warm-up reached an unexpected database.' }
+              if ($databasePrincipal -ne 'gh-fieldvisit-uat-migrate') { throw 'Primary connectivity warm-up reached an unexpected database principal.' }
+              Write-Output 'PRIMARY_CONNECTIVITY_WARMUP=PASS'
+              Write-Output "DATABASE_NAME=$databaseName"
+              Write-Output "DATABASE_PRINCIPAL=$databasePrincipal"
+              Write-Output 'SQL_WRITE_EXECUTED=NO'
+              break
+            }
+            catch {
+              if ($attempt -ge $maxAttempts) { throw }
+              Start-Sleep -Seconds $backoffSeconds
+            }
+          }
+
       - name: Validate predecessor, clean state, exact permissions, and capture fingerprints
         env:
           AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
@@ -163,9 +198,11 @@ jobs:
              OR COL_LENGTH(N'dbo.MileageRateRules',N'InactivatedByUserId') IS NOT NULL
              OR COL_LENGTH(N'dbo.MileageRateRules',N'RowVersion') IS NOT NULL
              OR OBJECT_ID(N'dbo.TR_MileageRateRules_ProtectSeries',N'TR') IS NOT NULL
-             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Projects') AND name=N'IX_Projects_Search')
-             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.VisitTypes') AND name IN(N'UX_VisitTypes_VisitTypeCode',N'IX_VisitTypes_Active_Sort'))
-             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MileageRateRules') AND name IN(N'UX_MileageRateRules_Scope_Vehicle_Start',N'IX_MileageRateRules_AsOf'))
+             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Projects',N'U') AND name=N'IX_Projects_Search')
+             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.VisitTypes',N'U') AND name=N'UX_VisitTypes_VisitTypeCode')
+             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.VisitTypes',N'U') AND name=N'IX_VisitTypes_Active_Sort')
+             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MileageRateRules',N'U') AND name=N'UX_MileageRateRules_Scope_Vehicle_Start')
+             OR EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MileageRateRules',N'U') AND name=N'IX_MileageRateRules_AsOf')
               THROW 55005,N'Preflight failed: partial 1.8.0-005 state exists.',1;
           IF ISNULL(IS_ROLEMEMBER(N'db_datareader'),0)<>1
              OR ISNULL(IS_ROLEMEMBER(N'db_ddladmin'),0)<>1
@@ -186,7 +223,7 @@ jobs:
                     (permission.class=0 AND permission.permission_name=N'CONNECT' AND permission.state=N'G')
                     OR (permission.class=3 AND SCHEMA_NAME(permission.major_id)=N'dbo' AND permission.permission_name=N'INSERT' AND permission.state=N'G')
                     OR (permission.class=1 AND OBJECT_SCHEMA_NAME(permission.major_id)=N'dbo'
-                        AND (OBJECT_NAME(permission.major_id)=N'Projects' OR OBJECT_NAME(permission.major_id)=N'VisitTypes' OR OBJECT_NAME(permission.major_id)=N'MileageRateRules')
+                        AND OBJECT_NAME(permission.major_id)=N'MileageRateRules'
                         AND permission.permission_name=N'UPDATE' AND permission.state=N'G')
                 )
           ) THROW 55008,N'Unexpected explicit database permission for 1800_005.',1;
@@ -194,13 +231,20 @@ jobs:
              OR HAS_PERMS_BY_NAME(N'dbo',N'SCHEMA',N'INSERT')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')<>1
              OR ISNULL(IS_ROLEMEMBER(N'public'),0)<>1
-             OR HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'UPDATE')<>1
-             OR HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'UPDATE')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'UPDATE')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'ALTER')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'ALTER')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'ALTER')<>1
-              THROW 55009,N'Missing required UPDATE grants (Projects, VisitTypes, MileageRateRules) or required DDL permission.',1;
+             OR HAS_PERMS_BY_NAME(N'dbo.Users',N'OBJECT',N'REFERENCES')<>1
+              THROW 55009,N'Missing required Stage 005 UPDATE, ALTER, or REFERENCES permission.',1;
+          IF HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'UPDATE')<>0
+             OR HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'UPDATE')<>0
+             OR HAS_PERMS_BY_NAME(N'dbo.Organizations',N'OBJECT',N'UPDATE')<>0
+             OR HAS_PERMS_BY_NAME(N'dbo.Teams',N'OBJECT',N'UPDATE')<>0
+             OR HAS_PERMS_BY_NAME(N'dbo.UserIdentityProfiles',N'OBJECT',N'UPDATE')<>0
+             OR HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE')<>0
+             OR HAS_PERMS_BY_NAME(N'dbo.DeploymentSiteLocationAssignments',N'OBJECT',N'UPDATE')<>0
+              THROW 55011,N'Forbidden current/prior-stage UPDATE capability remains effective.',1;
           IF OBJECT_ID(N'dbo.VisitTrips',N'U') IS NULL OR OBJECT_ID(N'dbo.VisitTripSnapshots',N'U') IS NULL
               THROW 55010,N'Historical fingerprint tables missing.',1;
           SELECT
@@ -210,7 +254,7 @@ jobs:
               (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS SnapshotCount,
               ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripSnapshotId)) FROM dbo.VisitTripSnapshots),0) AS SnapshotKeyChecksum;
           '@
-          $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
+          $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
           if ($result.Count -ne 1) { throw 'Expected one preflight fingerprint row.' }
           "SCHEMA_VERSION_COUNT_BEFORE=$($result[0].SchemaVersionCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TRIP_COUNT_BEFORE=$($result[0].TripCount)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -230,7 +274,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
           Write-Output "::add-mask::$token"
           $up = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
 
       - name: Run exact 1800_005 Verify.sql
         env:
@@ -244,7 +288,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
           Write-Output "::add-mask::$token"
           $verify = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_005_project_visit_rate_lifecycle/Verify.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
 
       - name: Revalidate frozen v1.7.2 historical SHA-256 fingerprints
         env:
@@ -258,7 +302,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
           Write-Output "::add-mask::$token"
           $history = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/security/uat/Verify-v180-historical-fingerprints.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $history | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $history | Format-Table -AutoSize
 
       - name: Confirm exact result, historical fingerprints, and STOP_FOR_REVIEW
         env:
@@ -288,7 +332,7 @@ jobs:
               THROW 55025,N'VisitTripSnapshots historical key fingerprint changed.',1;
           SELECT N'STOP_FOR_REVIEW' AS ExecutionGate,DB_NAME() AS DatabaseName,N'1.8.0-005' AS AppliedVersion;
           "@
-          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 15 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
 
       - name: Sign out of Azure
         if: always()
