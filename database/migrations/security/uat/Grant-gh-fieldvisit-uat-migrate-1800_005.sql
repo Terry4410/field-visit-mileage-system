@@ -180,6 +180,8 @@ BEGIN TRY
 
     ALTER ROLE db_ddladmin ADD MEMBER [gh-fieldvisit-uat-migrate];
     GRANT INSERT ON SCHEMA::dbo TO [gh-fieldvisit-uat-migrate];
+    GRANT UPDATE ON OBJECT::dbo.Projects TO [gh-fieldvisit-uat-migrate];
+    GRANT UPDATE ON OBJECT::dbo.VisitTypes TO [gh-fieldvisit-uat-migrate];
     GRANT UPDATE ON OBJECT::dbo.MileageRateRules TO [gh-fieldvisit-uat-migrate];
 
     COMMIT TRANSACTION;

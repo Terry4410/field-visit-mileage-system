@@ -20,6 +20,8 @@ IF NOT EXISTS
 BEGIN TRY
     BEGIN TRANSACTION;
 
+    REVOKE UPDATE ON OBJECT::dbo.Projects FROM [gh-fieldvisit-uat-migrate];
+    REVOKE UPDATE ON OBJECT::dbo.VisitTypes FROM [gh-fieldvisit-uat-migrate];
     REVOKE UPDATE ON OBJECT::dbo.MileageRateRules FROM [gh-fieldvisit-uat-migrate];
     REVOKE INSERT ON SCHEMA::dbo FROM [gh-fieldvisit-uat-migrate];
 

@@ -53,7 +53,7 @@ IF EXISTS
           OR
           (p.class = 1
            AND OBJECT_SCHEMA_NAME(p.major_id) = N'dbo'
-           AND OBJECT_NAME(p.major_id) = N'MileageRateRules'
+           AND OBJECT_NAME(p.major_id) IN (N'Projects', N'VisitTypes', N'MileageRateRules')
            AND p.permission_name = N'UPDATE'
            AND p.state = N'G')
       )
@@ -125,13 +125,13 @@ IF @CanCreateTable <> 1
    OR @CanAlterVisitTypes <> 1
    OR @CanAlterMileageRateRules <> 1
    OR @CanReferenceUsers <> 1
+   OR @CanUpdateProjects <> 1
+   OR @CanUpdateVisitTypes <> 1
    OR @CanUpdateMileageRateRules <> 1
    OR @CanSelectRequired <> 1
     THROW 54226, N'Permission verification failed: required 1800_005 capability is missing.', 1;
 
-IF @CanUpdateProjects <> 0
-   OR @CanUpdateVisitTypes <> 0
-   OR @CanUpdateOrganizations <> 0
+IF @CanUpdateOrganizations <> 0
    OR @CanUpdateTeams <> 0
    OR @CanUpdateUserIdentityProfiles <> 0
    OR @CanUpdateLocations <> 0

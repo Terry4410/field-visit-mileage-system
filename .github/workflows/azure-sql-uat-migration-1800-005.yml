@@ -223,7 +223,7 @@ jobs:
                     (permission.class=0 AND permission.permission_name=N'CONNECT' AND permission.state=N'G')
                     OR (permission.class=3 AND SCHEMA_NAME(permission.major_id)=N'dbo' AND permission.permission_name=N'INSERT' AND permission.state=N'G')
                     OR (permission.class=1 AND OBJECT_SCHEMA_NAME(permission.major_id)=N'dbo'
-                        AND OBJECT_NAME(permission.major_id)=N'MileageRateRules'
+                        AND OBJECT_NAME(permission.major_id) IN(N'Projects',N'VisitTypes',N'MileageRateRules')
                         AND permission.permission_name=N'UPDATE' AND permission.state=N'G')
                 )
           ) THROW 55008,N'Unexpected explicit database permission for 1800_005.',1;
@@ -231,15 +231,15 @@ jobs:
              OR HAS_PERMS_BY_NAME(N'dbo',N'SCHEMA',N'INSERT')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')<>1
              OR ISNULL(IS_ROLEMEMBER(N'public'),0)<>1
+             OR HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'UPDATE')<>1
+             OR HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'UPDATE')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'UPDATE')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'ALTER')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'ALTER')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'ALTER')<>1
              OR HAS_PERMS_BY_NAME(N'dbo.Users',N'OBJECT',N'REFERENCES')<>1
               THROW 55009,N'Missing required Stage 005 UPDATE, ALTER, or REFERENCES permission.',1;
-          IF HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'UPDATE')<>0
-             OR HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'UPDATE')<>0
-             OR HAS_PERMS_BY_NAME(N'dbo.Organizations',N'OBJECT',N'UPDATE')<>0
+          IF HAS_PERMS_BY_NAME(N'dbo.Organizations',N'OBJECT',N'UPDATE')<>0
              OR HAS_PERMS_BY_NAME(N'dbo.Teams',N'OBJECT',N'UPDATE')<>0
              OR HAS_PERMS_BY_NAME(N'dbo.UserIdentityProfiles',N'OBJECT',N'UPDATE')<>0
              OR HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE')<>0

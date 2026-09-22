@@ -132,7 +132,7 @@ the applicable stage and revoked before the next stage:
 | 1800_002 | `dbo.UserIdentityProfiles` | Explicit employment backfill UPDATE. |
 | 1800_003 | none | New tables plus nullable columns only. |
 | 1800_004 | none | Existing-table changes are DDL-only; persisted computed columns do not require an explicit object `UPDATE` grant. |
-| 1800_005 | `dbo.MileageRateRules` only | Explicit VehicleType canonicalization and EffectiveTo derivation UPDATEs. Projects and VisitTypes changes are DDL-only. |
+| 1800_005 | `dbo.Projects`, `dbo.VisitTypes`, `dbo.MileageRateRules` | Projects and VisitTypes require UPDATE for `ROWVERSION` materialization on pre-existing rows. MileageRateRules requires UPDATE for explicit VehicleType canonicalization, EffectiveTo derivation, and `ROWVERSION` materialization. |
 | 1800_006 | `dbo.Employments` | A NOT NULL defaulted column is applied to existing rows with `WITH VALUES`. |
 | 1800_007 | `dbo.MileageCalculations` | `ManualFallbackUsed` is NOT NULL/defaulted and applied with `WITH VALUES`. |
 
@@ -150,16 +150,22 @@ also be absent.
 
 For 1800_005, the reviewed temporary permission model is exactly membership in
 `db_ddladmin`, `INSERT ON SCHEMA::dbo`, and
-`UPDATE ON OBJECT::dbo.MileageRateRules`. No `UPDATE` permission is permitted on
-`dbo.Projects` or `dbo.VisitTypes`; their new columns are DDL materialization,
-not application-data rewrites. The permission gate requires effective `ALTER`
-on `dbo.Projects`, `dbo.VisitTypes`, and `dbo.MileageRateRules`, and effective
-`REFERENCES` on `dbo.Users`. Current-stage forbidden UPDATE surfaces and all
-prior-stage UPDATE surfaces must remain zero. The Grant and Revoke scripts are
-independent approved actions outside the migration workflow, and Revoke must be
-usable after either migration success or failure. The immutable Stage 005 SQL
-locks, recovery governance, single-stage execution boundary, no-automatic-rerun
-rule, and terminal `STOP_FOR_REVIEW` remain unchanged.
+`UPDATE ON OBJECT::dbo.Projects`, `UPDATE ON OBJECT::dbo.VisitTypes`, and
+`UPDATE ON OBJECT::dbo.MileageRateRules`. Projects and VisitTypes require the
+temporary permission for `ROWVERSION` materialization on pre-existing rows.
+MileageRateRules requires it for explicit VehicleType canonicalization,
+EffectiveTo derivation, and `ROWVERSION` materialization. No `UPDATE` permission
+is permitted on `dbo.Organizations`, `dbo.Teams`, `dbo.UserIdentityProfiles`,
+`dbo.Locations`, or `dbo.DeploymentSiteLocationAssignments`. The permission gate
+requires effective `ALTER` on `dbo.Projects`, `dbo.VisitTypes`, and
+`dbo.MileageRateRules`, and effective `REFERENCES` on `dbo.Users`. All forbidden
+current/prior-stage UPDATE surfaces must remain zero. The Grant and Revoke
+scripts are independent approved actions outside the migration workflow, and
+Revoke must be usable after either migration success or failure.
+RUN_ID=35745343788 exposed the previous permission-model defect and MUST NOT be
+rerun. Migration SQL remains immutable. The immutable Stage 005 SQL locks,
+recovery governance, single-stage execution boundary, no-automatic-rerun rule,
+and terminal `STOP_FOR_REVIEW` remain unchanged.
 
 ## Execution invariants
 

@@ -20,7 +20,12 @@ CONFIG = {
     "002": ("1800_002_person_employment_role_membership", "1.8.0-001", "1.8.0-002", {"UserIdentityProfiles"}),
     "003": ("1800_003_deployment_sites", "1.8.0-002", "1.8.0-003", set()),
     "004": ("1800_004_location_governance", "1.8.0-003", "1.8.0-004", set()),
-    "005": ("1800_005_project_visit_rate_lifecycle", "1.8.0-004", "1.8.0-005", {"MileageRateRules"}),
+    "005": (
+        "1800_005_project_visit_rate_lifecycle",
+        "1.8.0-004",
+        "1.8.0-005",
+        {"Projects", "VisitTypes", "MileageRateRules"},
+    ),
     "006": ("1800_006_notification_framework", "1.8.0-005", "1.8.0-006", {"Employments"}),
     "007": ("1800_007_mileage_google_governance", "1.8.0-006", "1.8.0-007", {"MileageCalculations"}),
 }
@@ -146,8 +151,6 @@ STAGE_005_INDEX_MARKERS = (
 )
 
 STAGE_005_FORBIDDEN_UPDATE_OBJECTS = {
-    "Projects",
-    "VisitTypes",
     "Organizations",
     "Teams",
     "UserIdentityProfiles",
@@ -561,10 +564,11 @@ def validate_stage_005_permission_tooling() -> None:
     revoked_update_matches = re.findall(
         r"REVOKE\s+UPDATE\s+ON\s+OBJECT::dbo\.([A-Za-z0-9_]+)", revoke, re.IGNORECASE
     )
-    require(len(granted_update_matches) == 1 and set(granted_update_matches) == {"MileageRateRules"},
-            "005 grant: exact UPDATE grant set must be {MileageRateRules}")
-    require(len(revoked_update_matches) == 1 and set(revoked_update_matches) == {"MileageRateRules"},
-            "005 revoke: exact UPDATE revoke set must be {MileageRateRules}")
+    required_update_objects = {"Projects", "VisitTypes", "MileageRateRules"}
+    require(len(granted_update_matches) == 3 and set(granted_update_matches) == required_update_objects,
+            "005 grant: exact UPDATE grant set must be {Projects, VisitTypes, MileageRateRules}")
+    require(len(revoked_update_matches) == 3 and set(revoked_update_matches) == required_update_objects,
+            "005 revoke: exact UPDATE revoke set must be {Projects, VisitTypes, MileageRateRules}")
 
     required_grant_fragments = (
         "SET XACT_ABORT ON",
@@ -572,6 +576,8 @@ def validate_stage_005_permission_tooling() -> None:
         "ROLLBACK TRANSACTION",
         "ALTER ROLE db_ddladmin ADD MEMBER [gh-fieldvisit-uat-migrate]",
         "GRANT INSERT ON SCHEMA::dbo TO [gh-fieldvisit-uat-migrate]",
+        "GRANT UPDATE ON OBJECT::dbo.Projects TO [gh-fieldvisit-uat-migrate]",
+        "GRANT UPDATE ON OBJECT::dbo.VisitTypes TO [gh-fieldvisit-uat-migrate]",
         "GRANT UPDATE ON OBJECT::dbo.MileageRateRules TO [gh-fieldvisit-uat-migrate]",
         "GRANT_PREPARED_FOR_1800_005",
         "latest SchemaVersion is not exact predecessor 1.8.0-004",
@@ -587,9 +593,9 @@ def validate_stage_005_permission_tooling() -> None:
         "@CanAlterVisitTypes <> 1",
         "@CanAlterMileageRateRules <> 1",
         "@CanReferenceUsers <> 1",
+        "@CanUpdateProjects <> 1",
+        "@CanUpdateVisitTypes <> 1",
         "@CanUpdateMileageRateRules <> 1",
-        "@CanUpdateProjects <> 0",
-        "@CanUpdateVisitTypes <> 0",
         "@CanUpdateOrganizations <> 0",
         "@CanUpdateTeams <> 0",
         "@CanUpdateUserIdentityProfiles <> 0",
@@ -603,6 +609,8 @@ def validate_stage_005_permission_tooling() -> None:
         "SET XACT_ABORT ON",
         "BEGIN TRANSACTION",
         "ROLLBACK TRANSACTION",
+        "REVOKE UPDATE ON OBJECT::dbo.Projects FROM [gh-fieldvisit-uat-migrate]",
+        "REVOKE UPDATE ON OBJECT::dbo.VisitTypes FROM [gh-fieldvisit-uat-migrate]",
         "REVOKE UPDATE ON OBJECT::dbo.MileageRateRules FROM [gh-fieldvisit-uat-migrate]",
         "REVOKE INSERT ON SCHEMA::dbo FROM [gh-fieldvisit-uat-migrate]",
         "ALTER ROLE db_ddladmin DROP MEMBER [gh-fieldvisit-uat-migrate]",
@@ -622,16 +630,20 @@ def validate_stage_005_permission_tooling() -> None:
     require("SchemaVersions" not in revoke,
             "005 revoke: revoke must remain independently usable without a SchemaVersion gate")
 
-    require(
-        "object_name(p.major_id)=n'mileageraterules'" in verify_compact,
-        "005 verify: explicit permission allowlist must name only MileageRateRules UPDATE",
+    explicit_update_allowlist_matches = re.findall(
+        r"object_name\(p\.major_id\)in\(([^)]+)\)andp\.permission_name=n'update'",
+        verify_compact,
     )
-    require("object_name(p.major_id)=n'projects'" not in verify_compact,
-            "005 verify: Projects UPDATE must not be explicitly allowed")
-    require("object_name(p.major_id)=n'visittypes'" not in verify_compact,
-            "005 verify: VisitTypes UPDATE must not be explicitly allowed")
-    require("object_name(p.major_id)=n'mileageraterules'" not in revoke_compact,
-            "005 revoke: CONNECT-only baseline check must not allow MileageRateRules UPDATE")
+    require(len(explicit_update_allowlist_matches) == 1,
+            "005 verify: exact explicit UPDATE allowlist is missing or duplicated")
+    explicit_update_allowlist = set(
+        re.findall(r"n'([^']+)'", explicit_update_allowlist_matches[0])
+    )
+    require(explicit_update_allowlist == {"projects", "visittypes", "mileageraterules"},
+            "005 verify: explicit UPDATE allowlist is not exact")
+    for object_name in ("projects", "visittypes", "mileageraterules"):
+        require(f"object_name(p.major_id)=n'{object_name}'" not in revoke_compact,
+                f"005 revoke: CONNECT-only baseline check must not allow {object_name} UPDATE")
 
     required_update_matches = re.findall(
         r"has_perms_by_name\(n'dbo\.([^']+)',n'object',n'update'\)<>1",
@@ -649,8 +661,11 @@ def validate_stage_005_permission_tooling() -> None:
         r"has_perms_by_name\(n'dbo\.([^']+)',n'object',n'references'\)<>1",
         workflow_compact,
     )
-    require(len(required_update_matches) == 1 and set(required_update_matches) == {"mileageraterules"},
-            "005 workflow: required UPDATE set must be exactly {MileageRateRules}")
+    require(
+        len(required_update_matches) == 3
+        and set(required_update_matches) == {"projects", "visittypes", "mileageraterules"},
+        "005 workflow: required UPDATE set must be exactly {Projects, VisitTypes, MileageRateRules}",
+    )
     require(
         len(forbidden_update_matches) == len(STAGE_005_FORBIDDEN_UPDATE_OBJECTS)
         and set(forbidden_update_matches) == {name.lower() for name in STAGE_005_FORBIDDEN_UPDATE_OBJECTS},
@@ -758,12 +773,18 @@ def validate_stage_005_permission_tooling() -> None:
     governance = GOVERNANCE.read_text(encoding="utf-8")
     governance_flat = re.sub(r"\s+", " ", governance)
     require(
-        governance.count("| 1800_005 | `dbo.MileageRateRules` only |") == 1,
+        governance.count("| 1800_005 | `dbo.Projects`, `dbo.VisitTypes`, `dbo.MileageRateRules` |") == 1,
         "005 governance: exact temporary UPDATE row missing or duplicated",
     )
     require(
-        "No `UPDATE` permission is permitted on `dbo.Projects` or `dbo.VisitTypes`" in governance_flat,
-        "005 governance: Projects/VisitTypes UPDATE prohibition missing",
+        "No `UPDATE` permission is permitted on `dbo.Organizations`, `dbo.Teams`, `dbo.UserIdentityProfiles`, `dbo.Locations`, or `dbo.DeploymentSiteLocationAssignments`"
+        in governance_flat,
+        "005 governance: exact forbidden UPDATE statement missing",
+    )
+    require(
+        "RUN_ID=35745343788 exposed the previous permission-model defect and MUST NOT be rerun."
+        in governance_flat,
+        "005 governance: failed-run prohibition missing",
     )
     require(
         "The Grant and Revoke scripts are independent approved actions outside the migration workflow" in governance_flat,
