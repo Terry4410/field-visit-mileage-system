@@ -110,7 +110,7 @@ async function login(
   }
 
   await expect(page.locator(".topbar h1")).toHaveText(homeTitle);
-  await expect(page.locator(".sidebar-footer")).toContainText("UAT Pilot");
+  await expect(page.locator(".sidebar-footer")).toContainText("UAT Candidate v1.8.0");
 }
 
 test("API health endpoint is healthy", async ({ request }) => {
