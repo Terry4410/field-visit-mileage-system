@@ -1525,6 +1525,25 @@ def validate_stage_007_permission_tooling() -> None:
         final_name,
     }
 
+    preflight = step_run(preflight_name)
+    preflight_compact = compact_sql(preflight)
+    delete_gate_pattern = (
+        r"ifisnull\(has_perms_by_name\(db_name\(\),n'database',n'delete'\),1\)<>0"
+        r"orisnull\(has_perms_by_name\(n'dbo',n'schema',n'delete'\),1\)<>0"
+        r"throw55012,n'forbiddeneffectivedeletecapabilityremains\.',1;"
+    )
+    require(
+        len(re.findall(delete_gate_pattern, preflight_compact)) == 1,
+        "007 workflow: exact fail-closed DATABASE and dbo schema DELETE gate is missing or weakened",
+    )
+
+    for role in ("db_datawriter", "db_owner", "db_securityadmin"):
+        role_gate_pattern = rf"isnull\(is_rolemember\(n'{role}'\),0\)=1"
+        require(
+            len(re.findall(role_gate_pattern, preflight_compact)) == 1,
+            f"007 workflow: fail-closed forbidden-role semantic gate missing or weakened: {role}",
+        )
+
     warmup_step = exact_step(warmup_name)
     require(warmup_step.get("shell") == "pwsh", "007 workflow: warm-up shell must be exactly pwsh")
     warmup = validate_timeout_profile(warmup_name, 60, 60)

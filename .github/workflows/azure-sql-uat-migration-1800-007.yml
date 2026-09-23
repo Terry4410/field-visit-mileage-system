@@ -262,6 +262,9 @@ jobs:
              OR HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'UPDATE')<>0
              OR HAS_PERMS_BY_NAME(N'dbo.Employments',N'OBJECT',N'UPDATE')<>0
               THROW 55011,N'Forbidden prior-stage UPDATE capability remains effective.',1;
+          IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'DELETE'),1)<>0
+             OR ISNULL(HAS_PERMS_BY_NAME(N'dbo',N'SCHEMA',N'DELETE'),1)<>0
+              THROW 55012,N'Forbidden effective DELETE capability remains.',1;
           IF OBJECT_ID(N'dbo.VisitTrips',N'U') IS NULL OR OBJECT_ID(N'dbo.VisitTripSnapshots',N'U') IS NULL
               THROW 55010,N'Historical fingerprint tables missing.',1;
           SELECT
