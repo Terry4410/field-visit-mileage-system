@@ -185,6 +185,32 @@ baseline. The immutable Stage 006 SQL locks, eight-marker clean-state gate,
 recovery governance, single-stage execution boundary, no-automatic-rerun rule,
 and terminal `STOP_FOR_REVIEW` remain unchanged.
 
+For 1800_007, the reviewed temporary permission model is exactly membership in
+`db_ddladmin`, `INSERT ON SCHEMA::dbo`, and
+`UPDATE ON OBJECT::dbo.MileageCalculations`. The `UPDATE` permission is required
+only because `ManualFallbackUsed` is a `NOT NULL` defaulted column materialized
+on existing rows with `WITH VALUES`. No `UPDATE` permission is permitted on
+`dbo.Organizations`, `dbo.Teams`, `dbo.UserIdentityProfiles`, `dbo.Locations`,
+`dbo.DeploymentSiteLocationAssignments`, `dbo.Projects`, `dbo.VisitTypes`,
+`dbo.MileageRateRules`, or `dbo.Employments`; `DELETE`, `db_datawriter`,
+`db_owner`, and `db_securityadmin` remain forbidden. The permission gate
+requires effective `ALTER` on `dbo.Locations`, `dbo.MileageCalculations`, and
+`dbo.VisitTripSnapshots`, and effective `REFERENCES` on `dbo.Locations`,
+`dbo.Users`, `dbo.VisitTrips`, and `dbo.VisitTripSnapshots`. All prior-stage
+UPDATE surfaces must remain zero.
+
+The Stage 007 Grant and Revoke scripts are independent approved actions outside
+the migration workflow. Revoke must remain usable after either migration
+success or failure and restore the `db_datareader` and `CONNECT`-only baseline.
+The Stage 007 workflow uses one exact read-only primary connectivity warm-up,
+three attempts with a five-second backoff and a final throw, a fresh masked
+Azure SQL token for every attempt and SQL step, `ConnectionTimeout 60`
+everywhere, and the frozen `QueryTimeout` matrix `60/60/600/600/600/60` for
+warm-up/preflight/Up/Verify/historical/final respectively. `ApplicationIntent`
+is forbidden. The immutable Stage 007 SQL locks, 29-marker clean-state gate,
+recovery governance, single-stage execution boundary, no-automatic-rerun rule,
+and terminal `STOP_FOR_REVIEW` remain unchanged.
+
 ## Execution invariants
 
 Each workflow enforces all of the following:
