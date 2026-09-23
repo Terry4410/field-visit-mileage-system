@@ -167,6 +167,24 @@ rerun. Migration SQL remains immutable. The immutable Stage 005 SQL locks,
 recovery governance, single-stage execution boundary, no-automatic-rerun rule,
 and terminal `STOP_FOR_REVIEW` remain unchanged.
 
+For 1800_006, the reviewed temporary permission model is exactly membership in
+`db_ddladmin`, `INSERT ON SCHEMA::dbo`, and
+`UPDATE ON OBJECT::dbo.Employments`. The `UPDATE` permission is required only
+because `OptionalEmailNotificationEnabled` is a `NOT NULL` defaulted column
+materialized on existing rows with `WITH VALUES`. No `UPDATE` permission is
+permitted on `dbo.Organizations`, `dbo.Teams`, `dbo.UserIdentityProfiles`,
+`dbo.Locations`, `dbo.DeploymentSiteLocationAssignments`, `dbo.Projects`,
+`dbo.VisitTypes`, or `dbo.MileageRateRules`; `DELETE`, `db_datawriter`,
+`db_owner`, and `db_securityadmin` remain forbidden. The permission gate
+requires effective `ALTER` on `dbo.Employments` and effective `REFERENCES` on
+`dbo.Users` and `dbo.Employments`. All prior-stage UPDATE surfaces must remain
+zero. The Stage 006 Grant and Revoke scripts are independent approved actions
+outside the migration workflow, and Revoke must be usable after either
+migration success or failure to restore the `db_datareader` and `CONNECT`-only
+baseline. The immutable Stage 006 SQL locks, eight-marker clean-state gate,
+recovery governance, single-stage execution boundary, no-automatic-rerun rule,
+and terminal `STOP_FOR_REVIEW` remain unchanged.
+
 ## Execution invariants
 
 Each workflow enforces all of the following:
