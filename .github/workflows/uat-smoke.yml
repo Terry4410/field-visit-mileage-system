@@ -64,11 +64,12 @@ jobs:
   smoke:
     name: Playwright UAT checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     env:
       UAT_BASE_URL: ${{ inputs.base_url || 'https://terry4410.github.io/field-visit-mileage-system/' }}
       UAT_API_BASE_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net
       UAT_API_HEALTH_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health
+      UAT_API_READY_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health/ready
       UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
 
     steps:
@@ -87,6 +88,46 @@ jobs:
       - name: Install Chromium
         working-directory: uat
         run: npx playwright install --with-deps chromium
+
+      - name: Wait for API readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          consecutive=0
+          for attempt in $(seq 1 18); do
+            body="$(curl --silent --show-error --fail --max-time 15 "$UAT_API_READY_URL" || true)"
+
+            if printf '%s' "$body" | python3 -c '
+          import json
+          import sys
+
+          try:
+              data = json.load(sys.stdin)
+          except Exception:
+              sys.exit(1)
+
+          sys.exit(0 if data.get("status") == "ready" else 1)
+          '
+            then
+              consecutive=$((consecutive + 1))
+              echo "API readiness PASS ($consecutive/2)"
+            else
+              consecutive=0
+              echo "API readiness not ready — attempt $attempt/18"
+            fi
+
+            if [ "$consecutive" -ge 2 ]; then
+              echo "API readiness stabilized."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 18 ]; then
+              sleep 10
+            fi
+          done
+
+          echo "API readiness did not stabilize within retry window." >&2
+          exit 1
 
       - name: Run Phase 1 non-destructive smoke
         working-directory: uat
