@@ -6,10 +6,10 @@ namespace FieldVisit.Application.Tests;
 public sealed class UatAutomationSafetyTests
 {
     [Theory]
-    [InlineData("Demo", "1.7.2-uat-candidate", true)]
+    [InlineData("Demo", "1.8.0-uat-candidate", true)]
     [InlineData("demo", "2.0.0-UAT-CANDIDATE", true)]
-    [InlineData("Entra", "1.7.2-uat-candidate", false)]
-    [InlineData("Demo", "1.7.2", false)]
+    [InlineData("Entra", "1.8.0-uat-candidate", false)]
+    [InlineData("Demo", "1.8.0", false)]
     [InlineData("Demo", "", false)]
     public void Environment_gate_requires_demo_and_uat_candidate(
         string authMode,
