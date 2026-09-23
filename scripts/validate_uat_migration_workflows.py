@@ -890,6 +890,58 @@ def validate_stage_006_permission_tooling() -> None:
     verify_compact = compact_sql(verify)
     revoke_compact = compact_sql(revoke)
 
+    expected_explicit_permission_allowlists = {
+        "grant": {"connect"},
+        "verify": {"connect", "insert", "update"},
+        "revoke": {"connect"},
+    }
+    for kind, source in scripts.items():
+        explicit_permission_allowlist = re.findall(
+            r"p\.permission_name\s*=\s*N'([^']+)'", source, re.IGNORECASE
+        )
+        require(
+            len(explicit_permission_allowlist)
+            == len(expected_explicit_permission_allowlists[kind])
+            and {permission.lower() for permission in explicit_permission_allowlist}
+            == expected_explicit_permission_allowlists[kind],
+            f"006 {kind}: explicit permission allowlist is not exact or permits DELETE",
+        )
+        require(
+            re.search(r"\bGRANT\s+DELETE\b", source, re.IGNORECASE) is None,
+            f"006 {kind}: DELETE permission grant is forbidden",
+        )
+
+    broad_roles = ("db_datawriter", "db_owner", "db_securityadmin")
+    broad_role_absence_operators = {
+        "grant": r"=\s*1",
+        "verify": r"<>\s*0",
+        "revoke": r"<>\s*0",
+    }
+    for kind, source in scripts.items():
+        for role in broad_roles:
+            pattern = (
+                rf"ISNULL\(IS_ROLEMEMBER\(N'{role}',\s*"
+                rf"N'gh-fieldvisit-uat-migrate'\),\s*0\)\s*"
+                rf"{broad_role_absence_operators[kind]}"
+            )
+            require(
+                len(re.findall(pattern, source, re.IGNORECASE)) == 1,
+                f"006 {kind}: fail-closed {role}=NO gate missing or duplicated",
+            )
+
+    role_additions = {
+        kind: re.findall(
+            r"ALTER\s+ROLE\s+([A-Za-z0-9_]+)\s+ADD\s+MEMBER",
+            source,
+            re.IGNORECASE,
+        )
+        for kind, source in scripts.items()
+    }
+    require(role_additions["grant"] == ["db_ddladmin"],
+            "006 grant: db_ddladmin must be the only role addition")
+    require(not role_additions["verify"] and not role_additions["revoke"],
+            "006 verify/revoke: role additions are forbidden")
+
     require(len(STAGE_006_PARTIAL_MARKERS) == 8,
             "006 validator: frozen partial-state marker count must be exactly 8")
     for marker in STAGE_006_PARTIAL_MARKERS:
@@ -1158,8 +1210,8 @@ def validate_stage_006_permission_tooling() -> None:
     )
 
     print(
-        "PASS 1800_006 permission-tooling+8-markers+Employments-only-UPDATE+"
-        "step-bound-connectivity+immutable-hashes"
+        "PASS 1800_006 permission-tooling+no-DELETE+broad-role-gates+8-markers+"
+        "Employments-only-UPDATE+step-bound-connectivity+immutable-hashes"
     )
 
 
