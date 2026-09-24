@@ -241,17 +241,31 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
     throw new Error("UAT_DEMO_PASSWORD is required for Phase 2 lifecycle UAT.");
   }
 
-  const visitor = await login(request, "visitor01");
-  const leader = await login(request, "leader01");
-  const admin = await login(request, "admin01");
-  const supervisor = await login(request, "gov01");
+  const visitor = await login(request, "pilotv01");
+  const leader = await login(request, "pilotl01");
+  const admin = await login(request, "pilota01");
+  const supervisor = await login(request, "pilots02");
 
+  const visitorScopes = visitor.user.teamScopes ?? [];
   const visitorTeamId =
-    visitor.user.teamScopes?.find(x => x.isPrimary)?.teamId ??
-    visitor.user.teamId;
+    visitorScopes.find(x => x.isPrimary)?.teamId ??
+    (visitorScopes.length === 0 ? visitor.user.teamId : null);
 
   if (!visitorTeamId) {
-    throw new Error("visitor01 has no primary/active team for lifecycle UAT.");
+    throw new Error("pilotv01 has no active/primary team for lifecycle UAT.");
+  }
+
+  const leaderTeamIds =
+    leader.user.teamScopes && leader.user.teamScopes.length > 0
+      ? leader.user.teamScopes.map(x => x.teamId)
+      : leader.user.teamId
+        ? [leader.user.teamId]
+        : [];
+
+  if (!leaderTeamIds.includes(visitorTeamId)) {
+    throw new Error(
+      `pilotl01 is not authorized for visitor team ${visitorTeamId}; refusing Phase 2 write flow.`
+    );
   }
 
   const locationsResponse = await request.get(
@@ -269,7 +283,7 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
 
   expect(
     usableLocations.length,
-    "Phase 2 requires at least two approved active locations in visitor01 scope."
+    "Phase 2 requires at least two approved active locations in pilotv01 scope."
   ).toBeGreaterThanOrEqual(2);
 
   const ratesResponse = await request.get(
