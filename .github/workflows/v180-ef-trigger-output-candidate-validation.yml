@@ -1,0 +1,57 @@
+name: v1.8.0 EF trigger OUTPUT candidate validation
+
+on:
+  push:
+    branches:
+      - work/v180-ef-trigger-output-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact backend candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 1819454baebed147872b05db1c7bf7a1ee9aa5d6
+          fetch-depth: 0
+
+      - name: Verify exact candidate SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          expected="1819454baebed147872b05db1c7bf7a1ee9aa5d6"
+          echo "CHECKED_OUT_SHA=$actual"
+          echo "EXPECTED_CANDIDATE_SHA=$expected"
+          test "$actual" = "$expected"
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Record .NET version
+        run: dotnet --version
+
+      - name: Install CJK font required by backend PDF tests
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+
+      - name: Backend build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+
+      - name: Focused EF trigger compatibility test
+        run: >
+          dotnet test
+          backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj
+          -c Release
+          --filter "FullyQualifiedName~V180SqlServerTriggerCompatibilityTests"
+
+      - name: Full backend regression suite
+        run: >
+          dotnet test
+          backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj
+          -c Release
