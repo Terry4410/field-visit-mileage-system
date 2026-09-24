@@ -56,7 +56,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<Location>(e =>
         {
-            e.ToTable("Locations"); e.HasKey(x => x.LocationId); e.Property(x => x.LocationId).ValueGeneratedOnAdd();
+            e.ToTable("Locations", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.LocationId); e.Property(x => x.LocationId).ValueGeneratedOnAdd();
             e.Property(x => x.Latitude).HasPrecision(10, 7); e.Property(x => x.Longitude).HasPrecision(10, 7);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
         });
@@ -77,11 +77,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<MileageCalculation>(e =>
         {
-            e.ToTable("MileageCalculations"); e.HasKey(x => x.MileageCalculationId); e.Property(x => x.MileageCalculationId).ValueGeneratedOnAdd();
+            e.ToTable("MileageCalculations", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.MileageCalculationId); e.Property(x => x.MileageCalculationId).ValueGeneratedOnAdd();
             e.Property(x => x.SystemDistanceKm).HasPrecision(10,2); e.Property(x => x.ClaimedDistanceKm).HasPrecision(10,2); e.Property(x => x.ApprovedDistanceKm).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2); e.Property(x => x.ClaimedAmount).HasPrecision(12,2); e.Property(x => x.ApprovedAmount).HasPrecision(12,2);
         });
-        b.Entity<MileageRateRule>(e => { e.ToTable("MileageRateRules"); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd(); e.Property(x => x.RatePerKm).HasPrecision(10,2); });
+        b.Entity<MileageRateRule>(e => { e.ToTable("MileageRateRules", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd(); e.Property(x => x.RatePerKm).HasPrecision(10,2); });
         b.Entity<ApprovalRecord>(e => { e.ToTable("ApprovalRecords"); e.HasKey(x => x.ApprovalRecordId); e.Property(x => x.ApprovalRecordId).ValueGeneratedOnAdd(); });
         b.Entity<VisitTripStatusHistory>(e => { e.ToTable("VisitTripStatusHistory"); e.HasKey(x => x.VisitTripStatusHistoryId); e.Property(x => x.VisitTripStatusHistoryId).ValueGeneratedOnAdd(); });
         b.Entity<AuditLog>(e => { e.ToTable("AuditLogs"); e.HasKey(x => x.AuditLogId); e.Property(x => x.AuditLogId).ValueGeneratedOnAdd(); });
@@ -93,7 +93,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
         b.Entity<VisitTripSnapshot>(e =>
         {
-            e.ToTable("VisitTripSnapshots"); e.HasKey(x => x.VisitTripSnapshotId); e.Property(x => x.VisitTripSnapshotId).ValueGeneratedOnAdd();
+            e.ToTable("VisitTripSnapshots", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.VisitTripSnapshotId); e.Property(x => x.VisitTripSnapshotId).ValueGeneratedOnAdd();
             e.HasIndex(x => new { x.VisitTripId, x.SnapshotVersion }).IsUnique();
             e.Property(x => x.ClaimedDistanceKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.SystemDistanceKmSnapshot).HasPrecision(10,2);
