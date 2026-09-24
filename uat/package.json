@@ -7,7 +7,8 @@
     "test": "playwright test",
     "test:epic-a": "playwright test tests/epic-a-query-ux.spec.ts",
     "test:smoke": "playwright test tests/smoke.spec.ts",
-    "test:lifecycle": "playwright test tests/trip-lifecycle.spec.ts"
+    "test:internal-uat": "playwright test tests/trip-lifecycle.spec.ts tests/business-dry-run.spec.ts",
+    "test:lifecycle": "playwright test tests/trip-lifecycle.spec.ts tests/business-dry-run.spec.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"
