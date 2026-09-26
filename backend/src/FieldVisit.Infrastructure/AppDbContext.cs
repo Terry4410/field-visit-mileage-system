@@ -26,6 +26,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserTeamScope> UserTeamScopes => Set<UserTeamScope>();
     public DbSet<VisitTripSnapshot> VisitTripSnapshots => Set<VisitTripSnapshot>();
     public DbSet<VisitTripSnapshotStop> VisitTripSnapshotStops => Set<VisitTripSnapshotStop>();
+    public DbSet<GeocodingAttempt> GeocodingAttempts => Set<GeocodingAttempt>();
+    public DbSet<RouteCalculationAttempt> RouteCalculationAttempts => Set<RouteCalculationAttempt>();
+    public DbSet<MileageGovernanceEvent> MileageGovernanceEvents => Set<MileageGovernanceEvent>();
     public DbSet<CorrectionRequest> CorrectionRequests => Set<CorrectionRequest>();
     public DbSet<CorrectionRequestChange> CorrectionRequestChanges => Set<CorrectionRequestChange>();
     public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
@@ -59,6 +62,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.ToTable("Locations", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.LocationId); e.Property(x => x.LocationId).ValueGeneratedOnAdd();
             e.Property(x => x.Latitude).HasPrecision(10, 7); e.Property(x => x.Longitude).HasPrecision(10, 7);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => x.SelectedGeocodingAttemptId).HasDatabaseName("IX_Locations_SelectedGeocodingAttempt")
+                .HasFilter("[SelectedGeocodingAttemptId] IS NOT NULL");
+            e.HasOne<GeocodingAttempt>().WithMany().HasForeignKey(x => x.SelectedGeocodingAttemptId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<LocationApprovalHistory>(e => { e.ToTable("LocationApprovalHistory"); e.HasKey(x => x.LocationApprovalHistoryId); e.Property(x => x.LocationApprovalHistoryId).ValueGeneratedOnAdd(); });
 
@@ -80,6 +86,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.ToTable("MileageCalculations", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.MileageCalculationId); e.Property(x => x.MileageCalculationId).ValueGeneratedOnAdd();
             e.Property(x => x.SystemDistanceKm).HasPrecision(10,2); e.Property(x => x.ClaimedDistanceKm).HasPrecision(10,2); e.Property(x => x.ApprovedDistanceKm).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2); e.Property(x => x.ClaimedAmount).HasPrecision(12,2); e.Property(x => x.ApprovedAmount).HasPrecision(12,2);
+            e.Property(x => x.ApprovalBasisHash).HasColumnType("varbinary(32)");
+            e.Property(x => x.DistanceApprovedAt).HasPrecision(3); e.Property(x => x.InvalidatedAt).HasPrecision(3);
+            e.Property(x => x.DistanceDecisionGovernanceVersion).HasMaxLength(20);
+            e.Property(x => x.ApprovedDistanceSource).HasMaxLength(30); e.Property(x => x.ApprovalBasisCode).HasMaxLength(80);
+            e.Property(x => x.InvalidationReason).HasMaxLength(100);
+            e.HasOne<RouteCalculationAttempt>().WithMany().HasForeignKey(x => x.SelectedRouteCalculationAttemptId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.DistanceApprovedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.InvalidatedByUserId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<MileageRateRule>(e => { e.ToTable("MileageRateRules", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd(); e.Property(x => x.RatePerKm).HasPrecision(10,2); });
         b.Entity<ApprovalRecord>(e => { e.ToTable("ApprovalRecords"); e.HasKey(x => x.ApprovalRecordId); e.Property(x => x.ApprovalRecordId).ValueGeneratedOnAdd(); });
@@ -100,6 +114,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.ApprovedDistanceKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.SubsidyAmountSnapshot).HasPrecision(12,2);
+            e.Property(x => x.RouteTravelModeSnapshot).HasMaxLength(20);
+            e.Property(x => x.RouteCalculatedAtSnapshot).HasPrecision(3);
+            e.Property(x => x.RouteCalculationStatusSnapshot).HasMaxLength(20);
+            e.Property(x => x.RouteErrorCodeSnapshot).HasMaxLength(100);
+            e.Property(x => x.ApprovedDistanceSourceSnapshot).HasMaxLength(30);
+            e.Property(x => x.ApprovalBasisCodeSnapshot).HasMaxLength(80);
+            e.Property(x => x.ApprovalBasisHashSnapshot).HasColumnType("varbinary(32)");
+            e.Property(x => x.DistanceApprovedAtSnapshot).HasPrecision(3);
+            e.HasOne<RouteCalculationAttempt>().WithMany().HasForeignKey(x => x.MileageRouteAttemptIdSnapshot).OnDelete(DeleteBehavior.NoAction);
             e.HasMany(x => x.Stops).WithOne(x => x.Snapshot).HasForeignKey(x => x.VisitTripSnapshotId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<VisitTripSnapshotStop>(e =>
@@ -271,5 +294,50 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 .HasForeignKey(x => x.LocationId)
                 .OnDelete(DeleteBehavior.NoAction);
         });
+        // v1.8.0-007 mileage / Google governance model alignment.
+        // Migration 1800_007 remains the schema authority; this package
+        // exposes only the frozen audit/evidence model and no runtime flow.
+        b.Entity<GeocodingAttempt>(e =>
+        {
+            e.ToTable("GeocodingAttempts"); e.HasKey(x => x.GeocodingAttemptId); e.Property(x => x.GeocodingAttemptId).ValueGeneratedOnAdd();
+            e.Property(x => x.Provider).HasMaxLength(80); e.Property(x => x.AddressBasisHash).HasColumnType("varbinary(32)");
+            e.Property(x => x.Status).HasMaxLength(20); e.Property(x => x.ErrorCode).HasMaxLength(100); e.Property(x => x.ErrorMessage).HasMaxLength(1000);
+            e.Property(x => x.RequestedAt).HasPrecision(3); e.Property(x => x.CompletedAt).HasPrecision(3);
+            e.HasIndex(x => new { x.LocationId, x.RequestedAt }).HasDatabaseName("IX_GeocodingAttempts_Location_Requested")
+                .IncludeProperties(x => new { x.Status, x.Provider, x.ErrorCode, x.CorrelationId });
+            e.HasIndex(x => x.CorrelationId).IsUnique().HasDatabaseName("UQ_GeocodingAttempts_Correlation");
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<RouteCalculationAttempt>(e =>
+        {
+            e.ToTable("RouteCalculationAttempts", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.RouteCalculationAttemptId); e.Property(x => x.RouteCalculationAttemptId).ValueGeneratedOnAdd();
+            e.Property(x => x.BasisType).HasMaxLength(30); e.Property(x => x.CalculationReason).HasMaxLength(30);
+            e.Property(x => x.RequestedVehicleType).HasMaxLength(20); e.Property(x => x.TravelMode).HasMaxLength(20); e.Property(x => x.Provider).HasMaxLength(80);
+            e.Property(x => x.RequestBasisHash).HasColumnType("varbinary(32)"); e.Property(x => x.Status).HasMaxLength(20);
+            e.Property(x => x.ErrorCode).HasMaxLength(100); e.Property(x => x.ErrorMessage).HasMaxLength(1000);
+            e.Property(x => x.RequestedAt).HasPrecision(3); e.Property(x => x.CompletedAt).HasPrecision(3);
+            e.HasIndex(x => new { x.VisitTripId, x.RequestedAt }).HasDatabaseName("IX_RouteCalculationAttempts_Trip_Requested")
+                .IncludeProperties(x => new { x.Status, x.Provider, x.CalculationReason, x.BasisVisitTripSnapshotId, x.CorrelationId });
+            e.HasIndex(x => x.BasisVisitTripSnapshotId).HasDatabaseName("IX_RouteCalculationAttempts_BasisSnapshot")
+                .HasFilter("[BasisVisitTripSnapshotId] IS NOT NULL");
+            e.HasIndex(x => x.CorrelationId).IsUnique().HasDatabaseName("UQ_RouteCalculationAttempts_Correlation");
+            e.HasOne<VisitTrip>().WithMany().HasForeignKey(x => x.VisitTripId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<VisitTripSnapshot>().WithMany().HasForeignKey(x => x.BasisVisitTripSnapshotId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<MileageGovernanceEvent>(e =>
+        {
+            e.ToTable("MileageGovernanceEvents"); e.HasKey(x => x.MileageGovernanceEventId); e.Property(x => x.MileageGovernanceEventId).ValueGeneratedOnAdd();
+            e.Property(x => x.EventType).HasMaxLength(40); e.Property(x => x.ReasonCode).HasMaxLength(100); e.Property(x => x.Message).HasMaxLength(1000);
+            e.Property(x => x.OccurredAt).HasPrecision(3);
+            e.HasIndex(x => new { x.VisitTripId, x.OccurredAt }).HasDatabaseName("IX_MileageGovernanceEvents_Trip_Occurred");
+            e.HasIndex(x => x.CorrelationId).HasDatabaseName("IX_MileageGovernanceEvents_Correlation");
+            e.HasOne<VisitTrip>().WithMany().HasForeignKey(x => x.VisitTripId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<VisitTripSnapshot>().WithMany().HasForeignKey(x => x.VisitTripSnapshotId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<RouteCalculationAttempt>().WithMany().HasForeignKey(x => x.RouteCalculationAttemptId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+
     }
 }

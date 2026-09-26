@@ -38,8 +38,7 @@ public sealed class V180SqlServerTriggerCompatibilityTests
                 tableName,
                 entityType.GetSchema());
 
-        return entityType.IsSqlOutputClauseUsed(
-            storeObject);
+        return entityType.IsSqlOutputClauseUsed(storeObject);
     }
 
     [Theory]
@@ -47,6 +46,7 @@ public sealed class V180SqlServerTriggerCompatibilityTests
     [InlineData(typeof(MileageCalculation))]
     [InlineData(typeof(MileageRateRule))]
     [InlineData(typeof(VisitTripSnapshot))]
+    [InlineData(typeof(RouteCalculationAttempt))]
     public void Trigger_backed_tables_disable_sql_output(
         Type entityClrType)
     {
@@ -58,14 +58,17 @@ public sealed class V180SqlServerTriggerCompatibilityTests
                 entityClrType));
     }
 
-    [Fact]
-    public void Projects_remains_on_default_sql_output_behavior()
+    [Theory]
+    [InlineData(typeof(Project))]
+    [InlineData(typeof(GeocodingAttempt))]
+    public void Non_trigger_controls_keep_default_sql_output(
+        Type entityClrType)
     {
         using var db = CreateSqlServerModelContext();
 
         Assert.True(
             IsSqlOutputClauseUsed(
                 db,
-                typeof(Project)));
+                entityClrType));
     }
 }

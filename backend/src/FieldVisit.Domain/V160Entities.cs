@@ -44,6 +44,16 @@ public sealed class VisitTripSnapshot
     public string? NotesSnapshot { get; set; }
     public DateTime CreatedAt { get; set; }
     public int? CreatedByUserId { get; set; }
+    public long? MileageRouteAttemptIdSnapshot { get; set; }
+    public string? RouteTravelModeSnapshot { get; set; }
+    public DateTime? RouteCalculatedAtSnapshot { get; set; }
+    public string? RouteCalculationStatusSnapshot { get; set; }
+    public string? RouteErrorCodeSnapshot { get; set; }
+    public Guid? RouteCorrelationIdSnapshot { get; set; }
+    public string? ApprovedDistanceSourceSnapshot { get; set; }
+    public string? ApprovalBasisCodeSnapshot { get; set; }
+    public byte[]? ApprovalBasisHashSnapshot { get; set; }
+    public DateTime? DistanceApprovedAtSnapshot { get; set; }
     public List<VisitTripSnapshotStop> Stops { get; set; } = [];
 }
 

@@ -76,6 +76,7 @@ public sealed class Location
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public long? SelectedGeocodingAttemptId { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }
 
@@ -204,6 +205,17 @@ public sealed class MileageCalculation
     public DateTime? CalculatedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public long? SelectedRouteCalculationAttemptId { get; set; }
+    public bool ManualFallbackUsed { get; set; }
+    public string? DistanceDecisionGovernanceVersion { get; set; }
+    public string? ApprovedDistanceSource { get; set; }
+    public string? ApprovalBasisCode { get; set; }
+    public byte[]? ApprovalBasisHash { get; set; }
+    public DateTime? DistanceApprovedAt { get; set; }
+    public int? DistanceApprovedByUserId { get; set; }
+    public DateTime? InvalidatedAt { get; set; }
+    public int? InvalidatedByUserId { get; set; }
+    public string? InvalidationReason { get; set; }
     public VisitTrip VisitTrip { get; set; } = null!;
 }
 
