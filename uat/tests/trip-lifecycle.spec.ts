@@ -137,10 +137,10 @@ function laterDate(a: string, b: string): string {
 async function chooseFreeRatedSlot(
   request: APIRequestContext,
   visitorToken: string,
+  visitorTeamId: number,
   rates: MileageRateDto[]
 ): Promise<{ visitDate: string; startTime: string; endTime: string }> {
   const today = taipeiToday();
-  const preferredStart = addDays(today, 14);
   const activeRates = rates
     .filter(
       x =>
@@ -159,16 +159,35 @@ async function chooseFreeRatedSlot(
     ["15:10:00", "15:40:00"]
   ] as const;
 
+  let latestValidationCode: string | null = null;
+  let latestValidationMessage: string | null = null;
+
   for (const rate of activeRates) {
-    const preferredForRate = laterDate(preferredStart, rate.effectiveFrom);
-    const firstDate =
-      rate.effectiveTo && preferredForRate > rate.effectiveTo
-        ? laterDate(today, rate.effectiveFrom)
-        : preferredForRate;
+    const firstDate = laterDate(today, rate.effectiveFrom);
 
     for (let dayOffset = 0; dayOffset < 45; dayOffset++) {
       const visitDate = addDays(firstDate, dayOffset);
       if (rate.effectiveTo && visitDate > rate.effectiveTo) break;
+
+      const contextResponse = await request.get(
+        `${apiBaseUrl}/api/v1/trips/context?visitDate=${encodeURIComponent(visitDate)}&teamId=${visitorTeamId}`,
+        { headers: authHeaders(visitorToken, "visitor") }
+      );
+      await ensureOk(contextResponse, "trip context");
+      const context = await contextResponse.json();
+
+      latestValidationCode = context.validationCode ?? null;
+      latestValidationMessage = context.validationMessage ?? null;
+
+      const contextEligible =
+        context.eligibleForTrip === true &&
+        context.selectedTeamId === visitorTeamId &&
+        Array.isArray(context.eligibleDeploymentSites) &&
+        context.eligibleDeploymentSites.length > 0 &&
+        context.defaultStartDeploymentSiteId != null &&
+        context.defaultEndDeploymentSiteId != null;
+
+      if (!contextEligible) continue;
 
       for (const [startTime, endTime] of slots) {
         const overlap = await request.post(
@@ -191,7 +210,7 @@ async function chooseFreeRatedSlot(
   }
 
   throw new Error(
-    "No active Motorcycle mileage-rate date with a free UAT time slot was found."
+    `NO_CONTEXT_ELIGIBLE_UAT_SLOT: No rate-valid, employment/team/site-valid and overlap-free UAT slot was found. latestValidationCode=${latestValidationCode ?? "N/A"} latestValidationMessage=${latestValidationMessage ?? "N/A"}`
   );
 }
 
@@ -295,6 +314,7 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
   const slot = await chooseFreeRatedSlot(
     request,
     visitor.accessToken,
+    visitorTeamId,
     rates
   );
 
