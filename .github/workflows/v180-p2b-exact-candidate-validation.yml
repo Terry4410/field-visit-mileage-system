@@ -1,0 +1,153 @@
+name: v1.8.0 P2B Exact Candidate Validation
+
+on:
+  push:
+    branches:
+      - work/v180-p2b-approval-correction-cleanup-runtime-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout exact P2B candidate
+        uses: actions/checkout@v4
+        with:
+          ref: dfaace82b9a7e6548db7419d8e62cf50703113be
+          fetch-depth: 0
+
+      - name: Verify exact candidate SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="dfaace82b9a7e6548db7419d8e62cf50703113be"
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_CANDIDATE_SHA=$expected"
+          echo "CHECKED_OUT_SHA=$actual"
+          test "$actual" = "$expected"
+
+      - name: Static P2B safety check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -RFn --fixed-strings 'calc.ApprovedDistanceKm = result.DistanceKm' backend/src; then
+            echo "Forbidden background ApprovedDistanceKm prewrite found."
+            exit 1
+          fi
+
+          grep -Fq 'EnsureLeaderApprovalState' backend/src/FieldVisit.Application/LeaderService.cs
+          grep -Fq 'TripStatuses.PendingApproval' backend/src/FieldVisit.Application/V180GoogleMileageContracts.cs
+          grep -Fq 'F_B_APPROVAL_EVIDENCE_REQUIRED' backend/src/FieldVisit.Application/V180GoogleMileageContracts.cs
+
+          if grep -RFn --fixed-strings 'unchangedLegacyPendingApproval' backend/src; then
+            echo "Legacy approval evidence bypass found."
+            exit 1
+          fi
+
+          grep -Fq 'F-CORRECTION-PROPOSAL-v1' backend/src/FieldVisit.Application/V180GoogleMileageContracts.cs
+
+          if grep -Fn --fixed-strings 'new RouteCalculationAttempt' backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs; then
+            echo "P2B correction path creates RouteCalculationAttempt."
+            exit 1
+          fi
+
+          migration_changes="$(git diff --name-only 371e1edcc70905719a379c7fd7f5042f2946f846...HEAD -- database/migrations)"
+          echo "MIGRATION_DIFF=${migration_changes:-NONE}"
+          test -z "$migration_changes"
+
+      - name: Setup .NET 8
+        id: setup_dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Pin exact .NET 8 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e global.json
+
+          sdk="${{ steps.setup_dotnet.outputs.dotnet-version }}"
+          echo "SETUP_DOTNET_OUTPUT_VERSION=$sdk"
+
+          if [[ ! "$sdk" =~ ^8\.0\.[0-9]+$ ]]; then
+            echo "Expected stable exact .NET 8 SDK, got: $sdk"
+            exit 1
+          fi
+
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$sdk",
+              "rollForward": "disable",
+              "allowPrerelease": false
+            }
+          }
+          EOF
+
+          echo "DOTNET_LIST_SDKS_BEGIN"
+          dotnet --list-sdks
+          echo "DOTNET_LIST_SDKS_END"
+          dotnet --info
+
+          actual="$(dotnet --version)"
+          echo "EFFECTIVE_DOTNET_VERSION=$actual"
+          test "$actual" = "$sdk"
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test -- --reporter=default
+
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Backend build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+
+      - name: Focused P2B tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj \
+            -c Release \
+            --filter "FullyQualifiedName~V180TripContextReaderTests|FullyQualifiedName~V180MileageApprovalGovernanceTests|FullyQualifiedName~V180CorrectionDecisionEvidenceTests|FullyQualifiedName~UatAutomationCleanupStage007Tests|FullyQualifiedName~UatAutomationSafetyTests|FullyQualifiedName~V180GoogleMileageCanonicalizationTests|FullyQualifiedName~V180GoogleMileageOrchestrationPrimitiveTests|FullyQualifiedName~V180Stage007ModelMappingTests|FullyQualifiedName~V180SqlServerTriggerCompatibilityTests"
+
+      - name: Full backend regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj \
+            -c Release | tee /tmp/p2b-full-regression.log
+          if grep -Eq 'Skipped:[[:space:]]+[1-9][0-9]*' /tmp/p2b-full-regression.log; then
+            echo "Unexpected skipped regression tests detected."
+            exit 1
+          fi
+
+      - name: Remove temporary SDK pin and verify clean worktree
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f global.json
+          test ! -e global.json
+          git diff --exit-code
+          git diff --cached --exit-code
+          actual="$(git rev-parse HEAD)"
+          echo "FINAL_CHECKED_OUT_SHA=$actual"
+          test "$actual" = "dfaace82b9a7e6548db7419d8e62cf50703113be"
