@@ -75,6 +75,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<VisitTrip>(e =>
         {
             e.ToTable("VisitTrips"); e.HasKey(x => x.VisitTripId); e.Property(x => x.VisitTripId).ValueGeneratedOnAdd();
+            e.Property(x => x.EmploymentId);
+            e.Property(x => x.StartDeploymentSiteId);
+            e.Property(x => x.EndDeploymentSiteId);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
             e.HasMany(x => x.Stops).WithOne(x => x.VisitTrip).HasForeignKey(x => x.VisitTripId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.MileageCalculation).WithOne(x => x.VisitTrip).HasForeignKey<MileageCalculation>(x => x.VisitTripId).OnDelete(DeleteBehavior.Cascade);
@@ -114,6 +117,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.ApprovedDistanceKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.SubsidyAmountSnapshot).HasPrecision(12,2);
+            e.Property(x => x.StartDeploymentSiteCodeSnapshot).HasMaxLength(50);
+            e.Property(x => x.StartDeploymentAddressSnapshot).HasMaxLength(500);
+            e.Property(x => x.EndDeploymentSiteCodeSnapshot).HasMaxLength(50);
+            e.Property(x => x.EndDeploymentAddressSnapshot).HasMaxLength(500);
             e.Property(x => x.RouteTravelModeSnapshot).HasMaxLength(20);
             e.Property(x => x.RouteCalculatedAtSnapshot).HasPrecision(3);
             e.Property(x => x.RouteCalculationStatusSnapshot).HasMaxLength(20);

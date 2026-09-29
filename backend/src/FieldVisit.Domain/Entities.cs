@@ -133,8 +133,11 @@ public sealed class VisitTrip
     public long VisitTripId { get; set; }
     public string TripNo { get; set; } = "";
     public int UserId { get; set; }
+    public long? EmploymentId { get; set; }
     public int OrganizationId { get; set; }
     public int? TeamId { get; set; }
+    public int? StartDeploymentSiteId { get; set; }
+    public int? EndDeploymentSiteId { get; set; }
     public DateOnly VisitDate { get; set; }
     public TimeOnly? StartTime { get; set; }
     public TimeOnly? EndTime { get; set; }

@@ -26,6 +26,10 @@ public sealed class VisitTripSnapshot
     public string OrganizationNameSnapshot { get; set; } = "";
     public int? TeamId { get; set; }
     public string? TeamNameSnapshot { get; set; }
+    public string? StartDeploymentSiteCodeSnapshot { get; set; }
+    public string? StartDeploymentAddressSnapshot { get; set; }
+    public string? EndDeploymentSiteCodeSnapshot { get; set; }
+    public string? EndDeploymentAddressSnapshot { get; set; }
     public DateOnly VisitDate { get; set; }
     public TimeOnly? StartTime { get; set; }
     public TimeOnly? EndTime { get; set; }

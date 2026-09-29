@@ -6,6 +6,11 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class TripSnapshotRepository(AppDbContext db) : ITripSnapshotRepository
 {
+    public Task<VisitTripSnapshot?> GetLatestAsync(long tripId, string snapshotType, CancellationToken ct) =>
+        db.VisitTripSnapshots.AsNoTracking().Include(x => x.Stops)
+            .Where(x => x.VisitTripId == tripId && x.SnapshotType == snapshotType)
+            .OrderByDescending(x => x.SnapshotVersion).FirstOrDefaultAsync(ct);
+
     public async Task AddApprovedSnapshotAsync(VisitTrip trip, CurrentUserDto approver, CancellationToken ct)
     {
         var nextVersion = (await db.VisitTripSnapshots.AsNoTracking()
