@@ -16,12 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Enforce post-uat/v1.8.0 dispatch branch
+      - name: Enforce P2B master-data diagnostic branch
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
-            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
+          expected_ref="refs/heads/work/v180-p2b-master-data-readonly-diagnostic"
+          if [[ "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "::error::This diagnostic workflow may only run from ${expected_ref}. Received ${GITHUB_REF}."
             exit 1
           fi
 
@@ -31,12 +32,32 @@ jobs:
     environment: uat
     timeout-minutes: 10
     steps:
-      - name: Sign in to Azure with OIDC
+      - name: Sign in to Azure with existing UAT OIDC identity
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify exact Azure SQL target
+        shell: bash
+        run: |
+          set -euo pipefail
+          resource_group="rg-fieldvisit-uat"
+          sql_server="sql-fieldvisit-jpe-uat"
+          database="db-fieldvisit-uat"
+
+          actual_server="$(az sql server show             --resource-group "$resource_group"             --name "$sql_server"             --query name             --output tsv)"
+
+          test "$actual_server" = "$sql_server"
+
+          actual_database="$(az sql db show             --resource-group "$resource_group"             --server "$sql_server"             --name "$database"             --query name             --output tsv)"
+
+          test "$actual_database" = "$database"
+
+          echo "RESOURCE_GROUP=$resource_group"
+          echo "SQL_SERVER=$sql_server"
+          echo "DATABASE=$database"
 
       - name: Install pinned SQL Server PowerShell module
         shell: pwsh
@@ -50,23 +71,14 @@ jobs:
             -Force `
             -AllowClobber
 
-      - name: Query Azure SQL using Microsoft Entra access token
-        env:
-          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
-          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+      - name: Diagnose pilotv01 master-data readiness using SELECT only
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
-          if ([string]::IsNullOrWhiteSpace($env:AZURE_SQL_SERVER_NAME)) {
-            throw 'AZURE_SQL_SERVER_NAME is not configured.'
-          }
+          $server = 'sql-fieldvisit-jpe-uat.database.windows.net'
+          $database = 'db-fieldvisit-uat'
 
-          if ([string]::IsNullOrWhiteSpace($env:AZURE_SQL_DATABASE)) {
-            throw 'AZURE_SQL_DATABASE is not configured.'
-          }
-
-          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
           $accessToken = az account get-access-token `
             --resource https://database.windows.net/ `
             --query accessToken `
@@ -78,30 +90,435 @@ jobs:
 
           Write-Output "::add-mask::$accessToken"
 
-          $query = @'
-          SELECT DB_NAME() AS DatabaseName;
+          $queries = [ordered]@{}
 
-          SELECT TOP 5
-              name
-          FROM sys.tables
-          ORDER BY name;
+          $queries['QUERY_1_IDENTITY_EMPLOYMENT_MAPPING'] = @'
+          WITH CandidateUsers AS (
+              SELECT
+                  u.UserId,
+                  u.EmployeeNo,
+                  u.DisplayName,
+                  u.OrganizationId,
+                  u.TeamId,
+                  u.IsActive,
+                  p.UserCode,
+                  p.EmploymentId AS ProfileEmploymentId
+              FROM dbo.Users AS u
+              LEFT JOIN dbo.UserIdentityProfiles AS p
+                  ON p.UserId = u.UserId
+              WHERE p.UserCode = N'pilotv01'
+                 OR u.EmployeeNo = N'pilotv01'
+          ),
+          CandidateEmployment AS (
+              SELECT
+                  cu.UserId,
+                  cu.EmployeeNo,
+                  cu.DisplayName,
+                  cu.OrganizationId,
+                  cu.TeamId,
+                  cu.IsActive,
+                  cu.UserCode,
+                  cu.ProfileEmploymentId,
+                  e.EmploymentId,
+                  e.EmployeeNo AS EmploymentEmployeeNo,
+                  e.OrganizationId AS EmploymentOrganizationId,
+                  e.HireDate,
+                  e.TerminationDate,
+                  e.LegacyUserId
+              FROM CandidateUsers AS cu
+              LEFT JOIN dbo.Employments AS e
+                  ON e.EmploymentId = cu.ProfileEmploymentId
+                  OR e.LegacyUserId = cu.UserId
+          )
+          SELECT
+              UserId,
+              EmployeeNo,
+              DisplayName,
+              OrganizationId,
+              TeamId,
+              IsActive,
+              UserCode,
+              ProfileEmploymentId AS UserIdentityProfileEmploymentId,
+              EmploymentId,
+              EmploymentEmployeeNo,
+              EmploymentOrganizationId,
+              HireDate,
+              TerminationDate,
+              LegacyUserId,
+              COUNT(DISTINCT CASE WHEN UserCode = N'pilotv01' THEN UserId END) OVER () AS PilotIdentityProfileCount,
+              COUNT(DISTINCT EmploymentId) OVER () AS PilotEmploymentCount
+          FROM CandidateEmployment
+          ORDER BY UserId, EmploymentId;
           '@
 
-          try {
-            Invoke-Sqlcmd `
-              -ServerInstance $server `
-              -Database $env:AZURE_SQL_DATABASE `
-              -AccessToken $accessToken `
-              -ApplicationIntent ReadOnly `
-              -ConnectionTimeout 15 `
-              -QueryTimeout 30 `
-              -AbortOnError `
-              -OutputSqlErrors $true `
-              -Query $query | Format-Table -AutoSize
-          }
-          catch {
-            Write-Error ($_ | Out-String)
-            throw
+          $queries['QUERY_2_EMPLOYMENT_STATUS_PERIODS'] = @'
+          WITH ResolvedEmployment AS (
+              SELECT DISTINCT e.EmploymentId
+              FROM dbo.Users AS u
+              LEFT JOIN dbo.UserIdentityProfiles AS p
+                  ON p.UserId = u.UserId
+              LEFT JOIN dbo.Employments AS e
+                  ON e.EmploymentId = p.EmploymentId
+                  OR e.LegacyUserId = u.UserId
+              WHERE p.UserCode = N'pilotv01'
+                 OR u.EmployeeNo = N'pilotv01'
+          )
+          SELECT
+              esp.EmploymentStatusPeriodId,
+              esp.EmploymentId,
+              esp.EmploymentStatus,
+              esp.EffectiveFrom,
+              esp.EffectiveTo,
+              esp.SourceType,
+              esp.SourceReference,
+              CASE
+                  WHEN esp.EmploymentStatus = N'Active'
+                   AND esp.EffectiveFrom <= CONVERT(date, '2026-09-29')
+                   AND (esp.EffectiveTo IS NULL OR esp.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                  THEN CAST(1 AS bit)
+                  ELSE CAST(0 AS bit)
+              END AS ActiveOn20260929,
+              CASE
+                  WHEN esp.EmploymentStatus = N'Active'
+                   AND esp.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                   AND (esp.EffectiveTo IS NULL OR esp.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                  THEN CAST(1 AS bit)
+                  ELSE CAST(0 AS bit)
+              END AS ActiveIntersectsRun19Window
+          FROM dbo.EmploymentStatusPeriods AS esp
+          INNER JOIN ResolvedEmployment AS r
+              ON r.EmploymentId = esp.EmploymentId
+          ORDER BY esp.EffectiveFrom, esp.EmploymentStatusPeriodId;
+          '@
+
+          $queries['QUERY_3_TEAM_MEMBERSHIP'] = @'
+          WITH ResolvedEmployment AS (
+              SELECT DISTINCT e.EmploymentId
+              FROM dbo.Users AS u
+              LEFT JOIN dbo.UserIdentityProfiles AS p
+                  ON p.UserId = u.UserId
+              LEFT JOIN dbo.Employments AS e
+                  ON e.EmploymentId = p.EmploymentId
+                  OR e.LegacyUserId = u.UserId
+              WHERE p.UserCode = N'pilotv01'
+                 OR u.EmployeeNo = N'pilotv01'
+          )
+          SELECT
+              tm.TeamMembershipId,
+              tm.EmploymentId,
+              tm.TeamId,
+              t.TeamCode,
+              t.TeamName,
+              tm.IsPrimary,
+              t.EffectiveFrom AS TeamEffectiveFrom,
+              t.EffectiveTo AS TeamEffectiveTo,
+              tm.EffectiveFrom AS MembershipEffectiveFrom,
+              tm.EffectiveTo AS MembershipEffectiveTo,
+              CASE
+                  WHEN tm.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                   AND (tm.EffectiveTo IS NULL OR tm.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                   AND (t.EffectiveFrom IS NULL OR t.EffectiveFrom <= CONVERT(date, '2026-11-12'))
+                   AND (t.EffectiveTo IS NULL OR t.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                  THEN CAST(1 AS bit)
+                  ELSE CAST(0 AS bit)
+              END AS MembershipIntersectsRun19Window
+          FROM dbo.TeamMemberships AS tm
+          INNER JOIN ResolvedEmployment AS r
+              ON r.EmploymentId = tm.EmploymentId
+          INNER JOIN dbo.Teams AS t
+              ON t.TeamId = tm.TeamId
+          ORDER BY tm.EffectiveFrom, tm.TeamMembershipId;
+          '@
+
+          $queries['QUERY_4_EMPLOYMENT_DEPLOYMENT_SITES'] = @'
+          WITH ResolvedEmployment AS (
+              SELECT DISTINCT e.EmploymentId
+              FROM dbo.Users AS u
+              LEFT JOIN dbo.UserIdentityProfiles AS p
+                  ON p.UserId = u.UserId
+              LEFT JOIN dbo.Employments AS e
+                  ON e.EmploymentId = p.EmploymentId
+                  OR e.LegacyUserId = u.UserId
+              WHERE p.UserCode = N'pilotv01'
+                 OR u.EmployeeNo = N'pilotv01'
+          )
+          SELECT
+              edsa.EmploymentDeploymentSiteAssignmentId,
+              edsa.EmploymentId,
+              edsa.DeploymentSiteId,
+              ds.SiteCode,
+              ds.SiteName,
+              edsa.IsPrimary,
+              edsa.EffectiveFrom AS AssignmentEffectiveFrom,
+              edsa.EffectiveTo AS AssignmentEffectiveTo,
+              ds.EffectiveFrom AS SiteEffectiveFrom,
+              ds.EffectiveTo AS SiteEffectiveTo,
+              ds.IsActive
+          FROM dbo.EmploymentDeploymentSiteAssignments AS edsa
+          INNER JOIN ResolvedEmployment AS r
+              ON r.EmploymentId = edsa.EmploymentId
+          INNER JOIN dbo.DeploymentSites AS ds
+              ON ds.DeploymentSiteId = edsa.DeploymentSiteId
+          ORDER BY edsa.EffectiveFrom, edsa.EmploymentDeploymentSiteAssignmentId;
+          '@
+
+          $queries['QUERY_5_TEAM_DEPLOYMENT_SITE_COVERAGE'] = @'
+          WITH ResolvedEmployment AS (
+              SELECT DISTINCT e.EmploymentId
+              FROM dbo.Users AS u
+              LEFT JOIN dbo.UserIdentityProfiles AS p
+                  ON p.UserId = u.UserId
+              LEFT JOIN dbo.Employments AS e
+                  ON e.EmploymentId = p.EmploymentId
+                  OR e.LegacyUserId = u.UserId
+              WHERE p.UserCode = N'pilotv01'
+                 OR u.EmployeeNo = N'pilotv01'
+          ),
+          PilotTeams AS (
+              SELECT DISTINCT tm.TeamId
+              FROM dbo.TeamMemberships AS tm
+              INNER JOIN ResolvedEmployment AS r
+                  ON r.EmploymentId = tm.EmploymentId
+          )
+          SELECT
+              tdsa.TeamDeploymentSiteAssignmentId,
+              tdsa.TeamId,
+              t.TeamCode,
+              tdsa.DeploymentSiteId,
+              ds.SiteCode,
+              tdsa.EffectiveFrom AS TeamSiteEffectiveFrom,
+              tdsa.EffectiveTo AS TeamSiteEffectiveTo
+          FROM dbo.TeamDeploymentSiteAssignments AS tdsa
+          INNER JOIN PilotTeams AS pt
+              ON pt.TeamId = tdsa.TeamId
+          INNER JOIN dbo.Teams AS t
+              ON t.TeamId = tdsa.TeamId
+          INNER JOIN dbo.DeploymentSites AS ds
+              ON ds.DeploymentSiteId = tdsa.DeploymentSiteId
+          ORDER BY tdsa.TeamId, tdsa.EffectiveFrom, tdsa.TeamDeploymentSiteAssignmentId;
+          '@
+
+          $queries['QUERY_6_DEPLOYMENT_SITE_LOCATION_COVERAGE'] = @'
+          WITH ResolvedEmployment AS (
+              SELECT DISTINCT e.EmploymentId
+              FROM dbo.Users AS u
+              LEFT JOIN dbo.UserIdentityProfiles AS p
+                  ON p.UserId = u.UserId
+              LEFT JOIN dbo.Employments AS e
+                  ON e.EmploymentId = p.EmploymentId
+                  OR e.LegacyUserId = u.UserId
+              WHERE p.UserCode = N'pilotv01'
+                 OR u.EmployeeNo = N'pilotv01'
+          ),
+          PilotTeams AS (
+              SELECT DISTINCT tm.TeamId
+              FROM dbo.TeamMemberships AS tm
+              INNER JOIN ResolvedEmployment AS r
+                  ON r.EmploymentId = tm.EmploymentId
+          ),
+          ResultingSites AS (
+              SELECT DISTINCT edsa.DeploymentSiteId
+              FROM dbo.EmploymentDeploymentSiteAssignments AS edsa
+              INNER JOIN ResolvedEmployment AS r
+                  ON r.EmploymentId = edsa.EmploymentId
+              UNION
+              SELECT DISTINCT tdsa.DeploymentSiteId
+              FROM dbo.TeamDeploymentSiteAssignments AS tdsa
+              INNER JOIN PilotTeams AS pt
+                  ON pt.TeamId = tdsa.TeamId
+          )
+          SELECT
+              dsla.DeploymentSiteLocationAssignmentId,
+              dsla.DeploymentSiteId,
+              ds.SiteCode,
+              dsla.LocationId,
+              l.LocationCode,
+              l.LocationName,
+              dsla.EffectiveFrom AS AssignmentEffectiveFrom,
+              dsla.EffectiveTo AS AssignmentEffectiveTo
+          FROM dbo.DeploymentSiteLocationAssignments AS dsla
+          INNER JOIN ResultingSites AS rs
+              ON rs.DeploymentSiteId = dsla.DeploymentSiteId
+          INNER JOIN dbo.DeploymentSites AS ds
+              ON ds.DeploymentSiteId = dsla.DeploymentSiteId
+          INNER JOIN dbo.Locations AS l
+              ON l.LocationId = dsla.LocationId
+          ORDER BY dsla.DeploymentSiteId, dsla.EffectiveFrom, dsla.DeploymentSiteLocationAssignmentId;
+          '@
+
+          $queries['SUMMARY_AND_PRIMARY_CLASSIFICATION'] = @'
+          WITH CandidateUsers AS (
+              SELECT
+                  u.UserId,
+                  u.EmployeeNo,
+                  u.DisplayName,
+                  u.OrganizationId,
+                  u.TeamId,
+                  u.IsActive,
+                  p.UserCode,
+                  p.EmploymentId AS ProfileEmploymentId
+              FROM dbo.Users AS u
+              LEFT JOIN dbo.UserIdentityProfiles AS p
+                  ON p.UserId = u.UserId
+              WHERE p.UserCode = N'pilotv01'
+                 OR u.EmployeeNo = N'pilotv01'
+          ),
+          ResolvedEmployment AS (
+              SELECT DISTINCT
+                  cu.UserId,
+                  cu.UserCode,
+                  e.EmploymentId,
+                  e.HireDate,
+                  e.TerminationDate
+              FROM CandidateUsers AS cu
+              LEFT JOIN dbo.Employments AS e
+                  ON e.EmploymentId = cu.ProfileEmploymentId
+                  OR e.LegacyUserId = cu.UserId
+          ),
+          Counts AS (
+              SELECT
+                  (SELECT COUNT(DISTINCT UserId) FROM CandidateUsers WHERE UserCode = N'pilotv01') AS IdentityProfileCount,
+                  (SELECT COUNT(DISTINCT UserId) FROM CandidateUsers) AS CandidateUserCount,
+                  (SELECT COUNT(DISTINCT EmploymentId) FROM ResolvedEmployment WHERE EmploymentId IS NOT NULL) AS EmploymentCount,
+                  (SELECT COUNT(*) FROM dbo.EmploymentStatusPeriods esp
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = esp.EmploymentId) AS EmploymentStatusRows,
+                  (SELECT COUNT(*) FROM dbo.EmploymentStatusPeriods esp
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = esp.EmploymentId
+                    WHERE esp.EmploymentStatus = N'Active'
+                      AND esp.EffectiveFrom <= CONVERT(date, '2026-09-29')
+                      AND (esp.EffectiveTo IS NULL OR esp.EffectiveTo >= CONVERT(date, '2026-09-29'))) AS ActiveOn20260929Count,
+                  (SELECT COUNT(*) FROM dbo.EmploymentStatusPeriods esp
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = esp.EmploymentId
+                    WHERE esp.EmploymentStatus = N'Active'
+                      AND esp.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (esp.EffectiveTo IS NULL OR esp.EffectiveTo >= CONVERT(date, '2026-09-29'))) AS ActiveIntersectsWindowCount,
+                  (SELECT COUNT(*) FROM dbo.EmploymentStatusPeriods esp
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = esp.EmploymentId
+                    WHERE esp.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (esp.EffectiveTo IS NULL OR esp.EffectiveTo >= CONVERT(date, '2026-09-29'))) AS AnyStatusIntersectsWindowCount,
+                  (SELECT COUNT(*) FROM dbo.TeamMemberships tm
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = tm.EmploymentId) AS TeamMembershipRows,
+                  (SELECT COUNT(*) FROM dbo.TeamMemberships tm
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = tm.EmploymentId
+                    INNER JOIN dbo.Teams t ON t.TeamId = tm.TeamId
+                    WHERE tm.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (tm.EffectiveTo IS NULL OR tm.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                      AND (t.EffectiveFrom IS NULL OR t.EffectiveFrom <= CONVERT(date, '2026-11-12'))
+                      AND (t.EffectiveTo IS NULL OR t.EffectiveTo >= CONVERT(date, '2026-09-29'))) AS TeamCoverageIntersectsWindowCount,
+                  (SELECT COUNT(*) FROM dbo.EmploymentDeploymentSiteAssignments edsa
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = edsa.EmploymentId) AS EmploymentSiteRows,
+                  (SELECT COUNT(*) FROM dbo.TeamDeploymentSiteAssignments tdsa
+                    INNER JOIN dbo.TeamMemberships tm ON tm.TeamId = tdsa.TeamId
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = tm.EmploymentId) AS TeamSiteRows,
+                  (SELECT COUNT(*) FROM dbo.DeploymentSiteLocationAssignments dsla
+                    WHERE dsla.DeploymentSiteId IN (
+                        SELECT edsa.DeploymentSiteId
+                        FROM dbo.EmploymentDeploymentSiteAssignments edsa
+                        INNER JOIN ResolvedEmployment r ON r.EmploymentId = edsa.EmploymentId
+                        UNION
+                        SELECT tdsa.DeploymentSiteId
+                        FROM dbo.TeamDeploymentSiteAssignments tdsa
+                        INNER JOIN dbo.TeamMemberships tm ON tm.TeamId = tdsa.TeamId
+                        INNER JOIN ResolvedEmployment r ON r.EmploymentId = tm.EmploymentId
+                    )) AS SiteLocationRows,
+                  (SELECT COUNT(*) FROM dbo.EmploymentDeploymentSiteAssignments edsa
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = edsa.EmploymentId
+                    INNER JOIN dbo.DeploymentSites ds ON ds.DeploymentSiteId = edsa.DeploymentSiteId
+                    WHERE edsa.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (edsa.EffectiveTo IS NULL OR edsa.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                      AND ds.IsActive = 1
+                      AND ds.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (ds.EffectiveTo IS NULL OR ds.EffectiveTo >= CONVERT(date, '2026-09-29'))) AS EffectiveEmploymentSiteCount,
+                  (SELECT COUNT(*) FROM dbo.TeamDeploymentSiteAssignments tdsa
+                    INNER JOIN dbo.TeamMemberships tm ON tm.TeamId = tdsa.TeamId
+                    INNER JOIN ResolvedEmployment r ON r.EmploymentId = tm.EmploymentId
+                    INNER JOIN dbo.DeploymentSites ds ON ds.DeploymentSiteId = tdsa.DeploymentSiteId
+                    WHERE tm.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (tm.EffectiveTo IS NULL OR tm.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                      AND tdsa.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (tdsa.EffectiveTo IS NULL OR tdsa.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                      AND ds.IsActive = 1
+                      AND ds.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (ds.EffectiveTo IS NULL OR ds.EffectiveTo >= CONVERT(date, '2026-09-29'))) AS EffectiveTeamSiteCount,
+                  (SELECT COUNT(*) FROM dbo.DeploymentSiteLocationAssignments dsla
+                    INNER JOIN dbo.DeploymentSites ds ON ds.DeploymentSiteId = dsla.DeploymentSiteId
+                    WHERE dsla.DeploymentSiteId IN (
+                        SELECT edsa.DeploymentSiteId
+                        FROM dbo.EmploymentDeploymentSiteAssignments edsa
+                        INNER JOIN ResolvedEmployment r ON r.EmploymentId = edsa.EmploymentId
+                        UNION
+                        SELECT tdsa.DeploymentSiteId
+                        FROM dbo.TeamDeploymentSiteAssignments tdsa
+                        INNER JOIN dbo.TeamMemberships tm ON tm.TeamId = tdsa.TeamId
+                        INNER JOIN ResolvedEmployment r ON r.EmploymentId = tm.EmploymentId
+                    )
+                      AND dsla.EffectiveFrom <= CONVERT(date, '2026-11-12')
+                      AND (dsla.EffectiveTo IS NULL OR dsla.EffectiveTo >= CONVERT(date, '2026-09-29'))
+                      AND ds.IsActive = 1) AS EffectiveSiteLocationCount
+          )
+          SELECT
+              (SELECT TOP 1 UserId FROM CandidateUsers ORDER BY CASE WHEN UserCode = N'pilotv01' THEN 0 ELSE 1 END, UserId) AS PILOT_USER_ID,
+              (SELECT TOP 1 UserCode FROM CandidateUsers WHERE UserCode = N'pilotv01' ORDER BY UserId) AS PILOT_USER_CODE,
+              (SELECT TOP 1 EmploymentId FROM ResolvedEmployment WHERE EmploymentId IS NOT NULL ORDER BY EmploymentId) AS PILOT_EMPLOYMENT_ID,
+              (SELECT TOP 1 HireDate FROM ResolvedEmployment WHERE EmploymentId IS NOT NULL ORDER BY EmploymentId) AS EMPLOYMENT_HIRE_DATE,
+              (SELECT TOP 1 TerminationDate FROM ResolvedEmployment WHERE EmploymentId IS NOT NULL ORDER BY EmploymentId) AS EMPLOYMENT_TERMINATION_DATE,
+              c.EmploymentStatusRows AS EMPLOYMENT_STATUS_ROWS,
+              CASE WHEN c.ActiveOn20260929Count > 0 THEN N'YES' ELSE N'NO' END AS ACTIVE_STATUS_ON_2026_09_29,
+              CASE WHEN c.ActiveIntersectsWindowCount > 0 THEN N'YES' ELSE N'NO' END AS ACTIVE_STATUS_INTERSECTS_RUN19_WINDOW,
+              c.TeamMembershipRows AS TEAM_MEMBERSHIP_ROWS,
+              CASE WHEN c.TeamCoverageIntersectsWindowCount > 0 THEN N'YES' ELSE N'NO' END AS TEAM_COVERAGE_INTERSECTS_RUN19_WINDOW,
+              c.EmploymentSiteRows AS EMPLOYMENT_SITE_ROWS,
+              c.TeamSiteRows AS TEAM_SITE_ROWS,
+              c.SiteLocationRows AS SITE_LOCATION_ROWS,
+              CASE
+                  WHEN c.IdentityProfileCount <> 1 OR c.CandidateUserCount <> 1 OR c.EmploymentCount <> 1
+                      THEN N'IDENTITY_EMPLOYMENT_MAPPING_ERROR'
+                  WHEN c.ActiveIntersectsWindowCount = 0 AND c.AnyStatusIntersectsWindowCount = 0
+                      THEN N'EMPLOYMENT_STATUS_GAP'
+                  WHEN c.ActiveIntersectsWindowCount = 0
+                      THEN N'EMPLOYMENT_STATUS_NOT_ACTIVE'
+                  WHEN c.TeamCoverageIntersectsWindowCount = 0
+                      THEN N'TEAM_MEMBERSHIP_GAP'
+                  WHEN c.EffectiveEmploymentSiteCount = 0
+                    OR c.EffectiveTeamSiteCount = 0
+                    OR c.EffectiveSiteLocationCount = 0
+                      THEN N'DEPLOYMENT_SITE_ELIGIBILITY_GAP'
+                  ELSE N'NO_MASTER_DATA_GAP_FOUND'
+              END AS PRIMARY_BLOCKER,
+              N'NO' AS SQL_WRITE_EXECUTED,
+              N'NO' AS DDL_EXECUTED,
+              N'NO' AS MIGRATION_EXECUTED,
+              N'NO' AS MASTER_DATA_CHANGED
+          FROM Counts AS c;
+          '@
+
+          foreach ($entry in $queries.GetEnumerator()) {
+            $name = $entry.Key
+            $query = $entry.Value
+
+            if ($query -match '(?im)\b(INSERT|UPDATE|DELETE|MERGE|ALTER|CREATE|DROP|TRUNCATE|EXEC(?:UTE)?|GRANT|REVOKE|DENY)\b') {
+              throw "Non-read-only SQL keyword detected in $name."
+            }
+
+            Write-Output ""
+            Write-Output "===== $name ====="
+
+            try {
+              Invoke-Sqlcmd `
+                -ServerInstance $server `
+                -Database $database `
+                -AccessToken $accessToken `
+                -ApplicationIntent ReadOnly `
+                -ConnectionTimeout 15 `
+                -QueryTimeout 60 `
+                -AbortOnError `
+                -OutputSqlErrors $true `
+                -Query $query | Format-Table -AutoSize
+            }
+            catch {
+              Write-Error ($_ | Out-String)
+              throw
+            }
           }
 
       - name: Sign out of Azure
