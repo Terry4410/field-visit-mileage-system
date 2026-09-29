@@ -30,18 +30,55 @@ jobs:
           test "$actual" = "$expected"
 
       - name: Setup .NET 8
+        id: setup_dotnet
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: '8.0.x'
+
+      - name: Pin exact .NET 8 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test ! -e global.json
+
+          sdk="${{ steps.setup_dotnet.outputs.dotnet-version }}"
+
+          echo "SETUP_DOTNET_OUTPUT_VERSION=$sdk"
+
+          if [[ ! "$sdk" =~ ^8\.0\.[0-9]+$ ]]; then
+            echo "Expected stable .NET 8 SDK, got: $sdk"
+            exit 1
+          fi
+
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$sdk",
+              "rollForward": "disable",
+              "allowPrerelease": false
+            }
+          }
+          EOF
+
+          echo "Installed SDKs:"
+          dotnet --list-sdks
+
+          echo "dotnet --info:"
+          dotnet --info
+
+          actual="$(dotnet --version)"
+
+          echo "EXPECTED_DOTNET_VERSION=$sdk"
+          echo "EFFECTIVE_DOTNET_VERSION=$actual"
+
+          test "$actual" = "$sdk"
 
       - name: Install CJK font
         shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
-
-      - name: Show .NET version
-        run: dotnet --version
 
       - name: Backend build
         run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
@@ -57,3 +94,16 @@ jobs:
 
       - name: Full backend regression
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release
+
+      - name: Remove temporary SDK pin and verify clean tracked state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f global.json
+          test ! -e global.json
+          git diff --exit-code
+          git diff --cached --exit-code
+          actual="$(git rev-parse HEAD)"
+          echo "CANDIDATE_SHA_AFTER=$actual"
+          test "$actual" = "873f23fe82fff29464ff5ae1e676ca3e5a1166f5"
