@@ -371,7 +371,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             if (requiresAdmin) row.Status = "PendingAdminClose";
             else
             {
-                var snapshot = await CreateCorrectionSnapshotAsync(row, user.UserId, ct);
+                var snapshot = await CreateCorrectionSnapshotAsync(row, user, null, ct);
                 row.ResultSnapshotId = snapshot.VisitTripSnapshotId;
                 row.Status = "Closed";
             }
@@ -1094,8 +1094,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     private async Task<VisitTripSnapshot> CreateCorrectionSnapshotAsync(
         CorrectionRequest row,
-        CurrentUserDto admin,
-        CloseCorrectionRequest request,
+        CurrentUserDto actor,
+        CloseCorrectionRequest? decisionRequest,
         CancellationToken ct)
     {
         var baseSnapshot = await db.VisitTripSnapshots.AsNoTracking()
@@ -1127,11 +1127,15 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             if (!row.AdminClosedByUserId.HasValue || !row.AdminClosedAt.HasValue)
                 throw new InvalidOperationException("F_B_CORRECTION_ADMIN_EVIDENCE_REQUIRED：距離更正必須先建立 Admin close evidence。");
 
+            var requiredDecisionRequest = decisionRequest
+                ?? throw new InvalidOperationException(
+                    "F_B_CORRECTION_DECISION_REQUEST_REQUIRED：距離更正必須提供 Admin close decision request。");
+
             approvalBasisCode = V180MileageGovernanceRules.CorrectionProposalBasisCode;
             approvalBasisHash = V180MileageCanonicalization.HashCorrectionProposal(baseSnapshot, proposal);
             distanceApprovedAt = row.AdminClosedAt;
             approverUserId = row.AdminClosedByUserId;
-            approverName = admin.DisplayName;
+            approverName = actor.DisplayName;
 
             var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(
                 baseSnapshot.VehicleTypeSnapshot ?? "Motorcycle");
@@ -1139,10 +1143,10 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             var expectedTravelMode = V180MileageCanonicalization.ToTravelMode(canonicalVehicle);
 
             decisionSource = V180MileageGovernanceRules.ResolveCorrectionDecisionSource(
-                request.DistanceDecisionSource,
-                request.RouteCalculationAttemptId.HasValue);
+                requiredDecisionRequest.DistanceDecisionSource,
+                requiredDecisionRequest.RouteCalculationAttemptId.HasValue);
 
-            if (!request.RouteCalculationAttemptId.HasValue)
+            if (!requiredDecisionRequest.RouteCalculationAttemptId.HasValue)
             {
                 routeAttemptId = null;
                 routeTravelMode = expectedTravelMode;
@@ -1156,7 +1160,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             {
                 selectedAttempt = await db.RouteCalculationAttempts.AsNoTracking()
                     .SingleOrDefaultAsync(
-                        x => x.RouteCalculationAttemptId == request.RouteCalculationAttemptId.Value,
+                        x => x.RouteCalculationAttemptId == requiredDecisionRequest.RouteCalculationAttemptId!.Value,
                         ct)
                     ?? throw new InvalidOperationException(
                         "F_B_CORRECTION_ROUTE_ATTEMPT_NOT_FOUND：找不到指定的 route attempt。");
@@ -1218,7 +1222,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             ApproverNameSnapshot = approverName,
             NotesSnapshot = proposal.Notes,
             CreatedAt = DateTime.UtcNow,
-            CreatedByUserId = admin.UserId,
+            CreatedByUserId = actor.UserId,
             MileageRouteAttemptIdSnapshot = routeAttemptId,
             RouteTravelModeSnapshot = routeTravelMode,
             RouteCalculatedAtSnapshot = routeCalculatedAt,

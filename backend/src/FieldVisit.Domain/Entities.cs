@@ -19,6 +19,8 @@ public sealed class Team
     public string TeamCode { get; set; } = "";
     public string TeamName { get; set; } = "";
     public bool IsActive { get; set; }
+    public DateOnly? EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
