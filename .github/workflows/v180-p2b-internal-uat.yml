@@ -160,7 +160,7 @@ jobs:
 
       - name: Playwright Internal UAT
         working-directory: uat
-        run: npm run test
+        run: npm run test:internal-uat
 
       - name: Upload Internal UAT diagnostics
         if: always()
