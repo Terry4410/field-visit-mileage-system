@@ -43,6 +43,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserDataScope> UserDataScopes => Set<UserDataScope>();
     public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
 
+    // v1.8 trip-context runtime persistence surface. Schema remains migration-owned.
+    public DbSet<Center> Centers => Set<Center>();
+    public DbSet<Employment> Employments => Set<Employment>();
+    public DbSet<EmploymentStatusPeriod> EmploymentStatusPeriods => Set<EmploymentStatusPeriod>();
+    public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
+    public DbSet<DeploymentSite> DeploymentSites => Set<DeploymentSite>();
+    public DbSet<DeploymentSiteLocationAssignment> DeploymentSiteLocationAssignments => Set<DeploymentSiteLocationAssignment>();
+    public DbSet<TeamDeploymentSiteAssignment> TeamDeploymentSiteAssignments => Set<TeamDeploymentSiteAssignment>();
+    public DbSet<EmploymentDeploymentSiteAssignment> EmploymentDeploymentSiteAssignments => Set<EmploymentDeploymentSiteAssignment>();
+
     // v1.7 Location Scale foundation.
     public DbSet<GovernmentLocationSource> GovernmentLocationSources => Set<GovernmentLocationSource>();
     public DbSet<GovernmentLocationSourceArea> GovernmentLocationSourceAreas => Set<GovernmentLocationSourceArea>();
@@ -117,6 +127,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.ApprovedDistanceKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.RatePerKmSnapshot).HasPrecision(10,2);
             e.Property(x => x.SubsidyAmountSnapshot).HasPrecision(12,2);
+            e.Property<long?>("PersonIdSnapshot");
+            e.Property<long?>("EmploymentIdSnapshot");
+            e.Property<int?>("CenterIdSnapshot");
+            e.Property<string?>("CenterCodeSnapshot").HasMaxLength(50);
+            e.Property<string?>("CenterNameSnapshot").HasMaxLength(200);
+            e.Property<string?>("TeamCodeSnapshot").HasMaxLength(50);
+            e.Property<int?>("StartDeploymentSiteIdSnapshot");
+            e.Property<string?>("StartDeploymentSiteNameSnapshot").HasMaxLength(200);
+            e.Property<int?>("StartDeploymentLocationIdSnapshot");
+            e.Property<int?>("EndDeploymentSiteIdSnapshot");
+            e.Property<string?>("EndDeploymentSiteNameSnapshot").HasMaxLength(200);
+            e.Property<int?>("EndDeploymentLocationIdSnapshot");
             e.Property(x => x.StartDeploymentSiteCodeSnapshot).HasMaxLength(50);
             e.Property(x => x.StartDeploymentAddressSnapshot).HasMaxLength(500);
             e.Property(x => x.EndDeploymentSiteCodeSnapshot).HasMaxLength(50);
@@ -158,6 +180,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => new { x.EntraTenantId, x.EntraObjectId })
                 .IsUnique()
                 .HasFilter("[EntraTenantId] IS NOT NULL AND [EntraObjectId] IS NOT NULL");
+            e.HasIndex(x => x.EmploymentId).IsUnique()
+                .HasFilter("[EmploymentId] IS NOT NULL")
+                .HasDatabaseName("UX_UserIdentityProfiles_Employment");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
         });
 
         b.Entity<UserEmploymentPeriod>(e =>
@@ -203,6 +229,143 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 x.CapabilityCode,
                 x.EffectiveFrom
             }).IsUnique();
+        });
+
+
+        // v1.8 Trip Context runtime read model. 1800_001..003 remain schema authority.
+        b.Entity<Center>(e =>
+        {
+            e.ToTable("Centers");
+            e.HasKey(x => x.CenterId);
+            e.Property(x => x.CenterId).ValueGeneratedOnAdd();
+            e.Property(x => x.CenterCode).HasMaxLength(50);
+            e.Property(x => x.CenterName).HasMaxLength(200);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.OrganizationId, x.CenterCode }).IsUnique()
+                .HasDatabaseName("UQ_Centers_Organization_Code");
+            e.HasIndex(x => new { x.OrganizationId, x.IsActive, x.EffectiveFrom, x.EffectiveTo })
+                .HasDatabaseName("IX_Centers_Organization_Effective");
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<Employment>(e =>
+        {
+            e.ToTable("Employments");
+            e.HasKey(x => x.EmploymentId);
+            e.Property(x => x.EmploymentId).ValueGeneratedOnAdd();
+            e.Property(x => x.EmployeeNo).HasMaxLength(50);
+            e.Property(x => x.Email).HasMaxLength(320);
+            e.Property(x => x.SourceType).HasMaxLength(30);
+            e.Property(x => x.SourceReference).HasMaxLength(200);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.OrganizationId, x.EmployeeNo }).IsUnique()
+                .HasFilter("[EmployeeNo] IS NOT NULL")
+                .HasDatabaseName("UX_Employments_Organization_EmployeeNo");
+            e.HasIndex(x => x.LegacyUserId).IsUnique()
+                .HasFilter("[LegacyUserId] IS NOT NULL")
+                .HasDatabaseName("UX_Employments_LegacyUserId");
+            e.HasIndex(x => new { x.PersonId, x.HireDate, x.TerminationDate })
+                .HasDatabaseName("IX_Employments_Person");
+            e.HasIndex(x => x.Email).HasFilter("[Email] IS NOT NULL")
+                .HasDatabaseName("IX_Employments_Email");
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.LegacyUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<EmploymentStatusPeriod>(e =>
+        {
+            e.ToTable("EmploymentStatusPeriods");
+            e.HasKey(x => x.EmploymentStatusPeriodId);
+            e.Property(x => x.EmploymentStatusPeriodId).ValueGeneratedOnAdd();
+            e.Property(x => x.EmploymentStatus).HasMaxLength(30);
+            e.Property(x => x.SourceType).HasMaxLength(30);
+            e.Property(x => x.SourceReference).HasMaxLength(200);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom }).IsUnique()
+                .HasDatabaseName("UQ_EmploymentStatusPeriods_Start");
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom, x.EffectiveTo, x.EmploymentStatus })
+                .HasDatabaseName("IX_EmploymentStatusPeriods_AsOf");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<TeamMembership>(e =>
+        {
+            e.ToTable("TeamMemberships");
+            e.HasKey(x => x.TeamMembershipId);
+            e.Property(x => x.TeamMembershipId).ValueGeneratedOnAdd();
+            e.Property(x => x.ChangeReason).HasMaxLength(500);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.EmploymentId, x.TeamId, x.EffectiveFrom }).IsUnique()
+                .HasDatabaseName("UQ_TeamMemberships_Start");
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom, x.EffectiveTo, x.IsPrimary, x.TeamId })
+                .HasDatabaseName("IX_TeamMemberships_Employment_AsOf");
+            e.HasIndex(x => new { x.TeamId, x.EffectiveFrom, x.EffectiveTo, x.EmploymentId })
+                .HasDatabaseName("IX_TeamMemberships_Team_AsOf");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.AssignedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<DeploymentSite>(e =>
+        {
+            e.ToTable("DeploymentSites");
+            e.HasKey(x => x.DeploymentSiteId);
+            e.Property(x => x.DeploymentSiteId).ValueGeneratedOnAdd();
+            e.Property(x => x.SiteCode).HasMaxLength(50);
+            e.Property(x => x.SiteName).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.CenterId, x.SiteCode }).IsUnique()
+                .HasDatabaseName("UQ_DeploymentSites_Center_Code");
+            e.HasIndex(x => new { x.CenterId, x.IsActive, x.EffectiveFrom, x.EffectiveTo })
+                .HasDatabaseName("IX_DeploymentSites_Center_Effective");
+            e.HasOne(x => x.Center).WithMany().HasForeignKey(x => x.CenterId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<DeploymentSiteLocationAssignment>(e =>
+        {
+            e.ToTable("DeploymentSiteLocationAssignments");
+            e.HasKey(x => x.DeploymentSiteLocationAssignmentId);
+            e.Property(x => x.DeploymentSiteLocationAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.ChangeReason).HasMaxLength(500);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.DeploymentSiteId, x.EffectiveFrom }).IsUnique()
+                .HasDatabaseName("UQ_DeploymentSiteLocationAssignments_Start");
+            e.HasIndex(x => new { x.DeploymentSiteId, x.EffectiveFrom, x.EffectiveTo, x.LocationId })
+                .HasDatabaseName("IX_DeploymentSiteLocationAssignments_AsOf");
+            e.HasOne(x => x.DeploymentSite).WithMany(x => x.LocationAssignments)
+                .HasForeignKey(x => x.DeploymentSiteId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<TeamDeploymentSiteAssignment>(e =>
+        {
+            e.ToTable("TeamDeploymentSiteAssignments");
+            e.HasKey(x => x.TeamDeploymentSiteAssignmentId);
+            e.Property(x => x.TeamDeploymentSiteAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.TeamId, x.DeploymentSiteId, x.EffectiveFrom }).IsUnique()
+                .HasDatabaseName("UQ_TeamDeploymentSiteAssignments_Start");
+            e.HasIndex(x => new { x.TeamId, x.EffectiveFrom, x.EffectiveTo, x.DeploymentSiteId })
+                .HasDatabaseName("IX_TeamDeploymentSiteAssignments_Team_AsOf");
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.DeploymentSite).WithMany(x => x.TeamAssignments)
+                .HasForeignKey(x => x.DeploymentSiteId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<EmploymentDeploymentSiteAssignment>(e =>
+        {
+            e.ToTable("EmploymentDeploymentSiteAssignments");
+            e.HasKey(x => x.EmploymentDeploymentSiteAssignmentId);
+            e.Property(x => x.EmploymentDeploymentSiteAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.EmploymentId, x.DeploymentSiteId, x.EffectiveFrom }).IsUnique()
+                .HasDatabaseName("UQ_EmploymentDeploymentSiteAssignments_Start");
+            e.HasIndex(x => new { x.EmploymentId, x.EffectiveFrom, x.EffectiveTo, x.IsPrimary, x.DeploymentSiteId })
+                .HasDatabaseName("IX_EmploymentDeploymentSiteAssignments_AsOf");
+            e.HasOne<Employment>().WithMany().HasForeignKey(x => x.EmploymentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.DeploymentSite).WithMany(x => x.EmploymentAssignments)
+                .HasForeignKey(x => x.DeploymentSiteId).OnDelete(DeleteBehavior.NoAction);
         });
 
         // v1.7 Location Scale foundation.

@@ -109,6 +109,16 @@ Business UAT（User Acceptance Testing，使用者驗收測試）的目的，是
 8. **H. Supervisor read-only**：確認督導僅能查詢與匯出。
 9. **I. Mobile / iPhone**：確認手機版主要操作可正常使用。
 
+## 5.1 P2B 里程決策與正式送出規則
+
+- Visitor 可儲存 Draft，但**正式送出至少需要 2 stops**。
+- P2B 不啟用 live Google route provider；背景計算可產生 `SystemDistanceKm`，但不得預先填入 `ApprovedDistanceKm`。
+- Leader 核准需在畫面上明確選擇「公司里程決策依據（必選）」。
+- P2B Business UI 僅提供 **人工備援（ManualFallback）**；系統不得預選、隱藏預設或自行推論。
+- ManualFallback payload 為 `DistanceDecisionSource="ManualFallback"`、`RouteCalculationAttemptId=null`。
+- 更正若沒有改變核定里程，沿用原 Approved Snapshot 的距離決策證據；若核定里程改變，Admin close 形成新的公司距離決策。
+- Business User 不需也不應操作 SQL、migration 或 Run 17 residual cleanup。
+
 ## 6. UAT 資料使用原則
 
 - 僅使用 **UAT 資料**，不使用 Production data。

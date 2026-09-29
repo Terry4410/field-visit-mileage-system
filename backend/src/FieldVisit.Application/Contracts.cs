@@ -48,7 +48,10 @@ public sealed record SaveTripRequest(
     string? Notes,
     bool TimeOverlapConfirmed,
     IReadOnlyList<TripStopInput> Stops,
-    int? TeamId = null);
+    int? TeamId = null,
+    int? StartDeploymentSiteId = null,
+    int? EndDeploymentSiteId = null,
+    string? VehicleType = null);
 
 public sealed record SubmitTripRequest(bool ConfirmTimeOverlap);
 public sealed record TimeOverlapRequest(DateOnly VisitDate, TimeOnly StartTime, TimeOnly EndTime, long? ExcludeVisitTripId);
@@ -77,6 +80,15 @@ public sealed record TripDto(
     decimal? ApprovedDistanceKm,
     decimal? RatePerKmSnapshot,
     decimal? ApprovedAmount,
+    long? EmploymentId,
+    int? StartDeploymentSiteId,
+    string? StartDeploymentSiteCode,
+    string? StartDeploymentSiteName,
+    string? StartDeploymentAddress,
+    int? EndDeploymentSiteId,
+    string? EndDeploymentSiteCode,
+    string? EndDeploymentSiteName,
+    string? EndDeploymentAddress,
     IReadOnlyList<TripStopInput> Stops,
     string RowVersion);
 
@@ -84,9 +96,19 @@ public sealed record MileageBatchRequest(string Mode, DateOnly? StartDate, DateO
 public sealed record MileageBatchItem(long VisitTripId, string TripNo, string Status, decimal? SystemDistanceKm, string? ErrorCode, string? ErrorMessage);
 public sealed record MileageBatchResult(int Total, int Success, int Failed, int Skipped, IReadOnlyList<MileageBatchItem> Items);
 
-public sealed record ApproveTripRequest(decimal? ApprovedDistanceKm, string RowVersion, string? Comments);
+public sealed record ApproveTripRequest(
+    decimal? ApprovedDistanceKm,
+    string RowVersion,
+    string? Comments,
+    string? DistanceDecisionSource = null,
+    long? RouteCalculationAttemptId = null);
 public sealed record ReturnTripRequest(string Reason, string RowVersion);
-public sealed record BatchApproveItem(long VisitTripId, decimal ApprovedDistanceKm, string RowVersion);
+public sealed record BatchApproveItem(
+    long VisitTripId,
+    decimal ApprovedDistanceKm,
+    string RowVersion,
+    string? DistanceDecisionSource = null,
+    long? RouteCalculationAttemptId = null);
 public sealed record BatchApproveRequest(IReadOnlyList<BatchApproveItem> Items);
 public sealed record BatchApproveResult(int Success, int Failed, IReadOnlyList<string> Errors);
 

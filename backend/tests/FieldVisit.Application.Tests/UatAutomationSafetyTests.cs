@@ -81,4 +81,20 @@ public sealed class UatAutomationSafetyTests
                 payload,
                 321));
     }
+    [Fact]
+    public void Cleanup_scope_rejects_case_drift_and_shared_selected_jobs()
+    {
+        Assert.False(UatAutomationSafety.IsExactAutomationPurpose(
+            "uat-auto-123",
+            "UAT-AUTO-123"));
+
+        const string sharedPayload =
+            "{\"mode\":\"Selected\",\"selectedTripIds\":[321,322]}";
+        Assert.False(UatAutomationSafety.IsDedicatedMileageJob(
+            "Mileage",
+            "Selected",
+            sharedPayload,
+            321));
+    }
+
 }

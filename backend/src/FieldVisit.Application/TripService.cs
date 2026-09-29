@@ -11,34 +11,51 @@ public sealed class TripService(
     IMileageRepository mileage,
     IWorkflowRepository workflow,
     IV170AccessControl access,
-    IUnitOfWork uow)
+    IUnitOfWork uow,
+    IV180TripContextReader? tripContext = null,
+    ITripSnapshotRepository? snapshots = null,
+    IV180GoogleMileageGovernanceRepository? mileageGovernance = null)
 {
+    public Task<V180TripContextDto> ContextAsync(DateOnly visitDate, int? teamId, CancellationToken ct) =>
+        (tripContext ?? throw new InvalidOperationException("V180_TRIP_CONTEXT_READER_REQUIRED"))
+            .ResolveAsync(RequireRole("visitor"), visitDate, teamId, ct);
+
+
     public async Task<TripDto> CreateAsync(SaveTripRequest request, CancellationToken ct)
     {
         var user = RequireRole("visitor");
         ValidateRequest(request);
 
-        var tripTeamId =
-            V170TripTeamSelectionRules.Resolve(
-                user,
-                request.TeamId);
+        var context = await (tripContext ?? throw new InvalidOperationException("V180_TRIP_CONTEXT_READER_REQUIRED")).ResolveAsync(user, request.VisitDate, request.TeamId, ct);
+        var sites = V180TripPersistenceRules.ResolveDraftSites(
+            context, request.StartDeploymentSiteId, request.EndDeploymentSiteId);
+        var tripTeamId = context.SelectedTeamId
+            ?? throw new InvalidOperationException($"{context.ValidationCode}：{context.ValidationMessage}");
 
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, null), ct);
-var now = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        var vehicleType = request.VehicleType is null
+            ? "Motorcycle"
+            : V180MileageCanonicalization.ToDbRequestedVehicleType(
+                V180MileageCanonicalization.CanonicalVehicleType(request.VehicleType));
+
         var trip = new VisitTrip
         {
             TripNo = BuildTripNo(request.VisitDate),
             UserId = user.UserId,
+            EmploymentId = context.EmploymentId,
             OrganizationId = user.OrganizationId ?? throw new InvalidOperationException("使用者未設定 Organization。"),
             TeamId = tripTeamId,
+            StartDeploymentSiteId = sites.Start,
+            EndDeploymentSiteId = sites.End,
             VisitDate = request.VisitDate,
             StartTime = request.StartTime,
             EndTime = request.EndTime,
             HasTimeOverlapWarning = overlap.HasOverlap,
             TimeOverlapConfirmed = overlap.HasOverlap && request.TimeOverlapConfirmed,
             Status = TripStatuses.Draft,
-            VehicleType = "Motorcycle",
+            VehicleType = vehicleType,
             Purpose = request.Purpose,
             Notes = request.Notes,
             CreatedAt = now,
@@ -62,7 +79,6 @@ var now = DateTime.UtcNow;
         await AddHistoryAsync(trip, null, TripStatuses.Draft, "CreateDraft", user.UserId, null, ct);
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripCreateDraft", null, new { trip.TripNo }, ct);
         await uow.SaveChangesAsync(ct);
-
         return await GetDtoAsync(trip.VisitTripId, ct);
     }
 
@@ -77,22 +93,48 @@ var now = DateTime.UtcNow;
         EnsureVisitorOwns(user, trip);
         if (trip.Status is not (TripStatuses.Draft or TripStatuses.Returned))
             throw new InvalidOperationException("只有草稿或已退回行程可以修改。");
-
         EnsureRowVersion(trip.RowVersion, rowVersion);
 
-        var tripTeamId =
-            V170TripTeamSelectionRules.Resolve(
-                user,
-                request.TeamId);
+        int? tripTeamId;
+        var startSiteId = trip.StartDeploymentSiteId;
+        var endSiteId = trip.EndDeploymentSiteId;
+        if (trip.EmploymentId.HasValue)
+        {
+            var context = await (tripContext ?? throw new InvalidOperationException("V180_TRIP_CONTEXT_READER_REQUIRED")).ResolveAsync(user, request.VisitDate, request.TeamId, ct);
+            if (context.EmploymentId != trip.EmploymentId.Value)
+                throw new InvalidOperationException("TRIP_CONTEXT_EMPLOYMENT_CHANGED：人員資料已變更，請重新開啟行程。");
+            var sites = V180TripPersistenceRules.ResolveDraftSites(
+                context, request.StartDeploymentSiteId, request.EndDeploymentSiteId,
+                trip.StartDeploymentSiteId, trip.EndDeploymentSiteId);
+            tripTeamId = context.SelectedTeamId
+                ?? throw new InvalidOperationException($"{context.ValidationCode}：{context.ValidationMessage}");
+            startSiteId = sites.Start;
+            endSiteId = sites.End;
+        }
+        else
+        {
+            tripTeamId = V170TripTeamSelectionRules.Resolve(user, request.TeamId);
+        }
+
+        var vehicleType = request.VehicleType is null
+            ? trip.VehicleType ?? "Motorcycle"
+            : V180MileageCanonicalization.ToDbRequestedVehicleType(
+                V180MileageCanonicalization.CanonicalVehicleType(request.VehicleType));
+        var authorityChanged = RouteAuthorityChanged(
+            trip, request, tripTeamId, startSiteId, endSiteId, vehicleType);
 
         var overlap = await CheckOverlapAsync(
             new TimeOverlapRequest(request.VisitDate, request.StartTime, request.EndTime, tripId), ct);
+
         trip.TeamId = tripTeamId;
+        trip.StartDeploymentSiteId = startSiteId;
+        trip.EndDeploymentSiteId = endSiteId;
         trip.VisitDate = request.VisitDate;
         trip.StartTime = request.StartTime;
         trip.EndTime = request.EndTime;
         trip.HasTimeOverlapWarning = overlap.HasOverlap;
         trip.TimeOverlapConfirmed = overlap.HasOverlap && request.TimeOverlapConfirmed;
+        trip.VehicleType = vehicleType;
         trip.Purpose = request.Purpose;
         trip.Notes = request.Notes;
         trip.ReturnReason = null;
@@ -108,6 +150,7 @@ var now = DateTime.UtcNow;
             calc = new MileageCalculation { VisitTripId = trip.VisitTripId, CreatedAt = DateTime.UtcNow };
             await mileage.AddAsync(calc, ct);
         }
+
         calc.ClaimedDistanceKm = request.ClaimedDistanceKm;
         calc.SystemDistanceKm = null;
         calc.ApprovedDistanceKm = null;
@@ -119,8 +162,33 @@ var now = DateTime.UtcNow;
         calc.CalculatedAt = null;
         calc.UpdatedAt = DateTime.UtcNow;
 
+        if (authorityChanged && HasCurrentGovernedAuthority(calc))
+        {
+            var invalidatedAt = trip.UpdatedAt ?? DateTime.UtcNow;
+            var invalidatedAttemptId = calc.SelectedRouteCalculationAttemptId;
+            calc.SelectedRouteCalculationAttemptId = null;
+            calc.ManualFallbackUsed = false;
+            calc.DistanceDecisionGovernanceVersion = null;
+            calc.ApprovedDistanceSource = null;
+            calc.ApprovalBasisCode = null;
+            calc.ApprovalBasisHash = null;
+            calc.DistanceApprovedAt = null;
+            calc.DistanceApprovedByUserId = null;
+            calc.InvalidatedAt = invalidatedAt;
+            calc.InvalidatedByUserId = user.UserId;
+            calc.InvalidationReason = "TripRouteAuthorityEdited";
+
+            await (mileageGovernance ?? throw new InvalidOperationException("V180_MILEAGE_GOVERNANCE_REPOSITORY_REQUIRED")).AddGovernanceEventAsync(
+                new V180MileageGovernanceEventRequest(
+                    trip.VisitTripId, null, invalidatedAttemptId, "Invalidated",
+                    "TRIP_ROUTE_AUTHORITY_EDITED",
+                    "Current route and mileage decision authority was invalidated.",
+                    Guid.NewGuid(), invalidatedAt, user.UserId), ct);
+        }
+
         await AddHistoryAsync(trip, trip.Status, trip.Status, "Update", user.UserId, null, ct);
-        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripUpdate", null, new { request.VisitDate, request.StartTime, request.EndTime }, ct);
+        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripUpdate", null,
+            new { request.VisitDate, request.StartTime, request.EndTime }, ct);
         await uow.SaveChangesAsync(ct);
         return await GetDtoAsync(tripId, ct);
     }
@@ -170,9 +238,18 @@ var now = DateTime.UtcNow;
             ?? throw new KeyNotFoundException("找不到行程。");
 
         EnsureVisitorOwns(user, trip);
-        V170TripTeamSelectionRules.EnsureStillAllowed(
-            user,
-            trip.TeamId);
+        V180TripContextDto? authoritativeContext = null;
+        if (trip.EmploymentId.HasValue)
+        {
+            authoritativeContext = await (tripContext ?? throw new InvalidOperationException("V180_TRIP_CONTEXT_READER_REQUIRED")).ResolveAsync(user, trip.VisitDate, trip.TeamId, ct);
+            V180TripPersistenceRules.EnsureReadyForSubmit(
+                authoritativeContext, trip.EmploymentId.Value, trip.TeamId,
+                trip.StartDeploymentSiteId, trip.EndDeploymentSiteId);
+        }
+        else
+        {
+            V170TripTeamSelectionRules.EnsureStillAllowed(user, trip.TeamId);
+        }
 
         if (trip.Status is not (TripStatuses.Draft or TripStatuses.Returned))
             throw new InvalidOperationException("此狀態不能送出。");
@@ -181,30 +258,16 @@ var now = DateTime.UtcNow;
         if (trip.StartTime is null || trip.EndTime is null)
             throw new InvalidOperationException("送出前必須填寫起訖時間。");
 
-        // Defense in depth:
-        // A draft can remain open while an administrator disables a VisitType.
-        // Normal UI editing revalidates the Stop through BuildStopsAsync, but a
-        // caller could otherwise invoke /submit directly without re-saving the
-        // draft. Re-check each referenced VisitType here before status changes.
         foreach (var stop in trip.Stops.Where(x => x.VisitTypeId.HasValue))
         {
-            var visitType =
-                await masters.GetVisitTypeAsync(
-                    stop.VisitTypeId!.Value,
-                    false,
-                    ct)
-                ?? throw new KeyNotFoundException(
-                    $"找不到拜訪形式 {stop.VisitTypeId.Value}。");
-
+            var visitType = await masters.GetVisitTypeAsync(stop.VisitTypeId!.Value, false, ct)
+                ?? throw new KeyNotFoundException($"找不到拜訪形式 {stop.VisitTypeId.Value}。");
             if (!visitType.IsActive)
-                throw new InvalidOperationException(
-                    $"拜訪形式「{visitType.VisitTypeName}」已停用，請重新選擇拜訪形式。");
+                throw new InvalidOperationException($"拜訪形式「{visitType.VisitTypeName}」已停用，請重新選擇拜訪形式。");
         }
 
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
-        V170TripMileageRules.EnsureReadyForSubmission(
-            trip.Stops.Count,
-            calc?.ClaimedDistanceKm);
+        V170TripMileageRules.EnsureReadyForSubmission(trip.Stops.Count, calc?.ClaimedDistanceKm);
 
         var overlap = await CheckOverlapAsync(new TimeOverlapRequest(
             trip.VisitDate, trip.StartTime.Value, trip.EndTime.Value, trip.VisitTripId), ct);
@@ -221,14 +284,17 @@ var now = DateTime.UtcNow;
         trip.UpdatedByUserId = user.UserId;
 
         await AddHistoryAsync(
-            trip,
-            previous,
-            TripStatuses.Submitted,
+            trip, previous, TripStatuses.Submitted,
             previous == TripStatuses.Returned ? "Resubmit" : "Submit",
             user.UserId,
             overlap.HasOverlap ? "使用者已確認時間重疊" : null,
             ct);
-        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripSubmit", null, new { trip.TripNo }, ct);
+        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripSubmit", null,
+            new { trip.TripNo }, ct);
+
+        if (authoritativeContext is not null)
+            await (snapshots ?? throw new InvalidOperationException("V180_SNAPSHOT_REPOSITORY_REQUIRED")).AddSubmittedSnapshotAsync(trip, user, authoritativeContext, ct);
+
         await uow.SaveChangesAsync(ct);
         return await GetDtoAsync(tripId, ct);
     }
@@ -306,13 +372,17 @@ var now = DateTime.UtcNow;
     public async Task<TripDto> MapAsync(VisitTrip trip, CancellationToken ct)
     {
         var profile = await users.GetProfileAsync(trip.UserId, ct);
-        var tripTeam =
-            trip.TeamId.HasValue
-                ? await masters.GetTeamAsync(
-                    trip.TeamId.Value,
-                    ct)
-                : null;
+        var tripTeam = trip.TeamId.HasValue ? await masters.GetTeamAsync(trip.TeamId.Value, ct) : null;
         var calc = trip.MileageCalculation ?? await mileage.GetByTripAsync(trip.VisitTripId, false, ct);
+
+        VisitTripSnapshot? displaySnapshot = null;
+        if (trip.EmploymentId.HasValue && trip.Status is not (TripStatuses.Draft or TripStatuses.Returned))
+        {
+            displaySnapshot = await (snapshots ?? throw new InvalidOperationException("V180_SNAPSHOT_REPOSITORY_REQUIRED")).GetLatestAsync(
+                trip.VisitTripId,
+                trip.Status == TripStatuses.Approved ? "Approved" : "Submitted",
+                ct);
+        }
 
         return new TripDto(
             trip.VisitTripId,
@@ -336,6 +406,15 @@ var now = DateTime.UtcNow;
             calc?.ApprovedDistanceKm,
             calc?.RatePerKmSnapshot,
             calc?.ApprovedAmount,
+            trip.EmploymentId,
+            trip.StartDeploymentSiteId,
+            displaySnapshot?.StartDeploymentSiteCodeSnapshot,
+            null,
+            displaySnapshot?.StartDeploymentAddressSnapshot,
+            trip.EndDeploymentSiteId,
+            displaySnapshot?.EndDeploymentSiteCodeSnapshot,
+            null,
+            displaySnapshot?.EndDeploymentAddressSnapshot,
             trip.Stops.OrderBy(x => x.StopSequence).Select(x => new TripStopInput(
                 x.LocationId, x.ProjectId, x.VisitTypeId,
                 x.LocationId.HasValue ? "Master" : "Temporary",
@@ -437,6 +516,49 @@ var now = DateTime.UtcNow;
         if (request.ClaimedDistanceKm.HasValue && request.ClaimedDistanceKm.Value < 0)
             throw new InvalidOperationException("自算里程不可小於 0。");
         if (request.Stops.Any(x => string.IsNullOrWhiteSpace(x.LocationName))) throw new InvalidOperationException("地點名稱不可空白。");
+    }
+
+    private static bool HasCurrentGovernedAuthority(MileageCalculation calc) =>
+        calc.SelectedRouteCalculationAttemptId.HasValue
+        || calc.DistanceDecisionGovernanceVersion is not null
+        || calc.ApprovedDistanceSource is not null
+        || calc.ApprovalBasisHash is not null;
+
+    private static bool RouteAuthorityChanged(
+        VisitTrip trip,
+        SaveTripRequest request,
+        int? newTeamId,
+        int? newStartSiteId,
+        int? newEndSiteId,
+        string newVehicleType)
+    {
+        if (trip.VisitDate != request.VisitDate
+            || trip.TeamId != newTeamId
+            || trip.StartDeploymentSiteId != newStartSiteId
+            || trip.EndDeploymentSiteId != newEndSiteId
+            || !string.Equals(
+                V180MileageCanonicalization.CanonicalVehicleType(trip.VehicleType ?? "Motorcycle"),
+                V180MileageCanonicalization.CanonicalVehicleType(newVehicleType),
+                StringComparison.Ordinal))
+            return true;
+
+        var existingStops = trip.Stops.OrderBy(x => x.StopSequence).ToArray();
+        if (existingStops.Length != request.Stops.Count) return true;
+        for (var index = 0; index < existingStops.Length; index++)
+        {
+            var existing = existingStops[index];
+            var requested = request.Stops[index];
+            if (existing.StopSequence != index + 1
+                || existing.LocationId != requested.LocationId
+                || existing.ProjectId != requested.ProjectId
+                || existing.VisitTypeId != requested.VisitTypeId
+                || !string.Equals(
+                    V180MileageCanonicalization.NormalizeText(existing.AddressSnapshot),
+                    V180MileageCanonicalization.NormalizeText(requested.Address),
+                    StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     private static void EnsureRowVersion(byte[] currentValue, string expectedBase64)

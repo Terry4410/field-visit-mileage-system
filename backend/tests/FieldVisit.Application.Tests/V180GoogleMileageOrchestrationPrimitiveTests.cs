@@ -441,6 +441,11 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     {
         public Task<VisitTripSnapshot?> GetLatestAsync(long tripId, string snapshotType, CancellationToken ct) =>
             Task.FromResult<VisitTripSnapshot?>(snapshot.VisitTripId == tripId && snapshot.SnapshotType == snapshotType ? snapshot : null);
+        public Task AddSubmittedSnapshotAsync(
+            VisitTrip trip,
+            CurrentUserDto submitter,
+            V180TripContextDto context,
+            CancellationToken ct) => throw new NotSupportedException();
         public Task AddApprovedSnapshotAsync(VisitTrip trip, CurrentUserDto approver, CancellationToken ct) => throw new NotSupportedException();
     }
 }

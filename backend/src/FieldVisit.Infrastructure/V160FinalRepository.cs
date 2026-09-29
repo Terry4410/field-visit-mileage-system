@@ -381,26 +381,46 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         return await MapCorrectionAsync(row.CorrectionRequestId, ct);
     }
 
-    public async Task<CorrectionRequestDto> CloseCorrectionAsync(CurrentUserDto user, long correctionRequestId, CloseCorrectionRequest request, CancellationToken ct)
+    public async Task<CorrectionRequestDto> CloseCorrectionAsync(
+        CurrentUserDto user,
+        long correctionRequestId,
+        CloseCorrectionRequest request,
+        CancellationToken ct)
     {
-        var row = await db.CorrectionRequests.FirstOrDefaultAsync(x => x.CorrectionRequestId == correctionRequestId, ct)
+        var row = await db.CorrectionRequests.FirstOrDefaultAsync(
+            x => x.CorrectionRequestId == correctionRequestId, ct)
             ?? throw new KeyNotFoundException("找不到更正申請。");
-        if (row.Status != "PendingAdminClose") throw new InvalidOperationException("此更正申請目前不需要管理者結案。");
+        if (row.Status != "PendingAdminClose")
+            throw new InvalidOperationException("此更正申請目前不需要管理者結案。");
         EnsureRowVersion(row.RowVersion, request.RowVersion);
-        var trip = await db.VisitTrips.AsNoTracking().FirstAsync(x => x.VisitTripId == row.VisitTripId, ct);
-        if (user.OrganizationId.HasValue && trip.OrganizationId != user.OrganizationId.Value) throw new UnauthorizedAccessException("無權處理其他 Organization 資料。");
 
+        var trip = await db.VisitTrips.AsNoTracking()
+            .FirstAsync(x => x.VisitTripId == row.VisitTripId, ct);
+        if (user.OrganizationId.HasValue && trip.OrganizationId != user.OrganizationId.Value)
+            throw new UnauthorizedAccessException("無權處理其他 Organization 資料。");
+
+        var transitionAt = DateTime.UtcNow;
         row.AdminClosedByUserId = user.UserId;
-        row.AdminClosedAt = DateTime.UtcNow;
+        row.AdminClosedAt = transitionAt;
         row.AdminComments = request.Comments;
-        if (!request.Approve) row.Status = "Rejected";
+
+        if (!request.Approve)
+        {
+            row.Status = "Rejected";
+        }
         else
         {
-            var snapshot = await CreateCorrectionSnapshotAsync(row, user.UserId, ct);
+            var snapshot = await CreateCorrectionSnapshotAsync(row, user, request, ct);
             row.ResultSnapshotId = snapshot.VisitTripSnapshotId;
             row.Status = "Closed";
         }
-        AddAudit(user.UserId, "CorrectionRequest", row.CorrectionRequestId.ToString(), request.Approve ? "CorrectionAdminClosed" : "CorrectionAdminRejected", new { request.Comments, row.Status });
+
+        AddAudit(
+            user.UserId,
+            "CorrectionRequest",
+            row.CorrectionRequestId.ToString(),
+            request.Approve ? "CorrectionAdminClosed" : "CorrectionAdminRejected",
+            new { request.Comments, row.Status });
         await db.SaveChangesAsync(ct);
         return await MapCorrectionAsync(row.CorrectionRequestId, ct);
     }
@@ -1058,42 +1078,247 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     private static bool RequiresAdminClose(IEnumerable<CorrectionRequestChange> changes) =>
         changes.Any(x => x.FieldName is "ApprovedDistanceKm" or "RatePerKm" or "SubsidyAmount");
 
-    private async Task<VisitTripSnapshot> CreateCorrectionSnapshotAsync(CorrectionRequest row, int actorUserId, CancellationToken ct)
+    private sealed record CorrectionSnapshotShadow(
+        long? PersonId,
+        long? EmploymentId,
+        int? CenterId,
+        string? CenterCode,
+        string? CenterName,
+        string? TeamCode,
+        int? StartDeploymentSiteId,
+        string? StartDeploymentSiteName,
+        int? StartDeploymentLocationId,
+        int? EndDeploymentSiteId,
+        string? EndDeploymentSiteName,
+        int? EndDeploymentLocationId);
+
+    private async Task<VisitTripSnapshot> CreateCorrectionSnapshotAsync(
+        CorrectionRequest row,
+        CurrentUserDto admin,
+        CloseCorrectionRequest request,
+        CancellationToken ct)
     {
-        var baseSnapshot = await db.VisitTripSnapshots.AsNoTracking().Include(x => x.Stops).FirstAsync(x => x.VisitTripSnapshotId == row.BaseSnapshotId, ct);
-        var proposal = JsonSerializer.Deserialize<CorrectionProposal>(row.ProposedChangesJson ?? "{}", JsonOptions) ?? throw new InvalidOperationException("更正內容無法解析。");
-        var maxVersion = await db.VisitTripSnapshots.Where(x => x.VisitTripId == row.VisitTripId).MaxAsync(x => (int?)x.SnapshotVersion, ct) ?? 0;
+        var baseSnapshot = await db.VisitTripSnapshots.AsNoTracking()
+            .Include(x => x.Stops)
+            .FirstAsync(x => x.VisitTripSnapshotId == row.BaseSnapshotId, ct);
+        var proposal = JsonSerializer.Deserialize<CorrectionProposal>(
+            row.ProposedChangesJson ?? "{}", JsonOptions)
+            ?? throw new InvalidOperationException("更正內容無法解析。");
+        var shadow = await LoadCorrectionShadowAsync(baseSnapshot.VisitTripSnapshotId, ct);
+
+        var distanceChanged = proposal.ApprovedDistanceKm != baseSnapshot.ApprovedDistanceKmSnapshot;
+        var decisionSource = baseSnapshot.ApprovedDistanceSourceSnapshot;
+        var approvalBasisCode = baseSnapshot.ApprovalBasisCodeSnapshot;
+        var approvalBasisHash = baseSnapshot.ApprovalBasisHashSnapshot?.ToArray();
+        var distanceApprovedAt = baseSnapshot.DistanceApprovedAtSnapshot;
+        var approverUserId = baseSnapshot.ApproverUserId;
+        var approverName = baseSnapshot.ApproverNameSnapshot;
+        var routeAttemptId = baseSnapshot.MileageRouteAttemptIdSnapshot;
+        var routeTravelMode = baseSnapshot.RouteTravelModeSnapshot;
+        var routeCalculatedAt = baseSnapshot.RouteCalculatedAtSnapshot;
+        var routeStatus = baseSnapshot.RouteCalculationStatusSnapshot;
+        var routeErrorCode = baseSnapshot.RouteErrorCodeSnapshot;
+        var routeCorrelationId = baseSnapshot.RouteCorrelationIdSnapshot;
+        var routeProvider = baseSnapshot.RouteProviderSnapshot;
+
+        RouteCalculationAttempt? selectedAttempt = null;
+        if (distanceChanged)
+        {
+            if (!row.AdminClosedByUserId.HasValue || !row.AdminClosedAt.HasValue)
+                throw new InvalidOperationException("F_B_CORRECTION_ADMIN_EVIDENCE_REQUIRED：距離更正必須先建立 Admin close evidence。");
+
+            decisionSource = V180MileageGovernanceRules.RequireCorrectionDecisionSource(
+                request.DistanceDecisionSource);
+            approvalBasisCode = V180MileageGovernanceRules.CorrectionProposalBasisCode;
+            approvalBasisHash = V180MileageCanonicalization.HashCorrectionProposal(baseSnapshot, proposal);
+            distanceApprovedAt = row.AdminClosedAt;
+            approverUserId = row.AdminClosedByUserId;
+            approverName = admin.DisplayName;
+
+            var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(
+                baseSnapshot.VehicleTypeSnapshot ?? "Motorcycle");
+            var expectedVehicle = V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle);
+            var expectedTravelMode = V180MileageCanonicalization.ToTravelMode(canonicalVehicle);
+
+            if (decisionSource == "ManualFallback")
+            {
+                if (request.RouteCalculationAttemptId.HasValue)
+                    throw new InvalidOperationException(
+                        "F_B_CORRECTION_MANUAL_FALLBACK_ATTEMPT：ManualFallback 不得選取 route attempt。");
+                routeAttemptId = null;
+                routeTravelMode = expectedTravelMode;
+                routeCalculatedAt = null;
+                routeStatus = "ManualFallback";
+                routeErrorCode = null;
+                routeCorrelationId = Guid.NewGuid();
+                routeProvider = "ManualFallback";
+            }
+            else
+            {
+                if (!request.RouteCalculationAttemptId.HasValue)
+                    throw new InvalidOperationException(
+                        "F_B_CORRECTION_ROUTE_ATTEMPT_REQUIRED：ProviderSuggested 必須選取既有成功 CorrectionRecalculate attempt。");
+
+                selectedAttempt = await db.RouteCalculationAttempts.AsNoTracking()
+                    .SingleOrDefaultAsync(
+                        x => x.RouteCalculationAttemptId == request.RouteCalculationAttemptId.Value,
+                        ct)
+                    ?? throw new InvalidOperationException(
+                        "F_B_CORRECTION_ROUTE_ATTEMPT_NOT_FOUND：找不到指定的 route attempt。");
+
+                if (selectedAttempt.VisitTripId != row.VisitTripId
+                    || selectedAttempt.CalculationReason != "CorrectionRecalculate"
+                    || selectedAttempt.Status != "Succeeded"
+                    || !selectedAttempt.RequestBasisHash.SequenceEqual(approvalBasisHash)
+                    || selectedAttempt.RequestedVehicleType != expectedVehicle
+                    || selectedAttempt.TravelMode != expectedTravelMode)
+                    throw new InvalidOperationException(
+                        "F_B_CORRECTION_ROUTE_ATTEMPT_STALE：既有 CorrectionRecalculate attempt 與 final CorrectionProposal basis 不一致。");
+
+                routeAttemptId = selectedAttempt.RouteCalculationAttemptId;
+                routeTravelMode = selectedAttempt.TravelMode;
+                routeCalculatedAt = selectedAttempt.CompletedAt;
+                routeStatus = selectedAttempt.Status;
+                routeErrorCode = selectedAttempt.ErrorCode;
+                routeCorrelationId = selectedAttempt.CorrelationId;
+                routeProvider = selectedAttempt.Provider;
+            }
+        }
+
+        var maxVersion = await db.VisitTripSnapshots
+            .Where(x => x.VisitTripId == row.VisitTripId)
+            .MaxAsync(x => (int?)x.SnapshotVersion, ct) ?? 0;
+
         var snapshot = new VisitTripSnapshot
         {
-            VisitTripId = baseSnapshot.VisitTripId, SnapshotVersion = maxVersion + 1, SnapshotType = "Correction",
-            TripNo = baseSnapshot.TripNo, UserId = baseSnapshot.UserId, EmployeeNoSnapshot = baseSnapshot.EmployeeNoSnapshot,
-            DisplayNameSnapshot = baseSnapshot.DisplayNameSnapshot, OrganizationId = baseSnapshot.OrganizationId,
-            OrganizationNameSnapshot = baseSnapshot.OrganizationNameSnapshot, TeamId = baseSnapshot.TeamId, TeamNameSnapshot = baseSnapshot.TeamNameSnapshot,
-            VisitDate = proposal.VisitDate, StartTime = proposal.StartTime, EndTime = proposal.EndTime, StatusSnapshot = TripStatuses.Approved,
-            VehicleTypeSnapshot = baseSnapshot.VehicleTypeSnapshot, ClaimedDistanceKmSnapshot = proposal.ClaimedDistanceKm,
-            SystemDistanceKmSnapshot = baseSnapshot.SystemDistanceKmSnapshot, ApprovedDistanceKmSnapshot = proposal.ApprovedDistanceKm,
-            RatePerKmSnapshot = proposal.RatePerKm, SubsidyAmountSnapshot = proposal.SubsidyAmount,
-            RouteProviderSnapshot = baseSnapshot.RouteProviderSnapshot, SubmittedAtSnapshot = baseSnapshot.SubmittedAtSnapshot,
-            ApprovedAtSnapshot = baseSnapshot.ApprovedAtSnapshot, ApproverUserId = baseSnapshot.ApproverUserId,
-            ApproverNameSnapshot = baseSnapshot.ApproverNameSnapshot, NotesSnapshot = proposal.Notes,
-            CreatedAt = DateTime.UtcNow, CreatedByUserId = actorUserId
+            VisitTripId = baseSnapshot.VisitTripId,
+            SnapshotVersion = maxVersion + 1,
+            SnapshotType = "Correction",
+            TripNo = baseSnapshot.TripNo,
+            UserId = baseSnapshot.UserId,
+            EmployeeNoSnapshot = baseSnapshot.EmployeeNoSnapshot,
+            DisplayNameSnapshot = baseSnapshot.DisplayNameSnapshot,
+            OrganizationId = baseSnapshot.OrganizationId,
+            OrganizationNameSnapshot = baseSnapshot.OrganizationNameSnapshot,
+            TeamId = baseSnapshot.TeamId,
+            TeamNameSnapshot = baseSnapshot.TeamNameSnapshot,
+            StartDeploymentSiteCodeSnapshot = baseSnapshot.StartDeploymentSiteCodeSnapshot,
+            StartDeploymentAddressSnapshot = baseSnapshot.StartDeploymentAddressSnapshot,
+            EndDeploymentSiteCodeSnapshot = baseSnapshot.EndDeploymentSiteCodeSnapshot,
+            EndDeploymentAddressSnapshot = baseSnapshot.EndDeploymentAddressSnapshot,
+            VisitDate = proposal.VisitDate,
+            StartTime = proposal.StartTime,
+            EndTime = proposal.EndTime,
+            StatusSnapshot = TripStatuses.Approved,
+            VehicleTypeSnapshot = baseSnapshot.VehicleTypeSnapshot,
+            ClaimedDistanceKmSnapshot = proposal.ClaimedDistanceKm,
+            SystemDistanceKmSnapshot = baseSnapshot.SystemDistanceKmSnapshot,
+            ApprovedDistanceKmSnapshot = proposal.ApprovedDistanceKm,
+            RatePerKmSnapshot = proposal.RatePerKm,
+            SubsidyAmountSnapshot = proposal.SubsidyAmount,
+            RouteProviderSnapshot = routeProvider,
+            SubmittedAtSnapshot = baseSnapshot.SubmittedAtSnapshot,
+            ApprovedAtSnapshot = baseSnapshot.ApprovedAtSnapshot,
+            ApproverUserId = approverUserId,
+            ApproverNameSnapshot = approverName,
+            NotesSnapshot = proposal.Notes,
+            CreatedAt = DateTime.UtcNow,
+            CreatedByUserId = admin.UserId,
+            MileageRouteAttemptIdSnapshot = routeAttemptId,
+            RouteTravelModeSnapshot = routeTravelMode,
+            RouteCalculatedAtSnapshot = routeCalculatedAt,
+            RouteCalculationStatusSnapshot = routeStatus,
+            RouteErrorCodeSnapshot = routeErrorCode,
+            RouteCorrelationIdSnapshot = routeCorrelationId,
+            ApprovedDistanceSourceSnapshot = decisionSource,
+            ApprovalBasisCodeSnapshot = approvalBasisCode,
+            ApprovalBasisHashSnapshot = approvalBasisHash,
+            DistanceApprovedAtSnapshot = distanceApprovedAt
         };
+
         var baseStops = baseSnapshot.Stops.ToDictionary(x => x.StopSequence);
         foreach (var p in proposal.Stops.OrderBy(x => x.StopSequence))
         {
             baseStops.TryGetValue(p.StopSequence, out var old);
             snapshot.Stops.Add(new VisitTripSnapshotStop
             {
-                StopSequence = p.StopSequence, LocationId = old?.LocationId, LocationCodeSnapshot = p.LocationCode,
-                LocationNameSnapshot = p.LocationName, AddressSnapshot = p.Address, ProjectId = old?.ProjectId,
-                ProjectCodeSnapshot = p.ProjectCode, ProjectNameSnapshot = p.ProjectName, VisitTypeId = old?.VisitTypeId,
-                VisitTypeCodeSnapshot = p.VisitTypeCode, VisitTypeNameSnapshot = p.VisitTypeName, VisitPurposeSnapshot = p.VisitPurpose,
-                NotesSnapshot = p.Notes, CreatedAt = DateTime.UtcNow
+                StopSequence = p.StopSequence,
+                LocationId = old?.LocationId,
+                LocationCodeSnapshot = p.LocationCode,
+                LocationNameSnapshot = p.LocationName,
+                AddressSnapshot = p.Address,
+                ProjectId = old?.ProjectId,
+                ProjectCodeSnapshot = p.ProjectCode,
+                ProjectNameSnapshot = p.ProjectName,
+                VisitTypeId = old?.VisitTypeId,
+                VisitTypeCodeSnapshot = p.VisitTypeCode,
+                VisitTypeNameSnapshot = p.VisitTypeName,
+                VisitPurposeSnapshot = p.VisitPurpose,
+                NotesSnapshot = p.Notes,
+                CreatedAt = DateTime.UtcNow
             });
         }
+
         await db.VisitTripSnapshots.AddAsync(snapshot, ct);
+        SetCorrectionShadow(snapshot, shadow);
+
+        if (distanceChanged)
+        {
+            db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
+            {
+                VisitTripId = row.VisitTripId,
+                VisitTripSnapshotId = null,
+                RouteCalculationAttemptId = selectedAttempt?.RouteCalculationAttemptId,
+                EventType = "Approved",
+                ReasonCode = decisionSource,
+                Message = "Correction distance decision finalized by Admin close.",
+                CorrelationId = selectedAttempt?.CorrelationId ?? Guid.NewGuid(),
+                OccurredAt = row.AdminClosedAt!.Value,
+                ActorUserId = row.AdminClosedByUserId
+            });
+        }
+
         await db.SaveChangesAsync(ct);
         return snapshot;
+    }
+
+    private async Task<CorrectionSnapshotShadow> LoadCorrectionShadowAsync(
+        long snapshotId,
+        CancellationToken ct) =>
+        await db.VisitTripSnapshots.AsNoTracking()
+            .Where(x => x.VisitTripSnapshotId == snapshotId)
+            .Select(x => new CorrectionSnapshotShadow(
+                EF.Property<long?>(x, "PersonIdSnapshot"),
+                EF.Property<long?>(x, "EmploymentIdSnapshot"),
+                EF.Property<int?>(x, "CenterIdSnapshot"),
+                EF.Property<string?>(x, "CenterCodeSnapshot"),
+                EF.Property<string?>(x, "CenterNameSnapshot"),
+                EF.Property<string?>(x, "TeamCodeSnapshot"),
+                EF.Property<int?>(x, "StartDeploymentSiteIdSnapshot"),
+                EF.Property<string?>(x, "StartDeploymentSiteNameSnapshot"),
+                EF.Property<int?>(x, "StartDeploymentLocationIdSnapshot"),
+                EF.Property<int?>(x, "EndDeploymentSiteIdSnapshot"),
+                EF.Property<string?>(x, "EndDeploymentSiteNameSnapshot"),
+                EF.Property<int?>(x, "EndDeploymentLocationIdSnapshot")))
+            .SingleAsync(ct);
+
+    private void SetCorrectionShadow(
+        VisitTripSnapshot snapshot,
+        CorrectionSnapshotShadow shadow)
+    {
+        var entry = db.Entry(snapshot);
+        entry.Property<long?>("PersonIdSnapshot").CurrentValue = shadow.PersonId;
+        entry.Property<long?>("EmploymentIdSnapshot").CurrentValue = shadow.EmploymentId;
+        entry.Property<int?>("CenterIdSnapshot").CurrentValue = shadow.CenterId;
+        entry.Property<string?>("CenterCodeSnapshot").CurrentValue = shadow.CenterCode;
+        entry.Property<string?>("CenterNameSnapshot").CurrentValue = shadow.CenterName;
+        entry.Property<string?>("TeamCodeSnapshot").CurrentValue = shadow.TeamCode;
+        entry.Property<int?>("StartDeploymentSiteIdSnapshot").CurrentValue = shadow.StartDeploymentSiteId;
+        entry.Property<string?>("StartDeploymentSiteNameSnapshot").CurrentValue = shadow.StartDeploymentSiteName;
+        entry.Property<int?>("StartDeploymentLocationIdSnapshot").CurrentValue = shadow.StartDeploymentLocationId;
+        entry.Property<int?>("EndDeploymentSiteIdSnapshot").CurrentValue = shadow.EndDeploymentSiteId;
+        entry.Property<string?>("EndDeploymentSiteNameSnapshot").CurrentValue = shadow.EndDeploymentSiteName;
+        entry.Property<int?>("EndDeploymentLocationIdSnapshot").CurrentValue = shadow.EndDeploymentLocationId;
     }
 
     private async Task<CorrectionRequestDto> MapCorrectionAsync(long id, CancellationToken ct)

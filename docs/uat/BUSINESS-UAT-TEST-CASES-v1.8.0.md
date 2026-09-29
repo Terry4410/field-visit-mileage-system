@@ -26,11 +26,11 @@
 | VIS-01 | P0 | Visitor / 外訪員 | Visitor saves Draft | 1. 建立新行程。<br>2. 輸入可辨識的 UAT 備註。<br>3. 儲存為 Draft。<br>4. 到歷史紀錄查詢。 | Draft 儲存成功，且可在歷史紀錄中找到。 |  | NOT RUN |  |
 | VIS-02 | P0 | Visitor / 外訪員 | 2-stop trip using existing locations | 1. 建立 2-stop 行程。<br>2. 使用既有正式地點。<br>3. 視情況選擇 Project / Visit Type。<br>4. 輸入 claimed mileage。<br>5. 送出。<br>6. 記錄 Trip No。 | 行程送出成功，狀態與資料正確，Trip No 可記錄並後續追蹤。 |  | NOT RUN |  |
 | VIS-03 | P0 | Visitor / 外訪員 | Temporary business location | 1. 建立測試行程。<br>2. 加入臨時業務地點。<br>3. 儲存或送出並重新檢視。 | 臨時地點可加入行程，且不會被無聲轉成 Production master data。 |  | NOT RUN |  |
-| VIS-04 | P0 | Visitor / 外訪員 | 1-stop trip | 1. 建立只有 1 stop 的測試行程。<br>2. 依目前規則完成可填欄位。<br>3. 儲存 / 送出。 | 1-stop 行程可依目前 business rule 處理；里程 / 費率 / 補助在不適用時顯示 N/A 或符合既定規則。 |  | NOT RUN |  |
+| VIS-04 | P0 | Visitor / 外訪員 | Formal submission requires at least 2 stops | 1. 建立只有 1 stop 的測試行程。<br>2. 儲存 Draft。<br>3. 嘗試正式送出。<br>4. 補成至少 2 stops 後再次送出。 | Draft 可保留；**正式送出必須至少 2 stops**。1-stop submit 必須 fail closed；補足 2 stops 後才可送出。 |  | NOT RUN |  |
 | VIS-05 | P0 | Visitor / 外訪員 | Draft edit / delete | 1. 僅使用本次新建 UAT Draft。<br>2. 修改欄位並儲存。<br>3. 再建立一筆可安全刪除的 UAT Draft。<br>4. 刪除指定 Draft。 | 修改成功；刪除只影響指定的 UAT Draft，不影響其他紀錄。 |  | NOT RUN |  |
 | LEAD-01 | P0 | Leader / 小組長 | Leader sees Visitor submitted trip | 1. Visitor 先完成 VIS-02。<br>2. Leader 使用授權帳號登入。<br>3. 於審核 / 清單中尋找該 Trip No。 | 可看到正確 Visitor、Team 與 Trip 資料。 |  | NOT RUN |  |
 | LEAD-02 | P0 | Leader / 小組長 | System mileage processing for 2+ stop trip | 1. 使用指定 2+ stop UAT Trip。<br>2. 依目前畫面觸發 / 等候系統里程處理。<br>3. 查看處理結果。 | 指定 UAT Trip 的背景工作建立並完成成功；不要求 Google 路線距離準確度。 |  | NOT RUN |  |
-| LEAD-03 | P0 | Leader / 小組長 | Leader approves designated trip | 1. 開啟指定待審 Trip。<br>2. 檢視里程、費率、補助。<br>3. 完成核准。 | 狀態變為 Approved；核定里程 / rate / subsidy 依系統規則顯示。 |  | NOT RUN |  |
+| LEAD-03 | P0 | Leader / 小組長 | Leader approves designated trip | 1. 開啟指定待審 Trip。<br>2. 檢視里程、費率、補助。<br>3. 在「公司里程決策依據（必選）」明確勾選 **人工備援 / ManualFallback**。<br>4. 完成核准。 | 未明確選擇時不可核准；選擇 ManualFallback 後狀態變為 Approved，並留下治理證據；P2B 不要求 live Google provider。 |  | NOT RUN |  |
 | LEAD-04 | P0 | Leader / 小組長 | Leader returns designated trip | 1. 使用另一筆指定 UAT Trip。<br>2. 輸入退回原因。<br>3. 退回。 | Visitor 可看到 Returned 狀態與退回原因。 |  | NOT RUN |  |
 | VIS-06 | P0 | Visitor / 外訪員 | Visitor edits Returned trip and resubmits | 1. 開啟 LEAD-04 退回的 Trip。<br>2. 修改指定內容。<br>3. 重新送出。 | Returned Trip 可修改並再次送出，且狀態正確更新。 |  | NOT RUN |  |
 | QUERY-01 | P0 | Leader / 小組長 | Leader query | 1. 開啟行程查詢。<br>2. 依序測試 date、visitor、keyword、project、visit type、status（如適用）。<br>3. 檢查組合條件。 | 各篩選條件與組合篩選正確套用，結果符合 Leader 授權範圍。 |  | NOT RUN |  |

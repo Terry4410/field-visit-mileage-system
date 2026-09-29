@@ -11,7 +11,8 @@ public sealed class LeaderService(
     IWorkflowRepository workflow,
     ITripSnapshotRepository snapshots,
     IUnitOfWork uow,
-    TripService tripService)
+    TripService tripService,
+    IV180GoogleMileageGovernanceRepository? mileageGovernance = null)
 {
     public async Task<List<TripDto>> ReviewQueueAsync(CancellationToken ct)
     {
@@ -72,7 +73,6 @@ public sealed class LeaderService(
             trip.UpdatedAt = DateTime.UtcNow;
             trip.UpdatedByUserId = user.UserId;
             calc.SystemDistanceKm = result.DistanceKm;
-            calc.ApprovedDistanceKm = result.DistanceKm;
             calc.CalculationSource = "MockRoute/UAT";
             calc.CalculatedAt = DateTime.UtcNow;
             calc.UpdatedAt = DateTime.UtcNow;
@@ -100,8 +100,8 @@ public sealed class LeaderService(
     {
         var user = RequireLeader();
         var trip = await GetScopedAsync(tripId, user, ct);
-        if (trip.Status != TripStatuses.PendingApproval)
-            throw new InvalidOperationException("只有待核准行程可以核准。");
+        if (trip.Status is not (TripStatuses.Submitted or TripStatuses.PendingApproval))
+            throw new InvalidOperationException("只有已送出或待核准行程可以核准。");
         EnsureRowVersion(trip.RowVersion, request.RowVersion);
 
         V170TripMileageRules.EnsureReadyForApproval(trip.Stops.Count);
@@ -116,6 +116,61 @@ public sealed class LeaderService(
             await mileage.AddAsync(calc, ct);
         }
 
+        var hasDecisionSource = !string.IsNullOrWhiteSpace(request.DistanceDecisionSource);
+        var hasAttemptSelector = request.RouteCalculationAttemptId.HasValue;
+        var unchangedLegacyPendingApproval = trip.Status == TripStatuses.PendingApproval
+            && calc.ApprovedDistanceKm.HasValue
+            && request.ApprovedDistanceKm == calc.ApprovedDistanceKm
+            && !hasDecisionSource
+            && !hasAttemptSelector
+            && calc.DistanceDecisionGovernanceVersion is null;
+
+        string? decisionSource = null;
+        VisitTripSnapshot? submittedBasis = null;
+        RouteCalculationAttempt? selectedAttempt = null;
+        byte[]? approvalBasisHash = null;
+        Guid governanceCorrelationId = Guid.Empty;
+
+        if (!unchangedLegacyPendingApproval)
+        {
+            if (!hasDecisionSource)
+                throw new InvalidOperationException(
+                    "F_B_APPROVAL_EVIDENCE_REQUIRED：已送出行程或新增／變更核定里程必須提供明確的 F-B 決策證據。");
+            decisionSource = V180MileageGovernanceRules.RequireDecisionSource(request.DistanceDecisionSource);
+            submittedBasis = await snapshots.GetLatestAsync(trip.VisitTripId, "Submitted", ct)
+                ?? throw new InvalidOperationException("SUBMITTED_SNAPSHOT_REQUIRED：F-B 核准必須使用最新 Submitted Snapshot。");
+            var basis = V180MileageCanonicalization.BuildSubmittedSnapshotBasis(submittedBasis);
+            approvalBasisHash = V180MileageCanonicalization.HashRoute(basis);
+
+            if (decisionSource == "ManualFallback")
+            {
+                if (request.RouteCalculationAttemptId.HasValue)
+                    throw new InvalidOperationException("F_B_MANUAL_FALLBACK_ATTEMPT：ManualFallback 不得選取 route attempt。");
+                governanceCorrelationId = Guid.NewGuid();
+            }
+            else
+            {
+                if (!request.RouteCalculationAttemptId.HasValue)
+                    throw new InvalidOperationException("F_B_ROUTE_ATTEMPT_REQUIRED：此決策模式必須選取成功的 route attempt。");
+                if (mileageGovernance is null)
+                    throw new InvalidOperationException("F_B_GOVERNANCE_REPOSITORY_REQUIRED：治理 repository 尚未設定。");
+                selectedAttempt = await mileageGovernance.GetRouteCalculationAttemptAsync(
+                    request.RouteCalculationAttemptId.Value, ct)
+                    ?? throw new InvalidOperationException("F_B_ROUTE_ATTEMPT_NOT_FOUND：找不到指定的 route attempt。");
+                var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(basis.VehicleType);
+                if (selectedAttempt.Status != "Succeeded"
+                    || selectedAttempt.VisitTripId != trip.VisitTripId
+                    || selectedAttempt.BasisType != "SubmittedSnapshot"
+                    || selectedAttempt.BasisVisitTripSnapshotId != submittedBasis.VisitTripSnapshotId
+                    || !selectedAttempt.RequestBasisHash.SequenceEqual(approvalBasisHash)
+                    || selectedAttempt.RequestedVehicleType != V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle)
+                    || selectedAttempt.TravelMode != V180MileageCanonicalization.ToTravelMode(canonicalVehicle))
+                    throw new InvalidOperationException(
+                        "F_B_ROUTE_ATTEMPT_STALE：route attempt 必須成功且對應目前最新 Submitted Snapshot 與 canonical basis。");
+                governanceCorrelationId = selectedAttempt.CorrelationId;
+            }
+        }
+
         var rate = await mileage.GetEffectiveRateAsync(
             trip.OrganizationId,
             trip.VehicleType ?? "Motorcycle",
@@ -124,10 +179,11 @@ public sealed class LeaderService(
             ?? throw new InvalidOperationException("找不到行程日期適用的補助費率。");
 
         var previous = trip.Status;
+        var actionAt = DateTime.UtcNow;
         trip.Status = TripStatuses.Approved;
-        trip.ApprovedAt = DateTime.UtcNow;
+        trip.ApprovedAt = actionAt;
         trip.ReturnReason = null;
-        trip.UpdatedAt = DateTime.UtcNow;
+        trip.UpdatedAt = actionAt;
         trip.UpdatedByUserId = user.UserId;
 
         calc.MileageRateRuleId = rate.MileageRateRuleId;
@@ -139,15 +195,31 @@ public sealed class LeaderService(
         calc.ApprovedAmount = decimal.Round(request.ApprovedDistanceKm.Value * rate.RatePerKm, 2);
         calc.UpdatedAt = DateTime.UtcNow;
 
-        await workflow.AddApprovalAsync(new ApprovalRecord
+        if (decisionSource is not null)
+        {
+            calc.SelectedRouteCalculationAttemptId = selectedAttempt?.RouteCalculationAttemptId;
+            calc.ManualFallbackUsed = decisionSource == "ManualFallback";
+            calc.DistanceDecisionGovernanceVersion = V180MileageGovernanceRules.GovernanceVersion;
+            calc.ApprovedDistanceSource = decisionSource;
+            calc.ApprovalBasisCode = V180MileageGovernanceRules.SubmittedSnapshotBasisCode;
+            calc.ApprovalBasisHash = approvalBasisHash;
+            calc.DistanceApprovedAt = actionAt;
+            calc.DistanceApprovedByUserId = user.UserId;
+            calc.InvalidatedAt = null;
+            calc.InvalidatedByUserId = null;
+            calc.InvalidationReason = null;
+        }
+
+        var approval = new ApprovalRecord
         {
             VisitTripId = trip.VisitTripId,
             ApprovalStep = 1,
             ApproverUserId = user.UserId,
             Action = "Approved",
             Comments = request.Comments,
-            ActionAt = DateTime.UtcNow
-        }, ct);
+            ActionAt = actionAt
+        };
+        await workflow.AddApprovalAsync(approval, ct);
         await workflow.AddStatusHistoryAsync(new VisitTripStatusHistory
         {
             VisitTripId = trip.VisitTripId,
@@ -156,7 +228,7 @@ public sealed class LeaderService(
             Action = "Approve",
             ActionByUserId = user.UserId,
             Comments = $"ApprovedKm={request.ApprovedDistanceKm};Rate={rate.RatePerKm};Amount={calc.ApprovedAmount}",
-            ActionAt = DateTime.UtcNow
+            ActionAt = actionAt
         }, ct);
         await workflow.AddAuditAsync(Audit(
             user.UserId,
@@ -169,8 +241,30 @@ public sealed class LeaderService(
                 calc.ApprovedAmount
             }), ct);
 
+        if (decisionSource is not null)
+        {
+            if (mileageGovernance is null)
+                throw new InvalidOperationException("F_B_GOVERNANCE_REPOSITORY_REQUIRED：治理 repository 尚未設定。");
+            if (decisionSource == "ManualFallback")
+            {
+                await mileageGovernance.AddGovernanceEventAsync(
+                    new V180MileageGovernanceEventRequest(
+                        trip.VisitTripId, submittedBasis!.VisitTripSnapshotId, null,
+                        "ManualFallback", "LEADER_MANUAL_FALLBACK",
+                        "Leader approved company mileage using manual fallback.",
+                        governanceCorrelationId, actionAt, user.UserId), ct);
+            }
+            await mileageGovernance.AddGovernanceEventAsync(
+                new V180MileageGovernanceEventRequest(
+                    trip.VisitTripId, submittedBasis!.VisitTripSnapshotId,
+                    selectedAttempt?.RouteCalculationAttemptId, "Approved", decisionSource,
+                    "Current company mileage decision approved.", governanceCorrelationId,
+                    actionAt, user.UserId), ct);
+        }
+
         await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
         await uow.SaveChangesAsync(ct);
+
         return await tripService.GetDtoAsync(tripId, ct);
     }
 
@@ -221,7 +315,15 @@ public sealed class LeaderService(
         {
             try
             {
-                await ApproveAsync(item.VisitTripId, new ApproveTripRequest(item.ApprovedDistanceKm, item.RowVersion, "Batch approve"), ct);
+                await ApproveAsync(
+                    item.VisitTripId,
+                    new ApproveTripRequest(
+                        item.ApprovedDistanceKm,
+                        item.RowVersion,
+                        "Batch approve",
+                        item.DistanceDecisionSource,
+                        item.RouteCalculationAttemptId),
+                    ct);
                 success++;
             }
             catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException or KeyNotFoundException)

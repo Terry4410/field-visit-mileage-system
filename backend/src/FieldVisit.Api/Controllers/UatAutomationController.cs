@@ -98,119 +98,185 @@ public sealed class UatAutomationController(
                 StringComparison.Ordinal))
             return UnprocessableEntity(new { detail = "UAT cleanup request 不符合安全格式。" });
 
-        var trip = await db.VisitTrips
-            .AsNoTracking()
+        var preflightTrip = await db.VisitTrips.AsNoTracking()
             .Where(x => x.VisitTripId == request.VisitTripId)
             .Select(x => new { x.VisitTripId, x.Purpose })
             .SingleOrDefaultAsync(ct);
-
-        if (trip is null)
-            return NotFound();
-
+        if (preflightTrip is null) return NotFound();
         if (!UatAutomationSafety.IsExactAutomationPurpose(
-                trip.Purpose,
-                request.ExpectedPurpose))
+                preflightTrip.Purpose, request.ExpectedPurpose))
             return UnprocessableEntity(new { detail = "只允許清除 Purpose 精確符合 UAT-AUTO- 標記的測試行程。" });
-
-        var tripIdText = request.VisitTripId.ToString(CultureInfo.InvariantCulture);
 
         if (request.BackgroundJobId.HasValue)
         {
-            var job = await db.BackgroundJobs
-                .AsNoTracking()
-                .SingleOrDefaultAsync(
-                    x => x.BackgroundJobId == request.BackgroundJobId.Value,
-                    ct);
-
-            if (job is not null
+            var preflightJob = await db.BackgroundJobs.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.BackgroundJobId == request.BackgroundJobId.Value, ct);
+            if (preflightJob is not null
                 && !UatAutomationSafety.IsDedicatedMileageJob(
-                    job.JobType,
-                    job.Mode,
-                    job.PayloadJson,
+                    preflightJob.JobType,
+                    preflightJob.Mode,
+                    preflightJob.PayloadJson,
                     request.VisitTripId))
                 return UnprocessableEntity(new { detail = "指定的背景工作不是此測試行程專用的 Selected Mileage Job。" });
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var strategy = db.Database.CreateExecutionStrategy();
+        UatAutomationCleanupResult? cleanupResult = null;
 
-        var correctionIds = await db.CorrectionRequests
-            .Where(x => x.VisitTripId == request.VisitTripId)
-            .Select(x => x.CorrectionRequestId)
-            .ToListAsync(ct);
-
-        if (correctionIds.Count > 0)
+        await strategy.ExecuteAsync(async () =>
         {
-            await db.CorrectionRequestChanges
-                .Where(x => correctionIds.Contains(x.CorrectionRequestId))
+            db.ChangeTracker.Clear();
+
+            var trip = await db.VisitTrips.AsNoTracking()
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .Select(x => new { x.VisitTripId, x.Purpose })
+                .SingleOrDefaultAsync(ct);
+
+            // Commit uncertainty: a retry after a committed delete observes no trip.
+            if (trip is null)
+            {
+                if (cleanupResult is not null) return;
+                throw new InvalidOperationException("UAT_CLEANUP_TRIP_DISAPPEARED：cleanup retry 前行程已被其他流程移除。");
+            }
+            if (!UatAutomationSafety.IsExactAutomationPurpose(
+                    trip.Purpose, request.ExpectedPurpose))
+                throw new InvalidOperationException("UAT_CLEANUP_SCOPE_DRIFT：retry 時 Purpose 已不再精確符合。");
+
+            FieldVisit.Domain.Entities.BackgroundJob? dedicatedJob = null;
+            if (request.BackgroundJobId.HasValue)
+            {
+                dedicatedJob = await db.BackgroundJobs.AsNoTracking()
+                    .SingleOrDefaultAsync(x => x.BackgroundJobId == request.BackgroundJobId.Value, ct);
+                if (dedicatedJob is not null
+                    && !UatAutomationSafety.IsDedicatedMileageJob(
+                        dedicatedJob.JobType,
+                        dedicatedJob.Mode,
+                        dedicatedJob.PayloadJson,
+                        request.VisitTripId))
+                    throw new InvalidOperationException("UAT_CLEANUP_JOB_SCOPE_DRIFT：retry 時背景工作不再是 exact dedicated job。");
+            }
+
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var tripIdText = request.VisitTripId.ToString(CultureInfo.InvariantCulture);
+
+            var correctionIds = await db.CorrectionRequests.AsNoTracking()
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .Select(x => x.CorrectionRequestId)
+                .ToListAsync(ct);
+            var correctionIdTexts = correctionIds
+                .Select(x => x.ToString(CultureInfo.InvariantCulture))
+                .ToList();
+
+            if (correctionIds.Count > 0)
+            {
+                await db.CorrectionRequestChanges
+                    .Where(x => correctionIds.Contains(x.CorrectionRequestId))
+                    .ExecuteDeleteAsync(ct);
+            }
+
+            var correctionCount = await db.CorrectionRequests
+                .Where(x => x.VisitTripId == request.VisitTripId)
                 .ExecuteDeleteAsync(ct);
-        }
 
-        var correctionCount = await db.CorrectionRequests
-            .Where(x => x.VisitTripId == request.VisitTripId)
-            .ExecuteDeleteAsync(ct);
-
-        var snapshotIds = await db.VisitTripSnapshots
-            .Where(x => x.VisitTripId == request.VisitTripId)
-            .Select(x => x.VisitTripSnapshotId)
-            .ToListAsync(ct);
-
-        if (snapshotIds.Count > 0)
-        {
-            await db.VisitTripSnapshotStops
-                .Where(x => snapshotIds.Contains(x.VisitTripSnapshotId))
-                .ExecuteDeleteAsync(ct);
-        }
-
-        var snapshotCount = await db.VisitTripSnapshots
-            .Where(x => x.VisitTripId == request.VisitTripId)
-            .ExecuteDeleteAsync(ct);
-
-        await db.ApprovalRecords
-            .Where(x => x.VisitTripId == request.VisitTripId)
-            .ExecuteDeleteAsync(ct);
-
-        await db.VisitTripStatusHistories
-            .Where(x => x.VisitTripId == request.VisitTripId)
-            .ExecuteDeleteAsync(ct);
-
-        var backgroundJobsDeleted = 0;
-        if (request.BackgroundJobId.HasValue)
-        {
-            var jobId = request.BackgroundJobId.Value;
-            await db.BackgroundJobItems
-                .Where(x => x.BackgroundJobId == jobId)
+            await db.MileageGovernanceEvents
+                .Where(x => x.VisitTripId == request.VisitTripId)
                 .ExecuteDeleteAsync(ct);
 
-            await db.AuditLogs
-                .Where(x => x.EntityType == "BackgroundJob" && x.EntityId == jobId.ToString())
+            await db.MileageCalculations
+                .Where(x => x.VisitTripId == request.VisitTripId
+                    && x.SelectedRouteCalculationAttemptId != null)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(x => x.SelectedRouteCalculationAttemptId, (long?)null),
+                    ct);
+
+            await db.VisitTripSnapshots
+                .Where(x => x.VisitTripId == request.VisitTripId
+                    && x.MileageRouteAttemptIdSnapshot != null)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(x => x.MileageRouteAttemptIdSnapshot, (long?)null),
+                    ct);
+
+            await db.MileageCalculations
+                .Where(x => x.VisitTripId == request.VisitTripId)
                 .ExecuteDeleteAsync(ct);
 
-            backgroundJobsDeleted = await db.BackgroundJobs
-                .Where(x => x.BackgroundJobId == jobId)
+            await db.RouteCalculationAttempts
+                .Where(x => x.VisitTripId == request.VisitTripId)
                 .ExecuteDeleteAsync(ct);
-        }
-        else
-        {
+
+            var snapshotIds = await db.VisitTripSnapshots.AsNoTracking()
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .Select(x => x.VisitTripSnapshotId)
+                .ToListAsync(ct);
+            if (snapshotIds.Count > 0)
+            {
+                await db.VisitTripSnapshotStops
+                    .Where(x => snapshotIds.Contains(x.VisitTripSnapshotId))
+                    .ExecuteDeleteAsync(ct);
+            }
+
+            var snapshotCount = await db.VisitTripSnapshots
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .ExecuteDeleteAsync(ct);
+
+            await db.ApprovalRecords
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .ExecuteDeleteAsync(ct);
+            await db.VisitTripStatusHistories
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .ExecuteDeleteAsync(ct);
+
             await db.BackgroundJobItems
                 .Where(x => x.EntityType == "VisitTrip" && x.EntityId == tripIdText)
                 .ExecuteDeleteAsync(ct);
-        }
 
-        await db.AuditLogs
-            .Where(x => x.EntityType == "Trip" && x.EntityId == tripIdText)
-            .ExecuteDeleteAsync(ct);
+            var backgroundJobsDeleted = 0;
+            if (dedicatedJob is not null)
+            {
+                var jobId = dedicatedJob.BackgroundJobId;
+                await db.BackgroundJobItems
+                    .Where(x => x.BackgroundJobId == jobId)
+                    .ExecuteDeleteAsync(ct);
+                await db.AuditLogs
+                    .Where(x => x.EntityType == "BackgroundJob"
+                        && x.EntityId == jobId.ToString())
+                    .ExecuteDeleteAsync(ct);
+                backgroundJobsDeleted = await db.BackgroundJobs
+                    .Where(x => x.BackgroundJobId == jobId)
+                    .ExecuteDeleteAsync(ct);
+            }
 
-        var tripCount = await db.VisitTrips
-            .Where(x => x.VisitTripId == request.VisitTripId)
-            .ExecuteDeleteAsync(ct);
+            if (correctionIdTexts.Count > 0)
+            {
+                await db.AuditLogs
+                    .Where(x => x.EntityType == "CorrectionRequest"
+                        && x.EntityId != null
+                        && correctionIdTexts.Contains(x.EntityId))
+                    .ExecuteDeleteAsync(ct);
+            }
+            await db.AuditLogs
+                .Where(x => x.EntityType == "Trip" && x.EntityId == tripIdText)
+                .ExecuteDeleteAsync(ct);
 
-        await tx.CommitAsync(ct);
+            await db.VisitTripStops
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .ExecuteDeleteAsync(ct);
 
-        return Ok(new UatAutomationCleanupResult(
-            request.VisitTripId,
-            correctionCount,
-            snapshotCount,
-            backgroundJobsDeleted,
-            tripCount));
+            var tripCount = await db.VisitTrips
+                .Where(x => x.VisitTripId == request.VisitTripId)
+                .ExecuteDeleteAsync(ct);
+
+            await db.SaveChangesAsync(ct);
+            cleanupResult = new UatAutomationCleanupResult(
+                request.VisitTripId,
+                correctionCount,
+                snapshotCount,
+                backgroundJobsDeleted,
+                tripCount);
+            await tx.CommitAsync(ct);
+        });
+
+        return Ok(cleanupResult
+            ?? new UatAutomationCleanupResult(request.VisitTripId, 0, 0, 0, 0));
     }
 }

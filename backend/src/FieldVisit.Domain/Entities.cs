@@ -6,6 +6,8 @@ public sealed class Organization
     public string OrganizationCode { get; set; } = "";
     public string OrganizationName { get; set; } = "";
     public bool IsActive { get; set; }
+    public DateOnly? EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

@@ -93,7 +93,14 @@ public sealed class BackgroundJobService(
         }
         catch (Exception ex)
         {
-            job.Status = "Failed"; job.ErrorMessage = ex.Message;
+            var jobId = job.BackgroundJobId;
+            db.ChangeTracker.Clear();
+            var failedJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == jobId, ct);
+            failedJob.Status = "Failed";
+            failedJob.ErrorMessage = ex.Message;
+            failedJob.CompletedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return true;
         }
         job.CompletedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -117,6 +124,7 @@ public sealed class BackgroundJobService(
         {
             var item = new BackgroundJobItem { BackgroundJobId = job.BackgroundJobId, EntityType = "VisitTrip", EntityId = trip.VisitTripId.ToString(), Status = "Processing", CreatedAt = DateTime.UtcNow, StartedAt = DateTime.UtcNow };
             await db.BackgroundJobItems.AddAsync(item, ct);
+            await db.SaveChangesAsync(ct); // durable Processing before route work
             try
             {
                 var result = await route.CalculateAsync(trip, ct);
@@ -129,15 +137,58 @@ public sealed class BackgroundJobService(
                 }
                 var previous = trip.Status;
                 trip.Status = TripStatuses.PendingApproval; trip.UpdatedAt = DateTime.UtcNow; trip.UpdatedByUserId = job.RequestedByUserId;
-                calc.SystemDistanceKm = result.DistanceKm; calc.ApprovedDistanceKm = result.DistanceKm; calc.CalculationSource = "MockRoute/UAT"; calc.CalculatedAt = DateTime.UtcNow; calc.UpdatedAt = DateTime.UtcNow;
+                calc.SystemDistanceKm = result.DistanceKm; calc.CalculationSource = "MockRoute/UAT"; calc.CalculatedAt = DateTime.UtcNow; calc.UpdatedAt = DateTime.UtcNow;
                 db.VisitTripStatusHistories.Add(new VisitTripStatusHistory { VisitTripId = trip.VisitTripId, PreviousStatus = previous, NewStatus = TripStatuses.PendingApproval, Action = "MileageCalculatedJob", ActionByUserId = job.RequestedByUserId, Comments = $"SystemDistanceKm={result.DistanceKm:0.00}", ActionAt = DateTime.UtcNow });
-                item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.DistanceKm }, JsonOptions); job.SuccessCount++;
+                var submittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
+                    .Where(x => x.VisitTripId == trip.VisitTripId && x.SnapshotType == "Submitted")
+                    .OrderByDescending(x => x.SnapshotVersion)
+                    .Select(x => (long?)x.VisitTripSnapshotId)
+                    .FirstOrDefaultAsync(ct);
+                db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
+                {
+                    VisitTripId = trip.VisitTripId,
+                    VisitTripSnapshotId = submittedSnapshotId,
+                    EventType = "Calculated",
+                    ReasonCode = "MockRoute/UAT",
+                    Message = "System distance calculated; no company approval evidence created.",
+                    CorrelationId = Guid.NewGuid(),
+                    OccurredAt = DateTime.UtcNow,
+                    ActorUserId = job.RequestedByUserId
+                });
+                item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.DistanceKm }, JsonOptions);
             }
             catch (Exception ex)
             {
-                item.Status = "Failed"; item.ErrorCode = "MILEAGE_JOB_FAILED"; item.ErrorMessage = ex.Message; job.FailedCount++;
+                var itemId = item.BackgroundJobItemId;
+                db.ChangeTracker.Clear();
+                var failedItem = await db.BackgroundJobItems.SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
+                failedItem.Status = "Failed";
+                failedItem.ErrorCode = "MILEAGE_JOB_FAILED";
+                failedItem.ErrorMessage = ex.Message;
+                failedItem.CompletedAt = DateTime.UtcNow;
+                var durableJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == job.BackgroundJobId, ct);
+                durableJob.FailedCount++;
+                var failedTripSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
+                    .Where(x => x.VisitTripId == trip.VisitTripId && x.SnapshotType == "Submitted")
+                    .OrderByDescending(x => x.SnapshotVersion)
+                    .Select(x => (long?)x.VisitTripSnapshotId)
+                    .FirstOrDefaultAsync(ct);
+                db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
+                {
+                    VisitTripId = trip.VisitTripId,
+                    VisitTripSnapshotId = failedTripSnapshotId,
+                    EventType = "CalculationFailed",
+                    ReasonCode = "MILEAGE_JOB_FAILED",
+                    Message = ex.Message.Length <= 1000 ? ex.Message : ex.Message[..1000],
+                    CorrelationId = Guid.NewGuid(),
+                    OccurredAt = DateTime.UtcNow,
+                    ActorUserId = durableJob.RequestedByUserId
+                });
+                await db.SaveChangesAsync(ct);
+                continue;
             }
             item.CompletedAt = DateTime.UtcNow;
+            job.SuccessCount++;
             await db.SaveChangesAsync(ct);
         }
     }

@@ -105,6 +105,7 @@ public static class V180MileageGovernanceRules
 {
     public const string GovernanceVersion = "1.8.0";
     public const string SubmittedSnapshotBasisCode = "SubmittedSnapshot";
+    public const string CorrectionProposalBasisCode = "CorrectionProposal";
 
     public static byte[] RequireHash32(byte[] value, string name)
     {
@@ -119,6 +120,14 @@ public static class V180MileageGovernanceRules
         "LeaderAdjusted" => "LeaderAdjusted",
         "ManualFallback" => "ManualFallback",
         _ => throw new InvalidOperationException("F_B_DECISION_SOURCE_INVALID：只允許 ProviderSuggested、LeaderAdjusted 或 ManualFallback。")
+    };
+
+    public static string RequireCorrectionDecisionSource(string? value) => value?.Trim() switch
+    {
+        "ProviderSuggested" => "ProviderSuggested",
+        "ManualFallback" => "ManualFallback",
+        _ => throw new InvalidOperationException(
+            "F_B_CORRECTION_DECISION_SOURCE_INVALID：距離更正只允許 ProviderSuggested 或 ManualFallback。")
     };
 
     public static (string Code, string? Message) SanitizeProviderFailure(string? code, string? message)
@@ -226,6 +235,31 @@ public static class V180MileageCanonicalization
     }
 
     public static byte[] HashRoute(V180RouteBasis basis) => SHA256.HashData(SerializeRoute(basis));
+
+    public static V180RouteBasis BuildCorrectionProposalBasis(
+        VisitTripSnapshot baseSnapshot,
+        CorrectionProposal proposal)
+    {
+        ArgumentNullException.ThrowIfNull(baseSnapshot);
+        ArgumentNullException.ThrowIfNull(proposal);
+        return new V180RouteBasis(
+            baseSnapshot.VehicleTypeSnapshot,
+            new V180DeploymentSiteBasis(
+                baseSnapshot.StartDeploymentSiteCodeSnapshot,
+                baseSnapshot.StartDeploymentAddressSnapshot),
+            proposal.Stops
+                .OrderBy(x => x.StopSequence)
+                .Select(x => new V180RouteStopBasis(x.StopSequence, x.Address))
+                .ToArray(),
+            new V180DeploymentSiteBasis(
+                baseSnapshot.EndDeploymentSiteCodeSnapshot,
+                baseSnapshot.EndDeploymentAddressSnapshot));
+    }
+
+    public static byte[] HashCorrectionProposal(
+        VisitTripSnapshot baseSnapshot,
+        CorrectionProposal proposal) =>
+        HashRoute(BuildCorrectionProposalBasis(baseSnapshot, proposal));
 
     public static string CanonicalVehicleType(string? vehicleType)
     {

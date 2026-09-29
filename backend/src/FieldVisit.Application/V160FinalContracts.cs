@@ -95,7 +95,12 @@ public sealed record CorrectionDraftDto(
 
 public sealed record CreateCorrectionRequest(long VisitTripId, string Reason, CorrectionProposal Proposal);
 public sealed record ReviewCorrectionRequest(bool Approve, string? Comments, string RowVersion);
-public sealed record CloseCorrectionRequest(bool Approve, string? Comments, string RowVersion);
+public sealed record CloseCorrectionRequest(
+    bool Approve,
+    string? Comments,
+    string RowVersion,
+    string? DistanceDecisionSource = null,
+    long? RouteCalculationAttemptId = null);
 
 public sealed record CorrectionRequestDto(
     long CorrectionRequestId,
