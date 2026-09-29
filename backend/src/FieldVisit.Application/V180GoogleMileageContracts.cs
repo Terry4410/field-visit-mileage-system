@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 
 namespace FieldVisit.Application;
