@@ -396,7 +396,9 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
         data: {
           approvedDistanceKm: pending.systemDistanceKm,
           rowVersion: pending.rowVersion,
-          comments: "Automated Phase 2 UAT approval"
+          comments: "Automated Phase 2 UAT approval",
+          distanceDecisionSource: "ManualFallback",
+          routeCalculationAttemptId: null
         }
       }
     );
