@@ -122,6 +122,14 @@ public static class V180MileageGovernanceRules
         _ => throw new InvalidOperationException("F_B_DECISION_SOURCE_INVALID：只允許 ProviderSuggested、LeaderAdjusted 或 ManualFallback。")
     };
 
+    public static string RequireLeaderApprovalDecisionSource(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException(
+                "F_B_APPROVAL_EVIDENCE_REQUIRED：PendingApproval 核准必須提供明確的 F-B 決策證據。");
+        return RequireDecisionSource(value);
+    }
+
     public static string RequireCorrectionDecisionSource(string? value) => value?.Trim() switch
     {
         "ProviderSuggested" => "ProviderSuggested",
@@ -129,6 +137,35 @@ public static class V180MileageGovernanceRules
         _ => throw new InvalidOperationException(
             "F_B_CORRECTION_DECISION_SOURCE_INVALID：距離更正只允許 ProviderSuggested 或 ManualFallback。")
     };
+
+    public static string ResolveCorrectionDecisionSource(
+        string? requestedSource,
+        bool hasRouteCalculationAttempt)
+    {
+        var normalized = string.IsNullOrWhiteSpace(requestedSource)
+            ? null
+            : RequireCorrectionDecisionSource(requestedSource);
+
+        if (hasRouteCalculationAttempt)
+        {
+            if (normalized is not null && normalized != "ProviderSuggested")
+                throw new InvalidOperationException(
+                    "F_B_CORRECTION_DECISION_SOURCE_MISMATCH：有 route attempt 時只能使用 ProviderSuggested。");
+            return "ProviderSuggested";
+        }
+
+        if (normalized is not null && normalized != "ManualFallback")
+            throw new InvalidOperationException(
+                "F_B_CORRECTION_DECISION_SOURCE_MISMATCH：沒有 route attempt 時只能使用 ManualFallback。");
+        return "ManualFallback";
+    }
+
+    public static void EnsureLeaderApprovalState(string status)
+    {
+        if (!string.Equals(status, TripStatuses.PendingApproval, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "F_B_APPROVAL_STATE_REQUIRED：只有 PendingApproval 行程可以核准。");
+    }
 
     public static (string Code, string? Message) SanitizeProviderFailure(string? code, string? message)
     {
@@ -168,6 +205,7 @@ public static class V180MileageCanonicalization
 {
     public const string AddressVersion = "F-ADDR-v1";
     public const string RouteVersion = "F-ROUTE-v1";
+    public const string CorrectionProposalVersion = "F-CORRECTION-PROPOSAL-v1";
 
     public static V180AddressCanonicalBasis BuildAddressBasis(Location location)
     {
@@ -256,10 +294,30 @@ public static class V180MileageCanonicalization
                 baseSnapshot.EndDeploymentAddressSnapshot));
     }
 
+    public static byte[] SerializeCorrectionProposal(
+        VisitTripSnapshot baseSnapshot,
+        CorrectionProposal proposal)
+    {
+        ArgumentNullException.ThrowIfNull(baseSnapshot);
+        ArgumentNullException.ThrowIfNull(proposal);
+
+        var routeBytes = SerializeRoute(BuildCorrectionProposalBasis(baseSnapshot, proposal));
+        var builder = new StringBuilder();
+        Append(builder, "version", CorrectionProposalVersion);
+        Append(builder, "routeBasis", Encoding.UTF8.GetString(routeBytes));
+        Append(
+            builder,
+            "approvedDistanceKm",
+            proposal.ApprovedDistanceKm?.ToString(
+                "0.############################",
+                CultureInfo.InvariantCulture));
+        return Encoding.UTF8.GetBytes(builder.ToString());
+    }
+
     public static byte[] HashCorrectionProposal(
         VisitTripSnapshot baseSnapshot,
         CorrectionProposal proposal) =>
-        HashRoute(BuildCorrectionProposalBasis(baseSnapshot, proposal));
+        SHA256.HashData(SerializeCorrectionProposal(baseSnapshot, proposal));
 
     public static string CanonicalVehicleType(string? vehicleType)
     {

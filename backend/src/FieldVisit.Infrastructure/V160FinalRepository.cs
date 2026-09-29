@@ -1127,8 +1127,6 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             if (!row.AdminClosedByUserId.HasValue || !row.AdminClosedAt.HasValue)
                 throw new InvalidOperationException("F_B_CORRECTION_ADMIN_EVIDENCE_REQUIRED：距離更正必須先建立 Admin close evidence。");
 
-            decisionSource = V180MileageGovernanceRules.RequireCorrectionDecisionSource(
-                request.DistanceDecisionSource);
             approvalBasisCode = V180MileageGovernanceRules.CorrectionProposalBasisCode;
             approvalBasisHash = V180MileageCanonicalization.HashCorrectionProposal(baseSnapshot, proposal);
             distanceApprovedAt = row.AdminClosedAt;
@@ -1140,11 +1138,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             var expectedVehicle = V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle);
             var expectedTravelMode = V180MileageCanonicalization.ToTravelMode(canonicalVehicle);
 
-            if (decisionSource == "ManualFallback")
+            decisionSource = V180MileageGovernanceRules.ResolveCorrectionDecisionSource(
+                request.DistanceDecisionSource,
+                request.RouteCalculationAttemptId.HasValue);
+
+            if (!request.RouteCalculationAttemptId.HasValue)
             {
-                if (request.RouteCalculationAttemptId.HasValue)
-                    throw new InvalidOperationException(
-                        "F_B_CORRECTION_MANUAL_FALLBACK_ATTEMPT：ManualFallback 不得選取 route attempt。");
                 routeAttemptId = null;
                 routeTravelMode = expectedTravelMode;
                 routeCalculatedAt = null;
@@ -1155,10 +1154,6 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             }
             else
             {
-                if (!request.RouteCalculationAttemptId.HasValue)
-                    throw new InvalidOperationException(
-                        "F_B_CORRECTION_ROUTE_ATTEMPT_REQUIRED：ProviderSuggested 必須選取既有成功 CorrectionRecalculate attempt。");
-
                 selectedAttempt = await db.RouteCalculationAttempts.AsNoTracking()
                     .SingleOrDefaultAsync(
                         x => x.RouteCalculationAttemptId == request.RouteCalculationAttemptId.Value,
