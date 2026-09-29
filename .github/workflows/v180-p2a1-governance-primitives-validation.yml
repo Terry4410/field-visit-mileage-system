@@ -1,0 +1,103 @@
+name: v1.8.0 P2A1 Governance Primitives Validation
+
+on:
+  push:
+    branches:
+      - work/v180-p2a1-epic-f-governance-primitives-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout exact P2A1 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 371e1edcc70905719a379c7fd7f5042f2946f846
+          fetch-depth: 0
+
+      - name: Verify exact candidate SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="371e1edcc70905719a379c7fd7f5042f2946f846"
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_CANDIDATE_SHA=$expected"
+          echo "CHECKED_OUT_SHA=$actual"
+          test "$actual" = "$expected"
+
+      - name: Setup .NET 8
+        id: setup_dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Pin exact .NET 8 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test ! -e global.json
+
+          sdk="${{ steps.setup_dotnet.outputs.dotnet-version }}"
+          echo "SETUP_DOTNET_OUTPUT_VERSION=$sdk"
+
+          if [[ ! "$sdk" =~ ^8\.0\.[0-9]+$ ]]; then
+            echo "Expected stable .NET 8 SDK, got: $sdk"
+            exit 1
+          fi
+
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$sdk",
+              "rollForward": "disable",
+              "allowPrerelease": false
+            }
+          }
+          EOF
+
+          echo "Installed SDKs:"
+          dotnet --list-sdks
+
+          echo "dotnet --info:"
+          dotnet --info
+
+          actual="$(dotnet --version)"
+          echo "EXPECTED_DOTNET_VERSION=$sdk"
+          echo "EFFECTIVE_DOTNET_VERSION=$actual"
+          test "$actual" = "$sdk"
+
+      - name: Backend build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+
+      - name: Canonicalization tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter "FullyQualifiedName~V180GoogleMileageCanonicalizationTests"
+
+      - name: Orchestration primitive tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter "FullyQualifiedName~V180GoogleMileageOrchestrationPrimitiveTests"
+
+      - name: P2A0 preservation
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter "FullyQualifiedName~V180TripContextContractTests|FullyQualifiedName~V180TripContextModelMappingTests"
+
+      - name: Stage 007 preservation
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter "FullyQualifiedName~V180Stage007ModelMappingTests|FullyQualifiedName~V180SqlServerTriggerCompatibilityTests"
+
+      - name: Full backend regression
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release
+
+      - name: Remove temporary SDK pin and verify clean worktree
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f global.json
+          test ! -e global.json
+          git diff --exit-code
+          git diff --cached --exit-code
+          actual="$(git rev-parse HEAD)"
+          echo "CANDIDATE_SHA_AFTER=$actual"
+          test "$actual" = "371e1edcc70905719a379c7fd7f5042f2946f846"
