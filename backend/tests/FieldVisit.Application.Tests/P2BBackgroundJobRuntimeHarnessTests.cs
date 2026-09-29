@@ -30,17 +30,28 @@ public sealed class P2BBackgroundJobRuntimeHarnessTests
         await PrepareEphemeralDatabaseAsync(options);
 
         const int teamId = 18002;
-        const int requestedByUserId = 18001;
         var now = DateTime.UtcNow;
         var firstDate = DateOnly.FromDateTime(now.Date.AddDays(1));
         var secondDate = firstDate.AddDays(1);
 
+        int requestedByUserId;
         long failedTripId;
         long succeededTripId;
         Guid jobId;
 
         await using (var seed = new AppDbContext(options))
         {
+            var harnessUser = new User
+            {
+                DisplayName = "P2B Runtime Harness User",
+                EmployeeNo = "P2B-HARNESS",
+                IsActive = true,
+                CreatedAt = now
+            };
+            seed.Users.Add(harnessUser);
+            await seed.SaveChangesAsync();
+            requestedByUserId = harnessUser.UserId;
+
             var failedTrip = BuildSubmittedTrip(
                 "P2B-BG-FAIL-FIRST",
                 teamId,

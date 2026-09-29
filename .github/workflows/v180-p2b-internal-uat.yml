@@ -26,8 +26,19 @@ jobs:
       - name: Checkout isolated Internal UAT harness
         uses: actions/checkout@v4
         with:
-          ref: work/v180-p2b-internal-uat-harness
+          ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Verify exact harness event source
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          tree="$(git rev-parse HEAD^{tree})"
+          echo "HARNESS_SHA=$actual"
+          echo "EVENT_SHA=$GITHUB_SHA"
+          echo "HARNESS_TREE=$tree"
+          test "$actual" = "$GITHUB_SHA"
 
       - name: Verify authoritative ancestor and harness-only scope
         shell: bash
