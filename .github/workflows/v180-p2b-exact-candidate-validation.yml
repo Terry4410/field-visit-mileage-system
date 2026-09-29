@@ -16,18 +16,24 @@ jobs:
       - name: Checkout exact P2B candidate
         uses: actions/checkout@v4
         with:
-          ref: dfaace82b9a7e6548db7419d8e62cf50703113be
+          ref: 0fe0d9715b5b1ace73db3047980fc575c9e7e453
           fetch-depth: 0
 
       - name: Verify exact candidate SHA
         shell: bash
         run: |
           set -euo pipefail
-          expected="dfaace82b9a7e6548db7419d8e62cf50703113be"
+          expected="0fe0d9715b5b1ace73db3047980fc575c9e7e453"
           actual="$(git rev-parse HEAD)"
           echo "EXPECTED_CANDIDATE_SHA=$expected"
           echo "CHECKED_OUT_SHA=$actual"
           test "$actual" = "$expected"
+
+          expected_tree="6b85201d6cf0da76bf26d20cf044470a40e4a409"
+          actual_tree="$(git rev-parse HEAD^{tree})"
+          echo "EXPECTED_CANDIDATE_TREE=$expected_tree"
+          echo "CHECKED_OUT_CANDIDATE_TREE=$actual_tree"
+          test "$actual_tree" = "$expected_tree"
 
       - name: Static P2B safety check
         shell: bash
@@ -150,4 +156,4 @@ jobs:
           git diff --cached --exit-code
           actual="$(git rev-parse HEAD)"
           echo "FINAL_CHECKED_OUT_SHA=$actual"
-          test "$actual" = "dfaace82b9a7e6548db7419d8e62cf50703113be"
+          test "$actual" = "0fe0d9715b5b1ace73db3047980fc575c9e7e453"
