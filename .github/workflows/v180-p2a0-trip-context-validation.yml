@@ -1,0 +1,59 @@
+name: v1.8.0 P2A0 Trip Context Validation
+
+on:
+  push:
+    branches:
+      - work/v180-p2a0-trip-context-contract-model-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout exact P2A0 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 873f23fe82fff29464ff5ae1e676ca3e5a1166f5
+          fetch-depth: 0
+
+      - name: Verify exact candidate SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="873f23fe82fff29464ff5ae1e676ca3e5a1166f5"
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_CANDIDATE_SHA=$expected"
+          echo "CHECKED_OUT_SHA=$actual"
+          test "$actual" = "$expected"
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install CJK font
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Show .NET version
+        run: dotnet --version
+
+      - name: Backend build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+
+      - name: P2A0 contract tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter "FullyQualifiedName~V180TripContextContractTests"
+
+      - name: P2A0 model and snapshot lookup tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter "FullyQualifiedName~V180TripContextModelMappingTests"
+
+      - name: Package 1 Stage 007 preservation
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter "FullyQualifiedName~V180Stage007ModelMappingTests|FullyQualifiedName~V180SqlServerTriggerCompatibilityTests"
+
+      - name: Full backend regression
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release
