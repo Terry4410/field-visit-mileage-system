@@ -506,8 +506,7 @@ public sealed class V180MasterDataAdminTests
             EmploymentId = 100,
             TeamId = 10,
             IsPrimary = true,
-            EffectiveFrom = Today.AddDays(-30),
-            CreatedAt = DateTime.UtcNow
+            EffectiveFrom = Today.AddDays(-30)
         });
         db.Centers.Add(new Center
         {
