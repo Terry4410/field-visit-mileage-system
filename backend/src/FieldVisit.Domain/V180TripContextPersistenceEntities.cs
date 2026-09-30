@@ -12,6 +12,19 @@ public sealed class Center
     public byte[] RowVersion { get; set; } = [];
 }
 
+public sealed class TeamCenterAssignment
+{
+    public long TeamCenterAssignmentId { get; set; }
+    public int TeamId { get; set; }
+    public int CenterId { get; set; }
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public string? ChangeReason { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
+}
+
 public sealed class Employment
 {
     public long EmploymentId { get; set; }

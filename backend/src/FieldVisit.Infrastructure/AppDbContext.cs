@@ -45,6 +45,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     // v1.8 trip-context runtime persistence surface. Schema remains migration-owned.
     public DbSet<Center> Centers => Set<Center>();
+    public DbSet<TeamCenterAssignment> TeamCenterAssignments => Set<TeamCenterAssignment>();
     public DbSet<Employment> Employments => Set<Employment>();
     public DbSet<EmploymentStatusPeriod> EmploymentStatusPeriods => Set<EmploymentStatusPeriod>();
     public DbSet<TeamMembership> TeamMemberships => Set<TeamMembership>();
@@ -246,6 +247,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => new { x.OrganizationId, x.IsActive, x.EffectiveFrom, x.EffectiveTo })
                 .HasDatabaseName("IX_Centers_Organization_Effective");
             e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<TeamCenterAssignment>(e =>
+        {
+            e.ToTable("TeamCenterAssignments"); e.HasKey(x => x.TeamCenterAssignmentId); e.Property(x => x.TeamCenterAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.TeamId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_TeamCenterAssignments_Team_Start");
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Center>().WithMany().HasForeignKey(x => x.CenterId).OnDelete(DeleteBehavior.NoAction);
         });
 
         b.Entity<Employment>(e =>
