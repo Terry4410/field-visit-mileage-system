@@ -309,6 +309,167 @@ public sealed class V180MasterDataAdminTests
     }
 
     [Fact]
+    public async Task Deployment_site_update_does_not_rewrite_location_assignment_history()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        SeedSite(db, 40, "S40", 30, "L30");
+        var site = db.DeploymentSites.Single(x => x.DeploymentSiteId == 40);
+        site.RowVersion = [1];
+        var link = db.DeploymentSiteLocationAssignments.Single(x => x.DeploymentSiteId == 40);
+        link.EffectiveFrom = Today.AddDays(-60);
+        link.EffectiveTo = Today.AddDays(90);
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+
+        await repository.SaveDeploymentSiteAsync(
+            User("admin"),
+            40,
+            new V180DeploymentSiteInput(
+                "C20", "S40", "Renamed office", "L30",
+                Today.AddDays(-10), Today.AddDays(30), true,
+                Convert.ToBase64String([1])),
+            default);
+
+        Assert.Equal("Renamed office", site.SiteName);
+        Assert.Equal(Today.AddDays(-10), site.EffectiveFrom);
+        Assert.Equal(Today.AddDays(30), site.EffectiveTo);
+        Assert.Equal(30, link.LocationId);
+        Assert.Equal(Today.AddDays(-60), link.EffectiveFrom);
+        Assert.Equal(Today.AddDays(90), link.EffectiveTo);
+    }
+
+    [Fact]
+    public async Task Deployment_site_update_rejects_location_history_change()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        SeedSite(db, 40, "S40", 30, "L30");
+        db.DeploymentSites.Single(x => x.DeploymentSiteId == 40).RowVersion = [1];
+        db.Locations.Add(new Location
+        {
+            LocationId = 31,
+            OrganizationId = 1,
+            LocationCode = "L31",
+            LocationName = "Different office",
+            ApprovalStatus = "Approved",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => repository.SaveDeploymentSiteAsync(
+                User("admin"),
+                40,
+                new V180DeploymentSiteInput(
+                    "C20", "S40", "Office", "L31", Today, null, true,
+                    Convert.ToBase64String([1])),
+                default));
+
+        Assert.Contains("DEPLOYMENT_SITE_LOCATION_CHANGE_REQUIRES_RELOCATION_FLOW", ex.Message);
+        Assert.Equal(30, db.DeploymentSiteLocationAssignments.Single().LocationId);
+    }
+
+    [Fact]
+    public async Task Employment_status_update_rejects_breaking_existing_employment_site_coverage()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentStatusPeriodId = 1,
+            EmploymentId = 100,
+            EmploymentStatus = EmploymentStatuses.Active,
+            EffectiveFrom = Today.AddDays(-30),
+            SourceType = "UAT",
+            RowVersion = [1]
+        });
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
+        {
+            EmploymentDeploymentSiteAssignmentId = 1,
+            EmploymentId = 100,
+            DeploymentSiteId = 40,
+            EffectiveFrom = Today.AddDays(-5),
+            EffectiveTo = Today.AddDays(5),
+            IsPrimary = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => repository.SaveEmploymentStatusAsync(
+                User("admin"),
+                1,
+                new V180EmploymentStatusInput(
+                    "E100", EmploymentStatuses.Leave,
+                    Today.AddDays(-30), null, Convert.ToBase64String([1])),
+                default));
+
+        Assert.Contains("EMPLOYMENT_STATUS_CHANGE_BREAKS_EMPLOYMENT_SITE", ex.Message);
+        var assignment = await db.EmploymentDeploymentSiteAssignments.SingleAsync();
+        Assert.Equal(Today.AddDays(-5), assignment.EffectiveFrom);
+        Assert.Equal(Today.AddDays(5), assignment.EffectiveTo);
+    }
+
+    [Fact]
+    public async Task Readiness_rejects_team_center_and_site_center_mismatch()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        db.Centers.Add(new Center
+        {
+            CenterId = 21,
+            OrganizationId = 1,
+            CenterCode = "C21",
+            CenterName = "Center 21",
+            EffectiveFrom = Today.AddDays(-30),
+            IsActive = true
+        });
+        SeedSite(db, 41, "S41", 31, "L31");
+        db.DeploymentSites.Single(x => x.DeploymentSiteId == 41).CenterId = 21;
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentId = 100,
+            EmploymentStatus = EmploymentStatuses.Active,
+            EffectiveFrom = Today.AddDays(-30),
+            SourceType = "UAT"
+        });
+        db.TeamCenterAssignments.Add(new TeamCenterAssignment
+        {
+            TeamId = 10,
+            CenterId = 20,
+            EffectiveFrom = Today.AddDays(-30),
+            CreatedAt = DateTime.UtcNow
+        });
+        db.TeamDeploymentSiteAssignments.Add(new TeamDeploymentSiteAssignment
+        {
+            TeamId = 10,
+            DeploymentSiteId = 41,
+            EffectiveFrom = Today.AddDays(-30),
+            CreatedAt = DateTime.UtcNow
+        });
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
+        {
+            EmploymentId = 100,
+            DeploymentSiteId = 41,
+            IsPrimary = true,
+            EffectiveFrom = Today.AddDays(-30),
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+
+        var readiness = await repository.GetReadinessAsync(User("admin"), default);
+
+        Assert.Equal(0, readiness.TeamCenterMissingCount);
+        Assert.True(readiness.TeamSiteMissingCount > 0);
+        Assert.False(readiness.IsUatReady);
+    }
+
+    [Fact]
     public async Task Employment_site_requires_active_status_membership_team_site_and_location()
     {
         await using var db = Db();

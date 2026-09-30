@@ -86,7 +86,13 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                 x.TeamId == teamId
                 && x.EffectiveFrom <= today
                 && (!x.EffectiveTo.HasValue || today <= x.EffectiveTo.Value)
-                && eligibleSites.Any(s => s.DeploymentSiteId == x.DeploymentSiteId)),
+                && eligibleSites.Any(s =>
+                    s.DeploymentSiteId == x.DeploymentSiteId
+                    && db.TeamCenterAssignments.Any(center =>
+                        center.TeamId == teamId
+                        && center.CenterId == s.CenterId
+                        && center.EffectiveFrom <= today
+                        && (!center.EffectiveTo.HasValue || today <= center.EffectiveTo.Value))),
             ct);
 
         var activeEmploymentIds = targetEmployments
@@ -262,6 +268,42 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                 x => x.EmploymentStatusPeriodId == id.Value,
                 ct) ?? throw new InvalidOperationException("UNKNOWN_EMPLOYMENT_STATUS_PERIOD");
             V180MasterDataValidationService.RowVersion(input.RowVersion, row.RowVersion);
+
+            var changesExistingActiveCoverage = row.EmploymentStatus == EmploymentStatuses.Active
+                && (input.Status.Trim() != EmploymentStatuses.Active
+                    || row.EffectiveFrom != input.EffectiveFrom
+                    || row.EffectiveTo != input.EffectiveTo);
+            if (changesExistingActiveCoverage)
+            {
+                var assignments = await db.EmploymentDeploymentSiteAssignments
+                    .Where(x => x.EmploymentId == employment.EmploymentId)
+                    .Select(x => new { x.EffectiveFrom, x.EffectiveTo })
+                    .ToListAsync(ct);
+                var otherActivePeriods = await query
+                    .Where(x => x.EmploymentStatusPeriodId != row.EmploymentStatusPeriodId
+                        && x.EmploymentStatus == EmploymentStatuses.Active)
+                    .Select(x => new { x.EffectiveFrom, x.EffectiveTo })
+                    .ToListAsync(ct);
+
+                foreach (var assignment in assignments)
+                {
+                    var coveredByProposed = input.Status.Trim() == EmploymentStatuses.Active
+                        && V180MasterDataValidationService.Covers(
+                            input.EffectiveFrom,
+                            input.EffectiveTo,
+                            assignment.EffectiveFrom,
+                            assignment.EffectiveTo);
+                    var coveredByOther = otherActivePeriods.Any(period =>
+                        V180MasterDataValidationService.Covers(
+                            period.EffectiveFrom,
+                            period.EffectiveTo,
+                            assignment.EffectiveFrom,
+                            assignment.EffectiveTo));
+                    if (!coveredByProposed && !coveredByOther)
+                        throw new InvalidOperationException(
+                            "EMPLOYMENT_STATUS_CHANGE_BREAKS_EMPLOYMENT_SITE");
+                }
+            }
         }
         else
         {
@@ -514,7 +556,6 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             throw new InvalidOperationException("DUPLICATE_SITE_CODE");
 
         DeploymentSite row;
-        DeploymentSiteLocationAssignment? existingLink = null;
         if (id.HasValue)
         {
             row = await (
@@ -551,15 +592,23 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             if (breaksTeamSite || breaksEmploymentSite)
                 throw new InvalidOperationException("DEPLOYMENT_SITE_PERIOD_HAS_DEPENDENCIES");
 
-            var links = await db.DeploymentSiteLocationAssignments
-                .Where(x => x.DeploymentSiteId == row.DeploymentSiteId)
-                .OrderBy(x => x.EffectiveFrom)
-                .ToListAsync(ct);
-            if (links.Count != 1)
-                throw new InvalidOperationException("DEPLOYMENT_SITE_LOCATION_HISTORY_REQUIRES_RELOCATION_FLOW");
-            existingLink = links[0];
-            if (existingLink.LocationId != location.LocationId)
+            var hasRequestedLocation = await db.DeploymentSiteLocationAssignments.AnyAsync(
+                x => x.DeploymentSiteId == row.DeploymentSiteId
+                    && x.LocationId == location.LocationId,
+                ct);
+            if (!hasRequestedLocation)
                 throw new InvalidOperationException("DEPLOYMENT_SITE_LOCATION_CHANGE_REQUIRES_RELOCATION_FLOW");
+
+            var hasRequestedLocationCoverage = await db.DeploymentSiteLocationAssignments.AnyAsync(
+                x => x.DeploymentSiteId == row.DeploymentSiteId
+                    && x.LocationId == location.LocationId
+                    && x.EffectiveFrom <= input.EffectiveFrom
+                    && (!input.EffectiveTo.HasValue
+                        ? !x.EffectiveTo.HasValue
+                        : !x.EffectiveTo.HasValue || x.EffectiveTo.Value >= input.EffectiveTo.Value),
+                ct);
+            if (!hasRequestedLocationCoverage)
+                throw new InvalidOperationException("DEPLOYMENT_SITE_LOCATION_COVERAGE_REQUIRED");
         }
         else
         {
@@ -586,12 +635,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             row.InactivatedByUserId ??= admin.UserId;
         }
 
-        if (existingLink is not null)
-        {
-            existingLink.EffectiveFrom = input.EffectiveFrom;
-            existingLink.EffectiveTo = input.EffectiveTo;
-        }
-        else
+        if (!id.HasValue)
         {
             db.DeploymentSiteLocationAssignments.Add(
                 new DeploymentSiteLocationAssignment
