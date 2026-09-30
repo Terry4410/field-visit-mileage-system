@@ -9,6 +9,26 @@ public sealed class Center
     public DateOnly EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
     public bool IsActive { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public int? UpdatedByUserId { get; set; }
+    public DateTime? InactivatedAt { get; set; }
+    public int? InactivatedByUserId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
+}
+
+public sealed class TeamCenterAssignment
+{
+    public long TeamCenterAssignmentId { get; set; }
+    public int TeamId { get; set; }
+    public int CenterId { get; set; }
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public string? ChangeReason { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int? CreatedByUserId { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }
 
@@ -36,6 +56,8 @@ public sealed class EmploymentStatusPeriod
     public DateOnly? EffectiveTo { get; set; }
     public string SourceType { get; set; } = "";
     public string? SourceReference { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int? CreatedByUserId { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }
 
