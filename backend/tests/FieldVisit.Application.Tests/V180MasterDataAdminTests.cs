@@ -469,6 +469,62 @@ public sealed class V180MasterDataAdminTests
 
         Assert.Equal(0, readiness.TeamCenterMissingCount);
         Assert.True(readiness.TeamSiteMissingCount > 0);
+        Assert.True(readiness.EmploymentSiteMissingCount > 0);
+        Assert.False(readiness.IsUatReady);
+    }
+
+    [Fact]
+    public async Task Readiness_requires_at_least_one_target_visitor()
+    {
+        await using var db = Db();
+        db.Centers.Add(new Center
+        {
+            CenterId = 20, OrganizationId = 1, CenterCode = "C20",
+            CenterName = "Center 20", EffectiveFrom = Today.AddDays(-30), IsActive = true
+        });
+        db.Locations.Add(new Location
+        {
+            LocationId = 30, OrganizationId = 1, LocationCode = "L30",
+            LocationName = "Office", ApprovalStatus = "Approved", IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.DeploymentSites.Add(new DeploymentSite
+        {
+            DeploymentSiteId = 40, CenterId = 20, SiteCode = "S40", SiteName = "Office",
+            EffectiveFrom = Today.AddDays(-30), IsActive = true, CreatedAt = DateTime.UtcNow
+        });
+        db.DeploymentSiteLocationAssignments.Add(new DeploymentSiteLocationAssignment
+        {
+            DeploymentSiteLocationAssignmentId = 50, DeploymentSiteId = 40, LocationId = 30,
+            EffectiveFrom = Today.AddDays(-30), CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var readiness = await new V180MasterDataAdminRepository(db)
+            .GetReadinessAsync(User("admin"), default);
+
+        Assert.Equal(1, readiness.DeploymentSiteCount);
+        Assert.False(readiness.IsUatReady);
+    }
+
+    [Fact]
+    public async Task Readiness_rejects_inactive_team_path()
+    {
+        await using var db = Db();
+        SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        db.Teams.Single(x => x.TeamId == 10).IsActive = false;
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
+        {
+            EmploymentDeploymentSiteAssignmentId = 70, EmploymentId = 100,
+            DeploymentSiteId = 40, IsPrimary = true,
+            EffectiveFrom = Today.AddDays(-30), CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var readiness = await new V180MasterDataAdminRepository(db)
+            .GetReadinessAsync(User("admin"), default);
+
+        Assert.True(readiness.EmploymentSiteMissingCount > 0);
         Assert.False(readiness.IsUatReady);
     }
 
