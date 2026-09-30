@@ -47,6 +47,12 @@ public sealed class V180SqlServerTriggerCompatibilityTests
     [InlineData(typeof(MileageRateRule))]
     [InlineData(typeof(VisitTripSnapshot))]
     [InlineData(typeof(RouteCalculationAttempt))]
+    [InlineData(typeof(TeamCenterAssignment))]
+    [InlineData(typeof(EmploymentStatusPeriod))]
+    [InlineData(typeof(DeploymentSite))]
+    [InlineData(typeof(DeploymentSiteLocationAssignment))]
+    [InlineData(typeof(TeamDeploymentSiteAssignment))]
+    [InlineData(typeof(EmploymentDeploymentSiteAssignment))]
     public void Trigger_backed_tables_disable_sql_output(
         Type entityClrType)
     {
