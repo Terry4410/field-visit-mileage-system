@@ -63,6 +63,19 @@ internal static class ImportFileCompatibility
         "ChangeEffectiveFrom"
     ];
 
+    private static readonly string[] MasterEmploymentStatusHeaders =
+        ["EmployeeNo","EmploymentStatus","EffectiveFrom","EffectiveTo"];
+    private static readonly string[] MasterCenterHeaders =
+        ["CenterCode","CenterName","EffectiveFrom","EffectiveTo","IsActive","Notes"];
+    private static readonly string[] MasterTeamCenterHeaders =
+        ["TeamCode","CenterCode","EffectiveFrom","EffectiveTo","ChangeReason"];
+    private static readonly string[] MasterDeploymentSiteHeaders =
+        ["CenterCode","SiteCode","SiteName","LocationCode","EffectiveFrom","EffectiveTo","IsActive","Notes","ChangeReason"];
+    private static readonly string[] MasterTeamSiteHeaders =
+        ["TeamCode","SiteCode","EffectiveFrom","EffectiveTo"];
+    private static readonly string[] MasterEmploymentSiteHeaders =
+        ["EmployeeNo","SiteCode","IsPrimary","EffectiveFrom","EffectiveTo"];
+
     public static bool IsSupported(string fileName)
     {
         var extension =
@@ -300,6 +313,11 @@ internal static class ImportFileCompatibility
                         headers,
                         rows),
 
+                "master-data" =>
+                    ConvertMasterDataCsv(
+                        headers,
+                        rows),
+
                 _ =>
                     throw new InvalidOperationException(
                         $"不支援的 CSV 匯入類型：{importKind}。")
@@ -411,6 +429,52 @@ internal static class ImportFileCompatibility
 
         throw new InvalidOperationException(
             "無法判斷 CSV 是內部人員授權或外部督導資料。請使用系統下載的欄位名稱。");
+    }
+
+    private static byte[] ConvertMasterDataCsv(
+        string[] headers,
+        List<string[]> rows)
+    {
+        var sheet =
+            HasHeader(headers, "EmploymentStatus")
+                ? "Employment Status"
+                : HasHeader(headers, "SiteName")
+                  && HasHeader(headers, "LocationCode")
+                    ? "Deployment Sites"
+                    : HasHeader(headers, "EmployeeNo")
+                      && HasHeader(headers, "SiteCode")
+                        ? "Employment-Site"
+                        : HasHeader(headers, "TeamCode")
+                          && HasHeader(headers, "SiteCode")
+                            ? "Team-Site"
+                            : HasHeader(headers, "TeamCode")
+                              && HasHeader(headers, "CenterCode")
+                                ? "Team-Center"
+                                : HasHeader(headers, "CenterName")
+                                  && HasHeader(headers, "CenterCode")
+                                    ? "Centers"
+                                    : null;
+
+        if (sheet is null)
+            throw new InvalidOperationException(
+                "無法判斷 CSV 主檔類型。請使用系統下載的欄位名稱。");
+
+        IReadOnlyList<string[]> Data(
+            string name,
+            string[] required)
+            => sheet == name
+                ? rows
+                : new List<string[]> { required };
+
+        return CreateXlsx(
+        [
+            ("Employment Status", Data("Employment Status", MasterEmploymentStatusHeaders)),
+            ("Centers", Data("Centers", MasterCenterHeaders)),
+            ("Team-Center", Data("Team-Center", MasterTeamCenterHeaders)),
+            ("Deployment Sites", Data("Deployment Sites", MasterDeploymentSiteHeaders)),
+            ("Team-Site", Data("Team-Site", MasterTeamSiteHeaders)),
+            ("Employment-Site", Data("Employment-Site", MasterEmploymentSiteHeaders))
+        ]);
     }
 
     private static bool HasHeader(
