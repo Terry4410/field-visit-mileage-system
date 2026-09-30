@@ -250,11 +250,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
         b.Entity<TeamCenterAssignment>(e =>
         {
-            e.ToTable("TeamCenterAssignments"); e.HasKey(x => x.TeamCenterAssignmentId); e.Property(x => x.TeamCenterAssignmentId).ValueGeneratedOnAdd();
+            e.ToTable("TeamCenterAssignments", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.TeamCenterAssignmentId); e.Property(x => x.TeamCenterAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.ChangeReason).HasMaxLength(500);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
             e.HasIndex(x => new { x.TeamId, x.EffectiveFrom }).IsUnique().HasDatabaseName("UQ_TeamCenterAssignments_Team_Start");
             e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Center>().WithMany().HasForeignKey(x => x.CenterId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
         });
 
         b.Entity<Employment>(e =>
@@ -283,7 +285,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<EmploymentStatusPeriod>(e =>
         {
-            e.ToTable("EmploymentStatusPeriods");
+            e.ToTable("EmploymentStatusPeriods", table => table.UseSqlOutputClause(false));
             e.HasKey(x => x.EmploymentStatusPeriodId);
             e.Property(x => x.EmploymentStatusPeriodId).ValueGeneratedOnAdd();
             e.Property(x => x.EmploymentStatus).HasMaxLength(30);
@@ -317,7 +319,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<DeploymentSite>(e =>
         {
-            e.ToTable("DeploymentSites");
+            e.ToTable("DeploymentSites", table => table.UseSqlOutputClause(false));
             e.HasKey(x => x.DeploymentSiteId);
             e.Property(x => x.DeploymentSiteId).ValueGeneratedOnAdd();
             e.Property(x => x.SiteCode).HasMaxLength(50);
@@ -333,7 +335,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<DeploymentSiteLocationAssignment>(e =>
         {
-            e.ToTable("DeploymentSiteLocationAssignments");
+            e.ToTable("DeploymentSiteLocationAssignments", table => table.UseSqlOutputClause(false));
             e.HasKey(x => x.DeploymentSiteLocationAssignmentId);
             e.Property(x => x.DeploymentSiteLocationAssignmentId).ValueGeneratedOnAdd();
             e.Property(x => x.ChangeReason).HasMaxLength(500);
@@ -349,7 +351,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<TeamDeploymentSiteAssignment>(e =>
         {
-            e.ToTable("TeamDeploymentSiteAssignments");
+            e.ToTable("TeamDeploymentSiteAssignments", table => table.UseSqlOutputClause(false));
             e.HasKey(x => x.TeamDeploymentSiteAssignmentId);
             e.Property(x => x.TeamDeploymentSiteAssignmentId).ValueGeneratedOnAdd();
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
@@ -364,7 +366,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<EmploymentDeploymentSiteAssignment>(e =>
         {
-            e.ToTable("EmploymentDeploymentSiteAssignments");
+            e.ToTable("EmploymentDeploymentSiteAssignments", table => table.UseSqlOutputClause(false));
             e.HasKey(x => x.EmploymentDeploymentSiteAssignmentId);
             e.Property(x => x.EmploymentDeploymentSiteAssignmentId).ValueGeneratedOnAdd();
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
