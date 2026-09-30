@@ -145,8 +145,16 @@ jobs:
               HireDate,
               TerminationDate,
               LegacyUserId,
-              COUNT(DISTINCT CASE WHEN UserCode = N'pilotv01' THEN UserId END) OVER () AS PilotIdentityProfileCount,
-              COUNT(DISTINCT EmploymentId) OVER () AS PilotEmploymentCount
+              (
+                  SELECT COUNT(DISTINCT x.UserId)
+                  FROM CandidateEmployment AS x
+                  WHERE x.UserCode = N'pilotv01'
+              ) AS PilotIdentityProfileCount,
+              (
+                  SELECT COUNT(DISTINCT x.EmploymentId)
+                  FROM CandidateEmployment AS x
+                  WHERE x.EmploymentId IS NOT NULL
+              ) AS PilotEmploymentCount
           FROM CandidateEmployment
           ORDER BY UserId, EmploymentId;
           '@
