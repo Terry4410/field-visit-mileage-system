@@ -92,7 +92,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                         center.TeamId == teamId
                         && center.CenterId == s.CenterId
                         && center.EffectiveFrom <= today
-                        && (!center.EffectiveTo.HasValue || today <= center.EffectiveTo.Value))),
+                        && (!center.EffectiveTo.HasValue || today <= center.EffectiveTo.Value)))),
             ct);
 
         var activeEmploymentIds = targetEmployments
