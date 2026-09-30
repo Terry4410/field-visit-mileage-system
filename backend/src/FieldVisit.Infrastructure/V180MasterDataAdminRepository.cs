@@ -2,6 +2,7 @@ using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace FieldVisit.Infrastructure;
 
@@ -38,6 +39,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         var targetEmployments = db.Employments
             .Where(x => x.OrganizationId == org
                 && targetEmploymentIds.Contains(x.EmploymentId));
+        var targetEmploymentCount = await targetEmployments.CountAsync(ct);
 
         var employmentStatusMissing = await targetEmployments.CountAsync(
             e => !db.EmploymentStatusPeriods.Any(s =>
@@ -47,11 +49,17 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                 && (!s.EffectiveTo.HasValue || today <= s.EffectiveTo.Value)),
             ct);
 
-        var currentTeamIds = db.TeamMemberships
-            .Where(x => targetEmploymentIds.Contains(x.EmploymentId)
-                && x.EffectiveFrom <= today
-                && (!x.EffectiveTo.HasValue || today <= x.EffectiveTo.Value))
-            .Select(x => x.TeamId)
+        var currentTeamIds = (
+            from membership in db.TeamMemberships
+            join team in db.Teams on membership.TeamId equals team.TeamId
+            where targetEmploymentIds.Contains(membership.EmploymentId)
+                && membership.EffectiveFrom <= today
+                && (!membership.EffectiveTo.HasValue || today <= membership.EffectiveTo.Value)
+                && team.OrganizationId == org
+                && team.IsActive
+                && (!team.EffectiveFrom.HasValue || team.EffectiveFrom.Value <= today)
+                && (!team.EffectiveTo.HasValue || today <= team.EffectiveTo.Value)
+            select membership.TeamId)
             .Distinct();
 
         var teamCenterMissing = await currentTeamIds.CountAsync(
@@ -113,11 +121,24 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     m.EmploymentId == employmentId
                     && m.EffectiveFrom <= today
                     && (!m.EffectiveTo.HasValue || today <= m.EffectiveTo.Value)
-                    && db.TeamDeploymentSiteAssignments.Any(ts =>
-                        ts.TeamId == m.TeamId
-                        && ts.DeploymentSiteId == es.DeploymentSiteId
-                        && ts.EffectiveFrom <= today
-                        && (!ts.EffectiveTo.HasValue || today <= ts.EffectiveTo.Value)))),
+                    && db.Teams.Any(team =>
+                        team.TeamId == m.TeamId
+                        && team.OrganizationId == org
+                        && team.IsActive
+                        && (!team.EffectiveFrom.HasValue || team.EffectiveFrom.Value <= today)
+                        && (!team.EffectiveTo.HasValue || today <= team.EffectiveTo.Value))
+                    && eligibleSites.Any(site =>
+                        site.DeploymentSiteId == es.DeploymentSiteId
+                        && db.TeamCenterAssignments.Any(center =>
+                            center.TeamId == m.TeamId
+                            && center.CenterId == site.CenterId
+                            && center.EffectiveFrom <= today
+                            && (!center.EffectiveTo.HasValue || today <= center.EffectiveTo.Value))
+                        && db.TeamDeploymentSiteAssignments.Any(ts =>
+                            ts.TeamId == m.TeamId
+                            && ts.DeploymentSiteId == es.DeploymentSiteId
+                            && ts.EffectiveFrom <= today
+                            && (!ts.EffectiveTo.HasValue || today <= ts.EffectiveTo.Value))))),
             ct);
 
         return new(
@@ -126,7 +147,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             deploymentSiteCount,
             teamSiteMissing,
             employmentSiteMissing,
-            employmentStatusMissing == 0
+            targetEmploymentCount > 0
+                && employmentStatusMissing == 0
                 && teamCenterMissing == 0
                 && deploymentSiteCount > 0
                 && teamSiteMissing == 0
@@ -251,8 +273,28 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         V180MasterDataValidationService.Status(input.Status);
         var employment = await Employment(admin, input.EmployeeNo, ct);
 
+        return await ExecuteEmploymentStatusSiteInvariantAsync(
+            employment.EmploymentId,
+            () => SaveEmploymentStatusCoreAsync(
+                admin,
+                employment.EmploymentId,
+                employment.EmployeeNo ?? string.Empty,
+                id,
+                input,
+                ct),
+            ct);
+    }
+
+    private async Task<V180MasterDataRow> SaveEmploymentStatusCoreAsync(
+        CurrentUserDto admin,
+        long employmentId,
+        string employeeNo,
+        long? id,
+        V180EmploymentStatusInput input,
+        CancellationToken ct)
+    {
         var query = db.EmploymentStatusPeriods
-            .Where(x => x.EmploymentId == employment.EmploymentId);
+            .Where(x => x.EmploymentId == employmentId);
 
         if (await query.AnyAsync(x =>
                 (!id.HasValue || x.EmploymentStatusPeriodId != id.Value)
@@ -276,7 +318,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             if (changesExistingActiveCoverage)
             {
                 var assignments = await db.EmploymentDeploymentSiteAssignments
-                    .Where(x => x.EmploymentId == employment.EmploymentId)
+                    .Where(x => x.EmploymentId == employmentId)
                     .Select(x => new { x.EffectiveFrom, x.EffectiveTo })
                     .ToListAsync(ct);
                 var otherActivePeriods = await query
@@ -309,7 +351,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         {
             row = new EmploymentStatusPeriod
             {
-                EmploymentId = employment.EmploymentId,
+                EmploymentId = employmentId,
                 SourceType = "UAT-Admin"
             };
             db.EmploymentStatusPeriods.Add(row);
@@ -322,14 +364,14 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         AddAudit(
             admin,
             "EmploymentStatusPeriod",
-            $"{employment.EmployeeNo}:{input.EffectiveFrom:yyyy-MM-dd}",
+            $"{employeeNo}:{input.EffectiveFrom:yyyy-MM-dd}",
             id.HasValue ? "Update" : "Create",
             new { input.Status, input.EffectiveFrom, input.EffectiveTo });
 
         await db.SaveChangesAsync(ct);
         return Row(
             row.EmploymentStatusPeriodId,
-            employment.EmployeeNo ?? "",
+            employeeNo,
             row.EmploymentStatus,
             row.EmploymentStatus,
             row.EffectiveFrom,
@@ -787,6 +829,27 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
     {
         V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
         var employment = await Employment(admin, input.EmployeeNo, ct);
+
+        return await ExecuteEmploymentStatusSiteInvariantAsync(
+            employment.EmploymentId,
+            () => SaveEmploymentSiteCoreAsync(
+                admin,
+                employment.EmploymentId,
+                employment.EmployeeNo ?? string.Empty,
+                id,
+                input,
+                ct),
+            ct);
+    }
+
+    private async Task<V180MasterDataRow> SaveEmploymentSiteCoreAsync(
+        CurrentUserDto admin,
+        long employmentId,
+        string employeeNo,
+        long? id,
+        V180EmploymentSiteInput input,
+        CancellationToken ct)
+    {
         var site = await Site(admin, input.SiteCode, ct);
 
         if (!site.IsActive
@@ -812,7 +875,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_EFFECTIVE_LOCATION");
 
         var hasActiveEmployment = await db.EmploymentStatusPeriods.AnyAsync(x =>
-            x.EmploymentId == employment.EmploymentId
+            x.EmploymentId == employmentId
             && x.EmploymentStatus == EmploymentStatuses.Active
             && x.EffectiveFrom <= input.EffectiveFrom
             && (!input.EffectiveTo.HasValue
@@ -823,7 +886,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_ACTIVE_EMPLOYMENT");
 
         var membershipTeamIds = await db.TeamMemberships
-            .Where(x => x.EmploymentId == employment.EmploymentId
+            .Where(x => x.EmploymentId == employmentId
                 && x.EffectiveFrom <= input.EffectiveFrom
                 && (!input.EffectiveTo.HasValue
                     ? !x.EffectiveTo.HasValue
@@ -846,7 +909,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_TEAM_SITE_COVERAGE");
 
         var query = db.EmploymentDeploymentSiteAssignments
-            .Where(x => x.EmploymentId == employment.EmploymentId);
+            .Where(x => x.EmploymentId == employmentId);
 
         if (await query.AnyAsync(x =>
                 x.DeploymentSiteId == site.DeploymentSiteId
@@ -876,7 +939,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         {
             row = new EmploymentDeploymentSiteAssignment
             {
-                EmploymentId = employment.EmploymentId,
+                EmploymentId = employmentId,
                 CreatedAt = DateTime.UtcNow,
                 CreatedByUserId = admin.UserId
             };
@@ -891,11 +954,11 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         AddAudit(
             admin,
             "EmploymentDeploymentSiteAssignment",
-            $"{employment.EmployeeNo}:{site.SiteCode}:{input.EffectiveFrom:yyyy-MM-dd}",
+            $"{employeeNo}:{site.SiteCode}:{input.EffectiveFrom:yyyy-MM-dd}",
             id.HasValue ? "Update" : "Create",
             new
             {
-                employment.EmployeeNo,
+                employeeNo,
                 site.SiteCode,
                 input.IsPrimary,
                 input.EffectiveFrom,
@@ -905,7 +968,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         await db.SaveChangesAsync(ct);
         return Row(
             row.EmploymentDeploymentSiteAssignmentId,
-            employment.EmployeeNo ?? "",
+            employeeNo,
             site.SiteCode,
             null,
             row.EffectiveFrom,
@@ -913,6 +976,53 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             null,
             row.IsPrimary,
             row.RowVersion);
+    }
+
+    private async Task<T> ExecuteEmploymentStatusSiteInvariantAsync<T>(
+        long employmentId,
+        Func<Task<T>> operation,
+        CancellationToken ct)
+    {
+        if (!db.Database.IsRelational())
+            return await operation();
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        T? result = default;
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await AcquireEmploymentStatusSiteInvariantLockAsync(employmentId, ct);
+            result = await operation();
+            await transaction.CommitAsync(ct);
+        });
+        return result!;
+    }
+
+    private async Task AcquireEmploymentStatusSiteInvariantLockAsync(
+        long employmentId,
+        CancellationToken ct)
+    {
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = """
+            DECLARE @result int;
+            EXEC @result = sys.sp_getapplock
+                @Resource = @resource,
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 10000;
+            SELECT @result;
+            """;
+        var resource = command.CreateParameter();
+        resource.ParameterName = "@resource";
+        resource.Value = $"FieldVisit.E1.EmploymentStatusSite:{employmentId}";
+        command.Parameters.Add(resource);
+
+        var lockResult = await command.ExecuteScalarAsync(ct);
+        if (lockResult is null || Convert.ToInt32(lockResult) < 0)
+            throw new InvalidOperationException(
+                "EMPLOYMENT_STATUS_SITE_INVARIANT_LOCK_FAILED");
     }
 
     private async Task<Employment> Employment(

@@ -50,6 +50,7 @@ public sealed class V180TripContextReader(AppDbContext db) : IV180TripContextRea
         {
             if (!teamsById.TryGetValue(membership.TeamId, out var team) ||
                 team.OrganizationId != organizationId ||
+                !team.IsActive ||
                 (team.EffectiveFrom.HasValue && visitDate < team.EffectiveFrom.Value) ||
                 (team.EffectiveTo.HasValue && team.EffectiveTo.Value < visitDate))
                 throw new InvalidOperationException("TRIP_CONTEXT_TEAM_INVALID：TeamMembership 對應不到同 Organization 的有效 Team。");
@@ -89,6 +90,21 @@ public sealed class V180TripContextReader(AppDbContext db) : IV180TripContextRea
                 teamDtos, null, [], null, null, null);
         }
 
+        var teamCenters = await db.TeamCenterAssignments.AsNoTracking()
+            .Where(x => x.TeamId == selectedTeamId.Value
+                && x.EffectiveFrom <= visitDate
+                && (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value))
+            .ToListAsync(ct);
+        if (teamCenters.Count > 1)
+            throw new InvalidOperationException(
+                "AMBIGUOUS_TEAM_CENTER：VisitDate 有多筆有效 TeamCenterAssignment。");
+        if (teamCenters.Count == 0)
+            return new(employment.EmploymentId, visitDate, false,
+                "NO_ELIGIBLE_DEPLOYMENT_SITE",
+                "所選 Team 沒有有效 Team-Center assignment。",
+                teamDtos, selectedTeamId, [], null, null, null);
+        var selectedCenterId = teamCenters[0].CenterId;
+
         var employmentAssignments = await db.EmploymentDeploymentSiteAssignments.AsNoTracking()
             .Where(x => x.EmploymentId == employment.EmploymentId && x.EffectiveFrom <= visitDate &&
                 (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value))
@@ -120,8 +136,17 @@ public sealed class V180TripContextReader(AppDbContext db) : IV180TripContextRea
 
         var teamSiteIds = teamAssignments.Select(x => x.DeploymentSiteId).ToHashSet();
         var candidateIds = employmentSiteIds.Where(teamSiteIds.Contains).ToHashSet();
-        var candidateSites = assignedSites.Where(x => candidateIds.Contains(x.DeploymentSiteId) &&
-            x.EffectiveFrom <= visitDate && (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value)).ToList();
+        var candidateSites = assignedSites.Where(x =>
+            candidateIds.Contains(x.DeploymentSiteId)
+            && x.CenterId == selectedCenterId
+            && x.IsActive
+            && x.EffectiveFrom <= visitDate
+            && (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value)
+            && centers.TryGetValue(x.CenterId, out var center)
+            && center.IsActive
+            && center.EffectiveFrom <= visitDate
+            && (!center.EffectiveTo.HasValue || visitDate <= center.EffectiveTo.Value))
+            .ToList();
 
         var locationAssignments = await db.DeploymentSiteLocationAssignments.AsNoTracking()
             .Where(x => candidateIds.Contains(x.DeploymentSiteId) && x.EffectiveFrom <= visitDate &&
@@ -141,8 +166,10 @@ public sealed class V180TripContextReader(AppDbContext db) : IV180TripContextRea
                 continue;
             if (!locations.TryGetValue(locationAssignment.LocationId, out var location))
                 throw new InvalidOperationException("TRIP_CONTEXT_LOCATION_MISSING：派駐點有效 Location 不存在。");
-            if (location.OrganizationId.HasValue && location.OrganizationId.Value != organizationId)
-                throw new InvalidOperationException("TRIP_CONTEXT_LOCATION_ORGANIZATION_MISMATCH：派駐點 Location 不屬於目前 Organization。");
+            if (location.OrganizationId != organizationId
+                || !location.IsActive
+                || !string.Equals(location.ApprovalStatus, "Approved", StringComparison.Ordinal))
+                continue;
             var center = centers[site.CenterId];
             eligibleSites.Add(new(site.DeploymentSiteId, center.CenterId, center.CenterCode, center.CenterName,
                 site.SiteCode, site.SiteName, location.LocationId, location.LocationCode,
