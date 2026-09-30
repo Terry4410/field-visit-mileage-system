@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -6,54 +7,983 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180MasterDataAdminRepository
 {
-    public async Task<V180MasterDataReadinessDto> GetReadinessAsync(CurrentUserDto admin, CancellationToken ct)
+    public async Task<V180MasterDataReadinessDto> GetReadinessAsync(
+        CurrentUserDto admin,
+        CancellationToken ct)
     {
-        var org=Org(admin); var today=BusinessTime.Today;
-        var employmentStatusMissing=await db.Employments.CountAsync(x=>x.OrganizationId==org&&!db.EmploymentStatusPeriods.Any(s=>s.EmploymentId==x.EmploymentId&&s.EffectiveFrom<=today&&(!s.EffectiveTo.HasValue||today<=s.EffectiveTo)),ct);
-        var teamCenterMissing=await db.Teams.CountAsync(x=>x.OrganizationId==org&&x.IsActive&&!db.TeamMemberships.Any(m=>m.TeamId==x.TeamId),ct); // surfaced as a conservative readiness warning
-        var sites=await db.DeploymentSites.CountAsync(x=>db.Centers.Any(c=>c.CenterId==x.CenterId&&c.OrganizationId==org),ct);
-        var teamSiteMissing=await db.TeamMemberships.Where(m=>db.Employments.Any(e=>e.EmploymentId==m.EmploymentId&&e.OrganizationId==org)).Select(m=>m.TeamId).Distinct().CountAsync(t=>!db.TeamDeploymentSiteAssignments.Any(x=>x.TeamId==t&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||today<=x.EffectiveTo)),ct);
-        var employmentSiteMissing=await db.Employments.CountAsync(e=>e.OrganizationId==org&&!db.EmploymentDeploymentSiteAssignments.Any(x=>x.EmploymentId==e.EmploymentId&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||today<=x.EffectiveTo)),ct);
-        return new(employmentStatusMissing,teamCenterMissing,sites,teamSiteMissing,employmentSiteMissing,employmentStatusMissing==0&&teamCenterMissing==0&&sites>0&&teamSiteMissing==0&&employmentSiteMissing==0);
+        var org = Org(admin);
+        var today = BusinessTime.Today;
+
+        var visitorRoleIds = db.Roles
+            .Where(x => x.RoleCode.ToLower() == "visitor")
+            .Select(x => x.RoleId);
+
+        var activeVisitorUserIds = db.UserRoleAssignments
+            .Where(x => visitorRoleIds.Contains(x.RoleId)
+                && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || today <= x.EffectiveTo.Value))
+            .Select(x => x.UserId)
+            .Distinct();
+
+        var targetEmploymentIds = db.UserIdentityProfiles
+            .Where(x => x.UserType == UserTypes.Internal
+                && x.EmploymentId.HasValue
+                && activeVisitorUserIds.Contains(x.UserId)
+                && db.Users.Any(u => u.UserId == x.UserId
+                    && u.IsActive
+                    && u.OrganizationId == org))
+            .Select(x => x.EmploymentId!.Value)
+            .Distinct();
+
+        var targetEmployments = db.Employments
+            .Where(x => x.OrganizationId == org
+                && targetEmploymentIds.Contains(x.EmploymentId));
+
+        var employmentStatusMissing = await targetEmployments.CountAsync(
+            e => !db.EmploymentStatusPeriods.Any(s =>
+                s.EmploymentId == e.EmploymentId
+                && s.EmploymentStatus == EmploymentStatuses.Active
+                && s.EffectiveFrom <= today
+                && (!s.EffectiveTo.HasValue || today <= s.EffectiveTo.Value)),
+            ct);
+
+        var currentTeamIds = db.TeamMemberships
+            .Where(x => targetEmploymentIds.Contains(x.EmploymentId)
+                && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || today <= x.EffectiveTo.Value))
+            .Select(x => x.TeamId)
+            .Distinct();
+
+        var teamCenterMissing = await currentTeamIds.CountAsync(
+            teamId => !db.TeamCenterAssignments.Any(x =>
+                x.TeamId == teamId
+                && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || today <= x.EffectiveTo.Value)),
+            ct);
+
+        var eligibleSites = db.DeploymentSites
+            .Where(s => s.IsActive
+                && s.EffectiveFrom <= today
+                && (!s.EffectiveTo.HasValue || today <= s.EffectiveTo.Value)
+                && db.Centers.Any(c => c.CenterId == s.CenterId
+                    && c.OrganizationId == org
+                    && c.IsActive
+                    && c.EffectiveFrom <= today
+                    && (!c.EffectiveTo.HasValue || today <= c.EffectiveTo.Value))
+                && db.DeploymentSiteLocationAssignments.Any(a =>
+                    a.DeploymentSiteId == s.DeploymentSiteId
+                    && a.EffectiveFrom <= today
+                    && (!a.EffectiveTo.HasValue || today <= a.EffectiveTo.Value)
+                    && db.Locations.Any(l => l.LocationId == a.LocationId
+                        && l.OrganizationId == org
+                        && l.IsActive
+                        && l.ApprovalStatus == "Approved")));
+
+        var deploymentSiteCount = await eligibleSites.CountAsync(ct);
+
+        var teamSiteMissing = await currentTeamIds.CountAsync(
+            teamId => !db.TeamDeploymentSiteAssignments.Any(x =>
+                x.TeamId == teamId
+                && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || today <= x.EffectiveTo.Value)
+                && eligibleSites.Any(s => s.DeploymentSiteId == x.DeploymentSiteId)),
+            ct);
+
+        var activeEmploymentIds = targetEmployments
+            .Where(e => db.EmploymentStatusPeriods.Any(s =>
+                s.EmploymentId == e.EmploymentId
+                && s.EmploymentStatus == EmploymentStatuses.Active
+                && s.EffectiveFrom <= today
+                && (!s.EffectiveTo.HasValue || today <= s.EffectiveTo.Value)))
+            .Select(e => e.EmploymentId);
+
+        var employmentSiteMissing = await activeEmploymentIds.CountAsync(
+            employmentId => !db.EmploymentDeploymentSiteAssignments.Any(es =>
+                es.EmploymentId == employmentId
+                && es.EffectiveFrom <= today
+                && (!es.EffectiveTo.HasValue || today <= es.EffectiveTo.Value)
+                && eligibleSites.Any(s => s.DeploymentSiteId == es.DeploymentSiteId)
+                && db.TeamMemberships.Any(m =>
+                    m.EmploymentId == employmentId
+                    && m.EffectiveFrom <= today
+                    && (!m.EffectiveTo.HasValue || today <= m.EffectiveTo.Value)
+                    && db.TeamDeploymentSiteAssignments.Any(ts =>
+                        ts.TeamId == m.TeamId
+                        && ts.DeploymentSiteId == es.DeploymentSiteId
+                        && ts.EffectiveFrom <= today
+                        && (!ts.EffectiveTo.HasValue || today <= ts.EffectiveTo.Value)))),
+            ct);
+
+        return new(
+            employmentStatusMissing,
+            teamCenterMissing,
+            deploymentSiteCount,
+            teamSiteMissing,
+            employmentSiteMissing,
+            employmentStatusMissing == 0
+                && teamCenterMissing == 0
+                && deploymentSiteCount > 0
+                && teamSiteMissing == 0
+                && employmentSiteMissing == 0);
     }
 
-    public async Task<IReadOnlyList<V180MasterDataRow>> ListAsync(CurrentUserDto a,string kind,CancellationToken ct)
+    public async Task<IReadOnlyList<V180MasterDataRow>> ListAsync(
+        CurrentUserDto admin,
+        string kind,
+        CancellationToken ct)
     {
-        var org=Org(a); kind=kind.Trim().ToLowerInvariant();
+        var org = Org(admin);
+        kind = kind.Trim().ToLowerInvariant();
+
         return kind switch
         {
-            "employment-status" => await (from x in db.EmploymentStatusPeriods join e in db.Employments on x.EmploymentId equals e.EmploymentId where e.OrganizationId==org select new V180MasterDataRow(x.EmploymentStatusPeriodId,e.EmployeeNo??"",x.EmploymentStatus,x.EmploymentStatus,x.EffectiveFrom,x.EffectiveTo,null,null,B64(x.RowVersion))).ToListAsync(ct),
-            "centers" => await db.Centers.Where(x=>x.OrganizationId==org).Select(x=>new V180MasterDataRow(x.CenterId,x.CenterCode,null,x.CenterName,x.EffectiveFrom,x.EffectiveTo,x.IsActive,null,B64(x.RowVersion))).ToListAsync(ct),
-            "team-centers" => await (from x in db.Set<TeamCenterAssignment>() join t in db.Teams on x.TeamId equals t.TeamId join c in db.Centers on x.CenterId equals c.CenterId where t.OrganizationId==org select new V180MasterDataRow(x.TeamCenterAssignmentId,t.TeamCode,c.CenterCode,null,x.EffectiveFrom,x.EffectiveTo,null,null,B64(x.RowVersion))).ToListAsync(ct),
-            "deployment-sites" => await (from x in db.DeploymentSites join c in db.Centers on x.CenterId equals c.CenterId where c.OrganizationId==org select new V180MasterDataRow(x.DeploymentSiteId,x.SiteCode,c.CenterCode,x.SiteName,x.EffectiveFrom,x.EffectiveTo,x.IsActive,null,B64(x.RowVersion))).ToListAsync(ct),
-            "team-sites" => await (from x in db.TeamDeploymentSiteAssignments join t in db.Teams on x.TeamId equals t.TeamId join s in db.DeploymentSites on x.DeploymentSiteId equals s.DeploymentSiteId join c in db.Centers on s.CenterId equals c.CenterId where c.OrganizationId==org select new V180MasterDataRow(x.TeamDeploymentSiteAssignmentId,t.TeamCode,s.SiteCode,null,x.EffectiveFrom,x.EffectiveTo,null,null,B64(x.RowVersion))).ToListAsync(ct),
-            "employment-sites" => await (from x in db.EmploymentDeploymentSiteAssignments join e in db.Employments on x.EmploymentId equals e.EmploymentId join s in db.DeploymentSites on x.DeploymentSiteId equals s.DeploymentSiteId join c in db.Centers on s.CenterId equals c.CenterId where c.OrganizationId==org select new V180MasterDataRow(x.EmploymentDeploymentSiteAssignmentId,e.EmployeeNo??"",s.SiteCode,null,x.EffectiveFrom,x.EffectiveTo,null,x.IsPrimary,B64(x.RowVersion))).ToListAsync(ct),
+            "employment-status" => await (
+                from x in db.EmploymentStatusPeriods
+                join e in db.Employments on x.EmploymentId equals e.EmploymentId
+                where e.OrganizationId == org
+                select new V180MasterDataRow(
+                    x.EmploymentStatusPeriodId,
+                    e.EmployeeNo ?? "",
+                    x.EmploymentStatus,
+                    x.EmploymentStatus,
+                    x.EffectiveFrom,
+                    x.EffectiveTo,
+                    null,
+                    null,
+                    B64(x.RowVersion))).ToListAsync(ct),
+
+            "centers" => await db.Centers
+                .Where(x => x.OrganizationId == org)
+                .Select(x => new V180MasterDataRow(
+                    x.CenterId,
+                    x.CenterCode,
+                    null,
+                    x.CenterName,
+                    x.EffectiveFrom,
+                    x.EffectiveTo,
+                    x.IsActive,
+                    null,
+                    B64(x.RowVersion)))
+                .ToListAsync(ct),
+
+            "team-centers" => await (
+                from x in db.TeamCenterAssignments
+                join t in db.Teams on x.TeamId equals t.TeamId
+                join c in db.Centers on x.CenterId equals c.CenterId
+                where t.OrganizationId == org && c.OrganizationId == org
+                select new V180MasterDataRow(
+                    x.TeamCenterAssignmentId,
+                    t.TeamCode,
+                    c.CenterCode,
+                    x.ChangeReason,
+                    x.EffectiveFrom,
+                    x.EffectiveTo,
+                    null,
+                    null,
+                    B64(x.RowVersion))).ToListAsync(ct),
+
+            "deployment-sites" => await (
+                from x in db.DeploymentSites
+                join c in db.Centers on x.CenterId equals c.CenterId
+                where c.OrganizationId == org
+                select new V180MasterDataRow(
+                    x.DeploymentSiteId,
+                    x.SiteCode,
+                    c.CenterCode,
+                    x.SiteName,
+                    x.EffectiveFrom,
+                    x.EffectiveTo,
+                    x.IsActive,
+                    null,
+                    B64(x.RowVersion))).ToListAsync(ct),
+
+            "team-sites" => await (
+                from x in db.TeamDeploymentSiteAssignments
+                join t in db.Teams on x.TeamId equals t.TeamId
+                join s in db.DeploymentSites on x.DeploymentSiteId equals s.DeploymentSiteId
+                join c in db.Centers on s.CenterId equals c.CenterId
+                where t.OrganizationId == org && c.OrganizationId == org
+                select new V180MasterDataRow(
+                    x.TeamDeploymentSiteAssignmentId,
+                    t.TeamCode,
+                    s.SiteCode,
+                    null,
+                    x.EffectiveFrom,
+                    x.EffectiveTo,
+                    null,
+                    null,
+                    B64(x.RowVersion))).ToListAsync(ct),
+
+            "employment-sites" => await (
+                from x in db.EmploymentDeploymentSiteAssignments
+                join e in db.Employments on x.EmploymentId equals e.EmploymentId
+                join s in db.DeploymentSites on x.DeploymentSiteId equals s.DeploymentSiteId
+                join c in db.Centers on s.CenterId equals c.CenterId
+                where e.OrganizationId == org && c.OrganizationId == org
+                select new V180MasterDataRow(
+                    x.EmploymentDeploymentSiteAssignmentId,
+                    e.EmployeeNo ?? "",
+                    s.SiteCode,
+                    null,
+                    x.EffectiveFrom,
+                    x.EffectiveTo,
+                    null,
+                    x.IsPrimary,
+                    B64(x.RowVersion))).ToListAsync(ct),
+
             _ => throw new InvalidOperationException("UNKNOWN_MASTER_DATA_TYPE")
         };
     }
 
-    public async Task<V180MasterDataRow> SaveEmploymentStatusAsync(CurrentUserDto a,long? id,V180EmploymentStatusInput x,CancellationToken ct)
-    { V180MasterDataValidationService.Period(x.EffectiveFrom,x.EffectiveTo); V180MasterDataValidationService.Status(x.Status); var e=await Employment(a,x.EmployeeNo,ct); var q=db.EmploymentStatusPeriods.Where(z=>z.EmploymentId==e.EmploymentId); if(await q.AnyAsync(z=>(!id.HasValue||z.EmploymentStatusPeriodId!=id)&&V180MasterDataValidationService.Overlaps(x.EffectiveFrom,x.EffectiveTo,z.EffectiveFrom,z.EffectiveTo),ct)) throw new InvalidOperationException("OVERLAPPING_EMPLOYMENT_STATUS"); var r=id.HasValue?await q.SingleAsync(z=>z.EmploymentStatusPeriodId==id,ct):new EmploymentStatusPeriod{EmploymentId=e.EmploymentId}; if(id.HasValue)V180MasterDataValidationService.RowVersion(x.RowVersion,r.RowVersion); r.EmploymentStatus=x.Status.Trim();r.EffectiveFrom=x.EffectiveFrom;r.EffectiveTo=x.EffectiveTo;r.SourceType="UAT-Admin";if(!id.HasValue)db.EmploymentStatusPeriods.Add(r); await SaveAudit(a,"EmploymentStatusPeriod",r.EmploymentStatusPeriodId.ToString(),id.HasValue?"Update":"Create",ct);await db.SaveChangesAsync(ct);return new(r.EmploymentStatusPeriodId,e.EmployeeNo??"",r.EmploymentStatus,r.EmploymentStatus,r.EffectiveFrom,r.EffectiveTo,null,null,B64(r.RowVersion)); }
+    public async Task<V180MasterDataRow> SaveEmploymentStatusAsync(
+        CurrentUserDto admin,
+        long? id,
+        V180EmploymentStatusInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        V180MasterDataValidationService.Status(input.Status);
+        var employment = await Employment(admin, input.EmployeeNo, ct);
 
-    public async Task<V180MasterDataRow> SaveCenterAsync(CurrentUserDto a,int? id,V180CenterInput x,CancellationToken ct)
-    { V180MasterDataValidationService.Period(x.EffectiveFrom,x.EffectiveTo);var org=Org(a);var r=id.HasValue?await db.Centers.SingleAsync(z=>z.CenterId==id&&z.OrganizationId==org,ct):new Center{OrganizationId=org};if(id.HasValue)V180MasterDataValidationService.RowVersion(x.RowVersion,r.RowVersion);if(await db.Centers.AnyAsync(z=>z.OrganizationId==org&&z.CenterCode==x.CenterCode&&z.CenterId!=r.CenterId,ct))throw new InvalidOperationException("DUPLICATE_CENTER_CODE");r.CenterCode=x.CenterCode.Trim();r.CenterName=x.CenterName.Trim();r.EffectiveFrom=x.EffectiveFrom;r.EffectiveTo=x.EffectiveTo;r.IsActive=x.IsActive;if(!id.HasValue)db.Centers.Add(r);await SaveAudit(a,"Center",r.CenterCode,id.HasValue?"Update":"Create",ct);await db.SaveChangesAsync(ct);return new(r.CenterId,r.CenterCode,null,r.CenterName,r.EffectiveFrom,r.EffectiveTo,r.IsActive,null,B64(r.RowVersion)); }
+        var query = db.EmploymentStatusPeriods
+            .Where(x => x.EmploymentId == employment.EmploymentId);
 
-    public async Task<V180MasterDataRow> SaveTeamCenterAsync(CurrentUserDto a,long? id,V180TeamCenterInput x,CancellationToken ct)
-    { V180MasterDataValidationService.Period(x.EffectiveFrom,x.EffectiveTo);var t=await Team(a,x.TeamCode,ct);var c=await Center(a,x.CenterCode,ct);var q=db.Set<TeamCenterAssignment>().Where(z=>z.TeamId==t.TeamId);if(await q.AnyAsync(z=>(!id.HasValue||z.TeamCenterAssignmentId!=id)&&V180MasterDataValidationService.Overlaps(x.EffectiveFrom,x.EffectiveTo,z.EffectiveFrom,z.EffectiveTo),ct))throw new InvalidOperationException("OVERLAPPING_TEAM_CENTER");var r=id.HasValue?await q.SingleAsync(z=>z.TeamCenterAssignmentId==id,ct):new TeamCenterAssignment{TeamId=t.TeamId};if(id.HasValue)V180MasterDataValidationService.RowVersion(x.RowVersion,r.RowVersion);r.CenterId=c.CenterId;r.EffectiveFrom=x.EffectiveFrom;r.EffectiveTo=x.EffectiveTo;if(!id.HasValue)db.Add(r);await SaveAudit(a,"TeamCenterAssignment",r.TeamCenterAssignmentId.ToString(),id.HasValue?"Update":"Create",ct);await db.SaveChangesAsync(ct);return new(r.TeamCenterAssignmentId,t.TeamCode,c.CenterCode,null,r.EffectiveFrom,r.EffectiveTo,null,null,B64(r.RowVersion)); }
+        if (await query.AnyAsync(x =>
+                (!id.HasValue || x.EmploymentStatusPeriodId != id.Value)
+                && x.EffectiveFrom <= (input.EffectiveTo ?? DateOnly.MaxValue)
+                && (!x.EffectiveTo.HasValue || input.EffectiveFrom <= x.EffectiveTo.Value),
+                ct))
+            throw new InvalidOperationException("OVERLAPPING_EMPLOYMENT_STATUS");
 
-    public async Task<V180MasterDataRow> SaveDeploymentSiteAsync(CurrentUserDto a,int? id,V180DeploymentSiteInput x,CancellationToken ct)
-    { V180MasterDataValidationService.Period(x.EffectiveFrom,x.EffectiveTo);var c=await Center(a,x.CenterCode,ct);if(!Covers(c.EffectiveFrom,c.EffectiveTo,x.EffectiveFrom,x.EffectiveTo))throw new InvalidOperationException("SITE_OUTSIDE_CENTER_PERIOD");var l=await db.Locations.SingleOrDefaultAsync(z=>z.LocationCode==x.LocationCode&&z.OrganizationId==Org(a),ct)??throw new InvalidOperationException("UNKNOWN_LOCATION_CODE");if(l.ApprovalStatus!="Approved")throw new InvalidOperationException("LOCATION_NOT_APPROVED");if(!l.IsActive)throw new InvalidOperationException("LOCATION_NOT_ACTIVE");var r=id.HasValue?await db.DeploymentSites.SingleAsync(z=>z.DeploymentSiteId==id&&z.CenterId==c.CenterId,ct):new DeploymentSite{CenterId=c.CenterId,CreatedAt=DateTime.UtcNow};if(id.HasValue)V180MasterDataValidationService.RowVersion(x.RowVersion,r.RowVersion);r.SiteCode=x.SiteCode.Trim();r.SiteName=x.SiteName.Trim();r.EffectiveFrom=x.EffectiveFrom;r.EffectiveTo=x.EffectiveTo;r.IsActive=x.IsActive;if(!id.HasValue)db.DeploymentSites.Add(r);await db.SaveChangesAsync(ct);var link=await db.DeploymentSiteLocationAssignments.SingleOrDefaultAsync(z=>z.DeploymentSiteId==r.DeploymentSiteId,ct);if(link is null){link=new DeploymentSiteLocationAssignment{DeploymentSiteId=r.DeploymentSiteId,CreatedAt=DateTime.UtcNow};db.DeploymentSiteLocationAssignments.Add(link);}link.LocationId=l.LocationId;link.EffectiveFrom=x.EffectiveFrom;link.EffectiveTo=x.EffectiveTo;await SaveAudit(a,"DeploymentSite",r.SiteCode,id.HasValue?"Update":"Create",ct);await db.SaveChangesAsync(ct);return new(r.DeploymentSiteId,r.SiteCode,c.CenterCode,r.SiteName,r.EffectiveFrom,r.EffectiveTo,r.IsActive,null,B64(r.RowVersion)); }
+        EmploymentStatusPeriod row;
+        if (id.HasValue)
+        {
+            row = await query.SingleOrDefaultAsync(
+                x => x.EmploymentStatusPeriodId == id.Value,
+                ct) ?? throw new InvalidOperationException("UNKNOWN_EMPLOYMENT_STATUS_PERIOD");
+            V180MasterDataValidationService.RowVersion(input.RowVersion, row.RowVersion);
+        }
+        else
+        {
+            row = new EmploymentStatusPeriod
+            {
+                EmploymentId = employment.EmploymentId,
+                SourceType = "UAT-Admin"
+            };
+            db.EmploymentStatusPeriods.Add(row);
+        }
 
-    public async Task<V180MasterDataRow> SaveTeamSiteAsync(CurrentUserDto a,long? id,V180TeamSiteInput x,CancellationToken ct)
-    { V180MasterDataValidationService.Period(x.EffectiveFrom,x.EffectiveTo);var t=await Team(a,x.TeamCode,ct);var s=await Site(a,x.SiteCode,ct);if(!await db.Set<TeamCenterAssignment>().AnyAsync(z=>z.TeamId==t.TeamId&&z.CenterId==s.CenterId&&Covers(z.EffectiveFrom,z.EffectiveTo,x.EffectiveFrom,x.EffectiveTo),ct))throw new InvalidOperationException("TEAM_SITE_WITHOUT_TEAM_CENTER_COVERAGE");var q=db.TeamDeploymentSiteAssignments.Where(z=>z.TeamId==t.TeamId);if(await q.AnyAsync(z=>(!id.HasValue||z.TeamDeploymentSiteAssignmentId!=id)&&V180MasterDataValidationService.Overlaps(x.EffectiveFrom,x.EffectiveTo,z.EffectiveFrom,z.EffectiveTo),ct))throw new InvalidOperationException("OVERLAPPING_TEAM_SITE");var r=id.HasValue?await q.SingleAsync(z=>z.TeamDeploymentSiteAssignmentId==id,ct):new TeamDeploymentSiteAssignment{TeamId=t.TeamId};if(id.HasValue)V180MasterDataValidationService.RowVersion(x.RowVersion,r.RowVersion);r.DeploymentSiteId=s.DeploymentSiteId;r.EffectiveFrom=x.EffectiveFrom;r.EffectiveTo=x.EffectiveTo;if(!id.HasValue)db.Add(r);await SaveAudit(a,"TeamDeploymentSiteAssignment",r.TeamDeploymentSiteAssignmentId.ToString(),id.HasValue?"Update":"Create",ct);await db.SaveChangesAsync(ct);return new(r.TeamDeploymentSiteAssignmentId,t.TeamCode,s.SiteCode,null,r.EffectiveFrom,r.EffectiveTo,null,null,B64(r.RowVersion)); }
+        row.EmploymentStatus = input.Status.Trim();
+        row.EffectiveFrom = input.EffectiveFrom;
+        row.EffectiveTo = input.EffectiveTo;
 
-    public async Task<V180MasterDataRow> SaveEmploymentSiteAsync(CurrentUserDto a,long? id,V180EmploymentSiteInput x,CancellationToken ct)
-    { V180MasterDataValidationService.Period(x.EffectiveFrom,x.EffectiveTo);var e=await Employment(a,x.EmployeeNo,ct);var s=await Site(a,x.SiteCode,ct);if(!await db.EmploymentStatusPeriods.AnyAsync(z=>z.EmploymentId==e.EmploymentId&&z.EmploymentStatus=="Active"&&Covers(z.EffectiveFrom,z.EffectiveTo,x.EffectiveFrom,x.EffectiveTo),ct))throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_ACTIVE_EMPLOYMENT");var memberships=db.TeamMemberships.Where(z=>z.EmploymentId==e.EmploymentId&&Covers(z.EffectiveFrom,z.EffectiveTo,x.EffectiveFrom,x.EffectiveTo));if(!await memberships.AnyAsync(ct))throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_TEAM_MEMBERSHIP");var teams=memberships.Select(z=>z.TeamId);if(!await db.TeamDeploymentSiteAssignments.AnyAsync(z=>z.DeploymentSiteId==s.DeploymentSiteId&&teams.Contains(z.TeamId)&&Covers(z.EffectiveFrom,z.EffectiveTo,x.EffectiveFrom,x.EffectiveTo),ct))throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_TEAM_SITE_COVERAGE");var q=db.EmploymentDeploymentSiteAssignments.Where(z=>z.EmploymentId==e.EmploymentId);if(x.IsPrimary&&await q.AnyAsync(z=>(!id.HasValue||z.EmploymentDeploymentSiteAssignmentId!=id)&&z.IsPrimary&&V180MasterDataValidationService.Overlaps(x.EffectiveFrom,x.EffectiveTo,z.EffectiveFrom,z.EffectiveTo),ct))throw new InvalidOperationException("MULTIPLE_PRIMARY_EMPLOYMENT_SITE");var r=id.HasValue?await q.SingleAsync(z=>z.EmploymentDeploymentSiteAssignmentId==id,ct):new EmploymentDeploymentSiteAssignment{EmploymentId=e.EmploymentId,CreatedAt=DateTime.UtcNow};if(id.HasValue)V180MasterDataValidationService.RowVersion(x.RowVersion,r.RowVersion);r.DeploymentSiteId=s.DeploymentSiteId;r.IsPrimary=x.IsPrimary;r.EffectiveFrom=x.EffectiveFrom;r.EffectiveTo=x.EffectiveTo;if(!id.HasValue)db.EmploymentDeploymentSiteAssignments.Add(r);await SaveAudit(a,"EmploymentDeploymentSiteAssignment",r.EmploymentDeploymentSiteAssignmentId.ToString(),id.HasValue?"Update":"Create",ct);await db.SaveChangesAsync(ct);return new(r.EmploymentDeploymentSiteAssignmentId,e.EmployeeNo??"",s.SiteCode,null,r.EffectiveFrom,r.EffectiveTo,null,r.IsPrimary,B64(r.RowVersion)); }
+        AddAudit(
+            admin,
+            "EmploymentStatusPeriod",
+            $"{employment.EmployeeNo}:{input.EffectiveFrom:yyyy-MM-dd}",
+            id.HasValue ? "Update" : "Create",
+            new { input.Status, input.EffectiveFrom, input.EffectiveTo });
 
-    private async Task<Employment> Employment(CurrentUserDto a,string n,CancellationToken ct)=>await db.Employments.SingleOrDefaultAsync(x=>x.OrganizationId==Org(a)&&x.EmployeeNo==n.Trim(),ct)??throw new InvalidOperationException("UNKNOWN_EMPLOYEE_NO");
-    private async Task<Team> Team(CurrentUserDto a,string n,CancellationToken ct)=>await db.Teams.SingleOrDefaultAsync(x=>x.OrganizationId==Org(a)&&x.TeamCode==n.Trim(),ct)??throw new InvalidOperationException("UNKNOWN_TEAM_CODE");
-    private async Task<Center> Center(CurrentUserDto a,string n,CancellationToken ct)=>await db.Centers.SingleOrDefaultAsync(x=>x.OrganizationId==Org(a)&&x.CenterCode==n.Trim(),ct)??throw new InvalidOperationException("UNKNOWN_CENTER_CODE");
-    private async Task<DeploymentSite> Site(CurrentUserDto a,string n,CancellationToken ct)=>await (from s in db.DeploymentSites join c in db.Centers on s.CenterId equals c.CenterId where c.OrganizationId==Org(a)&&s.SiteCode==n.Trim() select s).SingleOrDefaultAsync(ct)??throw new InvalidOperationException("UNKNOWN_SITE_CODE");
-    private async Task SaveAudit(CurrentUserDto a,string type,string id,string action,CancellationToken ct)=>await db.AuditLogs.AddAsync(new AuditLog{UserId=a.UserId,EntityType=type,EntityId=id,Action=action,CreatedAt=DateTime.UtcNow},ct);
-    private static int Org(CurrentUserDto a)=>a.OrganizationId??throw new InvalidOperationException("目前管理者缺少 OrganizationId。"); private static string? B64(byte[] b)=>b.Length==0?null:Convert.ToBase64String(b); private static bool Covers(DateOnly f,DateOnly? t,DateOnly a,DateOnly? b)=>f<=a&&(!t.HasValue||(!b.HasValue?false:t>=b));
+        await db.SaveChangesAsync(ct);
+        return Row(
+            row.EmploymentStatusPeriodId,
+            employment.EmployeeNo ?? "",
+            row.EmploymentStatus,
+            row.EmploymentStatus,
+            row.EffectiveFrom,
+            row.EffectiveTo,
+            null,
+            null,
+            row.RowVersion);
+    }
+
+    public async Task<V180MasterDataRow> SaveCenterAsync(
+        CurrentUserDto admin,
+        int? id,
+        V180CenterInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        var org = Org(admin);
+        var code = Required(input.CenterCode, "CENTER_CODE_REQUIRED");
+        var name = Required(input.CenterName, "CENTER_NAME_REQUIRED");
+
+        Center row;
+        if (id.HasValue)
+        {
+            row = await db.Centers.SingleOrDefaultAsync(
+                x => x.CenterId == id.Value && x.OrganizationId == org,
+                ct) ?? throw new InvalidOperationException("UNKNOWN_CENTER_CODE");
+            V180MasterDataValidationService.RowVersion(input.RowVersion, row.RowVersion);
+
+            var breaksTeamCenter = await db.TeamCenterAssignments.AnyAsync(x =>
+                x.CenterId == row.CenterId
+                && (x.EffectiveFrom < input.EffectiveFrom
+                    || (input.EffectiveTo.HasValue
+                        && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value > input.EffectiveTo.Value))),
+                ct);
+            var breaksSites = await db.DeploymentSites.AnyAsync(x =>
+                x.CenterId == row.CenterId
+                && (x.EffectiveFrom < input.EffectiveFrom
+                    || (input.EffectiveTo.HasValue
+                        && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value > input.EffectiveTo.Value))),
+                ct);
+            if (breaksTeamCenter || breaksSites)
+                throw new InvalidOperationException("CENTER_PERIOD_HAS_DEPENDENCIES");
+        }
+        else
+        {
+            row = new Center { OrganizationId = org };
+            db.Centers.Add(row);
+        }
+
+        if (await db.Centers.AnyAsync(x =>
+                x.OrganizationId == org
+                && x.CenterCode == code
+                && (!id.HasValue || x.CenterId != id.Value),
+                ct))
+            throw new InvalidOperationException("DUPLICATE_CENTER_CODE");
+
+        row.CenterCode = code;
+        row.CenterName = name;
+        row.EffectiveFrom = input.EffectiveFrom;
+        row.EffectiveTo = input.EffectiveTo;
+        row.IsActive = input.IsActive;
+
+        AddAudit(
+            admin,
+            "Center",
+            code,
+            id.HasValue ? "Update" : "Create",
+            new { code, name, input.EffectiveFrom, input.EffectiveTo, input.IsActive });
+
+        await db.SaveChangesAsync(ct);
+        return Row(
+            row.CenterId,
+            row.CenterCode,
+            null,
+            row.CenterName,
+            row.EffectiveFrom,
+            row.EffectiveTo,
+            row.IsActive,
+            null,
+            row.RowVersion);
+    }
+
+    public async Task<V180MasterDataRow> SaveTeamCenterAsync(
+        CurrentUserDto admin,
+        long? id,
+        V180TeamCenterInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        var team = await Team(admin, input.TeamCode, ct);
+        var center = await Center(admin, input.CenterCode, ct);
+
+        if ((team.EffectiveFrom.HasValue && input.EffectiveFrom < team.EffectiveFrom.Value)
+            || (team.EffectiveTo.HasValue
+                && (!input.EffectiveTo.HasValue || input.EffectiveTo.Value > team.EffectiveTo.Value))
+            || input.EffectiveFrom < center.EffectiveFrom
+            || (center.EffectiveTo.HasValue
+                && (!input.EffectiveTo.HasValue || input.EffectiveTo.Value > center.EffectiveTo.Value)))
+            throw new InvalidOperationException("TEAM_CENTER_ORGANIZATION_MISMATCH");
+
+        var query = db.TeamCenterAssignments.Where(x => x.TeamId == team.TeamId);
+        if (await query.AnyAsync(x =>
+                (!id.HasValue || x.TeamCenterAssignmentId != id.Value)
+                && x.EffectiveFrom <= (input.EffectiveTo ?? DateOnly.MaxValue)
+                && (!x.EffectiveTo.HasValue || input.EffectiveFrom <= x.EffectiveTo.Value),
+                ct))
+            throw new InvalidOperationException("OVERLAPPING_TEAM_CENTER");
+
+        TeamCenterAssignment row;
+        if (id.HasValue)
+        {
+            row = await query.SingleOrDefaultAsync(
+                x => x.TeamCenterAssignmentId == id.Value,
+                ct) ?? throw new InvalidOperationException("UNKNOWN_TEAM_CENTER_ASSIGNMENT");
+            V180MasterDataValidationService.RowVersion(input.RowVersion, row.RowVersion);
+        }
+        else
+        {
+            row = new TeamCenterAssignment
+            {
+                TeamId = team.TeamId,
+                CreatedAt = DateTime.UtcNow,
+                CreatedByUserId = admin.UserId
+            };
+            db.TeamCenterAssignments.Add(row);
+        }
+
+        var dependentSites = await (
+            from assignment in db.TeamDeploymentSiteAssignments
+            join site in db.DeploymentSites on assignment.DeploymentSiteId equals site.DeploymentSiteId
+            where assignment.TeamId == team.TeamId
+            select new
+            {
+                site.CenterId,
+                assignment.EffectiveFrom,
+                assignment.EffectiveTo
+            }).ToListAsync(ct);
+
+        var otherCoverage = await query
+            .Where(x => !id.HasValue || x.TeamCenterAssignmentId != id.Value)
+            .Select(x => new
+            {
+                x.CenterId,
+                x.EffectiveFrom,
+                x.EffectiveTo
+            })
+            .ToListAsync(ct);
+
+        foreach (var dependent in dependentSites)
+        {
+            var coveredByProposed = dependent.CenterId == center.CenterId
+                && V180MasterDataValidationService.Covers(
+                    input.EffectiveFrom,
+                    input.EffectiveTo,
+                    dependent.EffectiveFrom,
+                    dependent.EffectiveTo);
+            var coveredByOther = otherCoverage.Any(x =>
+                x.CenterId == dependent.CenterId
+                && V180MasterDataValidationService.Covers(
+                    x.EffectiveFrom,
+                    x.EffectiveTo,
+                    dependent.EffectiveFrom,
+                    dependent.EffectiveTo));
+            if (!coveredByProposed && !coveredByOther)
+                throw new InvalidOperationException("TEAM_CENTER_CHANGE_BREAKS_TEAM_SITE");
+        }
+
+        row.CenterId = center.CenterId;
+        row.EffectiveFrom = input.EffectiveFrom;
+        row.EffectiveTo = input.EffectiveTo;
+
+        AddAudit(
+            admin,
+            "TeamCenterAssignment",
+            $"{team.TeamCode}:{center.CenterCode}:{input.EffectiveFrom:yyyy-MM-dd}",
+            id.HasValue ? "Update" : "Create",
+            new { team.TeamCode, center.CenterCode, input.EffectiveFrom, input.EffectiveTo });
+
+        await db.SaveChangesAsync(ct);
+        return Row(
+            row.TeamCenterAssignmentId,
+            team.TeamCode,
+            center.CenterCode,
+            row.ChangeReason,
+            row.EffectiveFrom,
+            row.EffectiveTo,
+            null,
+            null,
+            row.RowVersion);
+    }
+
+    public async Task<V180MasterDataRow> SaveDeploymentSiteAsync(
+        CurrentUserDto admin,
+        int? id,
+        V180DeploymentSiteInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        var org = Org(admin);
+        var center = await Center(admin, input.CenterCode, ct);
+        if (!V180MasterDataValidationService.Covers(
+                center.EffectiveFrom,
+                center.EffectiveTo,
+                input.EffectiveFrom,
+                input.EffectiveTo))
+            throw new InvalidOperationException("SITE_OUTSIDE_CENTER_PERIOD");
+
+        var location = await Location(admin, input.LocationCode, ct);
+        if (location.ApprovalStatus != "Approved")
+            throw new InvalidOperationException("LOCATION_NOT_APPROVED");
+        if (!location.IsActive)
+            throw new InvalidOperationException("LOCATION_NOT_ACTIVE");
+
+        var siteCode = Required(input.SiteCode, "SITE_CODE_REQUIRED");
+        var siteName = Required(input.SiteName, "SITE_NAME_REQUIRED");
+
+        if (await (
+                from s in db.DeploymentSites
+                join c in db.Centers on s.CenterId equals c.CenterId
+                where c.OrganizationId == org
+                    && s.SiteCode == siteCode
+                    && (!id.HasValue || s.DeploymentSiteId != id.Value)
+                select s).AnyAsync(ct))
+            throw new InvalidOperationException("DUPLICATE_SITE_CODE");
+
+        DeploymentSite row;
+        DeploymentSiteLocationAssignment? existingLink = null;
+        if (id.HasValue)
+        {
+            row = await (
+                from s in db.DeploymentSites
+                join c in db.Centers on s.CenterId equals c.CenterId
+                where s.DeploymentSiteId == id.Value && c.OrganizationId == org
+                select s).SingleOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException("UNKNOWN_SITE_CODE");
+            V180MasterDataValidationService.RowVersion(input.RowVersion, row.RowVersion);
+
+            if (row.CenterId != center.CenterId
+                && await db.TeamDeploymentSiteAssignments.AnyAsync(
+                    x => x.DeploymentSiteId == row.DeploymentSiteId,
+                    ct))
+                throw new InvalidOperationException("DEPLOYMENT_SITE_CENTER_CHANGE_HAS_DEPENDENCIES");
+            if (row.CenterId != center.CenterId
+                && await db.EmploymentDeploymentSiteAssignments.AnyAsync(
+                    x => x.DeploymentSiteId == row.DeploymentSiteId,
+                    ct))
+                throw new InvalidOperationException("DEPLOYMENT_SITE_CENTER_CHANGE_HAS_DEPENDENCIES");
+
+            var breaksTeamSite = await db.TeamDeploymentSiteAssignments.AnyAsync(x =>
+                x.DeploymentSiteId == row.DeploymentSiteId
+                && (x.EffectiveFrom < input.EffectiveFrom
+                    || (input.EffectiveTo.HasValue
+                        && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value > input.EffectiveTo.Value))),
+                ct);
+            var breaksEmploymentSite = await db.EmploymentDeploymentSiteAssignments.AnyAsync(x =>
+                x.DeploymentSiteId == row.DeploymentSiteId
+                && (x.EffectiveFrom < input.EffectiveFrom
+                    || (input.EffectiveTo.HasValue
+                        && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value > input.EffectiveTo.Value))),
+                ct);
+            if (breaksTeamSite || breaksEmploymentSite)
+                throw new InvalidOperationException("DEPLOYMENT_SITE_PERIOD_HAS_DEPENDENCIES");
+
+            var links = await db.DeploymentSiteLocationAssignments
+                .Where(x => x.DeploymentSiteId == row.DeploymentSiteId)
+                .OrderBy(x => x.EffectiveFrom)
+                .ToListAsync(ct);
+            if (links.Count != 1)
+                throw new InvalidOperationException("DEPLOYMENT_SITE_LOCATION_HISTORY_REQUIRES_RELOCATION_FLOW");
+            existingLink = links[0];
+            if (existingLink.LocationId != location.LocationId)
+                throw new InvalidOperationException("DEPLOYMENT_SITE_LOCATION_CHANGE_REQUIRES_RELOCATION_FLOW");
+        }
+        else
+        {
+            row = new DeploymentSite
+            {
+                CenterId = center.CenterId,
+                CreatedAt = DateTime.UtcNow,
+                CreatedByUserId = admin.UserId
+            };
+            db.DeploymentSites.Add(row);
+        }
+
+        row.CenterId = center.CenterId;
+        row.SiteCode = siteCode;
+        row.SiteName = siteName;
+        row.EffectiveFrom = input.EffectiveFrom;
+        row.EffectiveTo = input.EffectiveTo;
+        row.IsActive = input.IsActive;
+        row.UpdatedAt = id.HasValue ? DateTime.UtcNow : null;
+        row.UpdatedByUserId = id.HasValue ? admin.UserId : null;
+        if (!input.IsActive && id.HasValue)
+        {
+            row.InactivatedAt ??= DateTime.UtcNow;
+            row.InactivatedByUserId ??= admin.UserId;
+        }
+
+        if (existingLink is not null)
+        {
+            existingLink.EffectiveFrom = input.EffectiveFrom;
+            existingLink.EffectiveTo = input.EffectiveTo;
+        }
+        else
+        {
+            db.DeploymentSiteLocationAssignments.Add(
+                new DeploymentSiteLocationAssignment
+                {
+                    DeploymentSite = row,
+                    LocationId = location.LocationId,
+                    EffectiveFrom = input.EffectiveFrom,
+                    EffectiveTo = input.EffectiveTo,
+                    ChangeReason = "UAT Business Admin initial assignment",
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedByUserId = admin.UserId
+                });
+        }
+
+        AddAudit(
+            admin,
+            "DeploymentSite",
+            siteCode,
+            id.HasValue ? "Update" : "Create",
+            new
+            {
+                center.CenterCode,
+                siteCode,
+                siteName,
+                location.LocationCode,
+                input.EffectiveFrom,
+                input.EffectiveTo,
+                input.IsActive
+            });
+
+        await db.SaveChangesAsync(ct);
+        return Row(
+            row.DeploymentSiteId,
+            row.SiteCode,
+            center.CenterCode,
+            row.SiteName,
+            row.EffectiveFrom,
+            row.EffectiveTo,
+            row.IsActive,
+            null,
+            row.RowVersion);
+    }
+
+    public async Task<V180MasterDataRow> SaveTeamSiteAsync(
+        CurrentUserDto admin,
+        long? id,
+        V180TeamSiteInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        var team = await Team(admin, input.TeamCode, ct);
+        var site = await Site(admin, input.SiteCode, ct);
+
+        if (!site.IsActive
+            || !V180MasterDataValidationService.Covers(
+                site.EffectiveFrom,
+                site.EffectiveTo,
+                input.EffectiveFrom,
+                input.EffectiveTo))
+            throw new InvalidOperationException("TEAM_SITE_OUTSIDE_SITE_PERIOD");
+
+        var centerCovered = await db.TeamCenterAssignments.AnyAsync(x =>
+            x.TeamId == team.TeamId
+            && x.CenterId == site.CenterId
+            && x.EffectiveFrom <= input.EffectiveFrom
+            && (!input.EffectiveTo.HasValue
+                ? !x.EffectiveTo.HasValue
+                : !x.EffectiveTo.HasValue || x.EffectiveTo.Value >= input.EffectiveTo.Value),
+            ct);
+        if (!centerCovered)
+            throw new InvalidOperationException("TEAM_SITE_WITHOUT_TEAM_CENTER_COVERAGE");
+
+        var query = db.TeamDeploymentSiteAssignments
+            .Where(x => x.TeamId == team.TeamId);
+        if (await query.AnyAsync(x =>
+                x.DeploymentSiteId == site.DeploymentSiteId
+                && (!id.HasValue || x.TeamDeploymentSiteAssignmentId != id.Value)
+                && x.EffectiveFrom <= (input.EffectiveTo ?? DateOnly.MaxValue)
+                && (!x.EffectiveTo.HasValue || input.EffectiveFrom <= x.EffectiveTo.Value),
+                ct))
+            throw new InvalidOperationException("OVERLAPPING_TEAM_SITE");
+
+        TeamDeploymentSiteAssignment row;
+        if (id.HasValue)
+        {
+            row = await query.SingleOrDefaultAsync(
+                x => x.TeamDeploymentSiteAssignmentId == id.Value,
+                ct) ?? throw new InvalidOperationException("UNKNOWN_TEAM_SITE_ASSIGNMENT");
+            V180MasterDataValidationService.RowVersion(input.RowVersion, row.RowVersion);
+
+            var changedMaterially = row.DeploymentSiteId != site.DeploymentSiteId
+                || row.EffectiveFrom != input.EffectiveFrom
+                || row.EffectiveTo != input.EffectiveTo;
+            if (changedMaterially)
+            {
+                var oldSiteId = row.DeploymentSiteId;
+                var hasDependentEmployment = await (
+                    from es in db.EmploymentDeploymentSiteAssignments
+                    join m in db.TeamMemberships on es.EmploymentId equals m.EmploymentId
+                    where es.DeploymentSiteId == oldSiteId
+                        && m.TeamId == team.TeamId
+                        && m.EffectiveFrom <= (es.EffectiveTo ?? DateOnly.MaxValue)
+                        && (!m.EffectiveTo.HasValue || es.EffectiveFrom <= m.EffectiveTo.Value)
+                    select es).AnyAsync(ct);
+                if (hasDependentEmployment)
+                    throw new InvalidOperationException("TEAM_SITE_CHANGE_HAS_DEPENDENCIES");
+            }
+        }
+        else
+        {
+            row = new TeamDeploymentSiteAssignment
+            {
+                TeamId = team.TeamId,
+                CreatedAt = DateTime.UtcNow,
+                CreatedByUserId = admin.UserId
+            };
+            db.TeamDeploymentSiteAssignments.Add(row);
+        }
+
+        row.DeploymentSiteId = site.DeploymentSiteId;
+        row.EffectiveFrom = input.EffectiveFrom;
+        row.EffectiveTo = input.EffectiveTo;
+
+        AddAudit(
+            admin,
+            "TeamDeploymentSiteAssignment",
+            $"{team.TeamCode}:{site.SiteCode}:{input.EffectiveFrom:yyyy-MM-dd}",
+            id.HasValue ? "Update" : "Create",
+            new { team.TeamCode, site.SiteCode, input.EffectiveFrom, input.EffectiveTo });
+
+        await db.SaveChangesAsync(ct);
+        return Row(
+            row.TeamDeploymentSiteAssignmentId,
+            team.TeamCode,
+            site.SiteCode,
+            null,
+            row.EffectiveFrom,
+            row.EffectiveTo,
+            null,
+            null,
+            row.RowVersion);
+    }
+
+    public async Task<V180MasterDataRow> SaveEmploymentSiteAsync(
+        CurrentUserDto admin,
+        long? id,
+        V180EmploymentSiteInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        var employment = await Employment(admin, input.EmployeeNo, ct);
+        var site = await Site(admin, input.SiteCode, ct);
+
+        if (!site.IsActive
+            || !V180MasterDataValidationService.Covers(
+                site.EffectiveFrom,
+                site.EffectiveTo,
+                input.EffectiveFrom,
+                input.EffectiveTo))
+            throw new InvalidOperationException("EMPLOYMENT_SITE_OUTSIDE_SITE_PERIOD");
+
+        var hasLocationCoverage = await db.DeploymentSiteLocationAssignments.AnyAsync(x =>
+            x.DeploymentSiteId == site.DeploymentSiteId
+            && x.EffectiveFrom <= input.EffectiveFrom
+            && (!input.EffectiveTo.HasValue
+                ? !x.EffectiveTo.HasValue
+                : !x.EffectiveTo.HasValue || x.EffectiveTo.Value >= input.EffectiveTo.Value)
+            && db.Locations.Any(l => l.LocationId == x.LocationId
+                && l.OrganizationId == Org(admin)
+                && l.IsActive
+                && l.ApprovalStatus == "Approved"),
+            ct);
+        if (!hasLocationCoverage)
+            throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_EFFECTIVE_LOCATION");
+
+        var hasActiveEmployment = await db.EmploymentStatusPeriods.AnyAsync(x =>
+            x.EmploymentId == employment.EmploymentId
+            && x.EmploymentStatus == EmploymentStatuses.Active
+            && x.EffectiveFrom <= input.EffectiveFrom
+            && (!input.EffectiveTo.HasValue
+                ? !x.EffectiveTo.HasValue
+                : !x.EffectiveTo.HasValue || x.EffectiveTo.Value >= input.EffectiveTo.Value),
+            ct);
+        if (!hasActiveEmployment)
+            throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_ACTIVE_EMPLOYMENT");
+
+        var membershipTeamIds = await db.TeamMemberships
+            .Where(x => x.EmploymentId == employment.EmploymentId
+                && x.EffectiveFrom <= input.EffectiveFrom
+                && (!input.EffectiveTo.HasValue
+                    ? !x.EffectiveTo.HasValue
+                    : !x.EffectiveTo.HasValue || x.EffectiveTo.Value >= input.EffectiveTo.Value))
+            .Select(x => x.TeamId)
+            .Distinct()
+            .ToListAsync(ct);
+        if (membershipTeamIds.Count == 0)
+            throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_TEAM_MEMBERSHIP");
+
+        var hasTeamSiteCoverage = await db.TeamDeploymentSiteAssignments.AnyAsync(x =>
+            membershipTeamIds.Contains(x.TeamId)
+            && x.DeploymentSiteId == site.DeploymentSiteId
+            && x.EffectiveFrom <= input.EffectiveFrom
+            && (!input.EffectiveTo.HasValue
+                ? !x.EffectiveTo.HasValue
+                : !x.EffectiveTo.HasValue || x.EffectiveTo.Value >= input.EffectiveTo.Value),
+            ct);
+        if (!hasTeamSiteCoverage)
+            throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_TEAM_SITE_COVERAGE");
+
+        var query = db.EmploymentDeploymentSiteAssignments
+            .Where(x => x.EmploymentId == employment.EmploymentId);
+
+        if (await query.AnyAsync(x =>
+                x.DeploymentSiteId == site.DeploymentSiteId
+                && (!id.HasValue || x.EmploymentDeploymentSiteAssignmentId != id.Value)
+                && x.EffectiveFrom <= (input.EffectiveTo ?? DateOnly.MaxValue)
+                && (!x.EffectiveTo.HasValue || input.EffectiveFrom <= x.EffectiveTo.Value),
+                ct))
+            throw new InvalidOperationException("OVERLAPPING_EMPLOYMENT_SITE");
+
+        if (input.IsPrimary && await query.AnyAsync(x =>
+                x.IsPrimary
+                && (!id.HasValue || x.EmploymentDeploymentSiteAssignmentId != id.Value)
+                && x.EffectiveFrom <= (input.EffectiveTo ?? DateOnly.MaxValue)
+                && (!x.EffectiveTo.HasValue || input.EffectiveFrom <= x.EffectiveTo.Value),
+                ct))
+            throw new InvalidOperationException("MULTIPLE_PRIMARY_EMPLOYMENT_SITE");
+
+        EmploymentDeploymentSiteAssignment row;
+        if (id.HasValue)
+        {
+            row = await query.SingleOrDefaultAsync(
+                x => x.EmploymentDeploymentSiteAssignmentId == id.Value,
+                ct) ?? throw new InvalidOperationException("UNKNOWN_EMPLOYMENT_SITE_ASSIGNMENT");
+            V180MasterDataValidationService.RowVersion(input.RowVersion, row.RowVersion);
+        }
+        else
+        {
+            row = new EmploymentDeploymentSiteAssignment
+            {
+                EmploymentId = employment.EmploymentId,
+                CreatedAt = DateTime.UtcNow,
+                CreatedByUserId = admin.UserId
+            };
+            db.EmploymentDeploymentSiteAssignments.Add(row);
+        }
+
+        row.DeploymentSiteId = site.DeploymentSiteId;
+        row.IsPrimary = input.IsPrimary;
+        row.EffectiveFrom = input.EffectiveFrom;
+        row.EffectiveTo = input.EffectiveTo;
+
+        AddAudit(
+            admin,
+            "EmploymentDeploymentSiteAssignment",
+            $"{employment.EmployeeNo}:{site.SiteCode}:{input.EffectiveFrom:yyyy-MM-dd}",
+            id.HasValue ? "Update" : "Create",
+            new
+            {
+                employment.EmployeeNo,
+                site.SiteCode,
+                input.IsPrimary,
+                input.EffectiveFrom,
+                input.EffectiveTo
+            });
+
+        await db.SaveChangesAsync(ct);
+        return Row(
+            row.EmploymentDeploymentSiteAssignmentId,
+            employment.EmployeeNo ?? "",
+            site.SiteCode,
+            null,
+            row.EffectiveFrom,
+            row.EffectiveTo,
+            null,
+            row.IsPrimary,
+            row.RowVersion);
+    }
+
+    private async Task<Employment> Employment(
+        CurrentUserDto admin,
+        string employeeNo,
+        CancellationToken ct)
+    {
+        var key = Required(employeeNo, "EMPLOYEE_NO_REQUIRED");
+        return await db.Employments.SingleOrDefaultAsync(
+            x => x.OrganizationId == Org(admin) && x.EmployeeNo == key,
+            ct) ?? throw new InvalidOperationException("UNKNOWN_EMPLOYEE_NO");
+    }
+
+    private async Task<Team> Team(
+        CurrentUserDto admin,
+        string teamCode,
+        CancellationToken ct)
+    {
+        var key = Required(teamCode, "TEAM_CODE_REQUIRED");
+        return await db.Teams.SingleOrDefaultAsync(
+            x => x.OrganizationId == Org(admin) && x.TeamCode == key,
+            ct) ?? throw new InvalidOperationException("UNKNOWN_TEAM_CODE");
+    }
+
+    private async Task<Center> Center(
+        CurrentUserDto admin,
+        string centerCode,
+        CancellationToken ct)
+    {
+        var key = Required(centerCode, "CENTER_CODE_REQUIRED");
+        return await db.Centers.SingleOrDefaultAsync(
+            x => x.OrganizationId == Org(admin) && x.CenterCode == key,
+            ct) ?? throw new InvalidOperationException("UNKNOWN_CENTER_CODE");
+    }
+
+    private async Task<DeploymentSite> Site(
+        CurrentUserDto admin,
+        string siteCode,
+        CancellationToken ct)
+    {
+        var key = Required(siteCode, "SITE_CODE_REQUIRED");
+        var rows = await (
+            from site in db.DeploymentSites
+            join center in db.Centers on site.CenterId equals center.CenterId
+            where center.OrganizationId == Org(admin) && site.SiteCode == key
+            select site).ToListAsync(ct);
+        return rows.Count switch
+        {
+            0 => throw new InvalidOperationException("UNKNOWN_SITE_CODE"),
+            1 => rows[0],
+            _ => throw new InvalidOperationException("AMBIGUOUS_SITE_CODE")
+        };
+    }
+
+    private async Task<Location> Location(
+        CurrentUserDto admin,
+        string locationCode,
+        CancellationToken ct)
+    {
+        var key = Required(locationCode, "LOCATION_CODE_REQUIRED");
+        return await db.Locations.SingleOrDefaultAsync(
+            x => x.OrganizationId == Org(admin) && x.LocationCode == key,
+            ct) ?? throw new InvalidOperationException("UNKNOWN_LOCATION_CODE");
+    }
+
+    private void AddAudit(
+        CurrentUserDto admin,
+        string entityType,
+        string entityId,
+        string action,
+        object newValues)
+    {
+        db.AuditLogs.Add(new AuditLog
+        {
+            UserId = admin.UserId,
+            EntityType = entityType,
+            EntityId = entityId,
+            Action = action,
+            NewValues = JsonSerializer.Serialize(newValues),
+            CreatedAt = DateTime.UtcNow
+        });
+    }
+
+    private static int Org(CurrentUserDto admin) =>
+        admin.OrganizationId
+        ?? throw new InvalidOperationException("目前管理者缺少 OrganizationId。");
+
+    private static string Required(string value, string code)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException(code);
+        return value.Trim();
+    }
+
+    private static string? B64(byte[] value) =>
+        value.Length == 0 ? null : Convert.ToBase64String(value);
+
+    private static V180MasterDataRow Row(
+        long id,
+        string key,
+        string? parentKey,
+        string? detail,
+        DateOnly effectiveFrom,
+        DateOnly? effectiveTo,
+        bool? isActive,
+        bool? isPrimary,
+        byte[] rowVersion) =>
+        new(
+            id,
+            key,
+            parentKey,
+            detail,
+            effectiveFrom,
+            effectiveTo,
+            isActive,
+            isPrimary,
+            B64(rowVersion));
 }
