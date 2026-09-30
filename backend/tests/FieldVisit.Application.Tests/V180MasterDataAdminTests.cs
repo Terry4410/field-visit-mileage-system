@@ -314,6 +314,7 @@ public sealed class V180MasterDataAdminTests
         await using var db = Db();
         SeedVisitorIdentity(db);
         SeedSite(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         var site = db.DeploymentSites.Single(x => x.DeploymentSiteId == 40);
         site.RowVersion = [1];
         var link = db.DeploymentSiteLocationAssignments.Single(x => x.DeploymentSiteId == 40);
@@ -345,6 +346,7 @@ public sealed class V180MasterDataAdminTests
         await using var db = Db();
         SeedVisitorIdentity(db);
         SeedSite(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.DeploymentSites.Single(x => x.DeploymentSiteId == 40).RowVersion = [1];
         db.Locations.Add(new Location
         {
@@ -429,6 +431,7 @@ public sealed class V180MasterDataAdminTests
             IsActive = true
         });
         SeedSite(db, 41, "S41", 31, "L31");
+        await db.SaveChangesAsync();
         db.DeploymentSites.Single(x => x.DeploymentSiteId == 41).CenterId = 21;
         db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
         {
