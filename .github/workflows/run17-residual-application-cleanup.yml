@@ -1,19 +1,21 @@
 name: Run17 residual application cleanup
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirm_cleanup:
-        description: "Type CLEAN_RUN17_RESIDUAL to confirm exact Run17 UAT cleanup"
-        required: true
-        type: string
+  push:
+    branches:
+      - post-uat/v1.8.0
+    paths:
+      - ".github/workflows/run17-residual-application-cleanup.yml"
 
 permissions:
   contents: read
 
+concurrency:
+  group: run17-residual-application-cleanup
+  cancel-in-progress: false
+
 jobs:
   cleanup:
-    if: ${{ inputs.confirm_cleanup == 'CLEAN_RUN17_RESIDUAL' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -26,32 +28,45 @@ jobs:
         with:
           fetch-depth: 50
 
-      - name: Guard authoritative application baseline
+      - name: Enforce one-shot authoritative cleanup boundary
         shell: bash
         run: |
           set -euo pipefail
-          BASE=894435039ff7b04ef0007b73c6d60d592d3cada9
 
-          git fetch origin post-uat/v1.8.0 --depth=50
-          CURRENT="$(git rev-parse FETCH_HEAD)"
-          echo "CURRENT_AUTHORITATIVE_SHA=$CURRENT"
-          echo "APPROVED_APPLICATION_BASE=$BASE"
+          EXPECTED_PARENT=e3d3823a9e1cfaa683a33fd8633be3765478294a
+          APPROVED_APPLICATION_BASE=894435039ff7b04ef0007b73c6d60d592d3cada9
+          EXPECTED_FILE=.github/workflows/run17-residual-application-cleanup.yml
 
-          git merge-base --is-ancestor "$BASE" "$CURRENT"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
 
-          git diff --quiet "$BASE" "$CURRENT" -- \
+          changed="$(git diff --name-only "$EXPECTED_PARENT" HEAD)"
+          printf 'CHANGED_FILE=%s\n' "$changed"
+          test "$changed" = "$EXPECTED_FILE"
+
+          git merge-base --is-ancestor "$APPROVED_APPLICATION_BASE" HEAD
+
+          git diff --quiet "$APPROVED_APPLICATION_BASE" HEAD -- \
             backend \
             frontend \
             database/migrations \
             uat
 
-          changed="$(git diff --name-only "$BASE" "$CURRENT" | sort)"
-          echo "CHANGED_SINCE_APPROVED_BASE:"
-          printf '%s\n' "$changed"
+          echo "ONE_SHOT_SCOPE_GATE=PASS"
+          echo "DEPLOYED_APPLICATION_BASE=$APPROVED_APPLICATION_BASE"
+          echo "CLEANUP_TRIGGER_HEAD=$(git rev-parse HEAD)"
 
-          allowed=".github/workflows/run17-residual-application-cleanup.yml"
-          unexpected="$(printf '%s\n' "$changed" | grep -v -x "$allowed" || true)"
-          test -z "$unexpected"
+      - name: Verify deployed UAT readiness before cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          health="$(curl --silent --show-error --fail --max-time 20 "$API/health")"
+          ready="$(curl --silent --show-error --fail --max-time 20 "$API/health/ready")"
+
+          printf '%s\n' "$health"
+          printf '%s\n' "$ready"
+
+          printf '%s' "$ready" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ready",d; print("UAT_READY=PASS")'
 
       - name: Cleanup exact Run17 UAT-AUTO residual trips and jobs
         shell: bash
@@ -79,7 +94,7 @@ jobs:
             local purpose="$2"
             local job="${3:-}"
 
-            payload="$(python3 -c 'import json,sys; d={"visitTripId":int(sys.argv[1]),"expectedPurpose":sys.argv[2]}; job=sys.argv[3] if len(sys.argv)>3 else ""; d.update({"backgroundJobId":job}) if job else None; print(json.dumps(d))' "$id" "$purpose" "$job")"
+            payload="$(python3 -c 'import json,sys; d={"visitTripId":int(sys.argv[1]),"expectedPurpose":sys.argv[2]}; job=sys.argv[3]; d.update({"backgroundJobId":job}) if job else None; print(json.dumps(d))' "$id" "$purpose" "$job")"
 
             response="$(curl --silent --show-error --fail \
               -H "Authorization: Bearer $admin_token" \
@@ -122,3 +137,11 @@ jobs:
           cleanup_trip 103 'UAT-AUTO-1790233914687-v2vv63' 'cdc13e64-ff21-4af4-a53a-0a8b37745914'
 
           echo "RUN17_EXACT_TRIP_JOB_CLEANUP=PASS"
+
+      - name: Verify UAT readiness after cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready="$(curl --silent --show-error --fail --max-time 20 "$API/health/ready")"
+          printf '%s\n' "$ready"
+          printf '%s' "$ready" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ready",d; print("POST_CLEANUP_UAT_READY=PASS")'
