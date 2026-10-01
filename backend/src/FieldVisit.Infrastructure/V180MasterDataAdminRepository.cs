@@ -388,6 +388,17 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         CancellationToken ct)
     {
         V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        return await ExecuteTeamSiteCoverageInvariantAsync(
+            () => SaveCenterCoreAsync(admin, id, input, ct), ct);
+    }
+
+    private async Task<V180MasterDataRow> SaveCenterCoreAsync(
+        CurrentUserDto admin,
+        int? id,
+        V180CenterInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
         var org = Org(admin);
         var code = Required(input.CenterCode, "CENTER_CODE_REQUIRED");
         var name = Required(input.CenterName, "CENTER_NAME_REQUIRED");
@@ -455,6 +466,17 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
     }
 
     public async Task<V180MasterDataRow> SaveTeamCenterAsync(
+        CurrentUserDto admin,
+        long? id,
+        V180TeamCenterInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        return await ExecuteTeamSiteCoverageInvariantAsync(
+            () => SaveTeamCenterCoreAsync(admin, id, input, ct), ct);
+    }
+
+    private async Task<V180MasterDataRow> SaveTeamCenterCoreAsync(
         CurrentUserDto admin,
         long? id,
         V180TeamCenterInput input,
@@ -564,6 +586,17 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
     }
 
     public async Task<V180MasterDataRow> SaveDeploymentSiteAsync(
+        CurrentUserDto admin,
+        int? id,
+        V180DeploymentSiteInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        return await ExecuteTeamSiteCoverageInvariantAsync(
+            () => SaveDeploymentSiteCoreAsync(admin, id, input, ct), ct);
+    }
+
+    private async Task<V180MasterDataRow> SaveDeploymentSiteCoreAsync(
         CurrentUserDto admin,
         int? id,
         V180DeploymentSiteInput input,
@@ -728,6 +761,17 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         CancellationToken ct)
     {
         V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
+        return await ExecuteTeamSiteCoverageInvariantAsync(
+            () => SaveTeamSiteCoreAsync(admin, id, input, ct), ct);
+    }
+
+    private async Task<V180MasterDataRow> SaveTeamSiteCoreAsync(
+        CurrentUserDto admin,
+        long? id,
+        V180TeamSiteInput input,
+        CancellationToken ct)
+    {
+        V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
         var team = await Team(admin, input.TeamCode, ct);
         var site = await Site(admin, input.SiteCode, ct);
 
@@ -830,7 +874,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
         var employment = await Employment(admin, input.EmployeeNo, ct);
 
-        return await ExecuteEmploymentStatusSiteInvariantAsync(
+        return await ExecuteEmploymentSiteInvariantsAsync(
             employment.EmploymentId,
             () => SaveEmploymentSiteCoreAsync(
                 admin,
@@ -997,6 +1041,67 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             await transaction.CommitAsync(ct);
         });
         return result!;
+    }
+
+    private async Task<T> ExecuteTeamSiteCoverageInvariantAsync<T>(
+        Func<Task<T>> operation,
+        CancellationToken ct)
+    {
+        if (!db.Database.IsRelational())
+            return await operation();
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        T? result = default;
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await AcquireTeamSiteCoverageInvariantLockAsync(ct);
+            result = await operation();
+            await transaction.CommitAsync(ct);
+        });
+        return result!;
+    }
+
+    private async Task<T> ExecuteEmploymentSiteInvariantsAsync<T>(
+        long employmentId,
+        Func<Task<T>> operation,
+        CancellationToken ct)
+    {
+        if (!db.Database.IsRelational())
+            return await operation();
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        T? result = default;
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await AcquireTeamSiteCoverageInvariantLockAsync(ct);
+            await AcquireEmploymentStatusSiteInvariantLockAsync(employmentId, ct);
+            result = await operation();
+            await transaction.CommitAsync(ct);
+        });
+        return result!;
+    }
+
+    private async Task AcquireTeamSiteCoverageInvariantLockAsync(CancellationToken ct)
+    {
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = """
+            DECLARE @result int;
+            EXEC @result = sys.sp_getapplock
+                @Resource = 'FieldVisit.TeamSiteCoverageInvariant',
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 10000;
+            SELECT @result;
+            """;
+        var lockResult = await command.ExecuteScalarAsync(ct);
+        if (lockResult is null || Convert.ToInt32(lockResult) < 0)
+            throw new InvalidOperationException(
+                "TEAM_SITE_COVERAGE_INVARIANT_LOCK_FAILED");
     }
 
     private async Task AcquireEmploymentStatusSiteInvariantLockAsync(

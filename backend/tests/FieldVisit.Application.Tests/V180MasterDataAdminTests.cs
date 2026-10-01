@@ -650,6 +650,75 @@ public sealed class V180MasterDataAdminTests
             Today, Today.AddDays(1), Today.AddDays(2), null));
     }
 
+    [Fact]
+    public async Task Team_site_update_rejects_breaking_existing_employment_site_coverage()
+    {
+        await using var db = Db();
+        SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        db.TeamDeploymentSiteAssignments.Single().RowVersion = [1];
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment { EmploymentDeploymentSiteAssignmentId = 70, EmploymentId = 100, DeploymentSiteId = 40, IsPrimary = true, EffectiveFrom = Today.AddDays(-10), CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveTeamSiteAsync(User("admin"), 2, new V180TeamSiteInput("T10", "S40", Today, null, Convert.ToBase64String([1])), default));
+        Assert.Contains("TEAM_SITE_CHANGE_HAS_DEPENDENCIES", ex.Message);
+        Assert.Equal(Today.AddDays(-30), db.TeamDeploymentSiteAssignments.Single().EffectiveFrom);
+    }
+
+    [Fact]
+    public async Task Deployment_site_period_update_rejects_breaking_existing_team_site_coverage()
+    {
+        await using var db = Db();
+        SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        db.DeploymentSites.Single().RowVersion = [1];
+        await db.SaveChangesAsync();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveDeploymentSiteAsync(User("admin"), 40, new V180DeploymentSiteInput("C20", "S40", "S40", "L30", Today, null, true, Convert.ToBase64String([1])), default));
+        Assert.Contains("DEPLOYMENT_SITE_PERIOD_HAS_DEPENDENCIES", ex.Message);
+    }
+
+    [Fact]
+    public async Task Deployment_site_period_update_rejects_breaking_existing_employment_site_coverage()
+    {
+        await using var db = Db();
+        SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        db.DeploymentSites.Single().RowVersion = [1];
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment { EmploymentDeploymentSiteAssignmentId = 70, EmploymentId = 100, DeploymentSiteId = 40, IsPrimary = true, EffectiveFrom = Today.AddDays(-10), CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveDeploymentSiteAsync(User("admin"), 40, new V180DeploymentSiteInput("C20", "S40", "S40", "L30", Today, null, true, Convert.ToBase64String([1])), default));
+        Assert.Contains("DEPLOYMENT_SITE_PERIOD_HAS_DEPENDENCIES", ex.Message);
+    }
+
+    [Fact]
+    public async Task Team_center_update_rejects_breaking_existing_team_site_coverage()
+    {
+        await using var db = Db();
+        SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        db.TeamCenterAssignments.Single().RowVersion = [1];
+        await db.SaveChangesAsync();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveTeamCenterAsync(User("admin"), 1, new V180TeamCenterInput("T10", "C20", Today, null, Convert.ToBase64String([1])), default));
+        Assert.Contains("TEAM_CENTER_CHANGE_BREAKS_TEAM_SITE", ex.Message);
+    }
+
+    [Fact]
+    public async Task Center_period_update_rejects_breaking_existing_child_coverage()
+    {
+        await using var db = Db();
+        SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        db.Centers.Single().RowVersion = [1];
+        await db.SaveChangesAsync();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveCenterAsync(User("admin"), 20, new V180CenterInput("C20", "Center 20", Today, null, true, Convert.ToBase64String([1])), default));
+        Assert.Contains("CENTER_PERIOD_HAS_DEPENDENCIES", ex.Message);
+    }
+
+    [Fact]
+    public async Task Employment_site_requires_team_site_coverage()
+    {
+        await using var db = Db();
+        SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        db.TeamDeploymentSiteAssignments.Remove(db.TeamDeploymentSiteAssignments.Single());
+        await db.SaveChangesAsync();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveEmploymentSiteAsync(User("admin"), null, new V180EmploymentSiteInput("E100", "S40", true, Today, null), default));
+        Assert.Contains("EMPLOYMENT_SITE_WITHOUT_TEAM_SITE_COVERAGE", ex.Message);
+    }
+
     private static AppDbContext Db()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
