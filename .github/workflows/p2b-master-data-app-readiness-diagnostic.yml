@@ -1,0 +1,149 @@
+name: P2B Master Data application readiness diagnostic
+
+on:
+  push:
+    branches:
+      - diag/p2b-master-data-app-readiness-2fe86208
+    paths:
+      - ".github/workflows/p2b-master-data-app-readiness-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      UAT_API_BASE_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
+
+    steps:
+      - name: Checkout exact diagnostic source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce read-only diagnostic source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPROVED=2fe86208da6d8c10767fd6309a6d467e5448d92a
+          EXPECTED=.github/workflows/p2b-master-data-app-readiness-diagnostic.yml
+
+          test "$(git rev-parse HEAD^)" = "$APPROVED"
+          changed="$(git diff --name-only "$APPROVED" HEAD)"
+          test "$changed" = "$EXPECTED"
+          git diff --quiet "$APPROVED" HEAD -- backend frontend database/migrations uat
+
+      - name: Read application master-data readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          base = os.environ["UAT_API_BASE_URL"].rstrip("/")
+          password = os.environ["UAT_DEMO_PASSWORD"]
+
+          def call(method, path, data=None, token=None, role=None):
+              body = None if data is None else json.dumps(data).encode("utf-8")
+              req = urllib.request.Request(base + path, data=body, method=method)
+              req.add_header("Accept", "application/json")
+              if body is not None:
+                  req.add_header("Content-Type", "application/json")
+              if token:
+                  req.add_header("Authorization", f"Bearer {token}")
+              if role:
+                  req.add_header("X-Active-Role", role)
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  raw = resp.read().decode("utf-8")
+                  return json.loads(raw) if raw else None
+
+          def login(account):
+              return call("POST", "/api/v1/auth/demo-login", {
+                  "account": account,
+                  "password": password
+              })
+
+          def public_user(login_result):
+              u = login_result["user"]
+              return {
+                  "userId": u.get("userId"),
+                  "employeeNo": u.get("employeeNo"),
+                  "organizationId": u.get("organizationId"),
+                  "teamId": u.get("teamId"),
+                  "teamName": u.get("teamName"),
+                  "roles": u.get("roles"),
+                  "teamScopes": u.get("teamScopes")
+              }
+
+          admin = login("pilota01")
+          visitor = login("pilotv01")
+          admin_token = admin["accessToken"]
+          visitor_token = visitor["accessToken"]
+
+          print("ADMIN_USER=" + json.dumps(public_user(admin), ensure_ascii=False, sort_keys=True))
+          print("VISITOR_USER=" + json.dumps(public_user(visitor), ensure_ascii=False, sort_keys=True))
+
+          readiness = call(
+              "GET",
+              "/api/v1/admin/master-data/readiness",
+              token=admin_token,
+              role="admin")
+          print("MASTER_DATA_READINESS=" + json.dumps(readiness, ensure_ascii=False, sort_keys=True))
+
+          for kind in [
+              "employment-status",
+              "centers",
+              "team-centers",
+              "deployment-sites",
+              "team-sites",
+              "employment-sites"
+          ]:
+              rows = call(
+                  "GET",
+                  f"/api/v1/admin/master-data/{kind}",
+                  token=admin_token,
+                  role="admin")
+              print("MASTER_DATA_" + kind.upper().replace("-", "_") + "="
+                    + json.dumps(rows, ensure_ascii=False, sort_keys=True))
+
+          teams = call("GET", "/api/v1/teams", token=admin_token, role="admin")
+          print("TEAMS=" + json.dumps(teams, ensure_ascii=False, sort_keys=True))
+
+          locations = call("GET", "/api/v1/locations", token=visitor_token, role="visitor")
+          usable = [
+              {
+                  "locationId": x.get("locationId"),
+                  "locationCode": x.get("locationCode"),
+                  "locationName": x.get("locationName"),
+                  "teamId": x.get("teamId"),
+                  "approvalStatus": x.get("approvalStatus"),
+                  "isActive": x.get("isActive"),
+                  "address": x.get("address")
+              }
+              for x in locations
+              if x.get("isActive") is True and x.get("approvalStatus") == "Approved"
+          ]
+          print("VISITOR_USABLE_LOCATIONS=" + json.dumps(usable, ensure_ascii=False, sort_keys=True))
+
+          vu = visitor["user"]
+          scopes = vu.get("teamScopes") or []
+          primary = next((x.get("teamId") for x in scopes if x.get("isPrimary")), None)
+          team_id = primary or (vu.get("teamId") if not scopes else None)
+          if team_id:
+              today = datetime.now(ZoneInfo("Asia/Taipei")).date().isoformat()
+              ctx = call(
+                  "GET",
+                  f"/api/v1/trips/context?visitDate={today}&teamId={team_id}",
+                  token=visitor_token,
+                  role="visitor")
+              print("VISITOR_TRIP_CONTEXT=" + json.dumps(ctx, ensure_ascii=False, sort_keys=True))
+          else:
+              print("VISITOR_TRIP_CONTEXT={\"diagnostic\":\"NO_TEAM_ID\"}")
+          PY
