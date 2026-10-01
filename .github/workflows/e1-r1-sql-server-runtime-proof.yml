@@ -1,0 +1,68 @@
+name: E1-R1 SQL Server runtime invariant proof
+
+on:
+  push:
+    branches:
+      - feature/v180-p2b-uat-master-data-self-service
+    paths:
+      - "backend/tests/FieldVisit.Application.Tests/V180SqlServerRuntimeInvariantProofTests.cs"
+      - ".github/workflows/e1-r1-sql-server-runtime-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/feature/v180-p2b-uat-master-data-self-service'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "FieldVisit_R1_2026!Sql"
+        ports:
+          - 1433:1433
+
+    env:
+      E1_R1_REQUIRED: "1"
+      E1_R1_SQL_CONNECTION: "Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_R1_2026!Sql;Encrypt=False;TrustServerCertificate=True;Connect Timeout=2"
+
+    steps:
+      - name: Checkout exact feature source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce E1-R1 source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=9799e931363c18e4fa1e49148b5bbe6ccd2787eb
+          git merge-base --is-ancestor "$BASE" HEAD
+          unexpected="$(git diff --name-only "$BASE" HEAD | grep -Ev '^(\.github/workflows/e1-r1-sql-server-runtime-proof\.yml|backend/tests/FieldVisit\.Application\.Tests/V180SqlServerRuntimeInvariantProofTests\.cs)$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "::error::Unexpected E1-R1 path(s):"
+            printf '%s\n' "$unexpected"
+            exit 1
+          fi
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore runtime proof
+        run: dotnet restore backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj
+
+      - name: Build runtime proof
+        run: dotnet build backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-restore
+
+      - name: Execute real SQL Server invariant proof
+        run: >
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj
+          -c Release --no-build --no-restore
+          --filter "FullyQualifiedName~V180SqlServerRuntimeInvariantProofTests"
+          --logger "console;verbosity=normal"
