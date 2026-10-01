@@ -512,6 +512,7 @@ public sealed class V180MasterDataAdminTests
     {
         await using var db = Db();
         SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.Teams.Single(x => x.TeamId == 10).IsActive = false;
         db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
         {
