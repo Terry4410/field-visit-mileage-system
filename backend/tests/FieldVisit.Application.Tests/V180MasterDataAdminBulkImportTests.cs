@@ -67,7 +67,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     public async Task Duplicate_business_key_and_cross_organization_reference_fail_closed()
     {
         await using var db = Db();
-        db.Locations.Add(new Location { LocationId = 5, OrganizationId = 2, LocationCode = "L-OTHER", LocationName = "Other", IsActive = true, ApprovalStatus = "Approved", CreatedAt = DateTime.UtcNow });
+        db.Locations.Add(new FieldVisit.Domain.Entities.Location { LocationId = 5, OrganizationId = 2, LocationCode = "L-OTHER", LocationName = "Other", IsActive = true, ApprovalStatus = "Approved", CreatedAt = DateTime.UtcNow });
         db.Centers.Add(new Center { CenterId = 1, OrganizationId = 1, CenterCode = "C01", CenterName = "Center", EffectiveFrom = new DateOnly(2026, 1, 1), IsActive = true });
         await db.SaveChangesAsync();
         var rows = EmptyWorkbook(); rows["Centers"] = new[] { new[] { "CenterCode", "CenterName", "EffectiveFrom", "EffectiveTo", "IsActive" }, new[] { "DUP", "A", "2026-01-01", "", "true" }, new[] { "DUP", "B", "2026-01-01", "", "true" } };
@@ -180,7 +180,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     public async Task Deployment_site_update_requires_existing_location_history()
     {
         await using var db = Db(); SeedExistingCoverage(db);
-        db.Locations.Add(new Location { LocationId = 21, OrganizationId = 1, LocationCode = "L02", LocationName = "Location 2", IsActive = true, ApprovalStatus = "Approved", CreatedAt = DateTime.UtcNow });
+        db.Locations.Add(new FieldVisit.Domain.Entities.Location { LocationId = 21, OrganizationId = 1, LocationCode = "L02", LocationName = "Location 2", IsActive = true, ApprovalStatus = "Approved", CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
         var rows = EmptyWorkbook(); rows["DeploymentSites"] = new[] { HeadersFor("DeploymentSites"), new[] { "C01", "S01", "Site", "L02", "2020-01-01", "", "true" } };
         var preview = await Preview(db, rows);
@@ -319,7 +319,7 @@ public sealed class V180MasterDataAdminBulkImportTests
         db.Teams.Add(new Team { TeamId = 10, OrganizationId = 1, TeamCode = "T01", TeamName = "Team", IsActive = true, EffectiveFrom = new DateOnly(2020, 1, 1) });
         db.Employments.Add(new Employment { EmploymentId = 100, PersonId = 1, OrganizationId = 1, EmployeeNo = "E01", SourceType = "Test" });
         db.TeamMemberships.Add(new TeamMembership { TeamMembershipId = 1, EmploymentId = 100, TeamId = 10, EffectiveFrom = new DateOnly(2020, 1, 1) });
-        db.Locations.Add(new Location { LocationId = 20, OrganizationId = 1, LocationCode = "L01", LocationName = "Location", IsActive = true, ApprovalStatus = "Approved", CreatedAt = DateTime.UtcNow });
+        db.Locations.Add(new FieldVisit.Domain.Entities.Location { LocationId = 20, OrganizationId = 1, LocationCode = "L01", LocationName = "Location", IsActive = true, ApprovalStatus = "Approved", CreatedAt = DateTime.UtcNow });
     }
 
     private static void SeedExistingCoverage(AppDbContext db)
