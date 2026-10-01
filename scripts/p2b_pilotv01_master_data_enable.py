@@ -164,6 +164,9 @@ for sheet, expected_headers in headers.items():
     actual = [c.value for c in wb[sheet][1]]
     if actual != expected_headers:
         raise RuntimeError(f"UNEXPECTED_HEADERS:{sheet}:{actual}")
+    ws = wb[sheet]
+    if ws.max_row > 1:
+        ws.delete_rows(2, ws.max_row - 1)
 
 wb["EmploymentStatus"].append([EMPLOYEE_NO, "Active", DATE, ""])
 wb["Centers"].append([CENTER_CODE, "UAT 員林中心", DATE, "", "true"])
