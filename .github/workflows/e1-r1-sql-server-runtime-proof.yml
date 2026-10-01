@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           BASE=9799e931363c18e4fa1e49148b5bbe6ccd2787eb
           git merge-base --is-ancestor "$BASE" HEAD
-          unexpected="$(git diff --name-only "$BASE" HEAD | grep -Ev '^(\.github/workflows/e1-r1-sql-server-runtime-proof\.yml|backend/tests/FieldVisit\.Application\.Tests/V180SqlServerRuntimeInvariantProofTests\.cs)$' || true)"
+          unexpected="$(git diff --name-only "$BASE" HEAD | grep -Ev '^(\.github/workflows/e1-r1-sql-server-runtime-proof\.yml|\.github/workflows/e1-feature-backend-verify\.yml|backend/tests/FieldVisit\.Application\.Tests/V180SqlServerRuntimeInvariantProofTests\.cs)$' || true)"
           if [[ -n "$unexpected" ]]; then
             echo "::error::Unexpected E1-R1 path(s):"
             printf '%s\n' "$unexpected"
