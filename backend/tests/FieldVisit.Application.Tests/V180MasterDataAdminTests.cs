@@ -655,6 +655,7 @@ public sealed class V180MasterDataAdminTests
     {
         await using var db = Db();
         SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.TeamDeploymentSiteAssignments.Single().RowVersion = [1];
         db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment { EmploymentDeploymentSiteAssignmentId = 70, EmploymentId = 100, DeploymentSiteId = 40, IsPrimary = true, EffectiveFrom = Today.AddDays(-10), CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
@@ -668,6 +669,7 @@ public sealed class V180MasterDataAdminTests
     {
         await using var db = Db();
         SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.DeploymentSites.Single().RowVersion = [1];
         await db.SaveChangesAsync();
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveDeploymentSiteAsync(User("admin"), 40, new V180DeploymentSiteInput("C20", "S40", "S40", "L30", Today, null, true, Convert.ToBase64String([1])), default));
@@ -679,6 +681,7 @@ public sealed class V180MasterDataAdminTests
     {
         await using var db = Db();
         SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.DeploymentSites.Single().RowVersion = [1];
         db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment { EmploymentDeploymentSiteAssignmentId = 70, EmploymentId = 100, DeploymentSiteId = 40, IsPrimary = true, EffectiveFrom = Today.AddDays(-10), CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
@@ -691,6 +694,7 @@ public sealed class V180MasterDataAdminTests
     {
         await using var db = Db();
         SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.TeamCenterAssignments.Single().RowVersion = [1];
         await db.SaveChangesAsync();
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveTeamCenterAsync(User("admin"), 1, new V180TeamCenterInput("T10", "C20", Today, null, Convert.ToBase64String([1])), default));
@@ -702,6 +706,7 @@ public sealed class V180MasterDataAdminTests
     {
         await using var db = Db();
         SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.Centers.Single().RowVersion = [1];
         await db.SaveChangesAsync();
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveCenterAsync(User("admin"), 20, new V180CenterInput("C20", "Center 20", Today, null, true, Convert.ToBase64String([1])), default));
@@ -713,6 +718,7 @@ public sealed class V180MasterDataAdminTests
     {
         await using var db = Db();
         SeedCompleteEligibility(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
         db.TeamDeploymentSiteAssignments.Remove(db.TeamDeploymentSiteAssignments.Single());
         await db.SaveChangesAsync();
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new V180MasterDataAdminRepository(db).SaveEmploymentSiteAsync(User("admin"), null, new V180EmploymentSiteInput("E100", "S40", true, Today, null), default));
