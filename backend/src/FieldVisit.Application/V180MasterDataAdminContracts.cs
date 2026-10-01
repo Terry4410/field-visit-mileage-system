@@ -13,6 +13,7 @@ public interface IV180MasterDataBulkWorkbookService
 {
     Task<ReportExportContext> CreateTemplateAsync(CurrentUserDto admin, CancellationToken ct);
     Task<ImportPreviewDto> PreviewAsync(CurrentUserDto admin, byte[] content, CancellationToken ct);
+    Task<ImportConfirmResultDto> ConfirmAsync(CurrentUserDto admin, Guid importBatchId, CancellationToken ct);
 }
 
 public interface IV180MasterDataAdminRepository

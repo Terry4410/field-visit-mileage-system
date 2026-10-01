@@ -1030,6 +1030,12 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         if (!db.Database.IsRelational())
             return await operation();
 
+        if (db.Database.CurrentTransaction is not null)
+        {
+            await AcquireEmploymentStatusSiteInvariantLockAsync(employmentId, ct);
+            return await operation();
+        }
+
         var strategy = db.Database.CreateExecutionStrategy();
         T? result = default;
         await strategy.ExecuteAsync(async () =>
@@ -1049,6 +1055,12 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
     {
         if (!db.Database.IsRelational())
             return await operation();
+
+        if (db.Database.CurrentTransaction is not null)
+        {
+            await AcquireTeamSiteCoverageInvariantLockAsync(ct);
+            return await operation();
+        }
 
         var strategy = db.Database.CreateExecutionStrategy();
         T? result = default;
@@ -1070,6 +1082,13 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
     {
         if (!db.Database.IsRelational())
             return await operation();
+
+        if (db.Database.CurrentTransaction is not null)
+        {
+            await AcquireTeamSiteCoverageInvariantLockAsync(ct);
+            await AcquireEmploymentStatusSiteInvariantLockAsync(employmentId, ct);
+            return await operation();
+        }
 
         var strategy = db.Database.CreateExecutionStrategy();
         T? result = default;

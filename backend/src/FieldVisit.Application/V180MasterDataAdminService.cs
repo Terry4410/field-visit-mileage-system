@@ -13,4 +13,5 @@ public sealed class V180MasterDataAdminService(ICurrentUserService current, IV18
     public Task<V180MasterDataRow> SaveEmploymentSiteAsync(long? id,V180EmploymentSiteInput x,CancellationToken ct)=>repository.SaveEmploymentSiteAsync(Admin(),id,x,ct);
     public Task<ReportExportContext> CreateBulkTemplateAsync(CancellationToken ct)=>(bulk ?? throw new InvalidOperationException("V180_BULK_WORKBOOK_SERVICE_NOT_REGISTERED")).CreateTemplateAsync(Admin(),ct);
     public Task<ImportPreviewDto> PreviewBulkAsync(byte[] content,CancellationToken ct)=>(bulk ?? throw new InvalidOperationException("V180_BULK_WORKBOOK_SERVICE_NOT_REGISTERED")).PreviewAsync(Admin(),content,ct);
+    public Task<ImportConfirmResultDto> ConfirmBulkAsync(Guid importBatchId,CancellationToken ct)=>(bulk ?? throw new InvalidOperationException("V180_BULK_WORKBOOK_SERVICE_NOT_REGISTERED")).ConfirmAsync(Admin(),importBatchId,ct);
 }

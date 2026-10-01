@@ -295,6 +295,194 @@ public sealed class V180MasterDataAdminBulkImportTests
         Assert.Contains(preview.Items, x => x.EntityType == "EmploymentSite" && x.Status == "Valid" && x.Action == "Create");
     }
 
+
+    [Fact]
+    public async Task Confirm_applies_valid_batch_and_is_idempotent()
+    {
+        await using var db = Db(); Seed(db); await db.SaveChangesAsync();
+        var rows = StagedBase();
+        rows["TeamSites"] = new[] { HeadersFor("TeamSites"), new[] { "T01", "S01", "2026-01-01", "" } };
+        rows["EmploymentSites"] = new[] { HeadersFor("EmploymentSites"), new[] { "E01", "S01", "true", "2026-01-01", "" } };
+        var service = new V180MasterDataBulkWorkbookService(db);
+
+        var preview = await service.PreviewAsync(Admin(), Workbook(rows), default);
+        Assert.Equal(6, preview.ValidCount);
+        Assert.Equal(0, preview.ErrorCount);
+
+        var result = await service.ConfirmAsync(Admin(), preview.ImportBatchId, default);
+
+        Assert.Equal(6, result.Created);
+        Assert.Equal(0, result.Updated);
+        Assert.Equal(0, result.Unchanged);
+        Assert.Equal(0, result.Failed);
+        Assert.Empty(result.Errors);
+        Assert.Single(db.EmploymentStatusPeriods);
+        Assert.Single(db.Centers);
+        Assert.Single(db.TeamCenterAssignments);
+        Assert.Single(db.DeploymentSites);
+        Assert.Single(db.TeamDeploymentSiteAssignments);
+        Assert.Single(db.EmploymentDeploymentSiteAssignments);
+        Assert.Equal("Confirmed", db.ImportBatches.Single().Status);
+        Assert.All(db.ImportBatchItems, x => Assert.Equal("Applied", x.Status));
+        Assert.Single(db.AuditLogs.Where(x => x.Action == "V180MasterDataBulkConfirm"));
+
+        var repeated = await service.ConfirmAsync(Admin(), preview.ImportBatchId, default);
+        Assert.Equal(6, repeated.Created);
+        Assert.Single(db.Centers);
+        Assert.Single(db.DeploymentSites);
+    }
+
+    [Fact]
+    public async Task Confirm_rejects_preview_errors_without_master_mutation()
+    {
+        await using var db = Db(); Seed(db); await db.SaveChangesAsync();
+        var rows = EmptyWorkbook();
+        rows["Centers"] = new[]
+        {
+            HeadersFor("Centers"),
+            new[] { "C-DUP", "One", "2026-01-01", "", "true" },
+            new[] { "C-DUP", "Two", "2026-01-01", "", "true" }
+        };
+        var service = new V180MasterDataBulkWorkbookService(db);
+        var preview = await service.PreviewAsync(Admin(), Workbook(rows), default);
+        Assert.True(preview.ErrorCount > 0);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ConfirmAsync(Admin(), preview.ImportBatchId, default));
+
+        Assert.Equal("BULK_BATCH_HAS_ERRORS", ex.Message);
+        Assert.Empty(db.Centers);
+        Assert.Equal("Previewed", db.ImportBatches.Single().Status);
+        Assert.Empty(db.AuditLogs.Where(x => x.Action == "V180MasterDataBulkConfirm"));
+    }
+
+    [Fact]
+    public async Task Confirm_revalidates_entire_batch_before_applying_any_row()
+    {
+        await using var db = Db(); Seed(db); await db.SaveChangesAsync();
+        var rows = StagedBase();
+        var service = new V180MasterDataBulkWorkbookService(db);
+        var preview = await service.PreviewAsync(Admin(), Workbook(rows), default);
+        Assert.Equal(4, preview.ValidCount);
+
+        db.Locations.Single(x => x.LocationCode == "L01").IsActive = false;
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ConfirmAsync(Admin(), preview.ImportBatchId, default));
+
+        Assert.Contains("BULK_CONFIRM_REVALIDATION_FAILED:LOCATION_NOT_ACTIVE", ex.Message);
+        Assert.Empty(db.EmploymentStatusPeriods);
+        Assert.Empty(db.Centers);
+        Assert.Empty(db.TeamCenterAssignments);
+        Assert.Empty(db.DeploymentSites);
+        Assert.Equal("Previewed", db.ImportBatches.Single().Status);
+    }
+
+    [Fact]
+    public async Task Confirm_rejects_rowversion_drift()
+    {
+        await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
+        var rows = EmptyWorkbook();
+        rows["Centers"] = new[]
+        {
+            HeadersFor("Centers"),
+            new[] { "C01", "Changed", "2020-01-01", "", "true" }
+        };
+        var service = new V180MasterDataBulkWorkbookService(db);
+        var preview = await service.PreviewAsync(Admin(), Workbook(rows), default);
+        Assert.Contains(preview.Items, x => x.EntityType == "Center" && x.Action == "Update");
+
+        db.Centers.Single().RowVersion = [9];
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ConfirmAsync(Admin(), preview.ImportBatchId, default));
+
+        Assert.Equal("BULK_CONFIRM_ROWVERSION_CHANGED", ex.Message);
+        Assert.Equal("Center", db.Centers.Single().CenterName);
+        Assert.Equal("Previewed", db.ImportBatches.Single().Status);
+    }
+
+    [Fact]
+    public async Task Confirm_rejects_action_drift()
+    {
+        await using var db = Db(); Seed(db); await db.SaveChangesAsync();
+        var rows = EmptyWorkbook();
+        rows["Centers"] = new[]
+        {
+            HeadersFor("Centers"),
+            new[] { "C01", "Center", "2026-01-01", "", "true" }
+        };
+        var service = new V180MasterDataBulkWorkbookService(db);
+        var preview = await service.PreviewAsync(Admin(), Workbook(rows), default);
+        Assert.Contains(preview.Items, x => x.EntityType == "Center" && x.Action == "Create");
+
+        db.Centers.Add(new Center
+        {
+            CenterId = 99,
+            OrganizationId = 1,
+            CenterCode = "C01",
+            CenterName = "Center",
+            EffectiveFrom = new DateOnly(2026, 1, 1),
+            IsActive = true
+        });
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ConfirmAsync(Admin(), preview.ImportBatchId, default));
+
+        Assert.Equal("BULK_CONFIRM_ACTION_CHANGED", ex.Message);
+        Assert.Single(db.Centers);
+        Assert.Equal("Previewed", db.ImportBatches.Single().Status);
+    }
+
+    [Fact]
+    public async Task Confirm_rejects_expired_batch()
+    {
+        await using var db = Db(); Seed(db); await db.SaveChangesAsync();
+        var rows = EmptyWorkbook();
+        rows["Centers"] = new[]
+        {
+            HeadersFor("Centers"),
+            new[] { "C01", "Center", "2026-01-01", "", "true" }
+        };
+        var service = new V180MasterDataBulkWorkbookService(db);
+        var preview = await service.PreviewAsync(Admin(), Workbook(rows), default);
+
+        db.ImportBatches.Single().ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ConfirmAsync(Admin(), preview.ImportBatchId, default));
+
+        Assert.Equal("BULK_BATCH_EXPIRED", ex.Message);
+        Assert.Empty(db.Centers);
+        Assert.Equal("Previewed", db.ImportBatches.Single().Status);
+    }
+
+    [Fact]
+    public async Task Confirm_is_organization_scoped()
+    {
+        await using var db = Db(); Seed(db); await db.SaveChangesAsync();
+        var rows = EmptyWorkbook();
+        rows["Centers"] = new[]
+        {
+            HeadersFor("Centers"),
+            new[] { "C01", "Center", "2026-01-01", "", "true" }
+        };
+        var service = new V180MasterDataBulkWorkbookService(db);
+        var preview = await service.PreviewAsync(Admin(), Workbook(rows), default);
+        var other = new CurrentUserDto(901, "ADMIN2", "Admin 2", "admin2@example.test", 2, null, null, ["admin"]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ConfirmAsync(other, preview.ImportBatchId, default));
+
+        Assert.Equal("BULK_BATCH_NOT_FOUND", ex.Message);
+        Assert.Empty(db.Centers);
+        Assert.Equal("Previewed", db.ImportBatches.Single().Status);
+    }
+
     private static AppDbContext Db() => new(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase($"v180-bulk-{Guid.NewGuid()}").Options);
     private static CurrentUserDto Admin() => new(900, "ADMIN", "Admin", "admin@example.test", 1, null, null, ["admin"]);
     private static Task<ImportPreviewDto> Preview(AppDbContext db, Dictionary<string, string[][]> rows) => new V180MasterDataBulkWorkbookService(db).PreviewAsync(Admin(), Workbook(rows), default);

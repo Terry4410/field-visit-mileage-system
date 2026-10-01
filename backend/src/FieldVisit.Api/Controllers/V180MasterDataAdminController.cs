@@ -28,6 +28,11 @@ public sealed class V180MasterDataAdminController(V180MasterDataAdminService ser
         await stream.CopyToAsync(memory, ct);
         return await service.PreviewBulkAsync(memory.ToArray(), ct);
     }
+
+    [HttpPost("bulk/{importBatchId:guid}/confirm")]
+    public Task<ImportConfirmResultDto> ConfirmBulk(Guid importBatchId, CancellationToken ct)
+        => service.ConfirmBulkAsync(importBatchId, ct);
+
     [HttpGet("readiness")] public Task<V180MasterDataReadinessDto> Readiness(CancellationToken ct)=>service.ReadinessAsync(ct);
     [HttpGet("{kind}")] public Task<IReadOnlyList<V180MasterDataRow>> List(string kind,CancellationToken ct)=>service.ListAsync(kind,ct);
     [HttpPost("employment-status")] public Task<V180MasterDataRow> CreateEmploymentStatus(V180EmploymentStatusInput x,CancellationToken ct)=>service.SaveEmploymentStatusAsync(null,x,ct);

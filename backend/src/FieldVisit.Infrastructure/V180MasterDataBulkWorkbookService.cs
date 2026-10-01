@@ -6,6 +6,7 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace FieldVisit.Infrastructure;
 
@@ -14,8 +15,13 @@ namespace FieldVisit.Infrastructure;
 /// share the v1.6 row-by-row confirm implementation, because E2-B owns the
 /// atomic confirm boundary.
 /// </summary>
-public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180MasterDataBulkWorkbookService
+public sealed class V180MasterDataBulkWorkbookService(
+    AppDbContext db,
+    IV180MasterDataAdminRepository? adminRepository = null) : IV180MasterDataBulkWorkbookService
 {
+    private readonly IV180MasterDataAdminRepository masterData =
+        adminRepository ?? new V180MasterDataAdminRepository(db);
+
     private const string ImportType = "v180-master-data";
     private const string ExcelContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -106,6 +112,565 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
         return new ImportPreviewDto(batch.ImportBatchId, ImportType, batch.TotalCount, batch.ValidCount, batch.ErrorCount,
             staged.Select(x => new ImportPreviewItemDto(x.RowNumber, x.EntityType, x.Action, x.Status, x.DisplayKey, x.ErrorMessage)).ToList());
     }
+
+
+    public async Task<ImportConfirmResultDto> ConfirmAsync(
+        CurrentUserDto admin,
+        Guid importBatchId,
+        CancellationToken ct)
+    {
+        var orgId = RequireAdmin(admin);
+
+        if (!db.Database.IsRelational())
+            return await ConfirmLockedAsync(admin, orgId, importBatchId, ct);
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        ImportConfirmResultDto? result = null;
+
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await AcquireAppLockAsync(
+                $"FieldVisit.E2.ImportBatch:{importBatchId:D}",
+                "E2_IMPORT_BATCH_LOCK_FAILED",
+                ct);
+
+            result = await ConfirmLockedAsync(admin, orgId, importBatchId, ct);
+            await transaction.CommitAsync(ct);
+        });
+
+        return result!;
+    }
+
+    private async Task<ImportConfirmResultDto> ConfirmLockedAsync(
+        CurrentUserDto admin,
+        int orgId,
+        Guid importBatchId,
+        CancellationToken ct)
+    {
+        var batch = await LoadBatchAsync(orgId, importBatchId, ct);
+        var items = await LoadBatchItemsAsync(importBatchId, ct);
+
+        if (Same(batch.Status, "Confirmed"))
+            return ConfirmResult(batch.ImportBatchId, items);
+
+        ValidateConfirmableBatch(batch, items);
+
+        if (db.Database.IsRelational())
+        {
+            if (NeedsStructuralLock(items))
+                await AcquireAppLockAsync(
+                    "FieldVisit.TeamSiteCoverageInvariant",
+                    "TEAM_SITE_COVERAGE_INVARIANT_LOCK_FAILED",
+                    ct);
+
+            var employmentIds = await ResolveEmploymentLockIdsAsync(
+                orgId,
+                items,
+                ct);
+
+            foreach (var employmentId in employmentIds)
+                await AcquireAppLockAsync(
+                    $"FieldVisit.E1.EmploymentStatusSite:{employmentId}",
+                    "EMPLOYMENT_STATUS_SITE_INVARIANT_LOCK_FAILED",
+                    ct);
+
+            // Re-read staging after all invariant locks are held.  The batch
+            // lock protects confirm ownership; the invariant locks freeze the
+            // E1 master-data relationships used by revalidation.
+            db.ChangeTracker.Clear();
+            batch = await LoadBatchAsync(orgId, importBatchId, ct);
+            items = await LoadBatchItemsAsync(importBatchId, ct);
+
+            if (Same(batch.Status, "Confirmed"))
+                return ConfirmResult(batch.ImportBatchId, items);
+
+            ValidateConfirmableBatch(batch, items);
+        }
+
+        var projection = new Projection(orgId);
+        var prepared = new List<PreparedConfirmItem>();
+
+        foreach (var item in items)
+        {
+            var data = ParseItemData(item);
+            var row = WorkbookRowFrom(item, data);
+            var current = await ValidateAsync(
+                SheetName(item.EntityType),
+                row,
+                projection,
+                ct);
+
+            ValidateRevalidationSnapshot(item, data, current);
+            projection.Add(current);
+            prepared.Add(new PreparedConfirmItem(item, data));
+        }
+
+        var created = 0;
+        var updated = 0;
+        var unchanged = 0;
+
+        foreach (var item in prepared)
+        {
+            switch (item.Item.Action)
+            {
+                case "Create":
+                    await ApplyConfirmedItemAsync(admin, item, ct);
+                    created++;
+                    break;
+                case "Update":
+                    await ApplyConfirmedItemAsync(admin, item, ct);
+                    updated++;
+                    break;
+                case "NoChange":
+                    unchanged++;
+                    break;
+                default:
+                    throw new InvalidOperationException("BULK_ITEM_ACTION_INVALID");
+            }
+        }
+
+        foreach (var item in items)
+        {
+            item.Status = "Applied";
+            item.ErrorMessage = null;
+        }
+
+        batch.Status = "Confirmed";
+        batch.ConfirmedAt = DateTime.UtcNow;
+
+        db.AuditLogs.Add(new AuditLog
+        {
+            UserId = admin.UserId,
+            EntityType = "ImportBatch",
+            EntityId = batch.ImportBatchId.ToString(),
+            Action = "V180MasterDataBulkConfirm",
+            NewValues = JsonSerializer.Serialize(
+                new
+                {
+                    Created = created,
+                    Updated = updated,
+                    Unchanged = unchanged,
+                    Failed = 0,
+                    Atomic = true
+                }),
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await db.SaveChangesAsync(ct);
+        return new ImportConfirmResultDto(
+            batch.ImportBatchId,
+            created,
+            updated,
+            unchanged,
+            0,
+            Array.Empty<string>());
+    }
+
+    private async Task<ImportBatch> LoadBatchAsync(
+        int orgId,
+        Guid importBatchId,
+        CancellationToken ct) =>
+        await db.ImportBatches.SingleOrDefaultAsync(
+            x => x.ImportBatchId == importBatchId
+                && x.OrganizationId == orgId
+                && x.ImportType == ImportType,
+            ct)
+        ?? throw new InvalidOperationException("BULK_BATCH_NOT_FOUND");
+
+    private async Task<List<ImportBatchItem>> LoadBatchItemsAsync(
+        Guid importBatchId,
+        CancellationToken ct)
+    {
+        var items = await db.ImportBatchItems
+            .Where(x => x.ImportBatchId == importBatchId)
+            .ToListAsync(ct);
+
+        return items
+            .OrderBy(x => EntityOrder(x.EntityType))
+            .ThenBy(x => x.RowNumber)
+            .ThenBy(x => x.ImportBatchItemId)
+            .ToList();
+    }
+
+    private static void ValidateConfirmableBatch(
+        ImportBatch batch,
+        IReadOnlyList<ImportBatchItem> items)
+    {
+        if (!Same(batch.Status, "Previewed"))
+            throw new InvalidOperationException("BULK_BATCH_NOT_PREVIEWED");
+        if (batch.ExpiresAt <= DateTime.UtcNow)
+            throw new InvalidOperationException("BULK_BATCH_EXPIRED");
+        if (batch.ErrorCount != 0
+            || batch.ValidCount != batch.TotalCount
+            || items.Count != batch.TotalCount
+            || items.Any(x => !Same(x.Status, "Valid")))
+            throw new InvalidOperationException("BULK_BATCH_HAS_ERRORS");
+    }
+
+    private static ImportConfirmResultDto ConfirmResult(
+        Guid importBatchId,
+        IReadOnlyList<ImportBatchItem> items) =>
+        new(
+            importBatchId,
+            items.Count(x => Same(x.Action, "Create")),
+            items.Count(x => Same(x.Action, "Update")),
+            items.Count(x => Same(x.Action, "NoChange")),
+            0,
+            Array.Empty<string>());
+
+    private static bool NeedsStructuralLock(
+        IEnumerable<ImportBatchItem> items) =>
+        items.Any(x => x.EntityType is
+            "Center" or
+            "TeamCenter" or
+            "DeploymentSite" or
+            "TeamSite" or
+            "EmploymentSite");
+
+    private async Task<IReadOnlyList<long>> ResolveEmploymentLockIdsAsync(
+        int orgId,
+        IReadOnlyList<ImportBatchItem> items,
+        CancellationToken ct)
+    {
+        var employeeNos = items
+            .Where(x => x.EntityType is "EmploymentStatus" or "EmploymentSite")
+            .Select(x => RequiredJsonString(ParseItemData(x), "EmployeeNo"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var ids = new List<long>();
+        foreach (var employeeNo in employeeNos)
+        {
+            var id = await db.Employments
+                .Where(x => x.OrganizationId == orgId
+                    && x.EmployeeNo == employeeNo)
+                .Select(x => (long?)x.EmploymentId)
+                .SingleOrDefaultAsync(ct);
+
+            if (!id.HasValue)
+                throw new InvalidOperationException(
+                    "BULK_CONFIRM_EMPLOYMENT_CHANGED");
+
+            ids.Add(id.Value);
+        }
+
+        return ids.Distinct().OrderBy(x => x).ToList();
+    }
+
+    private void ValidateRevalidationSnapshot(
+        ImportBatchItem staged,
+        JsonElement stagedData,
+        StagedRow current)
+    {
+        if (!Same(current.Status, "Valid"))
+            throw new InvalidOperationException(
+                $"BULK_CONFIRM_REVALIDATION_FAILED:{current.ErrorMessage ?? "UNKNOWN"}");
+
+        if (!Same(current.EntityType, staged.EntityType)
+            || !Same(current.DisplayKey, staged.DisplayKey))
+            throw new InvalidOperationException(
+                "BULK_CONFIRM_BUSINESS_KEY_CHANGED");
+
+        if (!Same(current.Action, staged.Action))
+            throw new InvalidOperationException(
+                "BULK_CONFIRM_ACTION_CHANGED");
+
+        var stagedTargetId = JsonLong(stagedData, "TargetId");
+        if (stagedTargetId != current.TargetId)
+            throw new InvalidOperationException(
+                "BULK_CONFIRM_TARGET_CHANGED");
+
+        var currentData = JsonSerializer.SerializeToElement(
+            current.Data,
+            JsonOptions);
+        var stagedVersion = JsonString(
+            stagedData,
+            "ExpectedRowVersion");
+        var currentVersion = JsonString(
+            currentData,
+            "ExpectedRowVersion");
+
+        if (!string.Equals(
+                stagedVersion,
+                currentVersion,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "BULK_CONFIRM_ROWVERSION_CHANGED");
+    }
+
+    private async Task ApplyConfirmedItemAsync(
+        CurrentUserDto admin,
+        PreparedConfirmItem prepared,
+        CancellationToken ct)
+    {
+        var item = prepared.Item;
+        var data = prepared.Data;
+        var row = WorkbookRowFrom(item, data);
+        var targetId = JsonLong(data, "TargetId");
+        var rowVersion = JsonString(data, "ExpectedRowVersion");
+
+        if (Same(item.Action, "Update") && !targetId.HasValue)
+            throw new InvalidOperationException("BULK_CONFIRM_TARGET_CHANGED");
+
+        switch (item.EntityType)
+        {
+            case "EmploymentStatus":
+                await masterData.SaveEmploymentStatusAsync(
+                    admin,
+                    Same(item.Action, "Update") ? targetId : null,
+                    new V180EmploymentStatusInput(
+                        Required(row, "EmployeeNo", "EMPLOYEE_NO_REQUIRED"),
+                        Required(row, "Status", "EMPLOYMENT_STATUS_REQUIRED"),
+                        Date(row, "EffectiveFrom", true)!.Value,
+                        Date(row, "EffectiveTo", false),
+                        rowVersion),
+                    ct);
+                break;
+
+            case "Center":
+                await masterData.SaveCenterAsync(
+                    admin,
+                    Same(item.Action, "Update")
+                        ? checked((int)targetId!.Value)
+                        : null,
+                    new V180CenterInput(
+                        Required(row, "CenterCode", "CENTER_CODE_REQUIRED"),
+                        Required(row, "CenterName", "CENTER_NAME_REQUIRED"),
+                        Date(row, "EffectiveFrom", true)!.Value,
+                        Date(row, "EffectiveTo", false),
+                        Bool(row, "IsActive"),
+                        rowVersion),
+                    ct);
+                break;
+
+            case "TeamCenter":
+                await masterData.SaveTeamCenterAsync(
+                    admin,
+                    Same(item.Action, "Update") ? targetId : null,
+                    new V180TeamCenterInput(
+                        Required(row, "TeamCode", "TEAM_CODE_REQUIRED"),
+                        Required(row, "CenterCode", "CENTER_CODE_REQUIRED"),
+                        Date(row, "EffectiveFrom", true)!.Value,
+                        Date(row, "EffectiveTo", false),
+                        rowVersion),
+                    ct);
+                break;
+
+            case "DeploymentSite":
+                await masterData.SaveDeploymentSiteAsync(
+                    admin,
+                    Same(item.Action, "Update")
+                        ? checked((int)targetId!.Value)
+                        : null,
+                    new V180DeploymentSiteInput(
+                        Required(row, "CenterCode", "CENTER_CODE_REQUIRED"),
+                        Required(row, "SiteCode", "SITE_CODE_REQUIRED"),
+                        Required(row, "SiteName", "SITE_NAME_REQUIRED"),
+                        Required(row, "LocationCode", "LOCATION_CODE_REQUIRED"),
+                        Date(row, "EffectiveFrom", true)!.Value,
+                        Date(row, "EffectiveTo", false),
+                        Bool(row, "IsActive"),
+                        rowVersion),
+                    ct);
+                break;
+
+            case "TeamSite":
+                await masterData.SaveTeamSiteAsync(
+                    admin,
+                    Same(item.Action, "Update") ? targetId : null,
+                    new V180TeamSiteInput(
+                        Required(row, "TeamCode", "TEAM_CODE_REQUIRED"),
+                        Required(row, "SiteCode", "SITE_CODE_REQUIRED"),
+                        Date(row, "EffectiveFrom", true)!.Value,
+                        Date(row, "EffectiveTo", false),
+                        rowVersion),
+                    ct);
+                break;
+
+            case "EmploymentSite":
+                await masterData.SaveEmploymentSiteAsync(
+                    admin,
+                    Same(item.Action, "Update") ? targetId : null,
+                    new V180EmploymentSiteInput(
+                        Required(row, "EmployeeNo", "EMPLOYEE_NO_REQUIRED"),
+                        Required(row, "SiteCode", "SITE_CODE_REQUIRED"),
+                        Bool(row, "IsPrimary"),
+                        Date(row, "EffectiveFrom", true)!.Value,
+                        Date(row, "EffectiveTo", false),
+                        rowVersion),
+                    ct);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "BULK_ITEM_ENTITY_TYPE_INVALID");
+        }
+    }
+
+    private static WorkbookRow WorkbookRowFrom(
+        ImportBatchItem item,
+        JsonElement data)
+    {
+        var sheet = SheetName(item.EntityType);
+        var spec = Specs.Single(x =>
+            x.Name.Equals(sheet, StringComparison.OrdinalIgnoreCase));
+
+        var values = spec.Headers.ToDictionary(
+            x => x,
+            x => JsonValueAsString(data, x),
+            StringComparer.OrdinalIgnoreCase);
+
+        return new WorkbookRow(item.RowNumber, values, false);
+    }
+
+    private static JsonElement ParseItemData(ImportBatchItem item)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(item.DataJson);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                "BULK_ITEM_DATA_INVALID",
+                ex);
+        }
+    }
+
+    private static string? JsonValueAsString(
+        JsonElement root,
+        string property)
+    {
+        if (!TryJsonProperty(root, property, out var value)
+            || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            JsonValueKind.Number => value.GetRawText(),
+            _ => value.GetRawText()
+        };
+    }
+
+    private static string RequiredJsonString(
+        JsonElement root,
+        string property) =>
+        JsonString(root, property)
+        ?? throw new InvalidOperationException(
+            "BULK_ITEM_DATA_INVALID");
+
+    private static string? JsonString(
+        JsonElement root,
+        string property)
+    {
+        if (!TryJsonProperty(root, property, out var value)
+            || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        return value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : value.GetRawText();
+    }
+
+    private static long? JsonLong(
+        JsonElement root,
+        string property)
+    {
+        if (!TryJsonProperty(root, property, out var value)
+            || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        if (value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt64(out var number))
+            return number;
+
+        if (value.ValueKind == JsonValueKind.String
+            && long.TryParse(
+                value.GetString(),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out number))
+            return number;
+
+        throw new InvalidOperationException(
+            "BULK_ITEM_DATA_INVALID");
+    }
+
+    private static bool TryJsonProperty(
+        JsonElement root,
+        string property,
+        out JsonElement value)
+    {
+        var camel = JsonNamingPolicy.CamelCase.ConvertName(property);
+        return root.TryGetProperty(camel, out value)
+            || root.TryGetProperty(property, out value);
+    }
+
+    private static string SheetName(string entityType) =>
+        entityType switch
+        {
+            "EmploymentStatus" => "EmploymentStatus",
+            "Center" => "Centers",
+            "TeamCenter" => "TeamCenters",
+            "DeploymentSite" => "DeploymentSites",
+            "TeamSite" => "TeamSites",
+            "EmploymentSite" => "EmploymentSites",
+            _ => throw new InvalidOperationException(
+                "BULK_ITEM_ENTITY_TYPE_INVALID")
+        };
+
+    private static int EntityOrder(string entityType) =>
+        entityType switch
+        {
+            "EmploymentStatus" => 0,
+            "Center" => 1,
+            "TeamCenter" => 2,
+            "DeploymentSite" => 3,
+            "TeamSite" => 4,
+            "EmploymentSite" => 5,
+            _ => int.MaxValue
+        };
+
+    private async Task AcquireAppLockAsync(
+        string resourceName,
+        string failureCode,
+        CancellationToken ct)
+    {
+        await using var command =
+            db.Database.GetDbConnection().CreateCommand();
+        command.Transaction =
+            db.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = """
+            DECLARE @result int;
+            EXEC @result = sys.sp_getapplock
+                @Resource = @resource,
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 10000;
+            SELECT @result;
+            """;
+
+        var resource = command.CreateParameter();
+        resource.ParameterName = "@resource";
+        resource.Value = resourceName;
+        command.Parameters.Add(resource);
+
+        var lockResult = await command.ExecuteScalarAsync(ct);
+        if (lockResult is null
+            || Convert.ToInt32(lockResult) < 0)
+            throw new InvalidOperationException(failureCode);
+    }
+
+    private sealed record PreparedConfirmItem(
+        ImportBatchItem Item,
+        JsonElement Data);
 
     private async Task<StagedRow> ValidateAsync(string sheet, WorkbookRow row, Projection p, CancellationToken ct)
     {
