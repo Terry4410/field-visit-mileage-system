@@ -135,7 +135,8 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
         var employment = await db.Employments.SingleOrDefaultAsync(x => x.OrganizationId == p.OrgId && x.EmployeeNo == employeeNo, ct)
             ?? throw new InvalidOperationException("UNKNOWN_EMPLOYEE_NO");
         var existing = await db.EmploymentStatusPeriods.SingleOrDefaultAsync(x => x.EmploymentId == employment.EmploymentId && x.EffectiveFrom == from, ct);
-        if ((await db.EmploymentStatusPeriods.Where(x => x.EmploymentId == employment.EmploymentId && x.EmploymentStatusPeriodId != (existing?.EmploymentStatusPeriodId ?? 0)).ToListAsync(ct)).Any(x => !p.Shadows("EmploymentStatus", x.EmploymentStatusPeriodId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
+        var existingStatusId = existing?.EmploymentStatusPeriodId ?? 0;
+        if ((await db.EmploymentStatusPeriods.Where(x => x.EmploymentId == employment.EmploymentId && x.EmploymentStatusPeriodId != existingStatusId).ToListAsync(ct)).Any(x => !p.Shadows("EmploymentStatus", x.EmploymentStatusPeriodId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
             || p.Any("EmploymentStatus", x => x.Values["EmployeeNo"]!.Equals(employeeNo, StringComparison.OrdinalIgnoreCase) && Overlap(from.Value, to, x)))
             throw new InvalidOperationException("OVERLAPPING_EMPLOYMENT_STATUS");
         var action = existing is null ? "Create" : Same(existing.EmploymentStatus, status) && existing.EffectiveTo == to ? "NoChange" : "Update";
@@ -162,7 +163,8 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
         var center = await ResolveCenterAsync(centerCode, p, ct) ?? throw new InvalidOperationException("UNKNOWN_CENTER_CODE");
         if (!Covers(center.EffectiveFrom, center.EffectiveTo, from.Value, to) || (team.EffectiveFrom.HasValue && !Covers(team.EffectiveFrom.Value, team.EffectiveTo, from.Value, to))) throw new InvalidOperationException("TEAM_CENTER_ORGANIZATION_MISMATCH");
         var existing = await db.TeamCenterAssignments.SingleOrDefaultAsync(x => x.TeamId == team.TeamId && x.EffectiveFrom == from, ct);
-        if ((await db.TeamCenterAssignments.Where(x => x.TeamId == team.TeamId && x.TeamCenterAssignmentId != (existing?.TeamCenterAssignmentId ?? 0)).ToListAsync(ct)).Any(x => !p.Shadows("TeamCenter", x.TeamCenterAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
+        var existingTeamCenterId = existing?.TeamCenterAssignmentId ?? 0;
+        if ((await db.TeamCenterAssignments.Where(x => x.TeamId == team.TeamId && x.TeamCenterAssignmentId != existingTeamCenterId).ToListAsync(ct)).Any(x => !p.Shadows("TeamCenter", x.TeamCenterAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
             || p.Any("TeamCenter", x => Same(x.Values["TeamCode"], teamCode) && Overlap(from.Value, to, x))) throw new InvalidOperationException("OVERLAPPING_TEAM_CENTER");
         var action = existing is null ? "Create" : existing.CenterId == center.TargetId && existing.EffectiveTo == to ? "NoChange" : "Update";
         if (existing is not null && action == "Update") await EnsureTeamCenterDependenciesAsync(existing, center.TargetId, from.Value, to, ct);
@@ -211,7 +213,8 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
         if (!site.IsActive || !Covers(site.EffectiveFrom, site.EffectiveTo, from.Value, to)) throw new InvalidOperationException("TEAM_SITE_OUTSIDE_SITE_PERIOD");
         if (!await HasTeamCenterAsync(team.TeamId, site.CenterCode, site.CenterTargetId, from.Value, to, p, ct)) throw new InvalidOperationException("TEAM_SITE_WITHOUT_TEAM_CENTER_COVERAGE");
         var existing = site.TargetId.HasValue ? await db.TeamDeploymentSiteAssignments.SingleOrDefaultAsync(x => x.TeamId == team.TeamId && x.DeploymentSiteId == site.TargetId.Value && x.EffectiveFrom == from, ct) : null;
-        if (site.TargetId.HasValue && (await db.TeamDeploymentSiteAssignments.Where(x => x.TeamId == team.TeamId && x.DeploymentSiteId == site.TargetId.Value && x.TeamDeploymentSiteAssignmentId != (existing?.TeamDeploymentSiteAssignmentId ?? 0)).ToListAsync(ct)).Any(x => !p.Shadows("TeamSite", x.TeamDeploymentSiteAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
+        var existingTeamSiteId = existing?.TeamDeploymentSiteAssignmentId ?? 0;
+        if (site.TargetId.HasValue && (await db.TeamDeploymentSiteAssignments.Where(x => x.TeamId == team.TeamId && x.DeploymentSiteId == site.TargetId.Value && x.TeamDeploymentSiteAssignmentId != existingTeamSiteId).ToListAsync(ct)).Any(x => !p.Shadows("TeamSite", x.TeamDeploymentSiteAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
             || p.Any("TeamSite", x => Same(x.Values["TeamCode"], teamCode) && Same(x.Values["SiteCode"], siteCode) && Overlap(from.Value, to, x))) throw new InvalidOperationException("OVERLAPPING_TEAM_SITE");
         var action = existing is null ? "Create" : existing.EffectiveTo == to ? "NoChange" : "Update";
         if (existing is not null && action == "Update") await EnsureTeamSiteDependenciesAsync(existing, site.TargetId, from.Value, to, ct);
@@ -234,9 +237,10 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
             if (await HasTeamSiteAsync(membership.TeamId, site.SiteCode, site.TargetId, from.Value, to, p, ct)) { hasTeam = true; break; }
         if (!hasTeam) throw new InvalidOperationException("EMPLOYMENT_SITE_WITHOUT_TEAM_SITE_COVERAGE");
         var existing = site.TargetId.HasValue ? await db.EmploymentDeploymentSiteAssignments.SingleOrDefaultAsync(x => x.EmploymentId == employment.EmploymentId && x.DeploymentSiteId == site.TargetId.Value && x.EffectiveFrom == from, ct) : null;
-        if (site.TargetId.HasValue && (await db.EmploymentDeploymentSiteAssignments.Where(x => x.EmploymentId == employment.EmploymentId && x.DeploymentSiteId == site.TargetId.Value && x.EmploymentDeploymentSiteAssignmentId != (existing?.EmploymentDeploymentSiteAssignmentId ?? 0)).ToListAsync(ct)).Any(x => !p.Shadows("EmploymentSite", x.EmploymentDeploymentSiteAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
+        var existingEmploymentSiteId = existing?.EmploymentDeploymentSiteAssignmentId ?? 0;
+        if (site.TargetId.HasValue && (await db.EmploymentDeploymentSiteAssignments.Where(x => x.EmploymentId == employment.EmploymentId && x.DeploymentSiteId == site.TargetId.Value && x.EmploymentDeploymentSiteAssignmentId != existingEmploymentSiteId).ToListAsync(ct)).Any(x => !p.Shadows("EmploymentSite", x.EmploymentDeploymentSiteAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
             || p.Any("EmploymentSite", x => Same(x.Values["EmployeeNo"], employeeNo) && Same(x.Values["SiteCode"], siteCode) && Overlap(from.Value, to, x))) throw new InvalidOperationException("OVERLAPPING_EMPLOYMENT_SITE");
-        if (primary && ((await db.EmploymentDeploymentSiteAssignments.Where(x => x.EmploymentId == employment.EmploymentId && x.IsPrimary && x.EmploymentDeploymentSiteAssignmentId != (existing?.EmploymentDeploymentSiteAssignmentId ?? 0)).ToListAsync(ct)).Any(x => !p.Shadows("EmploymentSite", x.EmploymentDeploymentSiteAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
+        if (primary && ((await db.EmploymentDeploymentSiteAssignments.Where(x => x.EmploymentId == employment.EmploymentId && x.IsPrimary && x.EmploymentDeploymentSiteAssignmentId != existingEmploymentSiteId).ToListAsync(ct)).Any(x => !p.Shadows("EmploymentSite", x.EmploymentDeploymentSiteAssignmentId) && V180MasterDataValidationService.Overlaps(from.Value, to, x.EffectiveFrom, x.EffectiveTo))
             || p.Any("EmploymentSite", x => Same(x.Values["EmployeeNo"], employeeNo) && IsTrue(x.Values["IsPrimary"]) && Overlap(from.Value, to, x)))) throw new InvalidOperationException("MULTIPLE_PRIMARY_EMPLOYMENT_SITE");
         var action = existing is null ? "Create" : existing.IsPrimary == primary && existing.EffectiveTo == to ? "NoChange" : "Update";
         return Valid(row, "EmploymentSite", action, $"{employeeNo}|{siteCode}|{from:yyyy-MM-dd}", new { EmployeeNo = employeeNo, SiteCode = siteCode, IsPrimary = primary, EffectiveFrom = from, EffectiveTo = to, TargetId = existing?.EmploymentDeploymentSiteAssignmentId, ExpectedRowVersion = Version(existing?.RowVersion) }, existing?.EmploymentDeploymentSiteAssignmentId);
@@ -244,7 +248,7 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
 
     private async Task<ProjectedCenter?> ResolveCenterAsync(string code, Projection p, CancellationToken ct)
     {
-        var staged = p.First("Center", "CenterCode", code); if (staged is not null) return new(code, staged.TargetId, Date(staged.Values, "EffectiveFrom")!.Value, Date(staged.Values, "EffectiveTo"));
+        var staged = p.First("Center", "CenterCode", code); if (staged is not null) return new(code, IntTargetId(staged.TargetId), Date(staged.Values, "EffectiveFrom")!.Value, Date(staged.Values, "EffectiveTo"));
         var row = await db.Centers.SingleOrDefaultAsync(x => x.OrganizationId == p.OrgId && x.CenterCode == code, ct);
         return row is null ? null : new(row.CenterCode, row.CenterId, row.EffectiveFrom, row.EffectiveTo);
     }
@@ -255,7 +259,7 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
         if (staged is not null)
         {
             var center = await ResolveCenterAsync(staged.Values["CenterCode"]!, p, ct); if (center is null) return null;
-            return new(code, staged.TargetId, staged.Values["CenterCode"]!, center.TargetId, Blank(staged.Values["LocationCode"]), Date(staged.Values, "EffectiveFrom")!.Value, Date(staged.Values, "EffectiveTo"), IsTrue(staged.Values["IsActive"]));
+            return new(code, IntTargetId(staged.TargetId), staged.Values["CenterCode"]!, center.TargetId, Blank(staged.Values["LocationCode"]), Date(staged.Values, "EffectiveFrom")!.Value, Date(staged.Values, "EffectiveTo"), IsTrue(staged.Values["IsActive"]));
         }
         var rows = await (from s in db.DeploymentSites join c in db.Centers on s.CenterId equals c.CenterId where c.OrganizationId == p.OrgId && s.SiteCode == code select s).ToListAsync(ct);
         if (rows.Count > 1) throw new InvalidOperationException("AMBIGUOUS_SITE_CODE");
@@ -416,6 +420,7 @@ public sealed class V180MasterDataBulkWorkbookService(AppDbContext db) : IV180Ma
     private static bool Overlap(DateOnly from, DateOnly? to, StagedRow row) => V180MasterDataValidationService.Overlaps(from, to, Date(row.Values, "EffectiveFrom")!.Value, Date(row.Values, "EffectiveTo"));
     private static bool Covers(DateOnly from, DateOnly? to, DateOnly requiredFrom, DateOnly? requiredTo) => V180MasterDataValidationService.Covers(from, to, requiredFrom, requiredTo);
     private static string? Version(byte[]? value) => value is { Length: > 0 } ? Convert.ToBase64String(value) : null;
+    private static int? IntTargetId(long? targetId) => targetId.HasValue ? checked((int)targetId.Value) : null;
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string EntityType(string sheet) => sheet switch { "Centers" => "Center", "TeamCenters" => "TeamCenter", "DeploymentSites" => "DeploymentSite", "TeamSites" => "TeamSite", "EmploymentSites" => "EmploymentSite", _ => sheet };
     private static string DisplayKey(string sheet, WorkbookRow row) => DuplicateKey(sheet, row.Values);
