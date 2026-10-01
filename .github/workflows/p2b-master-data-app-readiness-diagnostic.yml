@@ -167,6 +167,25 @@ jobs:
           ]
           print("APPROVED_MANAGED_LOCATIONS=" + json.dumps(managed_rows, ensure_ascii=False, sort_keys=True))
 
+          target_sites = call(
+              "GET",
+              "/api/v1/managed-locations/search?q=%E5%93%A1%E6%9E%97&teamId=7&isActive=true&page=1&pageSize=20",
+              token=admin_token,
+              role="admin")
+          target_site_rows = [
+              {
+                  "locationId": x.get("locationId"),
+                  "locationCode": x.get("locationCode"),
+                  "locationName": x.get("locationName"),
+                  "teamId": x.get("teamId"),
+                  "teamName": x.get("teamName"),
+                  "approvalStatus": x.get("approvalStatus"),
+                  "isActive": x.get("isActive")
+              }
+              for x in target_sites.get("items", [])
+          ]
+          print("TEAM_003_SITE_CANDIDATES=" + json.dumps(target_site_rows, ensure_ascii=False, sort_keys=True))
+
           locations = call("GET", "/api/v1/locations", token=visitor_token, role="visitor")
           usable = [
               {
