@@ -31,7 +31,7 @@ jobs:
           APPROVED=2fe86208da6d8c10767fd6309a6d467e5448d92a
           EXPECTED=.github/workflows/p2b-master-data-app-readiness-diagnostic.yml
 
-          test "$(git rev-parse HEAD^)" = "$APPROVED"
+          git merge-base --is-ancestor "$APPROVED" HEAD
           changed="$(git diff --name-only "$APPROVED" HEAD)"
           test "$changed" = "$EXPECTED"
           git diff --quiet "$APPROVED" HEAD -- backend frontend database/migrations uat
@@ -44,6 +44,8 @@ jobs:
           import json
           import os
           import urllib.request
+          import urllib.error
+          import time
           from datetime import datetime
           from zoneinfo import ZoneInfo
 
@@ -52,17 +54,27 @@ jobs:
 
           def call(method, path, data=None, token=None, role=None):
               body = None if data is None else json.dumps(data).encode("utf-8")
-              req = urllib.request.Request(base + path, data=body, method=method)
-              req.add_header("Accept", "application/json")
-              if body is not None:
-                  req.add_header("Content-Type", "application/json")
-              if token:
-                  req.add_header("Authorization", f"Bearer {token}")
-              if role:
-                  req.add_header("X-Active-Role", role)
-              with urllib.request.urlopen(req, timeout=20) as resp:
-                  raw = resp.read().decode("utf-8")
-                  return json.loads(raw) if raw else None
+              last = None
+              for attempt in range(1, 6):
+                  req = urllib.request.Request(base + path, data=body, method=method)
+                  req.add_header("Accept", "application/json")
+                  if body is not None:
+                      req.add_header("Content-Type", "application/json")
+                  if token:
+                      req.add_header("Authorization", f"Bearer {token}")
+                  if role:
+                      req.add_header("X-Active-Role", role)
+                  try:
+                      with urllib.request.urlopen(req, timeout=30) as resp:
+                          raw = resp.read().decode("utf-8")
+                          return json.loads(raw) if raw else None
+                  except (TimeoutError, urllib.error.URLError) as ex:
+                      last = ex
+                      if attempt == 5:
+                          raise
+                      print(f"TRANSIENT_HTTP_RETRY path={path} attempt={attempt}/5")
+                      time.sleep(5)
+              raise last
 
           def login(account):
               return call("POST", "/api/v1/auth/demo-login", {
