@@ -1,0 +1,114 @@
+name: P2B ADM-02 isolated reorder proof
+
+on:
+  push:
+    branches:
+      - ops/p2b-adm02-isolated-reorder-c1-2fe86208
+    paths:
+      - ".github/workflows/p2b-adm02-isolated-reorder.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  adm02:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce authoritative parent and workflow-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPROVED=2fe86208da6d8c10767fd6309a6d467e5448d92a
+          EXPECTED=.github/workflows/p2b-adm02-isolated-reorder.yml
+          test "$(git rev-parse HEAD^)" = "$APPROVED"
+          test "$(git diff --name-only "$APPROVED" HEAD)" = "$EXPECTED"
+          git diff --quiet "$APPROVED" HEAD -- backend frontend database/migrations uat
+
+      - name: Execute isolated Visit Type reorder with guaranteed deactivation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          login="$(curl --silent --show-error --fail             -H 'Content-Type: application/json'             -d "{\"account\":\"pilota01\",\"password\":\"$UAT_DEMO_PASSWORD\"}"             "$API/api/v1/auth/demo-login")"
+          token="$(printf '%s' "$login" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
+          H=(-H "Authorization: Bearer $token" -H 'X-Active-Role: admin' -H 'Content-Type: application/json')
+
+          baseline="$(curl --silent --show-error --fail "${H[@]}" "$API/api/v1/visit-types")"
+          printf '%s' "$baseline" > /tmp/baseline.json
+          max_sort="$(printf '%s' "$baseline" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(max([x["sortOrder"] for x in d] or [0]))')"
+          base=$((max_sort + 100))
+          stamp="UAT-AUTO-ADM02-${GITHUB_RUN_ID}"
+          code_a="${stamp}-A"
+          code_b="${stamp}-B"
+          id_a=""
+          id_b=""
+
+          cleanup() {
+            set +e
+            if [ -n "$id_a" ]; then curl --silent --show-error "${H[@]}" -X DELETE "$API/api/v1/visit-types/$id_a" >/dev/null; fi
+            if [ -n "$id_b" ]; then curl --silent --show-error "${H[@]}" -X DELETE "$API/api/v1/visit-types/$id_b" >/dev/null; fi
+          }
+          trap cleanup EXIT
+
+          create_a="$(curl --silent --show-error --fail "${H[@]}"             -d "{\"visitTypeCode\":\"$code_a\",\"visitTypeName\":\"$code_a\",\"description\":\"ADM-02 isolated reorder A\",\"sortOrder\":$base,\"isActive\":true}"             "$API/api/v1/visit-types")"
+          id_a="$(printf '%s' "$create_a" | python3 -c 'import json,sys; print(json.load(sys.stdin)["visitTypeId"])')"
+
+          create_b="$(curl --silent --show-error --fail "${H[@]}"             -d "{\"visitTypeCode\":\"$code_b\",\"visitTypeName\":\"$code_b\",\"description\":\"ADM-02 isolated reorder B\",\"sortOrder\":$((base+10)),\"isActive\":true}"             "$API/api/v1/visit-types")"
+          id_b="$(printf '%s' "$create_b" | python3 -c 'import json,sys; print(json.load(sys.stdin)["visitTypeId"])')"
+
+          # Use an unused temporary sort value, then swap only the two UAT-AUTO rows.
+          curl --silent --show-error --fail "${H[@]}" -X PUT             -d "{\"visitTypeCode\":\"$code_a\",\"visitTypeName\":\"$code_a-EDITED\",\"description\":\"ADM-02 isolated reorder A\",\"sortOrder\":$((base+20)),\"isActive\":true}"             "$API/api/v1/visit-types/$id_a" >/dev/null
+          curl --silent --show-error --fail "${H[@]}" -X PUT             -d "{\"visitTypeCode\":\"$code_b\",\"visitTypeName\":\"$code_b-EDITED\",\"description\":\"ADM-02 isolated reorder B\",\"sortOrder\":$base,\"isActive\":true}"             "$API/api/v1/visit-types/$id_b" >/dev/null
+          curl --silent --show-error --fail "${H[@]}" -X PUT             -d "{\"visitTypeCode\":\"$code_a\",\"visitTypeName\":\"$code_a-EDITED\",\"description\":\"ADM-02 isolated reorder A\",\"sortOrder\":$((base+10)),\"isActive\":true}"             "$API/api/v1/visit-types/$id_a" >/dev/null
+
+          after="$(curl --silent --show-error --fail "${H[@]}" "$API/api/v1/visit-types")"
+          printf '%s' "$after" > /tmp/after.json
+
+          python3 - <<'PY'
+          import json
+          baseline=json.load(open('/tmp/baseline.json'))
+          after=json.load(open('/tmp/after.json'))
+          b={x['visitTypeId']:x for x in baseline}
+          a={x['visitTypeId']:x for x in after}
+          for vid,row in b.items():
+              cur=a.get(vid)
+              if cur != row:
+                  raise SystemExit(f'BASELINE_VISIT_TYPE_CHANGED:{vid}: before={row} after={cur}')
+          print('BASELINE_VISIT_TYPES_UNCHANGED=PASS')
+          PY
+
+          python3 - "$id_a" "$id_b" "$base" <<'PY'
+          import json,sys
+          a=json.load(open('/tmp/after.json'))
+          rows={x['visitTypeId']:x for x in a}
+          ida,idb,base=int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[3])
+          assert rows[ida]['sortOrder']==base+10
+          assert rows[idb]['sortOrder']==base
+          assert rows[ida]['isActive'] is True
+          assert rows[idb]['isActive'] is True
+          print('ADM02_ISOLATED_REORDER=PASS')
+          PY
+
+          curl --silent --show-error --fail "${H[@]}" -X DELETE "$API/api/v1/visit-types/$id_a" >/dev/null
+          curl --silent --show-error --fail "${H[@]}" -X DELETE "$API/api/v1/visit-types/$id_b" >/dev/null
+
+          final="$(curl --silent --show-error --fail "${H[@]}" "$API/api/v1/visit-types")"
+          printf '%s' "$final" > /tmp/final.json
+          python3 - "$id_a" "$id_b" <<'PY'
+          import json,sys
+          rows={x['visitTypeId']:x for x in json.load(open('/tmp/final.json'))}
+          for vid in map(int,sys.argv[1:]):
+              assert rows[vid]['isActive'] is False
+          print('ADM02_CLEANUP_SOFT_DEACTIVATE=PASS')
+          PY
+
+          id_a=""
+          id_b=""
