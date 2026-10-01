@@ -78,28 +78,8 @@ jobs:
             local id="$1"
             local purpose="$2"
             local job="${3:-}"
-            local payload
 
-            if [ -n "$job" ]; then
-              payload="$(python3 - "$id" "$purpose" "$job" <<'PY'
-import json,sys
-print(json.dumps({
-    "visitTripId": int(sys.argv[1]),
-    "expectedPurpose": sys.argv[2],
-    "backgroundJobId": sys.argv[3]
-}))
-PY
-)"
-            else
-              payload="$(python3 - "$id" "$purpose" <<'PY'
-import json,sys
-print(json.dumps({
-    "visitTripId": int(sys.argv[1]),
-    "expectedPurpose": sys.argv[2]
-}))
-PY
-)"
-            fi
+            payload="$(python3 -c 'import json,sys; d={"visitTripId":int(sys.argv[1]),"expectedPurpose":sys.argv[2]}; job=sys.argv[3] if len(sys.argv)>3 else ""; d.update({"backgroundJobId":job}) if job else None; print(json.dumps(d))' "$id" "$purpose" "$job")"
 
             response="$(curl --silent --show-error --fail \
               -H "Authorization: Bearer $admin_token" \
@@ -111,25 +91,7 @@ PY
 
             printf '%s' "$response" > "/tmp/cleanup-$id.json"
 
-            python3 - "$id" "${job:-}" "/tmp/cleanup-$id.json" <<'PY'
-import json,sys
-trip = int(sys.argv[1])
-job = sys.argv[2]
-path = sys.argv[3]
-d = json.load(open(path, encoding="utf-8"))
-
-assert d["visitTripId"] == trip, d
-assert d["tripsDeleted"] == 1, d
-if job:
-    assert d["backgroundJobsDeleted"] == 1, d
-
-print(
-    f"RUN17_CLEANUP|{trip}|PASS|"
-    f"jobsDeleted={d['backgroundJobsDeleted']}|"
-    f"snapshotsDeleted={d['snapshotsDeleted']}|"
-    f"correctionsDeleted={d['correctionRequestsDeleted']}"
-)
-PY
+            python3 -c 'import json,sys; trip=int(sys.argv[1]); job=sys.argv[2]; d=json.load(open(sys.argv[3],encoding="utf-8")); assert d["visitTripId"]==trip,d; assert d["tripsDeleted"]==1,d; assert (not job) or d["backgroundJobsDeleted"]==1,d; print("RUN17_CLEANUP|{}|PASS|jobsDeleted={}|snapshotsDeleted={}|correctionsDeleted={}".format(trip,d["backgroundJobsDeleted"],d["snapshotsDeleted"],d["correctionRequestsDeleted"]))' "$id" "$job" "/tmp/cleanup-$id.json"
 
             trip_code="$(curl --silent \
               --output "/tmp/trip-$id.json" \
