@@ -9,6 +9,12 @@ public sealed record V180TeamSiteInput(string TeamCode, string SiteCode, DateOnl
 public sealed record V180EmploymentSiteInput(string EmployeeNo, string SiteCode, bool IsPrimary, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? RowVersion = null);
 public sealed record V180MasterDataRow(long Id, string Key, string? ParentKey, string? Detail, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool? IsActive, bool? IsPrimary, string? RowVersion);
 
+public interface IV180MasterDataBulkWorkbookService
+{
+    Task<ReportExportContext> CreateTemplateAsync(CurrentUserDto admin, CancellationToken ct);
+    Task<ImportPreviewDto> PreviewAsync(CurrentUserDto admin, byte[] content, CancellationToken ct);
+}
+
 public interface IV180MasterDataAdminRepository
 {
     Task<V180MasterDataReadinessDto> GetReadinessAsync(CurrentUserDto admin, CancellationToken ct);

@@ -9,6 +9,25 @@ namespace FieldVisit.Api.Controllers;
 [Route("api/v1/admin/master-data")]
 public sealed class V180MasterDataAdminController(V180MasterDataAdminService service) : ControllerBase
 {
+    [HttpGet("bulk/template.xlsx")]
+    public async Task<IActionResult> BulkTemplate(CancellationToken ct)
+    {
+        var file = await service.CreateBulkTemplateAsync(ct);
+        return File(file.Content, file.ContentType, file.FileName);
+    }
+
+    [HttpPost("bulk/preview")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ImportPreviewDto> PreviewBulk(IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0) throw new InvalidOperationException("BULK_WORKBOOK_REQUIRED");
+        if (file.Length > 10 * 1024 * 1024) throw new InvalidOperationException("BULK_WORKBOOK_TOO_LARGE");
+        if (!string.Equals(Path.GetExtension(file.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("BULK_XLSX_REQUIRED");
+        await using var stream = file.OpenReadStream();
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory, ct);
+        return await service.PreviewBulkAsync(memory.ToArray(), ct);
+    }
     [HttpGet("readiness")] public Task<V180MasterDataReadinessDto> Readiness(CancellationToken ct)=>service.ReadinessAsync(ct);
     [HttpGet("{kind}")] public Task<IReadOnlyList<V180MasterDataRow>> List(string kind,CancellationToken ct)=>service.ListAsync(kind,ct);
     [HttpPost("employment-status")] public Task<V180MasterDataRow> CreateEmploymentStatus(V180EmploymentStatusInput x,CancellationToken ct)=>service.SaveEmploymentStatusAsync(null,x,ct);
