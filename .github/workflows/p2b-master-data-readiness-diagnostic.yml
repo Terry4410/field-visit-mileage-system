@@ -1,0 +1,84 @@
+name: P2B master-data readiness diagnostic
+
+on:
+  push:
+    branches:
+      - ops/p2b-master-data-readiness-2fe86208
+    paths:
+      - ".github/workflows/p2b-master-data-readiness-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
+    steps:
+      - name: Checkout exact diagnostic source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce authoritative parent and diagnostic-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPROVED=2fe86208da6d8c10767fd6309a6d467e5448d92a
+          EXPECTED=.github/workflows/p2b-master-data-readiness-diagnostic.yml
+          test "$(git rev-parse HEAD^)" = "$APPROVED"
+          test "$(git diff --name-only "$APPROVED" HEAD)" = "$EXPECTED"
+          git diff --quiet "$APPROVED" HEAD -- backend frontend database/migrations uat
+
+      - name: Read deployed master-data readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          login() {
+            local account="$1"
+            curl --silent --show-error --fail               -H 'Content-Type: application/json'               -d "{\"account\":\"$account\",\"password\":\"$UAT_DEMO_PASSWORD\"}"               "$API/api/v1/auth/demo-login"
+          }
+
+          admin_json="$(login pilota01)"
+          visitor_json="$(login pilotv01)"
+
+          admin_token="$(printf '%s' "$admin_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
+          visitor_token="$(printf '%s' "$visitor_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
+
+          printf '%s' "$admin_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("ADMIN_USER="+json.dumps(d["user"],ensure_ascii=False,separators=(",",":")))'
+          printf '%s' "$visitor_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("VISITOR_USER="+json.dumps(d["user"],ensure_ascii=False,separators=(",",":")))'
+
+          get_admin() {
+            curl --silent --show-error --fail               -H "Authorization: Bearer $admin_token"               -H 'X-Active-Role: admin'               "$1"
+          }
+
+          get_visitor() {
+            curl --silent --show-error --fail               -H "Authorization: Bearer $visitor_token"               -H 'X-Active-Role: visitor'               "$1"
+          }
+
+          echo "READINESS=$(get_admin "$API/api/v1/admin/master-data/readiness")"
+
+          for kind in employment-status centers team-centers deployment-sites team-sites employment-sites; do
+            echo "MASTER_DATA_$kind=$(get_admin "$API/api/v1/admin/master-data/$kind")"
+          done
+
+          echo "TEAMS=$(get_admin "$API/api/v1/teams")"
+          echo "LOCATIONS=$(get_admin "$API/api/v1/locations")"
+          echo "RATES=$(get_visitor "$API/api/v1/mileage-rate-rules")"
+
+          visitor_team_id="$(printf '%s' "$visitor_json" | python3 -c '
+          import json,sys
+          u=json.load(sys.stdin)["user"]
+          scopes=u.get("teamScopes") or []
+          primary=next((x.get("teamId") for x in scopes if x.get("isPrimary")),None)
+          print(primary or (u.get("teamId") if not scopes else "") or "")
+          ')"
+
+          if [ -n "$visitor_team_id" ]; then
+            today="$(TZ=Asia/Taipei date +%F)"
+            echo "TRIP_CONTEXT=$(get_visitor "$API/api/v1/trips/context?visitDate=$today&teamId=$visitor_team_id")"
+          fi
