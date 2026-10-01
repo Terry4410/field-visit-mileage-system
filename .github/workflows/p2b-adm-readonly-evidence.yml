@@ -1,0 +1,49 @@
+name: P2B ADM read-only evidence
+
+on:
+  push:
+    branches:
+      - ops/p2b-adm-readonly-evidence-2fe86208
+    paths:
+      - ".github/workflows/p2b-adm-readonly-evidence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce authoritative parent and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPROVED=2fe86208da6d8c10767fd6309a6d467e5448d92a
+          EXPECTED=.github/workflows/p2b-adm-readonly-evidence.yml
+          test "$(git rev-parse HEAD^)" = "$APPROVED"
+          test "$(git diff --name-only "$APPROVED" HEAD)" = "$EXPECTED"
+          git diff --quiet "$APPROVED" HEAD -- backend frontend database/migrations uat
+
+      - name: Read ADM-02 and ADM-05 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          admin_json="$(curl --silent --show-error --fail             -H 'Content-Type: application/json'             -d "{\"account\":\"pilota01\",\"password\":\"$UAT_DEMO_PASSWORD\"}"             "$API/api/v1/auth/demo-login")"
+          admin_token="$(printf '%s' "$admin_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
+
+          get_admin() {
+            curl --silent --show-error --fail               -H "Authorization: Bearer $admin_token"               -H 'X-Active-Role: admin'               "$1"
+          }
+
+          echo "VISIT_TYPES=$(get_admin "$API/api/v1/visit-types")"
+          echo "RATE_IMPACT=$(get_admin "$API/api/v1/mileage-rate-rules/impact?effectiveFrom=2026-01-01&vehicleType=MOTORCYCLE")"
+          echo "RATES=$(get_admin "$API/api/v1/mileage-rate-rules")"
