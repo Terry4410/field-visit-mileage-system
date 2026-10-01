@@ -6,6 +6,7 @@ on:
       - uat/p2b-pilotv01-master-data-enable-2fe86208
     paths:
       - ".github/workflows/p2b-pilotv01-master-data-enable.yml"
+      - "scripts/p2b_pilotv01_master_data_enable.py"
 
 permissions:
   contents: read
