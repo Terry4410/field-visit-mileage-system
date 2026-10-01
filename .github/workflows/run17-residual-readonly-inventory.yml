@@ -1,0 +1,139 @@
+name: Run17 residual read-only inventory
+
+on:
+  push:
+    branches:
+      - post-uat/v1.8.0
+    paths:
+      - ".github/workflows/run17-residual-readonly-inventory.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact inventory source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce authoritative parent and workflow-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPROVED=2fe86208da6d8c10767fd6309a6d467e5448d92a
+          EXPECTED=.github/workflows/run17-residual-readonly-inventory.yml
+          test "$(git rev-parse HEAD^)" = "$APPROVED"
+          test "$(git diff --name-only "$APPROVED" HEAD)" = "$EXPECTED"
+          git diff --quiet "$APPROVED" HEAD -- backend frontend database/migrations uat
+
+      - name: Validate fixed UAT SQL target
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$AZURE_SQL_SERVER_NAME" == "sql-fieldvisit-jpe-uat" ]] || exit 1
+          [[ "$AZURE_SQL_DATABASE" == "db-fieldvisit-uat" ]] || exit 1
+
+      - name: Install pinned SQL Server module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force
+
+      - name: Sign in to Azure with UAT read-only identity
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Inventory exact Run17 residual scope
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $accessToken = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) { throw 'Unable to obtain Azure SQL access token.' }
+          Write-Output "::add-mask::$accessToken"
+
+          function Invoke-ReadOnly([string] $Query) {
+            return @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $Query)
+          }
+
+          $db = @(Invoke-ReadOnly "SELECT DB_NAME() AS DatabaseName;")
+          if ($db.Count -ne 1 -or [string]$db[0].DatabaseName -ne 'db-fieldvisit-uat') { throw 'Unexpected database.' }
+          Write-Output "DATABASE=$($db[0].DatabaseName)"
+
+          $trips = @(Invoke-ReadOnly @'
+          SELECT VisitTripId, TripNo, Status, Purpose, UserId, OrganizationId, TeamId, VisitDate, CreatedAt, UpdatedAt
+          FROM dbo.VisitTrips
+          WHERE VisitTripId BETWEEN 96 AND 103
+          ORDER BY VisitTripId;
+          '@)
+          Write-Output "RUN17_TRIP_COUNT=$($trips.Count)"
+          foreach ($row in $trips) {
+            $purpose = ([string]$row.Purpose).Replace('|','/')
+            Write-Output ("RUN17_TRIP|{0}|{1}|{2}|{3}|{4}|{5}|{6}" -f $row.VisitTripId,$row.TripNo,$row.Status,$purpose,$row.UserId,$row.OrganizationId,$row.TeamId)
+          }
+
+          $jobs = @(Invoke-ReadOnly @'
+          SELECT bj.BackgroundJobId, bj.Status AS JobStatus, bj.JobType, bj.Mode, bj.OrganizationId,
+                 bj.RequestedByUserId, bj.TotalCount, bj.SuccessCount, bj.FailedCount, bj.SkippedCount,
+                 bj.CreatedAt, bj.StartedAt, bj.CompletedAt,
+                 TRY_CONVERT(bigint, j.[value]) AS VisitTripId,
+                 JSON_QUERY(bj.PayloadJson, '$.selectedTripIds') AS SelectedTripIdsJson,
+                 CASE WHEN JSON_QUERY(bj.PayloadJson, '$.selectedTripIds') IS NOT NULL
+                       AND (SELECT COUNT(*) FROM OPENJSON(bj.PayloadJson, '$.selectedTripIds')) = 1
+                      THEN 1 ELSE 0 END AS IsSingleTripPayload
+          FROM dbo.BackgroundJobs bj
+          CROSS APPLY OPENJSON(bj.PayloadJson, '$.selectedTripIds') j
+          WHERE bj.JobType = N'Mileage'
+            AND bj.Mode = N'Selected'
+            AND ISJSON(bj.PayloadJson) = 1
+            AND TRY_CONVERT(bigint, j.[value]) BETWEEN 96 AND 103
+          ORDER BY VisitTripId, bj.CreatedAt;
+          '@)
+          Write-Output "RUN17_JOB_MAPPING_COUNT=$($jobs.Count)"
+          foreach ($row in $jobs) {
+            Write-Output ("RUN17_JOB|{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}" -f $row.VisitTripId,$row.BackgroundJobId,$row.JobStatus,$row.JobType,$row.Mode,$row.IsSingleTripPayload,$row.TotalCount,$row.SuccessCount,$row.FailedCount)
+          }
+
+          $items = @(Invoke-ReadOnly @'
+          SELECT BackgroundJobId, BackgroundJobItemId, EntityType, EntityId, Status, ErrorCode, ErrorMessage, CreatedAt, StartedAt, CompletedAt
+          FROM dbo.BackgroundJobItems
+          WHERE EntityType = N'VisitTrip'
+            AND TRY_CONVERT(bigint, EntityId) BETWEEN 96 AND 103
+          ORDER BY TRY_CONVERT(bigint, EntityId), BackgroundJobItemId;
+          '@)
+          Write-Output "RUN17_JOB_ITEM_COUNT=$($items.Count)"
+          foreach ($row in $items) {
+            $err = ([string]$row.ErrorCode).Replace('|','/')
+            Write-Output ("RUN17_JOB_ITEM|{0}|{1}|{2}|{3}|{4}" -f $row.EntityId,$row.BackgroundJobId,$row.BackgroundJobItemId,$row.Status,$err)
+          }
+
+          $loc = @(Invoke-ReadOnly @'
+          SELECT LocationId, LocationName, IsTemporary, ApprovalStatus, GeocodingStatus, IsActive
+          FROM dbo.Locations
+          WHERE LocationId = 425;
+          '@)
+          Write-Output "LOCATION425_COUNT=$($loc.Count)"
+          foreach ($row in $loc) {
+            Write-Output ("LOCATION425|{0}|{1}|{2}|{3}|{4}|{5}" -f $row.LocationId,([string]$row.LocationName).Replace("|","/"),$row.IsTemporary,$row.ApprovalStatus,$row.GeocodingStatus,$row.IsActive)
+          }
+
+      - name: Sign out of Azure
+        if: always()
+        shell: bash
+        run: az logout || true
