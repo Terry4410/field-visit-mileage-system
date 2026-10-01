@@ -128,6 +128,45 @@ jobs:
           teams = call("GET", "/api/v1/teams", token=admin_token, role="admin")
           print("TEAMS=" + json.dumps(teams, ensure_ascii=False, sort_keys=True))
 
+          people = call(
+              "GET",
+              "/api/v1/admin/people?userType=Internal&role=visitor&page=1&pageSize=100&sort=code_asc",
+              token=admin_token,
+              role="admin")
+          people_rows = [
+              {
+                  "userId": x.get("userId"),
+                  "employeeNo": x.get("employeeNo"),
+                  "displayName": x.get("displayName"),
+                  "primaryTeamId": x.get("primaryTeamId"),
+                  "primaryTeamName": x.get("primaryTeamName"),
+                  "teamAssignments": x.get("teamAssignments"),
+                  "roles": x.get("roles")
+              }
+              for x in people.get("items", [])
+          ]
+          print("TARGET_VISITORS=" + json.dumps(people_rows, ensure_ascii=False, sort_keys=True))
+
+          managed = call(
+              "GET",
+              "/api/v1/managed-locations/search?isActive=true&page=1&pageSize=100",
+              token=admin_token,
+              role="admin")
+          managed_rows = [
+              {
+                  "locationId": x.get("locationId"),
+                  "locationCode": x.get("locationCode"),
+                  "locationName": x.get("locationName"),
+                  "teamId": x.get("teamId"),
+                  "teamName": x.get("teamName"),
+                  "approvalStatus": x.get("approvalStatus"),
+                  "isActive": x.get("isActive")
+              }
+              for x in managed.get("items", [])
+              if x.get("isActive") is True and x.get("approvalStatus") == "Approved"
+          ]
+          print("APPROVED_MANAGED_LOCATIONS=" + json.dumps(managed_rows, ensure_ascii=False, sort_keys=True))
+
           locations = call("GET", "/api/v1/locations", token=visitor_token, role="visitor")
           usable = [
               {
