@@ -69,6 +69,8 @@ jobs:
           echo "TEAMS=$(get_admin "$API/api/v1/teams")"
           echo "LOCATIONS=$(get_admin "$API/api/v1/locations")"
           echo "RATES=$(get_visitor "$API/api/v1/mileage-rate-rules")"
+          echo "VISIT_TYPES=$(get_admin "$API/api/v1/visit-types")"
+          echo "RATE_IMPACT=$(get_admin "$API/api/v1/mileage-rate-rules/impact?effectiveFrom=2026-01-01&vehicleType=MOTORCYCLE")"
 
           visitor_team_id="$(printf '%s' "$visitor_json" | python3 -c '
           import json,sys
