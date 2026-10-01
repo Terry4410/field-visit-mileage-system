@@ -1,0 +1,139 @@
+name: P2B Master Data UAT controlled deploy
+
+on:
+  push:
+    branches:
+      - deploy/p2b-master-data-uat-2fe86208
+    paths:
+      - ".github/workflows/p2b-master-data-uat-deploy.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p2b-master-data-uat-controlled-deploy
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact deployment source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce exact authoritative application source
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPROVED=2fe86208da6d8c10767fd6309a6d467e5448d92a
+          EXPECTED_FILE=.github/workflows/p2b-master-data-uat-deploy.yml
+
+          test "$(git rev-parse HEAD^)" = "$APPROVED"
+
+          changed="$(git diff --name-only "$APPROVED" HEAD)"
+          test "$changed" = "$EXPECTED_FILE"
+
+          git diff --quiet "$APPROVED" HEAD -- backend frontend database/migrations uat
+
+          echo "APPROVED_APPLICATION_SHA=$APPROVED"
+          echo "DEPLOYMENT_HEAD_SHA=$(git rev-parse HEAD)"
+
+  backend-deploy:
+    needs: qualify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact deployment source
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Traditional Chinese PDF font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Restore API
+        run: dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj
+
+      - name: Restore tests
+        run: dotnet restore backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj
+
+      - name: Build API
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore
+
+      - name: Backend regression
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-restore
+
+      - name: Publish API
+        run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build -o ./publish
+
+      - name: Bundle Traditional Chinese PDF font
+        run: |
+          mkdir -p ./publish/fonts
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc ./publish/fonts/NotoSansCJK-Regular.ttc
+          test -s ./publish/fonts/NotoSansCJK-Regular.ttc
+
+      - name: Deploy Azure UAT
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./publish
+
+      - name: Verify backend readiness
+        shell: bash
+        env:
+          UAT_API_HEALTH_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health
+          UAT_API_READY_URL: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net/health/ready
+        run: |
+          set -euo pipefail
+
+          curl --silent --show-error --fail --max-time 20 "$UAT_API_HEALTH_URL"
+
+          consecutive=0
+          for attempt in $(seq 1 18); do
+            body="$(curl --silent --show-error --fail --max-time 15 "$UAT_API_READY_URL" || true)"
+            printf '%s\n' "$body"
+
+            if printf '%s' "$body" | python3 -c '
+          import json
+          import sys
+          try:
+              data = json.load(sys.stdin)
+          except Exception:
+              sys.exit(1)
+          sys.exit(0 if data.get("status") == "ready" else 1)
+          '
+            then
+              consecutive=$((consecutive + 1))
+            else
+              consecutive=0
+            fi
+
+            if [ "$consecutive" -ge 2 ]; then
+              echo "Backend readiness stabilized."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 18 ]; then
+              sleep 10
+            fi
+          done
+
+          echo "::error::Backend readiness did not stabilize."
+          exit 1
+
+  nondestructive-smoke:
+    name: UAT nondestructive smoke
+    needs: backend-deploy
+    uses: ./.github/workflows/uat-smoke.yml
+    with:
+      include_write_flow: false
+    secrets:
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
