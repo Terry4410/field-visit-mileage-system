@@ -60,7 +60,7 @@ public sealed class V180MasterDataAdminBulkImportTests
         var preview = await new V180MasterDataBulkWorkbookService(db).PreviewAsync(Admin(), Workbook(rows), default);
         Assert.Equal(new[] { "Create", "NoChange", "Update" }, preview.Items.Select(x => x.Action).ToArray());
         var update = db.ImportBatchItems.Single(x => x.DisplayKey == "UPDATE");
-        Assert.Contains("ExpectedRowVersion", update.DataJson); Assert.Contains(Convert.ToBase64String([2]), update.DataJson);
+        Assert.Contains("expectedRowVersion", update.DataJson); Assert.Contains(Convert.ToBase64String([2]), update.DataJson);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public sealed class V180MasterDataAdminBulkImportTests
         await using var db = Db(); db.Centers.Add(new Center { CenterId = 7, OrganizationId = 1, CenterCode = "C01", CenterName = "Old", EffectiveFrom = new DateOnly(2020, 1, 1), IsActive = true, RowVersion = [7] }); await db.SaveChangesAsync();
         var rows = EmptyWorkbook(); rows["Centers"] = new[] { HeadersFor("Centers"), new[] { "C01", "New", "2020-01-01", "", "true" } };
         await Preview(db, rows);
-        var item = db.ImportBatchItems.Single(); Assert.Contains("TargetId\":7", item.DataJson); Assert.Contains(Convert.ToBase64String([7]), item.DataJson);
+        var item = db.ImportBatchItems.Single(); Assert.Contains("targetId\":7", item.DataJson); Assert.Contains(Convert.ToBase64String([7]), item.DataJson);
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public sealed class V180MasterDataAdminBulkImportTests
         await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
         var rows = EmptyWorkbook(); rows["DeploymentSites"] = new[] { HeadersFor("DeploymentSites"), new[] { "C01", "S01", "Changed", "L01", "2020-01-01", "", "true" } };
         await Preview(db, rows);
-        var item = db.ImportBatchItems.Single(); Assert.Contains("TargetId\":40", item.DataJson); Assert.Contains(Convert.ToBase64String([4]), item.DataJson);
+        var item = db.ImportBatchItems.Single(); Assert.Contains("targetId\":40", item.DataJson); Assert.Contains(Convert.ToBase64String([4]), item.DataJson);
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     [Fact]
     public async Task Deployment_site_update_requires_location_history_covering_proposed_period()
     {
-        await using var db = Db(); SeedExistingCoverage(db);
+        await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
         db.DeploymentSiteLocationAssignments.Single().EffectiveTo = new DateOnly(2025, 12, 31);
         await db.SaveChangesAsync();
         var rows = EmptyWorkbook(); rows["DeploymentSites"] = new[] { HeadersFor("DeploymentSites"), new[] { "C01", "S01", "Site", "L01", "2020-01-01", "", "true" } };
@@ -201,7 +201,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     [Fact]
     public async Task Employment_site_requires_effective_approved_active_location()
     {
-        await using var db = Db(); SeedExistingCoverage(db);
+        await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
         db.EmploymentDeploymentSiteAssignments.RemoveRange(db.EmploymentDeploymentSiteAssignments);
         db.Locations.Single(x => x.LocationCode == "L01").IsActive = false;
         await db.SaveChangesAsync();
@@ -213,7 +213,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     [Fact]
     public async Task Staged_employment_status_update_shadows_db_status_for_employment_site()
     {
-        await using var db = Db(); SeedExistingCoverage(db);
+        await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
         db.EmploymentDeploymentSiteAssignments.RemoveRange(db.EmploymentDeploymentSiteAssignments);
         await db.SaveChangesAsync();
         var rows = EmptyWorkbook();
@@ -227,7 +227,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     [Fact]
     public async Task Staged_team_center_update_shadows_db_coverage_for_team_site()
     {
-        await using var db = Db(); SeedExistingCoverage(db);
+        await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
         db.TeamDeploymentSiteAssignments.RemoveRange(db.TeamDeploymentSiteAssignments);
         db.EmploymentDeploymentSiteAssignments.RemoveRange(db.EmploymentDeploymentSiteAssignments);
         db.Centers.Add(new Center { CenterId = 31, OrganizationId = 1, CenterCode = "C02", CenterName = "Center 2", EffectiveFrom = new DateOnly(2020, 1, 1), IsActive = true });
@@ -243,7 +243,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     [Fact]
     public async Task Staged_team_site_update_shadows_db_coverage_for_employment_site()
     {
-        await using var db = Db(); SeedExistingCoverage(db);
+        await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
         db.EmploymentDeploymentSiteAssignments.RemoveRange(db.EmploymentDeploymentSiteAssignments);
         await db.SaveChangesAsync();
         var rows = EmptyWorkbook();
@@ -286,7 +286,7 @@ public sealed class V180MasterDataAdminBulkImportTests
     [Fact]
     public async Task Existing_site_db_team_site_coverage_satisfies_employment_site()
     {
-        await using var db = Db(); SeedExistingCoverage(db);
+        await using var db = Db(); SeedExistingCoverage(db); await db.SaveChangesAsync();
         db.EmploymentDeploymentSiteAssignments.RemoveRange(db.EmploymentDeploymentSiteAssignments);
         db.TeamCenterAssignments.RemoveRange(db.TeamCenterAssignments);
         await db.SaveChangesAsync();
