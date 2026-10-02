@@ -7,9 +7,9 @@ Status: **SOURCE IMPLEMENTED + VALIDATED / OWNER PRE-UAT RUNTIME NOT YET RELEASE
 - Repository: `Terry4410/field-visit-mileage-system`
 - Authoritative pre-change baseline: `post-uat/v1.8.0 @ c51e91c7c0e672f749271c6768bd169889d7164c`
 - Consolidated work branch: `work/v180-owner-preuat-consolidated`
-- Final validated candidate SHA: `aefb180afcac84fb00419382576944282e651ce9`
-- Candidate lineage vs baseline: **ahead 7 / behind 0**
-- Changed files vs baseline: **51**
+- Latest validated application SHA: `f15812111d2bca4289a33e535fd7f11d5accae3d` — Post-UAT Run `36972456821` / #57 **SUCCESS**
+- Latest validated migration-tooling SHA before this documentation-only handoff sync: `f6a0d603bb022ef066fb30115448fa6e01fbbccb` — Owner Pre-UAT Run `36972923304` / #11 **SUCCESS**
+- Consolidated lineage remains **pure forward / fast-forward only** from the original baseline; use the final promoted `post-uat/v1.8.0` HEAD as the release-source identifier.
 - UAT deployed application source before this package: `2fe86208da6d8c10767fd6309a6d467e5448d92a`
 - UAT schema before this package: `1.8.0-007`
 - Business User Access: **HOLD / NOT YET DISTRIBUTED**
@@ -30,18 +30,26 @@ and avoids parallel models.
 | `780ee0fd86a65695cbc61de2616e3738ea85b476` | Finalization | 1.8.0-008 migration package, Location merge operational-reference reconciliation, IT handoff |
 | `2dc1505f684ef37834805a97f4db50de3baf6393` | Governance correction | 1800_008 static gate + Post-UAT hook + runtime schema metadata 1.8.0-008 |
 | `aefb180afcac84fb00419382576944282e651ce9` | Documentation correction | Explicitly marks 1800_008 PREPARED ONLY / NOT EXECUTED |
+| `02a0cb665855da88ef992f70e0ea9d0d456f74a3` | IT handoff sync | Final pre-deployment evidence sync |
+| `01b01cd188b2d46a304ff4964d129d28a0f01413` | Test-only correction | Restores backend test compilation: xUnit imports + F-B fake repository interface parity |
+| `f15812111d2bca4289a33e535fd7f11d5accae3d` | UAT test-only correction | Aligns Epic A permission-modal locator with the completed 人事資料 / 權限 UI split |
+| `d15e8fd7f5576fc4c10fecf2aa83007af294335b` | Migration execution tooling | Adds controlled 1800_008 workflow + least-privilege Grant/Verify/Revoke tooling |
+| `f6a0d603bb022ef066fb30115448fa6e01fbbccb` | Migration tooling validator correction | Narrows the no-history-rewrite static guard so PowerShell module `-Force` is not misclassified |
 
 Owner Pre-UAT validation workflow:
 `.github/workflows/owner-preuat-v180-verify.yml`
 
-Final candidate validation:
-- Run `36970320261`: **SUCCESS**
-- authoritative ancestry gate: PASS
-- 1800_008 static fail-closed validation: PASS
-- frontend tests: PASS
-- frontend build: PASS
-- backend build: PASS
-- backend regression: PASS
+Deployment-stage validation evidence:
+- Original application package validation Run `36970320261`: **SUCCESS**
+- Backend test-compilation correction: Owner Pre-UAT Run `36971901133` / #8 **SUCCESS**
+- Permission-modal browser test correction: Owner Pre-UAT Run `36972375119` / #9 **SUCCESS**
+- Exact promoted application source `f15812111d2bca4289a33e535fd7f11d5accae3d`: Post-UAT Run `36972456821` / #57 **SUCCESS**
+  - migration/recovery/static gates: PASS
+  - frontend tests/build: PASS
+  - backend build/tests: PASS — 353 tests, 0 failed
+  - Epic A isolated browser regression: PASS
+- Controlled 1800_008 tooling `f6a0d603bb022ef066fb30115448fa6e01fbbccb`: Owner Pre-UAT Run `36972923304` / #11 **SUCCESS**
+- This handoff sync commit is documentation-only and must pass the same Owner/Post-UAT gates before it becomes the final promoted source.
 
 ## 3. PRE-UAT issue mapping
 
@@ -185,12 +193,21 @@ timeline are not destroyed.
 
 Before Owner tests the new package in UAT:
 
-Current source gate is satisfied at candidate `aefb180afcac84fb00419382576944282e651ce9`
-with Owner Pre-UAT Run `36970320261 = SUCCESS`.
+Application-source gate is satisfied at `f15812111d2bca4289a33e535fd7f11d5accae3d`
+with Post-UAT Run `36972456821 = SUCCESS`.
+Controlled migration-tooling gate is satisfied at `f6a0d603bb022ef066fb30115448fa6e01fbbccb`
+with Owner Pre-UAT Run `36972923304 = SUCCESS`.
 
-1. **Promote source** by fast-forward only after a separate promotion authorization.
-2. **Execute migration 1.8.0-008** under separate controlled authorization; verify schema becomes 1.8.0-008.
-3. **Deploy backend + frontend** from exact promoted SHA.
+Controlled 1800_008 artifacts:
+- `.github/workflows/azure-sql-uat-migration-1800-008.yml`
+- `database/migrations/security/uat/Grant-gh-fieldvisit-uat-migrate-1800_008.sql`
+- `database/migrations/security/uat/Verify-gh-fieldvisit-uat-migrate-1800_008.sql`
+- `database/migrations/security/uat/Revoke-gh-fieldvisit-uat-migrate-1800_008.sql`
+- `scripts/validate_uat_migration_1800_008.py`
+
+1. **Promote the final documentation/tooling lineage** by fast-forward only after its exact Owner Pre-UAT validation succeeds.
+2. **Execute migration 1.8.0-008** only through the controlled workflow after exact-SHA approval, least-privilege elevation, and the explicit `WRITE_QUIESCENCE_AND_RECOVERY_READY` gate; verify schema becomes 1.8.0-008 and STOP_FOR_REVIEW on drift/failure.
+3. **Deploy backend + frontend** from the exact final promoted SHA.
 4. Configure Azure UAT App Service settings:
    - `Providers__Route=Google`
    - `Providers__Geocoding=Google`
