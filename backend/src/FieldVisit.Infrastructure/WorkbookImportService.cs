@@ -146,7 +146,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         {
             try
             {
-                Location? locationForDuplicateRefresh = null;
+                FieldVisit.Domain.Entities.Location? locationForDuplicateRefresh = null;
                 if (item.Action == "NoChange") { unchanged++; item.Status = "Applied"; await db.SaveChangesAsync(ct); continue; }
                 if (item.EntityType == "Location")
                 {
@@ -156,7 +156,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                         var teamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
                         // Excel imports can never bypass the location lifecycle:
                         // new Locations always require geocoding and approval.
-                        locationForDuplicateRefresh = new Location
+                        locationForDuplicateRefresh = new FieldVisit.Domain.Entities.Location
                         {
                             OrganizationId = user.OrganizationId, TeamId = teamId, LocationCode = NewLocationCode(), LocationName = data.LocationName.Trim(),
                             LocationType = "Customer", City = data.City?.Trim(), District = data.District?.Trim(), Address = data.Address?.Trim(), PlusCode = data.PlusCode?.Trim(),
