@@ -37,4 +37,17 @@ public interface IV170LocationRepository
         CurrentUserDto user,
         V170LocationNearbySpec spec,
         CancellationToken ct);
+
+    Task<V170LocationMaintenanceDto> GetMaintenanceAsync(
+        CurrentUserDto user,int locationId,int? teamId,CancellationToken ct);
+    Task<V170LocationMaintenanceDto> UpdateMaintenanceAsync(
+        CurrentUserDto user,int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct);
+    Task<V170LocationMaintenanceDto> AddNoteAsync(
+        CurrentUserDto user,int locationId,V170LocationNoteRequest request,CancellationToken ct);
+    Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> GetDuplicateCandidatesAsync(
+        CurrentUserDto admin,int locationId,CancellationToken ct);
+    Task<V170LocationMergePreviewDto> PreviewMergeAsync(
+        CurrentUserDto admin,int sourceLocationId,int survivorLocationId,CancellationToken ct);
+    Task MergeAsync(
+        CurrentUserDto admin,int sourceLocationId,V170LocationMergeRequest request,CancellationToken ct);
 }

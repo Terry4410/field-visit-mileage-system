@@ -104,6 +104,39 @@ public sealed class V170LocationController(
                 ct));
     }
 
+    [HttpGet("{locationId:int}/maintenance")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public Task<V170LocationMaintenanceDto> Maintenance(int locationId,[FromQuery]int? teamId,CancellationToken ct)
+        => locations.GetMaintenanceAsync(locationId,teamId,ct);
+
+    [HttpPut("{locationId:int}/maintenance")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public Task<V170LocationMaintenanceDto> UpdateMaintenance(int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct)
+        => locations.UpdateMaintenanceAsync(locationId,request,ct);
+
+    [HttpPost("{locationId:int}/notes")]
+    [Authorize(Roles = "visitor,leader,admin")]
+    public Task<V170LocationMaintenanceDto> AddNote(int locationId,V170LocationNoteRequest request,CancellationToken ct)
+        => locations.AddNoteAsync(locationId,request,ct);
+
+    [HttpGet("{locationId:int}/duplicate-candidates")]
+    [Authorize(Roles = "admin")]
+    public Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> DuplicateCandidates(int locationId,CancellationToken ct)
+        => locations.GetDuplicateCandidatesAsync(locationId,ct);
+
+    [HttpGet("{locationId:int}/merge-preview")]
+    [Authorize(Roles = "admin")]
+    public Task<V170LocationMergePreviewDto> MergePreview(int locationId,[FromQuery]int survivorLocationId,CancellationToken ct)
+        => locations.PreviewMergeAsync(locationId,survivorLocationId,ct);
+
+    [HttpPost("{locationId:int}/merge")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> Merge(int locationId,V170LocationMergeRequest request,CancellationToken ct)
+    {
+        await locations.MergeAsync(locationId,request,ct);
+        return NoContent();
+    }
+
     [HttpGet("nearby")]
     [Authorize(Roles = "visitor,leader,admin")]
     public async Task<ActionResult<

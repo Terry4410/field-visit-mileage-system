@@ -13,6 +13,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<LocationApprovalHistory> LocationApprovalHistories => Set<LocationApprovalHistory>();
+    public DbSet<TeamLocationNote> TeamLocationNotes => Set<TeamLocationNote>();
+    public DbSet<TeamLocationNoteHistory> TeamLocationNoteHistories => Set<TeamLocationNoteHistory>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectLocation> ProjectLocations => Set<ProjectLocation>();
     public DbSet<VisitType> VisitTypes => Set<VisitType>();
@@ -73,11 +75,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.ToTable("Locations", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.LocationId); e.Property(x => x.LocationId).ValueGeneratedOnAdd();
             e.Property(x => x.Latitude).HasPrecision(10, 7); e.Property(x => x.Longitude).HasPrecision(10, 7);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.DuplicateOfLocationId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => x.SelectedGeocodingAttemptId).HasDatabaseName("IX_Locations_SelectedGeocodingAttempt")
                 .HasFilter("[SelectedGeocodingAttemptId] IS NOT NULL");
             e.HasOne<GeocodingAttempt>().WithMany().HasForeignKey(x => x.SelectedGeocodingAttemptId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<LocationApprovalHistory>(e => { e.ToTable("LocationApprovalHistory"); e.HasKey(x => x.LocationApprovalHistoryId); e.Property(x => x.LocationApprovalHistoryId).ValueGeneratedOnAdd(); });
+        b.Entity<TeamLocationNote>(e =>
+        {
+            e.ToTable("TeamLocationNotes"); e.HasKey(x => x.TeamLocationNoteId); e.Property(x => x.TeamLocationNoteId).ValueGeneratedOnAdd();
+            e.Property(x => x.Note).HasMaxLength(1000); e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.TeamId, x.LocationId }).IsUnique().HasDatabaseName("UQ_TeamLocationNotes_Team_Location");
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UpdatedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
+        b.Entity<TeamLocationNoteHistory>(e =>
+        {
+            e.ToTable("TeamLocationNoteHistory"); e.HasKey(x => x.TeamLocationNoteHistoryId); e.Property(x => x.TeamLocationNoteHistoryId).ValueGeneratedOnAdd();
+            e.HasIndex(x => new { x.TeamLocationNoteId, x.ChangedAt }).HasDatabaseName("IX_TeamLocationNoteHistory_Note_Changed");
+            e.HasOne<TeamLocationNote>().WithMany().HasForeignKey(x => x.TeamLocationNoteId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Team>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ChangedByUserId).OnDelete(DeleteBehavior.NoAction);
+        });
 
         b.Entity<Project>(e => { e.ToTable("Projects"); e.HasKey(x => x.ProjectId); e.Property(x => x.ProjectId).ValueGeneratedOnAdd(); });
         b.Entity<ProjectLocation>(e => { e.ToTable("ProjectLocations"); e.HasKey(x => x.ProjectLocationId); e.Property(x => x.ProjectLocationId).ValueGeneratedOnAdd(); });

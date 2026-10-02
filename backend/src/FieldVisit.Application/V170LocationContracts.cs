@@ -94,6 +94,86 @@ public sealed record V170LocationNearbyDto(
 public sealed record V170LocationFavoriteOrderRequest(
     IReadOnlyList<int> LocationIds);
 
+public sealed record V170LocationNoteEntryDto(
+    long HistoryId,
+    int TeamId,
+    string TeamName,
+    string Note,
+    string Action,
+    string? ChangeReason,
+    DateTime ChangedAt,
+    int ChangedByUserId,
+    string ChangedBy);
+
+public sealed record V170LocationAuditDto(
+    long AuditLogId,
+    string Action,
+    string? OldValues,
+    string? NewValues,
+    DateTime ChangedAt,
+    int? ChangedByUserId,
+    string? ChangedBy);
+
+public sealed record V170LocationMaintenanceDto(
+    int LocationId,
+    string? LocationCode,
+    string LocationName,
+    string LocationType,
+    int? TeamId,
+    string? TeamName,
+    string? City,
+    string? District,
+    string? Address,
+    string? PlusCode,
+    string? TaxId,
+    string? MasterNote,
+    bool IsActive,
+    int? DuplicateOfLocationId,
+    string? DuplicateReason,
+    IReadOnlyList<V170LocationNoteEntryDto> Notes,
+    IReadOnlyList<V170LocationAuditDto> AddressAudit,
+    string RowVersion);
+
+public sealed record V170LocationMaintenanceUpdateRequest(
+    string? City,
+    string? District,
+    string? Address,
+    string? PlusCode,
+    string? TaxId,
+    string? MasterNote,
+    string RowVersion);
+
+public sealed record V170LocationNoteRequest(
+    int TeamId,
+    string Note,
+    string? ChangeReason = null);
+
+public sealed record V170LocationDuplicateCandidateDto(
+    int LocationId,
+    string? LocationCode,
+    string LocationName,
+    string? Address,
+    string? PlusCode,
+    string? TaxId,
+    IReadOnlyList<string> MatchReasons);
+
+public sealed record V170LocationMergePreviewDto(
+    int SourceLocationId,
+    int SurvivorLocationId,
+    bool CanMerge,
+    string? BlockingReason,
+    int TripReferenceCount,
+    int ProjectReferenceCount,
+    int FavoriteReferenceCount,
+    int NoteHistoryCount,
+    int CurrentDeploymentSiteReferenceCount);
+
+public sealed record V170LocationMergeRequest(
+    int SurvivorLocationId,
+    string Reason,
+    string SourceRowVersion,
+    bool Confirm);
+
 public static class V170LocationSearchRules
 {
     public const int DefaultPageSize = 20;

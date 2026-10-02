@@ -122,6 +122,44 @@ public sealed class V170LocationService(
             ct);
     }
 
+    public async Task<V170LocationMaintenanceDto> GetMaintenanceAsync(
+        int locationId,int? teamId,CancellationToken ct)
+    {
+        var user=RequirePickerUser();
+        EnsureRequestedTeamAllowed(user,teamId);
+        return await locations.GetMaintenanceAsync(user,V170LocationPickerRules.EnsureLocationId(locationId),teamId,ct);
+    }
+
+    public Task<V170LocationMaintenanceDto> UpdateMaintenanceAsync(
+        int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct)
+        => locations.UpdateMaintenanceAsync(RequirePickerUser(),V170LocationPickerRules.EnsureLocationId(locationId),request,ct);
+
+    public async Task<V170LocationMaintenanceDto> AddNoteAsync(
+        int locationId,V170LocationNoteRequest request,CancellationToken ct)
+    {
+        var user=RequirePickerUser();
+        EnsureRequestedTeamAllowed(user,request.TeamId);
+        if(string.IsNullOrWhiteSpace(request.Note))throw new InvalidOperationException("備註內容不可空白。");
+        if(request.Note.Trim().Length>1000)throw new InvalidOperationException("備註內容不可超過 1000 個字元。");
+        return await locations.AddNoteAsync(user,V170LocationPickerRules.EnsureLocationId(locationId),request with { Note=request.Note.Trim() },ct);
+    }
+
+    public Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> GetDuplicateCandidatesAsync(
+        int locationId,CancellationToken ct)
+        => locations.GetDuplicateCandidatesAsync(RequireAdmin(),V170LocationPickerRules.EnsureLocationId(locationId),ct);
+
+    public Task<V170LocationMergePreviewDto> PreviewMergeAsync(
+        int sourceLocationId,int survivorLocationId,CancellationToken ct)
+        => locations.PreviewMergeAsync(RequireAdmin(),sourceLocationId,survivorLocationId,ct);
+
+    public Task MergeAsync(
+        int sourceLocationId,V170LocationMergeRequest request,CancellationToken ct)
+    {
+        if(!request.Confirm)throw new InvalidOperationException("地點合併必須明確確認。");
+        if(string.IsNullOrWhiteSpace(request.Reason))throw new InvalidOperationException("地點合併原因為必填。");
+        return locations.MergeAsync(RequireAdmin(),sourceLocationId,request with { Reason=request.Reason.Trim() },ct);
+    }
+
     public async Task<IReadOnlyList<V170LocationNearbyDto>>
         GetNearbyAsync(
             decimal latitude,
@@ -151,6 +189,14 @@ public sealed class V170LocationService(
             user,
             spec,
             ct);
+    }
+
+    private CurrentUserDto RequireAdmin()
+    {
+        var user=RequirePickerUser();
+        if(!user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("只有管理者可以執行疑似重複判斷與地點合併。");
+        return user;
     }
 
     private CurrentUserDto RequirePickerUser()

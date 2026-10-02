@@ -45,6 +45,67 @@ export interface LocationNearbyItem extends SmartLocationItem{
   longitude:number;
   distanceKm:number;
 }
+
+export interface LocationNoteEntry{
+  historyId:number;
+  teamId:number;
+  teamName:string;
+  note:string;
+  action:string;
+  changeReason?:string;
+  changedAt:string;
+  changedByUserId:number;
+  changedBy:string;
+}
+export interface LocationAudit{
+  auditLogId:number;
+  action:string;
+  oldValues?:string;
+  newValues?:string;
+  changedAt:string;
+  changedByUserId?:number;
+  changedBy?:string;
+}
+export interface LocationMaintenance{
+  locationId:number;
+  locationCode?:string;
+  locationName:string;
+  locationType:string;
+  teamId?:number;
+  teamName?:string;
+  city?:string;
+  district?:string;
+  address?:string;
+  plusCode?:string;
+  taxId?:string;
+  masterNote?:string;
+  isActive:boolean;
+  duplicateOfLocationId?:number;
+  duplicateReason?:string;
+  notes:LocationNoteEntry[];
+  addressAudit:LocationAudit[];
+  rowVersion:string;
+}
+export interface LocationDuplicateCandidate{
+  locationId:number;
+  locationCode?:string;
+  locationName:string;
+  address?:string;
+  plusCode?:string;
+  taxId?:string;
+  matchReasons:string[];
+}
+export interface LocationMergePreview{
+  sourceLocationId:number;
+  survivorLocationId:number;
+  canMerge:boolean;
+  blockingReason?:string;
+  tripReferenceCount:number;
+  projectReferenceCount:number;
+  favoriteReferenceCount:number;
+  noteHistoryCount:number;
+  currentDeploymentSiteReferenceCount:number;
+}
 export interface Team{teamId:number;organizationId:number;teamCode:string;teamName:string}
 export interface Project{projectId:number;teamId?:number;projectCode:string;projectName:string;description?:string;locationMode:string;startDate?:string;endDate?:string;isActive:boolean}
 export interface VisitType{visitTypeId:number;visitTypeCode:string;visitTypeName:string;description?:string;sortOrder:number;isActive:boolean}

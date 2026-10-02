@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
@@ -110,6 +111,18 @@ public sealed class V170LocationRepository(
                     && x.Address.Contains(keyword))
                 || (x.PlusCode != null
                     && x.PlusCode.Contains(keyword))
+                || (x.TaxId != null
+                    && x.TaxId.Contains(keyword))
+                || (x.MasterNote != null
+                    && x.MasterNote.Contains(keyword))
+                || db.TeamLocationNotes.AsNoTracking().Any(n =>
+                    n.LocationId == x.LocationId
+                    && n.Note != null
+                    && n.Note.Contains(keyword))
+                || db.TeamLocationNoteHistories.AsNoTracking().Any(h =>
+                    h.LocationId == x.LocationId
+                    && ((h.NewNote != null && h.NewNote.Contains(keyword))
+                        || (h.OldNote != null && h.OldNote.Contains(keyword))))
                 || db.GovernmentLocationMasters
                     .AsNoTracking()
                     .Any(g =>
@@ -600,6 +613,301 @@ public sealed class V170LocationRepository(
                 x.LocationId)
             .Take(spec.Limit)
             .ToList();
+    }
+
+
+    public async Task<V170LocationMaintenanceDto> GetMaintenanceAsync(
+        CurrentUserDto user,int locationId,int? teamId,CancellationToken ct)
+    {
+        var row=await AccessibleLocations(user,teamId)
+            .FirstOrDefaultAsync(x=>x.LocationId==locationId,ct)
+            ?? throw new KeyNotFoundException("找不到可維護的正式地點。");
+
+        var teamName=row.TeamId.HasValue
+            ?await db.Teams.AsNoTracking().Where(x=>x.TeamId==row.TeamId.Value).Select(x=>x.TeamName).FirstOrDefaultAsync(ct)
+            :null;
+
+        var allowedTeamIds=user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
+            ?null
+            :user.TeamIds.ToArray();
+
+        var noteQuery=
+            from h in db.TeamLocationNoteHistories.AsNoTracking()
+            join t in db.Teams.AsNoTracking() on h.TeamId equals t.TeamId
+            join u in db.Users.AsNoTracking() on h.ChangedByUserId equals u.UserId
+            where h.LocationId==locationId
+            select new {h,t.TeamName,u.DisplayName};
+
+        if(teamId.HasValue) noteQuery=noteQuery.Where(x=>x.h.TeamId==teamId.Value);
+        else if(allowedTeamIds is not null) noteQuery=noteQuery.Where(x=>allowedTeamIds.Contains(x.h.TeamId));
+
+        var notes=await noteQuery
+            .OrderByDescending(x=>x.h.ChangedAt)
+            .ThenByDescending(x=>x.h.TeamLocationNoteHistoryId)
+            .Take(100)
+            .Select(x=>new V170LocationNoteEntryDto(
+                x.h.TeamLocationNoteHistoryId,
+                x.h.TeamId,
+                x.TeamName,
+                x.h.NewNote??x.h.OldNote??"",
+                x.h.Action,
+                x.h.ChangeReason,
+                x.h.ChangedAt,
+                x.h.ChangedByUserId,
+                x.DisplayName))
+            .ToListAsync(ct);
+
+        var audits=await (
+            from a in db.AuditLogs.AsNoTracking()
+            join u0 in db.Users.AsNoTracking() on a.UserId equals (int?)u0.UserId into users
+            from u in users.DefaultIfEmpty()
+            where a.EntityType=="Location"
+                && a.EntityId==locationId.ToString()
+                && (a.Action=="LocationMaintenanceUpdate"||a.Action=="LocationMerge")
+            orderby a.CreatedAt descending,a.AuditLogId descending
+            select new V170LocationAuditDto(
+                a.AuditLogId,a.Action,a.OldValues,a.NewValues,a.CreatedAt,a.UserId,u!=null?u.DisplayName:null))
+            .Take(50)
+            .ToListAsync(ct);
+
+        return new V170LocationMaintenanceDto(
+            row.LocationId,row.LocationCode,row.LocationName,row.LocationType,row.TeamId,teamName,
+            row.City,row.District,row.Address,row.PlusCode,row.TaxId,row.MasterNote,row.IsActive,
+            row.DuplicateOfLocationId,row.DuplicateReason,notes,audits,B64(row.RowVersion));
+    }
+
+    public async Task<V170LocationMaintenanceDto> UpdateMaintenanceAsync(
+        CurrentUserDto user,int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct)
+    {
+        var accessible=await AccessibleLocations(user).AnyAsync(x=>x.LocationId==locationId,ct);
+        if(!accessible)throw new KeyNotFoundException("找不到可維護的正式地點。");
+
+        var row=await db.Locations.SingleAsync(x=>x.LocationId==locationId,ct);
+        EnsureRowVersion(row.RowVersion,request.RowVersion);
+
+        var before=new
+        {
+            row.City,row.District,row.Address,row.PlusCode,row.TaxId,row.MasterNote,
+            row.SelectedGeocodingAttemptId,row.GeocodingStatus
+        };
+
+        var nextCity=TrimToNull(request.City);
+        var nextDistrict=TrimToNull(request.District);
+        var nextAddress=TrimToNull(request.Address);
+        var nextPlus=TrimToNull(request.PlusCode);
+        var nextTax=TrimToNull(request.TaxId);
+        var nextMasterNote=TrimToNull(request.MasterNote);
+
+        if(nextTax is {Length:>20})throw new InvalidOperationException("統一編號不可超過 20 個字元。");
+        if(nextMasterNote is {Length:>1000})throw new InvalidOperationException("主檔備註不可超過 1000 個字元。");
+
+        var addressChanged=!string.Equals(row.Address,nextAddress,StringComparison.Ordinal)
+            ||!string.Equals(row.PlusCode,nextPlus,StringComparison.Ordinal);
+
+        row.City=nextCity;
+        row.District=nextDistrict;
+        row.Address=nextAddress;
+        row.PlusCode=nextPlus;
+        row.TaxId=nextTax;
+        row.MasterNote=nextMasterNote;
+        row.UpdatedAt=DateTime.UtcNow;
+
+        if(addressChanged)
+        {
+            row.GeocodingStatus="Pending";
+            row.GeocodedAt=null;
+            row.SelectedGeocodingAttemptId=null;
+        }
+
+        var now=DateTime.UtcNow;
+        db.AuditLogs.Add(new AuditLog
+        {
+            UserId=user.UserId,EntityType="Location",EntityId=locationId.ToString(),
+            Action="LocationMaintenanceUpdate",
+            OldValues=JsonSerializer.Serialize(before),
+            NewValues=JsonSerializer.Serialize(new
+            {
+                row.City,row.District,row.Address,row.PlusCode,row.TaxId,row.MasterNote,
+                AddressChanged=addressChanged
+            }),
+            CreatedAt=now
+        });
+
+        await db.SaveChangesAsync(ct);
+        return await GetMaintenanceAsync(user,locationId,null,ct);
+    }
+
+    public async Task<V170LocationMaintenanceDto> AddNoteAsync(
+        CurrentUserDto user,int locationId,V170LocationNoteRequest request,CancellationToken ct)
+    {
+        if(!user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
+            &&!user.TeamIds.Contains(request.TeamId))
+            throw new UnauthorizedAccessException("無權新增其他小組的地點備註。");
+
+        var accessible=await AccessibleLocations(user,request.TeamId).AnyAsync(x=>x.LocationId==locationId,ct);
+        if(!accessible)throw new KeyNotFoundException("找不到可維護的正式地點。");
+
+        await using var tx=await db.Database.BeginTransactionAsync(ct);
+        var row=await db.TeamLocationNotes
+            .SingleOrDefaultAsync(x=>x.TeamId==request.TeamId&&x.LocationId==locationId,ct);
+        var now=DateTime.UtcNow;
+        var old=row?.Note;
+        var action=row is null?"Created":"Updated";
+
+        if(row is null)
+        {
+            row=new TeamLocationNote
+            {
+                TeamId=request.TeamId,LocationId=locationId,Note=request.Note,
+                CreatedAt=now,CreatedByUserId=user.UserId
+            };
+            db.TeamLocationNotes.Add(row);
+            await db.SaveChangesAsync(ct);
+        }
+        else
+        {
+            row.Note=request.Note;
+            row.UpdatedAt=now;
+            row.UpdatedByUserId=user.UserId;
+            await db.SaveChangesAsync(ct);
+        }
+
+        db.TeamLocationNoteHistories.Add(new TeamLocationNoteHistory
+        {
+            TeamLocationNoteId=row.TeamLocationNoteId,
+            TeamId=request.TeamId,
+            LocationId=locationId,
+            Action=action,
+            OldNote=old,
+            NewNote=request.Note,
+            ChangeReason=TrimToNull(request.ChangeReason),
+            ChangedAt=now,
+            ChangedByUserId=user.UserId
+        });
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        return await GetMaintenanceAsync(user,locationId,request.TeamId,ct);
+    }
+
+    public async Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> GetDuplicateCandidatesAsync(
+        CurrentUserDto admin,int locationId,CancellationToken ct)
+    {
+        var org=admin.OrganizationId??throw new UnauthorizedAccessException("管理者缺少 Organization scope。");
+        var source=await db.Locations.AsNoTracking()
+            .SingleOrDefaultAsync(x=>x.LocationId==locationId&&x.OrganizationId==org,ct)
+            ??throw new KeyNotFoundException("找不到地點。");
+
+        var candidates=await db.Locations.AsNoTracking()
+            .Where(x=>x.OrganizationId==org&&x.LocationId!=locationId&&x.DuplicateOfLocationId==null)
+            .Where(x=>
+                (source.TaxId!=null&&source.TaxId!=""&&x.TaxId==source.TaxId)
+                ||x.LocationName==source.LocationName
+                ||(source.Address!=null&&source.Address!=""&&x.Address==source.Address)
+                ||(source.PlusCode!=null&&source.PlusCode!=""&&x.PlusCode==source.PlusCode))
+            .OrderByDescending(x=>x.IsActive)
+            .ThenBy(x=>x.LocationName)
+            .Take(50)
+            .ToListAsync(ct);
+
+        return candidates.Select(x=>
+        {
+            var reasons=new List<string>();
+            if(!string.IsNullOrWhiteSpace(source.TaxId)&&string.Equals(source.TaxId,x.TaxId,StringComparison.OrdinalIgnoreCase))reasons.Add("統一編號");
+            if(string.Equals(source.LocationName,x.LocationName,StringComparison.OrdinalIgnoreCase))reasons.Add("名稱");
+            if(!string.IsNullOrWhiteSpace(source.Address)&&string.Equals(source.Address,x.Address,StringComparison.OrdinalIgnoreCase))reasons.Add("地址");
+            if(!string.IsNullOrWhiteSpace(source.PlusCode)&&string.Equals(source.PlusCode,x.PlusCode,StringComparison.OrdinalIgnoreCase))reasons.Add("Plus Code");
+            return new V170LocationDuplicateCandidateDto(
+                x.LocationId,x.LocationCode,x.LocationName,x.Address,x.PlusCode,x.TaxId,reasons);
+        }).ToList();
+    }
+
+    public async Task<V170LocationMergePreviewDto> PreviewMergeAsync(
+        CurrentUserDto admin,int sourceLocationId,int survivorLocationId,CancellationToken ct)
+    {
+        if(sourceLocationId==survivorLocationId)throw new InvalidOperationException("來源地點與保留地點不可相同。");
+        var org=admin.OrganizationId??throw new UnauthorizedAccessException("管理者缺少 Organization scope。");
+        var source=await db.Locations.AsNoTracking().SingleOrDefaultAsync(x=>x.LocationId==sourceLocationId&&x.OrganizationId==org,ct)
+            ??throw new KeyNotFoundException("找不到來源地點。");
+        var survivor=await db.Locations.AsNoTracking().SingleOrDefaultAsync(x=>x.LocationId==survivorLocationId&&x.OrganizationId==org,ct)
+            ??throw new KeyNotFoundException("找不到保留地點。");
+
+        var today=BusinessTime.Today;
+        var tripRefs=await db.VisitTripStops.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
+        var projectRefs=await db.ProjectLocations.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
+        var favoriteRefs=await db.UserFavoriteLocations.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
+        var noteRefs=await db.TeamLocationNoteHistories.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
+        var deploymentRefs=await db.DeploymentSiteLocationAssignments.AsNoTracking()
+            .CountAsync(x=>x.LocationId==sourceLocationId&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today),ct);
+
+        string? blocking=null;
+        if(!survivor.IsActive)blocking="保留地點必須為啟用狀態。";
+        else if(source.DuplicateOfLocationId.HasValue)blocking="來源地點已標記為其他地點的 duplicate。";
+        else if(deploymentRefs>0)blocking="來源地點仍有 current/future 派駐據點關聯，必須先由管理者調整該關聯。";
+
+        return new V170LocationMergePreviewDto(
+            sourceLocationId,survivorLocationId,blocking is null,blocking,
+            tripRefs,projectRefs,favoriteRefs,noteRefs,deploymentRefs);
+    }
+
+    public async Task MergeAsync(
+        CurrentUserDto admin,int sourceLocationId,V170LocationMergeRequest request,CancellationToken ct)
+    {
+        var preview=await PreviewMergeAsync(admin,sourceLocationId,request.SurvivorLocationId,ct);
+        if(!preview.CanMerge)throw new InvalidOperationException(preview.BlockingReason??"此地點目前不可合併。");
+
+        await using var tx=await db.Database.BeginTransactionAsync(ct);
+        var source=await db.Locations.SingleAsync(x=>x.LocationId==sourceLocationId,ct);
+        var survivor=await db.Locations.SingleAsync(x=>x.LocationId==request.SurvivorLocationId,ct);
+        EnsureRowVersion(source.RowVersion,request.SourceRowVersion);
+
+        var before=new
+        {
+            source.LocationId,source.LocationCode,source.LocationName,source.Address,source.PlusCode,source.TaxId,
+            source.IsActive,source.DuplicateOfLocationId,source.DuplicateReason
+        };
+
+        source.IsActive=false;
+        source.InactivatedAt=DateTime.UtcNow;
+        source.InactivatedByUserId=admin.UserId;
+        source.DuplicateOfLocationId=survivor.LocationId;
+        source.DuplicateReason=request.Reason;
+        source.UpdatedAt=DateTime.UtcNow;
+
+        db.AuditLogs.Add(new AuditLog
+        {
+            UserId=admin.UserId,EntityType="Location",EntityId=sourceLocationId.ToString(),
+            Action="LocationMerge",
+            OldValues=JsonSerializer.Serialize(before),
+            NewValues=JsonSerializer.Serialize(new
+            {
+                SurvivorLocationId=survivor.LocationId,
+                SurvivorLocationCode=survivor.LocationCode,
+                SurvivorLocationName=survivor.LocationName,
+                request.Reason,
+                HistoricalReferencesPreserved=true,
+                NotesAndHistoryPreservedOnSource=true
+            }),
+            CreatedAt=DateTime.UtcNow
+        });
+
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    private static string? TrimToNull(string? value)
+        => string.IsNullOrWhiteSpace(value)?null:value.Trim();
+
+    private static string B64(byte[] value)
+        => Convert.ToBase64String(value??[]);
+
+    private static void EnsureRowVersion(byte[] actual,string expected)
+    {
+        byte[] parsed;
+        try{parsed=Convert.FromBase64String(expected);}
+        catch{throw new InvalidOperationException("RowVersion 格式不正確，請重新載入資料。");}
+        if(!actual.SequenceEqual(parsed))
+            throw new InvalidOperationException("資料已被其他使用者更新，請重新載入後再操作。");
     }
 
     private IQueryable<Location> AccessibleLocations(

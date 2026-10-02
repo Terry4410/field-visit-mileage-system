@@ -81,7 +81,40 @@ public sealed class Location
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public long? SelectedGeocodingAttemptId { get; set; }
+    public string? TaxId { get; set; }
+    public string? MasterNote { get; set; }
+    public DateTime? InactivatedAt { get; set; }
+    public int? InactivatedByUserId { get; set; }
+    public int? DuplicateOfLocationId { get; set; }
+    public string? DuplicateReason { get; set; }
     public byte[] RowVersion { get; set; } = [];
+}
+
+public sealed class TeamLocationNote
+{
+    public long TeamLocationNoteId { get; set; }
+    public int TeamId { get; set; }
+    public int LocationId { get; set; }
+    public string? Note { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int CreatedByUserId { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public int? UpdatedByUserId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
+}
+
+public sealed class TeamLocationNoteHistory
+{
+    public long TeamLocationNoteHistoryId { get; set; }
+    public long TeamLocationNoteId { get; set; }
+    public int TeamId { get; set; }
+    public int LocationId { get; set; }
+    public string Action { get; set; } = "";
+    public string? OldNote { get; set; }
+    public string? NewNote { get; set; }
+    public string? ChangeReason { get; set; }
+    public DateTime ChangedAt { get; set; }
+    public int ChangedByUserId { get; set; }
 }
 
 public sealed class LocationApprovalHistory

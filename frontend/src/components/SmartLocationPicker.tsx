@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import {api} from "../api";
+import LocationMaintenanceModal from "./LocationMaintenanceModal";
 
 import {
   buildLocationSearchPath,
@@ -103,6 +104,7 @@ export default function SmartLocationPicker({
     useState<number|null>(null);
 
   const [message,setMessage]=useState("");
+  const [maintenanceId,setMaintenanceId]=useState<number|null>(null);
 
   const searchSequence=useRef(0);
 
@@ -504,6 +506,16 @@ export default function SmartLocationPicker({
 
         <button
           type="button"
+          className="btn small outline"
+          aria-label="維護地點資料"
+          title="維護地點資料"
+          onClick={()=>setMaintenanceId(item.locationId)}
+        >
+          維護
+        </button>
+
+        <button
+          type="button"
           className={
             `smart-favorite-button ${
               favorite?"active":""
@@ -779,6 +791,17 @@ export default function SmartLocationPicker({
           }
         </div>
       </>}
+
+      {maintenanceId&&<LocationMaintenanceModal
+        locationId={maintenanceId}
+        teamId={teamId}
+        onClose={()=>setMaintenanceId(null)}
+        onChanged={()=>{
+          void loadSearch(1,false);
+          void loadFavorites();
+          if(tab==="recent")void loadRecent();
+        }}
+      />}
 
       {tab==="nearby"&&<>
         <div className="note smart-nearby-note">

@@ -700,7 +700,15 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 x.LocationCode != null && x.LocationCode.Contains(keyword)
                 || x.LocationName.Contains(keyword)
                 || (x.Address != null && x.Address.Contains(keyword))
-                || (x.PlusCode != null && x.PlusCode.Contains(keyword)));
+                || (x.PlusCode != null && x.PlusCode.Contains(keyword))
+                || (x.TaxId != null && x.TaxId.Contains(keyword))
+                || (x.MasterNote != null && x.MasterNote.Contains(keyword))
+                || db.TeamLocationNotes.AsNoTracking().Any(n =>
+                    n.LocationId == x.LocationId && n.Note != null && n.Note.Contains(keyword))
+                || db.TeamLocationNoteHistories.AsNoTracking().Any(h =>
+                    h.LocationId == x.LocationId
+                    && ((h.NewNote != null && h.NewNote.Contains(keyword))
+                        || (h.OldNote != null && h.OldNote.Contains(keyword)))));
         }
 
         if (request.TeamId.HasValue) q = q.Where(x => x.TeamId == request.TeamId.Value);
