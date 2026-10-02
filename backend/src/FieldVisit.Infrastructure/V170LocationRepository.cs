@@ -867,6 +867,52 @@ public sealed class V170LocationRepository(
             source.IsActive,source.DuplicateOfLocationId,source.DuplicateReason
         };
 
+        // Current operational references follow the survivor.
+        // Historical VisitTripStop / Snapshot references intentionally remain on source.
+        var sourceProjectRows=await db.ProjectLocations
+            .Where(x=>x.LocationId==sourceLocationId&&x.IsActive)
+            .ToListAsync(ct);
+        var projectRebound=0;
+        foreach(var sourceProject in sourceProjectRows)
+        {
+            var survivorProject=await db.ProjectLocations
+                .FirstOrDefaultAsync(x=>x.ProjectId==sourceProject.ProjectId&&x.LocationId==survivor.LocationId,ct);
+
+            if(survivorProject is null)
+            {
+                sourceProject.LocationId=survivor.LocationId;
+                projectRebound++;
+            }
+            else
+            {
+                survivorProject.IsActive=true;
+                survivorProject.IsPrimary=survivorProject.IsPrimary||sourceProject.IsPrimary;
+                sourceProject.IsActive=false;
+                projectRebound++;
+            }
+        }
+
+        var sourceFavorites=await db.UserFavoriteLocations
+            .Where(x=>x.LocationId==sourceLocationId)
+            .ToListAsync(ct);
+        var favoriteRebound=0;
+        foreach(var sourceFavorite in sourceFavorites)
+        {
+            var alreadyExists=await db.UserFavoriteLocations
+                .AnyAsync(x=>x.UserId==sourceFavorite.UserId&&x.LocationId==survivor.LocationId,ct);
+            if(alreadyExists)
+                db.UserFavoriteLocations.Remove(sourceFavorite);
+            else
+                sourceFavorite.LocationId=survivor.LocationId;
+            favoriteRebound++;
+        }
+
+        var governmentRebound=await db.GovernmentLocationMasters
+            .Where(x=>x.MatchedLocationId==sourceLocationId)
+            .ExecuteUpdateAsync(setters=>setters
+                .SetProperty(x=>x.MatchedLocationId,survivor.LocationId)
+                .SetProperty(x=>x.UpdatedAt,DateTime.UtcNow),ct);
+
         source.IsActive=false;
         source.InactivatedAt=DateTime.UtcNow;
         source.InactivatedByUserId=admin.UserId;
@@ -885,8 +931,11 @@ public sealed class V170LocationRepository(
                 SurvivorLocationCode=survivor.LocationCode,
                 SurvivorLocationName=survivor.LocationName,
                 request.Reason,
-                HistoricalReferencesPreserved=true,
-                NotesAndHistoryPreservedOnSource=true
+                HistoricalTripAndSnapshotReferencesPreserved=true,
+                NotesAndNoteHistoryPreservedOnSource=true,
+                CurrentProjectReferencesRebound=projectRebound,
+                CurrentFavoriteReferencesRebound=favoriteRebound,
+                GovernmentMatchesRebound=governmentRebound
             }),
             CreatedAt=DateTime.UtcNow
         });
