@@ -631,12 +631,20 @@ public sealed class V170LocationRepository(
             ?null
             :user.TeamIds.ToArray();
 
+        var evidenceLocations=await db.Locations.AsNoTracking()
+            .Where(x=>x.LocationId==locationId||x.DuplicateOfLocationId==locationId)
+            .Select(x=>new{x.LocationId,x.LocationName})
+            .ToListAsync(ct);
+        var evidenceLocationIds=evidenceLocations.Select(x=>x.LocationId).ToArray();
+        var evidenceNames=evidenceLocations.ToDictionary(x=>x.LocationId,x=>x.LocationName);
+
         var noteQuery=
             from h in db.TeamLocationNoteHistories.AsNoTracking()
             join t in db.Teams.AsNoTracking() on h.TeamId equals t.TeamId
             join u in db.Users.AsNoTracking() on h.ChangedByUserId equals u.UserId
-            where h.LocationId==locationId
-            select new {h,t.TeamName,u.DisplayName};
+            join l in db.Locations.AsNoTracking() on h.LocationId equals l.LocationId
+            where evidenceLocationIds.Contains(h.LocationId)
+            select new {h,t.TeamName,u.DisplayName,l.LocationName};
 
         if(teamId.HasValue) noteQuery=noteQuery.Where(x=>x.h.TeamId==teamId.Value);
         else if(allowedTeamIds is not null) noteQuery=noteQuery.Where(x=>allowedTeamIds.Contains(x.h.TeamId));
@@ -644,7 +652,7 @@ public sealed class V170LocationRepository(
         var notes=await noteQuery
             .OrderByDescending(x=>x.h.ChangedAt)
             .ThenByDescending(x=>x.h.TeamLocationNoteHistoryId)
-            .Take(100)
+            .Take(200)
             .Select(x=>new V170LocationNoteEntryDto(
                 x.h.TeamLocationNoteHistoryId,
                 x.h.TeamId,
@@ -654,21 +662,35 @@ public sealed class V170LocationRepository(
                 x.h.ChangeReason,
                 x.h.ChangedAt,
                 x.h.ChangedByUserId,
-                x.DisplayName))
+                x.DisplayName,
+                x.h.LocationId,
+                x.LocationName))
             .ToListAsync(ct);
 
-        var audits=await (
-            from a in db.AuditLogs.AsNoTracking()
-            join u0 in db.Users.AsNoTracking() on a.UserId equals (int?)u0.UserId into users
+        var evidenceEntityIds=evidenceLocationIds.Select(x=>x.ToString()).ToArray();
+        var auditRows=await (
+            from audit in db.AuditLogs.AsNoTracking()
+            join u0 in db.Users.AsNoTracking() on audit.UserId equals (int?)u0.UserId into users
             from u in users.DefaultIfEmpty()
-            where a.EntityType=="Location"
-                && a.EntityId==locationId.ToString()
-                && (a.Action=="LocationMaintenanceUpdate"||a.Action=="LocationMerge")
-            orderby a.CreatedAt descending,a.AuditLogId descending
-            select new V170LocationAuditDto(
-                a.AuditLogId,a.Action,a.OldValues,a.NewValues,a.CreatedAt,a.UserId,u!=null?u.DisplayName:null))
-            .Take(50)
-            .ToListAsync(ct);
+            where audit.EntityType=="Location"
+                && evidenceEntityIds.Contains(audit.EntityId!)
+                && (audit.Action=="LocationMaintenanceUpdate"
+                    ||audit.Action=="LocationMerge"
+                    ||audit.Action=="LocationDuplicateDistinctConfirmed"
+                    ||audit.Action=="LocationDuplicateSuspected"
+                    ||audit.Action=="LocationDuplicateSuspectCleared")
+            orderby audit.CreatedAt descending,audit.AuditLogId descending
+            select new{audit,u}
+        ).Take(100).ToListAsync(ct);
+
+        var audits=auditRows.Select(x=>
+        {
+            _=int.TryParse(x.audit.EntityId,out var sourceId);
+            return new V170LocationAuditDto(
+                x.audit.AuditLogId,x.audit.Action,x.audit.OldValues,x.audit.NewValues,
+                x.audit.CreatedAt,x.audit.UserId,x.u!=null?x.u.DisplayName:null,
+                sourceId,evidenceNames.TryGetValue(sourceId,out var sourceName)?sourceName:null);
+        }).ToList();
 
         return new V170LocationMaintenanceDto(
             row.LocationId,row.LocationCode,row.LocationName,row.LocationType,row.TeamId,teamName,
@@ -733,6 +755,7 @@ public sealed class V170LocationRepository(
             CreatedAt=now
         });
 
+        await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,row,user.UserId,ct);
         await db.SaveChangesAsync(ct);
         return await GetMaintenanceAsync(user,locationId,null,ct);
     }
@@ -797,29 +820,32 @@ public sealed class V170LocationRepository(
         var source=await db.Locations.AsNoTracking()
             .SingleOrDefaultAsync(x=>x.LocationId==locationId&&x.OrganizationId==org,ct)
             ??throw new KeyNotFoundException("找不到地點。");
+        var candidates=await V180LocationDuplicateGovernance.FindCandidatesAsync(db,source,ct);
+        return candidates.Select(x=>new V170LocationDuplicateCandidateDto(
+            x.Row.LocationId,x.Row.LocationCode,x.Row.LocationName,x.Row.Address,x.Row.PlusCode,x.Row.TaxId,x.Reasons)).ToList();
+    }
 
-        var candidates=await db.Locations.AsNoTracking()
-            .Where(x=>x.OrganizationId==org&&x.LocationId!=locationId&&x.DuplicateOfLocationId==null)
-            .Where(x=>
-                (source.TaxId!=null&&source.TaxId!=""&&x.TaxId==source.TaxId)
-                ||x.LocationName==source.LocationName
-                ||(source.Address!=null&&source.Address!=""&&x.Address==source.Address)
-                ||(source.PlusCode!=null&&source.PlusCode!=""&&x.PlusCode==source.PlusCode))
-            .OrderByDescending(x=>x.IsActive)
-            .ThenBy(x=>x.LocationName)
-            .Take(50)
-            .ToListAsync(ct);
+    public async Task ConfirmDistinctAsync(
+        CurrentUserDto admin,int sourceLocationId,V170LocationDuplicateDistinctRequest request,CancellationToken ct)
+    {
+        var org=admin.OrganizationId??throw new UnauthorizedAccessException("管理者缺少 Organization scope。");
+        var source=await db.Locations.SingleOrDefaultAsync(
+            x=>x.LocationId==sourceLocationId&&x.OrganizationId==org,ct)
+            ??throw new KeyNotFoundException("找不到來源地點。");
+        EnsureRowVersion(source.RowVersion,request.SourceRowVersion);
 
-        return candidates.Select(x=>
-        {
-            var reasons=new List<string>();
-            if(!string.IsNullOrWhiteSpace(source.TaxId)&&string.Equals(source.TaxId,x.TaxId,StringComparison.OrdinalIgnoreCase))reasons.Add("統一編號");
-            if(string.Equals(source.LocationName,x.LocationName,StringComparison.OrdinalIgnoreCase))reasons.Add("名稱");
-            if(!string.IsNullOrWhiteSpace(source.Address)&&string.Equals(source.Address,x.Address,StringComparison.OrdinalIgnoreCase))reasons.Add("地址");
-            if(!string.IsNullOrWhiteSpace(source.PlusCode)&&string.Equals(source.PlusCode,x.PlusCode,StringComparison.OrdinalIgnoreCase))reasons.Add("Plus Code");
-            return new V170LocationDuplicateCandidateDto(
-                x.LocationId,x.LocationCode,x.LocationName,x.Address,x.PlusCode,x.TaxId,reasons);
-        }).ToList();
+        var candidates=await V180LocationDuplicateGovernance.FindCandidatesAsync(
+            db,source,ct,suppressReviewed:false);
+        var candidate=candidates.FirstOrDefault(x=>x.Row.LocationId==request.CandidateLocationId)?.Row
+            ??throw new InvalidOperationException("此地點目前已不符合疑似重複條件，請重新整理後再覆核。");
+
+        await using var tx=await db.Database.BeginTransactionAsync(ct);
+        V180LocationDuplicateGovernance.AddDistinctEvidence(
+            db,source,candidate,admin.UserId,request.Reason);
+        await db.SaveChangesAsync(ct);
+        await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,source,admin.UserId,ct);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     public async Task<V170LocationMergePreviewDto> PreviewMergeAsync(
@@ -834,9 +860,11 @@ public sealed class V170LocationRepository(
 
         var today=BusinessTime.Today;
         var tripRefs=await db.VisitTripStops.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
+        var snapshotRefs=await db.VisitTripSnapshotStops.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
         var projectRefs=await db.ProjectLocations.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
         var favoriteRefs=await db.UserFavoriteLocations.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
         var noteRefs=await db.TeamLocationNoteHistories.AsNoTracking().CountAsync(x=>x.LocationId==sourceLocationId,ct);
+        var governmentRefs=await db.GovernmentLocationMasters.AsNoTracking().CountAsync(x=>x.MatchedLocationId==sourceLocationId,ct);
         var deploymentRefs=await db.DeploymentSiteLocationAssignments.AsNoTracking()
             .CountAsync(x=>x.LocationId==sourceLocationId&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today),ct);
 
@@ -845,9 +873,18 @@ public sealed class V170LocationRepository(
         else if(source.DuplicateOfLocationId.HasValue)blocking="來源地點已標記為其他地點的 duplicate。";
         else if(deploymentRefs>0)blocking="來源地點仍有 current/future 派駐據點關聯，必須先由管理者調整該關聯。";
 
+        var teamIds=new[]{source.TeamId,survivor.TeamId}.Where(x=>x.HasValue).Select(x=>x!.Value).Distinct().ToArray();
+        var teamNames=await db.Teams.AsNoTracking().Where(x=>teamIds.Contains(x.TeamId))
+            .ToDictionaryAsync(x=>x.TeamId,x=>x.TeamName,ct);
+        V170LocationMergeMasterDto Master(Location x)=>new(
+            x.LocationId,x.LocationCode,x.LocationName,x.LocationType,x.TeamId,
+            x.TeamId.HasValue&&teamNames.TryGetValue(x.TeamId.Value,out var teamName)?teamName:null,
+            x.City,x.District,x.Address,x.PlusCode,x.TaxId,x.MasterNote,B64(x.RowVersion));
+
         return new V170LocationMergePreviewDto(
             sourceLocationId,survivorLocationId,blocking is null,blocking,
-            tripRefs,projectRefs,favoriteRefs,noteRefs,deploymentRefs);
+            tripRefs,projectRefs,favoriteRefs,noteRefs,deploymentRefs,
+            snapshotRefs,governmentRefs,Master(source),Master(survivor));
     }
 
     public async Task MergeAsync(
@@ -860,12 +897,55 @@ public sealed class V170LocationRepository(
         var source=await db.Locations.SingleAsync(x=>x.LocationId==sourceLocationId,ct);
         var survivor=await db.Locations.SingleAsync(x=>x.LocationId==request.SurvivorLocationId,ct);
         EnsureRowVersion(source.RowVersion,request.SourceRowVersion);
+        if(!string.IsNullOrWhiteSpace(request.SurvivorRowVersion))
+            EnsureRowVersion(survivor.RowVersion,request.SurvivorRowVersion);
 
-        var before=new
+        var sourceBefore=new
         {
-            source.LocationId,source.LocationCode,source.LocationName,source.Address,source.PlusCode,source.TaxId,
+            source.LocationId,source.LocationCode,source.LocationName,source.LocationType,source.TeamId,
+            source.City,source.District,source.Address,source.PlusCode,source.TaxId,source.MasterNote,
             source.IsActive,source.DuplicateOfLocationId,source.DuplicateReason
         };
+        var survivorBefore=new
+        {
+            survivor.LocationId,survivor.LocationCode,survivor.LocationName,survivor.LocationType,survivor.TeamId,
+            survivor.City,survivor.District,survivor.Address,survivor.PlusCode,survivor.TaxId,survivor.MasterNote
+        };
+
+        if(request.Mode=="MergeFields")
+        {
+            var final=request.FinalMaster??throw new InvalidOperationException("缺少最後保留的主檔內容。");
+            if(string.IsNullOrWhiteSpace(final.LocationName))throw new InvalidOperationException("保留地點名稱不可空白。");
+            if(final.TaxId is {Length:>20})throw new InvalidOperationException("統一編號不可超過 20 個字元。");
+            if(final.MasterNote is {Length:>1000})throw new InvalidOperationException("主檔備註不可超過 1000 個字元。");
+            if(final.TeamId.HasValue)
+            {
+                var validTeam=await db.Teams.AsNoTracking().AnyAsync(
+                    x=>x.TeamId==final.TeamId.Value&&x.OrganizationId==survivor.OrganizationId&&x.IsActive,ct);
+                if(!validTeam)throw new InvalidOperationException("最後保留的小組不存在、已停用或不屬於目前 Organization。");
+            }
+
+            var finalAddress=TrimToNull(final.Address);
+            var finalPlus=TrimToNull(final.PlusCode);
+            var addressChanged=!string.Equals(survivor.Address,finalAddress,StringComparison.Ordinal)
+                ||!string.Equals(survivor.PlusCode,finalPlus,StringComparison.Ordinal);
+            survivor.LocationName=final.LocationName.Trim();
+            survivor.LocationType=string.IsNullOrWhiteSpace(final.LocationType)?survivor.LocationType:final.LocationType.Trim();
+            survivor.TeamId=final.TeamId;
+            survivor.City=TrimToNull(final.City);
+            survivor.District=TrimToNull(final.District);
+            survivor.Address=finalAddress;
+            survivor.PlusCode=finalPlus;
+            survivor.TaxId=TrimToNull(final.TaxId);
+            survivor.MasterNote=TrimToNull(final.MasterNote);
+            if(addressChanged)
+            {
+                survivor.GeocodingStatus="Pending";
+                survivor.GeocodedAt=null;
+                survivor.SelectedGeocodingAttemptId=null;
+            }
+            survivor.UpdatedAt=DateTime.UtcNow;
+        }
 
         // Current operational references follow the survivor.
         // Historical VisitTripStop / Snapshot references intentionally remain on source.
@@ -877,33 +957,24 @@ public sealed class V170LocationRepository(
         {
             var survivorProject=await db.ProjectLocations
                 .FirstOrDefaultAsync(x=>x.ProjectId==sourceProject.ProjectId&&x.LocationId==survivor.LocationId,ct);
-
-            if(survivorProject is null)
-            {
-                sourceProject.LocationId=survivor.LocationId;
-                projectRebound++;
-            }
+            if(survivorProject is null)sourceProject.LocationId=survivor.LocationId;
             else
             {
                 survivorProject.IsActive=true;
                 survivorProject.IsPrimary=survivorProject.IsPrimary||sourceProject.IsPrimary;
                 sourceProject.IsActive=false;
-                projectRebound++;
             }
+            projectRebound++;
         }
 
-        var sourceFavorites=await db.UserFavoriteLocations
-            .Where(x=>x.LocationId==sourceLocationId)
-            .ToListAsync(ct);
+        var sourceFavorites=await db.UserFavoriteLocations.Where(x=>x.LocationId==sourceLocationId).ToListAsync(ct);
         var favoriteRebound=0;
         foreach(var sourceFavorite in sourceFavorites)
         {
-            var alreadyExists=await db.UserFavoriteLocations
-                .AnyAsync(x=>x.UserId==sourceFavorite.UserId&&x.LocationId==survivor.LocationId,ct);
-            if(alreadyExists)
-                db.UserFavoriteLocations.Remove(sourceFavorite);
-            else
-                sourceFavorite.LocationId=survivor.LocationId;
+            var alreadyExists=await db.UserFavoriteLocations.AnyAsync(
+                x=>x.UserId==sourceFavorite.UserId&&x.LocationId==survivor.LocationId,ct);
+            if(alreadyExists)db.UserFavoriteLocations.Remove(sourceFavorite);
+            else sourceFavorite.LocationId=survivor.LocationId;
             favoriteRebound++;
         }
 
@@ -913,33 +984,43 @@ public sealed class V170LocationRepository(
                 .SetProperty(x=>x.MatchedLocationId,survivor.LocationId)
                 .SetProperty(x=>x.UpdatedAt,DateTime.UtcNow),ct);
 
+        var now=DateTime.UtcNow;
         source.IsActive=false;
-        source.InactivatedAt=DateTime.UtcNow;
+        source.InactivatedAt=now;
         source.InactivatedByUserId=admin.UserId;
         source.DuplicateOfLocationId=survivor.LocationId;
         source.DuplicateReason=request.Reason;
-        source.UpdatedAt=DateTime.UtcNow;
+        source.UpdatedAt=now;
+        if(survivor.DuplicateReason==V170LocationDuplicateRules.SuspectedReason)
+            survivor.DuplicateReason=null;
 
         db.AuditLogs.Add(new AuditLog
         {
             UserId=admin.UserId,EntityType="Location",EntityId=sourceLocationId.ToString(),
             Action="LocationMerge",
-            OldValues=JsonSerializer.Serialize(before),
+            OldValues=JsonSerializer.Serialize(new{Source=sourceBefore,Survivor=survivorBefore}),
             NewValues=JsonSerializer.Serialize(new
             {
                 SurvivorLocationId=survivor.LocationId,
                 SurvivorLocationCode=survivor.LocationCode,
-                SurvivorLocationName=survivor.LocationName,
+                request.Mode,
                 request.Reason,
+                FinalSurvivor=new
+                {
+                    survivor.LocationName,survivor.LocationType,survivor.TeamId,survivor.City,survivor.District,
+                    survivor.Address,survivor.PlusCode,survivor.TaxId,survivor.MasterNote
+                },
                 HistoricalTripAndSnapshotReferencesPreserved=true,
                 NotesAndNoteHistoryPreservedOnSource=true,
                 CurrentProjectReferencesRebound=projectRebound,
                 CurrentFavoriteReferencesRebound=favoriteRebound,
                 GovernmentMatchesRebound=governmentRebound
             }),
-            CreatedAt=DateTime.UtcNow
+            CreatedAt=now
         });
 
+        await db.SaveChangesAsync(ct);
+        await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,survivor,admin.UserId,ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
     }

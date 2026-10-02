@@ -272,4 +272,35 @@ public sealed class V180QueryRegressionTests
         Assert.Empty(otherOrg.Items);
         Assert.Equal(2, await db.VisitTripSnapshots.CountAsync());
     }
+
+
+    [Fact]
+    public async Task Survivor_location_keyword_resolves_preserved_source_history_without_rewrite()
+    {
+        await using var db = MemoryDb();
+        db.Users.Add(new User { UserId = 1, OrganizationId = 1, EmployeeNo = "E001", DisplayName = "Tester" });
+        db.Teams.Add(new Team { TeamId = 10, OrganizationId = 1, TeamCode = "T10", TeamName = "Team" });
+        db.Locations.AddRange(
+            new Location { LocationId = 201, OrganizationId = 1, LocationCode = "OLD-LOC", LocationName = "OLD LOCATION",
+                IsActive = false, DuplicateOfLocationId = 202, DuplicateReason = "merged" },
+            new Location { LocationId = 202, OrganizationId = 1, LocationCode = "SURVIVOR-LOC", LocationName = "SURVIVOR MASTER",
+                Address = "SURVIVOR ADDRESS", IsActive = true, ApprovalStatus = "Approved" });
+        db.VisitTrips.Add(new VisitTrip { VisitTripId = 21, TripNo = "T-21", UserId = 1, OrganizationId = 1, TeamId = 10,
+            VisitDate = new(2026, 9, 30), Status = TripStatuses.Approved, Purpose = "visit" });
+        db.VisitTripSnapshots.Add(new VisitTripSnapshot {
+            VisitTripSnapshotId = 21, VisitTripId = 21, SnapshotVersion = 1, TripNo = "T-21",
+            UserId = 1, OrganizationId = 1, TeamId = 10, EmployeeNoSnapshot = "E001",
+            DisplayNameSnapshot = "Tester", TeamNameSnapshot = "Team", VisitDate = new(2026, 9, 30),
+            Stops = [new VisitTripSnapshotStop { StopSequence = 1, LocationId = 201,
+                LocationCodeSnapshot = "OLD-LOC", LocationNameSnapshot = "OLD LOCATION", AddressSnapshot = "OLD ADDRESS" }]
+        });
+        await db.SaveChangesAsync();
+
+        var result = await Repo(db).QueryTripsAsync(
+            Actor(), new TripQueryRequest(LocationKeyword: "SURVIVOR MASTER"), false, default);
+
+        Assert.Equal(21, Assert.Single(result.Items).VisitTripId);
+        Assert.Equal(201, await db.VisitTripSnapshotStops.Select(x => x.LocationId).SingleAsync());
+        Assert.Equal(202, await db.Locations.Where(x => x.LocationId == 201).Select(x => x.DuplicateOfLocationId).SingleAsync());
+    }
 }

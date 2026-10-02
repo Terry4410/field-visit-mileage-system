@@ -53,4 +53,16 @@ public sealed class V170LocationPromotionRulesTests
             () => V170LocationPromotionRules.EnsureCanPromote(row));
         Assert.Contains("完成地理解析", ex.Message);
     }
+
+
+    [Fact]
+    public void SuspectedDuplicate_CannotPromoteBeforeAdminReview()
+    {
+        var row = Ready();
+        row.DuplicateReason = V170LocationDuplicateRules.SuspectedReason;
+        Assert.False(V170LocationPromotionRules.CanPromote(row));
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => V170LocationPromotionRules.EnsureCanPromote(row));
+        Assert.Contains("人工覆核", ex.Message);
+    }
 }

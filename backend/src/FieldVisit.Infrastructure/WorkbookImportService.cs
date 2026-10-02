@@ -146,6 +146,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         {
             try
             {
+                Location? locationForDuplicateRefresh = null;
                 if (item.Action == "NoChange") { unchanged++; item.Status = "Applied"; await db.SaveChangesAsync(ct); continue; }
                 if (item.EntityType == "Location")
                 {
@@ -155,13 +156,14 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                         var teamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
                         // Excel imports can never bypass the location lifecycle:
                         // new Locations always require geocoding and approval.
-                        await db.Locations.AddAsync(new FieldVisit.Domain.Entities.Location
+                        locationForDuplicateRefresh = new Location
                         {
                             OrganizationId = user.OrganizationId, TeamId = teamId, LocationCode = NewLocationCode(), LocationName = data.LocationName.Trim(),
                             LocationType = "Customer", City = data.City?.Trim(), District = data.District?.Trim(), Address = data.Address?.Trim(), PlusCode = data.PlusCode?.Trim(),
                             IsTemporary = false, ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId,
                             IsActive = false, CreatedAt = DateTime.UtcNow
-                        }, ct);
+                        };
+                        await db.Locations.AddAsync(locationForDuplicateRefresh, ct);
                         created++;
                     }
                     else
@@ -173,6 +175,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                         row.TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
                         row.LocationName = data.LocationName.Trim(); row.City = data.City?.Trim(); row.District = data.District?.Trim(); row.Address = data.Address?.Trim(); row.PlusCode = data.PlusCode?.Trim();
                         row.GeocodingStatus = "Pending"; row.ApprovalStatus = "Pending"; row.IsActive = false; row.UpdatedAt = DateTime.UtcNow;
+                        locationForDuplicateRefresh = row;
                         updated++;
                     }
                 }
@@ -254,6 +257,12 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 }
                 item.Status = "Applied";
                 await db.SaveChangesAsync(ct);
+                if(locationForDuplicateRefresh is not null)
+                {
+                    await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(
+                        db,locationForDuplicateRefresh,user.UserId,ct);
+                    await db.SaveChangesAsync(ct);
+                }
             }
             catch (Exception ex)
             {

@@ -467,6 +467,18 @@ public sealed class BackgroundJobService(
         {
             var item = new BackgroundJobItem { BackgroundJobId = job.BackgroundJobId, EntityType = "Location", EntityId = location.LocationId.ToString(), Status = "Processing", CreatedAt = DateTime.UtcNow, StartedAt = DateTime.UtcNow };
             await db.BackgroundJobItems.AddAsync(item, ct);
+            if (location.DuplicateOfLocationId.HasValue
+                || string.Equals(location.DuplicateReason, V170LocationDuplicateRules.SuspectedReason, StringComparison.Ordinal))
+            {
+                item.Status = "Skipped";
+                item.ErrorCode = "DUPLICATE_REVIEW_REQUIRED";
+                item.ErrorMessage = "疑似重複地點必須先完成管理者人工覆核。";
+                item.CompletedAt = DateTime.UtcNow;
+                job.SkippedCount++;
+                await db.SaveChangesAsync(ct);
+                continue;
+            }
+
             try
             {
                 var result = await geocoding.ResolveAsync(location.Address, location.PlusCode, ct);

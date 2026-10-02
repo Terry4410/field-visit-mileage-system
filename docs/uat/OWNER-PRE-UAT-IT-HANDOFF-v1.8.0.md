@@ -66,9 +66,19 @@ Deployment-stage validation evidence:
 | PRE-UAT-009 | Leader individual + batch trip approval | Existing batch API wired to UI |
 | PRE-UAT-010 | HR master fields + multiple effective-dated leave/status periods; login fail-closed | Reuses 1.8.0-002 |
 | PRE-UAT-011 | Existing preview/confirm bulk tool moved to Team member maintenance | No new importer/schema |
-| PRE-UAT-012 | Duplicate candidates + Admin preview/confirm merge; historical Trip/Snapshot not rewritten | Reuses 1.8.0-004 duplicate marker + AuditLog |
+| PRE-UAT-012 | Create/edit auto duplicate detection (TaxId/name/address/Plus Code, including small text variation) + Admin 3-way review (different / use existing / field-select merge) + side-by-side impact preview; historical Trip/Snapshot not rewritten and survivor query resolves source history | Reuses 1.8.0-004 duplicate marker + LocationApprovalHistory + AuditLog |
 | PRE-UAT-013 | Admin owns vehicle/start/end/rate/rule; no neighboring date rewrite | **Requires 1.8.0-008** |
 | PRE-UAT-014 | Single + selected batch correction close; stale/mixed state blocks before batch | Existing correction schema |
+
+## 3A. Confirmed Owner request reconciliation
+
+The deployment package is checked against the Owner-confirmed requests, not only the issue titles:
+- Login: UAT version shown; demo-role buttons removed.
+- Mileage: Google success uses provider distance; Google failure permits manual fallback only; Leader remains final approver and supports individual/batch approval.
+- Location maintenance: Visitor/Leader/Admin shared maintenance, TaxId/Plus Code/address/master note, Team note author/time history, searchable note history and before/after audit.
+- Duplicate governance: automatic create/edit candidate detection, Admin manual review, three review outcomes, merge safeguards/master-field choice, immutable historical Trip/Snapshot and survivor history resolution.
+- Rate governance: Admin explicitly maintains EffectiveFrom/EffectiveTo; same-vehicle active overlap is blocked; EffectiveTo < EffectiveFrom is blocked; different vehicle series may overlap; neighboring periods are never silently rewritten.
+- Google Maps UAT: server-side configuration only; no API key in Git/source. Runtime activation remains a deployment gate until the UAT App Service settings are applied and smoke-tested.
 
 ## 4. Database strategy
 
@@ -177,17 +187,22 @@ UI separates:
 - HR facts: EmployeeNo, DisplayName, Email, HireDate, TerminationDate, effective-dated status history;
 - Access facts: roles/team scopes/admin enabled.
 
-## 8. Location merge semantics
+## 8. Location duplicate / merge semantics
 
-Admin merge is conservative:
-- requires survivor selection, preview and explicit reason/confirmation;
+PRE-UAT-012 is fail-closed and human-reviewed:
+- create/edit automatically compares TaxId, location name, address and Plus Code; normalized small text variations are also candidates;
+- a single matching field only marks **suspected duplicate** and never auto-rejects, auto-deletes or auto-merges;
+- suspected duplicate remains a publish gate until Admin review;
+- Admin has three explicit outcomes: **confirm different locations**, **use existing master unchanged**, or **merge with field-by-field survivor choices**;
+- a “different location” decision is persisted with both record signatures; unchanged pairs are not repeatedly prompted, but a later master-data change invalidates that evidence naturally;
+- merge preview shows source/survivor side-by-side plus Trip, Snapshot, Project, Favorite, note-history, government-master and current/future deployment-site impact;
+- current/future deployment-site dependency blocks merge;
 - source Location is retained as historical evidence and marked duplicate/inactive;
 - Trip/Stop/Snapshot historical Location references are not rewritten;
-- current/future deployment-site dependency blocks merge;
-- merge is recorded in AuditLog.
-
-Historical note/history evidence remains attached to the source record so original authorship and
-timeline are not destroyed.
+- current operational Project/Favorite/Government references follow the survivor;
+- survivor maintenance view includes source note/audit evidence, preserving original location identity, author and timeline;
+- trip query by the survivor master can resolve historical rows that still hold the source LocationId;
+- merge AuditLog records source/survivor before/after master values, mode, reason, actor/time and rebound counts.
 
 ## 9. Runtime gates still required
 
@@ -219,7 +234,7 @@ Controlled 1800_008 artifacts:
    - Car Google route;
    - forced Google failure + manual fallback;
    - Location note/address/TaxId audit;
-   - Location duplicate preview/merge;
+   - Location auto duplicate flag → Admin different/use-existing/field-select merge; verify source history remains queryable through survivor;
    - Leave/Termination login denial;
    - explicit rate date overlap rejection;
    - Leader batch trip approval;

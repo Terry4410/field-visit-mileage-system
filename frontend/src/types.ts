@@ -56,6 +56,8 @@ export interface LocationNoteEntry{
   changedAt:string;
   changedByUserId:number;
   changedBy:string;
+  sourceLocationId?:number;
+  sourceLocationName?:string;
 }
 export interface LocationAudit{
   auditLogId:number;
@@ -65,6 +67,8 @@ export interface LocationAudit{
   changedAt:string;
   changedByUserId?:number;
   changedBy?:string;
+  sourceLocationId?:number;
+  sourceLocationName?:string;
 }
 export interface LocationMaintenance{
   locationId:number;
@@ -95,6 +99,32 @@ export interface LocationDuplicateCandidate{
   taxId?:string;
   matchReasons:string[];
 }
+export interface LocationMergeMaster{
+  locationId:number;
+  locationCode?:string|null;
+  locationName:string;
+  locationType:string;
+  teamId?:number|null;
+  teamName?:string|null;
+  city?:string|null;
+  district?:string|null;
+  address?:string|null;
+  plusCode?:string|null;
+  taxId?:string|null;
+  masterNote?:string|null;
+  rowVersion:string;
+}
+export interface LocationMergeMasterSelection{
+  locationName:string;
+  locationType:string;
+  teamId:number|null;
+  city:string|null;
+  district:string|null;
+  address:string|null;
+  plusCode:string|null;
+  taxId:string|null;
+  masterNote:string|null;
+}
 export interface LocationMergePreview{
   sourceLocationId:number;
   survivorLocationId:number;
@@ -105,6 +135,10 @@ export interface LocationMergePreview{
   favoriteReferenceCount:number;
   noteHistoryCount:number;
   currentDeploymentSiteReferenceCount:number;
+  snapshotReferenceCount:number;
+  governmentMatchCount:number;
+  source?:LocationMergeMaster|null;
+  survivor?:LocationMergeMaster|null;
 }
 export interface Team{teamId:number;organizationId:number;teamCode:string;teamName:string}
 export interface Project{projectId:number;teamId?:number;projectCode:string;projectName:string;description?:string;locationMode:string;startDate?:string;endDate?:string;isActive:boolean}
@@ -135,7 +169,7 @@ export interface V170PersonDetail{
   employmentId?:number;hireDate?:string;terminationDate?:string;employmentRowVersion?:string;
 }
 export interface ManagedTeam{teamId:number;organizationId:number;teamCode:string;teamName:string;isActive:boolean}
-export interface ManagedLocation{locationId:number;locationCode:string;teamId?:number;teamName?:string;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string}
+export interface ManagedLocation{locationId:number;locationCode:string;teamId?:number;teamName?:string;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string;duplicateOfLocationId?:number|null;duplicateReason?:string|null}
 export interface ImportPreviewItem{rowNumber:number;entityType:string;action:string;status:string;displayKey:string;errorMessage?:string}
 export interface ImportPreview{importBatchId:string;importType:string;totalCount:number;validCount:number;errorCount:number;items:ImportPreviewItem[]}
 export interface ImportConfirmResult{importBatchId:string;created:number;updated:number;unchanged:number;failed:number;errors:string[]}

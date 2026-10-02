@@ -148,6 +148,18 @@ public sealed class V170LocationService(
         int locationId,CancellationToken ct)
         => locations.GetDuplicateCandidatesAsync(RequireAdmin(),V170LocationPickerRules.EnsureLocationId(locationId),ct);
 
+    public Task ConfirmDistinctAsync(
+        int sourceLocationId,V170LocationDuplicateDistinctRequest request,CancellationToken ct)
+    {
+        if(!request.Confirm)throw new InvalidOperationException("疑似重複地點人工覆核必須明確確認。");
+        if(string.IsNullOrWhiteSpace(request.Reason))throw new InvalidOperationException("人工覆核原因為必填。");
+        return locations.ConfirmDistinctAsync(
+            RequireAdmin(),
+            V170LocationPickerRules.EnsureLocationId(sourceLocationId),
+            request with { Reason=request.Reason.Trim() },
+            ct);
+    }
+
     public Task<V170LocationMergePreviewDto> PreviewMergeAsync(
         int sourceLocationId,int survivorLocationId,CancellationToken ct)
         => locations.PreviewMergeAsync(RequireAdmin(),sourceLocationId,survivorLocationId,ct);
@@ -157,6 +169,10 @@ public sealed class V170LocationService(
     {
         if(!request.Confirm)throw new InvalidOperationException("地點合併必須明確確認。");
         if(string.IsNullOrWhiteSpace(request.Reason))throw new InvalidOperationException("地點合併原因為必填。");
+        if(request.Mode is not ("UseExisting" or "MergeFields"))
+            throw new InvalidOperationException("地點合併模式不正確。");
+        if(request.Mode=="MergeFields"&&request.FinalMaster is null)
+            throw new InvalidOperationException("合併主檔模式必須指定最後保留的主檔內容。");
         return locations.MergeAsync(RequireAdmin(),sourceLocationId,request with { Reason=request.Reason.Trim() },ct);
     }
 

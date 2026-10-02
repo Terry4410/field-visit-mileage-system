@@ -467,7 +467,14 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
 
     public Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct) =>
         (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking()).FirstOrDefaultAsync(x => x.LocationId == id, ct);
-    public Task AddLocationAsync(Location location, CancellationToken ct) => db.Locations.AddAsync(location, ct).AsTask();
+    public async Task AddLocationAsync(Location location, CancellationToken ct)
+    {
+        var candidates = await V180LocationDuplicateGovernance.FindCandidatesAsync(
+            db, location, ct, suppressReviewed: false);
+        if (candidates.Count > 0)
+            location.DuplicateReason = V170LocationDuplicateRules.SuspectedReason;
+        await db.Locations.AddAsync(location, ct);
+    }
     public Task<Location?> FindReusableTemporaryLocationAsync(int? organizationId, int? teamId, string locationName, string? addressOrPlusCode, CancellationToken ct) =>
         db.Locations.FirstOrDefaultAsync(x => x.IsTemporary && x.ApprovalStatus == "Pending" && x.OrganizationId == organizationId && x.TeamId == teamId && x.LocationName == locationName && (x.Address == addressOrPlusCode || x.PlusCode == addressOrPlusCode), ct);
     public async Task AbandonUnusedTemporaryLocationsAsync(IReadOnlyCollection<int> locationIds, CancellationToken ct)

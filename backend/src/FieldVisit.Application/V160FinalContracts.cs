@@ -162,7 +162,9 @@ public sealed record ManagedLocationDto(
     string GeocodingStatus,
     bool IsActive,
     DateTime CreatedAt,
-    string RowVersion);
+    string RowVersion,
+    int? DuplicateOfLocationId = null,
+    string? DuplicateReason = null);
 
 public sealed record ManagedLocationQueryRequest(
     string? Q = null,

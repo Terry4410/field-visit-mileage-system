@@ -125,6 +125,14 @@ public sealed class MasterService(
             if (!HasRole(user, "admin") && HasRole(user, "leader") && (!row.TeamId.HasValue || !user.TeamIds.Contains(row.TeamId.Value))) { failed++; errors.Add($"{id}: 無權限"); continue; }
             if (HasRole(user, "admin") && user.OrganizationId.HasValue && row.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId) { failed++; errors.Add($"{id}: 無權限"); continue; }
 
+            if (row.DuplicateOfLocationId.HasValue
+                || string.Equals(row.DuplicateReason, V170LocationDuplicateRules.SuspectedReason, StringComparison.Ordinal))
+            {
+                failed++;
+                errors.Add($"{id}: 疑似重複地點必須先完成管理者人工覆核");
+                continue;
+            }
+
             var geo = await geocoding.ResolveAsync(row.Address, row.PlusCode, ct);
             if (!geo.Success || geo.Latitude is null || geo.Longitude is null)
             {

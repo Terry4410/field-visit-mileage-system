@@ -46,6 +46,8 @@ public interface IV170LocationRepository
         CurrentUserDto user,int locationId,V170LocationNoteRequest request,CancellationToken ct);
     Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> GetDuplicateCandidatesAsync(
         CurrentUserDto admin,int locationId,CancellationToken ct);
+    Task ConfirmDistinctAsync(
+        CurrentUserDto admin,int sourceLocationId,V170LocationDuplicateDistinctRequest request,CancellationToken ct);
     Task<V170LocationMergePreviewDto> PreviewMergeAsync(
         CurrentUserDto admin,int sourceLocationId,int survivorLocationId,CancellationToken ct);
     Task MergeAsync(

@@ -10,6 +10,8 @@ public static class V170LocationPromotionRules
             && location.IsActive
             && string.Equals(location.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase)
             && string.Equals(location.GeocodingStatus, "Completed", StringComparison.OrdinalIgnoreCase)
+            && location.DuplicateOfLocationId is null
+            && !string.Equals(location.DuplicateReason, V170LocationDuplicateRules.SuspectedReason, StringComparison.Ordinal)
             && location.Latitude.HasValue
             && location.Longitude.HasValue;
     }
@@ -24,6 +26,12 @@ public static class V170LocationPromotionRules
 
         if (!string.Equals(location.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("臨時地點必須先完成核准，才能轉為正式地點。");
+
+        if (location.DuplicateOfLocationId.HasValue)
+            throw new InvalidOperationException("已合併的 duplicate 地點不可轉為正式地點。");
+
+        if (string.Equals(location.DuplicateReason, V170LocationDuplicateRules.SuspectedReason, StringComparison.Ordinal))
+            throw new InvalidOperationException("疑似重複地點必須先完成管理者人工覆核，才能轉為正式地點。");
 
         if (!string.Equals(location.GeocodingStatus, "Completed", StringComparison.OrdinalIgnoreCase)
             || !location.Latitude.HasValue

@@ -103,7 +103,9 @@ public sealed record V170LocationNoteEntryDto(
     string? ChangeReason,
     DateTime ChangedAt,
     int ChangedByUserId,
-    string ChangedBy);
+    string ChangedBy,
+    int SourceLocationId = 0,
+    string? SourceLocationName = null);
 
 public sealed record V170LocationAuditDto(
     long AuditLogId,
@@ -112,7 +114,9 @@ public sealed record V170LocationAuditDto(
     string? NewValues,
     DateTime ChangedAt,
     int? ChangedByUserId,
-    string? ChangedBy);
+    string? ChangedBy,
+    int SourceLocationId = 0,
+    string? SourceLocationName = null);
 
 public sealed record V170LocationMaintenanceDto(
     int LocationId,
@@ -157,6 +161,32 @@ public sealed record V170LocationDuplicateCandidateDto(
     string? TaxId,
     IReadOnlyList<string> MatchReasons);
 
+public sealed record V170LocationMergeMasterDto(
+    int LocationId,
+    string? LocationCode,
+    string LocationName,
+    string LocationType,
+    int? TeamId,
+    string? TeamName,
+    string? City,
+    string? District,
+    string? Address,
+    string? PlusCode,
+    string? TaxId,
+    string? MasterNote,
+    string RowVersion);
+
+public sealed record V170LocationMergeMasterSelection(
+    string LocationName,
+    string LocationType,
+    int? TeamId,
+    string? City,
+    string? District,
+    string? Address,
+    string? PlusCode,
+    string? TaxId,
+    string? MasterNote);
+
 public sealed record V170LocationMergePreviewDto(
     int SourceLocationId,
     int SurvivorLocationId,
@@ -166,10 +196,23 @@ public sealed record V170LocationMergePreviewDto(
     int ProjectReferenceCount,
     int FavoriteReferenceCount,
     int NoteHistoryCount,
-    int CurrentDeploymentSiteReferenceCount);
+    int CurrentDeploymentSiteReferenceCount,
+    int SnapshotReferenceCount = 0,
+    int GovernmentMatchCount = 0,
+    V170LocationMergeMasterDto? Source = null,
+    V170LocationMergeMasterDto? Survivor = null);
 
 public sealed record V170LocationMergeRequest(
     int SurvivorLocationId,
+    string Reason,
+    string SourceRowVersion,
+    bool Confirm,
+    string? SurvivorRowVersion = null,
+    string Mode = "UseExisting",
+    V170LocationMergeMasterSelection? FinalMaster = null);
+
+public sealed record V170LocationDuplicateDistinctRequest(
+    int CandidateLocationId,
     string Reason,
     string SourceRowVersion,
     bool Confirm);

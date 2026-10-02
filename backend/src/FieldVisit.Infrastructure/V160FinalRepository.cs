@@ -55,15 +55,28 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         if (!string.IsNullOrWhiteSpace(request.LocationKeyword))
         {
             var keyword = request.LocationKeyword.Trim();
+            var survivorMatches=db.Locations.AsNoTracking().Where(x=>
+                x.LocationName.Contains(keyword)
+                ||(x.Address!=null&&x.Address.Contains(keyword))
+                ||(x.LocationCode!=null&&x.LocationCode.Contains(keyword))
+                ||(x.PlusCode!=null&&x.PlusCode.Contains(keyword))
+                ||(x.TaxId!=null&&x.TaxId.Contains(keyword)));
+            var historicalAliasIds=db.Locations.AsNoTracking()
+                .Where(x=>x.DuplicateOfLocationId.HasValue
+                    &&survivorMatches.Any(s=>s.LocationId==x.DuplicateOfLocationId.Value))
+                .Select(x=>x.LocationId);
+
             q = q.Where(t => t.Status == TripStatuses.Approved
                 ? latestSnapshotQ.Any(s => s.VisitTripId == t.VisitTripId && s.Stops.Any(st =>
                     st.LocationNameSnapshot.Contains(keyword) ||
                     (st.AddressSnapshot != null && st.AddressSnapshot.Contains(keyword)) ||
-                    (st.LocationCodeSnapshot != null && st.LocationCodeSnapshot.Contains(keyword))))
+                    (st.LocationCodeSnapshot != null && st.LocationCodeSnapshot.Contains(keyword)) ||
+                    (st.LocationId.HasValue && historicalAliasIds.Contains(st.LocationId.Value))))
                 : t.Stops.Any(st =>
                     (st.LocationNameSnapshot != null && st.LocationNameSnapshot.Contains(keyword)) ||
                     (st.AddressSnapshot != null && st.AddressSnapshot.Contains(keyword)) ||
-                    (st.Location != null && st.Location.LocationCode != null && st.Location.LocationCode.Contains(keyword))));
+                    (st.Location != null && st.Location.LocationCode != null && st.Location.LocationCode.Contains(keyword)) ||
+                    (st.LocationId.HasValue && historicalAliasIds.Contains(st.LocationId.Value))));
         }
         if (request.ProjectId.HasValue)
         {
@@ -761,6 +774,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         await db.Locations.AddAsync(row, ct);
         AddAudit(user.UserId, "Location", null, "LocationCreate", new { row.LocationCode, row.LocationName, row.TeamId });
         await db.SaveChangesAsync(ct);
+        await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,row,user.UserId,ct);
+        await db.SaveChangesAsync(ct);
         var teamName = row.TeamId.HasValue ? await db.Teams.AsNoTracking().Where(x => x.TeamId == row.TeamId).Select(x => x.TeamName).FirstOrDefaultAsync(ct) : null;
         return MapManagedLocation(row, teamName);
     }
@@ -781,6 +796,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         row.GeocodingStatus = "Pending";
         row.UpdatedAt = DateTime.UtcNow;
         AddAudit(user.UserId, "Location", locationId.ToString(), "LocationUpdate", new { before, after = request });
+        await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,row,user.UserId,ct);
         await db.SaveChangesAsync(ct);
         var teamName = row.TeamId.HasValue ? await db.Teams.AsNoTracking().Where(x => x.TeamId == row.TeamId).Select(x => x.TeamName).FirstOrDefaultAsync(ct) : null;
         return MapManagedLocation(row, teamName);
@@ -875,7 +891,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                     .CountAsync(
                         x =>
                             x.ApprovalStatus == "Pending"
-                            || x.GeocodingStatus == "Pending",
+                            || x.GeocodingStatus == "Pending"
+                            || (x.DuplicateOfLocationId == null
+                                && x.DuplicateReason == V170LocationDuplicateRules.SuspectedReason),
                         ct);
         var correctionQ = db.CorrectionRequests.AsNoTracking().Where(x => x.Status == "PendingLeaderReview" || x.Status == "PendingAdminClose");
         if (HasRole(user, "admin")
@@ -1357,7 +1375,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     private static ManagedLocationDto MapManagedLocation(Location x, string? teamName) => new(
         x.LocationId, x.LocationCode ?? "", x.TeamId, teamName, x.LocationName, x.LocationType, x.City, x.District, x.Address, x.PlusCode,
-        x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []));
+        x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []),
+        x.DuplicateOfLocationId, x.DuplicateReason);
 
     private static void EnsureRowVersion(byte[] currentValue, string? expectedBase64)
     {

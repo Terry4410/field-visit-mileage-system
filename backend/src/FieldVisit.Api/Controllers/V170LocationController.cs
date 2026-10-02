@@ -124,6 +124,15 @@ public sealed class V170LocationController(
     public Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> DuplicateCandidates(int locationId,CancellationToken ct)
         => locations.GetDuplicateCandidatesAsync(locationId,ct);
 
+    [HttpPost("{locationId:int}/duplicate-review/distinct")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> ConfirmDistinct(
+        int locationId,V170LocationDuplicateDistinctRequest request,CancellationToken ct)
+    {
+        await locations.ConfirmDistinctAsync(locationId,request,ct);
+        return NoContent();
+    }
+
     [HttpGet("{locationId:int}/merge-preview")]
     [Authorize(Roles = "admin")]
     public Task<V170LocationMergePreviewDto> MergePreview(int locationId,[FromQuery]int survivorLocationId,CancellationToken ct)
