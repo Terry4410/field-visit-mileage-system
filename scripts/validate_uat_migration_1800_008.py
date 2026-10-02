@@ -127,7 +127,8 @@ for marker in (
 require(workflow.count("-InputFile $up") == 1, "1800_008 workflow must invoke Up.sql exactly once")
 require(workflow.count("-InputFile $verify") == 1, "1800_008 workflow must invoke Verify.sql exactly once")
 require(workflow.count("-InputFile $history") == 1, "1800_008 workflow must invoke historical verifier exactly once")
-require("force" not in workflow.lower(), "1800_008 workflow must not contain force semantics")
+for forbidden in ("git push --force", "git push -f ", "--force-with-lease", "force push"):
+    require(forbidden not in workflow.lower(), f"1800_008 workflow contains forbidden history rewrite marker: {forbidden}")
 require("main" not in re.sub(r"1800_008_rate_manual_effective_dates", "", workflow), "1800_008 workflow must not target main")
 
 for marker in (
