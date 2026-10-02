@@ -32,7 +32,9 @@ public sealed record V170PeopleRowDto(
     int? PrimaryTeamId,
     string? PrimaryTeamName,
     DateOnly? AuthorizationFrom,
-    DateOnly? AuthorizationTo);
+    DateOnly? AuthorizationTo,
+    DateOnly? HireDate = null,
+    DateOnly? TerminationDate = null);
 
 public sealed record V170EmploymentPeriodDto(
     long UserEmploymentPeriodId,
@@ -103,7 +105,11 @@ public sealed record V170PersonDetailDto(
     IReadOnlyList<V170RoleAssignmentDto> RoleAssignments,
     IReadOnlyList<V170TeamAssignmentDto> TeamAssignments,
     IReadOnlyList<V170DataScopeDto> DataScopes,
-    IReadOnlyList<V170CapabilityDto> Capabilities);
+    IReadOnlyList<V170CapabilityDto> Capabilities,
+    long? EmploymentId = null,
+    DateOnly? HireDate = null,
+    DateOnly? TerminationDate = null,
+    string? EmploymentRowVersion = null);
 
 public static class V170PeopleQueryRules
 {

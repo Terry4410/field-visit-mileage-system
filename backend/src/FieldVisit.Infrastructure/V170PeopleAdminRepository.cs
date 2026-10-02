@@ -68,14 +68,21 @@ public sealed class V170PeopleAdminRepository(
             var status =
                 request.EmploymentStatus;
 
-            q = q.Where(
-                x => db.UserEmploymentPeriods.Any(
-                    e =>
-                        e.UserId == x.UserId
-                        && e.EmploymentStatus == status
-                        && e.EffectiveFrom <= today
-                        && (!e.EffectiveTo.HasValue
-                            || e.EffectiveTo >= today)));
+            q = q.Where(x =>
+                db.UserIdentityProfiles.Any(p =>
+                    p.UserId==x.UserId
+                    &&p.EmploymentId.HasValue
+                    &&db.EmploymentStatusPeriods.Any(e =>
+                        e.EmploymentId==p.EmploymentId.Value
+                        &&e.EmploymentStatus==status
+                        &&e.EffectiveFrom<=today
+                        &&(!e.EffectiveTo.HasValue||e.EffectiveTo>=today)))
+                ||(!db.UserIdentityProfiles.Any(p=>p.UserId==x.UserId&&p.EmploymentId.HasValue)
+                    &&db.UserEmploymentPeriods.Any(e =>
+                        e.UserId==x.UserId
+                        &&e.EmploymentStatus==status
+                        &&e.EffectiveFrom<=today
+                        &&(!e.EffectiveTo.HasValue||e.EffectiveTo>=today))));
         }
 
         if (!string.IsNullOrWhiteSpace(
@@ -205,6 +212,30 @@ public sealed class V170PeopleAdminRepository(
                     x => x.Key,
                     x => x.First());
 
+        var linkedEmploymentIds=identities.Values
+            .Where(x=>x.EmploymentId.HasValue)
+            .Select(x=>x.EmploymentId!.Value)
+            .Distinct()
+            .ToList();
+
+        var employmentMasters=await db.Employments
+            .AsNoTracking()
+            .Where(x=>linkedEmploymentIds.Contains(x.EmploymentId))
+            .ToDictionaryAsync(x=>x.EmploymentId,ct);
+
+        var v180CurrentStatuses=await db.EmploymentStatusPeriods
+            .AsNoTracking()
+            .Where(x=>linkedEmploymentIds.Contains(x.EmploymentId)
+                &&x.EffectiveFrom<=today
+                &&(!x.EffectiveTo.HasValue||x.EffectiveTo>=today))
+            .OrderByDescending(x=>x.EffectiveFrom)
+            .ThenByDescending(x=>x.EmploymentStatusPeriodId)
+            .ToListAsync(ct);
+
+        var v180StatusByEmployment=v180CurrentStatuses
+            .GroupBy(x=>x.EmploymentId)
+            .ToDictionary(x=>x.Key,x=>x.First());
+
         var roleRows =
             await (
                 from a in db.UserRoleAssignments
@@ -257,6 +288,15 @@ public sealed class V170PeopleAdminRepository(
                     currentEmployment.TryGetValue(
                         user.UserId,
                         out var employment);
+
+                    Employment? employmentMaster=null;
+                    EmploymentStatusPeriod? v180Status=null;
+                    if(identity?.EmploymentId is long linkedEmploymentId)
+                    {
+                        employmentMasters.TryGetValue(linkedEmploymentId,out employmentMaster);
+                        v180StatusByEmployment.TryGetValue(linkedEmploymentId,out v180Status);
+                    }
+                    var employmentStatus=v180Status?.EmploymentStatus??employment?.EmploymentStatus;
 
                     var userType =
                         identity?.UserType
@@ -314,8 +354,7 @@ public sealed class V170PeopleAdminRepository(
                         V170AccessRules
                             .IsSystemAccessAllowed(
                                 user.IsActive,
-                                employment?
-                                    .EmploymentStatus,
+                                employmentStatus,
                                 userType,
                                 identity?
                                     .AuthorizationFrom,
@@ -330,8 +369,7 @@ public sealed class V170PeopleAdminRepository(
                         user.EmployeeNo,
                         user.DisplayName,
                         user.Email,
-                        employment?
-                            .EmploymentStatus,
+                        employmentStatus,
                         user.IsActive,
                         actualAccess,
                         roles,
@@ -341,7 +379,9 @@ public sealed class V170PeopleAdminRepository(
                         identity?
                             .AuthorizationFrom,
                         identity?
-                            .AuthorizationTo);
+                            .AuthorizationTo,
+                        employmentMaster?.HireDate,
+                        employmentMaster?.TerminationDate);
                 })
                 .ToList();
 
@@ -393,15 +433,36 @@ public sealed class V170PeopleAdminRepository(
                 .Select(x => x.OrganizationName)
                 .FirstOrDefaultAsync(ct);
 
-        var employments =
-            await db.UserEmploymentPeriods
-                .AsNoTracking()
-                .Where(x => x.UserId == userId)
-                .OrderByDescending(
-                    x => x.EffectiveFrom)
-                .ThenByDescending(
-                    x => x.UserEmploymentPeriodId)
+        Employment? employmentMaster=null;
+        if(identity?.EmploymentId is long linkedEmploymentId)
+            employmentMaster=await db.Employments.AsNoTracking()
+                .FirstOrDefaultAsync(x=>x.EmploymentId==linkedEmploymentId&&x.OrganizationId==orgId,ct);
+
+        IReadOnlyList<V170EmploymentPeriodDto> employmentPeriods;
+        if(employmentMaster is not null)
+        {
+            employmentPeriods=await db.EmploymentStatusPeriods.AsNoTracking()
+                .Where(x=>x.EmploymentId==employmentMaster.EmploymentId)
+                .OrderByDescending(x=>x.EffectiveFrom)
+                .ThenByDescending(x=>x.EmploymentStatusPeriodId)
+                .Select(x=>new V170EmploymentPeriodDto(
+                    x.EmploymentStatusPeriodId,x.EmploymentStatus,x.EffectiveFrom,x.EffectiveTo,
+                    x.SourceType,x.SourceReference,
+                    x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo>=today)))
                 .ToListAsync(ct);
+        }
+        else
+        {
+            employmentPeriods=await db.UserEmploymentPeriods.AsNoTracking()
+                .Where(x=>x.UserId==userId)
+                .OrderByDescending(x=>x.EffectiveFrom)
+                .ThenByDescending(x=>x.UserEmploymentPeriodId)
+                .Select(x=>new V170EmploymentPeriodDto(
+                    x.UserEmploymentPeriodId,x.EmploymentStatus,x.EffectiveFrom,x.EffectiveTo,
+                    x.SourceType,x.SourceReference,
+                    x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo>=today)))
+                .ToListAsync(ct);
+        }
 
         var roles =
             await (
@@ -496,14 +557,7 @@ public sealed class V170PeopleAdminRepository(
                     x => x.EffectiveFrom)
                 .ToListAsync(ct);
 
-        var currentEmployment =
-            employments
-                .FirstOrDefault(
-                    x =>
-                        V170AccessRules.IsEffective(
-                            x.EffectiveFrom,
-                            x.EffectiveTo,
-                            today));
+        var currentEmployment=employmentPeriods.FirstOrDefault(x=>x.IsCurrent);
 
         var userType =
             identity?.UserType
@@ -549,19 +603,7 @@ public sealed class V170PeopleAdminRepository(
             identity?
                 .AuthorizationTo,
 
-            employments.Select(
-                x => new V170EmploymentPeriodDto(
-                    x.UserEmploymentPeriodId,
-                    x.EmploymentStatus,
-                    x.EffectiveFrom,
-                    x.EffectiveTo,
-                    x.SourceType,
-                    x.SourceReference,
-                    V170AccessRules.IsEffective(
-                        x.EffectiveFrom,
-                        x.EffectiveTo,
-                        today)))
-                .ToList(),
+            employmentPeriods,
 
             roles.Select(
                 x => new V170RoleAssignmentDto(
@@ -647,7 +689,11 @@ public sealed class V170PeopleAdminRepository(
                         x.EffectiveFrom,
                         x.EffectiveTo,
                         today)))
-                .ToList());
+                .ToList(),
+            employmentMaster?.EmploymentId,
+            employmentMaster?.HireDate,
+            employmentMaster?.TerminationDate,
+            employmentMaster is null?null:Convert.ToBase64String(employmentMaster.RowVersion));
     }
 
     private static string NormalizeRole(

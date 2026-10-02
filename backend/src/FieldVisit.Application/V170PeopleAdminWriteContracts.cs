@@ -337,6 +337,14 @@ public sealed record InternalTeamAssignmentInput(
     int TeamId,
     bool IsPrimary);
 
+public sealed record UpdateInternalEmploymentRequest(
+    string EmployeeNo,
+    string DisplayName,
+    string? Email,
+    DateOnly? HireDate,
+    DateOnly? TerminationDate,
+    string EmploymentRowVersion);
+
 public sealed record UpdateInternalUserAccessRequest(
     IReadOnlyList<string> Roles,
     IReadOnlyList<InternalTeamAssignmentInput> TeamAssignments,
@@ -482,5 +490,11 @@ public interface IV170PeopleAdminWriter
         CurrentUserDto admin,
         int userId,
         UpdateInternalUserAccessRequest request,
+        CancellationToken ct);
+
+    Task UpdateInternalEmploymentAsync(
+        CurrentUserDto admin,
+        int userId,
+        UpdateInternalEmploymentRequest request,
         CancellationToken ct);
 }

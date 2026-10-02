@@ -4,6 +4,7 @@ import type{ManagedTeam,PagedResult,V170PeopleRow}from"../types";
 import { usePagedQuery } from '../use-query';
 import { Pagination } from '../components/QueryControls';
 import{todayTaipei}from"../v160";
+import PeopleBulkPanel from "../components/PeopleBulkPanel";
 
 export default function TeamManagementPage(){
  const[selectedTeamId,setSelectedTeamId]=useState<number|null>(null);
@@ -107,6 +108,8 @@ export default function TeamManagementPage(){
   </div>
 
   {msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}
+
+  <PeopleBulkPanel onConfirmed={load}/>
 
   <div className="card" style={{marginTop:18}}>
    <div className="section-title"><div><h2>小組成員維護{selectedTeam?`｜${selectedTeam.teamCode} ${selectedTeam.teamName}`:""}</h2><div className="sub">v1.7：以有效日 UserTeamAssignments 為唯一權限來源；儲存後會同步舊版相容投影。</div></div>

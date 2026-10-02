@@ -116,6 +116,27 @@ public sealed class V170PeopleAdminService(
             ct);
     }
 
+    public async Task<V170PersonDetailDto> UpdateInternalEmploymentAsync(
+        int userId,
+        UpdateInternalEmploymentRequest request,
+        CancellationToken ct)
+    {
+        if(userId<=0)throw new InvalidOperationException("UserId 不正確。");
+        if(string.IsNullOrWhiteSpace(request.EmployeeNo))throw new InvalidOperationException("工號為必填。");
+        if(string.IsNullOrWhiteSpace(request.DisplayName))throw new InvalidOperationException("姓名為必填。");
+        if(request.TerminationDate.HasValue&&request.HireDate.HasValue&&request.TerminationDate.Value<request.HireDate.Value)
+            throw new InvalidOperationException("離職日不可早於入職日。");
+
+        var admin=RequireAdmin();
+        await writer.UpdateInternalEmploymentAsync(admin,userId,request with
+        {
+            EmployeeNo=request.EmployeeNo.Trim(),
+            DisplayName=request.DisplayName.Trim(),
+            Email=string.IsNullOrWhiteSpace(request.Email)?null:request.Email.Trim()
+        },ct);
+        return await repository.GetAsync(admin,userId,ct);
+    }
+
     public Task<ReportExportContext>
         ExportBulkCurrentAsync(
             CancellationToken ct)

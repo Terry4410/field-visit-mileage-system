@@ -34,20 +34,46 @@ public sealed class V170AccessControl(AppDbContext db)
             identity?.UserType
             ?? UserTypes.Internal;
 
-        var employment = await db.UserEmploymentPeriods
-            .AsNoTracking()
-            .Where(x =>
-                x.UserId == userId
-                && x.EffectiveFrom <= today
-                && (!x.EffectiveTo.HasValue
-                    || x.EffectiveTo >= today))
-            .OrderByDescending(x => x.EffectiveFrom)
-            .ThenByDescending(x => x.UserEmploymentPeriodId)
-            .FirstOrDefaultAsync(ct);
+        string? employmentStatus;
+
+        if(identity?.EmploymentId is long employmentId)
+        {
+            var employmentMaster=await db.Employments.AsNoTracking()
+                .FirstOrDefaultAsync(x=>x.EmploymentId==employmentId,ct);
+
+            employmentStatus=await db.EmploymentStatusPeriods
+                .AsNoTracking()
+                .Where(x=>
+                    x.EmploymentId==employmentId
+                    &&x.EffectiveFrom<=today
+                    &&(!x.EffectiveTo.HasValue||x.EffectiveTo>=today))
+                .OrderByDescending(x=>x.EffectiveFrom)
+                .ThenByDescending(x=>x.EmploymentStatusPeriodId)
+                .Select(x=>x.EmploymentStatus)
+                .FirstOrDefaultAsync(ct);
+
+            if(employmentMaster?.TerminationDate is { } terminationDate&&terminationDate<=today)
+                employmentStatus=EmploymentStatuses.Terminated;
+            else if(employmentMaster?.HireDate is { } hireDate&&hireDate>today)
+                employmentStatus=EmploymentStatuses.PreHire;
+        }
+        else
+        {
+            employmentStatus=await db.UserEmploymentPeriods
+                .AsNoTracking()
+                .Where(x=>
+                    x.UserId==userId
+                    &&x.EffectiveFrom<=today
+                    &&(!x.EffectiveTo.HasValue||x.EffectiveTo>=today))
+                .OrderByDescending(x=>x.EffectiveFrom)
+                .ThenByDescending(x=>x.UserEmploymentPeriodId)
+                .Select(x=>x.EmploymentStatus)
+                .FirstOrDefaultAsync(ct);
+        }
 
         var allowed = V170AccessRules.IsSystemAccessAllowed(
             adminEnabled,
-            employment?.EmploymentStatus,
+            employmentStatus,
             userType,
             identity?.AuthorizationFrom,
             identity?.AuthorizationTo,
@@ -58,7 +84,7 @@ public sealed class V170AccessControl(AppDbContext db)
             return new V170LoginEligibility(
                 true,
                 userType,
-                employment?.EmploymentStatus,
+                employmentStatus,
                 null);
         }
 
@@ -90,7 +116,7 @@ public sealed class V170AccessControl(AppDbContext db)
         }
         else
         {
-            reason = employment?.EmploymentStatus switch
+            reason = employmentStatus switch
             {
                 EmploymentStatuses.Leave =>
                     "目前為留停狀態，暫停系統登入。",
@@ -109,7 +135,7 @@ public sealed class V170AccessControl(AppDbContext db)
         return new V170LoginEligibility(
             false,
             userType,
-            employment?.EmploymentStatus,
+            employmentStatus,
             reason);
     }
 

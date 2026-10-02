@@ -83,12 +83,12 @@ export default function PeopleBulkPanel({
 
   const downloadCurrent=()=>download(
     "/admin/people/bulk/current.xlsx",
-    "人員與權限目前設定.xlsx"
+    "小組成員與授權目前設定.xlsx"
   );
 
   const downloadTemplate=()=>download(
     "/admin/people/bulk/template.xlsx",
-    "人員與權限匯入範例.xlsx"
+    "小組成員與授權匯入範例.xlsx"
   );
 
   const downloadErrors=()=> {
@@ -96,7 +96,7 @@ export default function PeopleBulkPanel({
 
     return download(
       `/admin/people/bulk/${preview.importBatchId}/errors.xlsx`,
-      "人員與權限匯入錯誤.xlsx"
+      "小組成員與授權匯入錯誤.xlsx"
     );
   };
 
@@ -197,7 +197,7 @@ export default function PeopleBulkPanel({
         );
       }else{
         setMessage(
-          "人員與權限批次更新完成。"
+          "小組成員與授權批次更新完成。"
         );
       }
     }catch(e){
@@ -238,13 +238,13 @@ export default function PeopleBulkPanel({
       <div className="section-title">
         <div>
           <h2>
-            批次維護人員與權限
+            批次維護小組成員與授權
           </h2>
 
           <div className="sub">
-            上傳只會先建立預覽；
-            驗證完成並按下確認後，
-            才會正式修改權限。
+            此批次工具放在小組成員維護；
+            上傳只會先建立預覽，驗證完成並確認後，
+            才會正式修改小組成員／角色授權。
           </div>
         </div>
 

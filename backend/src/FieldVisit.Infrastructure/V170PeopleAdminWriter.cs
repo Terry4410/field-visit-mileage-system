@@ -1412,6 +1412,92 @@ public sealed class V170PeopleAdminWriter(
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task UpdateInternalEmploymentAsync(
+        CurrentUserDto admin,
+        int userId,
+        UpdateInternalEmploymentRequest request,
+        CancellationToken ct)
+    {
+        var orgId=admin.OrganizationId
+            ??throw new InvalidOperationException("目前管理者缺少 OrganizationId。");
+
+        var strategy=db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async()=>{
+            db.ChangeTracker.Clear();
+            await using var tx=await db.Database.BeginTransactionAsync(ct);
+
+            var user=await db.Users.FirstOrDefaultAsync(
+                x=>x.UserId==userId&&x.OrganizationId==orgId,ct)
+                ??throw new KeyNotFoundException("找不到 Internal User。");
+
+            var identity=await db.UserIdentityProfiles.FirstOrDefaultAsync(
+                x=>x.UserId==userId,ct)
+                ??throw new InvalidOperationException("此帳號缺少 Identity Profile。");
+
+            if(!identity.UserType.Equals(UserTypes.Internal,StringComparison.OrdinalIgnoreCase)
+                ||!identity.EmploymentId.HasValue)
+                throw new InvalidOperationException("此帳號沒有可維護的 v1.8 Employment。");
+
+            var employment=await db.Employments.FirstOrDefaultAsync(
+                x=>x.EmploymentId==identity.EmploymentId.Value&&x.OrganizationId==orgId,ct)
+                ??throw new InvalidOperationException("找不到對應 Employment。");
+
+            byte[] expected;
+            try{expected=Convert.FromBase64String(request.EmploymentRowVersion);}
+            catch{throw new InvalidOperationException("Employment RowVersion 格式不正確，請重新載入。");}
+            if(!employment.RowVersion.SequenceEqual(expected))
+                throw new InvalidOperationException("人事資料已被其他使用者更新，請重新載入後再操作。");
+
+            var employeeNo=request.EmployeeNo.Trim();
+            var email=string.IsNullOrWhiteSpace(request.Email)?null:request.Email.Trim();
+
+            if(await db.Employments.AsNoTracking().AnyAsync(
+                x=>x.OrganizationId==orgId
+                    &&x.EmploymentId!=employment.EmploymentId
+                    &&x.EmployeeNo==employeeNo,ct))
+                throw new InvalidOperationException("此工號已被其他 Employment 使用。");
+
+            if(email is not null&&await db.Users.AsNoTracking().AnyAsync(
+                x=>x.OrganizationId==orgId&&x.UserId!=userId&&x.Email!=null&&x.Email==email,ct))
+                throw new InvalidOperationException("此 Email 已被其他使用者使用。");
+
+            var oldValues=new
+            {
+                user.EmployeeNo,user.DisplayName,user.Email,
+                employment.HireDate,employment.TerminationDate,
+                EmploymentRowVersion=Convert.ToBase64String(employment.RowVersion)
+            };
+
+            user.EmployeeNo=employeeNo;
+            user.DisplayName=request.DisplayName.Trim();
+            user.Email=email;
+            user.UpdatedAt=DateTime.UtcNow;
+
+            employment.EmployeeNo=employeeNo;
+            employment.Email=email;
+            employment.HireDate=request.HireDate;
+            employment.TerminationDate=request.TerminationDate;
+
+            db.AuditLogs.Add(new AuditLog
+            {
+                UserId=admin.UserId,
+                EntityType="Employment",
+                EntityId=employment.EmploymentId.ToString(),
+                Action="EmploymentMasterUpdate",
+                OldValues=JsonSerializer.Serialize(oldValues),
+                NewValues=JsonSerializer.Serialize(new
+                {
+                    user.EmployeeNo,user.DisplayName,user.Email,
+                    employment.HireDate,employment.TerminationDate
+                }),
+                CreatedAt=DateTime.UtcNow
+            });
+
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
+    }
+
     private async Task EnsureIdentityBindingAvailableAsync(
         string? identityProvider,
         Guid? entraTenantId,
