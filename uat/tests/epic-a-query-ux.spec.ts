@@ -110,7 +110,7 @@ test("mobile permission modal has an explicit close and releases page scroll", a
   });
 
   await page.goto("./#/admin/users");
-  await page.getByRole("button", { name: "維護" }).click();
+  await page.getByRole("button", { name: "權限" }).click();
   await expect(page.getByRole("dialog", { name: "人員權限" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
   await page.getByRole("button", { name: "關閉人員權限視窗" }).click();
