@@ -1,5 +1,7 @@
 # 1.8.0-008 — MileageRate manual effective-date governance
 
+Status: **PREPARED ONLY / NOT EXECUTED**
+
 ## Purpose
 
 Owner Pre-UAT requirement PRE-UAT-013 changes the MileageRate lifecycle contract:
