@@ -1,0 +1,79 @@
+name: Run17 residual final read-only verify
+
+on:
+  push:
+    branches:
+      - ops/run17-residual-final-verify-9d086c49
+    paths:
+      - ".github/workflows/run17-residual-final-readonly-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API: https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net
+      UAT_DEMO_PASSWORD: ${{ secrets.UAT_DEMO_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce read-only verification scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=9d086c49359ad41ce9378faacb8cbd8db57126e3
+          EXPECTED=.github/workflows/run17-residual-final-readonly-verify.yml
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          test "$(git diff --name-only "$BASE" HEAD)" = "$EXPECTED"
+          git diff --quiet "$BASE" HEAD -- backend frontend database/migrations uat
+
+      - name: Verify all Run17 residual trips and jobs are gone
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          login() {
+            local account="$1"
+            curl --silent --show-error --fail --retry 3 --retry-delay 2 --retry-connrefused \
+              -H 'Content-Type: application/json' \
+              -d "{\"account\":\"$account\",\"password\":\"$UAT_DEMO_PASSWORD\"}" \
+              "$API/api/v1/auth/demo-login"
+          }
+
+          visitor_json="$(login pilotv01)"
+          leader_json="$(login pilotl01)"
+          visitor_token="$(printf '%s' "$visitor_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
+          leader_token="$(printf '%s' "$leader_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
+
+          check_trip() {
+            local id="$1"
+            code="$(curl --silent --show-error --retry 3 --retry-delay 2 --retry-connrefused --output "/tmp/trip-$id.json" --write-out '%{http_code}' \
+              -H "Authorization: Bearer $visitor_token" -H 'X-Active-Role: visitor' \
+              "$API/api/v1/trips/$id")"
+            echo "FINAL_TRIP_STATE|$id|$code"
+            test "$code" = "404"
+          }
+
+          check_job() {
+            local trip="$1"
+            local guid="$2"
+            code="$(curl --silent --show-error --retry 3 --retry-delay 2 --retry-connrefused --output "/tmp/job-$trip.json" --write-out '%{http_code}' \
+              -H "Authorization: Bearer $leader_token" -H 'X-Active-Role: leader' \
+              "$API/api/v1/jobs/$guid")"
+            echo "FINAL_JOB_STATE|$trip|$guid|$code"
+            test "$code" = "404"
+          }
+
+          for id in 96 97 98 99 100 101 102 103; do check_trip "$id"; done
+          check_job 98 'fc702eca-40a2-4bf5-a0e6-10e048002650'
+          check_job 100 'a907b50f-7da2-4ea6-91ac-b7512d5a78e7'
+          check_job 101 'c16b3497-3836-4003-8b9f-e635d0e49b43'
+          check_job 102 'f4b2bcb1-cc72-4428-abba-08771d966d79'
+          check_job 103 'cdc13e64-ff21-4af4-a53a-0a8b37745914'
+
+          echo 'RUN17_RESIDUAL_FINAL_VERIFY=PASS'
