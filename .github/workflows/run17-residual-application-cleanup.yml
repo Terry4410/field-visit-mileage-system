@@ -28,63 +28,40 @@ jobs:
         with:
           fetch-depth: 50
 
-      - name: Enforce one-shot authoritative cleanup boundary
+      - name: Enforce one-shot remaining-residual boundary
         shell: bash
         run: |
           set -euo pipefail
-
-          EXPECTED_PARENT=e3d3823a9e1cfaa683a33fd8633be3765478294a
+          EXPECTED_PARENT=191940a255d0e28149259cc05a9ac494b3c06041
           APPROVED_APPLICATION_BASE=894435039ff7b04ef0007b73c6d60d592d3cada9
           EXPECTED_FILE=.github/workflows/run17-residual-application-cleanup.yml
-
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
-
           changed="$(git diff --name-only "$EXPECTED_PARENT" HEAD)"
-          printf 'CHANGED_FILE=%s\n' "$changed"
           test "$changed" = "$EXPECTED_FILE"
-
           git merge-base --is-ancestor "$APPROVED_APPLICATION_BASE" HEAD
-
-          git diff --quiet "$APPROVED_APPLICATION_BASE" HEAD -- \
-            backend \
-            frontend \
-            database/migrations \
-            uat
-
-          echo "ONE_SHOT_SCOPE_GATE=PASS"
-          echo "DEPLOYED_APPLICATION_BASE=$APPROVED_APPLICATION_BASE"
-          echo "CLEANUP_TRIGGER_HEAD=$(git rev-parse HEAD)"
+          git diff --quiet "$APPROVED_APPLICATION_BASE" HEAD -- backend frontend database/migrations uat
+          echo "REMAINING_RESIDUAL_SCOPE_GATE=PASS"
 
       - name: Verify deployed UAT readiness before cleanup
         shell: bash
         run: |
           set -euo pipefail
-
-          health="$(curl --silent --show-error --fail --max-time 20 "$API/health")"
-          ready="$(curl --silent --show-error --fail --max-time 20 "$API/health/ready")"
-
-          printf '%s\n' "$health"
+          ready="$(curl --silent --show-error --fail --retry 3 --retry-delay 2 --retry-connrefused --max-time 20 "$API/health/ready")"
           printf '%s\n' "$ready"
-
           printf '%s' "$ready" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ready",d; print("UAT_READY=PASS")'
 
-      - name: Cleanup exact Run17 UAT-AUTO residual trips and jobs
+      - name: Cleanup exact remaining Run17 residuals
         shell: bash
         run: |
           set -euo pipefail
-
           login() {
             local account="$1"
-            curl --silent --show-error --fail \
-              -H 'Content-Type: application/json' \
-              -d "{\"account\":\"$account\",\"password\":\"$UAT_DEMO_PASSWORD\"}" \
-              "$API/api/v1/auth/demo-login"
+            curl --silent --show-error --fail --retry 3 --retry-delay 2 --retry-connrefused               -H 'Content-Type: application/json'               -d "{\"account\":\"$account\",\"password\":\"$UAT_DEMO_PASSWORD\"}"               "$API/api/v1/auth/demo-login"
           }
 
           admin_json="$(login pilota01)"
           visitor_json="$(login pilotv01)"
           leader_json="$(login pilotl01)"
-
           admin_token="$(printf '%s' "$admin_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
           visitor_token="$(printf '%s' "$visitor_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
           leader_token="$(printf '%s' "$leader_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["accessToken"])')"
@@ -92,56 +69,26 @@ jobs:
           cleanup_trip() {
             local id="$1"
             local purpose="$2"
-            local job="${3:-}"
-
-            payload="$(python3 -c 'import json,sys; d={"visitTripId":int(sys.argv[1]),"expectedPurpose":sys.argv[2]}; job=sys.argv[3]; d.update({"backgroundJobId":job}) if job else None; print(json.dumps(d))' "$id" "$purpose" "$job")"
-
-            response="$(curl --silent --show-error --fail \
-              -H "Authorization: Bearer $admin_token" \
-              -H 'X-Active-Role: admin' \
-              -H "X-UAT-Automation-Key: $UAT_DEMO_PASSWORD" \
-              -H 'Content-Type: application/json' \
-              -d "$payload" \
-              "$API/api/v1/uat-automation/cleanup-trip")"
-
+            local job="$3"
+            payload="$(python3 -c 'import json,sys; print(json.dumps({"visitTripId":int(sys.argv[1]),"expectedPurpose":sys.argv[2],"backgroundJobId":sys.argv[3]}))' "$id" "$purpose" "$job")"
+            response="$(curl --silent --show-error --fail --retry 3 --retry-delay 2 --retry-connrefused               -H "Authorization: Bearer $admin_token"               -H 'X-Active-Role: admin'               -H "X-UAT-Automation-Key: $UAT_DEMO_PASSWORD"               -H 'Content-Type: application/json'               -d "$payload"               "$API/api/v1/uat-automation/cleanup-trip")"
             printf '%s' "$response" > "/tmp/cleanup-$id.json"
-
-            python3 -c 'import json,sys; trip=int(sys.argv[1]); job=sys.argv[2]; d=json.load(open(sys.argv[3],encoding="utf-8")); assert d["visitTripId"]==trip,d; assert d["tripsDeleted"]==1,d; assert (not job) or d["backgroundJobsDeleted"]==1,d; print("RUN17_CLEANUP|{}|PASS|jobsDeleted={}|snapshotsDeleted={}|correctionsDeleted={}".format(trip,d["backgroundJobsDeleted"],d["snapshotsDeleted"],d["correctionRequestsDeleted"]))' "$id" "$job" "/tmp/cleanup-$id.json"
-
-            trip_code="$(curl --silent \
-              --output "/tmp/trip-$id.json" \
-              --write-out '%{http_code}' \
-              -H "Authorization: Bearer $visitor_token" \
-              -H 'X-Active-Role: visitor' \
-              "$API/api/v1/trips/$id")"
+            python3 -c 'import json,sys; trip=int(sys.argv[1]); d=json.load(open(sys.argv[2])); assert d["visitTripId"]==trip,d; assert d["tripsDeleted"]==1,d; assert d["backgroundJobsDeleted"]==1,d; print("RUN17_REMAINING_CLEANUP|{}|PASS".format(trip))' "$id" "/tmp/cleanup-$id.json"
+            trip_code="$(curl --silent --show-error --retry 3 --retry-delay 2 --retry-connrefused --output "/tmp/trip-$id.json" --write-out '%{http_code}' -H "Authorization: Bearer $visitor_token" -H 'X-Active-Role: visitor' "$API/api/v1/trips/$id")"
             test "$trip_code" = "404"
-
-            if [ -n "$job" ]; then
-              job_code="$(curl --silent \
-                --output "/tmp/job-$id.json" \
-                --write-out '%{http_code}' \
-                -H "Authorization: Bearer $leader_token" \
-                -H 'X-Active-Role: leader' \
-                "$API/api/v1/jobs/$job")"
-              test "$job_code" = "404"
-            fi
+            job_code="$(curl --silent --show-error --retry 3 --retry-delay 2 --retry-connrefused --output "/tmp/job-$id.json" --write-out '%{http_code}' -H "Authorization: Bearer $leader_token" -H 'X-Active-Role: leader' "$API/api/v1/jobs/$job")"
+            test "$job_code" = "404"
           }
 
-          cleanup_trip 96 'UAT-AUTO-VIS-01-VIS-05-1790233650799-vhb8pt'
-          cleanup_trip 97 'UAT-AUTO-VIS-04-1790233660385-cv08hw'
-          cleanup_trip 98 'UAT-AUTO-LEAD-04-VIS-06-1790233668886-6n6lba' 'fc702eca-40a2-4bf5-a0e6-10e048002650'
-          cleanup_trip 99 'UAT-AUTO-VIS-03-1790233722649-ubcprw'
-          cleanup_trip 100 'UAT-AUTO-QUERY-01-05-1790233731855-uzroza' 'a907b50f-7da2-4ea6-91ac-b7512d5a78e7'
           cleanup_trip 101 'UAT-AUTO-CORR-01-04-1790233786859-djnzui' 'c16b3497-3836-4003-8b9f-e635d0e49b43'
           cleanup_trip 102 'UAT-AUTO-SUP-01-1790233840520-jbk5lm' 'f4b2bcb1-cc72-4428-abba-08771d966d79'
           cleanup_trip 103 'UAT-AUTO-1790233914687-v2vv63' 'cdc13e64-ff21-4af4-a53a-0a8b37745914'
-
-          echo "RUN17_EXACT_TRIP_JOB_CLEANUP=PASS"
+          echo "RUN17_REMAINING_TRIP_JOB_CLEANUP=PASS"
 
       - name: Verify UAT readiness after cleanup
         shell: bash
         run: |
           set -euo pipefail
-          ready="$(curl --silent --show-error --fail --max-time 20 "$API/health/ready")"
+          ready="$(curl --silent --show-error --fail --retry 3 --retry-delay 2 --retry-connrefused --max-time 20 "$API/health/ready")"
           printf '%s\n' "$ready"
           printf '%s' "$ready" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ready",d; print("POST_CLEANUP_UAT_READY=PASS")'
