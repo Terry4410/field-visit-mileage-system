@@ -24,6 +24,8 @@ jobs:
           fetch-depth: 0
       - name: Authoritative ancestry gate
         run: git merge-base --is-ancestor c51e91c7c0e672f749271c6768bd169889d7164c HEAD
+      - name: Owner Pre-UAT migration 1800_008 static validation
+        run: python3 scripts/validate_uat_migration_1800_008.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
