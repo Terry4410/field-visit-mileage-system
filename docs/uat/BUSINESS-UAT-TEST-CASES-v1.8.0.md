@@ -3,7 +3,9 @@
 > **狀態**
 >
 > - Technical Readiness：**PASS**
+> - Business User Access：**RELEASED**
 > - Business UAT：**READY TO BEGIN / NOT YET SIGNED OFF**
+> - Internal release gates 已完成；下列 Business case 結果仍須由 Business User 實際執行，因此預設維持 **NOT RUN**。
 > - 所有案例執行前，請確認使用的是 UAT 環境與指定 UAT 帳號。
 
 ## 使用方式

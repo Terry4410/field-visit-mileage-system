@@ -3,7 +3,9 @@
 > **目前狀態**
 >
 > - Technical Readiness：**PASS**
+> - Business User Access：**RELEASED**
 > - Business UAT：**READY TO BEGIN / NOT YET SIGNED OFF**
+> - Internal release gates 已完成；本文件仍須待 Business UAT 實際執行後才能簽核。
 > - 本文件供 Business UAT 完成後正式記錄驗收決策；目前沒有任何選項預先勾選。
 
 ## UAT 基本資料
@@ -13,9 +15,11 @@
 | Release | v1.8.0 UAT Candidate |
 | Environment | UAT |
 | URL | https://terry4410.github.io/field-visit-mileage-system/ |
-| Technical baseline SHA | 843840abde67256782bdcb53efde01faf44c516f |
+| Deployed application source SHA | 2fe86208da6d8c10767fd6309a6d467e5448d92a |
 | DB Schema | 1.8.0-007 |
-| Final Technical Smoke | RUN_ID=35885769760；9/9 PASS |
+| P2B UAT deployment | RUN_ID=36822918652；SUCCESS |
+| Internal UAT Run20 | RUN_ID=36825062785；11/11 PASS |
+| Run17 residual cleanup | CLOSED / SUCCESS；final verify RUN_ID=36952987468 |
 
 ## 執行摘要
 
@@ -100,6 +104,10 @@ Signature / Approval Record：
 - Business rule questions 已解決，或已列入明確接受的 known items。
 - FAIL / BLOCKED cases 均有 Issue ID。
 - Business Owner 的最終決策已明確記錄。
+
+Business User 已可開始執行 UAT，但這不代表 Business 已完成驗收或簽核。
+
+**BUSINESS USER ACCESS = RELEASED**
 
 在 Business Owner 正式簽核前，本 release 的 Business UAT 狀態仍為：
 

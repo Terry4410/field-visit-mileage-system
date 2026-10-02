@@ -3,7 +3,9 @@
 > **目前狀態**
 >
 > - Technical Readiness：**PASS**
+> - Business User Access：**RELEASED**
 > - Business UAT：**READY TO BEGIN / NOT YET SIGNED OFF**
+> - Internal release gates 已完成；Business UAT 結果仍須由實際 Business User 執行並記錄。
 > - 本環境僅供 UAT 使用，不是 Production。
 
 ## 1. UAT 目的
@@ -29,7 +31,10 @@ Business UAT（User Acceptance Testing，使用者驗收測試）的目的，是
 | Backend | 1.8.0-uat-candidate |
 | DB Schema | 1.8.0-007 |
 | Technical readiness | PASS |
-| Final technical smoke | RUN_ID=35885769760；9/9 PASS |
+| Deployed application source SHA | 2fe86208da6d8c10767fd6309a6d467e5448d92a |
+| P2B UAT deployment | RUN_ID=36822918652；SUCCESS |
+| Internal UAT Run20 | RUN_ID=36825062785；11/11 PASS |
+| Run17 residual cleanup | CLOSED / SUCCESS；final verify RUN_ID=36952987468 |
 | Route Provider | Mock |
 
 開始測試前，請先確認網址正確，且畫面顯示 **UAT Candidate v1.8.0**。
@@ -264,5 +269,7 @@ Business UAT 達到可進入 sign-off 的條件如下：
 在 Business Owner 正式簽核前，狀態仍是：
 
 **TECHNICAL READINESS = PASS**
+
+**BUSINESS USER ACCESS = RELEASED**
 
 **BUSINESS UAT = READY TO BEGIN / NOT YET SIGNED OFF**
