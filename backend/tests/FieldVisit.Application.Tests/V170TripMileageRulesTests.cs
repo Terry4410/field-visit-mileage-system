@@ -1,4 +1,5 @@
 using FieldVisit.Application;
+using Xunit;
 
 namespace FieldVisit.Application.Tests;
 

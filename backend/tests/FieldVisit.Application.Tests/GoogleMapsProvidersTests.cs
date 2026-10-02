@@ -3,6 +3,7 @@ using System.Text;
 using FieldVisit.Application;
 using FieldVisit.Infrastructure;
 using Microsoft.Extensions.Configuration;
+using Xunit;
 
 namespace FieldVisit.Application.Tests;
 

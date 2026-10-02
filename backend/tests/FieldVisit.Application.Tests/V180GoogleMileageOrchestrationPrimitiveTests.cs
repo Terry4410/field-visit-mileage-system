@@ -377,6 +377,18 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         public Task<RouteCalculationAttempt?> GetRouteCalculationAttemptAsync(long attemptId, CancellationToken ct) =>
             Task.FromResult<RouteCalculationAttempt?>(RouteAttempts.SingleOrDefault(x => x.RouteCalculationAttemptId == attemptId));
 
+        public Task<RouteCalculationAttempt?> GetLatestSuccessfulRouteCalculationAttemptAsync(
+            long tripId, long? basisSnapshotId, CancellationToken ct) =>
+            Task.FromResult<RouteCalculationAttempt?>(
+                RouteAttempts
+                    .Where(x => x.VisitTripId == tripId
+                        && x.Status == "Succeeded"
+                        && x.BasisType == "SubmittedSnapshot"
+                        && (!basisSnapshotId.HasValue || x.BasisVisitTripSnapshotId == basisSnapshotId.Value))
+                    .OrderByDescending(x => x.CompletedAt)
+                    .ThenByDescending(x => x.RouteCalculationAttemptId)
+                    .FirstOrDefault());
+
         public Task<GeocodingAttempt?> GetGeocodingAttemptAsync(long attemptId, CancellationToken ct) =>
             Task.FromResult<GeocodingAttempt?>(GeocodingAttempts.SingleOrDefault(x => x.GeocodingAttemptId == attemptId));
 
