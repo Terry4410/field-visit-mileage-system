@@ -1,12 +1,15 @@
 # Field Visit v1.8.0 — Owner Pre-UAT Change Map / IT Handoff
 
-Status: **SOURCE IMPLEMENTED / OWNER PRE-UAT RUNTIME NOT YET RELEASED**
+Status: **SOURCE IMPLEMENTED + VALIDATED / OWNER PRE-UAT RUNTIME NOT YET RELEASED**
 
 ## 1. Control boundary
 
 - Repository: `Terry4410/field-visit-mileage-system`
 - Authoritative pre-change baseline: `post-uat/v1.8.0 @ c51e91c7c0e672f749271c6768bd169889d7164c`
 - Consolidated work branch: `work/v180-owner-preuat-consolidated`
+- Final validated candidate SHA: `aefb180afcac84fb00419382576944282e651ce9`
+- Candidate lineage vs baseline: **ahead 7 / behind 0**
+- Changed files vs baseline: **51**
 - UAT deployed application source before this package: `2fe86208da6d8c10767fd6309a6d467e5448d92a`
 - UAT schema before this package: `1.8.0-007`
 - Business User Access: **HOLD / NOT YET DISTRIBUTED**
@@ -24,12 +27,17 @@ and avoids parallel models.
 | `cce4087664e3b78c1ee8a9b10943983cd5eab9b1` | Google mileage / Leader | Server-side Google providers, background routing, mileage source, batch trip approval |
 | `0e0c070b3d9b057d7a5afbdfc59aa5f5ab212ea0` | Location | Shared maintenance, TaxId/note search, audit, duplicate preview/merge |
 | `1f9ed6a4c179a1af64f18ccaa91dc8947a1ec493` | Personnel / Team / Correction / Rate UI | HR facts, access source-of-truth, Team bulk placement, batch correction close, explicit rate UI |
+| `780ee0fd86a65695cbc61de2616e3738ea85b476` | Finalization | 1.8.0-008 migration package, Location merge operational-reference reconciliation, IT handoff |
+| `2dc1505f684ef37834805a97f4db50de3baf6393` | Governance correction | 1800_008 static gate + Post-UAT hook + runtime schema metadata 1.8.0-008 |
+| `aefb180afcac84fb00419382576944282e651ce9` | Documentation correction | Explicitly marks 1800_008 PREPARED ONLY / NOT EXECUTED |
 
 Owner Pre-UAT validation workflow:
 `.github/workflows/owner-preuat-v180-verify.yml`
 
-Latest domain validation before final DB-contract package:
-- Run `36968794895`: **SUCCESS**
+Final candidate validation:
+- Run `36970320261`: **SUCCESS**
+- authoritative ancestry gate: PASS
+- 1800_008 static fail-closed validation: PASS
 - frontend tests: PASS
 - frontend build: PASS
 - backend build: PASS
@@ -70,6 +78,14 @@ Existing v1.8 schema is reused:
 One new migration is required:
 
 `database/migrations/1800_008_rate_manual_effective_dates`
+
+Current migration state: **PREPARED ONLY / NOT EXECUTED**.
+
+Static fail-closed validator:
+`scripts/validate_uat_migration_1800_008.py`
+
+The validator is executed by both Owner Pre-UAT CI and Post-UAT verification and locks the
+prepared Up/Verify blobs plus the no-row-rewrite/manual-date trigger contract.
 
 It replaces only the MileageRate series trigger contract. It performs no data rewrite and adds no
 table/column. It must be executed separately under the existing migration governance before the
@@ -169,7 +185,10 @@ timeline are not destroyed.
 
 Before Owner tests the new package in UAT:
 
-1. **Promote source** only after final consolidated CI passes.
+Current source gate is satisfied at candidate `aefb180afcac84fb00419382576944282e651ce9`
+with Owner Pre-UAT Run `36970320261 = SUCCESS`.
+
+1. **Promote source** by fast-forward only after a separate promotion authorization.
 2. **Execute migration 1.8.0-008** under separate controlled authorization; verify schema becomes 1.8.0-008.
 3. **Deploy backend + frontend** from exact promoted SHA.
 4. Configure Azure UAT App Service settings:
