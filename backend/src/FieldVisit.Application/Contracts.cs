@@ -90,7 +90,8 @@ public sealed record TripDto(
     string? EndDeploymentSiteName,
     string? EndDeploymentAddress,
     IReadOnlyList<TripStopInput> Stops,
-    string RowVersion);
+    string RowVersion,
+    string? VehicleType = null);
 
 public sealed record MileageBatchRequest(string Mode, DateOnly? StartDate, DateOnly? EndDate, IReadOnlyList<long>? SelectedTripIds);
 public sealed record MileageBatchItem(long VisitTripId, string TripNo, string Status, decimal? SystemDistanceKm, string? ErrorCode, string? ErrorMessage);

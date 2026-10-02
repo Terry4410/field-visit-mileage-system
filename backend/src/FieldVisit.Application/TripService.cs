@@ -419,7 +419,8 @@ public sealed class TripService(
                 x.LocationId, x.ProjectId, x.VisitTypeId,
                 x.LocationId.HasValue ? "Master" : "Temporary",
                 x.LocationNameSnapshot ?? "", x.AddressSnapshot, x.VisitPurpose, x.Notes)).ToList(),
-            Convert.ToBase64String(trip.RowVersion ?? []));
+            Convert.ToBase64String(trip.RowVersion ?? []),
+            trip.VehicleType ?? "Motorcycle");
     }
 
     private async Task BuildStopsAsync(VisitTrip trip, IReadOnlyList<TripStopInput> inputs, CurrentUserDto user, CancellationToken ct)

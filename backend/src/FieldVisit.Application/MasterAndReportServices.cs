@@ -295,9 +295,7 @@ public sealed class MasterService(
         CancellationToken ct)
     {
         var user = RequireAny("admin");
-        var vehicle = string.IsNullOrWhiteSpace(vehicleType)
-            ? "Motorcycle"
-            : vehicleType.Trim();
+        var vehicle = V180MileageRateVersionRules.NormalizeVehicleType(vehicleType);
 
         var impact = await mileage.GetApprovedRateImpactAsync(
             user.OrganizationId,
@@ -317,10 +315,10 @@ public sealed class MasterService(
     public async Task<MileageRateDto> CreateRateAsync(CreateMileageRateRequest request, CancellationToken ct)
     {
         var user = RequireAny("admin");
-        ValidateRate(request.RuleName, request.RatePerKm, request.EffectiveFrom, null);
-        var vehicle = string.IsNullOrWhiteSpace(request.VehicleType) ? "Motorcycle" : request.VehicleType.Trim();
-        var series = await mileage.GetRateSeriesAsync(user.OrganizationId, vehicle, false, ct);
-        if (series.Any(x => x.IsActive && x.EffectiveFrom == request.EffectiveFrom)) throw new InvalidOperationException("同一車種不可有兩個同日生效的費率版本。");
+        V180MileageRateVersionRules.Validate(request.RuleName, request.RatePerKm, request.EffectiveFrom, request.EffectiveTo);
+        var vehicle = V180MileageRateVersionRules.NormalizeVehicleType(request.VehicleType);
+        var series = await mileage.GetRateSeriesAsync(user.OrganizationId, vehicle, true, ct);
+        V180MileageRateVersionRules.EnsureNoOverlap(series, null, request.EffectiveFrom, request.EffectiveTo);
 
         await EnsureRateHistoricalImpactAcknowledgedAsync(
             user.OrganizationId,
@@ -329,25 +327,26 @@ public sealed class MasterService(
             request.AcknowledgeHistoricalImpact,
             ct);
 
-        var row = new MileageRateRule { OrganizationId=user.OrganizationId, RuleName=request.RuleName.Trim(), VehicleType=vehicle, RatePerKm=request.RatePerKm, EffectiveFrom=request.EffectiveFrom, EffectiveTo=null, IsActive=true, CreatedAt=DateTime.UtcNow };
-        await mileage.AddRateAsync(row, ct); await uow.SaveChangesAsync(ct); await NormalizeRateSeriesAsync(user.OrganizationId, vehicle, ct);
-        await workflow.AddAuditAsync(Audit(user.UserId,"MileageRateRule",row.MileageRateRuleId.ToString(),"MileageRateCreate",new{request.RuleName,request.RatePerKm,request.EffectiveFrom,request.AcknowledgeHistoricalImpact}),ct); await uow.SaveChangesAsync(ct); return MapRate(row);
+        var row = new MileageRateRule { OrganizationId=user.OrganizationId, RuleName=request.RuleName.Trim(), VehicleType=vehicle, RatePerKm=request.RatePerKm, EffectiveFrom=request.EffectiveFrom, EffectiveTo=request.EffectiveTo, IsActive=true, CreatedAt=DateTime.UtcNow };
+        await mileage.AddRateAsync(row, ct); await uow.SaveChangesAsync(ct);
+        await workflow.AddAuditAsync(Audit(user.UserId,"MileageRateRule",row.MileageRateRuleId.ToString(),"MileageRateCreate",new{request.RuleName,request.RatePerKm,request.EffectiveFrom,request.EffectiveTo,request.AcknowledgeHistoricalImpact}),ct); await uow.SaveChangesAsync(ct); return MapRate(row);
     }
 
     public async Task<MileageRateDto> UpdateRateAsync(int mileageRateRuleId, UpdateMileageRateRequest request, CancellationToken ct)
     {
-        var user=RequireAny("admin"); ValidateRate(request.RuleName,request.RatePerKm,request.EffectiveFrom,null);
+        var user=RequireAny("admin"); V180MileageRateVersionRules.Validate(request.RuleName,request.RatePerKm,request.EffectiveFrom,request.EffectiveTo);
         var row=await mileage.GetRateAsync(mileageRateRuleId,true,ct)??throw new KeyNotFoundException("找不到補助費率。");
         if(row.OrganizationId!=user.OrganizationId)throw new UnauthorizedAccessException("無權維護其他組織費率。");
         var oldVehicle=row.VehicleType;
         var oldEffectiveFrom=row.EffectiveFrom;
-        var vehicle=string.IsNullOrWhiteSpace(request.VehicleType)?"Motorcycle":request.VehicleType.Trim();
-        var series=await mileage.GetRateSeriesAsync(user.OrganizationId,vehicle,false,ct);
-        if(request.IsActive&&series.Any(x=>x.IsActive&&x.MileageRateRuleId!=mileageRateRuleId&&x.EffectiveFrom==request.EffectiveFrom))throw new InvalidOperationException("同一車種不可有兩個同日生效的費率版本。");
+        var vehicle=V180MileageRateVersionRules.NormalizeVehicleType(request.VehicleType);
+        var series=await mileage.GetRateSeriesAsync(user.OrganizationId,vehicle,true,ct);
+        if(request.IsActive)V180MileageRateVersionRules.EnsureNoOverlap(series,mileageRateRuleId,request.EffectiveFrom,request.EffectiveTo);
 
         var financialScheduleChanged =
             row.RatePerKm != request.RatePerKm
             || row.EffectiveFrom != request.EffectiveFrom
+            || row.EffectiveTo != request.EffectiveTo
             || row.IsActive != request.IsActive
             || !string.Equals(row.VehicleType, vehicle, StringComparison.OrdinalIgnoreCase);
 
@@ -365,8 +364,8 @@ public sealed class MasterService(
                 ct);
         }
 
-        row.RuleName=request.RuleName.Trim();row.VehicleType=vehicle;row.RatePerKm=request.RatePerKm;row.EffectiveFrom=request.EffectiveFrom;row.EffectiveTo=null;row.IsActive=request.IsActive;row.UpdatedAt=DateTime.UtcNow;
-        await uow.SaveChangesAsync(ct);await NormalizeRateSeriesAsync(user.OrganizationId,vehicle,ct);if(!string.Equals(oldVehicle,vehicle,StringComparison.OrdinalIgnoreCase))await NormalizeRateSeriesAsync(user.OrganizationId,oldVehicle,ct);await workflow.AddAuditAsync(Audit(user.UserId,"MileageRateRule",mileageRateRuleId.ToString(),"MileageRateUpdate",new{request.RuleName,request.RatePerKm,request.EffectiveFrom,request.IsActive,request.AcknowledgeHistoricalImpact}),ct);await uow.SaveChangesAsync(ct);return MapRate(row);
+        row.RuleName=request.RuleName.Trim();row.VehicleType=vehicle;row.RatePerKm=request.RatePerKm;row.EffectiveFrom=request.EffectiveFrom;row.EffectiveTo=request.EffectiveTo;row.IsActive=request.IsActive;row.UpdatedAt=DateTime.UtcNow;
+        await uow.SaveChangesAsync(ct);await workflow.AddAuditAsync(Audit(user.UserId,"MileageRateRule",mileageRateRuleId.ToString(),"MileageRateUpdate",new{request.RuleName,request.RatePerKm,request.EffectiveFrom,request.EffectiveTo,request.IsActive,request.AcknowledgeHistoricalImpact}),ct);await uow.SaveChangesAsync(ct);return MapRate(row);
     }
 
     public async Task DeleteRateAsync(
@@ -385,11 +384,9 @@ public sealed class MasterService(
             acknowledgeHistoricalImpact,
             ct);
 
-        var vehicle=row.VehicleType;
         row.IsActive=false;
         row.UpdatedAt=DateTime.UtcNow;
         await uow.SaveChangesAsync(ct);
-        await NormalizeRateSeriesAsync(user.OrganizationId,vehicle,ct);
         await workflow.AddAuditAsync(
             Audit(
                 user.UserId,
@@ -421,13 +418,6 @@ public sealed class MasterService(
                 + "請確認歷史影響後再執行。");
     }
 
-    private async Task NormalizeRateSeriesAsync(int? organizationId,string vehicleType,CancellationToken ct)
-    {
-        var series=(await mileage.GetRateSeriesAsync(organizationId,vehicleType,true,ct)).Where(x=>x.IsActive).OrderBy(x=>x.EffectiveFrom).ThenBy(x=>x.MileageRateRuleId).ToList();
-        for(var i=0;i<series.Count;i++) series[i].EffectiveTo=i+1<series.Count?series[i+1].EffectiveFrom.AddDays(-1):null;
-        await uow.SaveChangesAsync(ct);
-    }
-
     private async Task EnsureTeamScopeAsync(CurrentUserDto user, int? teamId, CancellationToken ct)
     {
         if (!teamId.HasValue) return;
@@ -455,13 +445,6 @@ public sealed class MasterService(
         if (string.IsNullOrWhiteSpace(request.VisitTypeCode)) throw new InvalidOperationException("拜訪形式代碼為必填。");
         if (string.IsNullOrWhiteSpace(request.VisitTypeName)) throw new InvalidOperationException("拜訪形式名稱為必填。");
         if (request.SortOrder < 0) throw new InvalidOperationException("排序不可小於 0。");
-    }
-
-    private static void ValidateRate(string ruleName, decimal ratePerKm, DateOnly effectiveFrom, DateOnly? effectiveTo)
-    {
-        if (string.IsNullOrWhiteSpace(ruleName)) throw new InvalidOperationException("規則名稱為必填。");
-        if (ratePerKm < 0) throw new InvalidOperationException("每公里補助不可小於 0。");
-        if (effectiveTo.HasValue && effectiveTo.Value < effectiveFrom) throw new InvalidOperationException("失效日不可早於生效日。");
     }
 
     private CurrentUserDto RequireAny(params string[] roles)

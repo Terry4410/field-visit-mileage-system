@@ -6,7 +6,7 @@ import SmartLocationPicker from "../components/SmartLocationPicker";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
-import type {Project,SmartLocationItem,Trip,TripStopInput,VisitType} from "../types";
+import type {Project,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
 type LocationMethod="existing"|"temporary";
@@ -38,9 +38,9 @@ export default function VisitorPage(){
   const [tripTeamId,setTripTeamId]=useState(
     user?.teamId?String(user.teamId):""
   );
-  const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
+  const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[vehicleType,setVehicleType]=useState("Motorcycle"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
-  const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
+  const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[tripContext,setTripContext]=useState<TripContext|null>(null),[tripContextError,setTripContextError]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
@@ -91,6 +91,7 @@ export default function VisitorPage(){
       setEnd((t.endTime||"").slice(0,5));
       setNotes(t.notes||"");
       setRowVersion(t.rowVersion);
+      setVehicleType(t.vehicleType||"Motorcycle");
       setReturnReason(t.status==="Returned"?(t.returnReason||""):"");
 
       if(teamResolution.originalTeamStillAllowed){
@@ -141,6 +142,19 @@ export default function VisitorPage(){
       x=>x.teamId===selectedTeamId
     );
 
+  useEffect(()=>{
+    if(!date||!selectedTeamId){
+      setTripContext(null);setTripContextError("");return;
+    }
+    api<TripContext>(`/trips/context?visitDate=${encodeURIComponent(date)}&teamId=${selectedTeamId}`)
+      .then(x=>{setTripContext(x);setTripContextError("")})
+      .catch(e=>{setTripContext(null);setTripContextError(e instanceof Error?e.message:"無法取得派駐中心資料")});
+  },[date,selectedTeamId]);
+
+  const defaultStartSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===tripContext.defaultStartDeploymentSiteId);
+  const defaultEndSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===tripContext.defaultEndDeploymentSiteId);
+  const deploymentLabel=(site:typeof defaultStartSite)=>site?`${site.centerName}／${site.siteName}${site.address?`｜${site.address}`:""}`:"尚未設定";
+
   const availableProjects=useMemo(
     ()=>projects.filter(
       p=>
@@ -187,7 +201,7 @@ export default function VisitorPage(){
   const reset=()=>{
     setSp({});
     setTripTeamId(user?.teamId?String(user.teamId):"");
-    setDate(today);setStart("08:30");setEnd("17:10");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setDate(today);setStart("08:30");setEnd("17:10");setVehicleType("Motorcycle");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setTripContext(null);setTripContextError("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
   };
 
   const changeTripTeam=(value:string)=>{
@@ -350,7 +364,7 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null};
+      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null,vehicleType};
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
@@ -369,7 +383,7 @@ export default function VisitorPage(){
     <div className="grid cols-4">
       <div className="card stat"><div className="label">行程日期</div><div className="value" style={{fontSize:20}}>{date}</div><div className="hint">可事後補登</div></div>
       <div className="card stat"><div className="label">拜訪地點</div><div className="value">{stops.length}</div><div className="hint">依實際順序排列</div></div>
-      <div className="card stat"><div className="label">自行計算里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"至少 2 個公務地點才可正式送出":"正式送出前必填"}</div></div>
+      <div className="card stat"><div className="label">人工備援里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"至少 2 個公務地點才可正式送出":"Google 路線失敗時使用"}</div></div>
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
@@ -408,10 +422,14 @@ export default function VisitorPage(){
             </div>
           }
         </div>
+        <div className="field"><label>交通工具</label><select value={vehicleType} onChange={e=>setVehicleType(e.target.value)}><option value="Motorcycle">機車</option><option value="Car">汽車</option></select><div className="hint">預設機車；交通工具會決定適用的里程補助費率。</div></div>
+        <div className="field"><label>預設出發中心／據點</label><input value={deploymentLabel(defaultStartSite)} disabled/></div>
+        <div className="field"><label>預設返回中心／據點</label><input value={deploymentLabel(defaultEndSite)} disabled/></div>
         <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
         <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
       </div>
-      <div className="note">住家地址不允許加入行程；里程只計算正式或臨時公務地點之間的路線。</div>
+      {tripContextError&&<div className="note danger-note" style={{marginTop:10}}>派駐中心資料：{tripContextError}</div>}
+      <div className="note">住家地址不允許加入行程；里程只計算派駐中心、正式或臨時公務地點之間的路線。</div>
       {overlap.hasOverlap&&<div className="note danger-note" style={{marginTop:10}}><strong>時間提醒：</strong>{overlap.message||"此時間與既有紀錄重疊，請確認是否輸入正確。"}<label className="check-row"><input type="checkbox" checked={confirmOverlap} onChange={e=>setConfirmOverlap(e.target.checked)}/>我確認時間正確，送出時仍要繼續</label></div>}
     </div>
 
@@ -443,10 +461,10 @@ export default function VisitorPage(){
     </div>
 
     <div className="card" style={{marginTop:18}}>
-      <div className="section-title"><h2>外訪員自行計算里程</h2><span className="pill warn">送出前填寫</span></div>
+      <div className="section-title"><h2>人工備援里程</h2><span className="pill">選填</span></div>
       <div className="grid cols-2">
-        <div className="field"><label>自行計算里程（公里）</label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)}/></div>
-        <div className="note">請依實際拜訪順序自行計算並填入。送出後，小組長會由後台批次取得系統里程，兩者並列供核對。</div>
+        <div className="field"><label>人工備援里程（公里）</label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)}/></div>
+        <div className="note">正常情況由 Google Maps API 依「出發中心／拜訪順序／返回中心」取得路線里程；只有 API 無法取得可用里程時，才使用這個人工備援值，最後仍須由小組長核准。</div>
       </div>
     </div>
 
