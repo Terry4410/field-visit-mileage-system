@@ -3,15 +3,20 @@ using FieldVisit.Application;
 using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace FieldVisit.Infrastructure;
 
 public sealed class BackgroundJobService(
     AppDbContext db,
     IRouteCalculationService route,
-    IGeocodingService geocoding) : IBackgroundJobService
+    IGeocodingService geocoding,
+    V180GoogleMileageOrchestrationService googleMileage,
+    IConfiguration configuration) : IBackgroundJobService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly bool useGoogleRoutes =
+        (configuration["Providers:Route"] ?? "Mock").Equals("Google", StringComparison.OrdinalIgnoreCase);
 
     public async Task<BackgroundJobDto> EnqueueMileageAsync(CurrentUserDto user, MileageBatchRequest request, CancellationToken ct)
     {
@@ -140,13 +145,7 @@ public sealed class BackgroundJobService(
         db.ChangeTracker.Clear();
         var jobState = await db.BackgroundJobs.AsNoTracking()
             .Where(x => x.BackgroundJobId == jobId)
-            .Select(x => new
-            {
-                x.BackgroundJobId,
-                x.PayloadJson,
-                x.TeamScopeJson,
-                x.RequestedByUserId
-            })
+            .Select(x => new { x.BackgroundJobId, x.PayloadJson, x.TeamScopeJson, x.RequestedByUserId })
             .SingleAsync(ct);
 
         var request = JsonSerializer.Deserialize<MileageBatchRequest>(
@@ -177,19 +176,11 @@ public sealed class BackgroundJobService(
 
         await db.BackgroundJobs
             .Where(x => x.BackgroundJobId == jobId)
-            .ExecuteUpdateAsync(
-                setters => setters.SetProperty(x => x.TotalCount, tripIds.Count),
-                ct);
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.TotalCount, tripIds.Count), ct);
 
         foreach (var tripId in tripIds)
         {
             db.ChangeTracker.Clear();
-
-            var trip = await db.VisitTrips
-                .Include(x => x.Stops)
-                .Include(x => x.MileageCalculation)
-                .SingleAsync(x => x.VisitTripId == tripId, ct);
-
             var item = new BackgroundJobItem
             {
                 BackgroundJobId = jobId,
@@ -201,84 +192,190 @@ public sealed class BackgroundJobService(
             };
             await db.BackgroundJobItems.AddAsync(item, ct);
             await db.SaveChangesAsync(ct);
-
             var itemId = item.BackgroundJobItemId;
 
             try
             {
-                var result = await route.CalculateAsync(trip, ct);
-                if (!result.Success || !result.DistanceKm.HasValue)
-                    throw new InvalidOperationException(
-                        result.ErrorMessage ?? result.ErrorCode ?? "里程計算失敗。");
+                V180RouteOrchestrationResult? googleResult = null;
+                RouteCalculationResult? mockResult = null;
+
+                if (useGoogleRoutes)
+                    googleResult = await googleMileage.CalculateSubmittedRouteForBackgroundAsync(
+                        tripId, jobState.RequestedByUserId, ct);
+                else
+                {
+                    var routeTrip = await db.VisitTrips
+                        .Include(x => x.Stops)
+                        .Include(x => x.MileageCalculation)
+                        .SingleAsync(x => x.VisitTripId == tripId, ct);
+                    mockResult = await route.CalculateAsync(routeTrip, ct);
+                }
+
+                db.ChangeTracker.Clear();
+                var trip = await db.VisitTrips
+                    .Include(x => x.Stops)
+                    .Include(x => x.MileageCalculation)
+                    .SingleAsync(x => x.VisitTripId == tripId, ct);
+                var durableItem = await db.BackgroundJobItems
+                    .SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
+                var durableJob = await db.BackgroundJobs
+                    .SingleAsync(x => x.BackgroundJobId == jobId, ct);
 
                 var calc = trip.MileageCalculation;
                 if (calc is null)
                 {
-                    calc = new MileageCalculation
-                    {
-                        VisitTripId = trip.VisitTripId,
-                        CreatedAt = DateTime.UtcNow
-                    };
+                    calc = new MileageCalculation { VisitTripId = trip.VisitTripId, CreatedAt = DateTime.UtcNow };
                     await db.MileageCalculations.AddAsync(calc, ct);
                 }
 
                 var previous = trip.Status;
-                trip.Status = TripStatuses.PendingApproval;
-                trip.UpdatedAt = DateTime.UtcNow;
-                trip.UpdatedByUserId = jobState.RequestedByUserId;
-                calc.SystemDistanceKm = result.DistanceKm;
-                calc.CalculationSource = "MockRoute/UAT";
-                calc.CalculatedAt = DateTime.UtcNow;
-                calc.UpdatedAt = DateTime.UtcNow;
+                var completedAt = DateTime.UtcNow;
 
-                db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                if (useGoogleRoutes && googleResult is { Status: "Succeeded", SuggestedDistanceKm: > 0 })
                 {
-                    VisitTripId = trip.VisitTripId,
-                    PreviousStatus = previous,
-                    NewStatus = TripStatuses.PendingApproval,
-                    Action = "MileageCalculatedJob",
-                    ActionByUserId = jobState.RequestedByUserId,
-                    Comments = $"SystemDistanceKm={result.DistanceKm:0.00}",
-                    ActionAt = DateTime.UtcNow
-                });
+                    trip.Status = TripStatuses.PendingApproval;
+                    trip.ReturnReason = null;
+                    trip.UpdatedAt = completedAt;
+                    trip.UpdatedByUserId = jobState.RequestedByUserId;
+                    calc.SystemDistanceKm = googleResult.SuggestedDistanceKm;
+                    calc.CalculationSource = "GoogleMapsAPI";
+                    calc.CalculatedAt = completedAt;
+                    calc.UpdatedAt = completedAt;
 
-                var submittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
-                    .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
-                    .OrderByDescending(x => x.SnapshotVersion)
-                    .Select(x => (long?)x.VisitTripSnapshotId)
-                    .FirstOrDefaultAsync(ct);
+                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                    {
+                        VisitTripId = trip.VisitTripId,
+                        PreviousStatus = previous,
+                        NewStatus = TripStatuses.PendingApproval,
+                        Action = "GoogleMapsMileageCalculated",
+                        ActionByUserId = jobState.RequestedByUserId,
+                        Comments = $"GoogleMapsAPI={googleResult.SuggestedDistanceKm:0.###} km; RouteAttempt={googleResult.RouteCalculationAttemptId}",
+                        ActionAt = completedAt
+                    });
 
-                db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
+                    durableItem.Status = "Succeeded";
+                    durableItem.ResultJson = JsonSerializer.Serialize(new
+                    {
+                        source = "GoogleMapsAPI",
+                        distanceKm = googleResult.SuggestedDistanceKm,
+                        routeCalculationAttemptId = googleResult.RouteCalculationAttemptId
+                    }, JsonOptions);
+                    durableJob.SuccessCount++;
+                }
+                else if (useGoogleRoutes && calc.ClaimedDistanceKm is > 0)
                 {
-                    VisitTripId = tripId,
-                    VisitTripSnapshotId = submittedSnapshotId,
-                    EventType = "Calculated",
-                    ReasonCode = "MockRoute/UAT",
-                    Message = "System distance calculated; no company approval evidence created.",
-                    CorrelationId = Guid.NewGuid(),
-                    OccurredAt = DateTime.UtcNow,
-                    ActorUserId = jobState.RequestedByUserId
-                });
+                    trip.Status = TripStatuses.PendingApproval;
+                    trip.ReturnReason = null;
+                    trip.UpdatedAt = completedAt;
+                    trip.UpdatedByUserId = jobState.RequestedByUserId;
+                    calc.SystemDistanceKm = null;
+                    calc.CalculationSource = "ManualFallback";
+                    calc.CalculatedAt = completedAt;
+                    calc.UpdatedAt = completedAt;
 
-                item.Status = "Succeeded";
-                item.ResultJson = JsonSerializer.Serialize(new { result.DistanceKm }, JsonOptions);
-                item.CompletedAt = DateTime.UtcNow;
+                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                    {
+                        VisitTripId = trip.VisitTripId,
+                        PreviousStatus = previous,
+                        NewStatus = TripStatuses.PendingApproval,
+                        Action = "GoogleMapsFailedManualFallback",
+                        ActionByUserId = jobState.RequestedByUserId,
+                        Comments = $"Google Maps API 無法取得可用里程；使用外訪員人工備援 {calc.ClaimedDistanceKm:0.###} km 等待小組長核准。",
+                        ActionAt = completedAt
+                    });
 
-                var durableJob = await db.BackgroundJobs
-                    .SingleAsync(x => x.BackgroundJobId == jobId, ct);
-                durableJob.SuccessCount++;
+                    durableItem.Status = "Succeeded";
+                    durableItem.ResultJson = JsonSerializer.Serialize(new
+                    {
+                        source = "ManualFallback",
+                        distanceKm = calc.ClaimedDistanceKm,
+                        googleErrorCode = googleResult?.ErrorCode
+                    }, JsonOptions);
+                    durableJob.SuccessCount++;
+                }
+                else if (useGoogleRoutes)
+                {
+                    trip.Status = TripStatuses.Returned;
+                    trip.ReturnReason = "Google Maps API 無法取得可用里程，請填寫人工備援里程後重新送出。";
+                    trip.UpdatedAt = completedAt;
+                    trip.UpdatedByUserId = jobState.RequestedByUserId;
+                    calc.SystemDistanceKm = null;
+                    calc.CalculationSource = null;
+                    calc.CalculatedAt = null;
+                    calc.UpdatedAt = completedAt;
+
+                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                    {
+                        VisitTripId = trip.VisitTripId,
+                        PreviousStatus = previous,
+                        NewStatus = TripStatuses.Returned,
+                        Action = "GoogleMapsFailedReturnForManualFallback",
+                        ActionByUserId = jobState.RequestedByUserId,
+                        Comments = trip.ReturnReason,
+                        ActionAt = completedAt
+                    });
+
+                    durableItem.Status = "Failed";
+                    durableItem.ErrorCode = googleResult?.ErrorCode ?? "GOOGLE_ROUTE_FAILED";
+                    durableItem.ErrorMessage = googleResult?.ErrorMessage ?? trip.ReturnReason;
+                    durableJob.FailedCount++;
+                }
+                else
+                {
+                    if (mockResult is not { Success: true, DistanceKm: > 0 })
+                        throw new InvalidOperationException(
+                            mockResult?.ErrorMessage ?? mockResult?.ErrorCode ?? "里程計算失敗。");
+
+                    trip.Status = TripStatuses.PendingApproval;
+                    trip.UpdatedAt = completedAt;
+                    trip.UpdatedByUserId = jobState.RequestedByUserId;
+                    calc.SystemDistanceKm = mockResult.DistanceKm;
+                    calc.CalculationSource = "MockRoute/UAT";
+                    calc.CalculatedAt = completedAt;
+                    calc.UpdatedAt = completedAt;
+
+                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                    {
+                        VisitTripId = trip.VisitTripId,
+                        PreviousStatus = previous,
+                        NewStatus = TripStatuses.PendingApproval,
+                        Action = "MileageCalculatedJob",
+                        ActionByUserId = jobState.RequestedByUserId,
+                        Comments = $"SystemDistanceKm={mockResult.DistanceKm:0.00}",
+                        ActionAt = completedAt
+                    });
+
+                    var submittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
+                        .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                        .OrderByDescending(x => x.SnapshotVersion)
+                        .Select(x => (long?)x.VisitTripSnapshotId)
+                        .FirstOrDefaultAsync(ct);
+                    db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
+                    {
+                        VisitTripId = tripId,
+                        VisitTripSnapshotId = submittedSnapshotId,
+                        EventType = "Calculated",
+                        ReasonCode = "MockRoute/UAT",
+                        Message = "Mock route distance calculated; no company approval evidence created.",
+                        CorrelationId = Guid.NewGuid(),
+                        OccurredAt = completedAt,
+                        ActorUserId = jobState.RequestedByUserId
+                    });
+
+                    durableItem.Status = "Succeeded";
+                    durableItem.ResultJson = JsonSerializer.Serialize(new { source = "MockRoute/UAT", distanceKm = mockResult.DistanceKm }, JsonOptions);
+                    durableJob.SuccessCount++;
+                }
+
+                durableItem.CompletedAt = completedAt;
                 await db.SaveChangesAsync(ct);
             }
             catch (Exception ex)
             {
                 var errorMessage = ex.Message;
                 db.ChangeTracker.Clear();
-
-                var failedItem = await db.BackgroundJobItems
-                    .SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
-                var durableJob = await db.BackgroundJobs
-                    .SingleAsync(x => x.BackgroundJobId == jobId, ct);
-
+                var failedItem = await db.BackgroundJobItems.SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
+                var durableJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == jobId, ct);
                 failedItem.Status = "Failed";
                 failedItem.ErrorCode = "MILEAGE_JOB_FAILED";
                 failedItem.ErrorMessage = errorMessage;
@@ -290,21 +387,17 @@ public sealed class BackgroundJobService(
                     .OrderByDescending(x => x.SnapshotVersion)
                     .Select(x => (long?)x.VisitTripSnapshotId)
                     .FirstOrDefaultAsync(ct);
-
                 db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
                 {
                     VisitTripId = tripId,
                     VisitTripSnapshotId = failedTripSnapshotId,
                     EventType = "CalculationFailed",
                     ReasonCode = "MILEAGE_JOB_FAILED",
-                    Message = errorMessage.Length <= 1000
-                        ? errorMessage
-                        : errorMessage[..1000],
+                    Message = errorMessage.Length <= 1000 ? errorMessage : errorMessage[..1000],
                     CorrelationId = Guid.NewGuid(),
                     OccurredAt = DateTime.UtcNow,
                     ActorUserId = durableJob.RequestedByUserId
                 });
-
                 await db.SaveChangesAsync(ct);
             }
         }

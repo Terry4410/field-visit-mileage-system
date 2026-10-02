@@ -1,0 +1,47 @@
+name: Owner Pre-UAT v1.8.0 validation
+
+on:
+  push:
+    branches:
+      - work/v180-owner-preuat-consolidated
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-preuat-v180-validation
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-owner-preuat-consolidated'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Authoritative ancestry gate
+        run: git merge-base --is-ancestor c51e91c7c0e672f749271c6768bd169889d7164c HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install CJK font
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test -- --reporter=default
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+      - name: Backend build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Backend regression
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build

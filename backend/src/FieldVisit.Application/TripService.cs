@@ -384,6 +384,19 @@ public sealed class TripService(
                 ct);
         }
 
+        RouteCalculationAttempt? routeAttempt = null;
+        if (displaySnapshot is not null && mileageGovernance is not null)
+            routeAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
+                trip.VisitTripId, displaySnapshot.VisitTripSnapshotId, ct);
+
+        var mileageSource = calc?.CalculationSource switch
+        {
+            "GoogleMapsAPI" => "GoogleMapsAPI",
+            "ManualFallback" => "ManualFallback",
+            _ when routeAttempt is not null && calc?.SystemDistanceKm is > 0 => "GoogleMapsAPI",
+            _ => calc?.CalculationSource
+        };
+
         return new TripDto(
             trip.VisitTripId,
             trip.TripNo,
@@ -420,7 +433,9 @@ public sealed class TripService(
                 x.LocationId.HasValue ? "Master" : "Temporary",
                 x.LocationNameSnapshot ?? "", x.AddressSnapshot, x.VisitPurpose, x.Notes)).ToList(),
             Convert.ToBase64String(trip.RowVersion ?? []),
-            trip.VehicleType ?? "Motorcycle");
+            trip.VehicleType ?? "Motorcycle",
+            routeAttempt?.RouteCalculationAttemptId,
+            mileageSource);
     }
 
     private async Task BuildStopsAsync(VisitTrip trip, IReadOnlyList<TripStopInput> inputs, CurrentUserDto user, CancellationToken ct)

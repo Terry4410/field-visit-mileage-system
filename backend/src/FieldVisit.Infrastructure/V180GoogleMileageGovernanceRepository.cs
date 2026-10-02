@@ -57,6 +57,17 @@ public sealed class V180GoogleMileageGovernanceRepository(AppDbContext db) : IV1
         db.RouteCalculationAttempts.AsNoTracking()
             .SingleOrDefaultAsync(x => x.RouteCalculationAttemptId == attemptId, ct);
 
+    public Task<RouteCalculationAttempt?> GetLatestSuccessfulRouteCalculationAttemptAsync(
+        long tripId, long? basisSnapshotId, CancellationToken ct) =>
+        db.RouteCalculationAttempts.AsNoTracking()
+            .Where(x => x.VisitTripId == tripId
+                && x.Status == "Succeeded"
+                && x.BasisType == "SubmittedSnapshot"
+                && (!basisSnapshotId.HasValue || x.BasisVisitTripSnapshotId == basisSnapshotId.Value))
+            .OrderByDescending(x => x.CompletedAt)
+            .ThenByDescending(x => x.RouteCalculationAttemptId)
+            .FirstOrDefaultAsync(ct);
+
     public Task<GeocodingAttempt?> GetGeocodingAttemptAsync(long attemptId, CancellationToken ct) =>
         db.GeocodingAttempts.AsNoTracking()
             .SingleOrDefaultAsync(x => x.GeocodingAttemptId == attemptId, ct);

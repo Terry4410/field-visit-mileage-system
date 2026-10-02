@@ -66,6 +66,23 @@ public sealed class V180GoogleMileageOrchestrationService(
             "LeaderRetry", user.UserId, true, ct);
     }
 
+    public async Task<V180RouteOrchestrationResult> CalculateSubmittedRouteForBackgroundAsync(
+        long tripId, int actorUserId, CancellationToken ct)
+    {
+        var trip = await trips.GetAsync(tripId, false, ct)
+            ?? throw new KeyNotFoundException("找不到行程。");
+        if (trip.Status is not (TripStatuses.Submitted or TripStatuses.RoutePending))
+            throw new InvalidOperationException("F_B_BACKGROUND_ROUTE_STATUS：只有 Submitted / RoutePending 可執行 Google 路線計算。");
+
+        var submitted = await snapshots.GetLatestAsync(tripId, "Submitted", ct)
+            ?? throw new InvalidOperationException("SUBMITTED_SNAPSHOT_REQUIRED：背景路線計算必須使用最新 Submitted Snapshot。");
+        var basis = V180MileageCanonicalization.BuildSubmittedSnapshotBasis(submitted);
+
+        return await CalculateRouteAsync(
+            trip, basis, "SubmittedSnapshot", submitted.VisitTripSnapshotId,
+            "BackgroundMileageJob", actorUserId, false, ct);
+    }
+
     public async Task<V180GeocodingOrchestrationResult> GeocodeLocationAsync(int locationId, CancellationToken ct)
     {
         var user = RequireAny("leader", "admin");

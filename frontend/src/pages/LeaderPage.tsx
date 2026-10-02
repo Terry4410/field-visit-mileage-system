@@ -11,32 +11,153 @@ function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}
 function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){const[d,setD]=useState<DashboardSummary|null>(null);useEffect(()=>{api<DashboardSummary>('/dashboard').then(setD).catch(e=>setMsg(e.message))},[]);return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待審更正" value={d?.pendingCorrections??'—'}/></div>{msg&&<div className="note">{msg}</div>}</>}
 
 function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;busy:boolean;setBusy:(v:boolean)=>void}){
- const[rows,setRows]=useState<Trip[]>([]),[selected,setSelected]=useState<number[]>([]),[reviewKm,setReviewKm]=useState<Record<number,string>>({}),[manualFallback,setManualFallback]=useState<Record<number,boolean>>({}),[mode,setMode]=useState('AllPending'),[start,setStart]=useState(monthStart()),[end,setEnd]=useState(todayTaipei()),[job,setJob]=useState<BackgroundJob|null>(null),[corrections,setCorrections]=useState<CorrectionRequest[]>([]);
+ const[rows,setRows]=useState<Trip[]>([]);
+ const[selected,setSelected]=useState<number[]>([]);
+ const[approvalSelected,setApprovalSelected]=useState<number[]>([]);
+ const[reviewKm,setReviewKm]=useState<Record<number,string>>({});
+ const[mode,setMode]=useState('AllPending');
+ const[start,setStart]=useState(monthStart());
+ const[end,setEnd]=useState(todayTaipei());
+ const[job,setJob]=useState<BackgroundJob|null>(null);
+ const[corrections,setCorrections]=useState<CorrectionRequest[]>([]);
+
  const selectionEnabled=mode==='Selected';
  const calculableRows=rows.filter(t=>t.stops.length>=2&&t.status!=='PendingApproval');
  const calculableIds=calculableRows.map(t=>t.visitTripId);
- const allCalculableSelected=
-   calculableIds.length>0
-   &&calculableIds.every(id=>selected.includes(id));
- const someCalculableSelected=
-   calculableIds.some(id=>selected.includes(id));
+ const approvalRows=rows.filter(t=>t.status==='PendingApproval');
+ const approvalIds=approvalRows.map(t=>t.visitTripId);
+ const allCalculableSelected=calculableIds.length>0&&calculableIds.every(id=>selected.includes(id));
+ const someCalculableSelected=calculableIds.some(id=>selected.includes(id));
+ const allApprovalSelected=approvalIds.length>0&&approvalIds.every(id=>approvalSelected.includes(id));
+ const someApprovalSelected=approvalIds.some(id=>approvalSelected.includes(id));
 
- const toggleAllCalculable=(checked:boolean)=>
-   setSelected(current=>
-     checked
-       ?Array.from(new Set([...current,...calculableIds]))
-       :current.filter(id=>!calculableIds.includes(id))
-   );
+ const toggleAllCalculable=(checked:boolean)=>setSelected(current=>checked?Array.from(new Set([...current,...calculableIds])):current.filter(id=>!calculableIds.includes(id)));
+ const toggleAllApproval=(checked:boolean)=>setApprovalSelected(checked?approvalIds:[]);
 
- const load=()=>Promise.all([api<Trip[]>('/leader/review-queue'),api<CorrectionRequest[]>('/corrections?status=PendingLeaderReview')]).then(([t,c])=>{setRows(t);setCorrections(c);setReviewKm(Object.fromEntries(t.map(x=>[x.visitTripId,String(x.approvedDistanceKm??x.systemDistanceKm??'')])))}).catch(e=>setMsg(e.message));useEffect(()=>{void load()},[]);
- const enqueue=async()=>{if(mode==='Selected'&&!selected.length)return setMsg('請先勾選要計算的行程。');setBusy(true);try{const j=await api<BackgroundJob>('/jobs/mileage',{method:'POST',body:JSON.stringify({mode,startDate:mode==='DateRange'?start:null,endDate:mode==='DateRange'?end:null,selectedTripIds:mode==='Selected'?selected:null})});setJob(j);setMsg(`已建立里程背景工作 ${j.backgroundJobId}`);setTimeout(()=>void poll(j.backgroundJobId),800)}catch(e){setMsg(e instanceof Error?e.message:'建立里程工作失敗')}finally{setBusy(false)}};
- const poll=async(id:string)=>{const j=await api<BackgroundJob>(`/jobs/${id}`);setJob(j);if(['Waiting','Processing'].includes(j.status))setTimeout(()=>void poll(id),1200);else{await load();setSelected([])}};
- const approve=async(t:Trip)=>{const noMileage=t.stops.length<2;const value=noMileage?null:Number(reviewKm[t.visitTripId]||t.systemDistanceKm);if(!noMileage&&(typeof value!=='number'||!Number.isFinite(value)||value<=0))return setMsg('請填寫大於 0 的有效核定里程。');if(!noMileage&&!manualFallback[t.visitTripId])return setMsg('請明確選擇公司里程決策依據：人工備援。');const overlapMessage=leaderOverlapConfirmMessage(t,rows);if(overlapMessage&&!window.confirm(overlapMessage))return;const comments=overlapMessage?(t.timeOverlapConfirmed?'時間重疊；外訪員已確認，小組長確認仍核准。':'時間重疊；小組長確認仍核准。'):(noMileage?'地點不足2個，不計里程與補助。':null);setBusy(true);try{await api(`/trips/${t.visitTripId}/approve`,{method:'POST',body:JSON.stringify({approvedDistanceKm:value,rowVersion:t.rowVersion,comments,distanceDecisionSource:noMileage?null:'ManualFallback',routeCalculationAttemptId:null})});setMsg(`已核准 ${t.tripNo}`);await load()}catch(e){setMsg(e instanceof Error?e.message:'核准失敗')}finally{setBusy(false)}};
- const ret=async(t:Trip)=>{const reason=window.prompt('請輸入退回原因');if(!reason)return;setBusy(true);try{await api(`/trips/${t.visitTripId}/return`,{method:'POST',body:JSON.stringify({reason,rowVersion:t.rowVersion})});setMsg(`已退回 ${t.tripNo}`);await load()}catch(e){setMsg(e instanceof Error?e.message:'退回失敗')}finally{setBusy(false)}};
- const reviewCorrection=async(r:CorrectionRequest,approve:boolean)=>{const comments=window.prompt(approve?'審核說明（選填）':'拒絕原因')||'';setBusy(true);try{await api(`/corrections/${r.correctionRequestId}/leader-review`,{method:'POST',body:JSON.stringify({approve,comments,rowVersion:r.rowVersion})});setMsg(approve?'更正申請已通過；若涉及財務將送管理者結案。':'更正申請已拒絕。');await load()}catch(e){setMsg(e instanceof Error?e.message:'更正審核失敗')}finally{setBusy(false)}};
- return <><div className="card"><div className="section-title"><div><h2>批次系統里程</h2><div className="sub">v1.6.0 使用 UAT Mock Route；工作在背景處理，可離開本頁。</div></div></div><div className="actions"><select value={mode} onChange={e=>{const next=e.target.value;setMode(next);if(next!=='Selected')setSelected([])}}><option value="AllPending">全部未計算</option><option value="DateRange">指定日期區間</option><option value="Selected">勾選指定行程</option></select>{mode==='DateRange'&&<><input type="date" value={start} onChange={e=>setStart(e.target.value)}/><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></>}{selectionEnabled&&<span className="pill">已選 {selected.length} 筆</span>}<button className="btn" disabled={busy} onClick={()=>void enqueue()}>建立背景計算工作</button></div>{job&&<div className="note">工作狀態：{job.status}｜總計 {job.totalCount}｜成功 {job.successCount}｜失敗 {job.failedCount}</div>}{msg&&<div className="note">{msg}</div>}</div>
- <div className="card" style={{marginTop:18}}><div className="section-title"><h2>行程審核</h2><span className="pill">{rows.length} 筆</span></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" aria-label="全選可計算行程" title="全選可計算行程" checked={allCalculableSelected} disabled={!selectionEnabled||!calculableRows.length} ref={el=>{if(el)el.indeterminate=selectionEnabled&&someCalculableSelected&&!allCalculableSelected}} onChange={e=>toggleAllCalculable(e.target.checked)}/></th><th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>自算</th><th>系統</th><th>小組長核定</th><th>公司里程決策依據（必選）</th><th>操作</th></tr></thead><tbody>{rows.map(t=>{const noMileage=t.stops.length<2;const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);return <tr key={t.visitTripId}><td><input type="checkbox" disabled={!selectionEnabled||noMileage||t.status==='PendingApproval'} title={!selectionEnabled?'請先選擇「勾選指定行程」':noMileage?'此行程不足 2 個地點，不需計算里程':t.status==='PendingApproval'?'此行程已完成系統里程計算':'選取待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td><td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td><td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{t.stops.map(s=>s.locationName).join(' → ')}</td><td>{km(t.claimedDistanceKm)}</td><td>{noMileage?'N/A':km(t.systemDistanceKm)}</td><td>{noMileage?<span className="pill">N/A</span>:<input className="mileage-input" type="number" step="0.1" value={reviewKm[t.visitTripId]||''} onChange={e=>setReviewKm(x=>({...x,[t.visitTripId]:e.target.value}))}/>}</td><td>{noMileage?<span className="pill">N/A</span>:t.status==='PendingApproval'?<label><input type="checkbox" checked={!!manualFallback[t.visitTripId]} onChange={e=>setManualFallback(x=>({...x,[t.visitTripId]:e.target.checked}))}/><strong>人工備援</strong><div className="muted">本階段未啟用路線提供者；本次核定採人工備援決策，將留下治理證據。</div></label>:<span className="muted">待里程計算</span>}</td><td>{t.status==='PendingApproval'?<div className="actions"><button className="btn small ok" onClick={()=>void approve(t)} disabled={busy}>核准</button><button className="btn small danger" onClick={()=>void ret(t)} disabled={busy}>退回</button></div>:<span className="muted">待里程計算</span>}</td></tr>})}</tbody></table></div></div>
- <div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><span className="pill">{corrections.length}</span></div><div className="table-wrap"><table><thead><tr><th>Trip</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead><tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)}>通過</button><button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody></table></div></div></>
+ const load=()=>Promise.all([
+   api<Trip[]>('/leader/review-queue'),
+   api<CorrectionRequest[]>('/corrections?status=PendingLeaderReview')
+ ]).then(([t,c])=>{
+   setRows(t);setCorrections(c);
+   setReviewKm(Object.fromEntries(t.map(x=>[x.visitTripId,String(x.approvedDistanceKm??x.systemDistanceKm??x.claimedDistanceKm??'')])));
+   setApprovalSelected(current=>current.filter(id=>t.some(x=>x.visitTripId===id&&x.status==='PendingApproval')));
+ }).catch(e=>setMsg(e.message));
+ useEffect(()=>{void load()},[]);
+
+ const enqueue=async()=>{
+   if(mode==='Selected'&&!selected.length)return setMsg('請先勾選要計算的行程。');
+   setBusy(true);
+   try{
+     const j=await api<BackgroundJob>('/jobs/mileage',{method:'POST',body:JSON.stringify({mode,startDate:mode==='DateRange'?start:null,endDate:mode==='DateRange'?end:null,selectedTripIds:mode==='Selected'?selected:null})});
+     setJob(j);setMsg(`已建立 Google Maps 里程背景工作 ${j.backgroundJobId}`);setTimeout(()=>void poll(j.backgroundJobId),800);
+   }catch(e){setMsg(e instanceof Error?e.message:'建立里程工作失敗')}finally{setBusy(false)}
+ };
+ const poll=async(id:string)=>{
+   const j=await api<BackgroundJob>(`/jobs/${id}`);setJob(j);
+   if(['Waiting','Processing'].includes(j.status))setTimeout(()=>void poll(id),1200);
+   else{await load();setSelected([])}
+ };
+
+ const approvalPayload=(t:Trip)=>{
+   const value=Number(reviewKm[t.visitTripId]||t.systemDistanceKm||t.claimedDistanceKm);
+   if(!Number.isFinite(value)||value<=0)throw new Error(`${t.tripNo}：請填寫大於 0 的有效核定里程。`);
+   const google=t.mileageSource==='GoogleMapsAPI'&&!!t.routeCalculationAttemptId&&!!t.systemDistanceKm;
+   if(google){
+     const adjusted=Math.abs(value-Number(t.systemDistanceKm))>0.000001;
+     return{visitTripId:t.visitTripId,approvedDistanceKm:value,rowVersion:t.rowVersion,distanceDecisionSource:adjusted?'LeaderAdjusted':'ProviderSuggested',routeCalculationAttemptId:t.routeCalculationAttemptId};
+   }
+   if(!(t.claimedDistanceKm&&t.claimedDistanceKm>0))
+     throw new Error(`${t.tripNo}：Google Maps API 無可用里程，且沒有人工備援里程。`);
+   return{visitTripId:t.visitTripId,approvedDistanceKm:value,rowVersion:t.rowVersion,distanceDecisionSource:'ManualFallback',routeCalculationAttemptId:null};
+ };
+
+ const approve=async(t:Trip)=>{
+   let payload;
+   try{payload=approvalPayload(t)}catch(e){return setMsg(e instanceof Error?e.message:'核定資料不完整')}
+   const overlapMessage=leaderOverlapConfirmMessage(t,rows);
+   if(overlapMessage&&!window.confirm(overlapMessage))return;
+   const comments=overlapMessage?(t.timeOverlapConfirmed?'時間重疊；外訪員已確認，小組長確認仍核准。':'時間重疊；小組長確認仍核准。'):null;
+   setBusy(true);
+   try{
+     await api(`/trips/${t.visitTripId}/approve`,{method:'POST',body:JSON.stringify({...payload,comments})});
+     setMsg(`已核准 ${t.tripNo}`);await load();
+   }catch(e){setMsg(e instanceof Error?e.message:'核准失敗')}finally{setBusy(false)}
+ };
+
+ const batchApprove=async()=>{
+   const targets=approvalRows.filter(t=>approvalSelected.includes(t.visitTripId));
+   if(!targets.length)return setMsg('請先勾選要批次核准的行程。');
+   let items;
+   try{items=targets.map(approvalPayload)}catch(e){return setMsg(e instanceof Error?e.message:'批次核定資料不完整')}
+   const overlapCount=targets.filter(t=>hasLeaderTimeOverlap(t,rows)).length;
+   if(overlapCount>0&&!window.confirm(`選取行程中有 ${overlapCount} 筆存在時間重疊提醒，是否仍要批次核准？`))return;
+   if(!window.confirm(`確認批次核准 ${targets.length} 筆行程？`))return;
+   setBusy(true);
+   try{
+     const result=await api<{success:number;failed:number;errors:string[]}>('/trips/batch-approve',{method:'POST',body:JSON.stringify({items})});
+     setMsg(result.failed?`批次核准完成：成功 ${result.success}、失敗 ${result.failed}。 ${result.errors.join('；')}`:`批次核准完成：${result.success} 筆成功。`);
+     setApprovalSelected([]);await load();
+   }catch(e){setMsg(e instanceof Error?e.message:'批次核准失敗')}finally{setBusy(false)}
+ };
+
+ const ret=async(t:Trip)=>{
+   const reason=window.prompt('請輸入退回原因');if(!reason)return;
+   setBusy(true);try{await api(`/trips/${t.visitTripId}/return`,{method:'POST',body:JSON.stringify({reason,rowVersion:t.rowVersion})});setMsg(`已退回 ${t.tripNo}`);await load()}catch(e){setMsg(e instanceof Error?e.message:'退回失敗')}finally{setBusy(false)}
+ };
+
+ const reviewCorrection=async(r:CorrectionRequest,approve:boolean)=>{
+   const comments=window.prompt(approve?'審核說明（選填）':'拒絕原因')||'';
+   setBusy(true);try{await api(`/corrections/${r.correctionRequestId}/leader-review`,{method:'POST',body:JSON.stringify({approve,comments,rowVersion:r.rowVersion})});setMsg(approve?'更正申請已通過；若涉及財務將送管理者結案。':'更正申請已拒絕。');await load()}catch(e){setMsg(e instanceof Error?e.message:'更正審核失敗')}finally{setBusy(false)}
+ };
+
+ const sourceText=(t:Trip)=>t.mileageSource==='GoogleMapsAPI'?'Google Maps API':t.mileageSource==='ManualFallback'?'人工備援':t.status==='Returned'?'需補人工備援':'待 Google Maps 計算';
+
+ return <>
+  <div className="card">
+   <div className="section-title"><div><h2>批次 Google Maps 里程</h2><div className="sub">依派駐中心 → 拜訪順序 → 返回中心取得 Google Maps API 路線；API 失敗時才使用人工備援。</div></div></div>
+   <div className="actions">
+    <select value={mode} onChange={e=>{const next=e.target.value;setMode(next);if(next!=='Selected')setSelected([])}}>
+     <option value="AllPending">全部未計算</option><option value="DateRange">指定日期區間</option><option value="Selected">勾選指定行程</option>
+    </select>
+    {mode==='DateRange'&&<><input type="date" value={start} onChange={e=>setStart(e.target.value)}/><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></>}
+    {selectionEnabled&&<span className="pill">已選 {selected.length} 筆</span>}
+    <button className="btn" disabled={busy} onClick={()=>void enqueue()}>建立 Google Maps 計算工作</button>
+   </div>
+   {job&&<div className="note">工作狀態：{job.status}｜總計 {job.totalCount}｜成功 {job.successCount}｜失敗 {job.failedCount}</div>}
+   {msg&&<div className="note">{msg}</div>}
+  </div>
+
+  <div className="card" style={{marginTop:18}}>
+   <div className="section-title"><h2>行程審核</h2><div className="actions"><span className="pill">{rows.length} 筆</span><button className="btn small ok" disabled={busy||!approvalSelected.length} onClick={()=>void batchApprove()}>批次核准（{approvalSelected.length}）</button></div></div>
+   <div className="table-wrap"><table>
+    <thead><tr>
+     <th><input type="checkbox" aria-label="全選可計算行程" title="全選可計算行程" checked={allCalculableSelected} disabled={!selectionEnabled||!calculableRows.length} ref={el=>{if(el)el.indeterminate=selectionEnabled&&someCalculableSelected&&!allCalculableSelected}} onChange={e=>toggleAllCalculable(e.target.checked)}/></th>
+     <th><input type="checkbox" aria-label="全選待核准行程" title="全選待核准行程" checked={allApprovalSelected} disabled={!approvalRows.length} ref={el=>{if(el)el.indeterminate=someApprovalSelected&&!allApprovalSelected}} onChange={e=>toggleAllApproval(e.target.checked)}/></th>
+     <th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>人工備援</th><th>Google Maps API</th><th>小組長核定</th><th>里程來源</th><th>操作</th>
+    </tr></thead>
+    <tbody>{rows.map(t=>{
+     const noMileage=t.stops.length<2;const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
+     return <tr key={t.visitTripId}>
+      <td><input type="checkbox" disabled={!selectionEnabled||noMileage||t.status==='PendingApproval'} title={!selectionEnabled?'請先選擇「勾選指定行程」':noMileage?'此行程不足 2 個地點':t.status==='PendingApproval'?'此行程已完成路線處理':'選取待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
+      <td><input type="checkbox" disabled={t.status!=='PendingApproval'} checked={approvalSelected.includes(t.visitTripId)} onChange={e=>setApprovalSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
+      <td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
+      <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{t.stops.map(s=>s.locationName).join(' → ')}</td>
+      <td>{km(t.claimedDistanceKm)}</td><td>{noMileage?'N/A':km(t.systemDistanceKm)}</td>
+      <td>{noMileage?<span className="pill">N/A</span>:<input className="mileage-input" type="number" step="0.1" value={reviewKm[t.visitTripId]||''} onChange={e=>setReviewKm(x=>({...x,[t.visitTripId]:e.target.value}))}/>}</td>
+      <td>{noMileage?<span className="pill">N/A</span>:<><strong>{sourceText(t)}</strong>{t.mileageSource==='GoogleMapsAPI'&&<div className="muted">Google 路線可直接核准；若調整里程會記錄 LeaderAdjusted。</div>}{t.mileageSource==='ManualFallback'&&<div className="muted">Google 無可用結果，本次使用人工備援並保留治理紀錄。</div>}</>}</td>
+      <td>{t.status==='PendingApproval'?<div className="actions"><button className="btn small ok" onClick={()=>void approve(t)} disabled={busy}>核准</button><button className="btn small danger" onClick={()=>void ret(t)} disabled={busy}>退回</button></div>:<span className="muted">{t.status==='Returned'?'已退回補人工備援':'待里程計算'}</span>}</td>
+     </tr>
+    })}</tbody>
+   </table></div>
+  </div>
+
+  <div className="card" style={{marginTop:18}}>
+   <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><span className="pill">{corrections.length}</span></div>
+   <div className="table-wrap"><table><thead><tr><th>Trip</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead>
+   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)}>通過</button><button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody>
+   </table></div>
+  </div>
+ </>;
 }
 
 function isProcessableLocation(l:ManagedLocation){

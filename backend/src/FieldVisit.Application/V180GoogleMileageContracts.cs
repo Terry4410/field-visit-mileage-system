@@ -95,6 +95,8 @@ public interface IV180GoogleMileageGovernanceRepository
     Task<RouteCalculationAttempt> AddRouteCalculationAttemptAsync(V180RouteCalculationAttemptRequest request, CancellationToken ct);
     Task<MileageGovernanceEvent> AddGovernanceEventAsync(V180MileageGovernanceEventRequest request, CancellationToken ct);
     Task<RouteCalculationAttempt?> GetRouteCalculationAttemptAsync(long attemptId, CancellationToken ct);
+    Task<RouteCalculationAttempt?> GetLatestSuccessfulRouteCalculationAttemptAsync(
+        long tripId, long? basisSnapshotId, CancellationToken ct);
     Task<GeocodingAttempt?> GetGeocodingAttemptAsync(long attemptId, CancellationToken ct);
     Task<bool> TryFinalizeRouteCalculationAttemptAsync(
         long attemptId, string status, string? errorCode, string? errorMessage, DateTime completedAt, CancellationToken ct);

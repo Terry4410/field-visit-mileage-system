@@ -91,7 +91,9 @@ public sealed record TripDto(
     string? EndDeploymentAddress,
     IReadOnlyList<TripStopInput> Stops,
     string RowVersion,
-    string? VehicleType = null);
+    string? VehicleType = null,
+    long? RouteCalculationAttemptId = null,
+    string? MileageSource = null);
 
 public sealed record MileageBatchRequest(string Mode, DateOnly? StartDate, DateOnly? EndDate, IReadOnlyList<long>? SelectedTripIds);
 public sealed record MileageBatchItem(long VisitTripId, string TripNo, string Status, decimal? SystemDistanceKm, string? ErrorCode, string? ErrorMessage);
