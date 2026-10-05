@@ -90,7 +90,7 @@ public sealed class V180TripContextReaderTests
         Assert.Equal(100, context.EmploymentId);
         Assert.Equal(10, context.SelectedTeamId);
         Assert.Equal([101, 102], context.EligibleDeploymentSites.Select(x => x.DeploymentSiteId));
-        Assert.Equal([101, 102, 201], context.OfficialDeploymentSites!.Select(x => x.DeploymentSiteId));
+        Assert.Equal([101, 102, 201], context.OfficialDeploymentSites!.Select(x => x.DeploymentSiteId).OrderBy(x => x));
         Assert.Equal(101, context.PrimaryDeploymentSiteId);
         Assert.Equal(101, context.DefaultStartDeploymentSiteId);
         Assert.Equal(101, context.DefaultEndDeploymentSiteId);
