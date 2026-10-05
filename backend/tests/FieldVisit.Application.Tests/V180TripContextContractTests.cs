@@ -66,6 +66,29 @@ public sealed class V180TripContextContractTests
     }
 
     [Fact]
+    public void ResolveDraftSites_accepts_official_site_outside_employment_scope()
+    {
+        var context = Context() with
+        {
+            OfficialDeploymentSites =
+            [
+                Site(101, true),
+                Site(102, false),
+                Site(201, false)
+            ]
+        };
+
+        var result =
+            V180TripPersistenceRules.ResolveDraftSites(
+                context,
+                requestedStart: 201,
+                requestedEnd: 101);
+
+        Assert.Equal(201, result.Start);
+        Assert.Equal(101, result.End);
+    }
+
+    [Fact]
     public void ResolveDraftSites_rejects_invalid_requested_site()
     {
         var ex =
@@ -210,6 +233,27 @@ public sealed class V180TripContextContractTests
         Assert.Contains(
             "END_DEPLOYMENT_SITE_INELIGIBLE",
             ex.Message);
+    }
+
+    [Fact]
+    public void EnsureReadyForSubmit_accepts_official_site_outside_employment_scope()
+    {
+        var context = Context() with
+        {
+            OfficialDeploymentSites =
+            [
+                Site(101, true),
+                Site(102, false),
+                Site(201, false)
+            ]
+        };
+
+        V180TripPersistenceRules.EnsureReadyForSubmit(
+            context,
+            employmentId: 7001,
+            teamId: 11,
+            startSiteId: 201,
+            endSiteId: 102);
     }
 
     [Fact]
