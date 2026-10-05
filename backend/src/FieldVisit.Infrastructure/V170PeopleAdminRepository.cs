@@ -532,8 +532,15 @@ public sealed class V170PeopleAdminRepository(
                     x =>
                         scopeOrgIds.Contains(
                             x.OrganizationId))
+                .Select(
+                    x => new
+                    {
+                        x.OrganizationId,
+                        x.OrganizationName
+                    })
                 .ToDictionaryAsync(
                     x => x.OrganizationId,
+                    x => x.OrganizationName,
                     ct);
 
         var scopeTeams =
@@ -644,14 +651,14 @@ public sealed class V170PeopleAdminRepository(
             scopes.Select(
                 x =>
                 {
-                    Organization? scopeOrg = null;
+                    string? scopeOrganizationName = null;
                     Team? scopeTeam = null;
 
                     if (x.OrganizationId.HasValue)
                     {
                         organizations.TryGetValue(
                             x.OrganizationId.Value,
-                            out scopeOrg);
+                            out scopeOrganizationName);
                     }
 
                     if (x.TeamId.HasValue)
@@ -665,7 +672,7 @@ public sealed class V170PeopleAdminRepository(
                         x.UserDataScopeId,
                         x.ScopeType,
                         x.OrganizationId,
-                        scopeOrg?.OrganizationName,
+                        scopeOrganizationName,
                         x.TeamId,
                         scopeTeam?.TeamCode,
                         scopeTeam?.TeamName,
