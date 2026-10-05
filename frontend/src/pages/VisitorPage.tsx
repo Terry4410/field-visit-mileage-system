@@ -48,6 +48,7 @@ export default function VisitorPage(){
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
   const [editingEndpoint,setEditingEndpoint]=useState<EndpointKind|null>(null);
   const [endpointDraftSiteId,setEndpointDraftSiteId]=useState("");
+  const [endpointSearch,setEndpointSearch]=useState("");
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
   const [selectedExistingLocation,setSelectedExistingLocation]=useState<SmartLocationItem|null>(null);
   const [stopPurpose,setStopPurpose]=useState("");
@@ -158,20 +159,37 @@ export default function VisitorPage(){
       .catch(e=>{setTripContext(null);setTripContextError(e instanceof Error?e.message:"無法取得派駐中心資料")});
   },[date,selectedTeamId]);
 
+  const officialDeploymentSites=
+    tripContext?.officialDeploymentSites?.length
+      ?tripContext.officialDeploymentSites
+      :tripContext?.eligibleDeploymentSites||[];
+
   useEffect(()=>{
     if(!tripContext)return;
-    const eligible=new Set(tripContext.eligibleDeploymentSites.map(x=>x.deploymentSiteId));
+    const allowed=new Set(officialDeploymentSites.map(x=>x.deploymentSiteId));
     const startDefault=tripContext.defaultStartDeploymentSiteId?String(tripContext.defaultStartDeploymentSiteId):"";
     const endDefault=tripContext.defaultEndDeploymentSiteId?String(tripContext.defaultEndDeploymentSiteId):"";
-    setStartDeploymentSiteId(current=>current&&eligible.has(Number(current))?current:startDefault);
-    setEndDeploymentSiteId(current=>current&&eligible.has(Number(current))?current:endDefault);
+    setStartDeploymentSiteId(current=>current&&allowed.has(Number(current))?current:startDefault);
+    setEndDeploymentSiteId(current=>current&&allowed.has(Number(current))?current:endDefault);
   },[tripContext]);
 
-  const defaultStartSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===tripContext.defaultStartDeploymentSiteId);
-  const defaultEndSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===tripContext.defaultEndDeploymentSiteId);
-  const selectedStartSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===Number(startDeploymentSiteId));
-  const selectedEndSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===Number(endDeploymentSiteId));
-  const deploymentOptionLabel=(site:TripContext["eligibleDeploymentSites"][number])=>`${site.centerName}／${site.siteName}${site.address?`｜${site.address}`:""}`;
+  const defaultStartSite=officialDeploymentSites.find(x=>x.deploymentSiteId===tripContext?.defaultStartDeploymentSiteId);
+  const defaultEndSite=officialDeploymentSites.find(x=>x.deploymentSiteId===tripContext?.defaultEndDeploymentSiteId);
+  const selectedStartSite=officialDeploymentSites.find(x=>x.deploymentSiteId===Number(startDeploymentSiteId));
+  const selectedEndSite=officialDeploymentSites.find(x=>x.deploymentSiteId===Number(endDeploymentSiteId));
+  const endpointSearchText=endpointSearch.trim().toLocaleLowerCase("zh-TW");
+  const filteredOfficialDeploymentSites=officialDeploymentSites.filter(site=>{
+    if(!endpointSearchText)return true;
+    return [
+      site.centerName,
+      site.centerCode,
+      site.siteName,
+      site.siteCode,
+      site.locationName,
+      site.locationCode||"",
+      site.address||""
+    ].some(value=>value.toLocaleLowerCase("zh-TW").includes(endpointSearchText));
+  });
 
   useEffect(()=>{setRoutePreview(null)},[date,tripTeamId,startDeploymentSiteId,endDeploymentSiteId,vehicleType,stops]);
 
@@ -268,6 +286,7 @@ export default function VisitorPage(){
   const openEndpointEditor=(kind:EndpointKind)=>{
     setEditingEndpoint(kind);
     setEndpointDraftSiteId(kind==="start"?startDeploymentSiteId:endDeploymentSiteId);
+    setEndpointSearch("");
     setModal("endpoint");
   };
 
@@ -281,6 +300,7 @@ export default function VisitorPage(){
     setModal(null);
     setEditingEndpoint(null);
     setEndpointDraftSiteId("");
+    setEndpointSearch("");
     setMsg(editingEndpoint==="start"?"已更新本次行程出發地。":"已更新本次行程結束地。");
   };
 
@@ -575,22 +595,39 @@ export default function VisitorPage(){
       </div>
     </div>
 
-    {modal==="endpoint"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget){setModal(null);setEditingEndpoint(null);setEndpointDraftSiteId("")}}}>
+    {modal==="endpoint"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget){setModal(null);setEditingEndpoint(null);setEndpointDraftSiteId("");setEndpointSearch("")}}}>
       <div className="modal-panel">
         <h3>{editingEndpoint==="start"?"修改出發地":"修改結束地"}</h3>
         <div className="note" style={{marginBottom:14}}>
-          預設由人事歸屬的主要就業中心／派駐據點帶入；此處修改只影響本次行程，不會修改人員主檔。
+          預設由人事歸屬的主要就業中心／派駐據點帶入；可改選公司其他有效中心或就業服務站。此處修改只影響本次行程，不會修改人員主檔。
         </div>
         <div className="field">
-          <label>{editingEndpoint==="start"?"本次行程出發地":"本次行程結束地"}</label>
-          <select value={endpointDraftSiteId} onChange={e=>setEndpointDraftSiteId(e.target.value)} disabled={!tripContext?.eligibleDeploymentSites.length}>
-            <option value="">請選擇</option>
-            {tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{deploymentOptionLabel(site)}{site.deploymentSiteId===(editingEndpoint==="start"?defaultStartSite?.deploymentSiteId:defaultEndSite?.deploymentSiteId)?"（預設）":""}</option>)}
-          </select>
+          <label>搜尋官方據點</label>
+          <input value={endpointSearch} onChange={e=>setEndpointSearch(e.target.value)} placeholder="搜尋中心、就業服務站、代碼或地址"/>
+        </div>
+        <div className="section-title smart-result-title">
+          <strong>官方據點</strong>
+          <span className="pill">{filteredOfficialDeploymentSites.length} 筆</span>
+        </div>
+        <div className="existing-location-results">
+          {filteredOfficialDeploymentSites.map(site=>{
+            const defaultId=editingEndpoint==="start"?tripContext?.defaultStartDeploymentSiteId:tripContext?.defaultEndDeploymentSiteId;
+            const isDefault=site.deploymentSiteId===defaultId;
+            const selected=String(site.deploymentSiteId)===endpointDraftSiteId;
+            return <label key={site.deploymentSiteId} className={`existing-location-choice ${selected?"selected":""}`}>
+              <input type="radio" name="official-endpoint-site" value={site.deploymentSiteId} checked={selected} onChange={()=>setEndpointDraftSiteId(String(site.deploymentSiteId))}/>
+              <span>
+                <strong>{site.centerName}／{site.siteName}</strong>
+                <small>{site.address||site.locationName||"未提供地址"}</small>
+                <small>{site.siteCode}{isDefault?"　★ 人員歸屬預設":""}</small>
+              </span>
+            </label>;
+          })}
+          {filteredOfficialDeploymentSites.length===0&&<div className="empty compact-empty">查無符合條件的有效官方據點。</div>}
         </div>
         <div className="modal-sticky-actions">
-          <button className="btn secondary" onClick={()=>{setModal(null);setEditingEndpoint(null);setEndpointDraftSiteId("")}}>取消</button>
-          <button className="btn ok" disabled={!endpointDraftSiteId} onClick={saveEndpoint}>儲存修改</button>
+          <button className="btn secondary" onClick={()=>{setModal(null);setEditingEndpoint(null);setEndpointDraftSiteId("");setEndpointSearch("")}}>取消</button>
+          <button className="btn ok" disabled={!endpointDraftSiteId} onClick={saveEndpoint}>套用</button>
         </div>
       </div>
     </div>}
