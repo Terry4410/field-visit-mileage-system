@@ -154,6 +154,26 @@ public sealed class V180MasterDataAdminTests
     }
 
     [Fact]
+    public async Task Deployment_site_list_includes_location_reference_key_for_admin_edit()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        SeedSite(db, 40, "S40", 30, "L30");
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+
+        var rows = await repository.ListAsync(
+            User("admin"),
+            "deployment-sites",
+            default);
+
+        var row = Assert.Single(rows);
+        Assert.Equal("S40", row.Key);
+        Assert.Equal("C20", row.ParentKey);
+        Assert.Equal("L30", row.ReferenceKey);
+    }
+
+    [Fact]
     public async Task Employment_status_overlap_is_rejected()
     {
         await using var db = Db();
