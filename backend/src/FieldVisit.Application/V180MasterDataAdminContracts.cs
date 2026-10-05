@@ -7,7 +7,7 @@ public sealed record V180TeamCenterInput(string TeamCode, string CenterCode, Dat
 public sealed record V180DeploymentSiteInput(string CenterCode, string SiteCode, string SiteName, string LocationCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive, string? RowVersion = null);
 public sealed record V180TeamSiteInput(string TeamCode, string SiteCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? RowVersion = null);
 public sealed record V180EmploymentSiteInput(string EmployeeNo, string SiteCode, bool IsPrimary, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? RowVersion = null);
-public sealed record V180MasterDataRow(long Id, string Key, string? ParentKey, string? Detail, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool? IsActive, bool? IsPrimary, string? RowVersion);
+public sealed record V180MasterDataRow(long Id, string Key, string? ParentKey, string? Detail, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool? IsActive, bool? IsPrimary, string? RowVersion, string? ReferenceKey = null);
 
 public interface IV180MasterDataBulkWorkbookService
 {
