@@ -3,7 +3,7 @@ import {useSearchParams} from "react-router-dom";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
-import TripRouteDisplay from "../components/TripRouteDisplay";
+import {TripRouteEndpointDisplay} from "../components/TripRouteDisplay";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
@@ -40,6 +40,7 @@ export default function VisitorPage(){
     user?.teamId?String(user.teamId):""
   );
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[vehicleType,setVehicleType]=useState("Motorcycle"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
+  const [startDeploymentSiteId,setStartDeploymentSiteId]=useState(""),[endDeploymentSiteId,setEndDeploymentSiteId]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
   const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[tripContext,setTripContext]=useState<TripContext|null>(null),[tripContextError,setTripContextError]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
@@ -90,6 +91,8 @@ export default function VisitorPage(){
       );
       setStart((t.startTime||"").slice(0,5));
       setEnd((t.endTime||"").slice(0,5));
+      setStartDeploymentSiteId(t.startDeploymentSiteId?String(t.startDeploymentSiteId):"");
+      setEndDeploymentSiteId(t.endDeploymentSiteId?String(t.endDeploymentSiteId):"");
       setNotes(t.notes||"");
       setRowVersion(t.rowVersion);
       setVehicleType(t.vehicleType||"Motorcycle");
@@ -152,9 +155,20 @@ export default function VisitorPage(){
       .catch(e=>{setTripContext(null);setTripContextError(e instanceof Error?e.message:"無法取得派駐中心資料")});
   },[date,selectedTeamId]);
 
+  useEffect(()=>{
+    if(!tripContext)return;
+    const eligible=new Set(tripContext.eligibleDeploymentSites.map(x=>x.deploymentSiteId));
+    const startDefault=tripContext.defaultStartDeploymentSiteId?String(tripContext.defaultStartDeploymentSiteId):"";
+    const endDefault=tripContext.defaultEndDeploymentSiteId?String(tripContext.defaultEndDeploymentSiteId):"";
+    setStartDeploymentSiteId(current=>current&&eligible.has(Number(current))?current:startDefault);
+    setEndDeploymentSiteId(current=>current&&eligible.has(Number(current))?current:endDefault);
+  },[tripContext]);
+
   const defaultStartSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===tripContext.defaultStartDeploymentSiteId);
   const defaultEndSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===tripContext.defaultEndDeploymentSiteId);
-  const deploymentLabel=(site:typeof defaultStartSite)=>site?`${site.centerName}／${site.siteName}${site.address?`｜${site.address}`:""}`:"尚未設定";
+  const selectedStartSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===Number(startDeploymentSiteId));
+  const selectedEndSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===Number(endDeploymentSiteId));
+  const deploymentOptionLabel=(site:TripContext["eligibleDeploymentSites"][number])=>`${site.centerName}／${site.siteName}${site.address?`｜${site.address}`:""}`;
 
   const availableProjects=useMemo(
     ()=>projects.filter(
@@ -202,7 +216,7 @@ export default function VisitorPage(){
   const reset=()=>{
     setSp({});
     setTripTeamId(user?.teamId?String(user.teamId):"");
-    setDate(today);setStart("08:30");setEnd("17:10");setVehicleType("Motorcycle");setKm("");setNotes("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setTripContext(null);setTripContextError("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setDate(today);setStart("08:30");setEnd("17:10");setVehicleType("Motorcycle");setKm("");setNotes("");setStartDeploymentSiteId("");setEndDeploymentSiteId("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setTripContext(null);setTripContextError("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
   };
 
   const changeTripTeam=(value:string)=>{
@@ -219,6 +233,8 @@ export default function VisitorPage(){
     }
 
     setTripTeamId(value);
+    setStartDeploymentSiteId("");
+    setEndDeploymentSiteId("");
     setStops([]);
     setKm("");
     setProjectId("");
@@ -350,6 +366,10 @@ export default function VisitorPage(){
       setMsg("請選擇本次行程的歸屬小組。");
       return false;
     }
+    if(!startDeploymentSiteId||!endDeploymentSiteId){
+      setMsg("請選擇本次行程的出發地與結束地。");
+      return false;
+    }
     const mileageError=validateTripMileageForSubmit(stops.length,km);
     if(mileageError){setMsg(mileageError);return false}
     if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
@@ -365,7 +385,7 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null,vehicleType};
+      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null,startDeploymentSiteId:startDeploymentSiteId?Number(startDeploymentSiteId):null,endDeploymentSiteId:endDeploymentSiteId?Number(endDeploymentSiteId):null,vehicleType};
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
@@ -424,8 +444,8 @@ export default function VisitorPage(){
           }
         </div>
         <div className="field"><label>交通工具</label><select value={vehicleType} onChange={e=>setVehicleType(e.target.value)}><option value="Motorcycle">機車</option><option value="Car">汽車</option></select><div className="hint">預設機車；交通工具會決定適用的里程補助費率。</div></div>
-        <div className="field"><label>起點（所屬就業中心）</label><input value={deploymentLabel(defaultStartSite)} disabled/><div className="hint">由系統依人事資料自動帶入，不可修改。</div></div>
-        <div className="field"><label>終點（所屬就業中心）</label><input value={deploymentLabel(defaultEndSite)} disabled/><div className="hint">由系統依人事資料自動帶入，不可修改。</div></div>
+        <div className="field"><label>出發地（預設：歸屬就業中心）</label><select value={startDeploymentSiteId} onChange={e=>setStartDeploymentSiteId(e.target.value)} disabled={!tripContext?.eligibleDeploymentSites.length}><option value="">尚未設定</option>{tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{deploymentOptionLabel(site)}{site.deploymentSiteId===defaultStartSite?.deploymentSiteId?"（預設）":""}</option>)}</select><div className="hint">預設依人事歸屬帶入；可調整本次行程，不會修改人員主檔。</div></div>
+        <div className="field"><label>結束地（預設：歸屬就業中心）</label><select value={endDeploymentSiteId} onChange={e=>setEndDeploymentSiteId(e.target.value)} disabled={!tripContext?.eligibleDeploymentSites.length}><option value="">尚未設定</option>{tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{deploymentOptionLabel(site)}{site.deploymentSiteId===defaultEndSite?.deploymentSiteId?"（預設）":""}</option>)}</select><div className="hint">預設依人事歸屬帶入；可調整本次行程，不會修改人員主檔。</div></div>
         <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
         <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
       </div>
@@ -439,8 +459,8 @@ export default function VisitorPage(){
         <div><h2>拜訪順序</h2><div className="sub">每一個拜訪地點都可開啟「地點維護」選擇來源、修改地點及填寫行程目的。</div></div>
         <div className="actions"><button className="btn small secondary" onClick={openNewStop}>＋新增拜訪地點</button></div>
       </div>
-      <TripRouteDisplay showStops={false} trip={{startDeploymentSiteName:defaultStartSite?`${defaultStartSite.centerName}／${defaultStartSite.siteName}`:undefined,startDeploymentSiteCode:defaultStartSite?.siteCode||undefined,startDeploymentAddress:defaultStartSite?.address||undefined,endDeploymentSiteName:defaultEndSite?`${defaultEndSite.centerName}／${defaultEndSite.siteName}`:undefined,endDeploymentSiteCode:defaultEndSite?.siteCode||undefined,endDeploymentAddress:defaultEndSite?.address||undefined,stops}} />
       <div className="route-list">
+        <TripRouteEndpointDisplay endpoint={{label:"起點",name:selectedStartSite?`${selectedStartSite.centerName}／${selectedStartSite.siteName}`:undefined,code:selectedStartSite?.siteCode||undefined,address:selectedStartSite?.address||undefined}}/>
         {stops.length?stops.map((s,i)=><div className="route-item" key={`${s.locationId||s.locationName}-${i}`}>
           <div className="route-index">{i+1}</div>
           <div>
@@ -459,6 +479,7 @@ export default function VisitorPage(){
             <button onClick={()=>setStops(stops.filter((_,x)=>x!==i))}>×</button>
           </div>
         </div>):<div className="empty">尚未加入拜訪地點，請按「＋新增拜訪地點」。</div>}
+        <TripRouteEndpointDisplay endpoint={{label:"終點",name:selectedEndSite?`${selectedEndSite.centerName}／${selectedEndSite.siteName}`:undefined,code:selectedEndSite?.siteCode||undefined,address:selectedEndSite?.address||undefined}}/>
       </div>
     </div>
 
@@ -466,7 +487,7 @@ export default function VisitorPage(){
       <div className="section-title"><h2>人工備援里程</h2><span className="pill">選填</span></div>
       <div className="grid cols-2">
         <div className="field"><label>人工備援里程（公里）</label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)}/></div>
-        <div className="note">正常情況由 Google Maps API 依「出發中心／拜訪順序／返回中心」取得路線里程；只有 API 無法取得可用里程時，才使用這個人工備援值，最後仍須由小組長核准。</div>
+        <div className="note">正常情況由 Google Maps API 依「實際出發地／拜訪順序／實際結束地」取得路線里程；只有 API 無法取得可用里程時，才使用這個人工備援值，最後仍須由小組長核准。</div>
       </div>
     </div>
 
