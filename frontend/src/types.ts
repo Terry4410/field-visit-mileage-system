@@ -7,6 +7,7 @@ export interface Trip{visitTripId:number;tripNo:string;userId:number;visitorName
 export interface Location{locationId:number;teamId?:number;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string}
 export interface TripContextDeploymentSite{deploymentSiteId:number;centerId:number;centerCode:string;centerName:string;siteCode:string;siteName:string;locationId:number;locationCode?:string|null;locationName:string;address?:string|null;isPrimary:boolean}
 export interface TripContext{employmentId:number;visitDate:string;eligibleForTrip:boolean;validationCode:string;validationMessage:string;selectedTeamId?:number|null;eligibleDeploymentSites:TripContextDeploymentSite[];primaryDeploymentSiteId?:number|null;defaultStartDeploymentSiteId?:number|null;defaultEndDeploymentSiteId?:number|null}
+export interface RoutePreviewResult{routeCalculationAttemptId:number;correlationId:string;status:string;suggestedDistanceKm?:number|null;durationSeconds?:number|null;encodedPolyline?:string|null;errorCode?:string|null;errorMessage?:string|null}
 
 export interface SmartLocationItem{
   locationId:number;
