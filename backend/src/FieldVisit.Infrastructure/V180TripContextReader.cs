@@ -177,12 +177,76 @@ public sealed class V180TripContextReader(AppDbContext db) : IV180TripContextRea
                 primaryRows.Count == 1 && primaryRows[0].DeploymentSiteId == site.DeploymentSiteId));
         }
 
+        var officialCenters = await db.Centers.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId
+                && x.IsActive
+                && x.EffectiveFrom <= visitDate
+                && (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value))
+            .ToDictionaryAsync(x => x.CenterId, ct);
+        var officialCenterIds = officialCenters.Keys.ToArray();
+
+        var officialSiteRows = await db.DeploymentSites.AsNoTracking()
+            .Where(x => officialCenterIds.Contains(x.CenterId)
+                && x.IsActive
+                && x.EffectiveFrom <= visitDate
+                && (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value))
+            .ToListAsync(ct);
+        var officialSiteIds = officialSiteRows.Select(x => x.DeploymentSiteId).ToArray();
+
+        var officialLocationAssignments = await db.DeploymentSiteLocationAssignments.AsNoTracking()
+            .Where(x => officialSiteIds.Contains(x.DeploymentSiteId)
+                && x.EffectiveFrom <= visitDate
+                && (!x.EffectiveTo.HasValue || visitDate <= x.EffectiveTo.Value))
+            .ToListAsync(ct);
+        if (officialLocationAssignments.GroupBy(x => x.DeploymentSiteId).Any(x => x.Count() > 1))
+            throw new InvalidOperationException(
+                "AMBIGUOUS_DEPLOYMENT_LOCATION：VisitDate 的公司官方派駐點有多個有效 Location。");
+
+        var officialLocationsBySite = officialLocationAssignments.ToDictionary(x => x.DeploymentSiteId);
+        var officialLocationIds = officialLocationAssignments.Select(x => x.LocationId).Distinct().ToArray();
+        var officialLocations = await db.Locations.AsNoTracking()
+            .Where(x => officialLocationIds.Contains(x.LocationId))
+            .ToDictionaryAsync(x => x.LocationId, ct);
+
+        var officialDeploymentSites = new List<V180TripContextDeploymentSiteDto>();
+        foreach (var site in officialSiteRows
+            .OrderBy(x => officialCenters[x.CenterId].CenterName)
+            .ThenBy(x => x.SiteName)
+            .ThenBy(x => x.DeploymentSiteId))
+        {
+            if (!officialLocationsBySite.TryGetValue(site.DeploymentSiteId, out var locationAssignment))
+                continue;
+            if (!officialLocations.TryGetValue(locationAssignment.LocationId, out var location))
+                throw new InvalidOperationException(
+                    "TRIP_CONTEXT_LOCATION_MISSING：公司官方派駐點有效 Location 不存在。");
+            if (location.OrganizationId != organizationId
+                || !location.IsActive
+                || !string.Equals(location.ApprovalStatus, "Approved", StringComparison.Ordinal))
+                continue;
+
+            var center = officialCenters[site.CenterId];
+            officialDeploymentSites.Add(new(
+                site.DeploymentSiteId,
+                center.CenterId,
+                center.CenterCode,
+                center.CenterName,
+                site.SiteCode,
+                site.SiteName,
+                location.LocationId,
+                location.LocationCode,
+                location.LocationName,
+                location.Address,
+                primaryRows.Count == 1
+                    && primaryRows[0].DeploymentSiteId == site.DeploymentSiteId));
+        }
+
         var primarySiteId = eligibleSites.SingleOrDefault(x => x.IsPrimary)?.DeploymentSiteId;
         var eligible = eligibleSites.Count > 0;
         return new(employment.EmploymentId, visitDate, eligible,
             eligible ? "OK" : "NO_ELIGIBLE_DEPLOYMENT_SITE",
             eligible ? "行程 context 已解析。" : "外訪日期與所選 Team 沒有共同且具有效 Location 的派駐點。",
-            teamDtos, selectedTeamId, eligibleSites, primarySiteId, primarySiteId, primarySiteId);
+            teamDtos, selectedTeamId, eligibleSites, primarySiteId, primarySiteId, primarySiteId,
+            officialDeploymentSites);
     }
 
     private static V180TripContextDto Empty(long employmentId, DateOnly visitDate, string code, string message) =>
