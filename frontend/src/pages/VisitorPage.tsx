@@ -448,7 +448,7 @@ export default function VisitorPage(){
     <div className="grid cols-4">
       <div className="card stat"><div className="label">行程日期</div><div className="value" style={{fontSize:20}}>{date}</div><div className="hint">可事後補登</div></div>
       <div className="card stat"><div className="label">拜訪地點</div><div className="value">{stops.length}</div><div className="hint">依實際順序排列</div></div>
-      <div className="card stat"><div className="label">人工備援里程</div><div className="value">{km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"至少 2 個公務地點才可正式送出":"Google 路線失敗時使用"}</div></div>
+      <div className="card stat"><div className="label">Google／人工里程</div><div className="value">{routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm?routePreview.suggestedDistanceKm:km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"至少 2 個公務地點才可計算":"先用 Google 計算；不合理時再填人工里程"}</div></div>
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
@@ -528,10 +528,15 @@ export default function VisitorPage(){
     </div>
 
     <div className="card" style={{marginTop:18}}>
-      <div className="section-title"><h2>人工備援里程</h2><span className="pill">選填</span></div>
+      <div className="section-title"><div><h2>里程計算</h2><div className="sub">拜訪地點確認完成後，可直接用 Google Maps API 預覽本次路線里程，不需要先由主管核准。</div></div><span className="pill">草稿可計算</span></div>
+      <div className="actions" style={{marginBottom:14}}>
+        <button className="btn secondary" disabled={busy||stops.length<2||!startDeploymentSiteId||!endDeploymentSiteId} onClick={()=>void calculateGoogleMileage()}>{routePreviewBusy?"Google 計算中…":"用 Google Maps API 計算里程"}</button>
+      </div>
+      {routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm&&<div className="note ok-note" style={{marginBottom:14}}><strong>Google Maps API 建議里程：</strong>{routePreview.suggestedDistanceKm} km{routePreview.durationSeconds?`｜預估行車時間 ${Math.round(routePreview.durationSeconds/60)} 分鐘`:""}<br/><span>若此結果合理，人工里程可留白；若路線結果不符合實際情況，再於下方填寫人工里程。</span></div>}
+      {routePreview&&routePreview.status!=="Succeeded"&&<div className="note danger-note" style={{marginBottom:14}}><strong>Google Maps API 未取得可用里程。</strong><br/>{routePreview.errorMessage||routePreview.errorCode||"請填寫人工里程。"}</div>}
       <div className="grid cols-2">
-        <div className="field"><label>人工備援里程（公里）</label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)}/></div>
-        <div className="note">正常情況由 Google Maps API 依「實際出發地／拜訪順序／實際結束地」取得路線里程；只有 API 無法取得可用里程時，才使用這個人工備援值，最後仍須由小組長核准。</div>
+        <div className="field"><label>人工里程（公里） <span className="optional">選填</span></label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)} placeholder="Google 結果不適用時再填寫"/></div>
+        <div className="note">Google Maps API 會依「實際出發地 → 拜訪順序 → 實際結束地」計算。若 API 無法取得結果，或外訪員確認 Google 路線與實際行程不符，可填寫人工里程；最後仍由小組長核定補助里程。</div>
       </div>
     </div>
 
@@ -655,7 +660,7 @@ export default function VisitorPage(){
       <div className="modal-panel">
         <h3>確認送出</h3>
         {overlap.hasOverlap&&<div className="note danger-note" style={{marginBottom:12}}><strong>時間提醒：</strong>{overlap.message||"時間與既有紀錄重疊。"}<label className="check-row"><input type="checkbox" checked={confirmOverlap} onChange={e=>setConfirmOverlap(e.target.checked)}/>我確認時間正確，仍要送出</label></div>}
-        <p>送出後，小組長可查看這筆行程並進行後台批次里程計算。</p>
+        <p>送出後，小組長可查看並核定本次里程；Google Maps API 路線里程可在草稿階段由外訪員先行計算。</p>
         {msg&&<div className="note danger-note">{msg}</div>}
         <div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save(true)}>確認送出</button><button className="btn secondary" disabled={busy} onClick={()=>setModal(null)}>取消</button></div>
       </div>
