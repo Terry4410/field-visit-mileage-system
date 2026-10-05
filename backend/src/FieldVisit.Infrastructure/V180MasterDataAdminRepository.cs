@@ -178,7 +178,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     x.EffectiveTo,
                     null,
                     null,
-                    B64(x.RowVersion))).ToListAsync(ct),
+                    B64(x.RowVersion),
+                    null)).ToListAsync(ct),
 
             "centers" => await db.Centers
                 .Where(x => x.OrganizationId == org)
@@ -191,7 +192,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     x.EffectiveTo,
                     x.IsActive,
                     null,
-                    B64(x.RowVersion)))
+                    B64(x.RowVersion),
+                    null))
                 .ToListAsync(ct),
 
             "team-centers" => await (
@@ -208,7 +210,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     x.EffectiveTo,
                     null,
                     null,
-                    B64(x.RowVersion))).ToListAsync(ct),
+                    B64(x.RowVersion),
+                    null)).ToListAsync(ct),
 
             "deployment-sites" => await (
                 from x in db.DeploymentSites
@@ -251,7 +254,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     x.EffectiveTo,
                     null,
                     null,
-                    B64(x.RowVersion))).ToListAsync(ct),
+                    B64(x.RowVersion),
+                    null)).ToListAsync(ct),
 
             "employment-sites" => await (
                 from x in db.EmploymentDeploymentSiteAssignments
@@ -268,7 +272,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     x.EffectiveTo,
                     null,
                     x.IsPrimary,
-                    B64(x.RowVersion))).ToListAsync(ct),
+                    B64(x.RowVersion),
+                    null)).ToListAsync(ct),
 
             _ => throw new InvalidOperationException("UNKNOWN_MASTER_DATA_TYPE")
         };
