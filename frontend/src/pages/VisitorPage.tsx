@@ -170,6 +170,8 @@ export default function VisitorPage(){
   const selectedEndSite=tripContext?.eligibleDeploymentSites.find(x=>x.deploymentSiteId===Number(endDeploymentSiteId));
   const deploymentOptionLabel=(site:TripContext["eligibleDeploymentSites"][number])=>`${site.centerName}／${site.siteName}${site.address?`｜${site.address}`:""}`;
 
+  useEffect(()=>{setRoutePreview(null)},[date,tripTeamId,startDeploymentSiteId,endDeploymentSiteId,vehicleType,stops]);
+
   const availableProjects=useMemo(
     ()=>projects.filter(
       p=>
@@ -216,7 +218,7 @@ export default function VisitorPage(){
   const reset=()=>{
     setSp({});
     setTripTeamId(user?.teamId?String(user.teamId):"");
-    setDate(today);setStart("08:30");setEnd("17:10");setVehicleType("Motorcycle");setKm("");setNotes("");setStartDeploymentSiteId("");setEndDeploymentSiteId("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setTripContext(null);setTripContextError("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setMsg("");
+    setDate(today);setStart("08:30");setEnd("17:10");setVehicleType("Motorcycle");setKm("");setNotes("");setStartDeploymentSiteId("");setEndDeploymentSiteId("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setTripContext(null);setTripContextError("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setRoutePreview(null);setMsg("");
   };
 
   const changeTripTeam=(value:string)=>{
