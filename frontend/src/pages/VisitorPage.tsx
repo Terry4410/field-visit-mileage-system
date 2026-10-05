@@ -7,7 +7,7 @@ import {TripRouteEndpointDisplay} from "../components/TripRouteDisplay";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
-import type {Project,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
+import type {Project,RoutePreviewResult,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
 
 type ModalKind="stop"|"submit"|null;
 type LocationMethod="existing"|"temporary";
@@ -42,7 +42,7 @@ export default function VisitorPage(){
   const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[vehicleType,setVehicleType]=useState("Motorcycle"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [startDeploymentSiteId,setStartDeploymentSiteId]=useState(""),[endDeploymentSiteId,setEndDeploymentSiteId]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
-  const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[tripContext,setTripContext]=useState<TripContext|null>(null),[tripContextError,setTripContextError]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
+  const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[tripContext,setTripContext]=useState<TripContext|null>(null),[tripContextError,setTripContextError]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[routePreview,setRoutePreview]=useState<RoutePreviewResult|null>(null),[routePreviewBusy,setRoutePreviewBusy]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
