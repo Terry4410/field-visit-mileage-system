@@ -214,6 +214,16 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                 from x in db.DeploymentSites
                 join c in db.Centers on x.CenterId equals c.CenterId
                 where c.OrganizationId == org
+                let locationCode = (
+                    from a in db.DeploymentSiteLocationAssignments
+                    join l in db.Locations on a.LocationId equals l.LocationId
+                    where a.DeploymentSiteId == x.DeploymentSiteId
+                        && a.EffectiveFrom <= x.EffectiveFrom
+                        && (!x.EffectiveTo.HasValue
+                            ? !a.EffectiveTo.HasValue
+                            : !a.EffectiveTo.HasValue || a.EffectiveTo.Value >= x.EffectiveTo.Value)
+                    orderby a.EffectiveFrom descending
+                    select l.LocationCode).FirstOrDefault()
                 select new V180MasterDataRow(
                     x.DeploymentSiteId,
                     x.SiteCode,
@@ -223,7 +233,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     x.EffectiveTo,
                     x.IsActive,
                     null,
-                    B64(x.RowVersion))).ToListAsync(ct),
+                    B64(x.RowVersion),
+                    locationCode)).ToListAsync(ct),
 
             "team-sites" => await (
                 from x in db.TeamDeploymentSiteAssignments
