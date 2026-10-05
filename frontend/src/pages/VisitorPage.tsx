@@ -380,6 +380,48 @@ export default function VisitorPage(){
 
   const requestSubmit=()=>{if(!validateForSubmit())return;setModal("submit")};
 
+  const buildTripBody=()=>({
+    visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),
+    claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,
+    purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,
+    teamId:selectedTeamId??null,
+    startDeploymentSiteId:startDeploymentSiteId?Number(startDeploymentSiteId):null,
+    endDeploymentSiteId:endDeploymentSiteId?Number(endDeploymentSiteId):null,
+    vehicleType
+  });
+
+  const calculateGoogleMileage=async()=>{
+    setMsg("");
+    if(!selectedTeamId)return setMsg("請選擇本次行程的歸屬小組。");
+    if(!startDeploymentSiteId||!endDeploymentSiteId)return setMsg("請選擇本次行程的出發地與結束地。");
+    const mileageError=validateTripMileageForSubmit(stops.length,null);
+    if(mileageError)return setMsg(mileageError);
+    if(end<=start)return setMsg("結束時間必須晚於出發時間。");
+    setBusy(true);
+    setRoutePreviewBusy(true);
+    setRoutePreview(null);
+    try{
+      const body=buildTripBody();
+      let t:Trip;
+      if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
+      else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
+      setRowVersion(t.rowVersion);
+      if(!editId)setSp({edit:String(t.visitTripId)});
+      const preview=await api<RoutePreviewResult>(`/trips/${t.visitTripId}/route-preview`,{method:"POST"});
+      setRoutePreview(preview);
+      if(preview.status==="Succeeded"&&preview.suggestedDistanceKm){
+        setMsg(`Google Maps API 路線里程：${preview.suggestedDistanceKm} km。`);
+      }else{
+        setMsg(`Google Maps API 無法取得可用里程：${preview.errorMessage||preview.errorCode||"請改用人工里程"}。`);
+      }
+    }catch(e){
+      setMsg(e instanceof Error?e.message:"Google Maps API 里程計算失敗");
+    }finally{
+      setRoutePreviewBusy(false);
+      setBusy(false);
+    }
+  };
+
   const save=async(submit:boolean)=>{
     setMsg("");
     if(end<=start)return setMsg("結束時間必須晚於出發時間。");
@@ -387,7 +429,7 @@ export default function VisitorPage(){
     if(submit&&overlap.hasOverlap&&!confirmOverlap)return setMsg("偵測到時間重疊，請勾選確認時間正確後再送出。");
     setBusy(true);
     try{
-      const body={visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,teamId:selectedTeamId??null,startDeploymentSiteId:startDeploymentSiteId?Number(startDeploymentSiteId):null,endDeploymentSiteId:endDeploymentSiteId?Number(endDeploymentSiteId):null,vehicleType};
+      const body=buildTripBody();
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
       else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
