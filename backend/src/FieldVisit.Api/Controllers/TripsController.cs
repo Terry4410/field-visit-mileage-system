@@ -7,7 +7,7 @@ namespace FieldVisit.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1")]
-public sealed class TripsController(TripService trips, LeaderService leader) : ControllerBase
+public sealed class TripsController(TripService trips, LeaderService leader, V180GoogleMileageOrchestrationService googleMileage) : ControllerBase
 {
     [HttpGet("trips/context")]
     [Authorize(Roles = "visitor")]
@@ -46,6 +46,11 @@ public sealed class TripsController(TripService trips, LeaderService leader) : C
     [Authorize(Roles = "visitor")]
     public async Task<ActionResult<TripDto>> Submit(long tripId, SubmitTripRequest request, [FromHeader(Name="If-Match")] string rowVersion, CancellationToken ct) =>
         Ok(await trips.SubmitAsync(tripId, request, rowVersion.Trim('"'), ct));
+
+    [HttpPost("trips/{tripId:long}/route-preview")]
+    [Authorize(Roles = "visitor")]
+    public async Task<ActionResult<V180RouteOrchestrationResult>> PreviewRoute(long tripId, CancellationToken ct) =>
+        Ok(await googleMileage.PreviewRouteAsync(tripId, ct));
 
     [HttpGet("leader/review-queue")]
     [Authorize(Roles = "leader")]
