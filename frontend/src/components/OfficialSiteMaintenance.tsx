@@ -10,6 +10,12 @@ type MasterRow={
  rowVersion?:string|null;referenceKey?:string|null;
 };
 
+export function isEligibleOfficialLocation(
+ row:Pick<ManagedLocation,"isActive"|"isTemporary"|"approvalStatus">
+){
+ return row.isActive&&!row.isTemporary&&row.approvalStatus==="Approved";
+}
+
 export default function OfficialSiteMaintenance(){
  const[centers,setCenters]=useState<MasterRow[]>([]);
  const[sites,setSites]=useState<MasterRow[]>([]);
@@ -40,7 +46,7 @@ export default function OfficialSiteMaintenance(){
   !!locationSearch.trim()&&!siteEdit
  );
  const officialLocations=useMemo(
-  ()=>locationQuery.data.items.filter(x=>x.isActive&&!x.isTemporary&&x.approvalStatus==="Approved"),
+  ()=>locationQuery.data.items.filter(isEligibleOfficialLocation),
   [locationQuery.data.items]
  );
 
