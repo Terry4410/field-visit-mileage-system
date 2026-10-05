@@ -27,7 +27,8 @@ public sealed record V180TripContextDto(
     IReadOnlyList<V180TripContextDeploymentSiteDto> EligibleDeploymentSites,
     int? PrimaryDeploymentSiteId,
     int? DefaultStartDeploymentSiteId,
-    int? DefaultEndDeploymentSiteId);
+    int? DefaultEndDeploymentSiteId,
+    IReadOnlyList<V180TripContextDeploymentSiteDto>? OfficialDeploymentSites = null);
 
 public interface IV180TripContextReader
 {
@@ -47,7 +48,7 @@ public static class V180TripPersistenceRules
         if (!context.SelectedTeamId.HasValue)
             throw new InvalidOperationException($"{context.ValidationCode}：{context.ValidationMessage}");
 
-        var eligible = context.EligibleDeploymentSites.Select(x => x.DeploymentSiteId).ToHashSet();
+        var eligible = EndpointSites(context);
         return (
             ResolveOne(
                 "出發",
@@ -79,12 +80,19 @@ public static class V180TripPersistenceRules
         if (!endSiteId.HasValue)
             throw new InvalidOperationException("END_DEPLOYMENT_SITE_REQUIRED：送出前請選擇返回派駐點。");
 
-        var eligible = context.EligibleDeploymentSites.Select(x => x.DeploymentSiteId).ToHashSet();
+        var eligible = EndpointSites(context);
         if (!eligible.Contains(startSiteId.Value))
             throw new InvalidOperationException("START_DEPLOYMENT_SITE_INELIGIBLE：出發派駐點已失效，請重新選擇。");
         if (!eligible.Contains(endSiteId.Value))
             throw new InvalidOperationException("END_DEPLOYMENT_SITE_INELIGIBLE：返回派駐點已失效，請重新選擇。");
     }
+
+    private static HashSet<int> EndpointSites(V180TripContextDto context) =>
+        (context.OfficialDeploymentSites is { Count: > 0 }
+            ? context.OfficialDeploymentSites
+            : context.EligibleDeploymentSites)
+        .Select(x => x.DeploymentSiteId)
+        .ToHashSet();
 
     private static int? ResolveOne(
         string label,
@@ -96,7 +104,7 @@ public static class V180TripPersistenceRules
         if (requested.HasValue)
         {
             if (!eligible.Contains(requested.Value))
-                throw new InvalidOperationException($"DEPLOYMENT_SITE_INELIGIBLE：{label}派駐點不在本日期與小組的有效範圍。");
+                throw new InvalidOperationException($"DEPLOYMENT_SITE_INELIGIBLE：{label}派駐點不是本日期可使用的公司官方據點。");
 
             return requested;
         }
