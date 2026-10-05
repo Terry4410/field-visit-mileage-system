@@ -9,7 +9,8 @@ import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
 import type {Project,RoutePreviewResult,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
 
-type ModalKind="stop"|"submit"|null;
+type ModalKind="stop"|"endpoint"|"submit"|null;
+type EndpointKind="start"|"end";
 type LocationMethod="existing"|"temporary";
 type OverlapResult={hasOverlap:boolean;message?:string;overlappingTrips?:Array<{visitTripId:number;tripNo:string;startTime?:string;endTime?:string;status:string}>};
 const isListMode=(mode?:string)=>["list","清單"].includes((mode||"").toLowerCase());
@@ -45,6 +46,8 @@ export default function VisitorPage(){
   const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[tripContext,setTripContext]=useState<TripContext|null>(null),[tripContextError,setTripContextError]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[routePreview,setRoutePreview]=useState<RoutePreviewResult|null>(null),[routePreviewBusy,setRoutePreviewBusy]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
 
   const [editingStopIndex,setEditingStopIndex]=useState<number|null>(null);
+  const [editingEndpoint,setEditingEndpoint]=useState<EndpointKind|null>(null);
+  const [endpointDraftSiteId,setEndpointDraftSiteId]=useState("");
   const [locationMethod,setLocationMethod]=useState<LocationMethod>("existing");
   const [selectedExistingLocation,setSelectedExistingLocation]=useState<SmartLocationItem|null>(null);
   const [stopPurpose,setStopPurpose]=useState("");
@@ -260,6 +263,25 @@ export default function VisitorPage(){
   const openNewStop=()=>{
     clearStopEditor();
     setModal("stop");
+  };
+
+  const openEndpointEditor=(kind:EndpointKind)=>{
+    setEditingEndpoint(kind);
+    setEndpointDraftSiteId(kind==="start"?startDeploymentSiteId:endDeploymentSiteId);
+    setModal("endpoint");
+  };
+
+  const saveEndpoint=()=>{
+    if(!editingEndpoint||!endpointDraftSiteId){
+      setMsg("請選擇有效的派駐據點。");
+      return;
+    }
+    if(editingEndpoint==="start")setStartDeploymentSiteId(endpointDraftSiteId);
+    else setEndDeploymentSiteId(endpointDraftSiteId);
+    setModal(null);
+    setEditingEndpoint(null);
+    setEndpointDraftSiteId("");
+    setMsg(editingEndpoint==="start"?"已更新本次行程出發地。":"已更新本次行程結束地。");
   };
 
   const openEditStop=(index:number)=>{
@@ -488,8 +510,6 @@ export default function VisitorPage(){
           }
         </div>
         <div className="field"><label>交通工具</label><select value={vehicleType} onChange={e=>setVehicleType(e.target.value)}><option value="Motorcycle">機車</option><option value="Car">汽車</option></select><div className="hint">預設機車；交通工具會決定適用的里程補助費率。</div></div>
-        <div className="field"><label>出發地（預設：歸屬就業中心）</label><select value={startDeploymentSiteId} onChange={e=>setStartDeploymentSiteId(e.target.value)} disabled={!tripContext?.eligibleDeploymentSites.length}><option value="">尚未設定</option>{tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{deploymentOptionLabel(site)}{site.deploymentSiteId===defaultStartSite?.deploymentSiteId?"（預設）":""}</option>)}</select><div className="hint">預設依人事歸屬帶入；可調整本次行程，不會修改人員主檔。</div></div>
-        <div className="field"><label>結束地（預設：歸屬就業中心）</label><select value={endDeploymentSiteId} onChange={e=>setEndDeploymentSiteId(e.target.value)} disabled={!tripContext?.eligibleDeploymentSites.length}><option value="">尚未設定</option>{tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{deploymentOptionLabel(site)}{site.deploymentSiteId===defaultEndSite?.deploymentSiteId?"（預設）":""}</option>)}</select><div className="hint">預設依人事歸屬帶入；可調整本次行程，不會修改人員主檔。</div></div>
         <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
         <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
       </div>
@@ -504,7 +524,7 @@ export default function VisitorPage(){
         <div className="actions"><button className="btn small secondary" onClick={openNewStop}>＋新增拜訪地點</button></div>
       </div>
       <div className="route-list">
-        <TripRouteEndpointDisplay endpoint={{label:"起點",name:selectedStartSite?`${selectedStartSite.centerName}／${selectedStartSite.siteName}`:undefined,code:selectedStartSite?.siteCode||undefined,address:selectedStartSite?.address||undefined}}/>
+        <TripRouteEndpointDisplay endpoint={{label:"起點",name:selectedStartSite?`${selectedStartSite.centerName}／${selectedStartSite.siteName}`:undefined,code:selectedStartSite?.siteCode||undefined,address:selectedStartSite?.address||undefined}} onEdit={()=>openEndpointEditor("start")}/>
         {stops.length?stops.map((s,i)=><div className="route-item" key={`${s.locationId||s.locationName}-${i}`}>
           <div className="route-index">{i+1}</div>
           <div>
@@ -523,7 +543,7 @@ export default function VisitorPage(){
             <button onClick={()=>setStops(stops.filter((_,x)=>x!==i))}>×</button>
           </div>
         </div>):<div className="empty">尚未加入拜訪地點，請按「＋新增拜訪地點」。</div>}
-        <TripRouteEndpointDisplay endpoint={{label:"終點",name:selectedEndSite?`${selectedEndSite.centerName}／${selectedEndSite.siteName}`:undefined,code:selectedEndSite?.siteCode||undefined,address:selectedEndSite?.address||undefined}}/>
+        <TripRouteEndpointDisplay endpoint={{label:"終點",name:selectedEndSite?`${selectedEndSite.centerName}／${selectedEndSite.siteName}`:undefined,code:selectedEndSite?.siteCode||undefined,address:selectedEndSite?.address||undefined}} onEdit={()=>openEndpointEditor("end")}/>
       </div>
     </div>
 
@@ -554,6 +574,26 @@ export default function VisitorPage(){
         <button className="btn ok" disabled={busy} onClick={requestSubmit}>{editId?"重新送出":"送出行程"}</button>
       </div>
     </div>
+
+    {modal==="endpoint"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget){setModal(null);setEditingEndpoint(null);setEndpointDraftSiteId("")}}}>
+      <div className="modal-panel">
+        <h3>{editingEndpoint==="start"?"修改出發地":"修改結束地"}</h3>
+        <div className="note" style={{marginBottom:14}}>
+          預設由人事歸屬的主要就業中心／派駐據點帶入；此處修改只影響本次行程，不會修改人員主檔。
+        </div>
+        <div className="field">
+          <label>{editingEndpoint==="start"?"本次行程出發地":"本次行程結束地"}</label>
+          <select value={endpointDraftSiteId} onChange={e=>setEndpointDraftSiteId(e.target.value)} disabled={!tripContext?.eligibleDeploymentSites.length}>
+            <option value="">請選擇</option>
+            {tripContext?.eligibleDeploymentSites.map(site=><option key={site.deploymentSiteId} value={site.deploymentSiteId}>{deploymentOptionLabel(site)}{site.deploymentSiteId===(editingEndpoint==="start"?defaultStartSite?.deploymentSiteId:defaultEndSite?.deploymentSiteId)?"（預設）":""}</option>)}
+          </select>
+        </div>
+        <div className="modal-sticky-actions">
+          <button className="btn secondary" onClick={()=>{setModal(null);setEditingEndpoint(null);setEndpointDraftSiteId("")}}>取消</button>
+          <button className="btn ok" disabled={!endpointDraftSiteId} onClick={saveEndpoint}>儲存修改</button>
+        </div>
+      </div>
+    </div>}
 
     {modal==="stop"&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(null)}}>
       <div className="modal-panel stop-editor-modal">
