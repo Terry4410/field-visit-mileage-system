@@ -49,8 +49,8 @@ public static class V180TripPersistenceRules
 
         var eligible = context.EligibleDeploymentSites.Select(x => x.DeploymentSiteId).ToHashSet();
         return (
-            ResolveOne("出發", requestedStart, existingStart, context.DefaultStartDeploymentSiteId, eligible),
-            ResolveOne("返回", requestedEnd, existingEnd, context.DefaultEndDeploymentSiteId, eligible));
+            ResolveOne("出發", requestedStart, context.DefaultStartDeploymentSiteId, eligible),
+            ResolveOne("返回", requestedEnd, context.DefaultEndDeploymentSiteId, eligible));
     }
 
     public static void EnsureReadyForSubmit(
@@ -79,7 +79,6 @@ public static class V180TripPersistenceRules
     private static int? ResolveOne(
         string label,
         int? requested,
-        int? existing,
         int? deterministicDefault,
         HashSet<int> eligible)
     {
@@ -87,12 +86,9 @@ public static class V180TripPersistenceRules
         {
             if (!eligible.Contains(requested.Value))
                 throw new InvalidOperationException($"DEPLOYMENT_SITE_INELIGIBLE：{label}派駐點不在本日期與小組的有效範圍。");
-            return requested;
+            if (requested != deterministicDefault)
+                throw new InvalidOperationException($"DEPLOYMENT_SITE_SYSTEM_DEFAULT：{label}派駐點由所屬就業中心自動帶入，不可由外訪員覆寫。");
         }
-
-        if (existing.HasValue && eligible.Contains(existing.Value))
-            return existing;
-
         return deterministicDefault;
     }
 }

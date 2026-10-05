@@ -53,16 +53,11 @@ public sealed class V180TripContextContractTests
             IsPrimary: isPrimary);
 
     [Fact]
-    public void ResolveDraftSites_uses_explicit_eligible_requested_sites()
+    public void ResolveDraftSites_rejects_visitor_override_of_system_default()
     {
-        var result =
-            V180TripPersistenceRules.ResolveDraftSites(
-                Context(),
-                requestedStart: 103,
-                requestedEnd: 102);
-
-        Assert.Equal(103, result.Start);
-        Assert.Equal(102, result.End);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            V180TripPersistenceRules.ResolveDraftSites(Context(), requestedStart: 103, requestedEnd: 102));
+        Assert.Contains("DEPLOYMENT_SITE_SYSTEM_DEFAULT", ex.Message);
     }
 
     [Fact]
@@ -81,7 +76,7 @@ public sealed class V180TripContextContractTests
     }
 
     [Fact]
-    public void ResolveDraftSites_retains_existing_eligible_site()
+    public void ResolveDraftSites_reapplies_system_default_on_edit()
     {
         var result =
             V180TripPersistenceRules.ResolveDraftSites(
@@ -91,7 +86,7 @@ public sealed class V180TripContextContractTests
                 existingStart: 103,
                 existingEnd: 102);
 
-        Assert.Equal(103, result.Start);
+        Assert.Equal(101, result.Start);
         Assert.Equal(102, result.End);
     }
 

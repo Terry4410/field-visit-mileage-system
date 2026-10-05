@@ -4,6 +4,7 @@ import{correctionChangeText}from"../correction-ui";
 import{formatTripTime,hasLeaderTimeOverlap,leaderOverlapConfirmMessage,leaderOverlapWarningText}from"../leader-overlap";
 import type{BackgroundJob,CorrectionRequest,DashboardSummary,ImportPreview,ManagedLocation,Team,Trip}from"../types";
 import{km,money,monthStart,todayTaipei}from"../v160";
+import{tripRouteSummary}from"../components/TripRouteDisplay";
 
 type Props={section:'dashboard'|'review'|'locations'};
 export default function LeaderPage({section}:Props){const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);if(section==='dashboard')return <Dashboard setMsg={setMsg} msg={msg}/>;if(section==='locations')return <Locations setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>;return <Review setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>}
@@ -141,7 +142,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
       <td><input type="checkbox" disabled={!selectionEnabled||noMileage||t.status==='PendingApproval'} title={!selectionEnabled?'請先選擇「勾選指定行程」':noMileage?'此行程不足 2 個地點':t.status==='PendingApproval'?'此行程已完成路線處理':'選取待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
       <td><input type="checkbox" disabled={t.status!=='PendingApproval'} checked={approvalSelected.includes(t.visitTripId)} onChange={e=>setApprovalSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
       <td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
-      <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{t.stops.map(s=>s.locationName).join(' → ')}</td>
+      <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>
       <td>{km(t.claimedDistanceKm)}</td><td>{noMileage?'N/A':km(t.systemDistanceKm)}</td>
       <td>{noMileage?<span className="pill">N/A</span>:<input className="mileage-input" type="number" step="0.1" value={reviewKm[t.visitTripId]||''} onChange={e=>setReviewKm(x=>({...x,[t.visitTripId]:e.target.value}))}/>}</td>
       <td>{noMileage?<span className="pill">N/A</span>:<><strong>{sourceText(t)}</strong>{t.mileageSource==='GoogleMapsAPI'&&<div className="muted">Google 路線可直接核准；若調整里程會記錄 LeaderAdjusted。</div>}{t.mileageSource==='ManualFallback'&&<div className="muted">Google 無可用結果，本次使用人工備援並保留治理紀錄。</div>}</>}</td>

@@ -389,6 +389,21 @@ public sealed class TripService(
             routeAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
                 trip.VisitTripId, displaySnapshot.VisitTripSnapshotId, ct);
 
+        V180TripContextDeploymentSiteDto? startSite = null;
+        V180TripContextDeploymentSiteDto? endSite = null;
+        // Names are a current display supplement only. Submitted snapshot code/address stay authoritative.
+        if (profile is not null && tripContext is not null)
+        {
+            try
+            {
+                var contextUser = profile with { Roles = ["visitor"] };
+                var context = await tripContext.ResolveAsync(contextUser, trip.VisitDate, trip.TeamId, ct);
+                startSite = context.EligibleDeploymentSites.SingleOrDefault(x => x.DeploymentSiteId == trip.StartDeploymentSiteId);
+                endSite = context.EligibleDeploymentSites.SingleOrDefault(x => x.DeploymentSiteId == trip.EndDeploymentSiteId);
+            }
+            catch (InvalidOperationException) { /* historical/current master-data mismatch: retain snapshots */ }
+        }
+
         var mileageSource = calc?.CalculationSource switch
         {
             "GoogleMapsAPI" => "GoogleMapsAPI",
@@ -421,13 +436,13 @@ public sealed class TripService(
             calc?.ApprovedAmount,
             trip.EmploymentId,
             trip.StartDeploymentSiteId,
-            displaySnapshot?.StartDeploymentSiteCodeSnapshot,
-            null,
-            displaySnapshot?.StartDeploymentAddressSnapshot,
+            displaySnapshot?.StartDeploymentSiteCodeSnapshot ?? startSite?.SiteCode,
+            startSite is null ? null : $"{startSite.CenterName}／{startSite.SiteName}",
+            displaySnapshot?.StartDeploymentAddressSnapshot ?? startSite?.Address,
             trip.EndDeploymentSiteId,
-            displaySnapshot?.EndDeploymentSiteCodeSnapshot,
-            null,
-            displaySnapshot?.EndDeploymentAddressSnapshot,
+            displaySnapshot?.EndDeploymentSiteCodeSnapshot ?? endSite?.SiteCode,
+            endSite is null ? null : $"{endSite.CenterName}／{endSite.SiteName}",
+            displaySnapshot?.EndDeploymentAddressSnapshot ?? endSite?.Address,
             trip.Stops.OrderBy(x => x.StopSequence).Select(x => new TripStopInput(
                 x.LocationId, x.ProjectId, x.VisitTypeId,
                 x.LocationId.HasValue ? "Master" : "Temporary",

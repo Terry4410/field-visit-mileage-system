@@ -3,6 +3,7 @@ import {useSearchParams} from "react-router-dom";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
+import TripRouteDisplay from "../components/TripRouteDisplay";
 import {validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
@@ -423,8 +424,8 @@ export default function VisitorPage(){
           }
         </div>
         <div className="field"><label>交通工具</label><select value={vehicleType} onChange={e=>setVehicleType(e.target.value)}><option value="Motorcycle">機車</option><option value="Car">汽車</option></select><div className="hint">預設機車；交通工具會決定適用的里程補助費率。</div></div>
-        <div className="field"><label>預設出發中心／據點</label><input value={deploymentLabel(defaultStartSite)} disabled/></div>
-        <div className="field"><label>預設返回中心／據點</label><input value={deploymentLabel(defaultEndSite)} disabled/></div>
+        <div className="field"><label>起點（所屬就業中心）</label><input value={deploymentLabel(defaultStartSite)} disabled/><div className="hint">由系統依人事資料自動帶入，不可修改。</div></div>
+        <div className="field"><label>終點（所屬就業中心）</label><input value={deploymentLabel(defaultEndSite)} disabled/><div className="hint">由系統依人事資料自動帶入，不可修改。</div></div>
         <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
         <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
       </div>
@@ -438,6 +439,7 @@ export default function VisitorPage(){
         <div><h2>拜訪順序</h2><div className="sub">每一個拜訪地點都可開啟「地點維護」選擇來源、修改地點及填寫行程目的。</div></div>
         <div className="actions"><button className="btn small secondary" onClick={openNewStop}>＋新增拜訪地點</button></div>
       </div>
+      <TripRouteDisplay showStops={false} trip={{startDeploymentSiteName:defaultStartSite?`${defaultStartSite.centerName}／${defaultStartSite.siteName}`:undefined,startDeploymentSiteCode:defaultStartSite?.siteCode||undefined,startDeploymentAddress:defaultStartSite?.address||undefined,endDeploymentSiteName:defaultEndSite?`${defaultEndSite.centerName}／${defaultEndSite.siteName}`:undefined,endDeploymentSiteCode:defaultEndSite?.siteCode||undefined,endDeploymentAddress:defaultEndSite?.address||undefined,stops}} />
       <div className="route-list">
         {stops.length?stops.map((s,i)=><div className="route-item" key={`${s.locationId||s.locationName}-${i}`}>
           <div className="route-index">{i+1}</div>
