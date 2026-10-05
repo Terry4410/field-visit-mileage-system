@@ -3,8 +3,8 @@ import type {Trip,TripStopInput} from "../types";
 export type TripRouteEndpoint={label:"起點"|"終點";name?:string;code?:string;address?:string};
 const endpoint=(label:TripRouteEndpoint["label"],name?:string,code?:string,address?:string):TripRouteEndpoint=>({label,name,code,address});
 
-export function TripRouteEndpointDisplay({endpoint:x}:{endpoint:TripRouteEndpoint}){
- return <div className="route-item endpoint-route"><div className="route-index route-endpoint">{x.label}</div><div><div className="route-name">{x.name||x.code||"所屬就業中心（尚未設定）"}</div>{x.code&&x.name&&<div className="muted">{x.code}</div>}<div className="route-address">{x.address||"—"}</div></div></div>;
+export function TripRouteEndpointDisplay({endpoint:x,onEdit}:{endpoint:TripRouteEndpoint;onEdit?:()=>void}){
+ return <div className="route-item endpoint-route"><div className="route-index route-endpoint">{x.label}</div><div><div className="route-name">{x.name||x.code||"所屬就業中心（尚未設定）"}</div>{x.code&&x.name&&<div className="muted">{x.code}</div>}<div className="route-address">{x.address||"—"}</div></div>{onEdit&&<div className="drag-controls"><button className="edit-stop" onClick={onEdit}>修改</button></div>}</div>;
 }
 
 export function tripRouteSummary(t:Pick<Trip,"startDeploymentSiteName"|"startDeploymentSiteCode"|"endDeploymentSiteName"|"endDeploymentSiteCode"|"stops">){
