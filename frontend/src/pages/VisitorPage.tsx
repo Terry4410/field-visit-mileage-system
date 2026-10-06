@@ -490,7 +490,7 @@ export default function VisitorPage(){
     <div className="grid cols-4">
       <div className="card stat"><div className="label">行程日期</div><div className="value" style={{fontSize:20}}>{date}</div><div className="hint">可事後補登</div></div>
       <div className="card stat"><div className="label">拜訪地點</div><div className="value">{stops.length}</div><div className="hint">依實際順序排列</div></div>
-      <div className="card stat"><div className="label">Google／人工里程</div><div className="value">{routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm?routePreview.suggestedDistanceKm:km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<2?"至少 2 個公務地點才可計算":"先用 Google 計算；不合理時再填人工里程"}</div></div>
+      <div className="card stat"><div className="label">Google／人工里程</div><div className="value">{routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm?routePreview.suggestedDistanceKm:km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{stops.length<1?"至少 1 個拜訪地點才可計算":"先用 Google 計算；不合理時再填人工里程"}</div></div>
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
@@ -570,7 +570,7 @@ export default function VisitorPage(){
     <div className="card" style={{marginTop:18}}>
       <div className="section-title"><div><h2>里程計算</h2><div className="sub">拜訪地點確認完成後，可直接用 Google Maps API 預覽本次路線里程，不需要先由主管核准。</div></div><span className="pill">草稿可計算</span></div>
       <div className="actions" style={{marginBottom:14}}>
-        <button className="btn secondary" disabled={busy||stops.length<2||!startDeploymentSiteId||!endDeploymentSiteId} onClick={()=>void calculateGoogleMileage()}>{routePreviewBusy?"Google 計算中…":"用 Google Maps API 計算里程"}</button>
+        <button className="btn secondary" disabled={busy||stops.length<1||!startDeploymentSiteId||!endDeploymentSiteId} onClick={()=>void calculateGoogleMileage()}>{routePreviewBusy?"Google 計算中…":"用 Google Maps API 計算里程"}</button>
       </div>
       {routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm&&<div className="note ok-note" style={{marginBottom:14}}><strong>Google Maps API 建議里程：</strong>{routePreview.suggestedDistanceKm} km{routePreview.durationSeconds?`｜預估行車時間 ${Math.round(routePreview.durationSeconds/60)} 分鐘`:""}<br/><span>若此結果合理，人工里程可留白；若路線結果不符合實際情況，再於下方填寫人工里程。</span></div>}
       {routePreview&&routePreview.status!=="Succeeded"&&<div className="note danger-note" style={{marginBottom:14}}><strong>Google Maps API 未取得可用里程。</strong><br/>{routePreview.errorMessage||routePreview.errorCode||"請填寫人工里程。"}</div>}
