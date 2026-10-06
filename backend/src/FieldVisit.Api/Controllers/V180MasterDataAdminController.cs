@@ -43,6 +43,8 @@ public sealed class V180MasterDataAdminController(V180MasterDataAdminService ser
     [HttpPut("team-centers/{id:long}")] public Task<V180MasterDataRow> UpdateTeamCenter(long id,V180TeamCenterInput x,CancellationToken ct)=>service.SaveTeamCenterAsync(id,x,ct);
     [HttpPost("deployment-sites")] public Task<V180MasterDataRow> CreateSite(V180DeploymentSiteInput x,CancellationToken ct)=>service.SaveDeploymentSiteAsync(null,x,ct);
     [HttpPut("deployment-sites/{id:int}")] public Task<V180MasterDataRow> UpdateSite(int id,V180DeploymentSiteInput x,CancellationToken ct)=>service.SaveDeploymentSiteAsync(id,x,ct);
+    [HttpGet("location-official-site/{locationId:int}")] public Task<V180LocationOfficialSiteDto> LocationOfficialSite(int locationId,CancellationToken ct)=>service.GetLocationOfficialSiteAsync(locationId,ct);
+    [HttpPost("location-official-site")] public Task<V180LocationOfficialSiteDto> EnsureLocationOfficialSite(V180LocationOfficialSiteInput x,CancellationToken ct)=>service.EnsureLocationOfficialSiteAsync(x,ct);
     [HttpPost("team-sites")] public Task<V180MasterDataRow> CreateTeamSite(V180TeamSiteInput x,CancellationToken ct)=>service.SaveTeamSiteAsync(null,x,ct);
     [HttpPut("team-sites/{id:long}")] public Task<V180MasterDataRow> UpdateTeamSite(long id,V180TeamSiteInput x,CancellationToken ct)=>service.SaveTeamSiteAsync(id,x,ct);
     [HttpPost("employment-sites")] public Task<V180MasterDataRow> CreateEmploymentSite(V180EmploymentSiteInput x,CancellationToken ct)=>service.SaveEmploymentSiteAsync(null,x,ct);
