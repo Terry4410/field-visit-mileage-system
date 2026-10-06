@@ -181,8 +181,8 @@ public sealed class V180GoogleMileageOrchestrationService(
         bool leaderRetry,
         CancellationToken ct)
     {
-        if (basis.Stops.Count < 2)
-            throw new InvalidOperationException("F_B_ROUTE_STOPS_REQUIRED：路線至少需要兩個拜訪地點。");
+        if (basis.Stops.Count < 1)
+            throw new InvalidOperationException("F_B_ROUTE_STOPS_REQUIRED：路線至少需要一個拜訪地點。");
         var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(basis.VehicleType);
         var travelMode = V180MileageCanonicalization.ToTravelMode(canonicalVehicle);
         var basisHash = V180MileageCanonicalization.HashRoute(basis);
