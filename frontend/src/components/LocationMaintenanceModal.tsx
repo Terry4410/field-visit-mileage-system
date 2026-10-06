@@ -1,7 +1,8 @@
 import{useEffect,useMemo,useState}from"react";
 import{api}from"../api";
 import{useAuth}from"../auth";
-import type{LocationDuplicateCandidate,LocationMaintenance,LocationMergeMaster,LocationMergeMasterSelection,LocationMergePreview,Team}from"../types";
+import type{LocationDuplicateCandidate,LocationMaintenance,LocationMergeMaster,LocationMergeMasterSelection,LocationMergePreview,LocationOfficialSite,MasterDataRow,Team}from"../types";
+import{todayTaipei}from"../v160";
 
 type Props={locationId:number;teamId?:number;onClose:()=>void;onChanged?:()=>void};
 
@@ -30,13 +31,36 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
   const[finalMaster,setFinalMaster]=useState<LocationMergeMasterSelection|null>(null);
   const[mergeReason,setMergeReason]=useState("");
   const[msg,setMsg]=useState(""),[busy,setBusy]=useState(false);
+  const[centers,setCenters]=useState<MasterDataRow[]>([]);
+  const[officialSite,setOfficialSite]=useState<LocationOfficialSite|null>(null);
+  const[officialChecked,setOfficialChecked]=useState(false);
+  const[officialCenterCode,setOfficialCenterCode]=useState("");
+  const[officialSiteName,setOfficialSiteName]=useState("");
+  const[officialFrom,setOfficialFrom]=useState(todayTaipei());
 
   const load=async()=>{
     const suffix=activeTeamId?`?teamId=${activeTeamId}`:"";
     const row=await api<LocationMaintenance>(`/locations/${locationId}/maintenance${suffix}`);
     setData(row);setCity(row.city||"");setDistrict(row.district||"");setAddress(row.address||"");setPlus(row.plusCode||"");setTaxId(row.taxId||"");setMasterNote(row.masterNote||"");
     if(!activeTeamId&&row.teamId)setActiveTeamId(row.teamId);
-    if(isAdmin){try{setDuplicates(await api<LocationDuplicateCandidate[]>(`/locations/${locationId}/duplicate-candidates`))}catch{}}
+    if(isAdmin){
+      try{
+        const[resultDuplicates,resultCenters,resultOfficial]=await Promise.all([
+          api<LocationDuplicateCandidate[]>(`/locations/${locationId}/duplicate-candidates`),
+          api<MasterDataRow[]>("/admin/master-data/centers"),
+          api<LocationOfficialSite>(`/admin/master-data/location-official-site/${locationId}`)
+        ]);
+        setDuplicates(resultDuplicates);
+        setCenters(resultCenters);
+        setOfficialSite(resultOfficial);
+        setOfficialChecked(resultOfficial.isOfficialSite);
+        setOfficialCenterCode(resultOfficial.centerCode||"");
+        setOfficialSiteName(resultOfficial.siteName||row.locationName);
+        setOfficialFrom(resultOfficial.effectiveFrom||todayTaipei());
+      }catch(e){
+        setMsg(e instanceof Error?e.message:"官方據點狀態載入失敗");
+      }
+    }
   };
 
   useEffect(()=>{void load().catch(e=>setMsg(e instanceof Error?e.message:"地點資料載入失敗"))},[locationId,activeTeamId]);
@@ -44,6 +68,37 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
 
   const effectiveTeamId=activeTeamId||data?.teamId||user?.teamId;
   const canAddNote=!!effectiveTeamId;
+  const eligibleOfficialCenters=centers.filter(x=>
+    x.isActive!==false
+    &&x.effectiveFrom<=officialFrom
+    &&(!x.effectiveTo||officialFrom<=x.effectiveTo)
+  );
+
+  const createOfficialSite=async()=>{
+    if(!data)return;
+    if(!officialCenterCode)return setMsg("請選擇所屬就業中心。");
+    if(!officialSiteName.trim())return setMsg("請輸入官方據點名稱。");
+    setBusy(true);setMsg("");
+    try{
+      const row=await api<LocationOfficialSite>("/admin/master-data/location-official-site",{
+        method:"POST",
+        body:JSON.stringify({
+          locationId:data.locationId,
+          centerCode:officialCenterCode,
+          siteName:officialSiteName.trim(),
+          effectiveFrom:officialFrom
+        })
+      });
+      setOfficialSite(row);
+      setOfficialChecked(true);
+      setOfficialCenterCode(row.centerCode||officialCenterCode);
+      setOfficialSiteName(row.siteName||officialSiteName);
+      setOfficialFrom(row.effectiveFrom||officialFrom);
+      setMsg("此地點已設為官方據點；Site Code 已由系統自動產生，可直接供行程起點／終點使用。");
+      onChanged?.();
+    }catch(e){setMsg(e instanceof Error?e.message:"官方據點建立失敗")}
+    finally{setBusy(false)}
+  };
 
   const save=async()=>{
     if(!data)return;setBusy(true);setMsg("");
@@ -144,6 +199,30 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
       <div className="field"><label>統一編號</label><input value={taxId} onChange={e=>setTaxId(e.target.value)} maxLength={20}/></div><div className="field span-2"><label>主檔備註</label><textarea value={masterNote} onChange={e=>setMasterNote(e.target.value)} maxLength={1000}/></div>
     </div>
     <div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save()}>儲存地點資料</button></div>
+
+    {isAdmin&&<><hr/>
+      <div className="section-title"><div><h4>官方據點</h4><div className="sub">Location-first：地點完成解析／發布後，只需在這裡指定所屬中心；Site Code 由系統自動產生。</div></div></div>
+      {officialSite===null?<div className="note">官方據點狀態載入中…</div>:
+       officialSite.isOfficialSite?
+        <div className="note ok-note">
+          <strong>✓ 此地點已是官方據點</strong>
+          <div style={{marginTop:6}}>{officialSite.centerName||officialSite.centerCode||"—"}／{officialSite.siteName||data.locationName}</div>
+          <div className="muted" style={{marginTop:4}}>系統代碼：{officialSite.siteCode||"—"}｜有效期間：{officialSite.effectiveFrom||"—"}～{officialSite.effectiveTo||"無期限"}｜{officialSite.isActive===false?"停用":"啟用"}</div>
+          <div className="muted" style={{marginTop:4}}>若要停用、搬遷或調整歷史有效期間，請使用頁面下方「官方據點進階維護」。</div>
+        </div>
+       :<>
+        <label className="check-row"><input type="checkbox" checked={officialChecked} onChange={e=>{setOfficialChecked(e.target.checked);if(e.target.checked&&!officialSiteName)setOfficialSiteName(data.locationName)}}/>此地點為官方據點</label>
+        {officialChecked&&<>
+          <div className="grid cols-2" style={{marginTop:12}}>
+            <div className="field"><label>所屬就業中心</label><select value={officialCenterCode} onChange={e=>setOfficialCenterCode(e.target.value)}><option value="">請選擇</option>{eligibleOfficialCenters.map(x=><option key={x.id} value={x.key}>{x.detail||x.key}</option>)}</select></div>
+            <div className="field"><label>官方據點名稱</label><input value={officialSiteName} onChange={e=>setOfficialSiteName(e.target.value)} placeholder={data.locationName}/></div>
+            <div className="field"><label>生效日</label><input type="date" value={officialFrom} onChange={e=>setOfficialFrom(e.target.value)}/></div>
+            <div className="field"><label>Site Code</label><input value="系統自動產生" disabled/></div>
+          </div>
+          <button className="btn secondary" disabled={busy||!officialCenterCode||!officialSiteName.trim()} onClick={()=>void createOfficialSite()}>設為官方據點</button>
+        </>}
+       </>}
+    </>}
 
     <hr/><h4>地點備註</h4>
     {!effectiveTeamId&&isAdmin&&<div className="field"><label>備註所屬小組</label><select value={activeTeamId||""} onChange={e=>setActiveTeamId(e.target.value?Number(e.target.value):undefined)}><option value="">請選擇</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div>}
