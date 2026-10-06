@@ -155,7 +155,11 @@ for marker in (
     require(marker in revoke, f"1800_008 revoke marker missing: {marker}")
 
 require("PREPARED ONLY / NOT EXECUTED" in readme, "1800_008 README must retain prepared-only execution state")
-require('"DbSchemaVersion": "1.8.0-008"' in appsettings, "runtime DbSchemaVersion must align to 1.8.0-008 candidate")
+schema_match = re.search(r'"DbSchemaVersion"\s*:\s*"1\.8\.0-(\d{3})"', appsettings)
+require(
+    schema_match is not None and int(schema_match.group(1)) >= 8,
+    "runtime DbSchemaVersion must not regress below 1.8.0-008",
+)
 
 print("PASS 1800_008 immutable SQL + controlled workflow + least-privilege tooling + manual-date trigger contract")
 print("MIGRATION_EXECUTED=NO")
