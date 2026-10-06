@@ -113,7 +113,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
-          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
           $query = @'
           SET NOCOUNT ON;
           IF DB_NAME()<>N'db-fieldvisit-uat' THROW 55200,N'Unexpected database.',1;
@@ -162,7 +164,7 @@ jobs:
               (SELECT COUNT_BIG(*) FROM dbo.RouteCalculationAttempts) AS AttemptCount,
               ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(RouteCalculationAttemptId,VisitTripId,StopCount,Status,CalculationReason)) FROM dbo.RouteCalculationAttempts),0) AS AttemptChecksum;
           '@
-          $result = @(Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
+          $result = @(Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
           if ($result.Count -ne 1) { throw 'Expected one preflight fingerprint row.' }
           "SCHEMA_VERSION_COUNT_BEFORE=$($result[0].SchemaVersionCount)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "TRIP_COUNT_BEFORE=$($result[0].TripCount)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -180,9 +182,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
-          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
           $up = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_010_background_mileage_reason_constraint/Up.sql'
-          Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
 
       - name: Run exact 1800_010 Verify.sql
         env:
@@ -192,9 +196,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
-          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
           $verify = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_010_background_mileage_reason_constraint/Verify.sql'
-          Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
 
       - name: Confirm exact result, unchanged data fingerprints, and STOP_FOR_REVIEW
         env:
@@ -204,7 +210,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
-          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Unable to obtain Azure SQL token.' }
+          Write-Output "::add-mask::$token"
           [long]$schemaCount=$env:SCHEMA_VERSION_COUNT_BEFORE
           [long]$tripCount=$env:TRIP_COUNT_BEFORE
           [int]$tripChecksum=$env:TRIP_CHECKSUM_BEFORE
@@ -225,7 +233,7 @@ jobs:
               THROW 55226,N'RouteCalculationAttempts data fingerprint changed.',1;
           SELECT N'STOP_FOR_REVIEW' AS ExecutionGate,DB_NAME() AS DatabaseName,N'1.8.0-010' AS AppliedVersion;
           "@
-          Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
+          Invoke-Sqlcmd -ServerInstance $server -Database $env:AZURE_SQL_DATABASE -AccessToken $token -ConnectionTimeout 60 -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
 
       - name: Sign out of Azure
         if: always()
