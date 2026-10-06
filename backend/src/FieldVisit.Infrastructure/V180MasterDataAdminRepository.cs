@@ -612,6 +612,195 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             () => SaveDeploymentSiteCoreAsync(admin, id, input, ct), ct);
     }
 
+    public async Task<V180LocationOfficialSiteDto> GetLocationOfficialSiteAsync(
+        CurrentUserDto admin,
+        int locationId,
+        CancellationToken ct)
+    {
+        if (locationId <= 0)
+            throw new InvalidOperationException("LOCATION_ID_REQUIRED");
+
+        var org = Org(admin);
+        var location = await db.Locations.AsNoTracking()
+            .SingleOrDefaultAsync(
+                x => x.LocationId == locationId && x.OrganizationId == org,
+                ct)
+            ?? throw new InvalidOperationException("UNKNOWN_LOCATION");
+
+        var rows = await (
+            from assignment in db.DeploymentSiteLocationAssignments.AsNoTracking()
+            join site in db.DeploymentSites.AsNoTracking()
+                on assignment.DeploymentSiteId equals site.DeploymentSiteId
+            join center in db.Centers.AsNoTracking()
+                on site.CenterId equals center.CenterId
+            where assignment.LocationId == locationId
+                && center.OrganizationId == org
+                && !assignment.EffectiveTo.HasValue
+            orderby assignment.EffectiveFrom descending
+            select new
+            {
+                site.DeploymentSiteId,
+                site.SiteCode,
+                site.SiteName,
+                center.CenterCode,
+                center.CenterName,
+                site.EffectiveFrom,
+                site.EffectiveTo,
+                site.IsActive
+            }).ToListAsync(ct);
+
+        if (rows.Count > 1)
+            throw new InvalidOperationException(
+                "AMBIGUOUS_LOCATION_OFFICIAL_SITE");
+
+        var current = rows.SingleOrDefault();
+        return new V180LocationOfficialSiteDto(
+            location.LocationId,
+            location.LocationCode ?? string.Empty,
+            location.LocationName,
+            current is not null,
+            current?.DeploymentSiteId,
+            current?.SiteCode,
+            current?.SiteName,
+            current?.CenterCode,
+            current?.CenterName,
+            current?.EffectiveFrom,
+            current?.EffectiveTo,
+            current?.IsActive);
+    }
+
+    public Task<V180LocationOfficialSiteDto> EnsureLocationOfficialSiteAsync(
+        CurrentUserDto admin,
+        V180LocationOfficialSiteInput input,
+        CancellationToken ct)
+        => ExecuteTeamSiteCoverageInvariantAsync(
+            () => EnsureLocationOfficialSiteCoreAsync(admin, input, ct),
+            ct);
+
+    private async Task<V180LocationOfficialSiteDto> EnsureLocationOfficialSiteCoreAsync(
+        CurrentUserDto admin,
+        V180LocationOfficialSiteInput input,
+        CancellationToken ct)
+    {
+        if (input.LocationId <= 0)
+            throw new InvalidOperationException("LOCATION_ID_REQUIRED");
+
+        var existing = await GetLocationOfficialSiteAsync(
+            admin,
+            input.LocationId,
+            ct);
+
+        var requestedCenterCode = Required(
+            input.CenterCode,
+            "CENTER_CODE_REQUIRED");
+
+        var requestedSiteName = string.IsNullOrWhiteSpace(input.SiteName)
+            ? existing.LocationName
+            : input.SiteName.Trim();
+
+        if (requestedSiteName.Length > 200)
+            throw new InvalidOperationException("SITE_NAME_TOO_LONG");
+
+        if (existing.IsOfficialSite)
+        {
+            if (string.Equals(
+                    existing.CenterCode,
+                    requestedCenterCode,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    existing.SiteName,
+                    requestedSiteName,
+                    StringComparison.Ordinal))
+                return existing;
+
+            throw new InvalidOperationException(
+                "LOCATION_OFFICIAL_SITE_ALREADY_EXISTS_USE_ADVANCED_MAINTENANCE");
+        }
+
+        var org = Org(admin);
+        var location = await db.Locations.SingleOrDefaultAsync(
+            x => x.LocationId == input.LocationId
+                && x.OrganizationId == org,
+            ct) ?? throw new InvalidOperationException("UNKNOWN_LOCATION");
+
+        if (location.IsTemporary)
+            throw new InvalidOperationException(
+                "LOCATION_MUST_BE_FORMAL");
+        if (location.ApprovalStatus != "Approved")
+            throw new InvalidOperationException(
+                "LOCATION_NOT_APPROVED");
+        if (!location.IsActive)
+            throw new InvalidOperationException(
+                "LOCATION_NOT_ACTIVE");
+        if (string.IsNullOrWhiteSpace(location.LocationCode))
+            throw new InvalidOperationException(
+                "LOCATION_CODE_REQUIRED");
+
+        var hasOfficialSiteHistory = await (
+            from assignment in db.DeploymentSiteLocationAssignments
+            join site in db.DeploymentSites
+                on assignment.DeploymentSiteId equals site.DeploymentSiteId
+            join center in db.Centers
+                on site.CenterId equals center.CenterId
+            where assignment.LocationId == location.LocationId
+                && center.OrganizationId == org
+            select assignment).AnyAsync(ct);
+        if (hasOfficialSiteHistory)
+            throw new InvalidOperationException(
+                "LOCATION_HAS_OFFICIAL_SITE_HISTORY_USE_ADVANCED_MAINTENANCE");
+
+        var center = await Center(
+            admin,
+            requestedCenterCode,
+            ct);
+        if (!center.IsActive)
+            throw new InvalidOperationException(
+                "CENTER_NOT_ACTIVE");
+        if (input.EffectiveFrom < center.EffectiveFrom
+            || (center.EffectiveTo.HasValue
+                && input.EffectiveFrom > center.EffectiveTo.Value))
+            throw new InvalidOperationException(
+                "OFFICIAL_SITE_START_OUTSIDE_CENTER_PERIOD");
+
+        var siteCode = $"AUTO-S-{location.LocationId}";
+        var siteCodeCollision = await (
+            from site in db.DeploymentSites
+            join c in db.Centers on site.CenterId equals c.CenterId
+            where c.OrganizationId == org
+                && site.SiteCode == siteCode
+            select site).AnyAsync(ct);
+        if (siteCodeCollision)
+            throw new InvalidOperationException(
+                "AUTO_SITE_CODE_COLLISION");
+
+        var saved = await SaveDeploymentSiteCoreAsync(
+            admin,
+            null,
+            new V180DeploymentSiteInput(
+                center.CenterCode,
+                siteCode,
+                requestedSiteName,
+                location.LocationCode,
+                input.EffectiveFrom,
+                center.EffectiveTo,
+                true),
+            ct);
+
+        return new V180LocationOfficialSiteDto(
+            location.LocationId,
+            location.LocationCode,
+            location.LocationName,
+            true,
+            checked((int)saved.Id),
+            saved.Key,
+            requestedSiteName,
+            center.CenterCode,
+            center.CenterName,
+            input.EffectiveFrom,
+            center.EffectiveTo,
+            true);
+    }
+
     private async Task<V180MasterDataRow> SaveDeploymentSiteCoreAsync(
         CurrentUserDto admin,
         int? id,
