@@ -11,13 +11,13 @@ public static class V170TripMileageRules
 
     public static void EnsureReadyForSubmission(int stopCount, decimal? manualFallbackDistanceKm)
     {
-        if (stopCount < 2) throw new InvalidOperationException(MinimumStopsMessage);
+        if (stopCount < 1) throw new InvalidOperationException(MinimumStopsMessage);
         if (manualFallbackDistanceKm.HasValue && manualFallbackDistanceKm.Value <= 0)
             throw new InvalidOperationException(ManualFallbackMileageMessage);
     }
 
     public static void EnsureReadyForApproval(int stopCount)
     {
-        if (stopCount < 2) throw new InvalidOperationException(ApprovalMinimumStopsMessage);
+        if (stopCount < 1) throw new InvalidOperationException(ApprovalMinimumStopsMessage);
     }
 }
