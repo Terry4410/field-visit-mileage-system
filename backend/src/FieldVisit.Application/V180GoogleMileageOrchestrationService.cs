@@ -37,8 +37,10 @@ public sealed class V180GoogleMileageOrchestrationService(
         V180TripPersistenceRules.EnsureReadyForSubmit(
             context, trip.EmploymentId.Value, trip.TeamId,
             trip.StartDeploymentSiteId, trip.EndDeploymentSiteId);
-        var start = context.EligibleDeploymentSites.Single(x => x.DeploymentSiteId == trip.StartDeploymentSiteId);
-        var end = context.EligibleDeploymentSites.Single(x => x.DeploymentSiteId == trip.EndDeploymentSiteId);
+        var start = V180TripPersistenceRules.ResolveStartSite(
+            context, trip.StartDeploymentSiteId);
+        var end = V180TripPersistenceRules.ResolveEndSite(
+            context, trip.EndDeploymentSiteId);
         var basis = V180MileageCanonicalization.BuildDraftBasis(
             trip,
             new V180DeploymentSiteBasis(start.SiteCode, start.Address),
