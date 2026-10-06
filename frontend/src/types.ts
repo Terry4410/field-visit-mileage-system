@@ -71,6 +71,32 @@ export interface LocationAudit{
   sourceLocationId?:number;
   sourceLocationName?:string;
 }
+export interface LocationOfficialSite{
+  locationId:number;
+  locationCode:string;
+  locationName:string;
+  isOfficialSite:boolean;
+  deploymentSiteId?:number;
+  siteCode?:string;
+  siteName?:string;
+  centerCode?:string;
+  centerName?:string;
+  effectiveFrom?:string;
+  effectiveTo?:string;
+  isActive?:boolean;
+}
+export interface MasterDataRow{
+  id:number;
+  key:string;
+  parentKey?:string|null;
+  detail?:string|null;
+  effectiveFrom:string;
+  effectiveTo?:string|null;
+  isActive?:boolean|null;
+  isPrimary?:boolean|null;
+  rowVersion?:string|null;
+  referenceKey?:string|null;
+}
 export interface LocationMaintenance{
   locationId:number;
   locationCode?:string;
