@@ -28,6 +28,8 @@ jobs:
         run: python3 scripts/validate_uat_migration_1800_008.py
       - name: Owner Pre-UAT migration 1800_009 static validation
         run: python3 scripts/validate_uat_migration_1800_009.py
+      - name: Owner Pre-UAT migration 1800_010 static validation
+        run: python3 scripts/validate_uat_migration_1800_010.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
