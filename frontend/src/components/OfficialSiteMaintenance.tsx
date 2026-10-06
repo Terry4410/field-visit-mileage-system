@@ -128,8 +128,8 @@ export default function OfficialSiteMaintenance(){
  return <div style={{marginTop:18}}>
   <div className="card">
    <div className="section-title"><div>
-    <h2>官方據點維護</h2>
-    <div className="sub">先在上方「地點主檔」完成地址解析／發布，再建立 Center 與 Deployment Site。人員歸屬只決定行程預設值；有效官方據點可供外訪員調整本次行程起點／終點。</div>
+    <h2>官方據點進階維護</h2>
+    <div className="sub">一般新增請從「地點主檔 → 資料／官方據點」勾選設定；此區保留給 Center 主檔、特殊調整與歷史維護。人員歸屬只決定行程預設值。</div>
    </div></div>
    {msg&&<div className="note" style={{marginBottom:14}}>{msg}</div>}
    <div className="note">一般修改不允許直接更換既有 Deployment Site 的 Location；若據點實際搬遷，仍須走既有 relocation flow，以保留歷史期間與 Snapshot。</div>
@@ -159,7 +159,7 @@ export default function OfficialSiteMaintenance(){
 
   <div className="grid cols-2" style={{marginTop:18}}>
    <div className="card">
-    <div className="section-title"><div><h2>{siteEdit?"修改官方據點":"新增官方據點"}</h2><div className="sub">Deployment Site 必須綁定已核准、已啟用的正式 Location。</div></div>{siteEdit&&<button className="btn small outline" onClick={resetSite}>取消修改</button>}</div>
+    <div className="section-title"><div><h2>{siteEdit?"進階修改官方據點":"進階新增官方據點"}</h2><div className="sub">Deployment Site 必須綁定已核准、已啟用的正式 Location。</div></div>{siteEdit&&<button className="btn small outline" onClick={resetSite}>取消修改</button>}</div>
     <div className="grid cols-2">
      <div className="field"><label>所屬中心</label><select value={siteCenterCode} onChange={e=>setSiteCenterCode(e.target.value)}><option value="">請選擇</option>{centers.map(x=><option key={x.id} value={x.key}>{x.key}｜{x.detail||""}{x.isActive===false?"（停用）":""}</option>)}</select></div>
      <div className="field"><label>Site Code</label><input value={siteCode} onChange={e=>setSiteCode(e.target.value)} placeholder="例如 UAT-S-CHANGHUA"/></div>
