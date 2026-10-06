@@ -7,6 +7,9 @@ import{todayTaipei}from"../v160";
 type Props={locationId:number;teamId?:number;onClose:()=>void;onChanged?:()=>void};
 
 const SUSPECTED="疑似重複，待管理者人工覆核";
+export const eligibleOfficialCentersForDate=(rows:MasterDataRow[],date:string)=>
+  rows.filter(x=>x.isActive!==false&&x.effectiveFrom<=date&&(!x.effectiveTo||date<=x.effectiveTo));
+
 const shown=(value:unknown)=>value===null||value===undefined||value===""?"—":String(value);
 const selection=(m:LocationMergeMaster):LocationMergeMasterSelection=>({
   locationName:m.locationName,locationType:m.locationType,teamId:m.teamId??null,
@@ -68,10 +71,9 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
 
   const effectiveTeamId=activeTeamId||data?.teamId||user?.teamId;
   const canAddNote=!!effectiveTeamId;
-  const eligibleOfficialCenters=centers.filter(x=>
-    x.isActive!==false
-    &&x.effectiveFrom<=officialFrom
-    &&(!x.effectiveTo||officialFrom<=x.effectiveTo)
+  const eligibleOfficialCenters=eligibleOfficialCentersForDate(
+    centers,
+    officialFrom
   );
 
   const createOfficialSite=async()=>{
