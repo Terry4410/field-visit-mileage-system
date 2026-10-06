@@ -1,0 +1,233 @@
+name: Azure SQL UAT migration 1800_010
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_migration:
+        description: Type 1800_010 to confirm this single approved execution unit
+        required: true
+        type: string
+      confirm_runtime_gate:
+        description: Type WRITE_QUIESCENCE_AND_RECOVERY_READY after the UAT write/recovery gate is confirmed
+        required: true
+        type: string
+
+concurrency:
+  group: azure-sql-uat-migration-1800_010
+  cancel-in-progress: false
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: none
+      id-token: none
+    steps:
+      - name: Enforce branch and exact confirmation tokens
+        env:
+          CONFIRM_MIGRATION: ${{ inputs.confirm_migration }}
+          CONFIRM_RUNTIME_GATE: ${{ inputs.confirm_runtime_gate }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == "refs/heads/post-uat/v1.8.0" ]]
+          [[ "${CONFIRM_MIGRATION}" == "1800_010" ]]
+          [[ "${CONFIRM_RUNTIME_GATE}" == "WRITE_QUIESCENCE_AND_RECOVERY_READY" ]]
+
+  migrate-1800_010:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat-migration
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate approved dispatch commit before checkout
+        env:
+          APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${APPROVED_MIGRATION_COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${GITHUB_SHA}" == "${APPROVED_MIGRATION_COMMIT_SHA}" ]]
+
+      - name: Check out the exact approved SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate exact source and immutable SQL locks
+        env:
+          APPROVED_MIGRATION_COMMIT_SHA: ${{ vars.APPROVED_MIGRATION_COMMIT_SHA }}
+          EXPECTED_UP_SHA256: aa56e3c1f847e252b089b572ab35a0aede65dc9dbd6d1d657ebc4c0ae6e775c8
+          EXPECTED_VERIFY_SHA256: 24443315adf01b8f55d9882e7db164abecc3d9a63c83b57f9a58ae7d09a74a42
+        shell: bash
+        run: |
+          set -euo pipefail
+          up_script="database/migrations/1800_010_background_mileage_reason_constraint/Up.sql"
+          verify_script="database/migrations/1800_010_background_mileage_reason_constraint/Verify.sql"
+          [[ "$(git rev-parse HEAD)" == "${APPROVED_MIGRATION_COMMIT_SHA}" ]]
+          [[ "$(sha256sum "${up_script}" | awk '{print $1}')" == "${EXPECTED_UP_SHA256}" ]]
+          [[ "$(sha256sum "${verify_script}" | awk '{print $1}')" == "${EXPECTED_VERIFY_SHA256}" ]]
+          grep -Fq -- "N'1.8.0-009'" "${up_script}"
+          grep -Fq -- "N'1.8.0-010'" "${up_script}"
+          grep -Fq -- "N'BackgroundMileageJob'" "${up_script}"
+
+      - name: Install pinned SQL Server PowerShell module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force
+
+      - name: Sign in to Azure with migration OIDC identity
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ vars.AZURE_MIGRATION_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate exact Azure UAT target
+        env:
+          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${AZURE_RESOURCE_GROUP}" == "rg-fieldvisit-uat" ]]
+          [[ "${AZURE_SQL_SERVER_NAME}" == "sql-fieldvisit-jpe-uat" ]]
+          [[ "${AZURE_SQL_DATABASE}" == "db-fieldvisit-uat" ]]
+          [[ "$(az account show --query id -o tsv)" == "${EXPECTED_SUBSCRIPTION_ID}" ]]
+
+      - name: Validate predecessor, exact constraint, permissions, and capture fingerprints
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          $query = @'
+          SET NOCOUNT ON;
+          IF DB_NAME()<>N'db-fieldvisit-uat' THROW 55200,N'Unexpected database.',1;
+          IF USER_NAME()<>N'gh-fieldvisit-uat-migrate' THROW 55201,N'Unexpected database principal.',1;
+          IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-009')
+             OR (SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC)<>N'1.8.0-009'
+              THROW 55203,N'Exact predecessor missing or not latest.',1;
+          IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010')
+              THROW 55205,N'Target stage already applied.',1;
+          DECLARE @ConstraintObjectId INT=OBJECT_ID(N'dbo.CK_RouteCalculationAttempts_Reason',N'C');
+          IF @ConstraintObjectId IS NULL THROW 55206,N'Expected predecessor reason constraint missing.',1;
+          DECLARE @Definition NVARCHAR(MAX)=(SELECT definition FROM sys.check_constraints WHERE object_id=@ConstraintObjectId);
+          DECLARE @Compact NVARCHAR(MAX)=LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@Definition,N' ',N''),N'[',N''),N']',N''),N'(',N''),N')',N''));
+          IF @Definition IS NULL OR @Compact NOT LIKE N'%visitorcalculate%' OR @Compact NOT LIKE N'%leaderretry%'
+             OR @Compact NOT LIKE N'%correctionrecalculate%' OR @Compact LIKE N'%backgroundmileagejob%'
+              THROW 55207,N'Predecessor CalculationReason constraint drifted.',1;
+          IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE object_id=@ConstraintObjectId AND (is_disabled=1 OR is_not_trusted=1))
+              THROW 55208,N'Predecessor CalculationReason constraint is disabled or untrusted.',1;
+          IF EXISTS(SELECT 1 FROM dbo.RouteCalculationAttempts WHERE CalculationReason NOT IN(N'VisitorCalculate',N'LeaderRetry',N'CorrectionRecalculate'))
+              THROW 55209,N'Unexpected predecessor CalculationReason row exists.',1;
+          DECLARE @PrincipalId INT=USER_ID();
+          IF ISNULL(IS_ROLEMEMBER(N'db_datareader'),0)<>1 OR ISNULL(IS_ROLEMEMBER(N'db_ddladmin'),0)<>0
+             OR ISNULL(IS_ROLEMEMBER(N'db_owner'),0)<>0 OR ISNULL(IS_ROLEMEMBER(N'db_securityadmin'),0)<>0
+             OR ISNULL(IS_ROLEMEMBER(N'db_datawriter'),0)<>0
+              THROW 55210,N'Least-privilege role gate failed.',1;
+          IF EXISTS(
+              SELECT 1 FROM sys.database_permissions p
+              WHERE p.grantee_principal_id=@PrincipalId
+                AND NOT(
+                  (p.class=0 AND p.permission_name=N'CONNECT' AND p.state=N'G')
+                  OR (p.class=1 AND p.major_id=OBJECT_ID(N'dbo.RouteCalculationAttempts') AND p.permission_name=N'ALTER' AND p.state=N'G')
+                  OR (p.class=1 AND p.major_id=OBJECT_ID(N'dbo.SchemaVersions') AND p.permission_name=N'INSERT' AND p.state=N'G')
+                )
+          ) THROW 55212,N'Unexpected explicit database permission for 1800_010.',1;
+          IF HAS_PERMS_BY_NAME(N'dbo.RouteCalculationAttempts',N'OBJECT',N'ALTER')<>1
+             OR HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')<>1
+              THROW 55213,N'Missing required 1800_010 ALTER/INSERT capability.',1;
+          IF ISNULL(HAS_PERMS_BY_NAME(N'dbo.RouteCalculationAttempts',N'OBJECT',N'UPDATE'),1)<>0
+              THROW 55214,N'Forbidden UPDATE capability exists.',1;
+          SELECT
+              (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions) AS SchemaVersionCount,
+              (SELECT COUNT_BIG(*) FROM dbo.VisitTrips) AS TripCount,
+              ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripId)) FROM dbo.VisitTrips),0) AS TripChecksum,
+              (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS SnapshotCount,
+              ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripSnapshotId)) FROM dbo.VisitTripSnapshots),0) AS SnapshotChecksum,
+              (SELECT COUNT_BIG(*) FROM dbo.RouteCalculationAttempts) AS AttemptCount,
+              ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(RouteCalculationAttemptId,VisitTripId,StopCount,Status,CalculationReason)) FROM dbo.RouteCalculationAttempts),0) AS AttemptChecksum;
+          '@
+          $result = @(Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query)
+          if ($result.Count -ne 1) { throw 'Expected one preflight fingerprint row.' }
+          "SCHEMA_VERSION_COUNT_BEFORE=$($result[0].SchemaVersionCount)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "TRIP_COUNT_BEFORE=$($result[0].TripCount)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "TRIP_CHECKSUM_BEFORE=$($result[0].TripChecksum)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "SNAPSHOT_COUNT_BEFORE=$($result[0].SnapshotCount)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "SNAPSHOT_CHECKSUM_BEFORE=$($result[0].SnapshotChecksum)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "ATTEMPT_COUNT_BEFORE=$($result[0].AttemptCount)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "ATTEMPT_CHECKSUM_BEFORE=$($result[0].AttemptChecksum)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Apply only 1800_010 Up.sql
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          $up = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_010_background_mileage_reason_constraint/Up.sql'
+          Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $up
+
+      - name: Run exact 1800_010 Verify.sql
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          $verify = Join-Path $env:GITHUB_WORKSPACE 'database/migrations/1800_010_background_mileage_reason_constraint/Verify.sql'
+          Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 600 -AbortOnError -OutputSqlErrors $true -InputFile $verify | Format-Table -AutoSize
+
+      - name: Confirm exact result, unchanged data fingerprints, and STOP_FOR_REVIEW
+        env:
+          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
+          $connection = "Server=tcp:$server,1433;Initial Catalog=$($env:AZURE_SQL_DATABASE);Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          [long]$schemaCount=$env:SCHEMA_VERSION_COUNT_BEFORE
+          [long]$tripCount=$env:TRIP_COUNT_BEFORE
+          [int]$tripChecksum=$env:TRIP_CHECKSUM_BEFORE
+          [long]$snapshotCount=$env:SNAPSHOT_COUNT_BEFORE
+          [int]$snapshotChecksum=$env:SNAPSHOT_CHECKSUM_BEFORE
+          [long]$attemptCount=$env:ATTEMPT_COUNT_BEFORE
+          [int]$attemptChecksum=$env:ATTEMPT_CHECKSUM_BEFORE
+          $query = @"
+          SET NOCOUNT ON;
+          IF (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions)<>$($schemaCount+1) THROW 55221,N'SchemaVersion count did not advance by exactly one.',1;
+          IF (SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC)<>N'1.8.0-010' THROW 55223,N'Latest SchemaVersion is not the exact target.',1;
+          IF (SELECT COUNT_BIG(*) FROM dbo.VisitTrips)<>$tripCount OR ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripId)) FROM dbo.VisitTrips),0)<>$tripChecksum
+              THROW 55224,N'VisitTrips immediate fingerprint changed.',1;
+          IF (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots)<>$snapshotCount OR ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(VisitTripSnapshotId)) FROM dbo.VisitTripSnapshots),0)<>$snapshotChecksum
+              THROW 55225,N'VisitTripSnapshots immediate fingerprint changed.',1;
+          IF (SELECT COUNT_BIG(*) FROM dbo.RouteCalculationAttempts)<>$attemptCount
+             OR ISNULL((SELECT CHECKSUM_AGG(BINARY_CHECKSUM(RouteCalculationAttemptId,VisitTripId,StopCount,Status,CalculationReason)) FROM dbo.RouteCalculationAttempts),0)<>$attemptChecksum
+              THROW 55226,N'RouteCalculationAttempts data fingerprint changed.',1;
+          SELECT N'STOP_FOR_REVIEW' AS ExecutionGate,DB_NAME() AS DatabaseName,N'1.8.0-010' AS AppliedVersion;
+          "@
+          Invoke-Sqlcmd -ConnectionString $connection -QueryTimeout 60 -AbortOnError -OutputSqlErrors $true -Query $query | Format-Table -AutoSize
+
+      - name: Sign out of Azure
+        if: always()
+        shell: bash
+        run: az logout || true
