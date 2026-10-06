@@ -30,6 +30,43 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     }
 
     [Fact]
+    public async Task One_visit_stop_route_is_sent_with_start_and_end_to_provider()
+    {
+        var fixture = Fixture.Visitor("Motorcycle");
+        fixture.Trip.Stops = [fixture.Trip.Stops.Single(x => x.StopSequence == 1)];
+        fixture.RouteProvider.OnCall = request =>
+        {
+            Assert.Equal("Start road", request.StartAddress);
+            Assert.Equal("End road", request.EndAddress);
+            Assert.Equal(["A road"], request.StopAddresses);
+        };
+
+        var result = await fixture.Service.PreviewRouteAsync(
+            fixture.Trip.VisitTripId,
+            default);
+
+        Assert.Equal("Succeeded", result.Status);
+        Assert.Equal(1, fixture.RouteProvider.CallCount);
+        Assert.Equal(1, fixture.Governance.RouteAttempts.Single().StopCount);
+    }
+
+    [Fact]
+    public async Task Zero_visit_stop_route_is_rejected_before_provider_call()
+    {
+        var fixture = Fixture.Visitor("Motorcycle");
+        fixture.Trip.Stops = [];
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.PreviewRouteAsync(
+                fixture.Trip.VisitTripId,
+                default));
+
+        Assert.Contains("至少需要一個拜訪地點", error.Message);
+        Assert.Equal(0, fixture.RouteProvider.CallCount);
+        Assert.Empty(fixture.Governance.RouteAttempts);
+    }
+
+    [Fact]
     public async Task Provider_failure_is_finalized_once_and_never_replayed()
     {
         var fixture = Fixture.Visitor("Motorcycle");
