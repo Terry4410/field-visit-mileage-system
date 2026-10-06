@@ -51,6 +51,26 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     }
 
     [Fact]
+    public async Task Official_only_end_site_is_used_for_route_preview()
+    {
+        var fixture = Fixture.VisitorWithOfficialEnd("Motorcycle");
+        fixture.Trip.Stops = [fixture.Trip.Stops.Single(x => x.StopSequence == 1)];
+        fixture.RouteProvider.OnCall = request =>
+        {
+            Assert.Equal("Start road", request.StartAddress);
+            Assert.Equal("Official end road", request.EndAddress);
+            Assert.Equal(["A road"], request.StopAddresses);
+        };
+
+        var result = await fixture.Service.PreviewRouteAsync(
+            fixture.Trip.VisitTripId,
+            default);
+
+        Assert.Equal("Succeeded", result.Status);
+        Assert.Equal(1, fixture.RouteProvider.CallCount);
+    }
+
+    [Fact]
     public async Task Zero_visit_stop_route_is_rejected_before_provider_call()
     {
         var fixture = Fixture.Visitor("Motorcycle");
@@ -231,7 +251,11 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
 
     private sealed class Fixture
     {
-        private Fixture(CurrentUserDto user, VisitTrip trip, VisitTripSnapshot snapshot)
+        private Fixture(
+            CurrentUserDto user,
+            VisitTrip trip,
+            VisitTripSnapshot snapshot,
+            V180TripContextDto? context = null)
         {
             User = user;
             Trip = trip;
@@ -248,7 +272,7 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
             GeocodingProvider = new FakeGeocodingProvider();
             Service = new V180GoogleMileageOrchestrationService(
                 new FakeCurrentUser(User), new FakeTripRepository(Trip), new FakeMasterRepository(Location),
-                new FakeTripContextReader(Context()), new FakeSnapshotRepository(SubmittedSnapshot),
+                new FakeTripContextReader(context ?? Context()), new FakeSnapshotRepository(SubmittedSnapshot),
                 Governance, RouteProvider, GeocodingProvider, UnitOfWork);
         }
 
@@ -266,6 +290,29 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         {
             var user = UserDto("visitor");
             return new Fixture(user, TripEntity(user.UserId, TripStatuses.Draft, vehicleType), Snapshot());
+        }
+
+        public static Fixture VisitorWithOfficialEnd(string vehicleType)
+        {
+            var user = UserDto("visitor");
+            var trip = TripEntity(user.UserId, TripStatuses.Draft, vehicleType);
+            trip.EndDeploymentSiteId = 201;
+            var context = Context() with
+            {
+                OfficialDeploymentSites =
+                [
+                    new V180TripContextDeploymentSiteDto(
+                        101, 1, "C", "Center", "START", "Start",
+                        1, null, "Start", "Start road", true),
+                    new V180TripContextDeploymentSiteDto(
+                        102, 1, "C", "Center", "END", "End",
+                        2, null, "End", "End road", false),
+                    new V180TripContextDeploymentSiteDto(
+                        201, 1, "C", "Center", "AUTO-S-431", "Official end",
+                        3, null, "Official end", "Official end road", false)
+                ]
+            };
+            return new Fixture(user, trip, Snapshot(), context);
         }
 
         public static Fixture Leader()
