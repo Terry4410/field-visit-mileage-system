@@ -257,6 +257,59 @@ public sealed class V180TripContextContractTests
     }
 
     [Fact]
+    public void ResolveEndpointSite_uses_official_site_outside_employment_scope()
+    {
+        var officialEnd = Site(201, false) with
+        {
+            SiteCode = "AUTO-S-431",
+            SiteName = "Official alternate end",
+            Address = "Official end road"
+        };
+        var context = Context() with
+        {
+            OfficialDeploymentSites =
+            [
+                Site(101, true),
+                Site(102, false),
+                officialEnd
+            ]
+        };
+
+        var resolved =
+            V180TripPersistenceRules.ResolveEndSite(
+                context,
+                201);
+
+        Assert.Equal("AUTO-S-431", resolved.SiteCode);
+        Assert.Equal("Official end road", resolved.Address);
+    }
+
+    [Fact]
+    public void ResolveEndpointSite_returns_domain_error_instead_of_raw_sequence_error()
+    {
+        var context = Context() with
+        {
+            OfficialDeploymentSites =
+            [
+                Site(101, true),
+                Site(102, false)
+            ]
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => V180TripPersistenceRules.ResolveEndSite(
+                context,
+                201));
+
+        Assert.Contains(
+            "END_DEPLOYMENT_SITE_NOT_AVAILABLE",
+            ex.Message);
+        Assert.DoesNotContain(
+            "Sequence contains no matching element",
+            ex.Message);
+    }
+
+    [Fact]
     public void EnsureReadyForSubmit_accepts_valid_context()
     {
         V180TripPersistenceRules.EnsureReadyForSubmit(
