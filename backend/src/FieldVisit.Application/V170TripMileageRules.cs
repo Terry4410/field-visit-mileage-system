@@ -2,6 +2,7 @@ namespace FieldVisit.Application;
 
 public static class V170TripMileageRules
 {
+    public const int MinimumVisitStopCount = 1;
     public const string MinimumStopsMessage =
         "正式送出至少需要 1 個拜訪地點，才能計算外訪里程與申請補助。";
     public const string ManualFallbackMileageMessage =
@@ -11,13 +12,13 @@ public static class V170TripMileageRules
 
     public static void EnsureReadyForSubmission(int stopCount, decimal? manualFallbackDistanceKm)
     {
-        if (stopCount < 1) throw new InvalidOperationException(MinimumStopsMessage);
+        if (stopCount < MinimumVisitStopCount) throw new InvalidOperationException(MinimumStopsMessage);
         if (manualFallbackDistanceKm.HasValue && manualFallbackDistanceKm.Value <= 0)
             throw new InvalidOperationException(ManualFallbackMileageMessage);
     }
 
     public static void EnsureReadyForApproval(int stopCount)
     {
-        if (stopCount < 1) throw new InvalidOperationException(ApprovalMinimumStopsMessage);
+        if (stopCount < MinimumVisitStopCount) throw new InvalidOperationException(ApprovalMinimumStopsMessage);
     }
 }

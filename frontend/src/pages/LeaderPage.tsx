@@ -5,6 +5,7 @@ import{formatTripTime,hasLeaderTimeOverlap,leaderOverlapConfirmMessage,leaderOve
 import type{BackgroundJob,CorrectionRequest,DashboardSummary,ImportPreview,ManagedLocation,Team,Trip}from"../types";
 import{km,money,monthStart,todayTaipei}from"../v160";
 import{tripRouteSummary}from"../components/TripRouteDisplay";
+import{hasMinimumVisitStops}from"../trip-submit-rules";
 
 type Props={section:'dashboard'|'review'|'locations'};
 export default function LeaderPage({section}:Props){const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);if(section==='dashboard')return <Dashboard setMsg={setMsg} msg={msg}/>;if(section==='locations')return <Locations setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>;return <Review setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>}
@@ -23,7 +24,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const[corrections,setCorrections]=useState<CorrectionRequest[]>([]);
 
  const selectionEnabled=mode==='Selected';
- const calculableRows=rows.filter(t=>t.stops.length>=2&&t.status!=='PendingApproval');
+ const calculableRows=rows.filter(t=>hasMinimumVisitStops(t.stops.length)&&t.status!=='PendingApproval');
  const calculableIds=calculableRows.map(t=>t.visitTripId);
  const approvalRows=rows.filter(t=>t.status==='PendingApproval');
  const approvalIds=approvalRows.map(t=>t.visitTripId);
@@ -137,9 +138,9 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
      <th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>人工備援</th><th>Google Maps API</th><th>小組長核定</th><th>里程來源</th><th>操作</th>
     </tr></thead>
     <tbody>{rows.map(t=>{
-     const noMileage=t.stops.length<2;const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
+     const noMileage=!hasMinimumVisitStops(t.stops.length);const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
      return <tr key={t.visitTripId}>
-      <td><input type="checkbox" disabled={!selectionEnabled||noMileage||t.status==='PendingApproval'} title={!selectionEnabled?'請先選擇「勾選指定行程」':noMileage?'此行程不足 2 個地點':t.status==='PendingApproval'?'此行程已完成路線處理':'選取待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
+      <td><input type="checkbox" disabled={!selectionEnabled||noMileage||t.status==='PendingApproval'} title={!selectionEnabled?'請先選擇「勾選指定行程」':noMileage?'此行程至少需要 1 個拜訪地點':t.status==='PendingApproval'?'此行程已完成路線處理':'選取待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
       <td><input type="checkbox" disabled={t.status!=='PendingApproval'} checked={approvalSelected.includes(t.visitTripId)} onChange={e=>setApprovalSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
       <td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
       <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>

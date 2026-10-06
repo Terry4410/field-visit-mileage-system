@@ -157,7 +157,7 @@ public sealed class BackgroundJobService(
             .Where(x => x.TeamId.HasValue
                 && teamIds.Contains(x.TeamId.Value)
                 && (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending)
-                && x.Stops.Count >= 2
+                && x.Stops.Count >= V170TripMileageRules.MinimumVisitStopCount
                 && (x.MileageCalculation == null || x.MileageCalculation.SystemDistanceKm == null));
 
         if (request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase))

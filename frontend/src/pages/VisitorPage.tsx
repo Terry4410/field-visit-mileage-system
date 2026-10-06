@@ -4,7 +4,7 @@ import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
 import {TripRouteEndpointDisplay} from "../components/TripRouteDisplay";
-import {manualFallbackDistanceForBody,validateTripMileageForSubmit} from "../trip-submit-rules";
+import {hasMinimumVisitStops,manualFallbackDistanceForBody,validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
 import type {Project,RoutePreviewResult,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
@@ -16,7 +16,6 @@ type OverlapResult={hasOverlap:boolean;message?:string;overlappingTrips?:Array<{
 const isListMode=(mode?:string)=>["list","清單"].includes((mode||"").toLowerCase());
 const normalizeTime=(value:string)=>value.length===5?`${value}:00`:value;
 
-export const hasMinimumVisitStops=(stopCount:number)=>stopCount>=1;
 export const canCalculateGoogleMileage=(busy:boolean,stopCount:number,startSiteId:string,endSiteId:string)=>
   !busy&&hasMinimumVisitStops(stopCount)&&!!startSiteId&&!!endSiteId;
 

@@ -1,5 +1,6 @@
 import{describe,expect,it}from"vitest";
-import{canCalculateGoogleMileage,hasMinimumVisitStops}from"./pages/VisitorPage";
+import{canCalculateGoogleMileage}from"./pages/VisitorPage";
+import{hasMinimumVisitStops}from"./trip-submit-rules";
 
 describe("one-stop route eligibility",()=>{
  it("allows one visit stop when both endpoints exist",()=>{

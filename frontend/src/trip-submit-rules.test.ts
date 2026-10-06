@@ -1,10 +1,20 @@
 import{describe,expect,it}from"vitest";
 import{
+  hasMinimumVisitStops,
   manualFallbackDistanceForBody,
+  minimumVisitStopCount,
   manualFallbackMileageInvalidMessage,
   minimumStopsForMileageMessage,
   validateTripMileageForSubmit
 }from"./trip-submit-rules";
+
+describe("minimum visit stop rule",()=>{
+  it("uses one visit stop as the shared minimum",()=>{
+    expect(minimumVisitStopCount).toBe(1);
+    expect(hasMinimumVisitStops(0)).toBe(false);
+    expect(hasMinimumVisitStops(1)).toBe(true);
+  });
+});
 
 describe("validateTripMileageForSubmit",()=>{
   it("rejects zero-stop formal submission",()=>{

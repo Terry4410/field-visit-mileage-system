@@ -6,6 +6,10 @@ namespace FieldVisit.Application.Tests;
 public sealed class V170TripMileageRulesTests
 {
     [Fact]
+    public void Minimum_visit_stop_count_is_one()
+        => Assert.Equal(1, V170TripMileageRules.MinimumVisitStopCount);
+
+    [Fact]
     public void Submission_requires_at_least_one_visit_stop()
     {
         var ex=Assert.Throws<InvalidOperationException>(()=>V170TripMileageRules.EnsureReadyForSubmission(0,null));
