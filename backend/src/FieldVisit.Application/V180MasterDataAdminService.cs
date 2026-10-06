@@ -9,6 +9,8 @@ public sealed class V180MasterDataAdminService(ICurrentUserService current, IV18
     public Task<V180MasterDataRow> SaveCenterAsync(int? id,V180CenterInput x,CancellationToken ct)=>repository.SaveCenterAsync(Admin(),id,x,ct);
     public Task<V180MasterDataRow> SaveTeamCenterAsync(long? id,V180TeamCenterInput x,CancellationToken ct)=>repository.SaveTeamCenterAsync(Admin(),id,x,ct);
     public Task<V180MasterDataRow> SaveDeploymentSiteAsync(int? id,V180DeploymentSiteInput x,CancellationToken ct)=>repository.SaveDeploymentSiteAsync(Admin(),id,x,ct);
+    public Task<V180LocationOfficialSiteDto> GetLocationOfficialSiteAsync(int locationId,CancellationToken ct)=>repository.GetLocationOfficialSiteAsync(Admin(),locationId,ct);
+    public Task<V180LocationOfficialSiteDto> EnsureLocationOfficialSiteAsync(V180LocationOfficialSiteInput x,CancellationToken ct)=>repository.EnsureLocationOfficialSiteAsync(Admin(),x,ct);
     public Task<V180MasterDataRow> SaveTeamSiteAsync(long? id,V180TeamSiteInput x,CancellationToken ct)=>repository.SaveTeamSiteAsync(Admin(),id,x,ct);
     public Task<V180MasterDataRow> SaveEmploymentSiteAsync(long? id,V180EmploymentSiteInput x,CancellationToken ct)=>repository.SaveEmploymentSiteAsync(Admin(),id,x,ct);
     public Task<ReportExportContext> CreateBulkTemplateAsync(CancellationToken ct)=>(bulk ?? throw new InvalidOperationException("V180_BULK_WORKBOOK_SERVICE_NOT_REGISTERED")).CreateTemplateAsync(Admin(),ct);
