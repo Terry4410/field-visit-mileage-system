@@ -740,10 +740,10 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             from assignment in db.DeploymentSiteLocationAssignments
             join site in db.DeploymentSites
                 on assignment.DeploymentSiteId equals site.DeploymentSiteId
-            join center in db.Centers
-                on site.CenterId equals center.CenterId
+            join historyCenter in db.Centers
+                on site.CenterId equals historyCenter.CenterId
             where assignment.LocationId == location.LocationId
-                && center.OrganizationId == org
+                && historyCenter.OrganizationId == org
             select assignment).AnyAsync(ct);
         if (hasOfficialSiteHistory)
             throw new InvalidOperationException(
