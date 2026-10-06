@@ -32,8 +32,10 @@ public sealed class TripSnapshotRepository(AppDbContext db) : ITripSnapshotRepos
             .Where(x => x.OrganizationId == trip.OrganizationId)
             .Select(x => x.OrganizationName).SingleAsync(ct);
         var team = context.Teams.Single(x => x.TeamId == context.SelectedTeamId);
-        var start = context.EligibleDeploymentSites.Single(x => x.DeploymentSiteId == trip.StartDeploymentSiteId);
-        var end = context.EligibleDeploymentSites.Single(x => x.DeploymentSiteId == trip.EndDeploymentSiteId);
+        var start = V180TripPersistenceRules.ResolveStartSite(
+            context, trip.StartDeploymentSiteId);
+        var end = V180TripPersistenceRules.ResolveEndSite(
+            context, trip.EndDeploymentSiteId);
         var calc = trip.MileageCalculation ?? await db.MileageCalculations.AsNoTracking()
             .FirstOrDefaultAsync(x => x.VisitTripId == trip.VisitTripId, ct);
         var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(trip.VehicleType ?? "Motorcycle");
