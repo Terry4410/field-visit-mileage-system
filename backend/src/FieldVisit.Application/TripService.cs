@@ -398,8 +398,10 @@ public sealed class TripService(
             {
                 var contextUser = profile with { Roles = ["visitor"] };
                 var context = await tripContext.ResolveAsync(contextUser, trip.VisitDate, trip.TeamId, ct);
-                startSite = context.EligibleDeploymentSites.SingleOrDefault(x => x.DeploymentSiteId == trip.StartDeploymentSiteId);
-                endSite = context.EligibleDeploymentSites.SingleOrDefault(x => x.DeploymentSiteId == trip.EndDeploymentSiteId);
+                startSite = V180TripPersistenceRules.ResolveStartSite(
+                    context, trip.StartDeploymentSiteId);
+                endSite = V180TripPersistenceRules.ResolveEndSite(
+                    context, trip.EndDeploymentSiteId);
             }
             catch (InvalidOperationException) { /* historical/current master-data mismatch: retain snapshots */ }
         }
