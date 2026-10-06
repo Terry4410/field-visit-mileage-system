@@ -87,12 +87,51 @@ public static class V180TripPersistenceRules
             throw new InvalidOperationException("END_DEPLOYMENT_SITE_INELIGIBLE：返回派駐點已失效，請重新選擇。");
     }
 
-    private static HashSet<int> EndpointSites(V180TripContextDto context) =>
-        (context.OfficialDeploymentSites is { Count: > 0 }
+    public static V180TripContextDeploymentSiteDto ResolveStartSite(
+        V180TripContextDto context,
+        int? deploymentSiteId) =>
+        ResolveEndpointSite(context, deploymentSiteId, "START", "出發");
+
+    public static V180TripContextDeploymentSiteDto ResolveEndSite(
+        V180TripContextDto context,
+        int? deploymentSiteId) =>
+        ResolveEndpointSite(context, deploymentSiteId, "END", "返回");
+
+    private static IReadOnlyList<V180TripContextDeploymentSiteDto> EndpointRows(
+        V180TripContextDto context) =>
+        context.OfficialDeploymentSites is { Count: > 0 }
             ? context.OfficialDeploymentSites
-            : context.EligibleDeploymentSites)
-        .Select(x => x.DeploymentSiteId)
-        .ToHashSet();
+            : context.EligibleDeploymentSites;
+
+    private static HashSet<int> EndpointSites(V180TripContextDto context) =>
+        EndpointRows(context)
+            .Select(x => x.DeploymentSiteId)
+            .ToHashSet();
+
+    private static V180TripContextDeploymentSiteDto ResolveEndpointSite(
+        V180TripContextDto context,
+        int? deploymentSiteId,
+        string endpointCode,
+        string endpointLabel)
+    {
+        if (!deploymentSiteId.HasValue)
+            throw new InvalidOperationException(
+                $"{endpointCode}_DEPLOYMENT_SITE_REQUIRED：{endpointLabel}派駐點未設定。");
+
+        var matches = EndpointRows(context)
+            .Where(x => x.DeploymentSiteId == deploymentSiteId.Value)
+            .Take(2)
+            .ToList();
+
+        if (matches.Count == 0)
+            throw new InvalidOperationException(
+                $"{endpointCode}_DEPLOYMENT_SITE_NOT_AVAILABLE：{endpointLabel}派駐點不是本日期可使用的公司官方據點。");
+        if (matches.Count > 1)
+            throw new InvalidOperationException(
+                $"{endpointCode}_DEPLOYMENT_SITE_AMBIGUOUS：{endpointLabel}派駐點解析結果不唯一。");
+
+        return matches[0];
+    }
 
     private static int? ResolveOne(
         string label,
