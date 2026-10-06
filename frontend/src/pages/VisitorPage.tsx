@@ -4,7 +4,7 @@ import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
 import {TripRouteEndpointDisplay} from "../components/TripRouteDisplay";
-import {validateTripMileageForSubmit} from "../trip-submit-rules";
+import {manualFallbackDistanceForBody,validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
 import type {Project,RoutePreviewResult,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
@@ -428,7 +428,7 @@ export default function VisitorPage(){
 
   const buildTripBody=()=>({
     visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),
-    claimedDistanceKm:stops.length>=2&&km.trim()?Number(km):null,
+    claimedDistanceKm:manualFallbackDistanceForBody(stops.length,km),
     purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,
     teamId:selectedTeamId??null,
     startDeploymentSiteId:startDeploymentSiteId?Number(startDeploymentSiteId):null,
