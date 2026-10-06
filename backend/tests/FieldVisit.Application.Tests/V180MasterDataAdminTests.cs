@@ -301,6 +301,81 @@ public sealed class V180MasterDataAdminTests
     }
 
     [Fact]
+    public async Task Location_first_official_site_generates_internal_code_and_is_idempotent()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        db.Locations.Add(new Location
+        {
+            LocationId = 30,
+            OrganizationId = 1,
+            LocationCode = "L30",
+            LocationName = "Changhua office",
+            ApprovalStatus = "Approved",
+            IsActive = true,
+            IsTemporary = false,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+
+        var first = await repository.EnsureLocationOfficialSiteAsync(
+            User("admin"),
+            new V180LocationOfficialSiteInput(
+                30, "C20", null, Today),
+            default);
+
+        var second = await repository.EnsureLocationOfficialSiteAsync(
+            User("admin"),
+            new V180LocationOfficialSiteInput(
+                30, "C20", "Changhua office", Today),
+            default);
+
+        Assert.True(first.IsOfficialSite);
+        Assert.Equal("AUTO-S-30", first.SiteCode);
+        Assert.Equal("Changhua office", first.SiteName);
+        Assert.Equal("C20", first.CenterCode);
+        Assert.Equal(first.DeploymentSiteId, second.DeploymentSiteId);
+        Assert.Single(await db.DeploymentSites.ToListAsync());
+        Assert.Single(await db.DeploymentSiteLocationAssignments.ToListAsync());
+
+        var loaded = await repository.GetLocationOfficialSiteAsync(
+            User("admin"), 30, default);
+        Assert.True(loaded.IsOfficialSite);
+        Assert.Equal("AUTO-S-30", loaded.SiteCode);
+    }
+
+    [Fact]
+    public async Task Location_first_official_site_requires_formal_approved_active_location()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        db.Locations.Add(new Location
+        {
+            LocationId = 30,
+            OrganizationId = 1,
+            LocationCode = "L30",
+            LocationName = "Temporary office",
+            ApprovalStatus = "Approved",
+            IsActive = true,
+            IsTemporary = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => repository.EnsureLocationOfficialSiteAsync(
+                User("admin"),
+                new V180LocationOfficialSiteInput(
+                    30, "C20", null, Today),
+                default));
+
+        Assert.Contains("LOCATION_MUST_BE_FORMAL", ex.Message);
+        Assert.Empty(await db.DeploymentSites.ToListAsync());
+    }
+
+    [Fact]
     public async Task Deployment_site_rejects_cross_organization_location()
     {
         await using var db = Db();
@@ -930,6 +1005,8 @@ public sealed class V180MasterDataAdminTests
         public Task<V180MasterDataRow> SaveCenterAsync(CurrentUserDto admin, int? id, V180CenterInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180MasterDataRow> SaveTeamCenterAsync(CurrentUserDto admin, long? id, V180TeamCenterInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180MasterDataRow> SaveDeploymentSiteAsync(CurrentUserDto admin, int? id, V180DeploymentSiteInput input, CancellationToken ct) => throw new NotSupportedException();
+        public Task<V180LocationOfficialSiteDto> GetLocationOfficialSiteAsync(CurrentUserDto admin, int locationId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<V180LocationOfficialSiteDto> EnsureLocationOfficialSiteAsync(CurrentUserDto admin, V180LocationOfficialSiteInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180MasterDataRow> SaveTeamSiteAsync(CurrentUserDto admin, long? id, V180TeamSiteInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180MasterDataRow> SaveEmploymentSiteAsync(CurrentUserDto admin, long? id, V180EmploymentSiteInput input, CancellationToken ct) => throw new NotSupportedException();
     }
