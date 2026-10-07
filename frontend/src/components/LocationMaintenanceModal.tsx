@@ -210,7 +210,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
           <strong>✓ 此地點已是官方據點</strong>
           <div style={{marginTop:6}}>{officialSite.centerName||officialSite.centerCode||"—"}／{officialSite.siteName||data.locationName}</div>
           <div className="muted" style={{marginTop:4}}>系統代碼：{officialSite.siteCode||"—"}｜有效期間：{officialSite.effectiveFrom||"—"}～{officialSite.effectiveTo||"無期限"}｜{officialSite.isActive===false?"停用":"啟用"}</div>
-          <div className="muted" style={{marginTop:4}}>若要停用、搬遷或調整歷史有效期間，請使用頁面下方「官方據點進階維護」。</div>
+          <div className="muted" style={{marginTop:4}}>若要停用、搬遷或調整歷史有效期間，請切換「官方據點進階維護」子分頁。</div>
         </div>
        :<>
         <label className="check-row"><input type="checkbox" checked={officialChecked} onChange={e=>{setOfficialChecked(e.target.checked);if(e.target.checked&&!officialSiteName)setOfficialSiteName(data.locationName)}}/>此地點為官方據點</label>

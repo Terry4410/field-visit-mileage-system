@@ -1,4 +1,5 @@
 import{useEffect,useMemo,useState}from"react";
+import{NavLink}from"react-router-dom";
 import{api,apiDownload}from"../api";
 import{correctionChangeText}from"../correction-ui";
 import ProjectLocationManager from "../components/ProjectLocationManager";
@@ -12,7 +13,7 @@ import { usePagedQuery } from '../use-query';
 import { DateFilters, Pagination } from '../components/QueryControls';
 import { projectStatus } from '../query-ux';
 
-type Props={section:'dashboard'|'users'|'locations'|'projects'|'visit-types'|'rates'|'corrections'};
+type Props={section:'dashboard'|'users'|'locations'|'official-sites'|'projects'|'visit-types'|'rates'|'corrections'};
 const roleLabels:Record<string,string>={visitor:'外訪員',leader:'小組長',admin:'管理者',supervisor:'督導'};
 
 type ManagedLocationPage={
@@ -40,7 +41,8 @@ export default function AdminPage({section}:Props){
  const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);
  if(section==='dashboard')return <Dashboard msg={msg} setMsg={setMsg}/>;
  if(section==='users')return <Users busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
- if(section==='locations')return <Locations busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
+ if(section==='locations')return <><LocationAdminTabs/><Locations busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
+ if(section==='official-sites')return <><LocationAdminTabs/><OfficialSiteMaintenance/></>;
  if(section==='projects'||section==='visit-types')return <Projects key={section} section={section} busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
  if(section==='rates')return <Rates busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
  return <Corrections busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
@@ -51,6 +53,13 @@ function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){
  return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待處理更正" value={d?.pendingCorrections??'—'} hint={d?.currentRatePerKm!=null?`目前費率 ${money(d.currentRatePerKm)}/km`:undefined}/></div>{msg&&<div className="note">{msg}</div>}</>
 }
 function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}){return <div className="card stat"><div className="label">{label}</div><div className="value">{value}</div>{hint&&<div className="hint">{hint}</div>}</div>}
+
+function LocationAdminTabs(){
+ return <div className="actions" style={{marginBottom:14}}>
+  <NavLink end to="/admin/locations" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>地點主檔</NavLink>
+  <NavLink to="/admin/locations/official" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>官方據點進階維護</NavLink>
+ </div>;
+}
 
 function Users({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
  const[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<AdminUserAccess|null>(null),[employmentUserId,setEmploymentUserId]=useState<number|null>(null),[active,setActive]=useState(true),[roles,setRoles]=useState<string[]>([]),[scopes,setScopes]=useState<Array<{teamId:number;isPrimary:boolean}>>([]);
@@ -156,7 +165,6 @@ function Locations({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>
  {allFiltered&&<div className="note ok-note">已選取全部 {totalCount} 筆符合目前條件的地點；執行解析時只會處理待解析／失敗／待核准資料。<button className="btn small outline" style={{marginLeft:8}} onClick={clearSelection}>清除選取</button></div>}
  <div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={pageAllSelected&&!allFiltered} onChange={e=>{setAllFiltered(false);togglePage(e.target.checked)}}/></th><th>地點代碼</th><th>地點</th><th>類型</th><th>小組</th><th>地址</th><th>解析</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(l=>{const suspected=l.duplicateOfLocationId==null&&l.duplicateReason==='疑似重複，待管理者人工覆核';const canPromote=l.isTemporary&&l.isActive&&l.approvalStatus==='Approved'&&l.geocodingStatus==='Completed'&&!suspected;return <tr key={l.locationId}><td><input type="checkbox" checked={!allFiltered&&selected.includes(l.locationId)} disabled={allFiltered} onChange={e=>setSelected(x=>e.target.checked?[...x,l.locationId]:x.filter(id=>id!==l.locationId))}/></td><td>{l.locationCode}</td><td>{l.locationName}</td><td>{l.isTemporary?<span className="pill warn">臨時</span>:<span className="pill ok">正式</span>}</td><td>{l.teamName||'全組織'}</td><td>{l.address||l.plusCode||'—'}</td><td>{l.geocodingStatus}</td><td>{suspected?<span className="pill warn">疑似重複待覆核</span>:l.duplicateOfLocationId?<span className="pill">已合併 → {l.duplicateOfLocationId}</span>:l.isActive?'啟用':l.approvalStatus}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>open(l)}>修改</button><button className="btn small outline" onClick={()=>setMaintain(l)}>資料／官方據點</button>{canPromote&&<button className="btn small ok" disabled={busy} onClick={()=>void promote(l)}>轉正式</button>}{l.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivate(l)}>停用</button>}<button className="btn small outline" disabled={busy} onClick={()=>void permanentDelete(l)}>刪除</button></div></td></tr>})}</tbody></table></div>
  <div className="actions" style={{justifyContent:'space-between',marginTop:12}}><span className="sub">{totalCount===0?'0 筆':`${(page-1)*pageSize+1}–${Math.min(page*pageSize,totalCount)} / 共 ${totalCount} 筆`}</span><div className="actions"><button className="btn small outline" disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>上一頁</button><span className="sub">第 {page} / {Math.max(totalPages,1)} 頁</span><button className="btn small outline" disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>下一頁</button></div></div></div>
- <OfficialSiteMaintenance/>
  {maintain&&<LocationMaintenanceModal locationId={maintain.locationId} teamId={maintain.teamId} onClose={()=>setMaintain(null)} onChanged={()=>void load()}/>}
  </>
 }
@@ -219,7 +227,18 @@ function Corrections({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)
  const load=()=>{query.reload()};
  useEffect(()=>{setSelected(current=>current.filter(id=>eligible.some(r=>r.correctionRequestId===id)))},[rows.map(r=>`${r.correctionRequestId}:${r.status}:${r.rowVersion}`).join('|')]);
 
- const close=async(r:CorrectionRequest,approve:boolean)=>{const comments=window.prompt(approve?'管理者結案說明（選填）':'拒絕原因')||'';setBusy(true);try{await api(`/corrections/${r.correctionRequestId}/admin-close`,{method:'POST',body:JSON.stringify({approve,comments,rowVersion:r.rowVersion})});setMsg(approve?'更正已結案並建立新 Snapshot。':'更正申請已拒絕。');await load()}catch(e){setMsg(e instanceof Error?e.message:'操作失敗')}finally{setBusy(false)}};
+ const distanceChanged=(r:CorrectionRequest)=>r.changes.some(c=>c.fieldName==='ApprovedDistanceKm');
+ const closePayload=(r:CorrectionRequest,approve:boolean,comments:string)=>({
+  approve,comments,rowVersion:r.rowVersion,
+  ...(approve&&distanceChanged(r)?{distanceDecisionSource:'ManualFallback',routeCalculationAttemptId:null}:{})
+ });
+ const close=async(r:CorrectionRequest,approve:boolean)=>{
+  const comments=window.prompt(approve?'管理者結案說明（選填）':'拒絕原因')||'';
+  if(approve&&distanceChanged(r)&&!window.confirm('此更正包含核定里程異動；目前沒有 CorrectionRecalculate 路線結果時，將依人工更正值以 ManualFallback 治理證據結案。是否繼續？'))return;
+  setBusy(true);
+  try{await api(`/corrections/${r.correctionRequestId}/admin-close`,{method:'POST',body:JSON.stringify(closePayload(r,approve,comments))});setMsg(approve?'更正已結案並建立新 Snapshot。':'更正申請已拒絕。');await load()}
+  catch(e){setMsg(e instanceof Error?e.message:'操作失敗')}finally{setBusy(false)}
+ };
 
  const batchClose=async()=>{
   const targets=eligible.filter(r=>selected.includes(r.correctionRequestId));
@@ -228,13 +247,15 @@ function Corrections({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)
   const latest=new Map(fresh.map(r=>[r.correctionRequestId,r]));
   const stale=targets.find(r=>!latest.has(r.correctionRequestId)||latest.get(r.correctionRequestId)?.rowVersion!==r.rowVersion);
   if(stale){setMsg('選取的更正申請狀態已變更，為避免混合狀態批次處理，請重新載入後再選取。');await load();return}
-  if(!window.confirm(`確認批次結案 ${targets.length} 筆更正申請？只會處理目前仍為 PendingAdminClose 的案件。`))return;
+  const distanceChangedCount=targets.filter(distanceChanged).length;
+  const batchWarning=distanceChangedCount?`\n其中 ${distanceChangedCount} 筆含核定里程異動，無 CorrectionRecalculate 結果時會以 ManualFallback 治理證據結案。`:'';
+  if(!window.confirm(`確認批次結案 ${targets.length} 筆更正申請？只會處理目前仍為 PendingAdminClose 的案件。${batchWarning}`))return;
   const comments=window.prompt('批次結案說明（選填）')||'';
   setBusy(true);let success=0;
   try{
    for(const target of targets){
     const current=latest.get(target.correctionRequestId)!;
-    await api(`/corrections/${target.correctionRequestId}/admin-close`,{method:'POST',body:JSON.stringify({approve:true,comments,rowVersion:current.rowVersion})});
+    await api(`/corrections/${target.correctionRequestId}/admin-close`,{method:'POST',body:JSON.stringify(closePayload(current,true,comments))});
     success++;
    }
    setSelected([]);setMsg(`批次結案完成：${success} 筆成功。`);await load();

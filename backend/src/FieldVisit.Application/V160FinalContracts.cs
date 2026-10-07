@@ -49,6 +49,7 @@ public sealed record TripQueryRowDto(
     decimal? ApprovedDistanceKm,
     decimal? RatePerKmSnapshot,
     decimal? SubsidyAmount,
+    string? MileageSource,
     string MileageState,
     string Status,
     string StatusName,

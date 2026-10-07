@@ -7,6 +7,8 @@ import HistoryPage from"./pages/HistoryPage";
 import LeaderPage from"./pages/LeaderPage";
 import AdminPage from"./pages/AdminPage";
 import TeamManagementPage from"./pages/TeamManagementPage";
+import PeopleAndAccessPage from"./pages/PeopleAndAccessPage";
+import CorrectionAdminPage from"./pages/CorrectionAdminPage";
 import SupervisorPage from"./pages/SupervisorPage";
 import UnifiedQueryPage from"./pages/UnifiedQueryPage";
 
@@ -33,27 +35,15 @@ export default function App(){
  const switchRole=(r:string)=>{setActiveRole(r);sessionStorage.setItem('fieldvisit_active_role',r);navigate(navByRole[r][0].path)};
  const supervisorScopes=user.dataScopes||[];
  const supervisorIsOrganizationWide=supervisorScopes.some(x=>x.scopeType.toLowerCase()==='organization');
- const supervisorTeamNames=supervisorScopes
-   .filter(x=>x.scopeType.toLowerCase()==='team'&&x.teamName)
-   .map(x=>x.teamName!)
-   .filter((name,index,array)=>array.indexOf(name)===index);
- const supervisorScopeText=supervisorIsOrganizationWide
-   ?'全部'
-   :supervisorTeamNames.length
-     ?supervisorTeamNames.join('、')
-     :'無授權範圍';
- const teamText=
-   role==='leader'&&user.teamScopes?.length
-     ?user.teamScopes.map(x=>x.teamName).join('、')
-     :role==='supervisor'
-       ?supervisorScopeText
-       :user.teamName||'全部';
+ const supervisorTeamNames=supervisorScopes.filter(x=>x.scopeType.toLowerCase()==='team'&&x.teamName).map(x=>x.teamName!).filter((name,index,array)=>array.indexOf(name)===index);
+ const supervisorScopeText=supervisorIsOrganizationWide?'全部':supervisorTeamNames.length?supervisorTeamNames.join('、'):'無授權範圍';
+ const teamText=role==='leader'&&user.teamScopes?.length?user.teamScopes.map(x=>x.teamName).join('、'):role==='supervisor'?supervisorScopeText:user.teamName||'全部';
  return <div className="app-shell">
   <aside className="sidebar"><div className="brand">外訪行程管理<small>Field Visit Mileage System</small></div><div className="role-box"><label>目前登入</label><strong>{user.displayName}</strong><span>{user.employeeNo}｜{roleLabel[role]}｜{teamText}</span>{roles.length>1&&<select className="role-switch" value={role} onChange={e=>switchRole(e.target.value)}>{roles.map(r=><option key={r} value={r}>切換為：{roleLabel[r]||r}</option>)}</select>}</div><nav className="nav">{nav.map(x=><NavLink key={x.path} end={x.path===home} to={x.path}>● {x.label}</NavLink>)}</nav><button className="btn secondary logout-btn" onClick={logout}>登出</button><div className="sidebar-footer">UAT Candidate v1.8.0<br/>使用者測試階段</div></aside>
-  <main className="main"><header className="topbar"><div><h1>{title}</h1><div className="top-subtitle">手機優先｜UAT Candidate｜v1.8.0｜Route Provider：Mock</div></div><div className="user-chip"><strong>{user.displayName}</strong><span>{roleLabel[role]}｜{teamText}</span>{roles.length>1&&<select value={role} onChange={e=>switchRole(e.target.value)}>{roles.map(r=><option key={r} value={r}>{roleLabel[r]||r}</option>)}</select>}<button className="btn small secondary" onClick={logout}>登出</button></div></header><section className="content"><Routes>
+  <main className="main"><header className="topbar"><div><h1>{title}</h1><div className="top-subtitle">手機優先｜UAT Candidate｜v1.8.0</div></div><div className="user-chip"><strong>{user.displayName}</strong><span>{roleLabel[role]}｜{teamText}</span>{roles.length>1&&<select value={role} onChange={e=>switchRole(e.target.value)}>{roles.map(r=><option key={r} value={r}>{roleLabel[r]||r}</option>)}</select>}<button className="btn small secondary" onClick={logout}>登出</button></div></header><section className="content"><Routes>
    <Route path="/" element={role==='visitor'?<VisitorPage/>:<Navigate to={home}/>}/><Route path="/history" element={role==='visitor'?<HistoryPage/>:<Navigate to={home}/>}/>
    <Route path="/leader" element={role==='leader'?<LeaderPage section="dashboard"/>:<Navigate to={home}/>}/><Route path="/leader/review" element={role==='leader'?<LeaderPage section="review"/>:<Navigate to={home}/>}/><Route path="/leader/query" element={role==='leader'?<UnifiedQueryPage/>:<Navigate to={home}/>}/><Route path="/leader/locations" element={role==='leader'?<LeaderPage section="locations"/>:<Navigate to={home}/>}/>
-   <Route path="/admin" element={role==='admin'?<AdminPage section="dashboard"/>:<Navigate to={home}/>}/><Route path="/admin/users" element={role==='admin'?<AdminPage section="users"/>:<Navigate to={home}/>}/><Route path="/admin/teams" element={role==='admin'?<TeamManagementPage/>:<Navigate to={home}/>}/><Route path="/admin/locations" element={role==='admin'?<AdminPage section="locations"/>:<Navigate to={home}/>}/><Route path="/admin/projects" element={role==='admin'?<AdminPage section="projects"/>:<Navigate to={home}/>}/><Route path="/admin/visit-types" element={role==='admin'?<AdminPage section="visit-types"/>:<Navigate to={home}/>}/><Route path="/admin/rates" element={role==='admin'?<AdminPage section="rates"/>:<Navigate to={home}/>}/><Route path="/admin/query" element={role==='admin'?<UnifiedQueryPage/>:<Navigate to={home}/>}/><Route path="/admin/corrections" element={role==='admin'?<AdminPage section="corrections"/>:<Navigate to={home}/>}/>
+   <Route path="/admin" element={role==='admin'?<AdminPage section="dashboard"/>:<Navigate to={home}/>}/><Route path="/admin/users" element={role==='admin'?<PeopleAndAccessPage/>:<Navigate to={home}/>}/><Route path="/admin/users/bulk" element={role==='admin'?<PeopleAndAccessPage mode="bulk"/>:<Navigate to={home}/>}/><Route path="/admin/teams" element={role==='admin'?<TeamManagementPage/>:<Navigate to={home}/>}/><Route path="/admin/locations" element={role==='admin'?<AdminPage section="locations"/>:<Navigate to={home}/>}/><Route path="/admin/locations/official" element={role==='admin'?<AdminPage section="official-sites"/>:<Navigate to={home}/>}/><Route path="/admin/projects" element={role==='admin'?<AdminPage section="projects"/>:<Navigate to={home}/>}/><Route path="/admin/visit-types" element={role==='admin'?<AdminPage section="visit-types"/>:<Navigate to={home}/>}/><Route path="/admin/rates" element={role==='admin'?<AdminPage section="rates"/>:<Navigate to={home}/>}/><Route path="/admin/query" element={role==='admin'?<UnifiedQueryPage/>:<Navigate to={home}/>}/><Route path="/admin/corrections" element={role==='admin'?<CorrectionAdminPage/>:<Navigate to={home}/>}/>
    <Route path="/supervisor" element={role==='supervisor'?<SupervisorPage/>:<Navigate to={home}/>}/><Route path="/supervisor/query" element={role==='supervisor'?<UnifiedQueryPage/>:<Navigate to={home}/>}/><Route path="*" element={<Navigate to={home}/>}/>
   </Routes></section></main>
   <nav className="mobile-tabs">{nav.map(x=><NavLink key={x.path} end={x.path===home} to={x.path}>{x.short}</NavLink>)}</nav>

@@ -194,4 +194,66 @@ public sealed class V170PeopleAdminController(
     }
 
 
+    [HttpGet("personnel-bulk/template.xlsx")]
+    public async Task<IActionResult> PersonnelBulkTemplate(CancellationToken ct)
+    {
+        var file = await service.CreatePersonnelBulkTemplateAsync(ct);
+        return File(file.Content, file.ContentType, file.FileName);
+    }
+
+    [HttpPost("personnel-bulk/preview")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult<V180SimpleBulkPreviewDto>> PersonnelBulkPreview(
+        IFormFile file,
+        CancellationToken ct)
+        => Ok(await service.PreviewPersonnelBulkAsync(await ReadXlsx(file, ct), ct));
+
+    [HttpPost("personnel-bulk/confirm")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult<V180SimpleBulkConfirmResultDto>> PersonnelBulkConfirm(
+        IFormFile file,
+        CancellationToken ct)
+        => Ok(await service.ConfirmPersonnelBulkAsync(await ReadXlsx(file, ct), ct));
+
+    [HttpGet("team-membership-bulk/template.xlsx")]
+    public async Task<IActionResult> TeamMembershipBulkTemplate(CancellationToken ct)
+    {
+        var file = await service.CreateTeamMembershipBulkTemplateAsync(ct);
+        return File(file.Content, file.ContentType, file.FileName);
+    }
+
+    [HttpPost("team-membership-bulk/preview")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult<V180SimpleBulkPreviewDto>> TeamMembershipBulkPreview(
+        IFormFile file,
+        CancellationToken ct)
+        => Ok(await service.PreviewTeamMembershipBulkAsync(await ReadXlsx(file, ct), ct));
+
+    [HttpPost("team-membership-bulk/confirm")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult<V180SimpleBulkConfirmResultDto>> TeamMembershipBulkConfirm(
+        IFormFile file,
+        CancellationToken ct)
+        => Ok(await service.ConfirmTeamMembershipBulkAsync(await ReadXlsx(file, ct), ct));
+
+    [HttpPost("team-memberships/{teamId:int}/batch-add")]
+    public async Task<ActionResult<V180BatchAddTeamMembersResult>> BatchAddTeamMembers(
+        int teamId,
+        [FromBody] V180BatchAddTeamMembersRequest request,
+        CancellationToken ct)
+        => Ok(await service.BatchAddTeamMembersAsync(teamId, request, ct));
+
+    private static async Task<byte[]> ReadXlsx(IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            throw new InvalidOperationException("請選擇匯入檔案。");
+        if (!string.Equals(Path.GetExtension(file.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("此批次功能只接受 .xlsx。");
+
+        await using var stream = new MemoryStream();
+        await file.CopyToAsync(stream, ct);
+        return stream.ToArray();
+    }
+
+
 }

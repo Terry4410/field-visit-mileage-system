@@ -408,6 +408,11 @@ export default function VisitorPage(){
     const c=[...stops];[c[i],c[j]]=[c[j],c[i]];setStops(c);
   };
 
+  const manualFallbackAllowed =
+    !!routePreview && routePreview.status!=="Succeeded"
+    || returnReason.includes("Google Maps API 無法取得可用里程");
+  const manualFallbackKm=manualFallbackAllowed?km:"";
+
   const validateForSubmit=()=>{
     if(!selectedTeamId){
       setMsg("請選擇本次行程的歸屬小組。");
@@ -417,7 +422,7 @@ export default function VisitorPage(){
       setMsg("請選擇本次行程的出發地與結束地。");
       return false;
     }
-    const mileageError=validateTripMileageForSubmit(stops.length,km);
+    const mileageError=validateTripMileageForSubmit(stops.length,manualFallbackKm);
     if(mileageError){setMsg(mileageError);return false}
     if(end<=start){setMsg("結束時間必須晚於出發時間。");return false}
     return true;
@@ -427,7 +432,7 @@ export default function VisitorPage(){
 
   const buildTripBody=()=>({
     visitDate:date,startTime:normalizeTime(start),endTime:normalizeTime(end),
-    claimedDistanceKm:manualFallbackDistanceForBody(stops.length,km),
+    claimedDistanceKm:manualFallbackDistanceForBody(stops.length,manualFallbackKm),
     purpose:null,notes:notes.trim()||null,timeOverlapConfirmed:confirmOverlap,stops,
     teamId:selectedTeamId??null,
     startDeploymentSiteId:startDeploymentSiteId?Number(startDeploymentSiteId):null,
@@ -455,6 +460,7 @@ export default function VisitorPage(){
       const preview=await api<RoutePreviewResult>(`/trips/${t.visitTripId}/route-preview`,{method:"POST"});
       setRoutePreview(preview);
       if(preview.status==="Succeeded"&&preview.suggestedDistanceKm){
+        setKm("");
         setMsg(`Google Maps API 路線里程：${preview.suggestedDistanceKm} km。`);
       }else{
         setMsg(`Google Maps API 無法取得可用里程：${preview.errorMessage||preview.errorCode||"請改用人工里程"}。`);
@@ -493,7 +499,7 @@ export default function VisitorPage(){
     <div className="grid cols-4">
       <div className="card stat"><div className="label">行程日期</div><div className="value" style={{fontSize:20}}>{date}</div><div className="hint">可事後補登</div></div>
       <div className="card stat"><div className="label">拜訪地點</div><div className="value">{stops.length}</div><div className="hint">依實際順序排列</div></div>
-      <div className="card stat"><div className="label">Google／人工里程</div><div className="value">{routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm?routePreview.suggestedDistanceKm:km||"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{!hasMinimumVisitStops(stops.length)?"至少 1 個拜訪地點才可計算":"先用 Google 計算；不合理時再填人工里程"}</div></div>
+      <div className="card stat"><div className="label">目前里程</div><div className="value">{routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm?routePreview.suggestedDistanceKm:manualFallbackAllowed&&km?km:"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{!hasMinimumVisitStops(stops.length)?"至少 1 個拜訪地點才可計算":routePreview?.status==="Succeeded"?"Google Maps API":manualFallbackAllowed?"人工備援（Google 無可用結果）":"請先用 Google Maps API 計算"}</div></div>
       <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
@@ -575,11 +581,11 @@ export default function VisitorPage(){
       <div className="actions" style={{marginBottom:14}}>
         <button className="btn secondary" disabled={!canCalculateGoogleMileage(busy,stops.length,startDeploymentSiteId,endDeploymentSiteId)} onClick={()=>void calculateGoogleMileage()}>{routePreviewBusy?"Google 計算中…":"用 Google Maps API 計算里程"}</button>
       </div>
-      {routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm&&<div className="note ok-note" style={{marginBottom:14}}><strong>Google Maps API 建議里程：</strong>{routePreview.suggestedDistanceKm} km{routePreview.durationSeconds?`｜預估行車時間 ${Math.round(routePreview.durationSeconds/60)} 分鐘`:""}<br/><span>若此結果合理，人工里程可留白；若路線結果不符合實際情況，再於下方填寫人工里程。</span></div>}
+      {routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm&&<div className="note ok-note" style={{marginBottom:14}}><strong>Google Maps API 里程：</strong>{routePreview.suggestedDistanceKm} km{routePreview.durationSeconds?`｜預估行車時間 ${Math.round(routePreview.durationSeconds/60)} 分鐘`:""}<br/><span>Google 已取得可用里程，本次以此作為里程來源；人工備援不開放。</span></div>}
       {routePreview&&routePreview.status!=="Succeeded"&&<div className="note danger-note" style={{marginBottom:14}}><strong>Google Maps API 未取得可用里程。</strong><br/>{routePreview.errorMessage||routePreview.errorCode||"請填寫人工里程。"}</div>}
       <div className="grid cols-2">
-        <div className="field"><label>人工里程（公里） <span className="optional">選填</span></label><input type="number" min="0" step="0.1" value={km} onChange={e=>setKm(e.target.value)} placeholder="Google 結果不適用時再填寫"/></div>
-        <div className="note">Google Maps API 會依「實際出發地 → 拜訪順序 → 實際結束地」計算。若 API 無法取得結果，或外訪員確認 Google 路線與實際行程不符，可填寫人工里程；最後仍由小組長核定補助里程。</div>
+        <div className="field"><label>人工備援里程（公里）</label><input type="number" min="0" step="0.1" value={km} disabled={!manualFallbackAllowed} onChange={e=>setKm(e.target.value)} placeholder={manualFallbackAllowed?"請輸入人工備援里程":"Google 無可用結果時才開放"}/><div className="muted">{manualFallbackAllowed?"Google Maps API 無法取得可用里程，請填寫實際人工備援里程。":"Google Maps API 成功時不使用人工備援。"}</div></div>
+        <div className="note">Google Maps API 依「實際出發地 → 拜訪順序 → 實際結束地」計算。只有 Google Maps API 無法取得可用里程時，才使用人工備援；最後仍由小組長核定補助里程。</div>
       </div>
     </div>
 

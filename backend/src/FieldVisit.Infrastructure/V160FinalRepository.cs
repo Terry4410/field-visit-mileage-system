@@ -165,7 +165,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                     JoinDistinct(stops.Select(x => x.ProjectName)), JoinDistinct(stops.Select(x => x.VisitTypeName)),
                     snapshot.ClaimedDistanceKmSnapshot, snapshot.SystemDistanceKmSnapshot, snapshot.ApprovedDistanceKmSnapshot,
                     snapshot.RatePerKmSnapshot, snapshot.SubsidyAmountSnapshot,
-                    stops.Count < 2 ? "NotApplicable" : snapshot.SystemDistanceKmSnapshot.HasValue ? "Calculated" : "Pending",
+                    ResolveMileageSource(snapshot.RouteProviderSnapshot, snapshot.MileageRouteAttemptIdSnapshot, snapshot.SystemDistanceKmSnapshot),
+                    stops.Count < V170TripMileageRules.MinimumVisitStopCount ? "NotApplicable" : snapshot.SystemDistanceKmSnapshot.HasValue ? "Calculated" : "Pending",
                     TripStatuses.Approved, TripStatuses.Display(TripStatuses.Approved), snapshot.SnapshotVersion, true,
                     snapshot.NotesSnapshot, null, correction, stops);
             }
@@ -188,7 +189,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                     string.Join(" → ", stops.Select(x => x.LocationName)), JoinDistinct(stops.Select(x => x.ProjectName)),
                     JoinDistinct(stops.Select(x => x.VisitTypeName)), calc?.ClaimedDistanceKm, calc?.SystemDistanceKm,
                     calc?.ApprovedDistanceKm, calc?.RatePerKmSnapshot, calc?.ApprovedAmount,
-                    stops.Count < 2 ? "NotApplicable" : calc?.SystemDistanceKm.HasValue == true ? "Calculated" : "Pending",
+                    calc?.CalculationSource,
+                    stops.Count < V170TripMileageRules.MinimumVisitStopCount ? "NotApplicable" : calc?.SystemDistanceKm.HasValue == true || string.Equals(calc?.CalculationSource, "ManualFallback", StringComparison.OrdinalIgnoreCase) ? "Calculated" : "Pending",
                     trip.Status, TripStatuses.Display(trip.Status), 0, false, trip.Notes, trip.ReturnReason, correction, stops);
             }
         }
@@ -226,13 +228,13 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         // Financial snapshot rule:
         // - Same VisitDate: preserve the frozen rate from the base approved Snapshot.
         // - Changed VisitDate: re-evaluate rate using the corrected business date.
-        // - One-stop corrections remain NotApplicable.
-        var correctedHasMileage = request.Proposal.Stops.Count >= 2;
+        // Any valid route with at least one visit stop remains mileage/subsidy applicable.
+        var correctedHasMileage = request.Proposal.Stops.Count >= V170TripMileageRules.MinimumVisitStopCount;
         decimal? correctedRate = null;
         if (correctedHasMileage)
         {
-            if (request.Proposal.ClaimedDistanceKm is null or <= 0) throw new InvalidOperationException("兩個以上地點的更正必須填寫自算里程。");
-            if (request.Proposal.ApprovedDistanceKm is null or < 0) throw new InvalidOperationException("兩個以上地點的更正必須填寫核定里程。");
+            if (request.Proposal.ClaimedDistanceKm is <= 0) throw new InvalidOperationException("人工備援里程如有填寫，必須大於 0。");
+            if (request.Proposal.ApprovedDistanceKm is null or <= 0) throw new InvalidOperationException("有拜訪地點的更正必須保留大於 0 的核定里程。");
 
             if (V160CorrectionFinancialRules.ShouldPreserveSnapshotRate(
                     snapshot.VisitDate,
@@ -1063,6 +1065,23 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     private async Task<VisitTripSnapshot?> GetLatestSnapshotAsync(long tripId, CancellationToken ct) =>
         await db.VisitTripSnapshots.AsNoTracking().Include(x => x.Stops).Where(x => x.VisitTripId == tripId).OrderByDescending(x => x.SnapshotVersion).FirstOrDefaultAsync(ct);
+
+    private static string? ResolveMileageSource(
+        string? routeProvider,
+        long? routeAttemptId,
+        decimal? systemDistanceKm)
+    {
+        if (string.Equals(routeProvider, "ManualFallback", StringComparison.OrdinalIgnoreCase))
+            return "ManualFallback";
+        if (string.Equals(routeProvider, "GoogleMapsRoutes", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(routeProvider, "GoogleMapsAPI", StringComparison.OrdinalIgnoreCase))
+            return "GoogleMapsAPI";
+        if (!string.IsNullOrWhiteSpace(routeProvider))
+            return routeProvider;
+        return routeAttemptId.HasValue || systemDistanceKm is > 0
+            ? "GoogleMapsAPI"
+            : null;
+    }
 
     private static CorrectionProposal ProposalFrom(VisitTripSnapshot snapshot) => new(
         snapshot.VisitDate, snapshot.StartTime, snapshot.EndTime, snapshot.NotesSnapshot,

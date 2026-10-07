@@ -15,7 +15,13 @@ public static class DependencyInjection
         services.AddScoped<IV160FinalRepository,V160FinalRepository>();services.AddScoped<IV170AccessControl,V170AccessControl>();services.AddScoped<IV170LocationRepository,V170LocationRepository>();services.AddScoped<IV170ProjectLocationAdminRepository,V170ProjectLocationAdminRepository>();services.AddScoped<IV170PeopleAdminRepository,V170PeopleAdminRepository>();services.AddScoped<IV170PeopleAdminWriter,V170PeopleAdminWriter>();services.AddScoped<IV170PeopleBulkWorkbookService,V170PeopleBulkWorkbookService>();services.AddScoped<IReportDocumentService,ReportDocumentService>();services.AddScoped<IWorkbookImportService,WorkbookImportService>();services.AddScoped<IBackgroundJobService,BackgroundJobService>();
         services.AddScoped<IV180MasterDataAdminRepository,V180MasterDataAdminRepository>();
         services.AddScoped<IV180MasterDataBulkWorkbookService,V180MasterDataBulkWorkbookService>();
+        services.AddScoped<IV180PersonnelBulkService,V180PersonnelBulkService>();
+        services.AddScoped<IV180PeopleManagementBulkService,V180TeamMembershipBulkService>();
+        services.AddScoped<IV180CorrectionClosureService,V180CorrectionClosureService>();
         services.AddScoped<V180GoogleMileageOrchestrationService>();
+        services.AddScoped<V180CorrectionMileageService>();
+        services.AddScoped<V180TeamMembershipCommandService>();
+        services.AddScoped<V180InternalRoleCommandService>();
         services.AddHttpClient<GoogleMapsRouteProvider>();
         services.AddHttpClient<GoogleMapsGeocodingProvider>();
 
