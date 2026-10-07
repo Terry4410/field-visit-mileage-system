@@ -490,9 +490,8 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
 
     public Task<List<Project>> GetProjectsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
-        var today = BusinessTime.Today;
         var q = db.Projects.AsNoTracking().AsQueryable();
-        if (!includeInactive) q = q.Where(x => x.IsActive && (!x.StartDate.HasValue || x.StartDate <= today) && (!x.EndDate.HasValue || x.EndDate >= today));
+        if (!includeInactive) q = q.Where(x => x.IsActive);
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value);
         if (user.Roles.Contains("admin") || user.Roles.Contains("supervisor")) { }
         else if (user.Roles.Contains("leader"))
