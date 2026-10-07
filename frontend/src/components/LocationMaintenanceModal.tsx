@@ -160,6 +160,5 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
     <div className="route-list">{audits.map(a=><div className="route-item" key={a.auditLogId}><div><strong>{a.changedBy||"系統"}｜{a.action}</strong><div className="sub">{new Date(a.changedAt).toLocaleString("zh-TW")}{a.sourceLocationId&&a.sourceLocationId!==data.locationId?`｜原始地點：${a.sourceLocationName||a.sourceLocationId}`:""}</div><details><summary>查看異動內容</summary><pre style={{whiteSpace:"pre-wrap"}}>{a.oldValues||"—"}{"\n→\n"}{a.newValues||"—"}</pre></details></div></div>)}{!audits.length&&<div className="empty compact-empty">尚無地址／主檔異動歷史。</div>}</div>
 
     {isAdmin&&data.duplicateReason===SUSPECTED&&<><hr/><div className="section-title"><div><h4>疑似重複人工覆核</h4><div className="sub">此地點已被標記為疑似重複。覆核、沿用與合併統一在「疑似重複覆核」分頁處理，避免同一責任有兩個維護入口。</div></div><Link className="btn small secondary" to="/admin/locations/duplicates" onClick={onClose}>前往疑似重複覆核</Link></div></>}
-    </>}
   </div></div>;
 }
