@@ -127,7 +127,8 @@ test("mobile role/account modal has an explicit close and releases page scroll",
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "角色／帳號｜UAT Admin", level: 3 })).toBeVisible();
   await expect(dialog.getByRole("checkbox", { name: "管理者" })).toBeChecked();
-  await expect(dialog.getByRole("checkbox", { name: "帳號啟用" })).toBeChecked();
+  await expect(dialog.getByText("實際登入：允許登入")).toBeVisible();
+  await expect(dialog.getByRole("checkbox", { name: "帳號啟用" })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
   await dialog.getByRole("button", { name: "關閉", exact: true }).click();
   await expect(dialog).toBeHidden();

@@ -297,6 +297,10 @@ public sealed class V170PeopleAdminRepository(
                         v180StatusByEmployment.TryGetValue(linkedEmploymentId,out v180Status);
                     }
                     var employmentStatus=v180Status?.EmploymentStatus??employment?.EmploymentStatus;
+                    if(employmentMaster?.TerminationDate is { } terminationDate&&terminationDate<=today)
+                        employmentStatus=EmploymentStatuses.Terminated;
+                    else if(employmentMaster?.HireDate is { } hireDate&&hireDate>today)
+                        employmentStatus=EmploymentStatuses.PreHire;
 
                     var userType =
                         identity?.UserType
@@ -565,6 +569,11 @@ public sealed class V170PeopleAdminRepository(
                 .ToListAsync(ct);
 
         var currentEmployment=employmentPeriods.FirstOrDefault(x=>x.IsCurrent);
+        var effectiveEmploymentStatus=currentEmployment?.EmploymentStatus;
+        if(employmentMaster?.TerminationDate is { } terminationDate&&terminationDate<=today)
+            effectiveEmploymentStatus=EmploymentStatuses.Terminated;
+        else if(employmentMaster?.HireDate is { } hireDate&&hireDate>today)
+            effectiveEmploymentStatus=EmploymentStatuses.PreHire;
 
         var userType =
             identity?.UserType
@@ -579,8 +588,7 @@ public sealed class V170PeopleAdminRepository(
             V170AccessRules
                 .IsSystemAccessAllowed(
                     user.IsActive,
-                    currentEmployment?
-                        .EmploymentStatus,
+                    effectiveEmploymentStatus,
                     userType,
                     identity?.AuthorizationFrom,
                     identity?.AuthorizationTo,
@@ -599,8 +607,7 @@ public sealed class V170PeopleAdminRepository(
             organizationName,
             user.IsActive,
             actualAccess,
-            currentEmployment?
-                .EmploymentStatus,
+            effectiveEmploymentStatus,
             identity?
                 .ExternalOrganization,
             identity?

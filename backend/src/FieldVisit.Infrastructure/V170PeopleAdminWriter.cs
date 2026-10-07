@@ -974,8 +974,6 @@ public sealed class V170PeopleAdminWriter(
                 var oldValues =
                     new
                     {
-                        user.IsActive,
-
                         Identity =
                             new
                             {
@@ -989,15 +987,10 @@ public sealed class V170PeopleAdminWriter(
                     };
 
                 /*
-                 * AdminEnabled is intentionally immediate.
-                 * Role and Team changes are effective-dated.
+                 * Internal login eligibility is derived from effective HR status.
+                 * This legacy writer may update roles, teams and identity binding,
+                 * but must never toggle Users.IsActive for an Internal user.
                  */
-                user.IsActive =
-                    request.AdminEnabled;
-
-                user.UpdatedAt =
-                    now;
-
                 ApplyIdentityBinding(
                     identity,
                     request.IdentityProvider,
@@ -1101,9 +1094,7 @@ public sealed class V170PeopleAdminWriter(
                             userId.ToString(),
 
                         Action =
-                            request.AdminEnabled
-                                ? "InternalUserAccessUpdate"
-                                : "InternalUserDisable",
+                            "InternalUserAccessUpdate",
 
                         NewValues =
                             JsonSerializer.Serialize(
@@ -1117,7 +1108,6 @@ public sealed class V170PeopleAdminWriter(
                                         {
                                             request.Roles,
                                             request.TeamAssignments,
-                                            request.AdminEnabled,
                                             request.ChangeEffectiveFrom,
                                             request.IdentityProvider,
                                             request.EntraTenantId,

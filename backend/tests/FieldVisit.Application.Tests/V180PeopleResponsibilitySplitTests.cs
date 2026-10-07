@@ -20,6 +20,9 @@ public sealed class V180PeopleResponsibilitySplitTests
         var source = ReadRepositoryFile("frontend/src/pages/PeopleAndAccessPage.tsx");
         Assert.Contains("/roles", source);
         Assert.DoesNotContain("code:\"supervisor\"", source);
+        Assert.DoesNotContain("帳號啟用", source);
+        Assert.DoesNotContain("setEnabled", source);
+        Assert.Contains("實際登入", source);
         Assert.Contains("小組歸屬（唯讀）", source);
     }
 
@@ -43,6 +46,20 @@ public sealed class V180PeopleResponsibilitySplitTests
         Assert.DoesNotContain("db.UserTeamAssignments.Add", source);
         Assert.DoesNotContain("db.TeamMemberships.Add", source);
         Assert.DoesNotContain("db.UserTeamScopes.Add", source);
+        Assert.DoesNotContain("request.AdminEnabled", source);
+        Assert.DoesNotContain("trackedUser.IsActive", source);
+    }
+
+    [Fact]
+    public void Legacy_internal_access_writer_cannot_toggle_account_enabled()
+    {
+        var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs");
+        var start = source.IndexOf("public async Task UpdateInternalUserAccessAsync", StringComparison.Ordinal);
+        var end = source.IndexOf("private async Task PrepareInternalRoleVersionsAsync", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var method = source[start..end];
+        Assert.DoesNotContain("request.AdminEnabled", method);
+        Assert.DoesNotContain("user.IsActive =", method);
     }
 
     [Fact]

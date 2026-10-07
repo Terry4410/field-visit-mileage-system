@@ -12,14 +12,13 @@ public static class V170AccessRules
            && (!effectiveTo.HasValue || effectiveTo.Value >= date);
 
     /// <summary>
-    /// Null means legacy user with no HR employment record yet.
-    /// During migration that remains eligible so v1.6.1 accounts do not
-    /// unexpectedly lose access before HR sync is introduced.
+    /// Internal users require an effective HR employment status.
+    /// Missing status is a data-readiness error and must not grant access.
     /// </summary>
     public static bool IsEmploymentEligible(string? employmentStatus)
     {
         if (string.IsNullOrWhiteSpace(employmentStatus))
-            return true;
+            return false;
 
         return string.Equals(
             employmentStatus,
@@ -49,14 +48,14 @@ public static class V170AccessRules
         DateOnly? authorizationTo,
         DateOnly date)
     {
-        if (!adminEnabled)
-            return false;
-
         if (string.Equals(
                 userType,
                 UserTypes.External,
                 StringComparison.OrdinalIgnoreCase))
         {
+            if (!adminEnabled)
+                return false;
+
             return IsExternalAuthorizationEffective(
                 authorizationFrom,
                 authorizationTo,

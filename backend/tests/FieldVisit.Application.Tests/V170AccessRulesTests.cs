@@ -18,9 +18,9 @@ public sealed class V170AccessRulesTests
     }
 
     [Fact]
-    public void Legacy_User_Without_Hr_Record_Remains_Eligible()
+    public void Internal_User_Without_Effective_Hr_Status_Is_Blocked()
     {
-        Assert.True(V170AccessRules.IsEmploymentEligible(null));
+        Assert.False(V170AccessRules.IsEmploymentEligible(null));
     }
 
     [Theory]
@@ -60,14 +60,26 @@ public sealed class V170AccessRulesTests
     }
 
     [Fact]
-    public void Admin_Disable_Overrides_Other_Eligibility()
+    public void Internal_Active_Hr_Status_Is_Login_Source_Of_Truth()
     {
-        Assert.False(V170AccessRules.IsSystemAccessAllowed(
+        Assert.True(V170AccessRules.IsSystemAccessAllowed(
             false,
             EmploymentStatuses.Active,
             UserTypes.Internal,
             null,
             null,
+            Today));
+    }
+
+    [Fact]
+    public void External_Admin_Disable_Remains_Effective()
+    {
+        Assert.False(V170AccessRules.IsSystemAccessAllowed(
+            false,
+            null,
+            UserTypes.External,
+            new DateOnly(2026, 1, 1),
+            new DateOnly(2026, 12, 31),
             Today));
     }
 }

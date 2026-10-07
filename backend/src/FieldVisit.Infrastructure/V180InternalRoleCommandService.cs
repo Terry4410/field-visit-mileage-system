@@ -7,7 +7,6 @@ namespace FieldVisit.Infrastructure;
 
 public sealed record V180InternalRoleAccessRequest(
     IReadOnlyList<string> Roles,
-    bool AdminEnabled,
     DateOnly EffectiveFrom);
 
 public sealed class V180InternalRoleCommandService(
@@ -22,12 +21,12 @@ public sealed class V180InternalRoleCommandService(
     {
         var admin = current.GetRequired();
         if (!admin.Roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase)))
-            throw new UnauthorizedAccessException("只有管理者可以維護角色與帳號。");
+            throw new UnauthorizedAccessException("只有管理者可以維護角色。");
         var orgId = admin.OrganizationId
             ?? throw new UnauthorizedAccessException("管理者缺少 Organization 範圍。");
         var today = BusinessTime.Today;
         if (request.EffectiveFrom != today)
-            throw new InvalidOperationException("一般角色／帳號維護只允許今天生效；回溯或未來排程請使用正式授權流程。");
+            throw new InvalidOperationException("一般角色維護只允許今天生效；回溯或未來排程請使用正式授權流程。");
 
         var roles = (request.Roles ?? [])
             .Select(x => x.Trim().ToLowerInvariant())
@@ -87,7 +86,6 @@ public sealed class V180InternalRoleCommandService(
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var now = DateTime.UtcNow;
-            var trackedUser = await db.Users.SingleAsync(x => x.UserId == userId && x.OrganizationId == orgId, ct);
             var current = await db.UserRoleAssignments.Where(x =>
                 x.UserId == userId
                 && x.EffectiveFrom <= request.EffectiveFrom
@@ -119,16 +117,14 @@ public sealed class V180InternalRoleCommandService(
             foreach (var role in targetRoles)
                 db.UserRoles.Add(new UserRole { UserId = userId, RoleId = role.RoleId, AssignedAt = now });
 
-            trackedUser.IsActive = request.AdminEnabled;
-            trackedUser.UpdatedAt = now;
             db.AuditLogs.Add(new AuditLog
             {
                 UserId = admin.UserId,
                 EntityType = "UserRoleAssignment",
                 EntityId = userId.ToString(),
-                Action = request.AdminEnabled ? "RoleAccountUpdate" : "RoleAccountDisable",
-                OldValues = JsonSerializer.Serialize(new { RoleIds = oldRoleIds, user.IsActive }),
-                NewValues = JsonSerializer.Serialize(new { Roles = roles, request.AdminEnabled, request.EffectiveFrom }),
+                Action = "RoleUpdate",
+                OldValues = JsonSerializer.Serialize(new { RoleIds = oldRoleIds }),
+                NewValues = JsonSerializer.Serialize(new { Roles = roles, request.EffectiveFrom }),
                 CreatedAt = now
             });
             await db.SaveChangesAsync(ct);
