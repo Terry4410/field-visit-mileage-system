@@ -45,6 +45,21 @@ public sealed class V180AdminInformationArchitectureTests
     }
 
     [Fact]
+    public void Legacy_admin_workspaces_are_removed_after_single_owner_split()
+    {
+        var admin = ReadRepositoryFile("frontend/src/pages/AdminPage.tsx");
+
+        Assert.DoesNotContain("帳號啟用", admin);
+        Assert.DoesNotContain("<h2>專案主檔</h2>", admin);
+        Assert.DoesNotContain("<h2>更正流程</h2>", admin);
+        Assert.DoesNotContain("function Users(", admin);
+        Assert.DoesNotContain("function Projects(", admin);
+        Assert.DoesNotContain("function Corrections(", admin);
+        Assert.Contains("function VisitTypes(", admin);
+        Assert.Contains("<h2>拜訪形式</h2>", admin);
+    }
+
+    [Fact]
     public void Admin_ia_still_has_no_1800_011_migration()
     {
         var root = RepositoryRoot();
