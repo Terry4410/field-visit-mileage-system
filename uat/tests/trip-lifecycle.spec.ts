@@ -55,6 +55,8 @@ type TripDto = {
   ratePerKmSnapshot: number | null;
   approvedAmount: number | null;
   rowVersion: string;
+  routeCalculationAttemptId: number | null;
+  mileageSource: string | null;
 };
 
 type BackgroundJobDto = {
@@ -387,16 +389,35 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
     await ensureOk(pendingResponse, "load pending-approval trip");
     const pending = (await pendingResponse.json()) as TripDto;
     expect(pending.status).toBe("PendingApproval");
-    expect(pending.systemDistanceKm).toBe(9.7);
+    const googleEvidence =
+      pending.mileageSource === "GoogleMapsAPI" &&
+      pending.routeCalculationAttemptId !== null &&
+      Number(pending.systemDistanceKm) > 0;
+    if (googleEvidence) {
+      expect(Number(pending.systemDistanceKm)).toBeGreaterThan(0);
+    } else {
+      expect(pending.mileageSource).toBe("ManualFallback");
+      expect(pending.routeCalculationAttemptId).toBeNull();
+      expect(Number(pending.claimedDistanceKm)).toBeGreaterThan(0);
+    }
+    const approvedDistanceKm = googleEvidence
+      ? pending.systemDistanceKm!
+      : pending.claimedDistanceKm!;
 
     const approveResponse = await request.post(
       `${apiBaseUrl}/api/v1/trips/${tripId}/approve`,
       {
         headers: authHeaders(leader.accessToken, "leader"),
         data: {
-          approvedDistanceKm: pending.systemDistanceKm,
+          approvedDistanceKm,
           rowVersion: pending.rowVersion,
-          comments: "Automated Phase 2 UAT approval"
+          comments: "Automated Phase 2 UAT approval",
+          distanceDecisionSource: googleEvidence
+            ? "ProviderSuggested"
+            : "ManualFallback",
+          routeCalculationAttemptId: googleEvidence
+            ? pending.routeCalculationAttemptId
+            : null
         }
       }
     );
@@ -404,7 +425,7 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
     const approved = (await approveResponse.json()) as TripDto;
 
     expect(approved.status).toBe("Approved");
-    expect(approved.approvedDistanceKm).toBe(9.7);
+    expect(approved.approvedDistanceKm).toBe(approvedDistanceKm);
     expect(approved.ratePerKmSnapshot).not.toBeNull();
     expect(approved.approvedAmount).not.toBeNull();
 
@@ -423,7 +444,7 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
     expect(adminRow.status).toBe("Approved");
     expect(adminRow.isSnapshot).toBe(true);
     expect(adminRow.snapshotVersion).toBeGreaterThanOrEqual(1);
-    expect(adminRow.approvedDistanceKm).toBe(9.7);
+    expect(adminRow.approvedDistanceKm).toBe(approvedDistanceKm);
     expect(adminRow.subsidyAmount).toBe(expectedAmount);
 
     const supervisorRow = await queryTrip(
@@ -436,6 +457,7 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
     expect(supervisorRow.status).toBe("Approved");
     expect(supervisorRow.isSnapshot).toBe(true);
     expect(supervisorRow.snapshotVersion).toBeGreaterThanOrEqual(1);
+    expect(supervisorRow.approvedDistanceKm).toBe(approvedDistanceKm);
     expect(supervisorRow.subsidyAmount).toBe(expectedAmount);
   } finally {
     if (tripId !== null) {
