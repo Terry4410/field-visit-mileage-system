@@ -98,22 +98,38 @@ test("project and visit-type menus are separate and arrow order is server checke
   expect(names).toEqual(["會議", "拜訪"]);
 });
 
-test("mobile permission modal has an explicit close and releases page scroll", async ({ page }) => {
+test("mobile role/account modal has an explicit close and releases page scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await authenticatedAdmin(page, async (route, url) => {
-    if (!url.pathname.endsWith("/admin/users/search")) return false;
+    if (!url.pathname.endsWith("/admin/people")) return false;
     await json(route, {
-      items: [{ userId: 1, employeeNo: "A001", displayName: "UAT Admin", email: "admin@example.test", isActive: true, roles: ["admin"], teamScopes: [] }],
+      items: [{
+        userId: 1,
+        userCode: "UAT-A001",
+        userType: "Internal",
+        employeeNo: "A001",
+        displayName: "UAT Admin",
+        email: "admin@example.test",
+        employmentStatus: "Active",
+        adminEnabled: true,
+        actualAccess: true,
+        roles: ["admin"],
+        teamAssignments: [{ teamId: 10, teamCode: "T10", teamName: "Alpha", isPrimary: true }]
+      }],
       page: 1, pageSize: 50, totalCount: 1, totalPages: 1
     });
     return true;
   });
 
   await page.goto("./#/admin/users");
-  await page.getByRole("button", { name: "權限" }).click();
-  await expect(page.getByRole("dialog", { name: "人員權限" })).toBeVisible();
+  await page.getByRole("button", { name: "角色／帳號" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "角色／帳號｜UAT Admin", level: 3 })).toBeVisible();
+  await expect(dialog.getByRole("checkbox", { name: "管理者" })).toBeChecked();
+  await expect(dialog.getByRole("checkbox", { name: "帳號啟用" })).toBeChecked();
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
-  await page.getByRole("button", { name: "關閉人員權限視窗" }).click();
-  await expect(page.getByRole("dialog", { name: "人員權限" })).toBeHidden();
+  await dialog.getByRole("button", { name: "關閉", exact: true }).click();
+  await expect(dialog).toBeHidden();
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("");
 });
