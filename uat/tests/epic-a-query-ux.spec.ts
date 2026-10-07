@@ -98,7 +98,7 @@ test("project and visit-type menus are separate and arrow order is server checke
   expect(names).toEqual(["會議", "拜訪"]);
 });
 
-test("mobile role/account modal has an explicit close and releases page scroll", async ({ page }) => {
+test("mobile role/login modal has an explicit close and releases page scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await authenticatedAdmin(page, async (route, url) => {
     if (!url.pathname.endsWith("/admin/people")) return false;
@@ -121,13 +121,14 @@ test("mobile role/account modal has an explicit close and releases page scroll",
     return true;
   });
 
-  await page.goto("./#/admin/users");
-  await page.getByRole("button", { name: "角色／帳號" }).click();
+  await page.goto("./#/admin/users/roles");
+  await page.getByRole("button", { name: "維護角色" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("heading", { name: "角色／帳號｜UAT Admin", level: 3 })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "角色與登入｜UAT Admin", level: 3 })).toBeVisible();
   await expect(dialog.getByRole("checkbox", { name: "管理者" })).toBeChecked();
   await expect(dialog.getByText("實際登入：允許登入")).toBeVisible();
+  await expect(dialog.getByText(/管理小組：Alpha ★（唯讀）/)).toBeVisible();
   await expect(dialog.getByRole("checkbox", { name: "帳號啟用" })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
   await dialog.getByRole("button", { name: "關閉", exact: true }).click();
