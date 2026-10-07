@@ -73,7 +73,7 @@ public sealed class V180AdminInformationArchitectureTests
         Assert.Contains("官方據點進階維護", locationTabs);
         Assert.Contains("資料／官方標記", admin);
         Assert.Contains("includeInactive=true", projects);
-        Assert.DoesNotContain(`Team ${p.teamId}`, projects);
+        Assert.DoesNotContain("Team ${p.teamId}", projects);
     }
 
     [Fact]
