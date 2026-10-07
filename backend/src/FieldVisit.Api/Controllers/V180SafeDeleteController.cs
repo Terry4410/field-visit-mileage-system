@@ -33,6 +33,28 @@ public sealed class V180SafeDeleteController(
         return NoContent();
     }
 
+    [HttpGet("visit-types/{visitTypeId:int}/delete-impact")]
+    public Task<V180VisitTypeDeleteImpactDto> VisitTypeImpact(int visitTypeId,CancellationToken ct)
+        => service.VisitTypeImpactAsync(visitTypeId,ct);
+
+    [HttpDelete("visit-types/{visitTypeId:int}/permanent")]
+    public async Task<IActionResult> DeleteVisitType(int visitTypeId,CancellationToken ct)
+    {
+        await service.DeleteVisitTypeAsync(visitTypeId,ct);
+        return NoContent();
+    }
+
+    [HttpGet("mileage-rate-rules/{mileageRateRuleId:int}/delete-impact")]
+    public Task<V180MileageRateDeleteImpactDto> MileageRateImpact(int mileageRateRuleId,CancellationToken ct)
+        => service.MileageRateImpactAsync(mileageRateRuleId,ct);
+
+    [HttpDelete("mileage-rate-rules/{mileageRateRuleId:int}/permanent")]
+    public async Task<IActionResult> DeleteMileageRate(int mileageRateRuleId,CancellationToken ct)
+    {
+        await service.DeleteMileageRateAsync(mileageRateRuleId,ct);
+        return NoContent();
+    }
+
     [HttpGet("projects/{projectId:int}/delete-impact")]
     public Task<V180ProjectDeleteImpactDto> ProjectImpact(int projectId,CancellationToken ct)
         => service.ProjectImpactAsync(projectId,ct);

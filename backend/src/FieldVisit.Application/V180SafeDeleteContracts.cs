@@ -37,3 +37,22 @@ public sealed record V180ProjectDeleteImpactDto(
     int SnapshotStopReferenceCount,
     int ProjectLocationCount,
     string? Reason);
+
+
+public sealed record V180VisitTypeDeleteImpactDto(
+    int VisitTypeId,
+    string VisitTypeCode,
+    string VisitTypeName,
+    bool CanDelete,
+    int TripStopReferenceCount,
+    int SnapshotStopReferenceCount,
+    string? Reason);
+
+public sealed record V180MileageRateDeleteImpactDto(
+    int MileageRateRuleId,
+    string RuleName,
+    string VehicleType,
+    DateOnly EffectiveFrom,
+    bool CanDelete,
+    int MileageCalculationReferenceCount,
+    string? Reason);

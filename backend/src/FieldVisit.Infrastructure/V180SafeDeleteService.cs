@@ -124,6 +124,72 @@ public sealed class V180SafeDeleteService(
         await db.SaveChangesAsync(ct);
     }
 
+    public Task<V180VisitTypeDeleteImpactDto> VisitTypeImpactAsync(int visitTypeId,CancellationToken ct)
+        => VisitTypeImpactAsync(Admin(),visitTypeId,ct);
+
+    public async Task DeleteVisitTypeAsync(int visitTypeId,CancellationToken ct)
+    {
+        var admin=Admin();
+        var impact=await VisitTypeImpactAsync(admin,visitTypeId,ct);
+        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此拜訪形式不可永久刪除。");
+        var row=await db.VisitTypes.SingleAsync(x=>x.VisitTypeId==visitTypeId,ct);
+        db.VisitTypes.Remove(row);
+        db.AuditLogs.Add(new AuditLog{
+            UserId=admin.UserId,EntityType="VisitType",EntityId=visitTypeId.ToString(),
+            Action="VisitTypePermanentDelete",
+            NewValues=JsonSerializer.Serialize(new{impact.VisitTypeCode,impact.VisitTypeName}),
+            CreatedAt=DateTime.UtcNow
+        });
+        try{await db.SaveChangesAsync(ct);}
+        catch(DbUpdateException){throw new InvalidOperationException("此拜訪形式仍有歷史資料庫關聯，無法永久刪除；請改用停用。");}
+    }
+
+    public Task<V180MileageRateDeleteImpactDto> MileageRateImpactAsync(int mileageRateRuleId,CancellationToken ct)
+        => MileageRateImpactAsync(Admin(),mileageRateRuleId,ct);
+
+    public async Task DeleteMileageRateAsync(int mileageRateRuleId,CancellationToken ct)
+    {
+        var admin=Admin();
+        var impact=await MileageRateImpactAsync(admin,mileageRateRuleId,ct);
+        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此補助費率不可永久刪除。");
+        var row=await db.MileageRateRules.SingleAsync(
+            x=>x.MileageRateRuleId==mileageRateRuleId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
+        db.MileageRateRules.Remove(row);
+        db.AuditLogs.Add(new AuditLog{
+            UserId=admin.UserId,EntityType="MileageRateRule",EntityId=mileageRateRuleId.ToString(),
+            Action="MileageRatePermanentDelete",
+            NewValues=JsonSerializer.Serialize(new{impact.RuleName,impact.VehicleType,impact.EffectiveFrom}),
+            CreatedAt=DateTime.UtcNow
+        });
+        try{await db.SaveChangesAsync(ct);}
+        catch(DbUpdateException){throw new InvalidOperationException("此補助費率仍有歷史資料庫關聯，無法永久刪除；請改用停用。");}
+    }
+
+    private async Task<V180VisitTypeDeleteImpactDto> VisitTypeImpactAsync(CurrentUserDto admin,int visitTypeId,CancellationToken ct)
+    {
+        _=admin;
+        var row=await db.VisitTypes.AsNoTracking().SingleOrDefaultAsync(x=>x.VisitTypeId==visitTypeId,ct)
+            ??throw new KeyNotFoundException("找不到拜訪形式。");
+        var tripStops=await db.VisitTripStops.CountAsync(x=>x.VisitTypeId==visitTypeId,ct);
+        var snapshotStops=await db.VisitTripSnapshotStops.CountAsync(x=>x.VisitTypeId==visitTypeId,ct);
+        var canDelete=tripStops==0&&snapshotStops==0;
+        var reason=canDelete?null:
+            $"已有歷史使用：行程停靠 {tripStops}、Snapshot 停靠 {snapshotStops}。為保留歷史完整性，只能停用。";
+        return new(visitTypeId,row.VisitTypeCode,row.VisitTypeName,canDelete,tripStops,snapshotStops,reason);
+    }
+
+    private async Task<V180MileageRateDeleteImpactDto> MileageRateImpactAsync(CurrentUserDto admin,int mileageRateRuleId,CancellationToken ct)
+    {
+        var row=await db.MileageRateRules.AsNoTracking().SingleOrDefaultAsync(
+            x=>x.MileageRateRuleId==mileageRateRuleId&&x.OrganizationId==admin.OrganizationId!.Value,ct)
+            ??throw new KeyNotFoundException("找不到補助費率。");
+        var calculations=await db.MileageCalculations.CountAsync(x=>x.MileageRateRuleId==mileageRateRuleId,ct);
+        var canDelete=calculations==0;
+        var reason=canDelete?null:
+            $"已有 {calculations} 筆里程計算使用此費率版本。歷史 Snapshot／核准金額必須保留，只能停用。";
+        return new(mileageRateRuleId,row.RuleName,row.VehicleType,row.EffectiveFrom,canDelete,calculations,reason);
+    }
+
     private async Task<V180PersonDeleteImpactDto> PersonImpactAsync(CurrentUserDto admin,int userId,CancellationToken ct)
     {
         var user=await db.Users.AsNoTracking().SingleOrDefaultAsync(x=>x.UserId==userId&&x.OrganizationId==admin.OrganizationId!.Value,ct)

@@ -289,3 +289,13 @@ export interface ProjectDeleteImpact{
  tripStopReferenceCount:number;snapshotStopReferenceCount:number;projectLocationCount:number;
  reason?:string|null;
 }
+
+
+export interface VisitTypeDeleteImpact{
+ visitTypeId:number;visitTypeCode:string;visitTypeName:string;canDelete:boolean;
+ tripStopReferenceCount:number;snapshotStopReferenceCount:number;reason?:string|null;
+}
+export interface MileageRateDeleteImpact{
+ mileageRateRuleId:number;ruleName:string;vehicleType:string;effectiveFrom:string;canDelete:boolean;
+ mileageCalculationReferenceCount:number;reason?:string|null;
+}

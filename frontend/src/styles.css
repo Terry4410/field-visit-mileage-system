@@ -378,3 +378,13 @@
     justify-self:end
   }
 }
+
+/* Owner Pre-UAT: team membership adjustment stays readable on narrow screens. */
+.team-membership-item{grid-template-columns:minmax(160px,1fr) auto}
+.team-membership-summary{min-width:0}
+.team-membership-actions{justify-content:flex-end}
+@media(max-width:600px){
+  .team-membership-item{grid-template-columns:minmax(0,1fr)}
+  .team-membership-actions{grid-column:1;justify-content:flex-start}
+  .team-membership-actions .btn{flex:0 0 auto;min-width:0}
+}

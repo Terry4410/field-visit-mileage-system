@@ -60,6 +60,23 @@ public sealed class V180AdminInformationArchitectureTests
     }
 
     [Fact]
+    public void Owner_final_ui_corrections_keep_admin_responsibilities_clear()
+    {
+        var teams = ReadRepositoryFile("frontend/src/pages/TeamManagementPage.tsx");
+        var styles = ReadRepositoryFile("frontend/src/styles.css");
+        var locationTabs = ReadRepositoryFile("frontend/src/components/LocationAdminTabs.tsx");
+        var admin = ReadRepositoryFile("frontend/src/pages/AdminPage.tsx");
+        var projects = ReadRepositoryFile("frontend/src/pages/ProjectManagementPage.tsx");
+
+        Assert.Contains("team-membership-item", teams);
+        Assert.Contains(".team-membership-item", styles);
+        Assert.Contains("官方據點進階維護", locationTabs);
+        Assert.Contains("資料／官方標記", admin);
+        Assert.Contains("includeInactive=true", projects);
+        Assert.DoesNotContain(`Team ${p.teamId}`, projects);
+    }
+
+    [Fact]
     public void Admin_ia_still_has_no_1800_011_migration()
     {
         var root = RepositoryRoot();

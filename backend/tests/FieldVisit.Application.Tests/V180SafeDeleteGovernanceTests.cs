@@ -12,10 +12,14 @@ public sealed class V180SafeDeleteGovernanceTests
         Assert.Contains("PersonImpactAsync",service);
         Assert.Contains("TeamImpactAsync",service);
         Assert.Contains("ProjectImpactAsync",service);
+        Assert.Contains("VisitTypeImpactAsync",service);
+        Assert.Contains("MileageRateImpactAsync",service);
         Assert.Contains("if(!impact.CanDelete)",service);
         Assert.Contains("PersonPermanentDelete",service);
         Assert.Contains("TeamPermanentDelete",service);
         Assert.Contains("ProjectPermanentDelete",service);
+        Assert.Contains("VisitTypePermanentDelete",service);
+        Assert.Contains("MileageRatePermanentDelete",service);
         Assert.Contains("delete-impact",controller);
         Assert.Contains("/permanent",controller);
         var root=Root();
@@ -44,12 +48,17 @@ public sealed class V180SafeDeleteGovernanceTests
         var people=Read("frontend/src/pages/PeopleAndAccessPage.tsx");
         var teams=Read("frontend/src/pages/TeamManagementPage.tsx");
         var projects=Read("frontend/src/pages/ProjectManagementPage.tsx");
+        var admin=Read("frontend/src/pages/AdminPage.tsx");
         Assert.Contains("/delete-impact",people);
         Assert.Contains("/permanent",people);
         Assert.Contains("/delete-impact",teams);
         Assert.Contains("/permanent",teams);
         Assert.Contains("/delete-impact",projects);
         Assert.Contains("/permanent",projects);
+        Assert.Contains("/admin/visit-types/",admin);
+        Assert.Contains("/admin/mileage-rate-rules/",admin);
+        Assert.Contains("deleteType",admin);
+        Assert.Contains("deleteRate",admin);
     }
 
     private static string Read(string path)=>
