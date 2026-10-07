@@ -27,6 +27,24 @@ public sealed class V180AdminInformationArchitectureTests
     }
 
     [Fact]
+    public void Project_admin_ia_starts_from_list_and_separates_bulk_and_fixed_locations()
+    {
+        var app = ReadRepositoryFile("frontend/src/App.tsx");
+        var page = ReadRepositoryFile("frontend/src/pages/ProjectManagementPage.tsx");
+        var tabs = ReadRepositoryFile("frontend/src/components/ProjectAdminTabs.tsx");
+
+        Assert.Contains("/admin/projects/bulk", app);
+        Assert.Contains("專案清單", tabs);
+        Assert.Contains("Excel 批次維護", tabs);
+        Assert.Contains("＋新增專案", page);
+        Assert.Contains("維護專案", page);
+        Assert.Contains("基本資料", page);
+        Assert.Contains("固定地點", page);
+        Assert.Contains("persistedAllowsLocations", page);
+        Assert.Contains("ProjectLocationManager", page);
+    }
+
+    [Fact]
     public void Admin_ia_still_has_no_1800_011_migration()
     {
         var root = RepositoryRoot();
