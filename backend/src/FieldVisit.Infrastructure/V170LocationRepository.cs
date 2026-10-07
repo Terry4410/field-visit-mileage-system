@@ -813,6 +813,176 @@ public sealed class V170LocationRepository(
         return await GetMaintenanceAsync(user,locationId,request.TeamId,ct);
     }
 
+    public async Task<PagedResult<V170LocationDuplicateReviewRowDto>> GetDuplicateReviewQueueAsync(
+        CurrentUserDto admin,
+        V170LocationDuplicateReviewSpec spec,
+        CancellationToken ct)
+    {
+        var org =
+            admin.OrganizationId
+            ?? throw new UnauthorizedAccessException(
+                "管理者缺少 Organization scope。");
+
+        var orgLocations =
+            db.Locations
+                .AsNoTracking()
+                .Where(x => x.OrganizationId == org);
+
+        var latestReview =
+            new Dictionary<int,(string Status,DateTime ReviewedAt)>();
+
+        IQueryable<Location> q = orgLocations;
+
+        if (spec.Status == "Pending")
+        {
+            q = q.Where(x =>
+                x.DuplicateOfLocationId == null
+                && x.DuplicateReason
+                    == V170LocationDuplicateRules.SuspectedReason);
+        }
+        else
+        {
+            var locationKeys =
+                (await orgLocations
+                    .Select(x => x.LocationId)
+                    .ToListAsync(ct))
+                .Select(x => x.ToString())
+                .ToList();
+
+            var audits =
+                await db.AuditLogs
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.EntityType == "Location"
+                        && x.EntityId != null
+                        && locationKeys.Contains(x.EntityId)
+                        && (x.Action == "LocationDuplicateDistinctConfirmed"
+                            || x.Action == "LocationMerge"))
+                    .OrderByDescending(x => x.CreatedAt)
+                    .ThenByDescending(x => x.AuditLogId)
+                    .Select(x => new
+                    {
+                        x.EntityId,
+                        x.Action,
+                        x.NewValues,
+                        x.CreatedAt
+                    })
+                    .ToListAsync(ct);
+
+            foreach (var audit in audits)
+            {
+                if (!int.TryParse(audit.EntityId,out var locationId)
+                    || latestReview.ContainsKey(locationId))
+                    continue;
+
+                var status =
+                    audit.Action == "LocationDuplicateDistinctConfirmed"
+                        ? "Distinct"
+                        : audit.NewValues?.Contains(
+                            "\"Mode\":\"UseExisting\"",
+                            StringComparison.Ordinal) == true
+                            ? "UseExisting"
+                            : "Merged";
+
+                latestReview[locationId] =
+                    (status,audit.CreatedAt);
+            }
+
+            var ids =
+                latestReview
+                    .Where(x => x.Value.Status == spec.Status)
+                    .Select(x => x.Key)
+                    .ToList();
+
+            q = q.Where(x =>
+                ids.Contains(x.LocationId)
+                && !(x.DuplicateOfLocationId == null
+                    && x.DuplicateReason
+                        == V170LocationDuplicateRules.SuspectedReason));
+        }
+
+        if (!string.IsNullOrWhiteSpace(spec.Q))
+        {
+            var keyword = spec.Q;
+            q = q.Where(x =>
+                (x.LocationCode != null && x.LocationCode.Contains(keyword))
+                || x.LocationName.Contains(keyword)
+                || (x.Address != null && x.Address.Contains(keyword))
+                || (x.PlusCode != null && x.PlusCode.Contains(keyword))
+                || (x.TaxId != null && x.TaxId.Contains(keyword)));
+        }
+
+        var total = await q.CountAsync(ct);
+
+        var rows =
+            await q
+                .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt)
+                .ThenByDescending(x => x.LocationId)
+                .Skip((spec.Page - 1) * spec.PageSize)
+                .Take(spec.PageSize)
+                .ToListAsync(ct);
+
+        var teamIds =
+            rows.Where(x => x.TeamId.HasValue)
+                .Select(x => x.TeamId!.Value)
+                .Distinct()
+                .ToList();
+
+        var teamNames =
+            await db.Teams.AsNoTracking()
+                .Where(x => teamIds.Contains(x.TeamId))
+                .ToDictionaryAsync(x => x.TeamId,x => x.TeamName,ct);
+
+        var survivorIds =
+            rows.Where(x => x.DuplicateOfLocationId.HasValue)
+                .Select(x => x.DuplicateOfLocationId!.Value)
+                .Distinct()
+                .ToList();
+
+        var survivorNames =
+            await db.Locations.AsNoTracking()
+                .Where(x => survivorIds.Contains(x.LocationId))
+                .ToDictionaryAsync(x => x.LocationId,x => x.LocationName,ct);
+
+        var result =
+            rows.Select(row =>
+            {
+                string? teamName = null;
+                if (row.TeamId.HasValue)
+                    teamNames.TryGetValue(row.TeamId.Value,out teamName);
+
+                string? survivorName = null;
+                if (row.DuplicateOfLocationId.HasValue)
+                    survivorNames.TryGetValue(row.DuplicateOfLocationId.Value,out survivorName);
+
+                DateTime? reviewedAt = null;
+                if (latestReview.TryGetValue(row.LocationId,out var review))
+                    reviewedAt = review.ReviewedAt;
+
+                return new V170LocationDuplicateReviewRowDto(
+                    row.LocationId,
+                    row.LocationCode,
+                    row.LocationName,
+                    teamName,
+                    row.Address,
+                    row.PlusCode,
+                    row.TaxId,
+                    spec.Status,
+                    row.DuplicateReason,
+                    row.DuplicateOfLocationId,
+                    survivorName,
+                    reviewedAt,
+                    B64(row.RowVersion));
+            })
+            .ToList();
+
+        return new PagedResult<V170LocationDuplicateReviewRowDto>(
+            result,
+            spec.Page,
+            spec.PageSize,
+            total);
+    }
+
     public async Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> GetDuplicateCandidatesAsync(
         CurrentUserDto admin,int locationId,CancellationToken ct)
     {

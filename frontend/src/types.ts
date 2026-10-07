@@ -117,6 +117,21 @@ export interface LocationMaintenance{
   addressAudit:LocationAudit[];
   rowVersion:string;
 }
+export interface LocationDuplicateReviewRow{
+  locationId:number;
+  locationCode?:string;
+  locationName:string;
+  teamName?:string;
+  address?:string;
+  plusCode?:string;
+  taxId?:string;
+  reviewStatus:string;
+  duplicateReason?:string;
+  duplicateOfLocationId?:number;
+  duplicateOfLocationName?:string;
+  reviewedAt?:string;
+  rowVersion:string;
+}
 export interface LocationDuplicateCandidate{
   locationId:number;
   locationCode?:string;

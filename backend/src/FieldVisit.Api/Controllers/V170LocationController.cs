@@ -119,6 +119,13 @@ public sealed class V170LocationController(
     public Task<V170LocationMaintenanceDto> AddNote(int locationId,V170LocationNoteRequest request,CancellationToken ct)
         => locations.AddNoteAsync(locationId,request,ct);
 
+    [HttpGet("duplicate-review")]
+    [Authorize(Roles = "admin")]
+    public Task<PagedResult<V170LocationDuplicateReviewRowDto>> DuplicateReview(
+        [FromQuery] V170LocationDuplicateReviewRequest request,
+        CancellationToken ct)
+        => locations.GetDuplicateReviewQueueAsync(request,ct);
+
     [HttpGet("{locationId:int}/duplicate-candidates")]
     [Authorize(Roles = "admin")]
     public Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> DuplicateCandidates(int locationId,CancellationToken ct)

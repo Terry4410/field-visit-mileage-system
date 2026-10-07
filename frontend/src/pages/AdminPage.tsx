@@ -1,11 +1,11 @@
 import{useEffect,useMemo,useState}from"react";
-import{NavLink}from"react-router-dom";
 import{api,apiDownload}from"../api";
 import{correctionChangeText}from"../correction-ui";
 import ProjectLocationManager from "../components/ProjectLocationManager";
 import LocationMaintenanceModal from "../components/LocationMaintenanceModal";
 import EmploymentMaintenanceModal from "../components/EmploymentMaintenanceModal";
 import OfficialSiteMaintenance from "../components/OfficialSiteMaintenance";
+import LocationAdminTabs from "../components/LocationAdminTabs";
 import type{AdminUserAccess,BackgroundJob,CorrectionRequest,DashboardSummary,ImportConfirmResult,ImportPreview,ManagedLocation,MileageRate,Project,ProjectLocationCount,Team,VisitType}from"../types";
 import{money,todayTaipei}from"../v160";
 
@@ -53,13 +53,6 @@ function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){
  return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待處理更正" value={d?.pendingCorrections??'—'} hint={d?.currentRatePerKm!=null?`目前費率 ${money(d.currentRatePerKm)}/km`:undefined}/></div>{msg&&<div className="note">{msg}</div>}</>
 }
 function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}){return <div className="card stat"><div className="label">{label}</div><div className="value">{value}</div>{hint&&<div className="hint">{hint}</div>}</div>}
-
-function LocationAdminTabs(){
- return <div className="actions" style={{marginBottom:14}}>
-  <NavLink end to="/admin/locations" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>地點主檔</NavLink>
-  <NavLink to="/admin/locations/official" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>官方據點進階維護</NavLink>
- </div>;
-}
 
 function Users({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
  const[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<AdminUserAccess|null>(null),[employmentUserId,setEmploymentUserId]=useState<number|null>(null),[active,setActive]=useState(true),[roles,setRoles]=useState<string[]>([]),[scopes,setScopes]=useState<Array<{teamId:number;isPrimary:boolean}>>([]);

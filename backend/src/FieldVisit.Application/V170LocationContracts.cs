@@ -152,6 +152,79 @@ public sealed record V170LocationNoteRequest(
     string Note,
     string? ChangeReason = null);
 
+public sealed record V170LocationDuplicateReviewRequest(
+    string Status = "Pending",
+    string? Q = null,
+    int Page = 1,
+    int PageSize = 20);
+
+public sealed record V170LocationDuplicateReviewSpec(
+    string Status,
+    string? Q,
+    int Page,
+    int PageSize);
+
+public sealed record V170LocationDuplicateReviewRowDto(
+    int LocationId,
+    string? LocationCode,
+    string LocationName,
+    string? TeamName,
+    string? Address,
+    string? PlusCode,
+    string? TaxId,
+    string ReviewStatus,
+    string? DuplicateReason,
+    int? DuplicateOfLocationId,
+    string? DuplicateOfLocationName,
+    DateTime? ReviewedAt,
+    string RowVersion);
+
+public static class V170LocationDuplicateReviewRules
+{
+    private static readonly HashSet<string> AllowedStatuses =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Pending",
+            "Distinct",
+            "UseExisting",
+            "Merged"
+        };
+
+    public static V170LocationDuplicateReviewSpec Normalize(
+        V170LocationDuplicateReviewRequest request)
+    {
+        var status =
+            string.IsNullOrWhiteSpace(request.Status)
+                ? "Pending"
+                : request.Status.Trim();
+
+        var canonicalStatus =
+            AllowedStatuses.FirstOrDefault(x =>
+                x.Equals(
+                    status,
+                    StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                "Duplicate review status 不正確。");
+
+        var q =
+            string.IsNullOrWhiteSpace(request.Q)
+                ? null
+                : request.Q.Trim();
+
+        var page = Math.Max(1, request.Page);
+        var pageSize =
+            request.PageSize is 20 or 50 or 100
+                ? request.PageSize
+                : 20;
+
+        return new V170LocationDuplicateReviewSpec(
+            canonicalStatus,
+            q,
+            page,
+            pageSize);
+    }
+}
+
 public sealed record V170LocationDuplicateCandidateDto(
     int LocationId,
     string? LocationCode,

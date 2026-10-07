@@ -144,6 +144,13 @@ public sealed class V170LocationService(
         return await locations.AddNoteAsync(user,V170LocationPickerRules.EnsureLocationId(locationId),request with { Note=request.Note.Trim() },ct);
     }
 
+    public Task<PagedResult<V170LocationDuplicateReviewRowDto>> GetDuplicateReviewQueueAsync(
+        V170LocationDuplicateReviewRequest request,CancellationToken ct)
+        => locations.GetDuplicateReviewQueueAsync(
+            RequireAdmin(),
+            V170LocationDuplicateReviewRules.Normalize(request),
+            ct);
+
     public Task<IReadOnlyList<V170LocationDuplicateCandidateDto>> GetDuplicateCandidatesAsync(
         int locationId,CancellationToken ct)
         => locations.GetDuplicateCandidatesAsync(RequireAdmin(),V170LocationPickerRules.EnsureLocationId(locationId),ct);
