@@ -23,7 +23,7 @@ public sealed class V180PeopleResponsibilitySplitTests
         Assert.DoesNotContain("帳號啟用", source);
         Assert.DoesNotContain("setEnabled", source);
         Assert.Contains("實際登入", source);
-        Assert.Contains("小組歸屬（唯讀）", source);
+        Assert.Contains("管理小組（唯讀）", source);
     }
 
     [Fact]
