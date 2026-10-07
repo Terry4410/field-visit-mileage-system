@@ -63,6 +63,21 @@ public sealed class V180PeopleResponsibilitySplitTests
     }
 
     [Fact]
+    public void Internal_login_denial_reason_is_hr_driven_and_account_disabled_is_external_only()
+    {
+        var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/V170AccessControl.cs");
+
+        var externalBranch = source.IndexOf("UserTypes.External", StringComparison.Ordinal);
+        var disabledReason = source.IndexOf("此帳號未啟用。", StringComparison.Ordinal);
+        var missingHrReason = source.IndexOf("缺少有效人事狀態，無法登入系統。", StringComparison.Ordinal);
+
+        Assert.True(externalBranch >= 0);
+        Assert.True(disabledReason > externalBranch);
+        Assert.True(missingHrReason > disabledReason);
+        Assert.Contains("string.IsNullOrWhiteSpace(employmentStatus)", source);
+    }
+
+    [Fact]
     public void Dedicated_personnel_bulk_uses_usercode_as_identity_and_keeps_employee_number_editable()
     {
         var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/V180PersonnelBulkService.cs");

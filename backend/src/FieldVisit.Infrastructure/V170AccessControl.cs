@@ -90,17 +90,17 @@ public sealed class V170AccessControl(AppDbContext db)
 
         string reason;
 
-        if (!adminEnabled)
+        if (string.Equals(
+                userType,
+                UserTypes.External,
+                StringComparison.OrdinalIgnoreCase))
         {
-            reason = "此帳號未啟用。";
-        }
-        else if (string.Equals(
-                     userType,
-                     UserTypes.External,
-                     StringComparison.OrdinalIgnoreCase))
-        {
-            if (identity?.AuthorizationFrom is { } from
-                && from > today)
+            if (!adminEnabled)
+            {
+                reason = "此帳號未啟用。";
+            }
+            else if (identity?.AuthorizationFrom is { } from
+                     && from > today)
             {
                 reason = "外部帳號尚未到授權生效日。";
             }
@@ -113,6 +113,10 @@ public sealed class V170AccessControl(AppDbContext db)
             {
                 reason = "目前外部帳號授權狀態不允許登入。";
             }
+        }
+        else if (string.IsNullOrWhiteSpace(employmentStatus))
+        {
+            reason = "缺少有效人事狀態，無法登入系統。";
         }
         else
         {
