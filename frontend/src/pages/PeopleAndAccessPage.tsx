@@ -31,7 +31,7 @@ function PersonnelList(){
  const validDates=(!hireFrom||!hireTo||hireFrom<=hireTo)&&(!terminationFrom||!terminationTo||terminationFrom<=terminationTo)&&(!historyFrom||!historyTo||historyFrom<=historyTo);
  const query=usePagedQuery<V170PeopleRow>("/admin/people",{userType:"Internal",keyword,employmentStatus:employmentStatus||undefined,hireFrom:hireFrom||undefined,hireTo:hireTo||undefined,terminationFrom:terminationFrom||undefined,terminationTo:terminationTo||undefined,historicalEmploymentStatus:historyStatus||undefined,employmentStatusFrom:historyStatus&&historyFrom?historyFrom:undefined,employmentStatusTo:historyStatus&&historyTo?historyTo:undefined,primaryDeploymentSiteId:primarySiteId?Number(primarySiteId):undefined,teamId:teamId?Number(teamId):undefined,dataIssue:dataIssue||undefined,sort:"code_asc"},validDates);
  useEffect(()=>{Promise.all([api<Team[]>("/teams"),api<MasterDataRow[]>("/admin/master-data/deployment-sites"),api<MasterDataRow[]>("/admin/master-data/centers")]).then(([t,s,c])=>{setTeams(t);setSites(s);setCenters(c)}).catch(e=>setLookupError(e instanceof Error?e.message:"查詢條件載入失敗"))},[]);
- const centerName=(code?:string)=>centers.find(c=>c.key===code)?.detail||code||"";
+ const centerName=(code?:string|null)=>centers.find(c=>c.key===code)?.detail||code||"";
  const setQuick=(status:string,issue="")=>{setEmploymentStatus(status);setDataIssue(issue)};
  const clearAdvanced=()=>{setHireFrom("");setHireTo("");setTerminationFrom("");setTerminationTo("");setHistoryStatus("");setHistoryFrom("");setHistoryTo("");setPrimarySiteId("");setTeamId("");setDataIssue("")};
  return <>
