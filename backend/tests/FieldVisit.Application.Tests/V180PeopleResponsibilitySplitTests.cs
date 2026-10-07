@@ -43,6 +43,24 @@ public sealed class V180PeopleResponsibilitySplitTests
     }
 
     [Fact]
+    public void Team_admin_ia_uses_explicit_member_workflow_and_keeps_hr_readonly()
+    {
+        var source = ReadRepositoryFile("frontend/src/pages/TeamManagementPage.tsx");
+        var app = ReadRepositoryFile("frontend/src/App.tsx");
+
+        Assert.Contains("小組設定", source);
+        Assert.Contains("成員配置", source);
+        Assert.Contains("Excel 批次維護", source);
+        Assert.Contains("＋加入小組成員", source);
+        Assert.Contains("主要派駐據點（唯讀）", source);
+        Assert.Contains("加入另一個小組", source);
+        Assert.Contains("設為主要", source);
+        Assert.Contains("移出此小組", source);
+        Assert.Contains("/admin/teams/members", app);
+        Assert.Contains("/admin/teams/bulk", app);
+    }
+
+    [Fact]
     public void Membership_command_updates_both_membership_models_but_not_roles()
     {
         var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs");
