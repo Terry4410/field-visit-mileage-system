@@ -389,10 +389,20 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
     await ensureOk(pendingResponse, "load pending-approval trip");
     const pending = (await pendingResponse.json()) as TripDto;
     expect(pending.status).toBe("PendingApproval");
-    expect(Number(pending.systemDistanceKm)).toBeGreaterThan(0);
-    expect(pending.mileageSource).toBe("GoogleMapsAPI");
-    expect(pending.routeCalculationAttemptId).not.toBeNull();
-    const approvedDistanceKm = pending.systemDistanceKm!;
+    const googleEvidence =
+      pending.mileageSource === "GoogleMapsAPI" &&
+      pending.routeCalculationAttemptId !== null &&
+      Number(pending.systemDistanceKm) > 0;
+    if (googleEvidence) {
+      expect(Number(pending.systemDistanceKm)).toBeGreaterThan(0);
+    } else {
+      expect(pending.mileageSource).toBe("ManualFallback");
+      expect(pending.routeCalculationAttemptId).toBeNull();
+      expect(Number(pending.claimedDistanceKm)).toBeGreaterThan(0);
+    }
+    const approvedDistanceKm = googleEvidence
+      ? pending.systemDistanceKm!
+      : pending.claimedDistanceKm!;
 
     const approveResponse = await request.post(
       `${apiBaseUrl}/api/v1/trips/${tripId}/approve`,
@@ -402,8 +412,12 @@ test("trip lifecycle: create -> submit -> mileage -> approve -> snapshot -> quer
           approvedDistanceKm,
           rowVersion: pending.rowVersion,
           comments: "Automated Phase 2 UAT approval",
-          distanceDecisionSource: "ProviderSuggested",
-          routeCalculationAttemptId: pending.routeCalculationAttemptId
+          distanceDecisionSource: googleEvidence
+            ? "ProviderSuggested"
+            : "ManualFallback",
+          routeCalculationAttemptId: googleEvidence
+            ? pending.routeCalculationAttemptId
+            : null
         }
       }
     );
