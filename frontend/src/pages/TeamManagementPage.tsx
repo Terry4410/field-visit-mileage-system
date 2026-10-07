@@ -1,7 +1,7 @@
 import{useEffect,useState}from"react";
 import{NavLink}from"react-router-dom";
 import{api}from"../api";
-import type{ManagedTeam,V170PeopleRow}from"../types";
+import type{ManagedTeam,TeamDeleteImpact,V170PeopleRow}from"../types";
 import{usePagedQuery}from"../use-query";
 import{Pagination}from"../components/QueryControls";
 import{todayTaipei}from"../v160";
@@ -35,13 +35,14 @@ function TeamSettings(){
  const close=()=>{if(!busy){setModalOpen(false);resetForm()}};
  const save=async()=>{if(!code.trim()||!name.trim())return setMsg("小組代碼與小組名稱必填。");setBusy(true);setMsg("");try{const body=JSON.stringify({teamCode:code.trim().toUpperCase(),teamName:name.trim(),isActive:edit?active:true});if(edit)await api(`/admin/teams/${edit.teamId}`,{method:"PUT",body});else await api("/admin/teams",{method:"POST",body});setMsg(edit?"小組已更新。":"小組已新增。");setModalOpen(false);resetForm();query.reload()}catch(e){setMsg(e instanceof Error?e.message:"儲存失敗")}finally{setBusy(false)}};
  const deactivate=async(t:ManagedTeam)=>{if(!window.confirm(`確定停用小組「${t.teamName}」？歷史資料不會刪除。`))return;setBusy(true);setMsg("");try{await api(`/admin/teams/${t.teamId}`,{method:"DELETE"});setMsg("小組已停用。");query.reload()}catch(e){setMsg(e instanceof Error?e.message:"停用失敗")}finally{setBusy(false)}};
+ const deleteTeam=async(t:ManagedTeam)=>{setBusy(true);setMsg("");try{const impact=await api<TeamDeleteImpact>(`/admin/teams/${t.teamId}/delete-impact`);if(!impact.canDelete){setMsg(impact.reason||"此小組已有歷史資料，只能停用。");return}if(!window.confirm(`永久刪除小組「${t.teamName}」？\n\n此動作只允許完全沒有歷史引用的小組，且無法復原。`))return;await api(`/admin/teams/${t.teamId}/permanent`,{method:"DELETE"});setMsg(`小組「${t.teamName}」已永久刪除。`);query.reload()}catch(e){setMsg(e instanceof Error?e.message:"小組刪除失敗")}finally{setBusy(false)}};
  return <>
   <Tabs/>
   <div className="card">
    <div className="section-title"><div><h2>小組設定</h2><div className="sub">這裡只管理小組主檔；成員歸屬請到「成員配置」。</div></div><button className="btn" onClick={openNew}>＋新增小組</button></div>
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}{query.error&&<div className="note danger-note">{query.error}</div>}
    <div className="grid cols-2"><label>小組搜尋<input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="小組代碼或名稱"/></label><label>小組狀態<select value={filterActive} onChange={e=>setFilterActive(e.target.value)}><option value="">全部</option><option value="true">啟用</option><option value="false">停用</option></select></label></div>
-   <div className="table-wrap"><table><thead><tr><th>代碼</th><th>小組名稱</th><th>狀態</th><th>目前成員數</th><th>操作</th></tr></thead><tbody>{query.data.items.map(t=><tr key={t.teamId} className={t.isActive?"":"team-inactive"}><td>{t.teamCode}</td><td>{t.teamName}</td><td>{t.isActive?"啟用":"停用"}</td><td>{t.memberCount}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>openEdit(t)}>維護</button>{t.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivate(t)}>停用</button>}<NavLink className="btn small outline" to="/admin/teams/members">成員配置</NavLink></div></td></tr>)}</tbody></table></div>
+   <div className="table-wrap"><table><thead><tr><th>代碼</th><th>小組名稱</th><th>狀態</th><th>目前成員數</th><th>操作</th></tr></thead><tbody>{query.data.items.map(t=><tr key={t.teamId} className={t.isActive?"":"team-inactive"}><td>{t.teamCode}</td><td>{t.teamName}</td><td>{t.isActive?"啟用":"停用"}</td><td>{t.memberCount}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>openEdit(t)}>維護</button>{t.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivate(t)}>停用</button>}<button className="btn small danger" disabled={busy} onClick={()=>void deleteTeam(t)}>刪除</button><NavLink className="btn small outline" to="/admin/teams/members">成員配置</NavLink></div></td></tr>)}</tbody></table></div>
    <Pagination {...query.data} page={query.page} pageSize={query.pageSize} busy={query.loading||busy} onPage={query.setPage} onPageSize={query.setPageSize}/>
   </div>
   {modalOpen&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)close()}}><div className="modal-panel" role="dialog" aria-modal="true"><button className="btn small outline modal-close" disabled={busy} onClick={close}>關閉</button><h3>{edit?"修改小組":"新增小組"}</h3><div className="field"><label>小組代碼</label><input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="例如 TEAM-001"/></div><div className="field"><label>小組名稱</label><input value={name} onChange={e=>setName(e.target.value)} placeholder="例如 北區第一組"/></div>{edit&&<label className="check-row"><input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)}/>啟用小組</label>}<div className="actions" style={{marginTop:14}}><button className="btn ok" disabled={busy} onClick={()=>void save()}>{edit?"儲存修改":"新增小組"}</button><button className="btn outline" disabled={busy} onClick={close}>取消</button></div></div></div>}

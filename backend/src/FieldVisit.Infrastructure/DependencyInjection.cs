@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddScoped<V180CorrectionMileageService>();
         services.AddScoped<V180TeamMembershipCommandService>();
         services.AddScoped<V180InternalRoleCommandService>();
+        services.AddScoped<V180SafeDeleteService>();
         services.AddHttpClient<GoogleMapsRouteProvider>();
         services.AddHttpClient<GoogleMapsGeocodingProvider>();
 

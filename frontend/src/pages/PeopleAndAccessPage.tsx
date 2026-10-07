@@ -1,7 +1,7 @@
 import{useEffect,useState}from"react";
 import{NavLink}from"react-router-dom";
 import{api}from"../api";
-import type{MasterDataRow,Team,V170PeopleRow}from"../types";
+import type{MasterDataRow,PersonDeleteImpact,Team,V170PeopleRow}from"../types";
 import{usePagedQuery}from"../use-query";
 import{Pagination}from"../components/QueryControls";
 import{todayTaipei}from"../v160";
@@ -27,13 +27,14 @@ export default function PeopleAndAccessPage({mode="people"}:Props){
 }
 
 function PersonnelList(){
- const[keyword,setKeyword]=useState(""),[employmentStatus,setEmploymentStatus]=useState(""),[hireFrom,setHireFrom]=useState(""),[hireTo,setHireTo]=useState(""),[terminationFrom,setTerminationFrom]=useState(""),[terminationTo,setTerminationTo]=useState(""),[historyStatus,setHistoryStatus]=useState(""),[historyFrom,setHistoryFrom]=useState(""),[historyTo,setHistoryTo]=useState(""),[primarySiteId,setPrimarySiteId]=useState(""),[teamId,setTeamId]=useState(""),[dataIssue,setDataIssue]=useState(""),[advanced,setAdvanced]=useState(false),[employmentUserId,setEmploymentUserId]=useState<number|null>(null),[teams,setTeams]=useState<Team[]>([]),[sites,setSites]=useState<MasterDataRow[]>([]),[centers,setCenters]=useState<MasterDataRow[]>([]),[lookupError,setLookupError]=useState("");
+ const[keyword,setKeyword]=useState(""),[employmentStatus,setEmploymentStatus]=useState(""),[hireFrom,setHireFrom]=useState(""),[hireTo,setHireTo]=useState(""),[terminationFrom,setTerminationFrom]=useState(""),[terminationTo,setTerminationTo]=useState(""),[historyStatus,setHistoryStatus]=useState(""),[historyFrom,setHistoryFrom]=useState(""),[historyTo,setHistoryTo]=useState(""),[primarySiteId,setPrimarySiteId]=useState(""),[teamId,setTeamId]=useState(""),[dataIssue,setDataIssue]=useState(""),[advanced,setAdvanced]=useState(false),[employmentUserId,setEmploymentUserId]=useState<number|null>(null),[teams,setTeams]=useState<Team[]>([]),[sites,setSites]=useState<MasterDataRow[]>([]),[centers,setCenters]=useState<MasterDataRow[]>([]),[lookupError,setLookupError]=useState(""),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false);
  const validDates=(!hireFrom||!hireTo||hireFrom<=hireTo)&&(!terminationFrom||!terminationTo||terminationFrom<=terminationTo)&&(!historyFrom||!historyTo||historyFrom<=historyTo);
  const query=usePagedQuery<V170PeopleRow>("/admin/people",{userType:"Internal",keyword,employmentStatus:employmentStatus||undefined,hireFrom:hireFrom||undefined,hireTo:hireTo||undefined,terminationFrom:terminationFrom||undefined,terminationTo:terminationTo||undefined,historicalEmploymentStatus:historyStatus||undefined,employmentStatusFrom:historyStatus&&historyFrom?historyFrom:undefined,employmentStatusTo:historyStatus&&historyTo?historyTo:undefined,primaryDeploymentSiteId:primarySiteId?Number(primarySiteId):undefined,teamId:teamId?Number(teamId):undefined,dataIssue:dataIssue||undefined,sort:"code_asc"},validDates);
  useEffect(()=>{Promise.all([api<Team[]>("/teams"),api<MasterDataRow[]>("/admin/master-data/deployment-sites"),api<MasterDataRow[]>("/admin/master-data/centers")]).then(([t,s,c])=>{setTeams(t);setSites(s);setCenters(c)}).catch(e=>setLookupError(e instanceof Error?e.message:"查詢條件載入失敗"))},[]);
  const centerName=(code?:string|null)=>centers.find(c=>c.key===code)?.detail||code||"";
  const setQuick=(status:string,issue="")=>{setEmploymentStatus(status);setDataIssue(issue)};
  const clearAdvanced=()=>{setHireFrom("");setHireTo("");setTerminationFrom("");setTerminationTo("");setHistoryStatus("");setHistoryFrom("");setHistoryTo("");setPrimarySiteId("");setTeamId("");setDataIssue("")};
+ const deletePerson=async(u:V170PeopleRow)=>{setBusy(true);setMsg("");try{const impact=await api<PersonDeleteImpact>(`/admin/people/${u.userId}/delete-impact`);if(!impact.canDelete){setMsg(impact.reason||"此人員已有歷史資料，無法永久刪除；請改用離職／歷史資料管理。");return}if(!window.confirm(`永久刪除「${u.displayName}」？\n\n此動作只允許沒有任何業務／歷史引用的人員，且無法復原。`))return;await api(`/admin/people/${u.userId}/permanent`,{method:"DELETE"});if(employmentUserId===u.userId)setEmploymentUserId(null);setMsg(`${u.displayName} 已永久刪除。`);query.reload()}catch(e){setMsg(e instanceof Error?e.message:"人員刪除失敗")}finally{setBusy(false)}};
  return <>
   <Tabs/>
   <div className="card">
@@ -60,9 +61,10 @@ function PersonnelList(){
     <div className="actions"><button type="button" className="btn small outline" onClick={clearAdvanced}>清除進階條件</button></div>
    </div>}
    {!validDates&&<div role="alert" className="note danger-note">日期區間的迄日不可早於起日。</div>}
+   {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}
    {lookupError&&<div className="note danger-note">{lookupError}</div>}
    {query.error&&<div className="note danger-note">{query.error}</div>}
-   <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>目前人事狀態</th><th>入職日</th><th>離職日</th><th>主要派駐據點</th><th>管理小組（唯讀）</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td>{u.employeeNo||u.userCode}</td><td><strong>{u.displayName}</strong><div className="sub">{u.email||"—"}</div></td><td>{u.employmentStatus||"資料不完整"}</td><td>{u.hireDate||"—"}</td><td>{u.terminationDate||"—"}</td><td>{primarySiteLabel(u)}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td><button className="btn small secondary" onClick={()=>setEmploymentUserId(u.userId)}>維護人事資料</button></td></tr>)}</tbody></table></div>
+   <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>目前人事狀態</th><th>入職日</th><th>離職日</th><th>主要派駐據點</th><th>管理小組（唯讀）</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td>{u.employeeNo||u.userCode}</td><td><strong>{u.displayName}</strong><div className="sub">{u.email||"—"}</div></td><td>{u.employmentStatus||"資料不完整"}</td><td>{u.hireDate||"—"}</td><td>{u.terminationDate||"—"}</td><td>{primarySiteLabel(u)}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td><div className="actions"><button className="btn small secondary" disabled={busy} onClick={()=>setEmploymentUserId(u.userId)}>維護人事資料</button><button className="btn small danger" disabled={busy} onClick={()=>void deletePerson(u)}>刪除</button></div></td></tr>)}</tbody></table></div>
    <Pagination {...query.data} page={query.page} pageSize={query.pageSize} busy={query.loading} onPage={query.setPage} onPageSize={query.setPageSize}/>
   </div>
   {employmentUserId!==null&&<EmploymentMaintenanceModal userId={employmentUserId} onClose={()=>setEmploymentUserId(null)} onChanged={()=>query.reload()}/>}

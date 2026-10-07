@@ -270,3 +270,22 @@ export interface ProjectLocationCandidateResult{
   totalCount:number;
   hasNextPage:boolean;
 }
+
+
+export interface PersonDeleteImpact{
+ userId:number;userCode:string;displayName:string;canDelete:boolean;
+ tripReferenceCount:number;snapshotReferenceCount:number;workflowReferenceCount:number;
+ auditReferenceCount:number;leadershipReferenceCount:number;administrativeReferenceCount:number;
+ reason?:string|null;
+}
+export interface TeamDeleteImpact{
+ teamId:number;teamCode:string;teamName:string;canDelete:boolean;
+ membershipReferenceCount:number;scopeReferenceCount:number;projectReferenceCount:number;
+ locationReferenceCount:number;tripReferenceCount:number;snapshotReferenceCount:number;
+ structureReferenceCount:number;noteReferenceCount:number;reason?:string|null;
+}
+export interface ProjectDeleteImpact{
+ projectId:number;projectCode:string;projectName:string;canDelete:boolean;
+ tripStopReferenceCount:number;snapshotStopReferenceCount:number;projectLocationCount:number;
+ reason?:string|null;
+}

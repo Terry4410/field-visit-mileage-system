@@ -64,3 +64,53 @@ public sealed class TeamMembership
     public int? AssignedByUserId { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }
+
+
+public sealed class Person
+{
+    public long PersonId { get; set; }
+    public string DisplayName { get; set; } = "";
+    public int? LegacyUserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public int? UpdatedByUserId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
+}
+
+public sealed class EmploymentRoleAssignment
+{
+    public long EmploymentRoleAssignmentId { get; set; }
+    public long EmploymentId { get; set; }
+    public int RoleId { get; set; }
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public int? AssignedByUserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public byte[] RowVersion { get; set; } = [];
+}
+
+public sealed class TeamLeaderAssignment
+{
+    public long TeamLeaderAssignmentId { get; set; }
+    public int TeamId { get; set; }
+    public long EmploymentId { get; set; }
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public int? AssignedByUserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public byte[] RowVersion { get; set; } = [];
+}
+
+public sealed class TeamLeaderDelegation
+{
+    public long TeamLeaderDelegationId { get; set; }
+    public long TeamLeaderAssignmentId { get; set; }
+    public long DelegateEmploymentId { get; set; }
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly EffectiveTo { get; set; }
+    public string? Reason { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public byte[] RowVersion { get; set; } = [];
+}
