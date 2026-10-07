@@ -18,7 +18,7 @@ const routeBasisChanged=(r:CorrectionRequest)=>{
  }catch{return true}
 };
 const requiresRouteDecision=(r:CorrectionRequest)=>distanceChanged(r)||routeBasisChanged(r);
-const sameDistance=(a?:number,b?:number)=>a!=null&&b!=null&&Math.abs(a-b)<=0.01;
+const sameDistance=(a?:number|null,b?:number|null)=>a!=null&&b!=null&&Math.abs(a-b)<=0.01;
 const isDistanceMismatch=(state?:RouteState)=>state?.result?.errorCode==="CORRECTION_DISTANCE_MISMATCH";
 const hasManualFallback=(r:CorrectionRequest)=>(r.proposal.claimedDistanceKm??0)>0;
 
