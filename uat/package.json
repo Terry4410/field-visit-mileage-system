@@ -8,7 +8,8 @@
     "test:epic-a": "playwright test tests/epic-a-query-ux.spec.ts",
     "test:smoke": "playwright test tests/smoke.spec.ts",
     "test:internal-uat": "playwright test tests/trip-lifecycle.spec.ts tests/business-dry-run.spec.ts --retries=0",
-    "test:lifecycle": "playwright test tests/trip-lifecycle.spec.ts tests/business-dry-run.spec.ts --retries=0"
+    "test:lifecycle": "playwright test tests/trip-lifecycle.spec.ts tests/business-dry-run.spec.ts tests/visitor-business-e2e.spec.ts --retries=0",
+    "test:visitor-e2e": "playwright test tests/visitor-business-e2e.spec.ts --retries=0"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"
