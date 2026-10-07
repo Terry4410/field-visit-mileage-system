@@ -355,7 +355,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         b.Entity<TeamMembership>(e =>
         {
-            e.ToTable("TeamMemberships");
+            e.ToTable("TeamMemberships", table => table.UseSqlOutputClause(false));
             e.HasKey(x => x.TeamMembershipId);
             e.Property(x => x.TeamMembershipId).ValueGeneratedOnAdd();
             e.Property(x => x.ChangeReason).HasMaxLength(500);

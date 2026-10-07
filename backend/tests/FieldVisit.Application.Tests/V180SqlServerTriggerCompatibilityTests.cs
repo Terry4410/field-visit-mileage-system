@@ -49,6 +49,7 @@ public sealed class V180SqlServerTriggerCompatibilityTests
     [InlineData(typeof(RouteCalculationAttempt))]
     [InlineData(typeof(TeamCenterAssignment))]
     [InlineData(typeof(EmploymentStatusPeriod))]
+    [InlineData(typeof(TeamMembership))]
     [InlineData(typeof(DeploymentSite))]
     [InlineData(typeof(DeploymentSiteLocationAssignment))]
     [InlineData(typeof(TeamDeploymentSiteAssignment))]
