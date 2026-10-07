@@ -7,6 +7,7 @@ import {
   auth,
   cleanup,
   demoPassword,
+  deleteLocation,
   job,
   login,
   loginUi,
@@ -264,6 +265,7 @@ test("BUAT-VISITOR-E2E-01 visitor UI creates one-stop project visit, gets Google
 
   let master: UiMasterData | null = null;
   let tripId: number | null = null;
+  let temporaryLocationId: number | null = null;
   let backgroundJobId: string | null = null;
 
   try {
@@ -282,6 +284,8 @@ test("BUAT-VISITOR-E2E-01 visitor UI creates one-stop project visit, gets Google
 
     const { trip, preview } = await calculateRouteFromUi(page);
     tripId = trip.visitTripId;
+    temporaryLocationId = trip.stops[0]?.locationId ?? null;
+    expect(temporaryLocationId).not.toBeNull();
     expect(trip.purpose).toBe(purpose);
     expect(trip.stops).toHaveLength(1);
     expect(trip.stops[0].projectId).toBe(master.project.projectId);
@@ -324,6 +328,7 @@ test("BUAT-VISITOR-E2E-01 visitor UI creates one-stop project visit, gets Google
     expect(supervisorRows.items.some((x: any) => x.visitTripId === tripId)).toBe(true);
   } finally {
     if (tripId !== null) await cleanup(request, admin, tripId, purpose, backgroundJobId);
+    if (temporaryLocationId !== null) await deleteLocation(request, admin, temporaryLocationId);
     await permanentlyDeleteMasterData(request, admin, master);
   }
 });
@@ -343,6 +348,7 @@ test("BUAT-VISITOR-E2E-02 visitor UI exposes manual fallback after Google failur
 
   let master: UiMasterData | null = null;
   let tripId: number | null = null;
+  let temporaryLocationId: number | null = null;
   let backgroundJobId: string | null = null;
 
   try {
@@ -361,6 +367,8 @@ test("BUAT-VISITOR-E2E-02 visitor UI exposes manual fallback after Google failur
 
     const { trip, preview } = await calculateRouteFromUi(page);
     tripId = trip.visitTripId;
+    temporaryLocationId = trip.stops[0]?.locationId ?? null;
+    expect(temporaryLocationId).not.toBeNull();
     expect(trip.purpose).toBe(purpose);
     expect(preview.status).not.toBe("Succeeded");
 
@@ -413,6 +421,7 @@ test("BUAT-VISITOR-E2E-02 visitor UI exposes manual fallback after Google failur
     expect(row.snapshotVersion).toBeGreaterThanOrEqual(1);
   } finally {
     if (tripId !== null) await cleanup(request, admin, tripId, purpose, backgroundJobId);
+    if (temporaryLocationId !== null) await deleteLocation(request, admin, temporaryLocationId);
     await permanentlyDeleteMasterData(request, admin, master);
   }
 });
