@@ -43,6 +43,15 @@ public sealed class V180SafeDeleteGovernanceTests
     }
 
     [Fact]
+    public void Global_mileage_rates_are_read_only_in_admin_ui()
+    {
+        var admin=Read("frontend/src/pages/AdminPage.tsx");
+        Assert.Contains("const isSharedRate=(r:MileageRate)=>r.organizationId==null;",admin);
+        Assert.Contains("系統共用（唯讀）",admin);
+        Assert.Contains("系統共用費率為唯讀",admin);
+    }
+
+    [Fact]
     public void Safe_delete_actions_are_on_their_single_owner_workspaces()
     {
         var people=Read("frontend/src/pages/PeopleAndAccessPage.tsx");
