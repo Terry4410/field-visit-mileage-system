@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page, type Route } from "@playwright/test";
 import {
   apiBaseUrl,
   addDays,
@@ -120,7 +120,7 @@ async function permanentlyDeleteMasterData(
 async function injectAutomationPurpose(page: Page, purpose: string) {
   expect(purpose.startsWith("UAT-AUTO-")).toBe(true);
 
-  await page.route("**/api/v1/trips*", async route => {
+  const rewriteTripWrite = async (route: Route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
@@ -140,7 +140,10 @@ async function injectAutomationPurpose(page: Page, purpose: string) {
       },
       postData: JSON.stringify({ ...body, purpose })
     });
-  });
+  };
+
+  await page.route("**/api/v1/trips", rewriteTripWrite);
+  await page.route("**/api/v1/trips/*", rewriteTripWrite);
 }
 
 async function fillTripBasics(page: Page, safeSlot: any, purpose: string) {
