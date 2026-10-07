@@ -27,6 +27,22 @@ public sealed class V180PeopleResponsibilitySplitTests
     }
 
     [Fact]
+    public void People_admin_ia_separates_hr_role_and_bulk_workspaces()
+    {
+        var source = ReadRepositoryFile("frontend/src/pages/PeopleAndAccessPage.tsx");
+        var app = ReadRepositoryFile("frontend/src/App.tsx");
+
+        Assert.Contains("人事資料", source);
+        Assert.Contains("角色與登入", source);
+        Assert.Contains("Excel 批次維護", source);
+        Assert.Contains("/admin/users/roles", app);
+        Assert.Contains("主要派駐據點", source);
+        Assert.Contains("曾處於人事狀態", source);
+        Assert.Contains("管理小組（唯讀）", source);
+        Assert.DoesNotContain("角色／帳號", source);
+    }
+
+    [Fact]
     public void Membership_command_updates_both_membership_models_but_not_roles()
     {
         var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs");

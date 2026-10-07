@@ -65,24 +65,113 @@ public sealed class V170PeopleAdminRepository(
         if (!string.IsNullOrWhiteSpace(
                 request.EmploymentStatus))
         {
-            var status =
-                request.EmploymentStatus;
+            var status = request.EmploymentStatus;
 
-            q = q.Where(x =>
-                db.UserIdentityProfiles.Any(p =>
-                    p.UserId==x.UserId
-                    &&p.EmploymentId.HasValue
-                    &&db.EmploymentStatusPeriods.Any(e =>
-                        e.EmploymentId==p.EmploymentId.Value
-                        &&e.EmploymentStatus==status
-                        &&e.EffectiveFrom<=today
-                        &&(!e.EffectiveTo.HasValue||e.EffectiveTo>=today)))
-                ||(!db.UserIdentityProfiles.Any(p=>p.UserId==x.UserId&&p.EmploymentId.HasValue)
-                    &&db.UserEmploymentPeriods.Any(e =>
-                        e.UserId==x.UserId
-                        &&e.EmploymentStatus==status
-                        &&e.EffectiveFrom<=today
-                        &&(!e.EffectiveTo.HasValue||e.EffectiveTo>=today))));
+            if (status == EmploymentStatuses.Terminated)
+            {
+                q = q.Where(x =>
+                    db.UserIdentityProfiles.Any(p =>
+                        p.UserId == x.UserId
+                        && p.EmploymentId.HasValue
+                        && db.Employments.Any(e =>
+                            e.EmploymentId == p.EmploymentId.Value
+                            && e.OrganizationId == orgId
+                            && (
+                                (e.TerminationDate.HasValue
+                                    && e.TerminationDate.Value <= today)
+                                || (
+                                    (!e.TerminationDate.HasValue
+                                        || e.TerminationDate.Value > today)
+                                    && (!e.HireDate.HasValue
+                                        || e.HireDate.Value <= today)
+                                    && db.EmploymentStatusPeriods.Any(s =>
+                                        s.EmploymentId == e.EmploymentId
+                                        && s.EmploymentStatus == status
+                                        && s.EffectiveFrom <= today
+                                        && (!s.EffectiveTo.HasValue
+                                            || s.EffectiveTo.Value >= today))
+                                )
+                            )))
+                    || (
+                        !db.UserIdentityProfiles.Any(p =>
+                            p.UserId == x.UserId
+                            && p.EmploymentId.HasValue)
+                        && db.UserEmploymentPeriods.Any(s =>
+                            s.UserId == x.UserId
+                            && s.EmploymentStatus == status
+                            && s.EffectiveFrom <= today
+                            && (!s.EffectiveTo.HasValue
+                                || s.EffectiveTo.Value >= today))
+                    ));
+            }
+            else if (status == EmploymentStatuses.PreHire)
+            {
+                q = q.Where(x =>
+                    db.UserIdentityProfiles.Any(p =>
+                        p.UserId == x.UserId
+                        && p.EmploymentId.HasValue
+                        && db.Employments.Any(e =>
+                            e.EmploymentId == p.EmploymentId.Value
+                            && e.OrganizationId == orgId
+                            && (!e.TerminationDate.HasValue
+                                || e.TerminationDate.Value > today)
+                            && (
+                                (e.HireDate.HasValue
+                                    && e.HireDate.Value > today)
+                                || (
+                                    (!e.HireDate.HasValue
+                                        || e.HireDate.Value <= today)
+                                    && db.EmploymentStatusPeriods.Any(s =>
+                                        s.EmploymentId == e.EmploymentId
+                                        && s.EmploymentStatus == status
+                                        && s.EffectiveFrom <= today
+                                        && (!s.EffectiveTo.HasValue
+                                            || s.EffectiveTo.Value >= today))
+                                )
+                            )))
+                    || (
+                        !db.UserIdentityProfiles.Any(p =>
+                            p.UserId == x.UserId
+                            && p.EmploymentId.HasValue)
+                        && db.UserEmploymentPeriods.Any(s =>
+                            s.UserId == x.UserId
+                            && s.EmploymentStatus == status
+                            && s.EffectiveFrom <= today
+                            && (!s.EffectiveTo.HasValue
+                                || s.EffectiveTo.Value >= today))
+                    ));
+            }
+            else
+            {
+                q = q.Where(x =>
+                    db.UserIdentityProfiles.Any(p =>
+                        p.UserId == x.UserId
+                        && p.EmploymentId.HasValue
+                        && db.Employments.Any(e =>
+                            e.EmploymentId == p.EmploymentId.Value
+                            && e.OrganizationId == orgId
+                            && (!e.TerminationDate.HasValue
+                                || e.TerminationDate.Value > today)
+                            && (!e.HireDate.HasValue
+                                || e.HireDate.Value <= today)
+                            && db.EmploymentStatusPeriods.Any(s =>
+                                s.EmploymentId == e.EmploymentId
+                                && s.EmploymentStatus == status
+                                && s.EffectiveFrom <= today
+                                && (!s.EffectiveTo.HasValue
+                                    || s.EffectiveTo.Value >= today))))
+                    || (
+                        !db.UserIdentityProfiles.Any(p =>
+                            p.UserId == x.UserId
+                            && p.EmploymentId.HasValue)
+                        && db.UserEmploymentPeriods.Any(s =>
+                            s.UserId == x.UserId
+                            && s.EmploymentStatus == status
+                            && s.EffectiveFrom <= today
+                            && (!s.EffectiveTo.HasValue
+                                || s.EffectiveTo.Value >= today))
+                    ));
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(
@@ -133,6 +222,177 @@ public sealed class V170PeopleAdminRepository(
 
             q = q.Where(
                 x => x.IsActive == enabled);
+        }
+
+        if (request.HireFrom.HasValue
+            || request.HireTo.HasValue)
+        {
+            var from = request.HireFrom;
+            var to = request.HireTo;
+
+            q = q.Where(x =>
+                db.UserIdentityProfiles.Any(p =>
+                    p.UserId == x.UserId
+                    && p.EmploymentId.HasValue
+                    && db.Employments.Any(e =>
+                        e.EmploymentId == p.EmploymentId.Value
+                        && e.OrganizationId == orgId
+                        && e.HireDate.HasValue
+                        && (!from.HasValue
+                            || e.HireDate.Value >= from.Value)
+                        && (!to.HasValue
+                            || e.HireDate.Value <= to.Value))));
+        }
+
+        if (request.TerminationFrom.HasValue
+            || request.TerminationTo.HasValue)
+        {
+            var from = request.TerminationFrom;
+            var to = request.TerminationTo;
+
+            q = q.Where(x =>
+                db.UserIdentityProfiles.Any(p =>
+                    p.UserId == x.UserId
+                    && p.EmploymentId.HasValue
+                    && db.Employments.Any(e =>
+                        e.EmploymentId == p.EmploymentId.Value
+                        && e.OrganizationId == orgId
+                        && e.TerminationDate.HasValue
+                        && (!from.HasValue
+                            || e.TerminationDate.Value >= from.Value)
+                        && (!to.HasValue
+                            || e.TerminationDate.Value <= to.Value))));
+        }
+
+        if (!string.IsNullOrWhiteSpace(
+                request.HistoricalEmploymentStatus))
+        {
+            var status =
+                request.HistoricalEmploymentStatus;
+            var from =
+                request.EmploymentStatusFrom;
+            var to =
+                request.EmploymentStatusTo;
+
+            q = q.Where(x =>
+                db.UserIdentityProfiles.Any(p =>
+                    p.UserId == x.UserId
+                    && p.EmploymentId.HasValue
+                    && db.EmploymentStatusPeriods.Any(s =>
+                        s.EmploymentId == p.EmploymentId.Value
+                        && s.EmploymentStatus == status
+                        && (!to.HasValue
+                            || s.EffectiveFrom <= to.Value)
+                        && (!from.HasValue
+                            || !s.EffectiveTo.HasValue
+                            || s.EffectiveTo.Value >= from.Value)))
+                || (
+                    !db.UserIdentityProfiles.Any(p =>
+                        p.UserId == x.UserId
+                        && p.EmploymentId.HasValue)
+                    && db.UserEmploymentPeriods.Any(s =>
+                        s.UserId == x.UserId
+                        && s.EmploymentStatus == status
+                        && (!to.HasValue
+                            || s.EffectiveFrom <= to.Value)
+                        && (!from.HasValue
+                            || !s.EffectiveTo.HasValue
+                            || s.EffectiveTo.Value >= from.Value))
+                ));
+        }
+
+        if (request.PrimaryDeploymentSiteId.HasValue)
+        {
+            var siteId =
+                request.PrimaryDeploymentSiteId.Value;
+
+            q = q.Where(x =>
+                db.UserIdentityProfiles.Any(p =>
+                    p.UserId == x.UserId
+                    && p.EmploymentId.HasValue
+                    && db.EmploymentDeploymentSiteAssignments.Any(a =>
+                        a.EmploymentId == p.EmploymentId.Value
+                        && a.DeploymentSiteId == siteId
+                        && a.IsPrimary
+                        && a.EffectiveFrom <= today
+                        && (!a.EffectiveTo.HasValue
+                            || a.EffectiveTo.Value >= today)
+                        && db.DeploymentSites.Any(s =>
+                            s.DeploymentSiteId == a.DeploymentSiteId
+                            && s.IsActive
+                            && s.EffectiveFrom <= today
+                            && (!s.EffectiveTo.HasValue
+                                || s.EffectiveTo.Value >= today)
+                            && db.Centers.Any(c =>
+                                c.CenterId == s.CenterId
+                                && c.OrganizationId == orgId
+                                && c.IsActive
+                                && c.EffectiveFrom <= today
+                                && (!c.EffectiveTo.HasValue
+                                    || c.EffectiveTo.Value >= today))))));
+        }
+
+        if (!string.IsNullOrWhiteSpace(
+                request.DataIssue))
+        {
+            if (request.DataIssue
+                == "MissingEmploymentStatus")
+            {
+                q = q.Where(x =>
+                    db.UserIdentityProfiles.Any(p =>
+                        p.UserId == x.UserId
+                        && p.EmploymentId.HasValue
+                        && db.Employments.Any(e =>
+                            e.EmploymentId == p.EmploymentId.Value
+                            && e.OrganizationId == orgId
+                            && (!e.TerminationDate.HasValue
+                                || e.TerminationDate.Value > today)
+                            && (!e.HireDate.HasValue
+                                || e.HireDate.Value <= today)
+                            && !db.EmploymentStatusPeriods.Any(s =>
+                                s.EmploymentId == e.EmploymentId
+                                && s.EffectiveFrom <= today
+                                && (!s.EffectiveTo.HasValue
+                                    || s.EffectiveTo.Value >= today))))
+                    || (
+                        !db.UserIdentityProfiles.Any(p =>
+                            p.UserId == x.UserId
+                            && p.EmploymentId.HasValue)
+                        && !db.UserEmploymentPeriods.Any(s =>
+                            s.UserId == x.UserId
+                            && s.EffectiveFrom <= today
+                            && (!s.EffectiveTo.HasValue
+                                || s.EffectiveTo.Value >= today))
+                    ));
+            }
+            else if (request.DataIssue
+                     == "MissingPrimaryDeploymentSite")
+            {
+                q = q.Where(x =>
+                    !db.UserIdentityProfiles.Any(p =>
+                        p.UserId == x.UserId
+                        && p.EmploymentId.HasValue
+                        && db.EmploymentDeploymentSiteAssignments.Any(a =>
+                            a.EmploymentId == p.EmploymentId.Value
+                            && a.IsPrimary
+                            && a.EffectiveFrom <= today
+                            && (!a.EffectiveTo.HasValue
+                                || a.EffectiveTo.Value >= today)
+                            && db.DeploymentSites.Any(s =>
+                                s.DeploymentSiteId
+                                    == a.DeploymentSiteId
+                                && s.IsActive
+                                && s.EffectiveFrom <= today
+                                && (!s.EffectiveTo.HasValue
+                                    || s.EffectiveTo.Value >= today)))));
+            }
+            else if (request.DataIssue
+                     == "MissingEmail")
+            {
+                q = q.Where(x =>
+                    x.Email == null
+                    || x.Email == "");
+            }
         }
 
         var total =
@@ -236,6 +496,47 @@ public sealed class V170PeopleAdminRepository(
             .GroupBy(x=>x.EmploymentId)
             .ToDictionary(x=>x.Key,x=>x.First());
 
+        var primarySiteRows=await (
+            from assignment in db.EmploymentDeploymentSiteAssignments
+                .AsNoTracking()
+            join site in db.DeploymentSites.AsNoTracking()
+                on assignment.DeploymentSiteId
+                equals site.DeploymentSiteId
+            join center in db.Centers.AsNoTracking()
+                on site.CenterId equals center.CenterId
+            where linkedEmploymentIds.Contains(
+                    assignment.EmploymentId)
+                && assignment.IsPrimary
+                && assignment.EffectiveFrom <= today
+                && (!assignment.EffectiveTo.HasValue
+                    || assignment.EffectiveTo.Value >= today)
+                && site.IsActive
+                && site.EffectiveFrom <= today
+                && (!site.EffectiveTo.HasValue
+                    || site.EffectiveTo.Value >= today)
+                && center.OrganizationId == orgId
+                && center.IsActive
+                && center.EffectiveFrom <= today
+                && (!center.EffectiveTo.HasValue
+                    || center.EffectiveTo.Value >= today)
+            orderby
+                assignment.EffectiveFrom descending,
+                assignment.EmploymentDeploymentSiteAssignmentId
+                    descending
+            select new
+            {
+                assignment.EmploymentId,
+                site.DeploymentSiteId,
+                site.SiteCode,
+                site.SiteName,
+                center.CenterName
+            }).ToListAsync(ct);
+
+        var primarySiteByEmployment=
+            primarySiteRows
+                .GroupBy(x=>x.EmploymentId)
+                .ToDictionary(x=>x.Key,x=>x.First());
+
         var roleRows =
             await (
                 from a in db.UserRoleAssignments
@@ -296,6 +597,15 @@ public sealed class V170PeopleAdminRepository(
                         employmentMasters.TryGetValue(linkedEmploymentId,out employmentMaster);
                         v180StatusByEmployment.TryGetValue(linkedEmploymentId,out v180Status);
                     }
+
+                    var primarySite =
+                        identity?.EmploymentId is long primaryEmploymentId
+                        && primarySiteByEmployment.TryGetValue(
+                            primaryEmploymentId,
+                            out var primarySiteRow)
+                            ? primarySiteRow
+                            : null;
+
                     var employmentStatus=v180Status?.EmploymentStatus??employment?.EmploymentStatus;
                     if(employmentMaster?.TerminationDate is { } terminationDate&&terminationDate<=today)
                         employmentStatus=EmploymentStatuses.Terminated;
@@ -385,7 +695,11 @@ public sealed class V170PeopleAdminRepository(
                         identity?
                             .AuthorizationTo,
                         employmentMaster?.HireDate,
-                        employmentMaster?.TerminationDate);
+                        employmentMaster?.TerminationDate,
+                        primarySite?.DeploymentSiteId,
+                        primarySite?.SiteCode,
+                        primarySite?.SiteName,
+                        primarySite?.CenterName);
                 })
                 .ToList();
 

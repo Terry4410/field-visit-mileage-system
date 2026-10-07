@@ -53,4 +53,39 @@ public sealed class V170PeopleQueryRulesTests
                     new V170PeopleQueryRequest(
                         UserType: "Vendor")));
     }
+
+    [Fact]
+    public void Normalize_Rejects_Reversed_Hr_Date_Range()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => V170PeopleQueryRules.Normalize(
+                new V170PeopleQueryRequest(
+                    HireFrom: new DateOnly(2026, 10, 8),
+                    HireTo: new DateOnly(2026, 10, 7))));
+    }
+
+    [Fact]
+    public void Normalize_Accepts_Historical_Status_And_Data_Issue()
+    {
+        var result = V170PeopleQueryRules.Normalize(
+            new V170PeopleQueryRequest(
+                HistoricalEmploymentStatus: " Leave ",
+                EmploymentStatusFrom: new DateOnly(2026, 1, 1),
+                EmploymentStatusTo: new DateOnly(2026, 6, 30),
+                DataIssue: " MissingPrimaryDeploymentSite "));
+
+        Assert.Equal("Leave", result.HistoricalEmploymentStatus);
+        Assert.Equal(
+            "MissingPrimaryDeploymentSite",
+            result.DataIssue);
+    }
+
+    [Fact]
+    public void Normalize_Rejects_Unknown_Data_Issue()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => V170PeopleQueryRules.Normalize(
+                new V170PeopleQueryRequest(
+                    DataIssue: "MissingEverything")));
+    }
 }

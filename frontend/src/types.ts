@@ -186,7 +186,7 @@ export interface CorrectionRequest{correctionRequestId:number;visitTripId:number
 
 export interface AdminUserAccess{userId:number;employeeNo:string;displayName:string;email?:string;isActive:boolean;roles:string[];teamScopes:TeamScope[]}
 export interface V170CurrentTeamAssignment{teamId:number;teamCode:string;teamName:string;isPrimary:boolean}
-export interface V170PeopleRow{userId:number;userCode:string;userType:string;employeeNo?:string;displayName:string;email?:string;employmentStatus?:string;adminEnabled:boolean;actualAccess:boolean;roles:string[];teamAssignments:V170CurrentTeamAssignment[];primaryTeamId?:number;primaryTeamName?:string;authorizationFrom?:string;authorizationTo?:string;hireDate?:string;terminationDate?:string}
+export interface V170PeopleRow{userId:number;userCode:string;userType:string;employeeNo?:string;displayName:string;email?:string;employmentStatus?:string;adminEnabled:boolean;actualAccess:boolean;roles:string[];teamAssignments:V170CurrentTeamAssignment[];primaryTeamId?:number;primaryTeamName?:string;authorizationFrom?:string;authorizationTo?:string;hireDate?:string;terminationDate?:string;primaryDeploymentSiteId?:number;primaryDeploymentSiteCode?:string;primaryDeploymentSiteName?:string;primaryCenterName?:string}
 export interface V170EmploymentPeriod{userEmploymentPeriodId:number;employmentStatus:string;effectiveFrom:string;effectiveTo?:string;sourceType:string;sourceReference?:string;isCurrent:boolean}
 export interface V170PersonDetail{
   userId:number;userCode:string;userType:string;identityProvider:string;employeeNo?:string;displayName:string;email?:string;

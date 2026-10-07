@@ -7,6 +7,15 @@ public sealed record V170PeopleQueryRequest(
     string? Role = null,
     int? TeamId = null,
     bool? IsEnabled = null,
+    DateOnly? HireFrom = null,
+    DateOnly? HireTo = null,
+    DateOnly? TerminationFrom = null,
+    DateOnly? TerminationTo = null,
+    string? HistoricalEmploymentStatus = null,
+    DateOnly? EmploymentStatusFrom = null,
+    DateOnly? EmploymentStatusTo = null,
+    int? PrimaryDeploymentSiteId = null,
+    string? DataIssue = null,
     int Page = 1,
     int PageSize = 50,
     string Sort = "name_asc");
@@ -34,7 +43,11 @@ public sealed record V170PeopleRowDto(
     DateOnly? AuthorizationFrom,
     DateOnly? AuthorizationTo,
     DateOnly? HireDate = null,
-    DateOnly? TerminationDate = null);
+    DateOnly? TerminationDate = null,
+    int? PrimaryDeploymentSiteId = null,
+    string? PrimaryDeploymentSiteCode = null,
+    string? PrimaryDeploymentSiteName = null,
+    string? PrimaryCenterName = null);
 
 public sealed record V170EmploymentPeriodDto(
     long UserEmploymentPeriodId,
@@ -138,6 +151,14 @@ public static class V170PeopleQueryRules
             "supervisor"
         };
 
+    private static readonly HashSet<string> AllowedDataIssues =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "MissingEmploymentStatus",
+            "MissingPrimaryDeploymentSite",
+            "MissingEmail"
+        };
+
     private static readonly HashSet<string> AllowedSorts =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -204,6 +225,57 @@ public static class V170PeopleQueryRules
                 "Role 不正確。");
         }
 
+        var historicalEmployment =
+            string.IsNullOrWhiteSpace(
+                request.HistoricalEmploymentStatus)
+                ? null
+                : request.HistoricalEmploymentStatus.Trim();
+
+        if (historicalEmployment is not null
+            && !AllowedEmploymentStatuses.Contains(
+                historicalEmployment))
+        {
+            throw new InvalidOperationException(
+                "HistoricalEmploymentStatus 不正確。");
+        }
+
+        var dataIssue =
+            string.IsNullOrWhiteSpace(request.DataIssue)
+                ? null
+                : request.DataIssue.Trim();
+
+        if (dataIssue is not null
+            && !AllowedDataIssues.Contains(dataIssue))
+        {
+            throw new InvalidOperationException(
+                "DataIssue 不正確。");
+        }
+
+        if (request.HireFrom.HasValue
+            && request.HireTo.HasValue
+            && request.HireFrom.Value > request.HireTo.Value)
+        {
+            throw new InvalidOperationException(
+                "入職日期區間不正確。");
+        }
+
+        if (request.TerminationFrom.HasValue
+            && request.TerminationTo.HasValue
+            && request.TerminationFrom.Value > request.TerminationTo.Value)
+        {
+            throw new InvalidOperationException(
+                "離職日期區間不正確。");
+        }
+
+        if (request.EmploymentStatusFrom.HasValue
+            && request.EmploymentStatusTo.HasValue
+            && request.EmploymentStatusFrom.Value
+                > request.EmploymentStatusTo.Value)
+        {
+            throw new InvalidOperationException(
+                "人事狀態歷史期間不正確。");
+        }
+
         var sort =
             string.IsNullOrWhiteSpace(request.Sort)
                 ? "name_asc"
@@ -219,6 +291,8 @@ public static class V170PeopleQueryRules
             UserType = userType,
             EmploymentStatus = employment,
             Role = role,
+            HistoricalEmploymentStatus = historicalEmployment,
+            DataIssue = dataIssue,
             Page = page,
             PageSize = pageSize,
             Sort = sort
