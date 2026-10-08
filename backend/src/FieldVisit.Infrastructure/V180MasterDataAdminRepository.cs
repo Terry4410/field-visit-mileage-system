@@ -1538,7 +1538,8 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         DateOnly? effectiveTo,
         bool? isActive,
         bool? isPrimary,
-        byte[] rowVersion) =>
+        byte[] rowVersion,
+        string? referenceKey = null) =>
         new(
             id,
             key,
@@ -1548,5 +1549,6 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             effectiveTo,
             isActive,
             isPrimary,
-            B64(rowVersion));
+            B64(rowVersion),
+            referenceKey);
 }
