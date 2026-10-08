@@ -59,7 +59,7 @@ test("automatic query debounces text and ignores a late stale response", async (
 
   await page.goto("./#/admin/query");
   await expect(page.getByRole("heading", { name: "行程查詢", level: 2 })).toBeVisible();
-  const keyword = page.getByLabel("關鍵字");
+  const keyword = page.locator(".field").filter({ hasText: "關鍵字" }).locator("input").first();
   await keyword.fill("old");
   await oldRequestStarted;
   await keyword.fill("new");
