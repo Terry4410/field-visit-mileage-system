@@ -7,14 +7,179 @@ test("VIS-04 One-stop follows authoritative minimum-one-stop rule and can be sub
 
 test("LEAD-04 / VIS-06 Return reason -> visitor edit -> resubmit preserves controlled workflow",async({request})=>{test.setTimeout(90000);const{visitor,leader,admin,tid,locs,s}=await setup(request),purpose=unique("LEAD-04-VIS-06"),reason="UAT-AUTO return reason";let id:null|number=null,j:null|string=null;try{const c=await createTrip(request,visitor,tid,purpose,s,[stop(locs[0]),stop(locs[1])],10);id=c.visitTripId;await submit(request,visitor,c);j=await job(request,leader,id);const g=await request.get(`${apiBaseUrl}/api/v1/trips/${id}`,{headers:auth(leader.accessToken,"leader")});await ok(g,"pending");const p=await g.json();const rr=await request.post(`${apiBaseUrl}/api/v1/trips/${id}/return`,{headers:auth(leader.accessToken,"leader"),data:{reason,rowVersion:p.rowVersion}});await ok(rr,"return");const returned=await rr.json();expect(returned.status).toBe("Returned");expect(returned.returnReason).toBe(reason);const ur=await request.put(`${apiBaseUrl}/api/v1/trips/${id}`,{headers:{...auth(visitor.accessToken,"visitor"),"If-Match":returned.rowVersion},data:{visitDate:s.visitDate,startTime:s.startTime,endTime:s.endTime,claimedDistanceKm:10,purpose,notes:purpose+"-EDITED",timeOverlapConfirmed:false,teamId:tid,stops:[stop(locs[0]),stop(locs[1])]}});await ok(ur,"edit returned");const edited=await ur.json();expect(edited.returnReason).toBeNull();expect((await submit(request,visitor,edited)).status).toBe("Submitted");}finally{await cleanup(request,admin,id,purpose,j);}});
 
-test("VIS-03 Temporary location is abandoned on Draft delete and permanently removed after trip cleanup",async({request})=>{const{visitor,admin,tid,s}=await setup(request),purpose=unique("VIS-03"),name=unique("TEMP-LOCATION");let id:null|number=null,lid:null|number=null;try{const c=await createTrip(request,visitor,tid,purpose,s,[{locationId:null,projectId:null,visitTypeId:null,sourceType:"Temporary",locationName:name,address:"台北市松山區復興北路 100 號",visitPurpose:"UAT-AUTO temporary",notes:null}],null);id=c.visitTripId;lid=c.stops[0]?.locationId??null;expect(lid).not.toBeNull();const before=await findLocation(request,admin,name);expect(before.approvalStatus).toBe("Pending");expect(before.isActive).toBe(false);const d=await request.delete(`${apiBaseUrl}/api/v1/trips/${id}`,{headers:{...auth(visitor.accessToken,"visitor"),"If-Match":c.rowVersion}});await ok(d,"delete temp draft");const abandoned=await findLocation(request,admin,name);expect(abandoned.approvalStatus).toBe("Abandoned");expect(abandoned.geocodingStatus).toBe("NotRequired");expect(abandoned.isActive).toBe(false);await cleanup(request,admin,id,purpose);id=null;await deleteLocation(request,admin,lid!);lid=null;expect(await findLocation(request,admin,name)).toBeNull();}finally{if(id!==null)await cleanup(request,admin,id,purpose);if(lid!==null)await deleteLocation(request,admin,lid);}});
+test("VIS-03 Temporary location stays reusable on Draft update, removed temporary data is abandoned, and Draft delete cleans the replacement",async({request})=>{
+  const{visitor,admin,tid,s}=await setup(request),purpose=unique("VIS-03"),name1=unique("TEMP-LOCATION-A"),name2=unique("TEMP-LOCATION-B");
+  let id:null|number=null,lid1:null|number=null,lid2:null|number=null;
+  try{
+    const c=await createTrip(request,visitor,tid,purpose,s,[{locationId:null,projectId:null,visitTypeId:null,sourceType:"Temporary",locationName:name1,address:"台北市松山區復興北路 100 號",visitPurpose:"UAT-AUTO temporary A",notes:null}],null);
+    id=c.visitTripId;
+    lid1=c.stops[0]?.locationId??null;
+    expect(lid1).not.toBeNull();
+    expect(c.stops[0]?.sourceType).toBe("Temporary");
+    const before=await findLocation(request,admin,name1);
+    expect(before.approvalStatus).toBe("Pending");
+    expect(before.isActive).toBe(false);
 
+    let r=await request.put(`${apiBaseUrl}/api/v1/trips/${id}`,{
+      headers:{...auth(visitor.accessToken,"visitor"),"If-Match":c.rowVersion},
+      data:{visitDate:s.visitDate,startTime:s.startTime,endTime:s.endTime,claimedDistanceKm:null,purpose,notes:purpose,timeOverlapConfirmed:false,teamId:tid,stops:[{locationId:null,projectId:null,visitTypeId:null,sourceType:"Temporary",locationName:name2,address:"台北市信義區市府路 45 號",visitPurpose:"UAT-AUTO temporary B",notes:null}]}
+    });
+    await ok(r,"replace temporary stop");
+    const edited=await r.json();
+    lid2=edited.stops[0]?.locationId??null;
+    expect(lid2).not.toBeNull();
+    expect(lid2).not.toBe(lid1);
+    expect(edited.stops[0]?.sourceType).toBe("Temporary");
+    const abandonedOld=await findLocation(request,admin,name1);
+    expect(abandonedOld.approvalStatus).toBe("Abandoned");
+    expect(abandonedOld.geocodingStatus).toBe("NotRequired");
+
+    r=await request.put(`${apiBaseUrl}/api/v1/trips/${id}`,{
+      headers:{...auth(visitor.accessToken,"visitor"),"If-Match":edited.rowVersion},
+      data:{visitDate:s.visitDate,startTime:s.startTime,endTime:s.endTime,claimedDistanceKm:null,purpose,notes:purpose,timeOverlapConfirmed:false,teamId:tid,stops:edited.stops}
+    });
+    await ok(r,"reuse persisted temporary stop");
+    const reused=await r.json();
+    expect(reused.stops[0]?.locationId).toBe(lid2);
+    expect(reused.stops[0]?.sourceType).toBe("Temporary");
+
+    const d=await request.delete(`${apiBaseUrl}/api/v1/trips/${id}`,{headers:{...auth(visitor.accessToken,"visitor"),"If-Match":reused.rowVersion}});
+    await ok(d,"delete temp draft");
+    const abandonedNew=await findLocation(request,admin,name2);
+    expect(abandonedNew.approvalStatus).toBe("Abandoned");
+    expect(abandonedNew.geocodingStatus).toBe("NotRequired");
+    expect(abandonedNew.isActive).toBe(false);
+
+    await cleanup(request,admin,id,purpose);
+    id=null;
+    await deleteLocation(request,admin,lid1!);lid1=null;
+    await deleteLocation(request,admin,lid2!);lid2=null;
+    expect(await findLocation(request,admin,name1)).toBeNull();
+    expect(await findLocation(request,admin,name2)).toBeNull();
+  }finally{
+    if(id!==null)await cleanup(request,admin,id,purpose);
+    if(lid1!==null)await deleteLocation(request,admin,lid1);
+    if(lid2!==null)await deleteLocation(request,admin,lid2);
+  }
+});
 test("QUERY-01 / QUERY-02 / QUERY-03 / QUERY-04 / QUERY-05 filters and Excel/PDF exports use dedicated UAT-AUTO data",async({request})=>{test.setTimeout(120000);const{visitor,leader,admin,tid,locs,s}=await setup(request),purpose=unique("QUERY-01-05"),pc=unique("PROJECT"),vc=unique("VISIT-TYPE");let id:null|number=null,j:null|string=null,p:any=null,v:any=null;try{let r=await request.post(`${apiBaseUrl}/api/v1/projects`,{headers:auth(admin.accessToken,"admin"),data:{teamId:tid,projectCode:pc,projectName:pc,description:purpose,locationMode:"SelfMaintained",startDate:addDays(s.visitDate,-1),endDate:addDays(s.visitDate,1),isActive:true}});await ok(r,"create query project");p=await r.json();r=await request.post(`${apiBaseUrl}/api/v1/visit-types`,{headers:auth(admin.accessToken,"admin"),data:{visitTypeCode:vc,visitTypeName:vc,description:purpose,sortOrder:null,isActive:true}});await ok(r,"create query type");v=await r.json();const a=await approvedTrip(request,visitor,leader,tid,purpose,s,[stop(locs[0],p.projectId,v.visitTypeId),stop(locs[1],p.projectId,v.visitTypeId)]);id=a.trip.visitTripId;j=a.backgroundJobId;for(const f of[{startDate:s.visitDate,endDate:s.visitDate},{visitorId:visitor.user.userId,startDate:s.visitDate,endDate:s.visitDate},{keyword:purpose,startDate:s.visitDate,endDate:s.visitDate},{projectId:p.projectId,startDate:s.visitDate,endDate:s.visitDate},{visitTypeId:v.visitTypeId,startDate:s.visitDate,endDate:s.visitDate},{status:"Approved",keyword:purpose,startDate:s.visitDate,endDate:s.visitDate}])expect((await query(request,admin.accessToken,"admin",f)).items.some((x:any)=>x.visitTripId===id)).toBe(true);await exportsOk(request,admin.accessToken,"admin",{startDate:s.visitDate,endDate:s.visitDate,keyword:purpose,status:"Approved"});}finally{await cleanup(request,admin,id,purpose,j);if(p)await deleteProject(request,admin,p.projectId);if(v)await deleteVisitType(request,admin,v.visitTypeId);}});
-test("CORR-01 / CORR-02 / CORR-03 / CORR-04 financial and non-financial correction preserve snapshot history",async({request})=>{test.setTimeout(120000);const{visitor,leader,admin,tid,locs,s}=await setup(request),purpose=unique("CORR-01-04");let id:null|number=null,j:null|string=null;try{const a=await approvedTrip(request,visitor,leader,tid,purpose,s,[stop(locs[0]),stop(locs[1])]);id=a.trip.visitTripId;j=a.backgroundJobId;let r=await request.get(`${apiBaseUrl}/api/v1/corrections/draft/${id}`,{headers:auth(visitor.accessToken,"visitor")});await ok(r,"correction draft");let d=await r.json(),proposal={...d.proposal,approvedDistanceKm:(d.proposal.approvedDistanceKm??0)+1,notes:purpose+"-FIN"};r=await request.post(`${apiBaseUrl}/api/v1/corrections`,{headers:auth(visitor.accessToken,"visitor"),data:{visitTripId:id,reason:purpose+"-FIN",proposal}});await ok(r,"create financial correction");let c=await r.json();expect(c.requiresAdminClose).toBe(true);r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/leader-review`,{headers:auth(leader.accessToken,"leader"),data:{approve:true,comments:purpose,rowVersion:c.rowVersion}});await ok(r,"leader correction");c=await r.json();expect(c.status).toBe("PendingAdminClose");r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/admin-close`,{headers:auth(admin.accessToken,"admin"),data:{approve:true,comments:purpose,rowVersion:c.rowVersion}});await ok(r,"admin correction");c=await r.json();expect(c.status).toBe("Closed");expect(c.resultSnapshotVersion).toBeGreaterThan(c.baseSnapshotVersion);const firstResult=c.resultSnapshotVersion;r=await request.get(`${apiBaseUrl}/api/v1/corrections/draft/${id}`,{headers:auth(visitor.accessToken,"visitor")});await ok(r,"second correction draft");d=await r.json();proposal={...d.proposal,notes:purpose+"-NONFIN"};r=await request.post(`${apiBaseUrl}/api/v1/corrections`,{headers:auth(visitor.accessToken,"visitor"),data:{visitTripId:id,reason:purpose+"-NONFIN",proposal}});await ok(r,"create nonfinancial");c=await r.json();expect(c.requiresAdminClose).toBe(false);r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/leader-review`,{headers:auth(leader.accessToken,"leader"),data:{approve:true,comments:purpose,rowVersion:c.rowVersion}});await ok(r,"close nonfinancial");c=await r.json();expect(c.status).toBe("Closed");expect(c.resultSnapshotVersion).toBeGreaterThan(firstResult);const row=(await query(request,admin.accessToken,"admin",{startDate:s.visitDate,endDate:s.visitDate,keyword:purpose,status:"Approved"})).items.find((x:any)=>x.visitTripId===id);expect(row.snapshotVersion).toBe(c.resultSnapshotVersion);}finally{await cleanup(request,admin,id,purpose,j);}});
+test("CORR-01 / CORR-02 / CORR-03 / CORR-04 financial and non-financial correction preserve snapshot history",async({request})=>{
+  test.setTimeout(120000);
+  const{visitor,leader,admin,tid,locs,s}=await setup(request),purpose=unique("CORR-01-04");
+  let id:null|number=null,j:null|string=null;
+  try{
+    const a=await approvedTrip(request,visitor,leader,tid,purpose,s,[stop(locs[0]),stop(locs[1])]);
+    id=a.trip.visitTripId;j=a.backgroundJobId;
 
+    let r=await request.get(`${apiBaseUrl}/api/v1/corrections/draft/${id}`,{headers:auth(visitor.accessToken,"visitor")});
+    await ok(r,"correction draft");
+    let d=await r.json();
+    const fallbackDistance=Number(d.proposal.approvedDistanceKm??1)+1;
+    let proposal={
+      ...d.proposal,
+      claimedDistanceKm:fallbackDistance,
+      approvedDistanceKm:fallbackDistance,
+      notes:purpose+"-FIN",
+      stops:d.proposal.stops.map((x:any,index:number)=>index===0?{...x,address:`UAT-AUTO-NON-GEOCODABLE-${Date.now()}`}:x)
+    };
+
+    r=await request.post(`${apiBaseUrl}/api/v1/corrections`,{headers:auth(visitor.accessToken,"visitor"),data:{visitTripId:id,reason:purpose+"-FIN",proposal}});
+    await ok(r,"create financial correction");
+    let c=await r.json();
+    expect(c.requiresAdminClose).toBe(true);
+
+    r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/leader-review`,{headers:auth(leader.accessToken,"leader"),data:{approve:true,comments:purpose,rowVersion:c.rowVersion}});
+    await ok(r,"leader correction");
+    c=await r.json();
+    expect(c.status).toBe("PendingAdminClose");
+
+    r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/route-preview`,{headers:auth(admin.accessToken,"admin")});
+    await ok(r,"correction route preview");
+    const routeEvidence=await r.json();
+    expect(routeEvidence.status).toBe("Failed");
+    expect(routeEvidence.routeCalculationAttemptId).toBeGreaterThan(0);
+    expect(routeEvidence.errorCode).not.toBe("CORRECTION_DISTANCE_MISMATCH");
+
+    r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/admin-close`,{
+      headers:auth(admin.accessToken,"admin"),
+      data:{approve:true,comments:purpose,rowVersion:c.rowVersion,distanceDecisionSource:"ManualFallback",routeCalculationAttemptId:null}
+    });
+    await ok(r,"admin correction");
+    c=await r.json();
+    expect(c.status).toBe("Closed");
+    expect(c.resultSnapshotVersion).toBeGreaterThan(c.baseSnapshotVersion);
+    const firstResult=c.resultSnapshotVersion;
+
+    r=await request.get(`${apiBaseUrl}/api/v1/corrections/draft/${id}`,{headers:auth(visitor.accessToken,"visitor")});
+    await ok(r,"second correction draft");
+    d=await r.json();
+    proposal={...d.proposal,notes:purpose+"-NONFIN"};
+    r=await request.post(`${apiBaseUrl}/api/v1/corrections`,{headers:auth(visitor.accessToken,"visitor"),data:{visitTripId:id,reason:purpose+"-NONFIN",proposal}});
+    await ok(r,"create nonfinancial");
+    c=await r.json();
+    expect(c.requiresAdminClose).toBe(false);
+    r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/leader-review`,{headers:auth(leader.accessToken,"leader"),data:{approve:true,comments:purpose,rowVersion:c.rowVersion}});
+    await ok(r,"close nonfinancial");
+    c=await r.json();
+    expect(c.status).toBe("Closed");
+    expect(c.resultSnapshotVersion).toBeGreaterThan(firstResult);
+
+    const row=(await query(request,admin.accessToken,"admin",{startDate:s.visitDate,endDate:s.visitDate,keyword:purpose,status:"Approved"})).items.find((x:any)=>x.visitTripId===id);
+    expect(row.snapshotVersion).toBe(c.resultSnapshotVersion);
+  }finally{
+    await cleanup(request,admin,id,purpose,j);
+  }
+});
 test("SUP-01 Supervisor query and exports succeed while mutation is Forbidden",async({request})=>{test.setTimeout(120000);const{visitor,leader,admin,supervisor,tid,locs,s}=await setup(request),purpose=unique("SUP-01");let id:null|number=null,j:null|string=null;try{const a=await approvedTrip(request,visitor,leader,tid,purpose,s,[stop(locs[0]),stop(locs[1])]);id=a.trip.visitTripId;j=a.backgroundJobId;expect((await query(request,supervisor.accessToken,"supervisor",{startDate:s.visitDate,endDate:s.visitDate,keyword:purpose,status:"Approved"})).items.some((x:any)=>x.visitTripId===id)).toBe(true);await exportsOk(request,supervisor.accessToken,"supervisor",{startDate:s.visitDate,endDate:s.visitDate,keyword:purpose,status:"Approved"});const f=await request.post(`${apiBaseUrl}/api/v1/projects`,{headers:auth(supervisor.accessToken,"supervisor"),data:{teamId:tid,projectCode:unique("SUP-FORBIDDEN"),projectName:unique("SUP-FORBIDDEN"),description:"must never be created",locationMode:"SelfMaintained",startDate:s.visitDate,endDate:s.visitDate,isActive:true}});expect(f.status()).toBe(403);}finally{await cleanup(request,admin,id,purpose,j);}});
 
 test("MOBILE-01 pilotv01 mobile business UI supports tabs and non-writing stop modal",async({page})=>{await page.setViewportSize({width:390,height:844});await loginUi(page,"pilotv01","今日行程");const tabs=page.locator(".mobile-tabs"),home=tabs.getByRole("link",{name:"首頁"}),history=tabs.getByRole("link",{name:"紀錄"});await expect(tabs).toBeVisible();await expect(home).toBeVisible();await expect(history).toBeVisible();await page.getByRole("button",{name:"＋新增拜訪地點"}).click();const m=page.locator(".stop-editor-modal");await expect(m).toBeVisible();await expect(m.locator("select").nth(0)).toBeVisible();await expect(m.locator("select").nth(1)).toBeVisible();await m.getByRole("button",{name:"臨時新增地點"}).click();await expect(m.locator('input[placeholder="例如：客戶 D"]')).toBeEditable();await expect(m.locator('input[placeholder="請輸入完整地址或 Plus Code"]')).toBeEditable();await m.getByRole("button",{name:"取消"}).click();await expect(m).toBeHidden();await history.click();await expect(page.locator(".topbar h1")).toHaveText("歷史紀錄");await home.click();await expect(page.locator(".topbar h1")).toHaveText("今日行程");});
 
 test("ADM-01 / ADM-02 / ADM-03 creates only UAT-AUTO master data and cleans it safely",async({request})=>{test.setTimeout(90000);const{admin,tid,s}=await setup(request),pc=unique("ADM-PROJECT"),vc=unique("ADM-VISIT-TYPE"),ln=unique("ADM-LOCATION");let p:any=null,v:any=null,l:any=null;test.info().annotations.push({type:"BLOCKED",description:"ADM-02 REORDER_BLOCKED_BY_BASELINE_SAFETY: global Visit Type ordering is not changed."});try{let r=await request.post(`${apiBaseUrl}/api/v1/projects`,{headers:auth(admin.accessToken,"admin"),data:{teamId:tid,projectCode:pc,projectName:pc,description:pc,locationMode:"SelfMaintained",startDate:addDays(s.visitDate,-1),endDate:addDays(s.visitDate,1),isActive:true}});await ok(r,"ADM-01 create");p=await r.json();r=await request.put(`${apiBaseUrl}/api/v1/projects/${p.projectId}`,{headers:auth(admin.accessToken,"admin"),data:{teamId:tid,projectCode:pc,projectName:pc+"-EDITED",description:pc,locationMode:"SelfMaintained",startDate:addDays(s.visitDate,-1),endDate:addDays(s.visitDate,1),isActive:true}});await ok(r,"ADM-01 edit");p=await r.json();expect(p.projectName).toBe(pc+"-EDITED");r=await request.post(`${apiBaseUrl}/api/v1/visit-types`,{headers:auth(admin.accessToken,"admin"),data:{visitTypeCode:vc,visitTypeName:vc,description:vc,sortOrder:null,isActive:true}});await ok(r,"ADM-02 create");v=await r.json();r=await request.put(`${apiBaseUrl}/api/v1/visit-types/${v.visitTypeId}`,{headers:auth(admin.accessToken,"admin"),data:{visitTypeCode:vc,visitTypeName:vc+"-EDITED",description:vc,sortOrder:v.sortOrder,isActive:true}});await ok(r,"ADM-02 edit");v=await r.json();r=await request.post(`${apiBaseUrl}/api/v1/managed-locations`,{headers:auth(admin.accessToken,"admin"),data:{teamId:tid,locationName:ln,locationType:"Customer",city:"台北市",district:"松山區",address:"台北市松山區復興北路 100 號",plusCode:null,isActive:false,rowVersion:null}});await ok(r,"ADM-03 create");l=await r.json();r=await request.put(`${apiBaseUrl}/api/v1/managed-locations/${l.locationId}`,{headers:auth(admin.accessToken,"admin"),data:{teamId:tid,locationName:ln+"-EDITED",locationType:"Customer",city:"台北市",district:"松山區",address:"台北市松山區復興北路 100 號",plusCode:null,isActive:false,rowVersion:l.rowVersion}});await ok(r,"ADM-03 edit");l=await r.json();expect(l.locationName).toBe(ln+"-EDITED");}finally{if(l)await deleteLocation(request,admin,l.locationId);if(p)await deleteProject(request,admin,p.projectId);if(v)await deleteVisitType(request,admin,v.visitTypeId);}});
-test("ADM-04 / ADM-05 admin access is read-only and rate warning never commits a change",async({page,request})=>{const admin=await login(request,"pilota01"),rs=await rates(request,admin.accessToken,"admin"),rate=rs.find((x:any)=>x.isActive&&x.vehicleType.toLowerCase()==="motorcycle")??rs[0];expect(rate).toBeTruthy();const ir=await request.get(`${apiBaseUrl}/api/v1/mileage-rate-rules/impact?effectiveFrom=${encodeURIComponent(rate.effectiveFrom)}&vehicleType=Motorcycle`,{headers:auth(admin.accessToken,"admin")});await ok(ir,"ADM-05 impact");const impact=await ir.json();await loginUi(page,"pilota01","管理儀表板");const nav=page.locator(".sidebar .nav");await nav.getByRole("link",{name:/人員與權限/}).click();await expect(page.locator(".topbar h1")).toHaveText("人員與權限");await expect(page.getByRole("cell",{name:"pilotv01",exact:true})).toBeVisible();await nav.getByRole("link",{name:/補助費率/}).click();await expect(page.locator(".topbar h1")).toHaveText("補助費率");if(!impact.requiresAcknowledgement){test.info().annotations.push({type:"BLOCKED",description:"ADM-05 BLOCKED_BY_SAFE_DATASET: read-only impact endpoint reports no historical impact; Save is not clicked."});return;}const row=page.locator("tbody tr").filter({hasText:rate.effectiveFrom}).first();await row.getByRole("button",{name:"修改"}).click();await page.locator('input[type="number"][step="0.01"]').first().fill(String(Number(rate.ratePerKm)+0.01));let text="";page.once("dialog",async d=>{text=d.message();await d.dismiss();});await page.getByRole("button",{name:"儲存修改"}).click();await expect.poll(()=>text).toContain("不會自動重算既有 Snapshot");const after=(await rates(request,admin.accessToken,"admin")).find((x:any)=>x.mileageRateRuleId===rate.mileageRateRuleId);expect(after.ratePerKm).toBe(rate.ratePerKm);expect(after.effectiveFrom).toBe(rate.effectiveFrom);});
+test("ADM-04 / ADM-05 admin access is read-only and rate warning never commits a change",async({page,request})=>{
+  const admin=await login(request,"pilota01");
+  const rs=await rates(request,admin.accessToken,"admin");
+  const shared=rs.find((x:any)=>x.organizationId==null);
+  const rate=rs.find((x:any)=>x.isActive&&x.organizationId!=null&&x.vehicleType.toLowerCase()==="motorcycle");
+
+  await loginUi(page,"pilota01","管理儀表板");
+  const nav=page.locator(".sidebar .nav");
+  await nav.getByRole("link",{name:/人員與權限/}).click();
+  await expect(page.locator(".topbar h1")).toHaveText("人員與權限");
+  await expect(page.getByRole("cell",{name:"pilotv01",exact:true})).toBeVisible();
+
+  await nav.getByRole("link",{name:/補助費率/}).click();
+  await expect(page.locator(".topbar h1")).toHaveText("補助費率");
+
+  if(shared){
+    const sharedRow=page.locator("tbody tr").filter({hasText:shared.ruleName}).filter({hasText:shared.effectiveFrom}).first();
+    await expect(sharedRow).toContainText("系統共用（唯讀）");
+    await expect(sharedRow.getByRole("button",{name:"修改"})).toHaveCount(0);
+  }
+
+  if(!rate){
+    test.info().annotations.push({type:"BLOCKED",description:"ADM-05 BLOCKED_BY_SAFE_DATASET: no organization-owned editable Motorcycle rate exists; global rates stay read-only."});
+    return;
+  }
+
+  const ir=await request.get(`${apiBaseUrl}/api/v1/mileage-rate-rules/impact?effectiveFrom=${encodeURIComponent(rate.effectiveFrom)}&vehicleType=${encodeURIComponent(rate.vehicleType)}`,{headers:auth(admin.accessToken,"admin")});
+  await ok(ir,"ADM-05 impact");
+  const impact=await ir.json();
+  if(!impact.requiresAcknowledgement){
+    test.info().annotations.push({type:"BLOCKED",description:"ADM-05 BLOCKED_BY_SAFE_DATASET: editable organization rate has no historical impact; Save is not clicked."});
+    return;
+  }
+
+  const row=page.locator("tbody tr").filter({hasText:rate.ruleName}).first();
+  await expect(row).toBeVisible();
+  await row.getByRole("button",{name:"修改"}).click();
+  await page.locator('input[type="number"][step="0.01"]').first().fill(String(Number(rate.ratePerKm)+0.01));
+
+  let text="";
+  page.once("dialog",async d=>{text=d.message();await d.dismiss();});
+  await page.getByRole("button",{name:"儲存修改"}).click();
+  await expect.poll(()=>text).toContain("不會自動重算既有 Snapshot");
+
+  const after=(await rates(request,admin.accessToken,"admin")).find((x:any)=>x.mileageRateRuleId===rate.mileageRateRuleId);
+  expect(after.ratePerKm).toBe(rate.ratePerKm);
+  expect(after.effectiveFrom).toBe(rate.effectiveFrom);
+});

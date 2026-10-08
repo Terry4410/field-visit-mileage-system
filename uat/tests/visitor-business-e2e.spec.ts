@@ -242,8 +242,8 @@ async function submitFromUi(page: Page, tripId: number) {
   await page.getByRole("button", { name: "確認送出", exact: true }).click();
 
   const updateResponse = await updateResponsePromise;
-  const submitResponse = await submitResponsePromise;
   expect(updateResponse.ok(), await updateResponse.text()).toBe(true);
+  const submitResponse = await submitResponsePromise;
   expect(submitResponse.ok(), await submitResponse.text()).toBe(true);
 
   const submitted = await submitResponse.json();
@@ -291,6 +291,7 @@ test("BUAT-VISITOR-E2E-01 visitor UI creates one-stop project visit, gets Google
     expect(temporaryLocationId).not.toBeNull();
     expect(trip.purpose).toBe(purpose);
     expect(trip.stops).toHaveLength(1);
+    expect(trip.stops[0].sourceType).toBe("Temporary");
     expect(trip.stops[0].projectId).toBe(master.project.projectId);
     expect(trip.stops[0].visitTypeId).toBe(master.visitType.visitTypeId);
 
@@ -302,6 +303,7 @@ test("BUAT-VISITOR-E2E-01 visitor UI creates one-stop project visit, gets Google
     const submitted = await submitFromUi(page, tripId);
     expect(submitted.purpose).toBe(purpose);
     expect(submitted.stops).toHaveLength(1);
+    expect(submitted.stops[0].sourceType).toBe("Temporary");
 
     backgroundJobId = await job(request, leader, tripId);
     const approved = await approve(request, leader, tripId);
@@ -373,6 +375,7 @@ test("BUAT-VISITOR-E2E-02 visitor UI exposes manual fallback after Google failur
     temporaryLocationId = trip.stops[0]?.locationId ?? null;
     expect(temporaryLocationId).not.toBeNull();
     expect(trip.purpose).toBe(purpose);
+    expect(trip.stops[0].sourceType).toBe("Temporary");
     expect(preview.status).not.toBe("Succeeded");
 
     await expect(page.locator(".danger-note").filter({ hasText: "Google Maps API 未取得可用里程" })).toBeVisible();
@@ -382,6 +385,7 @@ test("BUAT-VISITOR-E2E-02 visitor UI exposes manual fallback after Google failur
 
     const submitted = await submitFromUi(page, tripId);
     expect(submitted.claimedDistanceKm).toBe(12.3);
+    expect(submitted.stops[0].sourceType).toBe("Temporary");
 
     backgroundJobId = await job(request, leader, tripId);
 

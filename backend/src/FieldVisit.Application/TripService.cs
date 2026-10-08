@@ -95,6 +95,15 @@ public sealed class TripService(
             throw new InvalidOperationException("只有草稿或已退回行程可以修改。");
         EnsureRowVersion(trip.RowVersion, rowVersion);
 
+        var reusablePendingTemporaryLocationIds =
+            V180TemporaryLocationDraftRules
+                .ExistingPendingTemporaryLocationIds(trip);
+        var removedPendingTemporaryLocationIds =
+            V180TemporaryLocationDraftRules
+                .RemovedPendingTemporaryLocationIds(
+                    reusablePendingTemporaryLocationIds,
+                    request.Stops);
+
         int? tripTeamId;
         var startSiteId = trip.StartDeploymentSiteId;
         var endSiteId = trip.EndDeploymentSiteId;
@@ -142,7 +151,12 @@ public sealed class TripService(
         trip.UpdatedByUserId = user.UserId;
 
         trip.Stops.Clear();
-        await BuildStopsAsync(trip, request.Stops, user, ct);
+        await BuildStopsAsync(
+            trip,
+            request.Stops,
+            user,
+            ct,
+            reusablePendingTemporaryLocationIds);
 
         var calc = await mileage.GetByTripAsync(trip.VisitTripId, true, ct);
         if (calc is null)
@@ -190,6 +204,15 @@ public sealed class TripService(
         await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripUpdate", null,
             new { request.VisitDate, request.StartTime, request.EndTime }, ct);
         await uow.SaveChangesAsync(ct);
+
+        if (removedPendingTemporaryLocationIds.Count > 0)
+        {
+            await masters.AbandonUnusedTemporaryLocationsAsync(
+                removedPendingTemporaryLocationIds,
+                ct);
+            await uow.SaveChangesAsync(ct);
+        }
+
         return await GetDtoAsync(tripId, ct);
     }
 
@@ -447,7 +470,7 @@ public sealed class TripService(
             displaySnapshot?.EndDeploymentAddressSnapshot ?? endSite?.Address,
             trip.Stops.OrderBy(x => x.StopSequence).Select(x => new TripStopInput(
                 x.LocationId, x.ProjectId, x.VisitTypeId,
-                x.LocationId.HasValue ? "Master" : "Temporary",
+                V180TemporaryLocationDraftRules.ResolveStopSourceType(x),
                 x.LocationNameSnapshot ?? "", x.AddressSnapshot, x.VisitPurpose, x.Notes)).ToList(),
             Convert.ToBase64String(trip.RowVersion ?? []),
             trip.VehicleType ?? "Motorcycle",
@@ -455,7 +478,12 @@ public sealed class TripService(
             mileageSource);
     }
 
-    private async Task BuildStopsAsync(VisitTrip trip, IReadOnlyList<TripStopInput> inputs, CurrentUserDto user, CancellationToken ct)
+    private async Task BuildStopsAsync(
+        VisitTrip trip,
+        IReadOnlyList<TripStopInput> inputs,
+        CurrentUserDto user,
+        CancellationToken ct,
+        IReadOnlySet<int>? reusablePendingTemporaryLocationIds = null)
     {
         var now = DateTime.UtcNow;
         var seq = 1;
@@ -467,7 +495,17 @@ public sealed class TripService(
             {
                 var location = await masters.GetLocationAsync(locationId.Value, false, ct)
                     ?? throw new KeyNotFoundException($"找不到地點 {locationId.Value}。");
-                if (!location.IsActive || location.ApprovalStatus != "Approved")
+                var reusablePendingTemporary =
+                    reusablePendingTemporaryLocationIds is not null
+                    && V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
+                        location,
+                        input.SourceType,
+                        user,
+                        trip.TeamId,
+                        reusablePendingTemporaryLocationIds);
+
+                if (!reusablePendingTemporary
+                    && (!location.IsActive || location.ApprovalStatus != "Approved"))
                     throw new InvalidOperationException($"地點「{location.LocationName}」目前不可使用。");
                 if (user.OrganizationId.HasValue && location.OrganizationId.HasValue && location.OrganizationId != user.OrganizationId)
                     throw new UnauthorizedAccessException("無權使用其他 Organization 地點。");
