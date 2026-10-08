@@ -1,3 +1,4 @@
+import ExportFilteredButton from "../components/ExportFilteredButton";
 import{useEffect,useState}from"react";
 import{NavLink}from"react-router-dom";
 import{api}from"../api";
@@ -39,7 +40,7 @@ function PersonnelList(){
  return <>
   <Tabs/>
   <div className="card">
-   <div className="section-title"><div><h2>人事資料</h2><div className="sub">此頁只維護人事事實與就業中心／派駐據點；管理小組僅供查詢參考，請至「小組與成員」維護。</div></div><button className="btn" onClick={()=>{setCreated(null);setCreateOpen(true)}}>＋新增人員</button></div>
+   <div className="section-title"><div><h2>人事資料</h2><div className="sub">此頁只維護人事事實與就業中心／派駐據點；管理小組僅供查詢參考，請至「小組與成員」維護。</div></div><div className="actions"><ExportFilteredButton dataset="personnel" filters={query.appliedFilters} disabled={query.loading||!validDates}/><button className="btn" onClick={()=>{setCreated(null);setCreateOpen(true)}}>＋新增人員</button></div></div>
    <div className="field"><label>搜尋人員</label><input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="工號、姓名或 Email"/></div>
    <div className="quick-filters" style={{marginBottom:10}}>
     {statusOptions.map(([value,label])=><button type="button" key={value||"all"} className={`btn small ${employmentStatus===value&&!dataIssue?"":"outline"}`} onClick={()=>setQuick(value)}>{label}</button>)}
@@ -93,7 +94,7 @@ function RoleLoginList(){
  return <>
   <Tabs/>
   <div className="card">
-   <div className="section-title"><div><h2>角色與登入</h2><div className="sub">此頁只維護角色。實際登入由人事狀態有效期間自動判斷；管理小組請至「小組與成員」維護。</div></div></div>
+   <div className="section-title"><div><h2>角色與登入</h2><div className="sub">此頁只維護角色。實際登入由人事狀態有效期間自動判斷；管理小組請至「小組與成員」維護。</div></div><ExportFilteredButton dataset="roles" filters={query.appliedFilters} disabled={query.loading}/></div>
    <div className="grid cols-2">
     <label>搜尋人員<input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="工號、姓名或 Email"/></label>
     <label>角色<select value={role} onChange={e=>setRole(e.target.value)}><option value="">全部</option>{roleOptions.map(r=><option key={r.code} value={r.code}>{r.label}</option>)}</select></label>

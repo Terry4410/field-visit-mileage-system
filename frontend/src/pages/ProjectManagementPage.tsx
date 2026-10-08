@@ -1,3 +1,4 @@
+import ExportFilteredButton from "../components/ExportFilteredButton";
 import{useEffect,useState}from"react";
 import{api}from"../api";
 import type{ManagedTeam,Project,ProjectDeleteImpact}from"../types";
@@ -34,7 +35,7 @@ function ProjectList(){
  return <>
   <ProjectAdminTabs/>
   <div className="card">
-   <div className="section-title"><div><h2>專案清單</h2><div className="sub">預設從清單進入；新增或維護時才開啟專案詳細資料。</div></div><button className="btn" onClick={openNew}>＋新增專案</button></div>
+   <div className="section-title"><div><h2>專案清單</h2><div className="sub">預設從清單進入；新增或維護時才開啟專案詳細資料。</div></div><div className="actions"><ExportFilteredButton dataset="projects" filters={query.appliedFilters} disabled={query.loading||!datesValid}/><button className="btn" onClick={openNew}>＋新增專案</button></div></div>
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}
    <div className="grid cols-3"><label>專案搜尋<input value={keyword} placeholder="專案代碼或名稱" onChange={e=>setKeyword(e.target.value)}/></label><label>歸屬小組<select value={filterTeam} onChange={e=>setFilterTeam(e.target.value)}><option value="">全部</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}{t.isActive?"":"（停用）"}</option>)}</select></label><label>專案狀態<select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option value="">全部</option><option value="NotStarted">未開始</option><option value="InProgress">進行中</option><option value="Ended">已結束</option><option value="Inactive">停用</option></select></label></div>
    <DateFilters label="專案期間" start={filterStart} end={filterEnd} onChange={(s,e)=>{setFilterStart(s);setFilterEnd(e)}}/>

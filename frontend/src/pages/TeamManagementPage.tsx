@@ -1,3 +1,4 @@
+import ExportFilteredButton from "../components/ExportFilteredButton";
 import{useEffect,useState}from"react";
 import{NavLink}from"react-router-dom";
 import{api}from"../api";
@@ -39,7 +40,7 @@ function TeamSettings(){
  return <>
   <Tabs/>
   <div className="card">
-   <div className="section-title"><div><h2>小組設定</h2><div className="sub">這裡只管理小組主檔；成員歸屬請到「成員配置」。</div></div><button className="btn" onClick={openNew}>＋新增小組</button></div>
+   <div className="section-title"><div><h2>小組設定</h2><div className="sub">這裡只管理小組主檔；成員歸屬請到「成員配置」。</div></div><div className="actions"><ExportFilteredButton dataset="teams" filters={query.appliedFilters} disabled={query.loading}/><button className="btn" onClick={openNew}>＋新增小組</button></div></div>
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}{query.error&&<div className="note danger-note">{query.error}</div>}
    <div className="grid cols-2"><label>小組搜尋<input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="小組代碼或名稱"/></label><label>小組狀態<select value={filterActive} onChange={e=>setFilterActive(e.target.value)}><option value="">全部</option><option value="true">啟用</option><option value="false">停用</option></select></label></div>
    <div className="table-wrap"><table><thead><tr><th>代碼</th><th>小組名稱</th><th>狀態</th><th>目前成員數</th><th>操作</th></tr></thead><tbody>{query.data.items.map(t=><tr key={t.teamId} className={t.isActive?"":"team-inactive"}><td>{t.teamCode}</td><td>{t.teamName}</td><td>{t.isActive?"啟用":"停用"}</td><td>{t.memberCount}</td><td><div className="actions"><button className="btn small secondary" onClick={()=>openEdit(t)}>維護</button>{t.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivate(t)}>停用</button>}<button className="btn small danger" disabled={busy} onClick={()=>void deleteTeam(t)}>刪除</button><NavLink className="btn small outline" to="/admin/teams/members">成員配置</NavLink></div></td></tr>)}</tbody></table></div>
@@ -73,7 +74,7 @@ function MemberConfiguration(){
  return <>
   <Tabs/>
   <div className="card">
-   <div className="section-title"><div><h2>成員配置</h2><div className="sub">這裡只維護管理小組。角色與就業中心／派駐據點均為唯讀資訊，請到各自的正式維護入口調整。</div></div>{selectedTeam?.isActive&&<button className="btn" onClick={()=>{setSelectedCandidates([]);setAddOpen(true)}}>＋加入小組成員</button>}</div>
+   <div className="section-title"><div><h2>成員配置</h2><div className="sub">這裡只維護管理小組。角色與就業中心／派駐據點均為唯讀資訊，請到各自的正式維護入口調整。</div></div><div className="actions"><ExportFilteredButton dataset="members" filters={memberQuery.appliedFilters} disabled={!selectedTeamId||memberQuery.loading}/>{selectedTeam?.isActive&&<button className="btn" onClick={()=>{setSelectedCandidates([]);setAddOpen(true)}}>＋加入小組成員</button>}</div></div>
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}
    <div className="grid cols-3"><label>搜尋小組<input value={teamKeyword} onChange={e=>setTeamKeyword(e.target.value)} placeholder="小組代碼或名稱"/></label><label>管理小組<select value={selectedTeamId} onChange={e=>setSelectedTeamId(e.target.value)}><option value="">請選擇</option>{visibleTeams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamCode}｜{t.teamName}{t.isActive?"":"（停用）"}</option>)}</select></label><label>搜尋目前成員<input value={memberKeyword} onChange={e=>setMemberKeyword(e.target.value)} placeholder="工號、姓名或 Email"/></label></div>
    {!selectedTeamId?<div className="empty">請先選擇管理小組。</div>:<>
