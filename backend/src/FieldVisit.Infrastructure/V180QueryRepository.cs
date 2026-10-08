@@ -103,12 +103,47 @@ public sealed partial class V160FinalRepository
         }
         if (r.TeamId.HasValue) q = q.Where(x => db.VisitTripSnapshots.Any(s =>
             s.VisitTripSnapshotId == x.BaseSnapshotId && s.TeamId == r.TeamId));
-        if (r.Keyword is { } k) q = q.Where(x => x.Reason.Contains(k) || db.VisitTripSnapshots.Any(s =>
-            s.VisitTripSnapshotId == x.BaseSnapshotId && (s.TripNo.Contains(k) ||
-                s.EmployeeNoSnapshot.Contains(k) || s.DisplayNameSnapshot.Contains(k) ||
-                (s.TeamNameSnapshot != null && s.TeamNameSnapshot.Contains(k)) ||
-                s.Stops.Any(st => st.LocationNameSnapshot.Contains(k) ||
-                    (st.ProjectNameSnapshot != null && st.ProjectNameSnapshot.Contains(k))))));
+        if (r.Keyword is { } k)
+        {
+            var hasCorrectionId = long.TryParse(k, out var correctionId);
+            q = q.Where(x =>
+                (hasCorrectionId && x.CorrectionRequestId == correctionId)
+                || x.Reason.Contains(k)
+                || (x.LeaderComments != null && x.LeaderComments.Contains(k))
+                || (x.AdminComments != null && x.AdminComments.Contains(k))
+                || db.CorrectionRequestChanges.Any(change =>
+                    change.CorrectionRequestId == x.CorrectionRequestId
+                    && (change.FieldName.Contains(k)
+                        || (change.OldValue != null && change.OldValue.Contains(k))
+                        || (change.NewValue != null && change.NewValue.Contains(k))))
+                || db.VisitTripSnapshots.Any(snapshot =>
+                    snapshot.VisitTripSnapshotId == x.BaseSnapshotId
+                    && (snapshot.TripNo.Contains(k)
+                        || snapshot.EmployeeNoSnapshot.Contains(k)
+                        || snapshot.DisplayNameSnapshot.Contains(k)
+                        || (snapshot.TeamNameSnapshot != null && snapshot.TeamNameSnapshot.Contains(k))
+                        || (snapshot.StartDeploymentSiteCodeSnapshot != null && snapshot.StartDeploymentSiteCodeSnapshot.Contains(k))
+                        || (snapshot.StartDeploymentAddressSnapshot != null && snapshot.StartDeploymentAddressSnapshot.Contains(k))
+                        || (snapshot.EndDeploymentSiteCodeSnapshot != null && snapshot.EndDeploymentSiteCodeSnapshot.Contains(k))
+                        || (snapshot.EndDeploymentAddressSnapshot != null && snapshot.EndDeploymentAddressSnapshot.Contains(k))
+                        || db.DeploymentSites.Any(site =>
+                            (site.SiteCode == snapshot.StartDeploymentSiteCodeSnapshot
+                             || site.SiteCode == snapshot.EndDeploymentSiteCodeSnapshot)
+                            && (site.SiteCode.Contains(k)
+                                || site.SiteName.Contains(k)
+                                || db.Centers.Any(center => center.CenterId == site.CenterId
+                                    && (center.CenterCode.Contains(k) || center.CenterName.Contains(k)))))
+                        || snapshot.Stops.Any(st =>
+                            st.LocationNameSnapshot.Contains(k)
+                            || (st.LocationCodeSnapshot != null && st.LocationCodeSnapshot.Contains(k))
+                            || (st.AddressSnapshot != null && st.AddressSnapshot.Contains(k))
+                            || (st.ProjectCodeSnapshot != null && st.ProjectCodeSnapshot.Contains(k))
+                            || (st.ProjectNameSnapshot != null && st.ProjectNameSnapshot.Contains(k))
+                            || (st.VisitTypeCodeSnapshot != null && st.VisitTypeCodeSnapshot.Contains(k))
+                            || (st.VisitTypeNameSnapshot != null && st.VisitTypeNameSnapshot.Contains(k))
+                            || (st.VisitPurposeSnapshot != null && st.VisitPurposeSnapshot.Contains(k))
+                            || (st.NotesSnapshot != null && st.NotesSnapshot.Contains(k))))));
+        }
         var count = await q.CountAsync(ct);
         var ids = await q.OrderByDescending(x => x.RequestedAt).ThenByDescending(x => x.CorrectionRequestId)
             .Skip((r.Page - 1) * r.PageSize).Take(r.PageSize).Select(x => x.CorrectionRequestId).ToListAsync(ct);

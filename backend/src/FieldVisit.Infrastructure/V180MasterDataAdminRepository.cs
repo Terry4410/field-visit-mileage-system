@@ -612,6 +612,86 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
             () => SaveDeploymentSiteCoreAsync(admin, id, input, ct), ct);
     }
 
+    public Task<V180MasterDataRow> RelocateDeploymentSiteAsync(
+        CurrentUserDto admin,
+        int id,
+        V180DeploymentSiteRelocationInput input,
+        CancellationToken ct)
+        => ExecuteTeamSiteCoverageInvariantAsync(
+            () => RelocateDeploymentSiteCoreAsync(admin, id, input, ct),
+            ct);
+
+    private async Task<V180MasterDataRow> RelocateDeploymentSiteCoreAsync(
+        CurrentUserDto admin,
+        int id,
+        V180DeploymentSiteRelocationInput input,
+        CancellationToken ct)
+    {
+        if (id <= 0) throw new InvalidOperationException("SITE_ID_REQUIRED");
+        if (input.EffectiveFrom == default) throw new InvalidOperationException("RELOCATION_EFFECTIVE_FROM_REQUIRED");
+        var reason = Required(input.ChangeReason, "RELOCATION_REASON_REQUIRED");
+        var org = Org(admin);
+
+        var site = await (
+            from x in db.DeploymentSites
+            join c in db.Centers on x.CenterId equals c.CenterId
+            where x.DeploymentSiteId == id && c.OrganizationId == org
+            select x).SingleOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException("UNKNOWN_SITE_CODE");
+        V180MasterDataValidationService.RowVersion(input.SiteRowVersion, site.RowVersion);
+        if (!site.IsActive) throw new InvalidOperationException("DEPLOYMENT_SITE_NOT_ACTIVE");
+        if (input.EffectiveFrom < site.EffectiveFrom
+            || (site.EffectiveTo.HasValue && input.EffectiveFrom > site.EffectiveTo.Value))
+            throw new InvalidOperationException("RELOCATION_OUTSIDE_SITE_PERIOD");
+
+        var location = await Location(admin, input.LocationCode, ct);
+        if (location.IsTemporary) throw new InvalidOperationException("LOCATION_MUST_BE_FORMAL");
+        if (location.ApprovalStatus != "Approved") throw new InvalidOperationException("LOCATION_NOT_APPROVED");
+        if (!location.IsActive) throw new InvalidOperationException("LOCATION_NOT_ACTIVE");
+
+        var assignments = await db.DeploymentSiteLocationAssignments
+            .Where(x => x.DeploymentSiteId == site.DeploymentSiteId)
+            .OrderBy(x => x.EffectiveFrom)
+            .ThenBy(x => x.DeploymentSiteLocationAssignmentId)
+            .ToListAsync(ct);
+        if (assignments.Any(x => x.EffectiveFrom > input.EffectiveFrom))
+            throw new InvalidOperationException("RELOCATION_HAS_FUTURE_ASSIGNMENT");
+        var current = assignments.Where(x => x.EffectiveFrom <= input.EffectiveFrom
+            && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= input.EffectiveFrom)).ToList();
+        if (current.Count != 1)
+            throw new InvalidOperationException("RELOCATION_CURRENT_ASSIGNMENT_AMBIGUOUS");
+        var old = current[0];
+        if (old.LocationId == location.LocationId)
+            return Row(site.DeploymentSiteId, site.SiteCode, null, site.SiteName,
+                site.EffectiveFrom, site.EffectiveTo, site.IsActive, null, site.RowVersion, location.LocationCode);
+        if (input.EffectiveFrom <= old.EffectiveFrom)
+            throw new InvalidOperationException("RELOCATION_EFFECTIVE_FROM_MUST_FOLLOW_CURRENT_ASSIGNMENT_START");
+
+        old.EffectiveTo = input.EffectiveFrom.AddDays(-1);
+        db.DeploymentSiteLocationAssignments.Add(new DeploymentSiteLocationAssignment
+        {
+            DeploymentSiteId = site.DeploymentSiteId,
+            LocationId = location.LocationId,
+            EffectiveFrom = input.EffectiveFrom,
+            EffectiveTo = site.EffectiveTo,
+            ChangeReason = reason,
+            CreatedAt = DateTime.UtcNow,
+            CreatedByUserId = admin.UserId
+        });
+        AddAudit(admin, "DeploymentSiteLocationAssignment", site.SiteCode, "Relocate", new
+        {
+            site.SiteCode,
+            PreviousLocationId = old.LocationId,
+            NewLocationId = location.LocationId,
+            NewLocationCode = location.LocationCode,
+            input.EffectiveFrom,
+            ChangeReason = reason
+        });
+        await db.SaveChangesAsync(ct);
+        return Row(site.DeploymentSiteId, site.SiteCode, null, site.SiteName,
+            site.EffectiveFrom, site.EffectiveTo, site.IsActive, null, site.RowVersion, location.LocationCode);
+    }
+
     public async Task<V180LocationOfficialSiteDto> GetLocationOfficialSiteAsync(
         CurrentUserDto admin,
         int locationId,

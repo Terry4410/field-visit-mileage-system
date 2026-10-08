@@ -241,13 +241,33 @@ public sealed class V180QueryRegressionTests
         var snapshots = db.VisitTripSnapshots.Where(s => !db.VisitTripSnapshots.Any(n =>
             n.VisitTripId == s.VisitTripId && n.SnapshotVersion > s.SnapshotVersion));
         var query = V180TripKeywordQuery.Apply(db.VisitTrips.Where(t => t.OrganizationId == 1),
-            snapshots, db.Users, db.Projects, db.VisitTypes, "客戶' OR 1=1");
+            snapshots, db.Users, db.Projects, db.VisitTypes, db.DeploymentSites, db.Centers,
+            "客戶' OR 1=1");
         var sql = query.OrderBy(t => t.VisitTripId).Skip(50).Take(50).ToQueryString();
         Assert.Contains("VisitTripSnapshots", sql);
         Assert.Contains("ProjectNameSnapshot", sql);
         Assert.Contains("OFFSET", sql);
         Assert.Contains("FETCH NEXT", sql);
         Assert.Contains("WHERE", sql);
+    }
+
+    [Theory]
+    [InlineData("SITE-ALPHA")]
+    [InlineData("Alpha official site")]
+    [InlineData("CENTER-A")]
+    [InlineData("Alpha center")]
+    [InlineData("Frozen deployment address")]
+    public async Task Trip_keyword_covers_official_site_and_center_business_fields(string keyword)
+    {
+        await using var db = MemoryDb();
+        db.Users.Add(new User { UserId = 1, OrganizationId = 1, EmployeeNo = "E001", DisplayName = "Tester" });
+        db.Centers.Add(new Center { CenterId = 1, OrganizationId = 1, CenterCode = "CENTER-A", CenterName = "Alpha center", EffectiveFrom = new(2026,1,1), IsActive = true });
+        db.DeploymentSites.Add(new DeploymentSite { DeploymentSiteId = 1, CenterId = 1, SiteCode = "SITE-ALPHA", SiteName = "Alpha official site", EffectiveFrom = new(2026,1,1), IsActive = true });
+        db.VisitTrips.Add(new VisitTrip { VisitTripId = 31, TripNo = "T-31", UserId = 1, OrganizationId = 1, VisitDate = new(2026,10,8), Status = TripStatuses.Approved });
+        db.VisitTripSnapshots.Add(new VisitTripSnapshot { VisitTripSnapshotId = 31, VisitTripId = 31, SnapshotVersion = 1, TripNo = "T-31", UserId = 1, OrganizationId = 1, EmployeeNoSnapshot = "E001", DisplayNameSnapshot = "Tester", OrganizationNameSnapshot = "Org", StartDeploymentSiteCodeSnapshot = "SITE-ALPHA", StartDeploymentAddressSnapshot = "Frozen deployment address", VisitDate = new(2026,10,8) });
+        await db.SaveChangesAsync();
+        var result = await Repo(db).QueryTripsAsync(Actor(), new TripQueryRequest(Keyword: keyword), false, default);
+        Assert.Equal(31, Assert.Single(result.Items).VisitTripId);
     }
 
     [Fact]
@@ -273,6 +293,27 @@ public sealed class V180QueryRegressionTests
         Assert.Equal(2, await db.VisitTripSnapshots.CountAsync());
     }
 
+
+    [Theory]
+    [InlineData("Leader says ok")]
+    [InlineData("Admin closed note")]
+    [InlineData("OLD-VALUE")]
+    [InlineData("VISIT-CODE")]
+    [InlineData("FROZEN-ADDRESS")]
+    public async Task Correction_keyword_searches_operational_fields_without_bypassing_scope(string keyword)
+    {
+        await using var db = MemoryDb();
+        await SeedHistory(db);
+        var snapshot = await db.VisitTripSnapshots.OrderByDescending(x => x.SnapshotVersion).Include(x=>x.Stops).FirstAsync();
+        snapshot.StartDeploymentSiteCodeSnapshot = "SITE-CORR";
+        snapshot.StartDeploymentAddressSnapshot = "FROZEN-ADDRESS";
+        snapshot.Stops[0].VisitTypeCodeSnapshot = "VISIT-CODE";
+        db.CorrectionRequests.Add(new CorrectionRequest { CorrectionRequestId = 77, VisitTripId = 1, BaseSnapshotId = snapshot.VisitTripSnapshotId, RequestedByUserId = 1, Status = "PendingAdminClose", Reason = "Correction reason", LeaderComments = "Leader says ok", AdminComments = "Admin closed note", RequestedAt = DateTime.UtcNow, ProposedChangesJson = "{}" });
+        db.CorrectionRequestChanges.Add(new CorrectionRequestChange { CorrectionRequestChangeId = 77, CorrectionRequestId = 77, FieldName = "Notes", OldValue = "OLD-VALUE", NewValue = "NEW-VALUE", CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+        var result = await Repo(db).SearchCorrectionsAsync(Actor(), new V180SearchRequest(Keyword: keyword), default);
+        Assert.Equal(77, Assert.Single(result.Items).CorrectionRequestId);
+    }
 
     [Fact]
     public async Task Survivor_location_keyword_resolves_preserved_source_history_without_rewrite()
