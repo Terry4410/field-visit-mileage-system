@@ -9,7 +9,7 @@ import{money,todayTaipei}from"../v160";
 
 import { usePagedQuery } from '../use-query';
 
-type Props={section:'dashboard'|'locations'|'official-sites'|'visit-types'|'rates'};
+type Props={section:'dashboard'|'locations'|'locations-new'|'locations-bulk'|'official-centers'|'official-sites'|'visit-types'|'rates'};
 
 type ManagedLocationPage={
  items:ManagedLocation[];
@@ -35,8 +35,11 @@ type ManagedLocationDeleteImpact={
 export default function AdminPage({section}:Props){
  const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);
  if(section==='dashboard')return <Dashboard msg={msg} setMsg={setMsg}/>;
- if(section==='locations')return <><LocationAdminTabs/><Locations busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
- if(section==='official-sites')return <><LocationAdminTabs/><OfficialSiteMaintenance/></>;
+ if(section==='locations')return <><LocationAdminTabs/><Locations mode="list" busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
+ if(section==='locations-new')return <><LocationAdminTabs/><Locations mode="new" busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
+ if(section==='locations-bulk')return <><LocationAdminTabs/><Locations mode="bulk" busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
+ if(section==='official-centers')return <><LocationAdminTabs/><OfficialSiteMaintenance mode="centers"/></>;
+ if(section==='official-sites')return <><LocationAdminTabs/><OfficialSiteMaintenance mode="sites"/></>;
  if(section==='visit-types')return <VisitTypes busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
  if(section==='rates')return <Rates busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
  return null;
@@ -48,7 +51,7 @@ function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){
 }
 function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}){return <div className="card stat"><div className="label">{label}</div><div className="value">{value}</div>{hint&&<div className="hint">{hint}</div>}</div>}
 
-function Locations({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
+function Locations({mode,busy,setBusy,msg,setMsg}:{mode:"list"|"new"|"bulk";busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
  const[teams,setTeams]=useState<Team[]>([]),[edit,setEdit]=useState<ManagedLocation|null>(null),[maintain,setMaintain]=useState<ManagedLocation|null>(null);
  const[teamId,setTeamId]=useState(''),[name,setName]=useState(''),[city,setCity]=useState(''),[district,setDistrict]=useState(''),[address,setAddress]=useState(''),[plus,setPlus]=useState('');
  const[q,setQ]=useState(''),[filterTeam,setFilterTeam]=useState(''),[filterCity,setFilterCity]=useState(''),[filterDistrict,setFilterDistrict]=useState(''),[filterGeocode,setFilterGeocode]=useState(''),[filterActive,setFilterActive]=useState('');
@@ -104,7 +107,9 @@ function Locations({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>
 轉換後可加入專案固定地點；既有歷史行程不會被修改。`))return;setBusy(true);try{await api(`/locations/${l.locationId}/promote`,{method:'POST',body:JSON.stringify({rowVersion:l.rowVersion})});setMsg(`地點「${l.locationName}」已轉為正式地點。`);await load()}catch(e){setMsg(e instanceof Error?e.message:'轉為正式地點失敗')}finally{setBusy(false)}};
  const poll=async(id:string)=>{const j=await api<BackgroundJob>(`/jobs/${id}`);setJob(j);if(['Waiting','Processing'].includes(j.status))setTimeout(()=>void poll(id),1500);else{await load();clearSelection()}};
 
- return <><div className="grid cols-2"><div className="card"><div className="section-title"><h2>{edit?'修改地點':'新增地點'}</h2>{edit&&<button className="btn small outline" onClick={reset}>取消修改</button>}</div><div className="grid cols-2"><div className="field"><label>小組</label><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>地點名稱</label><input value={name} onChange={e=>setName(e.target.value)}/></div><div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div><div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field span-2"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div></div><button className="btn" disabled={busy} onClick={()=>void save()}>{edit?'儲存修改':'新增地點'}</button></div><div className="card"><AdminImportPanel type="locations" onDone={load}/></div></div>{msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}{query.error&&<div role="alert" className="note danger-note">{query.error}</div>}{job&&<div className="note">背景工作：{job.status}｜成功 {job.successCount}／失敗 {job.failedCount}／總計 {job.totalCount}</div>}
+ if(mode==="new")return <><div className="card"><div className="section-title"><div><h2>新增地點</h2><div className="sub">單筆建立地點；新增後仍需在「地點主檔」完成解析／發布。</div></div></div><div className="grid cols-2"><div className="field"><label>小組</label><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>地點名稱</label><input value={name} onChange={e=>setName(e.target.value)}/></div><div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div><div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field span-2"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div></div><button className="btn" disabled={busy||!name.trim()} onClick={()=>void save()}>新增地點</button></div>{msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}</>;
+ if(mode==="bulk")return <><div className="card"><div className="section-title"><div><h2>地點 Excel 批次維護</h2><div className="sub">Excel 匯入只負責資料 Preview／Confirm；Geocoding 批次解析與發布仍在「地點主檔」。</div></div></div><AdminImportPanel type="locations" onDone={load}/></div>{msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}</>;
+ return <>{edit&&<div className="card" style={{marginBottom:18}}><div className="section-title"><h2>修改地點</h2><button className="btn small outline" onClick={reset}>取消修改</button></div><div className="grid cols-2"><div className="field"><label>小組</label><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全組織</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>地點名稱</label><input value={name} onChange={e=>setName(e.target.value)}/></div><div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div><div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field span-2"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div></div><button className="btn" disabled={busy||!name.trim()} onClick={()=>void save()}>儲存修改</button></div>}{msg&&<div className="note" style={{marginTop:14}}>{msg}</div>}{query.error&&<div role="alert" className="note danger-note">{query.error}</div>}{job&&<div className="note">背景工作：{job.status}｜成功 {job.successCount}／失敗 {job.failedCount}／總計 {job.totalCount}</div>}
 
  <div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>地點主檔</h2><div className="sub">大量資料採伺服器端搜尋與分頁；解析可選本頁或全部符合目前條件的地點。</div></div><button className="btn ok" onClick={()=>void geocode()} disabled={busy||query.loading||(!allFiltered&&!selected.length)}>批次解析／發布</button></div>
  <div className="grid cols-2">
