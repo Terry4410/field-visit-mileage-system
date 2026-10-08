@@ -204,7 +204,7 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
 
  if(mode==="centers")return <div className="grid cols-2" style={{marginTop:18}}>
   <div className="card">
-   <div className="section-title"><div><h2>{centerEdit?"修改就業中心":"新增就業中心"}</h2><div className="sub">Center 是官方據點的上層主檔；失效日空白以「無期限」維護。</div></div>{centerEdit&&<button className="btn small outline" onClick={resetCenter}>取消修改</button>}</div>
+   <div className="section-title"><div><h2>{centerEdit?"修改就業中心":"新增就業中心"}</h2><div className="sub">Center 是官方據點的上層主檔；未指定失效日時，請勾選「無期限」。</div></div>{centerEdit&&<button className="btn small outline" onClick={resetCenter}>取消修改</button>}</div>
    {msg&&<div className="note" style={{marginBottom:14}}>{msg}</div>}
    <div className="grid cols-2">
     <label>Center Code<input value={centerCode} onChange={e=>setCenterCode(e.target.value)} placeholder="例如 C-CHANGHUA"/></label>
@@ -212,13 +212,12 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
     <label>生效日<input type="date" value={centerFrom} onChange={e=>setCenterFrom(e.target.value)}/></label>
     <label>失效日<input type="date" value={centerTo} disabled={centerNoEnd} onChange={e=>setCenterTo(e.target.value)}/></label>
    </div>
-   <label className="check-row"><input type="checkbox" checked={centerNoEnd} onChange={e=>{setCenterNoEnd(e.target.checked);if(e.target.checked)setCenterTo("")}}/>無期限</label>
-   <label className="check-row"><input type="checkbox" checked={centerActive} onChange={e=>setCenterActive(e.target.checked)}/>啟用</label>
+   <div className="effective-flags"><label className="check-row"><input type="checkbox" checked={centerNoEnd} onChange={e=>{setCenterNoEnd(e.target.checked);if(e.target.checked)setCenterTo("")}}/>無期限</label><label className="check-row"><input type="checkbox" checked={centerActive} onChange={e=>setCenterActive(e.target.checked)}/>啟用</label></div>
    <button className="btn" disabled={busy} onClick={()=>void saveCenter()}>{centerEdit?"儲存中心修改":"新增就業中心"}</button>
   </div>
   <div className="card">
    <div className="section-title"><div><h2>就業中心清單</h2><div className="sub">狀態依啟用旗標與有效期間衍生為未生效／有效／已失效／停用。</div></div></div>
-   <div className="grid cols-2"><label>關鍵字<input value={centerKeyword} onChange={e=>setCenterKeyword(e.target.value)} placeholder="Center Code 或中心名稱"/></label><label>狀態<select value={centerStatus} onChange={e=>setCenterStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
+   <div className="admin-list-filters grid cols-2"><label>關鍵字<input value={centerKeyword} onChange={e=>setCenterKeyword(e.target.value)} placeholder="Center Code 或中心名稱"/></label><label>狀態<select value={centerStatus} onChange={e=>setCenterStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
    <div className="table-wrap"><table><thead><tr><th>Code</th><th>名稱</th><th>有效期間</th><th>狀態</th><th>操作</th></tr></thead><tbody>
     {filteredCenters.map(x=><tr key={x.id}><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><button className="btn small outline" disabled={busy} onClick={()=>openCenter(x)}>修改</button></td></tr>)}
     {!filteredCenters.length&&<tr><td colSpan={5}>查無符合條件的就業中心。</td></tr>}
@@ -241,7 +240,7 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
      <label>生效日<input type="date" value={siteFrom} onChange={e=>setSiteFrom(e.target.value)}/></label>
      <label>失效日<input type="date" value={siteTo} disabled={siteNoEnd} onChange={e=>setSiteTo(e.target.value)}/></label>
     </div>
-    <label className="check-row"><input type="checkbox" checked={siteNoEnd} onChange={e=>{setSiteNoEnd(e.target.checked);if(e.target.checked)setSiteTo("")}}/>無期限</label>
+    
     {siteEdit?<div className="field"><label>正式 Location</label><input value={siteLocationCode||"無完整 Location coverage"} disabled/><div className="muted">需要更換 Location 時請使用「據點搬遷」。</div></div>:<>
      <div className="field"><label>搜尋正式 Location</label><input value={locationSearch} onChange={e=>setLocationSearch(e.target.value)} placeholder="地點代碼、名稱或地址"/></div>
      {siteLocationCode&&<div className="note ok-note" style={{marginBottom:12}}>已選擇：{siteLocationCode}｜{siteLocationLabel}</div>}
@@ -250,12 +249,12 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
       {!locationQuery.loading&&!officialLocations.length&&<div className="empty compact-empty">查無已核准、已啟用的正式 Location。</div>}
      </div>}
     </>}
-    <label className="check-row"><input type="checkbox" checked={siteActive} onChange={e=>setSiteActive(e.target.checked)}/>啟用</label>
+    <div className="effective-flags"><label className="check-row"><input type="checkbox" checked={siteNoEnd} onChange={e=>{setSiteNoEnd(e.target.checked);if(e.target.checked)setSiteTo("")}}/>無期限</label><label className="check-row"><input type="checkbox" checked={siteActive} onChange={e=>setSiteActive(e.target.checked)}/>啟用</label></div>
     <button className="btn" disabled={busy||!!(siteEdit&&!siteLocationCode)} onClick={()=>void saveSite()}>{siteEdit?"儲存據點修改":"新增官方據點"}</button>
    </div>
    <div className="card">
     <div className="section-title"><div><h2>官方據點清單</h2><div className="sub">可依就業中心或關鍵字搜尋 Site Code、據點名稱、Location Code 與中心名稱。</div></div></div>
-    <div className="grid cols-2"><label>關鍵字<input value={siteKeyword} onChange={e=>setSiteKeyword(e.target.value)} placeholder="Site Code／據點／Location／就業中心"/></label><label>就業中心<select value={siteCenterFilter} onChange={e=>setSiteCenterFilter(e.target.value)}><option value="">全部</option>{centers.map(x=><option key={x.id} value={x.key}>{x.key}｜{x.detail||""}</option>)}</select></label><label>狀態<select value={siteStatus} onChange={e=>setSiteStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
+    <div className="admin-list-filters grid cols-2"><label>關鍵字<input value={siteKeyword} onChange={e=>setSiteKeyword(e.target.value)} placeholder="Site Code／據點／Location／就業中心"/></label><label>就業中心<select value={siteCenterFilter} onChange={e=>setSiteCenterFilter(e.target.value)}><option value="">全部</option>{centers.map(x=><option key={x.id} value={x.key}>{x.key}｜{x.detail||""}</option>)}</select></label><label>狀態<select value={siteStatus} onChange={e=>setSiteStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
     <div className="table-wrap"><table><thead><tr><th>中心</th><th>Site Code</th><th>據點</th><th>Location</th><th>有效期間</th><th>狀態</th><th>操作</th></tr></thead><tbody>
      {filteredSites.map(x=><tr key={x.id}><td>{centers.find(c=>c.key===x.parentKey)?.detail||x.parentKey||"—"}</td><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.referenceKey||"需修復 Location coverage"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><div className="actions"><button className="btn small outline" disabled={busy} onClick={()=>openSite(x)}>修改</button><button className="btn small secondary" disabled={busy||lifecycleLabel(x)==="停用"} onClick={()=>openRelocation(x)}>據點搬遷</button></div></td></tr>)}
      {!filteredSites.length&&<tr><td colSpan={7}>查無符合條件的官方據點。</td></tr>}
