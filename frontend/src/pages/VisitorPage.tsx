@@ -315,7 +315,10 @@ export default function VisitorPage(){
     setProjectId(stop.projectId?String(stop.projectId):"");
     setVisitTypeId(stop.visitTypeId?String(stop.visitTypeId):"");
 
-    if(stop.locationId){
+    const persistedTemporary=
+      stop.sourceType?.toLowerCase()==="temporary";
+
+    if(stop.locationId&&!persistedTemporary){
       setLocationMethod("existing");
 
       // Seed the current Stop so editing does not require downloading
@@ -392,7 +395,19 @@ export default function VisitorPage(){
     }
 
     if(!tempName.trim()||!tempAddress.trim())return setMsg("請填寫臨時地點名稱與地址或 Plus Code。");
+    const editingTemporary=
+      editingStopIndex===null
+        ?undefined
+        :stops[editingStopIndex];
+    const unchangedPersistedTemporaryId=
+      editingTemporary?.sourceType?.toLowerCase()==="temporary"
+      &&editingTemporary.locationId
+      &&editingTemporary.locationName===tempName.trim()
+      &&(editingTemporary.address||"")===tempAddress.trim()
+        ?editingTemporary.locationId
+        :undefined;
     commitStop({
+      locationId:unchangedPersistedTemporaryId,
       projectId:selectedProjectId,
       visitTypeId:visitType?.visitTypeId,
       sourceType:"Temporary",

@@ -242,8 +242,8 @@ async function submitFromUi(page: Page, tripId: number) {
   await page.getByRole("button", { name: "確認送出", exact: true }).click();
 
   const updateResponse = await updateResponsePromise;
-  const submitResponse = await submitResponsePromise;
   expect(updateResponse.ok(), await updateResponse.text()).toBe(true);
+  const submitResponse = await submitResponsePromise;
   expect(submitResponse.ok(), await submitResponse.text()).toBe(true);
 
   const submitted = await submitResponse.json();

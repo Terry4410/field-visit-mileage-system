@@ -36,7 +36,9 @@ public sealed class V180TemporaryLocationDraftRulesTests
         Assert.True(
             V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
                 location,
+                "Temporary",
                 Visitor(),
+                10,
                 new HashSet<int> { 501 }));
     }
 
@@ -58,7 +60,9 @@ public sealed class V180TemporaryLocationDraftRulesTests
         Assert.False(
             V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
                 location,
+                "Temporary",
                 Visitor(),
+                10,
                 new HashSet<int> { 501 }));
     }
 
@@ -80,8 +84,52 @@ public sealed class V180TemporaryLocationDraftRulesTests
         Assert.False(
             V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
                 location,
+                "Temporary",
                 Visitor(),
+                10,
                 new HashSet<int> { 501 }));
+    }
+
+    [Fact]
+    public void Pending_temporary_reuse_requires_temporary_source_same_team_and_inactive_state()
+    {
+        var originalIds = new HashSet<int> { 501 };
+        var location = new Location
+        {
+            LocationId = 501,
+            OrganizationId = 1,
+            TeamId = 10,
+            LocationName = "Pending temporary",
+            IsTemporary = true,
+            ApprovalStatus = "Pending",
+            IsActive = false,
+            CreatedByUserId = 100
+        };
+
+        Assert.False(
+            V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
+                location,
+                "Master",
+                Visitor(),
+                10,
+                originalIds));
+
+        Assert.False(
+            V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
+                location,
+                "Temporary",
+                Visitor(),
+                11,
+                originalIds));
+
+        location.IsActive = true;
+        Assert.False(
+            V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
+                location,
+                "Temporary",
+                Visitor(),
+                10,
+                originalIds));
     }
 
     [Fact]

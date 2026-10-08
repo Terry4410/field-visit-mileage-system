@@ -499,7 +499,9 @@ public sealed class TripService(
                     reusablePendingTemporaryLocationIds is not null
                     && V180TemporaryLocationDraftRules.CanReusePendingTemporaryLocation(
                         location,
+                        input.SourceType,
                         user,
+                        trip.TeamId,
                         reusablePendingTemporaryLocationIds);
 
                 if (!reusablePendingTemporary

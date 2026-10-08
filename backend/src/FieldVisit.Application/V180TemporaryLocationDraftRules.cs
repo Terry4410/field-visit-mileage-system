@@ -19,12 +19,20 @@ public static class V180TemporaryLocationDraftRules
 
     public static bool CanReusePendingTemporaryLocation(
         Location location,
+        string? sourceType,
         CurrentUserDto user,
+        int? tripTeamId,
         IReadOnlySet<int> existingPendingTemporaryLocationIds)
     {
         if (!existingPendingTemporaryLocationIds.Contains(location.LocationId))
             return false;
+        if (!string.Equals(
+                sourceType,
+                "Temporary",
+                StringComparison.OrdinalIgnoreCase))
+            return false;
         if (!location.IsTemporary
+            || location.IsActive
             || !string.Equals(
                 location.ApprovalStatus,
                 "Pending",
@@ -34,6 +42,8 @@ public static class V180TemporaryLocationDraftRules
             return false;
         if (user.OrganizationId.HasValue
             && location.OrganizationId != user.OrganizationId.Value)
+            return false;
+        if (location.TeamId != tripTeamId)
             return false;
 
         return true;

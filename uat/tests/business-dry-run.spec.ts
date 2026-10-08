@@ -98,6 +98,7 @@ test("CORR-01 / CORR-02 / CORR-03 / CORR-04 financial and non-financial correcti
     const routeEvidence=await r.json();
     expect(routeEvidence.status).toBe("Failed");
     expect(routeEvidence.routeCalculationAttemptId).toBeGreaterThan(0);
+    expect(routeEvidence.errorCode).not.toBe("CORRECTION_DISTANCE_MISMATCH");
 
     r=await request.post(`${apiBaseUrl}/api/v1/corrections/${c.correctionRequestId}/admin-close`,{
       headers:auth(admin.accessToken,"admin"),
@@ -137,6 +138,7 @@ test("ADM-01 / ADM-02 / ADM-03 creates only UAT-AUTO master data and cleans it s
 test("ADM-04 / ADM-05 admin access is read-only and rate warning never commits a change",async({page,request})=>{
   const admin=await login(request,"pilota01");
   const rs=await rates(request,admin.accessToken,"admin");
+  const shared=rs.find((x:any)=>x.organizationId==null);
   const rate=rs.find((x:any)=>x.isActive&&x.organizationId!=null&&x.vehicleType.toLowerCase()==="motorcycle");
 
   await loginUi(page,"pilota01","管理儀表板");
@@ -148,12 +150,18 @@ test("ADM-04 / ADM-05 admin access is read-only and rate warning never commits a
   await nav.getByRole("link",{name:/補助費率/}).click();
   await expect(page.locator(".topbar h1")).toHaveText("補助費率");
 
+  if(shared){
+    const sharedRow=page.locator("tbody tr").filter({hasText:shared.ruleName}).filter({hasText:shared.effectiveFrom}).first();
+    await expect(sharedRow).toContainText("系統共用（唯讀）");
+    await expect(sharedRow.getByRole("button",{name:"修改"})).toHaveCount(0);
+  }
+
   if(!rate){
     test.info().annotations.push({type:"BLOCKED",description:"ADM-05 BLOCKED_BY_SAFE_DATASET: no organization-owned editable Motorcycle rate exists; global rates stay read-only."});
     return;
   }
 
-  const ir=await request.get(`${apiBaseUrl}/api/v1/mileage-rate-rules/impact?effectiveFrom=${encodeURIComponent(rate.effectiveFrom)}&vehicleType=Motorcycle`,{headers:auth(admin.accessToken,"admin")});
+  const ir=await request.get(`${apiBaseUrl}/api/v1/mileage-rate-rules/impact?effectiveFrom=${encodeURIComponent(rate.effectiveFrom)}&vehicleType=${encodeURIComponent(rate.vehicleType)}`,{headers:auth(admin.accessToken,"admin")});
   await ok(ir,"ADM-05 impact");
   const impact=await ir.json();
   if(!impact.requiresAcknowledgement){
