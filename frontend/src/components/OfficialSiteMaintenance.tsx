@@ -83,6 +83,19 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
   [relocationQuery.data.items]
  );
 
+ const safeDelete=async(row:MasterRow,kind:"centers"|"deployment-sites")=>{
+  setBusy(true);setMsg("");
+  try{
+   const impact=await api<{canDelete:boolean;reason?:string|null;code:string;name:string}>(`/admin/${kind}/${row.id}/delete-impact`);
+   if(!impact.canDelete){setMsg(impact.reason||"此筆主檔已有關聯，只能停用；請透過修改功能停用。");return;}
+   if(!window.confirm(`確認永久刪除「${impact.code}｜${impact.name}」？\n\n此動作無法復原，僅適用完全未使用的誤植資料。`))return;
+   await api(`/admin/${kind}/${row.id}/permanent`,{method:"DELETE"});
+   if(kind==="centers"&&centerEdit?.id===row.id)resetCenter();
+   if(kind==="deployment-sites"&&siteEdit?.id===row.id)resetSite();
+   setMsg("已永久刪除未使用的誤植主檔。");await load();
+  }catch(e){setMsg(e instanceof Error?e.message:"刪除檢核失敗，沒有刪除資料。");}
+  finally{setBusy(false)}
+ };
  const load=async()=>{
   const result=await Promise.all([
    api<MasterRow[]>("/admin/master-data/centers"),
@@ -219,7 +232,7 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
    <div className="section-title"><div><h2>就業中心清單</h2><div className="sub">狀態依啟用旗標與有效期間衍生為未生效／有效／已失效／停用。</div></div></div>
    <div className="admin-list-filters grid cols-2"><label>關鍵字<input value={centerKeyword} onChange={e=>setCenterKeyword(e.target.value)} placeholder="Center Code 或中心名稱"/></label><label>狀態<select value={centerStatus} onChange={e=>setCenterStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
    <div className="table-wrap"><table><thead><tr><th>Code</th><th>名稱</th><th>有效期間</th><th>狀態</th><th>操作</th></tr></thead><tbody>
-    {filteredCenters.map(x=><tr key={x.id}><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><button className="btn small outline" disabled={busy} onClick={()=>openCenter(x)}>修改</button></td></tr>)}
+    {filteredCenters.map(x=><tr key={x.id}><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><button className="btn small outline" disabled={busy} onClick={()=>openCenter(x)}>修改</button> <button className="btn small danger" disabled={busy} onClick={()=>void safeDelete(x,"centers")}>刪除</button></td></tr>)}
     {!filteredCenters.length&&<tr><td colSpan={5}>查無符合條件的就業中心。</td></tr>}
    </tbody></table></div>
   </div>
@@ -256,7 +269,7 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
     <div className="section-title"><div><h2>官方據點清單</h2><div className="sub">可依就業中心或關鍵字搜尋 Site Code、據點名稱、Location Code 與中心名稱。</div></div></div>
     <div className="admin-list-filters grid cols-2"><label>關鍵字<input value={siteKeyword} onChange={e=>setSiteKeyword(e.target.value)} placeholder="Site Code／據點／Location／就業中心"/></label><label>就業中心<select value={siteCenterFilter} onChange={e=>setSiteCenterFilter(e.target.value)}><option value="">全部</option>{centers.map(x=><option key={x.id} value={x.key}>{x.key}｜{x.detail||""}</option>)}</select></label><label>狀態<select value={siteStatus} onChange={e=>setSiteStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
     <div className="table-wrap"><table><thead><tr><th>中心</th><th>Site Code</th><th>據點</th><th>Location</th><th>有效期間</th><th>狀態</th><th>操作</th></tr></thead><tbody>
-     {filteredSites.map(x=><tr key={x.id}><td>{centers.find(c=>c.key===x.parentKey)?.detail||x.parentKey||"—"}</td><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.referenceKey||"需修復 Location coverage"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><div className="actions"><button className="btn small outline" disabled={busy} onClick={()=>openSite(x)}>修改</button><button className="btn small secondary" disabled={busy||lifecycleLabel(x)==="停用"} onClick={()=>openRelocation(x)}>據點搬遷</button></div></td></tr>)}
+     {filteredSites.map(x=><tr key={x.id}><td>{centers.find(c=>c.key===x.parentKey)?.detail||x.parentKey||"—"}</td><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.referenceKey||"需修復 Location coverage"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><div className="actions"><button className="btn small outline" disabled={busy} onClick={()=>openSite(x)}>修改</button><button className="btn small danger" disabled={busy} onClick={()=>void safeDelete(x,"deployment-sites")}>刪除</button><button className="btn small secondary" disabled={busy||lifecycleLabel(x)==="停用"} onClick={()=>openRelocation(x)}>據點搬遷</button></div></td></tr>)}
      {!filteredSites.length&&<tr><td colSpan={7}>查無符合條件的官方據點。</td></tr>}
     </tbody></table></div>
    </div>

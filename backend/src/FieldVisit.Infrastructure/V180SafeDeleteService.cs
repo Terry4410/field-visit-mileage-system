@@ -19,6 +19,64 @@ public sealed class V180SafeDeleteService(
         return user;
     }
 
+    // OWNER-BUAT-SAFE-DELETE-002: dependency inventory is authoritative on both preview and execution.
+    public Task<V180CenterDeleteImpactDto> CenterImpactAsync(int id,CancellationToken ct)=>CenterImpactAsync(Admin(),id,ct);
+    private async Task<V180CenterDeleteImpactDto> CenterImpactAsync(CurrentUserDto admin,int id,CancellationToken ct)
+    {
+        var c=await db.Centers.AsNoTracking().SingleOrDefaultAsync(x=>x.CenterId==id&&x.OrganizationId==admin.OrganizationId!.Value,ct)
+            ??throw new KeyNotFoundException("找不到此組織的就業中心。");
+        var sites=await db.DeploymentSites.CountAsync(x=>x.CenterId==id,ct);
+        var assignments=await db.TeamCenterAssignments.CountAsync(x=>x.CenterId==id,ct);
+        var history=await db.VisitTripSnapshots.CountAsync(x=>EF.Property<int?>(x,"CenterIdSnapshot")==id,ct);
+        var can=sites==0&&assignments==0&&history==0;
+        return new(id,c.CenterCode,c.CenterName,can,sites,assignments,history,
+            can?null:$"存在歷史或關聯：官方據點 {sites}、小組中心關聯 {assignments}、歷史 Snapshot {history}。只能停用，不能永久刪除。");
+    }
+    public async Task DeleteCenterAsync(int id,CancellationToken ct)
+    {
+        var admin=Admin();
+        await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
+        var impact=await CenterImpactAsync(admin,id,ct);
+        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"中心仍有關聯，不能永久刪除。");
+        var c=await db.Centers.SingleAsync(x=>x.CenterId==id&&x.OrganizationId==admin.OrganizationId!.Value,ct);
+        db.Centers.Remove(c);
+        db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="Center",EntityId=id.ToString(),Action="CenterPermanentDelete",NewValues=JsonSerializer.Serialize(new{impact.Code,impact.Name}),CreatedAt=DateTime.UtcNow});
+        try{await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);}
+        catch(DbUpdateException){throw new InvalidOperationException("就業中心有未列入的資料庫關聯；永久刪除已拒絕，請改用停用。");}
+    }
+    public Task<V180SiteDeleteImpactDto> SiteImpactAsync(int id,CancellationToken ct)=>SiteImpactAsync(Admin(),id,ct);
+    private async Task<V180SiteDeleteImpactDto> SiteImpactAsync(CurrentUserDto admin,int id,CancellationToken ct)
+    {
+        var s=await (from site in db.DeploymentSites.AsNoTracking() join center in db.Centers on site.CenterId equals center.CenterId
+            where site.DeploymentSiteId==id&&center.OrganizationId==admin.OrganizationId!.Value select site).SingleOrDefaultAsync(ct)
+            ??throw new KeyNotFoundException("找不到此組織的官方據點。");
+        var loc=await db.DeploymentSiteLocationAssignments.AsNoTracking().Where(x=>x.DeploymentSiteId==id).ToListAsync(ct);
+        var teams=await db.TeamDeploymentSiteAssignments.CountAsync(x=>x.DeploymentSiteId==id,ct);
+        var employment=await db.EmploymentDeploymentSiteAssignments.CountAsync(x=>x.DeploymentSiteId==id,ct);
+        var trips=await db.VisitTrips.CountAsync(x=>x.StartDeploymentSiteId==id||x.EndDeploymentSiteId==id,ct);
+        var snapshots=await db.VisitTripSnapshots.CountAsync(x=>EF.Property<int?>(x,"StartDeploymentSiteIdSnapshot")==id||EF.Property<int?>(x,"EndDeploymentSiteIdSnapshot")==id,ct);
+        // The single automatic initial Location mapping is configuration, not historical use.
+        // Any relocation / multiple or changed periods must remain preserved.
+        var initialOnly=loc.Count==1&&loc[0].EffectiveFrom==s.EffectiveFrom&&!loc[0].EffectiveTo.HasValue&&string.IsNullOrWhiteSpace(loc[0].ChangeReason);
+        var can=initialOnly&&teams==0&&employment==0&&trips==0&&snapshots==0;
+        return new(id,s.SiteCode,s.SiteName,can,loc.Count,teams,employment,trips,snapshots,
+            can?null:$"存在使用或搬遷歷史：Location 關聯 {loc.Count}、小組派駐 {teams}、人員派駐 {employment}、行程 {trips}、Snapshot {snapshots}。僅允許未使用且僅有初始 Location 關聯的誤建據點永久刪除；其他請停用。");
+    }
+    public async Task DeleteSiteAsync(int id,CancellationToken ct)
+    {
+        var admin=Admin();
+        await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
+        var impact=await SiteImpactAsync(admin,id,ct);
+        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此據點仍有關聯，不能永久刪除。");
+        var s=await (from site in db.DeploymentSites join center in db.Centers on site.CenterId equals center.CenterId
+            where site.DeploymentSiteId==id&&center.OrganizationId==admin.OrganizationId!.Value select site).SingleAsync(ct);
+        await db.DeploymentSiteLocationAssignments.Where(x=>x.DeploymentSiteId==id).ExecuteDeleteAsync(ct);
+        db.DeploymentSites.Remove(s);
+        db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="DeploymentSite",EntityId=id.ToString(),Action="DeploymentSitePermanentDelete",NewValues=JsonSerializer.Serialize(new{impact.Code,impact.Name}),CreatedAt=DateTime.UtcNow});
+        try{await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);}
+        catch(DbUpdateException){throw new InvalidOperationException("官方據點有其他資料庫關聯；永久刪除已拒絕，請改用停用。");}
+    }
+
     public async Task<V180PersonDeleteImpactDto> PersonImpactAsync(int userId,CancellationToken ct)
         => await PersonImpactAsync(Admin(),userId,ct);
 

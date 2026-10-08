@@ -11,6 +11,15 @@ namespace FieldVisit.Api.Controllers;
 public sealed class V180SafeDeleteController(
     V180SafeDeleteService service) : ControllerBase
 {
+    [HttpGet("centers/{id:int}/delete-impact")]
+    public Task<V180CenterDeleteImpactDto> CenterImpact(int id,CancellationToken ct)=>service.CenterImpactAsync(id,ct);
+    [HttpDelete("centers/{id:int}/permanent")]
+    public async Task<IActionResult> DeleteCenter(int id,CancellationToken ct){await service.DeleteCenterAsync(id,ct);return NoContent();}
+    [HttpGet("deployment-sites/{id:int}/delete-impact")]
+    public Task<V180SiteDeleteImpactDto> SiteImpact(int id,CancellationToken ct)=>service.SiteImpactAsync(id,ct);
+    [HttpDelete("deployment-sites/{id:int}/permanent")]
+    public async Task<IActionResult> DeleteSite(int id,CancellationToken ct){await service.DeleteSiteAsync(id,ct);return NoContent();}
+
     [HttpGet("people/{userId:int}/delete-impact")]
     public Task<V180PersonDeleteImpactDto> PersonImpact(int userId,CancellationToken ct)
         => service.PersonImpactAsync(userId,ct);

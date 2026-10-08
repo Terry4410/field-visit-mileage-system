@@ -56,3 +56,6 @@ public sealed record V180MileageRateDeleteImpactDto(
     bool CanDelete,
     int MileageCalculationReferenceCount,
     string? Reason);
+
+public sealed record V180CenterDeleteImpactDto(int CenterId,string Code,string Name,bool CanDelete,int SiteCount,int TeamAssignmentCount,int HistoricalTripCount,string? Reason);
+public sealed record V180SiteDeleteImpactDto(int SiteId,string Code,string Name,bool CanDelete,int LocationAssignmentCount,int TeamAssignmentCount,int EmploymentAssignmentCount,int TripCount,int SnapshotCount,string? Reason);

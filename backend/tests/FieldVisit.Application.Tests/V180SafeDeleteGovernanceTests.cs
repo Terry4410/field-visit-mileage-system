@@ -14,6 +14,13 @@ public sealed class V180SafeDeleteGovernanceTests
         Assert.Contains("ProjectImpactAsync",service);
         Assert.Contains("VisitTypeImpactAsync",service);
         Assert.Contains("MileageRateImpactAsync",service);
+        Assert.Contains("CenterImpactAsync",service);
+        Assert.Contains("SiteImpactAsync",service);
+        Assert.Contains("CenterPermanentDelete",service);
+        Assert.Contains("DeploymentSitePermanentDelete",service);
+        Assert.Contains("IsolationLevel.Serializable",service);
+        Assert.Contains("StartDeploymentSiteIdSnapshot",service);
+        Assert.Contains("CenterIdSnapshot",service);
         Assert.Contains("if(!impact.CanDelete)",service);
         Assert.Contains("PersonPermanentDelete",service);
         Assert.Contains("TeamPermanentDelete",service);
@@ -58,6 +65,10 @@ public sealed class V180SafeDeleteGovernanceTests
         var teams=Read("frontend/src/pages/TeamManagementPage.tsx");
         var projects=Read("frontend/src/pages/ProjectManagementPage.tsx");
         var admin=Read("frontend/src/pages/AdminPage.tsx");
+        var sites=Read("frontend/src/components/OfficialSiteMaintenance.tsx");
+        Assert.Contains("safeDelete",sites);
+        Assert.Contains("/delete-impact",sites);
+        Assert.Contains("/permanent",sites);
         Assert.Contains("/delete-impact",people);
         Assert.Contains("/permanent",people);
         Assert.Contains("/delete-impact",teams);
