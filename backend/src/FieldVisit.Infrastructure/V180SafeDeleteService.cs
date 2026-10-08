@@ -57,7 +57,7 @@ public sealed class V180SafeDeleteService(
         var snapshots=await db.VisitTripSnapshots.CountAsync(x=>EF.Property<int?>(x,"StartDeploymentSiteIdSnapshot")==id||EF.Property<int?>(x,"EndDeploymentSiteIdSnapshot")==id,ct);
         // The single automatic initial Location mapping is configuration, not historical use.
         // Any relocation / multiple or changed periods must remain preserved.
-        var initialOnly=loc.Count==1&&loc[0].EffectiveFrom==s.EffectiveFrom&&!loc[0].EffectiveTo.HasValue&&string.IsNullOrWhiteSpace(loc[0].ChangeReason);
+        var initialOnly=loc.Count==1&&loc[0].EffectiveFrom==s.EffectiveFrom&&loc[0].EffectiveTo==s.EffectiveTo&&string.Equals(loc[0].ChangeReason,"UAT Business Admin initial assignment",StringComparison.Ordinal);
         var can=initialOnly&&teams==0&&employment==0&&trips==0&&snapshots==0;
         return new(id,s.SiteCode,s.SiteName,can,loc.Count,teams,employment,trips,snapshots,
             can?null:$"存在使用或搬遷歷史：Location 關聯 {loc.Count}、小組派駐 {teams}、人員派駐 {employment}、行程 {trips}、Snapshot {snapshots}。僅允許未使用且僅有初始 Location 關聯的誤建據點永久刪除；其他請停用。");
