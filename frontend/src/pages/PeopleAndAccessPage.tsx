@@ -27,30 +27,34 @@ export default function PeopleAndAccessPage({mode="people"}:Props){
 }
 
 function PersonnelList(){
- const[keyword,setKeyword]=useState(""),[employmentStatus,setEmploymentStatus]=useState(""),[hireFrom,setHireFrom]=useState(""),[hireTo,setHireTo]=useState(""),[terminationFrom,setTerminationFrom]=useState(""),[terminationTo,setTerminationTo]=useState(""),[historyStatus,setHistoryStatus]=useState(""),[historyFrom,setHistoryFrom]=useState(""),[historyTo,setHistoryTo]=useState(""),[primarySiteId,setPrimarySiteId]=useState(""),[teamId,setTeamId]=useState(""),[dataIssue,setDataIssue]=useState(""),[advanced,setAdvanced]=useState(false),[employmentUserId,setEmploymentUserId]=useState<number|null>(null),[teams,setTeams]=useState<Team[]>([]),[sites,setSites]=useState<MasterDataRow[]>([]),[centers,setCenters]=useState<MasterDataRow[]>([]),[lookupError,setLookupError]=useState(""),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false);
+ const[keyword,setKeyword]=useState(""),[employmentStatus,setEmploymentStatus]=useState(""),[hireFrom,setHireFrom]=useState(""),[hireTo,setHireTo]=useState(""),[terminationFrom,setTerminationFrom]=useState(""),[terminationTo,setTerminationTo]=useState(""),[historyStatus,setHistoryStatus]=useState(""),[historyFrom,setHistoryFrom]=useState(""),[historyTo,setHistoryTo]=useState(""),[primarySiteId,setPrimarySiteId]=useState(""),[teamId,setTeamId]=useState(""),[dataIssue,setDataIssue]=useState(""),[advanced,setAdvanced]=useState(false),[employmentUserId,setEmploymentUserId]=useState<number|null>(null),[createOpen,setCreateOpen]=useState(false),[created,setCreated]=useState<{userId:number;displayName:string}|null>(null),[teams,setTeams]=useState<Team[]>([]),[sites,setSites]=useState<MasterDataRow[]>([]),[centers,setCenters]=useState<MasterDataRow[]>([]),[lookupError,setLookupError]=useState(""),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false);
  const validDates=(!hireFrom||!hireTo||hireFrom<=hireTo)&&(!terminationFrom||!terminationTo||terminationFrom<=terminationTo)&&(!historyFrom||!historyTo||historyFrom<=historyTo);
  const query=usePagedQuery<V170PeopleRow>("/admin/people",{userType:"Internal",keyword,employmentStatus:employmentStatus||undefined,hireFrom:hireFrom||undefined,hireTo:hireTo||undefined,terminationFrom:terminationFrom||undefined,terminationTo:terminationTo||undefined,historicalEmploymentStatus:historyStatus||undefined,employmentStatusFrom:historyStatus&&historyFrom?historyFrom:undefined,employmentStatusTo:historyStatus&&historyTo?historyTo:undefined,primaryDeploymentSiteId:primarySiteId?Number(primarySiteId):undefined,teamId:teamId?Number(teamId):undefined,dataIssue:dataIssue||undefined,sort:"code_asc"},validDates);
  useEffect(()=>{Promise.all([api<Team[]>("/teams"),api<MasterDataRow[]>("/admin/master-data/deployment-sites"),api<MasterDataRow[]>("/admin/master-data/centers")]).then(([t,s,c])=>{setTeams(t);setSites(s);setCenters(c)}).catch(e=>setLookupError(e instanceof Error?e.message:"查詢條件載入失敗"))},[]);
  const centerName=(code?:string|null)=>centers.find(c=>c.key===code)?.detail||code||"";
  const setQuick=(status:string,issue="")=>{setEmploymentStatus(status);setDataIssue(issue)};
- const clearAdvanced=()=>{setHireFrom("");setHireTo("");setTerminationFrom("");setTerminationTo("");setHistoryStatus("");setHistoryFrom("");setHistoryTo("");setPrimarySiteId("");setTeamId("");setDataIssue("")};
+ const clearAdvanced=()=>{setHistoryStatus("");setHistoryFrom("");setHistoryTo("");setPrimarySiteId("");setTeamId("");setDataIssue("")};
+ const clearAll=()=>{setKeyword("");setEmploymentStatus("");setHireFrom("");setHireTo("");setTerminationFrom("");setTerminationTo("");clearAdvanced()};
  const deletePerson=async(u:V170PeopleRow)=>{setBusy(true);setMsg("");try{const impact=await api<PersonDeleteImpact>(`/admin/people/${u.userId}/delete-impact`);if(!impact.canDelete){setMsg(impact.reason||"此人員已有歷史資料，無法永久刪除；請改用離職／歷史資料管理。");return}if(!window.confirm(`永久刪除「${u.displayName}」？\n\n此動作只允許沒有任何業務／歷史引用的人員，且無法復原。`))return;await api(`/admin/people/${u.userId}/permanent`,{method:"DELETE"});if(employmentUserId===u.userId)setEmploymentUserId(null);setMsg(`${u.displayName} 已永久刪除。`);query.reload()}catch(e){setMsg(e instanceof Error?e.message:"人員刪除失敗")}finally{setBusy(false)}};
  return <>
   <Tabs/>
   <div className="card">
-   <div className="section-title"><div><h2>人事資料</h2><div className="sub">此頁只維護人事事實與就業中心／派駐據點；管理小組僅供查詢參考，請至「小組與成員」維護。</div></div></div>
+   <div className="section-title"><div><h2>人事資料</h2><div className="sub">此頁只維護人事事實與就業中心／派駐據點；管理小組僅供查詢參考，請至「小組與成員」維護。</div></div><button className="btn" onClick={()=>{setCreated(null);setCreateOpen(true)}}>＋新增人員</button></div>
    <div className="field"><label>搜尋人員</label><input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="工號、姓名或 Email"/></div>
    <div className="quick-filters" style={{marginBottom:10}}>
     {statusOptions.map(([value,label])=><button type="button" key={value||"all"} className={`btn small ${employmentStatus===value&&!dataIssue?"":"outline"}`} onClick={()=>setQuick(value)}>{label}</button>)}
     <button type="button" className={`btn small ${dataIssue==="MissingEmploymentStatus"?"":"outline"}`} onClick={()=>setQuick("","MissingEmploymentStatus")}>缺人事狀態</button>
     <button type="button" className="btn small outline" onClick={()=>setAdvanced(x=>!x)}>{advanced?"收合進階篩選":"進階篩選"}</button>
+    <button type="button" className="btn small outline" onClick={clearAll}>清除條件</button>
+   </div>
+   <div className="grid cols-2" style={{marginBottom:14}}>
+    <label>入職日起<input type="date" value={hireFrom} onChange={e=>setHireFrom(e.target.value)}/></label>
+    <label>入職日迄<input type="date" value={hireTo} onChange={e=>setHireTo(e.target.value)}/></label>
+    <label>離職日起<input type="date" value={terminationFrom} onChange={e=>setTerminationFrom(e.target.value)}/></label>
+    <label>離職日迄<input type="date" value={terminationTo} onChange={e=>setTerminationTo(e.target.value)}/></label>
    </div>
    {advanced&&<div className="card" style={{marginBottom:14}}>
     <div className="grid cols-2">
-     <label>入職日起<input type="date" value={hireFrom} onChange={e=>setHireFrom(e.target.value)}/></label>
-     <label>入職日迄<input type="date" value={hireTo} onChange={e=>setHireTo(e.target.value)}/></label>
-     <label>離職日起<input type="date" value={terminationFrom} onChange={e=>setTerminationFrom(e.target.value)}/></label>
-     <label>離職日迄<input type="date" value={terminationTo} onChange={e=>setTerminationTo(e.target.value)}/></label>
      <label>曾處於人事狀態<select value={historyStatus} onChange={e=>setHistoryStatus(e.target.value)}><option value="">不限制</option><option value="Active">Active（在職）</option><option value="Leave">Leave（留停）</option><option value="Terminated">Terminated（離職）</option><option value="PreHire">PreHire（未到職）</option></select></label>
      <label>管理小組（唯讀條件）<select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">全部</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></label>
      <label>人事狀態歷史起日<input type="date" value={historyFrom} disabled={!historyStatus} onChange={e=>setHistoryFrom(e.target.value)}/></label>
@@ -62,13 +66,21 @@ function PersonnelList(){
    </div>}
    {!validDates&&<div role="alert" className="note danger-note">日期區間的迄日不可早於起日。</div>}
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}
+   {created&&<div className="note ok-note" style={{marginBottom:10}}>已建立「{created.displayName}」的人事主檔。下一步可至 <NavLink to="/admin/users/roles">角色與登入</NavLink> 設定角色，再到 <NavLink to="/admin/teams/members">小組與成員</NavLink> 設定管理小組；派駐據點仍由人事維護入口管理。</div>}
    {lookupError&&<div className="note danger-note">{lookupError}</div>}
    {query.error&&<div className="note danger-note">{query.error}</div>}
    <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>目前人事狀態</th><th>入職日</th><th>離職日</th><th>主要派駐據點</th><th>管理小組（唯讀）</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td>{u.employeeNo||u.userCode}</td><td><strong>{u.displayName}</strong><div className="sub">{u.email||"—"}</div></td><td>{u.employmentStatus||"資料不完整"}</td><td>{u.hireDate||"—"}</td><td>{u.terminationDate||"—"}</td><td>{primarySiteLabel(u)}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td><div className="actions"><button className="btn small secondary" disabled={busy} onClick={()=>setEmploymentUserId(u.userId)}>維護人事資料</button><button className="btn small danger" disabled={busy} onClick={()=>void deletePerson(u)}>刪除</button></div></td></tr>)}</tbody></table></div>
    <Pagination {...query.data} page={query.page} pageSize={query.pageSize} busy={query.loading} onPage={query.setPage} onPageSize={query.setPageSize}/>
   </div>
   {employmentUserId!==null&&<EmploymentMaintenanceModal userId={employmentUserId} onClose={()=>setEmploymentUserId(null)} onChanged={()=>query.reload()}/>}
+  {createOpen&&<CreateInternalPersonModal onClose={()=>setCreateOpen(false)} onCreated={person=>{setCreateOpen(false);setCreated(person);query.reload()}}/>}
  </>;
+}
+
+function CreateInternalPersonModal({onClose,onCreated}:{onClose:()=>void;onCreated:(person:{userId:number;displayName:string})=>void}){
+ const[employeeNo,setEmployeeNo]=useState(""),[displayName,setDisplayName]=useState(""),[email,setEmail]=useState(""),[hireDate,setHireDate]=useState(""),[terminationDate,setTerminationDate]=useState(""),[status,setStatus]=useState("Active"),[effectiveFrom,setEffectiveFrom]=useState(todayTaipei()),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ const save=async()=>{if(!employeeNo.trim()||!displayName.trim())return setError("工號與姓名為必填。");if(status==="Terminated"&&!terminationDate)return setError("初始狀態為離職時，離職日必填。");setBusy(true);setError("");try{const result=await api<{userId:number;displayName:string}>("/admin/people/internal-users",{method:"POST",body:JSON.stringify({employeeNo:employeeNo.trim(),displayName:displayName.trim(),email:email.trim()||null,hireDate:hireDate||null,terminationDate:terminationDate||null,initialEmploymentStatus:status,statusEffectiveFrom:effectiveFrom})});onCreated({userId:result.userId,displayName:result.displayName})}catch(e){setError(e instanceof Error?e.message:"新增人員失敗")}finally{setBusy(false)}};
+ return <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}><div className="modal-panel" role="dialog" aria-modal="true"><button className="btn small outline modal-close" disabled={busy} onClick={onClose}>關閉</button><h3>新增人員</h3><div className="note">此步驟只建立人事事實；角色、小組與派駐據點分開維護，避免一次表單同時改動不同權責資料。</div>{error&&<div className="note danger-note">{error}</div>}<div className="grid cols-2"><label>工號<input value={employeeNo} onChange={e=>setEmployeeNo(e.target.value)} autoFocus/></label><label>姓名<input value={displayName} onChange={e=>setDisplayName(e.target.value)}/></label><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><label>入職日<input type="date" value={hireDate} onChange={e=>setHireDate(e.target.value)}/></label><label>離職日<input type="date" value={terminationDate} onChange={e=>setTerminationDate(e.target.value)}/><span className="sub">空白代表尚未離職，不代表無期限。</span></label><label>初始人事狀態<select value={status} onChange={e=>setStatus(e.target.value)}><option value="Active">在職</option><option value="Leave">留停</option><option value="Terminated">離職</option><option value="PreHire">未到職</option></select></label><label>狀態生效日<input type="date" value={effectiveFrom} onChange={e=>setEffectiveFrom(e.target.value)}/></label></div><div className="actions" style={{marginTop:14}}><button className="btn ok" disabled={busy||!effectiveFrom} onClick={()=>void save()}>建立人事主檔</button><button className="btn outline" disabled={busy} onClick={onClose}>取消</button></div></div></div>
 }
 
 function RoleLoginList(){
