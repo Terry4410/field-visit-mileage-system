@@ -165,7 +165,9 @@ public sealed record ManagedLocationDto(
     DateTime CreatedAt,
     string RowVersion,
     int? DuplicateOfLocationId = null,
-    string? DuplicateReason = null);
+    string? DuplicateReason = null,
+    string? TaxId = null,
+    string? MasterNote = null);
 
 public sealed record ManagedLocationQueryRequest(
     string? Q = null,
@@ -198,7 +200,9 @@ public sealed record SaveManagedLocationRequest(
     string? Address,
     string? PlusCode,
     bool IsActive,
-    string? RowVersion);
+    string? RowVersion,
+    string? TaxId = null,
+    string? MasterNote = null);
 
 public sealed record ImportPreviewItemDto(int RowNumber, string EntityType, string Action, string Status, string DisplayKey, string? ErrorMessage);
 public sealed record ImportPreviewDto(Guid ImportBatchId, string ImportType, int TotalCount, int ValidCount, int ErrorCount, IReadOnlyList<ImportPreviewItemDto> Items);

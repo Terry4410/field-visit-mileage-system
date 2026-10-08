@@ -772,7 +772,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         {
             OrganizationId = orgId, TeamId = request.TeamId, LocationCode = NewLocationCode(), LocationName = request.LocationName.Trim(),
             LocationType = string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType.Trim(), City = request.City?.Trim(), District = request.District?.Trim(),
-            Address = request.Address?.Trim(), PlusCode = request.PlusCode?.Trim(), IsTemporary = false, ApprovalStatus = "Pending",
+            Address = request.Address?.Trim(), PlusCode = request.PlusCode?.Trim(), TaxId = string.IsNullOrWhiteSpace(request.TaxId) ? null : request.TaxId.Trim(), MasterNote = string.IsNullOrWhiteSpace(request.MasterNote) ? null : request.MasterNote.Trim(), IsTemporary = false, ApprovalStatus = "Pending",
             GeocodingStatus = "Pending", CreatedByUserId = user.UserId, IsActive = false, CreatedAt = DateTime.UtcNow
         };
         await db.Locations.AddAsync(row, ct);
@@ -791,11 +791,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
         EnsureRowVersion(row.RowVersion, request.RowVersion);
-        var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.IsActive };
+        var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;
         row.LocationName = request.LocationName.Trim();
         row.LocationType = string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType.Trim();
-        row.City = request.City?.Trim(); row.District = request.District?.Trim(); row.Address = request.Address?.Trim(); row.PlusCode = request.PlusCode?.Trim();
+        row.City = request.City?.Trim(); row.District = request.District?.Trim(); row.Address = request.Address?.Trim(); row.PlusCode = request.PlusCode?.Trim(); row.TaxId = string.IsNullOrWhiteSpace(request.TaxId) ? null : request.TaxId.Trim(); row.MasterNote = string.IsNullOrWhiteSpace(request.MasterNote) ? null : request.MasterNote.Trim();
         row.IsActive = request.IsActive && row.ApprovalStatus == "Approved";
         row.GeocodingStatus = "Pending";
         row.UpdatedAt = DateTime.UtcNow;
@@ -1055,6 +1055,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     private void ValidateLocationRequest(CurrentUserDto user, SaveManagedLocationRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.LocationName)) throw new InvalidOperationException("地點名稱必填。");
+        if (request.TaxId?.Trim().Length > 20) throw new InvalidOperationException("統一編號長度不可超過 20 字元。");
+        if (request.MasterNote?.Trim().Length > 1000) throw new InvalidOperationException("主檔備註不可超過 1000 字元。");
         if (string.IsNullOrWhiteSpace(request.Address) && string.IsNullOrWhiteSpace(request.PlusCode)) throw new InvalidOperationException("地址與 Plus Code 至少需要一項。");
         if (HasRole(user, "leader") && (!request.TeamId.HasValue || !user.TeamIds.Contains(request.TeamId.Value))) throw new UnauthorizedAccessException("小組長只能維護授權小組地點。");
     }
@@ -1397,7 +1399,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     private static ManagedLocationDto MapManagedLocation(Location x, string? teamName) => new(
         x.LocationId, x.LocationCode ?? "", x.TeamId, teamName, x.LocationName, x.LocationType, x.City, x.District, x.Address, x.PlusCode,
         x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []),
-        x.DuplicateOfLocationId, x.DuplicateReason);
+        x.DuplicateOfLocationId, x.DuplicateReason, x.TaxId, x.MasterNote);
 
     private static void EnsureRowVersion(byte[] currentValue, string? expectedBase64)
     {

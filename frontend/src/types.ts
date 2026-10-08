@@ -211,7 +211,7 @@ export interface V170PersonDetail{
   employmentId?:number;hireDate?:string;terminationDate?:string;employmentRowVersion?:string;
 }
 export interface ManagedTeam{teamId:number;organizationId:number;teamCode:string;teamName:string;isActive:boolean}
-export interface ManagedLocation{locationId:number;locationCode:string;teamId?:number;teamName?:string;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string;duplicateOfLocationId?:number|null;duplicateReason?:string|null}
+export interface ManagedLocation{locationId:number;locationCode:string;teamId?:number;teamName?:string;locationName:string;locationType:string;city?:string;district?:string;address?:string;plusCode?:string;latitude?:number;longitude?:number;isTemporary:boolean;approvalStatus:string;geocodingStatus:string;isActive:boolean;createdAt:string;rowVersion:string;duplicateOfLocationId?:number|null;duplicateReason?:string|null;taxId?:string|null;masterNote?:string|null}
 export interface ImportPreviewItem{rowNumber:number;entityType:string;action:string;status:string;displayKey:string;errorMessage?:string}
 export interface ImportPreview{importBatchId:string;importType:string;totalCount:number;validCount:number;errorCount:number;items:ImportPreviewItem[]}
 export interface ImportConfirmResult{importBatchId:string;created:number;updated:number;unchanged:number;failed:number;errors:string[]}
