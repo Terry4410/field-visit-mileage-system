@@ -15,6 +15,7 @@ import SupervisorPage from"./pages/SupervisorPage";
 import UnifiedQueryPage from"./pages/UnifiedQueryPage";
 
 import { useModalScrollLock } from './use-modal-scroll-lock';
+import { resolveNavigationTitle } from './navigation-title';
 
 type NavItem={path:string;label:string;short:string};
 const navByRole:Record<string,NavItem[]>={
@@ -33,7 +34,7 @@ export default function App(){
  const[activeRole,setActiveRole]=useState(()=>sessionStorage.getItem('fieldvisit_active_role')||'');
  useEffect(()=>{if(!roles.length)return;const next=roles.includes(activeRole)?activeRole:priority.find(r=>roles.includes(r))||roles[0];if(next!==activeRole){setActiveRole(next);sessionStorage.setItem('fieldvisit_active_role',next)}},[roles.join('|'),activeRole]);
  if(loading)return <div className="center">載入中…</div>;if(!user)return <LoginPage/>;
- const role=roles.includes(activeRole)?activeRole:(priority.find(r=>roles.includes(r))||roles[0]||'visitor');const nav=navByRole[role];const home=nav[0].path;const title=nav.find(x=>x.path===loc.pathname)?.label||nav.find(x=>x.path!=='/'&&loc.pathname.startsWith(x.path))?.label||nav[0].label;
+ const role=roles.includes(activeRole)?activeRole:(priority.find(r=>roles.includes(r))||roles[0]||'visitor');const nav=navByRole[role];const home=nav[0].path;const title=resolveNavigationTitle(nav,loc.pathname);
  const switchRole=(r:string)=>{setActiveRole(r);sessionStorage.setItem('fieldvisit_active_role',r);navigate(navByRole[r][0].path)};
  const supervisorScopes=user.dataScopes||[];
  const supervisorIsOrganizationWide=supervisorScopes.some(x=>x.scopeType.toLowerCase()==='organization');
