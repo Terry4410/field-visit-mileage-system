@@ -1005,6 +1005,7 @@ public sealed class V180MasterDataAdminTests
         public Task<V180MasterDataRow> SaveCenterAsync(CurrentUserDto admin, int? id, V180CenterInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180MasterDataRow> SaveTeamCenterAsync(CurrentUserDto admin, long? id, V180TeamCenterInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180MasterDataRow> SaveDeploymentSiteAsync(CurrentUserDto admin, int? id, V180DeploymentSiteInput input, CancellationToken ct) => throw new NotSupportedException();
+        public Task<V180MasterDataRow> RelocateDeploymentSiteAsync(CurrentUserDto admin, int id, V180DeploymentSiteRelocationInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180LocationOfficialSiteDto> GetLocationOfficialSiteAsync(CurrentUserDto admin, int locationId, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180LocationOfficialSiteDto> EnsureLocationOfficialSiteAsync(CurrentUserDto admin, V180LocationOfficialSiteInput input, CancellationToken ct) => throw new NotSupportedException();
         public Task<V180MasterDataRow> SaveTeamSiteAsync(CurrentUserDto admin, long? id, V180TeamSiteInput input, CancellationToken ct) => throw new NotSupportedException();
