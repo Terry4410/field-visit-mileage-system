@@ -20,6 +20,16 @@ public sealed class V170PeopleAdminService(
         return repository.GetAsync(RequireAdmin(),userId,ct);
     }
 
+    public async Task<V170PersonDetailDto> CreateInternalUserAsync(
+        CreateInternalUserRequest request,
+        CancellationToken ct)
+    {
+        var admin = RequireAdmin();
+        request = V180InternalUserCreateRules.Normalize(request);
+        var userId = await writer.CreateInternalUserAsync(admin, request, ct);
+        return await repository.GetAsync(admin, userId, ct);
+    }
+
     public async Task<V170PersonDetailDto> CreateExternalSupervisorAsync(SaveExternalSupervisorRequest request,CancellationToken ct)
     {
         var admin=RequireAdmin();request=V170ExternalSupervisorRules.Normalize(request);

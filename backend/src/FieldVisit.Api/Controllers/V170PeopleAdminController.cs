@@ -31,6 +31,18 @@ public sealed class V170PeopleAdminController(
                 userId,
                 ct));
 
+    [HttpPost("internal-users")]
+    public async Task<ActionResult<V170PersonDetailDto>> CreateInternalUser(
+        [FromBody] CreateInternalUserRequest request,
+        CancellationToken ct)
+    {
+        var result = await service.CreateInternalUserAsync(request, ct);
+        return CreatedAtAction(
+            nameof(Get),
+            new { userId = result.UserId },
+            result);
+    }
+
     [HttpPost("external-supervisors")]
     public async Task<ActionResult<
         V170PersonDetailDto>>

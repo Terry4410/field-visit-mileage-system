@@ -9,7 +9,9 @@ public static class V180TripKeywordQuery
     // and exports use this same SQL-translatable predicate.
     public static IQueryable<VisitTrip> Apply(IQueryable<VisitTrip> trips,
         IQueryable<VisitTripSnapshot> latestSnapshots, IQueryable<User> users,
-        IQueryable<Project> projects, IQueryable<VisitType> visitTypes, string? input)
+        IQueryable<Project> projects, IQueryable<VisitType> visitTypes,
+        IQueryable<DeploymentSite> deploymentSites, IQueryable<Center> centers,
+        string? input)
     {
         var keyword = input?.Trim();
         if (string.IsNullOrEmpty(keyword)) return trips;
@@ -18,6 +20,17 @@ public static class V180TripKeywordQuery
                 s.TripNo.Contains(keyword) || s.EmployeeNoSnapshot.Contains(keyword) ||
                 s.DisplayNameSnapshot.Contains(keyword) ||
                 (s.TeamNameSnapshot != null && s.TeamNameSnapshot.Contains(keyword)) ||
+                (s.StartDeploymentSiteCodeSnapshot != null && s.StartDeploymentSiteCodeSnapshot.Contains(keyword)) ||
+                (s.StartDeploymentAddressSnapshot != null && s.StartDeploymentAddressSnapshot.Contains(keyword)) ||
+                (s.EndDeploymentSiteCodeSnapshot != null && s.EndDeploymentSiteCodeSnapshot.Contains(keyword)) ||
+                (s.EndDeploymentAddressSnapshot != null && s.EndDeploymentAddressSnapshot.Contains(keyword)) ||
+                deploymentSites.Any(site =>
+                    (site.SiteCode == s.StartDeploymentSiteCodeSnapshot
+                     || site.SiteCode == s.EndDeploymentSiteCodeSnapshot)
+                    && (site.SiteCode.Contains(keyword)
+                        || site.SiteName.Contains(keyword)
+                        || centers.Any(center => center.CenterId == site.CenterId
+                            && (center.CenterCode.Contains(keyword) || center.CenterName.Contains(keyword))))) ||
                 (s.NotesSnapshot != null && s.NotesSnapshot.Contains(keyword)) ||
                 s.Stops.Any(st => st.LocationNameSnapshot.Contains(keyword) ||
                     (st.LocationCodeSnapshot != null && st.LocationCodeSnapshot.Contains(keyword)) ||
@@ -31,6 +44,13 @@ public static class V180TripKeywordQuery
             : t.TripNo.Contains(keyword) ||
                 (t.Purpose != null && t.Purpose.Contains(keyword)) ||
                 (t.Notes != null && t.Notes.Contains(keyword)) ||
+                deploymentSites.Any(site =>
+                    (site.DeploymentSiteId == t.StartDeploymentSiteId
+                     || site.DeploymentSiteId == t.EndDeploymentSiteId)
+                    && (site.SiteCode.Contains(keyword)
+                        || site.SiteName.Contains(keyword)
+                        || centers.Any(center => center.CenterId == site.CenterId
+                            && (center.CenterCode.Contains(keyword) || center.CenterName.Contains(keyword))))) ||
                 users.Any(u => u.UserId == t.UserId && (
                     (u.EmployeeNo != null && u.EmployeeNo.Contains(keyword)) || u.DisplayName.Contains(keyword))) ||
                 t.Stops.Any(st =>

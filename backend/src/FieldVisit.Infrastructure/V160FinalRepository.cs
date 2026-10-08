@@ -93,7 +93,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 : t.Stops.Any(st => st.VisitTypeId == visitTypeId));
         }
 
-        q = V180TripKeywordQuery.Apply(q, latestSnapshotQ, db.Users, db.Projects, db.VisitTypes, request.Keyword);
+        q = V180TripKeywordQuery.Apply(
+            q, latestSnapshotQ, db.Users, db.Projects, db.VisitTypes,
+            db.DeploymentSites, db.Centers, request.Keyword);
 
         var candidate = q.Select(t => new
         {

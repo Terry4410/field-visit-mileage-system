@@ -57,7 +57,7 @@ export default function UnifiedQueryPage({title="行程查詢",allowCorrection=f
    <div className="grid cols-4 query-grid">
     {canCrossTeam&&<div className="field"><label>小組</label><select value={teamId} onChange={e=>{setTeamId(e.target.value);setVisitorId('')}}><option value="">全部授權小組</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div>}
     {canCrossTeam&&<div className="field"><label>外訪員</label><select value={visitorId} onChange={e=>setVisitorId(e.target.value)}><option value="">全部外訪員</option>{visitors.filter(v=>!teamId||String(v.teamId)===teamId).map(v=><option key={v.userId} value={v.userId}>{v.displayName}｜{v.employeeNo}</option>)}</select></div>}
-    <div className="field"><label>關鍵字</label><input value={locationKeyword} onChange={e=>setLocationKeyword(e.target.value)} placeholder="工號、姓名、地點、專案或行程編號"/></div>
+    <div className="field"><label>關鍵字</label><input value={locationKeyword} onChange={e=>setLocationKeyword(e.target.value)} placeholder="行程編號、工號、姓名、小組、就業中心、官方據點、地點、專案、拜訪形式、目的或備註"/></div>
     <div className="field"><label>專案</label><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">全部專案</option>{projects.map(p=><option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}</select></div>
     <div className="field"><label>拜訪形式</label><select value={visitTypeId} onChange={e=>setVisitTypeId(e.target.value)}><option value="">全部拜訪形式</option>{visitTypes.map(v=><option key={v.visitTypeId} value={v.visitTypeId}>{v.visitTypeName}</option>)}</select></div>
     <div className="field"><label>狀態</label><select value={status} onChange={e=>setStatus(e.target.value)}>{statuses.map(([v,n])=><option key={v} value={v}>{n}</option>)}</select></div>
