@@ -18,6 +18,133 @@ public sealed class V170PeopleAdminWriter(
     AppDbContext db)
     : IV170PeopleAdminWriter
 {
+    public async Task<int> CreateInternalUserAsync(
+        CurrentUserDto admin,
+        CreateInternalUserRequest request,
+        CancellationToken ct)
+    {
+        request = V180InternalUserCreateRules.Normalize(request);
+        var orgId = admin.OrganizationId
+            ?? throw new InvalidOperationException("目前管理者缺少 OrganizationId。");
+
+        if (await db.Employments.AsNoTracking().AnyAsync(
+                x => x.OrganizationId == orgId
+                     && x.EmployeeNo == request.EmployeeNo,
+                ct)
+            || await db.Users.AsNoTracking().AnyAsync(
+                x => x.OrganizationId == orgId
+                     && x.EmployeeNo == request.EmployeeNo,
+                ct))
+            throw new InvalidOperationException("此工號已存在於目前 Organization。");
+
+        if (request.Email is not null
+            && await db.Users.AsNoTracking().AnyAsync(
+                x => x.Email != null
+                     && x.Email.ToLower() == request.Email.ToLower(),
+                ct))
+            throw new InvalidOperationException("此 Email 已存在於系統中。");
+
+        if (await db.UserIdentityProfiles.AsNoTracking().AnyAsync(
+                x => x.UserCode == request.EmployeeNo,
+                ct))
+            throw new InvalidOperationException("此工號已被其他登入識別碼使用。");
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        var createdUserId = 0;
+
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var now = DateTime.UtcNow;
+
+            var user = new User
+            {
+                OrganizationId = orgId,
+                TeamId = null,
+                EmployeeNo = request.EmployeeNo,
+                DisplayName = request.DisplayName,
+                Email = request.Email,
+                EntraObjectId = null,
+                IsActive = true,
+                CreatedAt = now
+            };
+            db.Users.Add(user);
+            await db.SaveChangesAsync(ct);
+            createdUserId = user.UserId;
+
+            var person = new Person
+            {
+                DisplayName = request.DisplayName,
+                LegacyUserId = user.UserId,
+                CreatedAt = now,
+                CreatedByUserId = admin.UserId
+            };
+            db.Persons.Add(person);
+            await db.SaveChangesAsync(ct);
+
+            var employment = new Employment
+            {
+                PersonId = person.PersonId,
+                OrganizationId = orgId,
+                EmployeeNo = request.EmployeeNo,
+                Email = request.Email,
+                HireDate = request.HireDate,
+                TerminationDate = request.TerminationDate,
+                LegacyUserId = user.UserId,
+                SourceType = "Manual",
+                SourceReference = "PeopleAdminCreate"
+            };
+            db.Employments.Add(employment);
+            await db.SaveChangesAsync(ct);
+
+            db.UserIdentityProfiles.Add(new UserIdentityProfile
+            {
+                UserId = user.UserId,
+                EmploymentId = employment.EmploymentId,
+                UserType = UserTypes.Internal,
+                UserCode = request.EmployeeNo,
+                IdentityProvider = "Demo",
+                CreatedAt = now
+            });
+
+            db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+            {
+                EmploymentId = employment.EmploymentId,
+                EmploymentStatus = request.InitialEmploymentStatus,
+                EffectiveFrom = request.StatusEffectiveFrom,
+                EffectiveTo = null,
+                SourceType = "Manual",
+                SourceReference = "PeopleAdminCreate"
+            });
+
+            db.AuditLogs.Add(new AuditLog
+            {
+                UserId = admin.UserId,
+                EntityType = "Employment",
+                EntityId = employment.EmploymentId.ToString(),
+                Action = "InternalUserCreate",
+                NewValues = JsonSerializer.Serialize(new
+                {
+                    user.UserId,
+                    request.EmployeeNo,
+                    request.DisplayName,
+                    request.Email,
+                    request.HireDate,
+                    request.TerminationDate,
+                    request.InitialEmploymentStatus,
+                    request.StatusEffectiveFrom
+                }),
+                CreatedAt = now
+            });
+
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
+
+        return createdUserId;
+    }
+
     public async Task<int> CreateExternalSupervisorAsync(
         CurrentUserDto admin,
         SaveExternalSupervisorRequest request,

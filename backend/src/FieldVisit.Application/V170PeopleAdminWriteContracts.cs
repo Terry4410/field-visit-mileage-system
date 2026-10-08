@@ -1,3 +1,4 @@
+using System.Net.Mail;
 using FieldVisit.Domain.Entities;
 
 namespace FieldVisit.Application;
@@ -333,6 +334,78 @@ public static class V170ExternalSupervisorUpdateRules
 }
 
 
+public sealed record CreateInternalUserRequest(
+    string EmployeeNo,
+    string DisplayName,
+    string? Email,
+    DateOnly? HireDate,
+    DateOnly? TerminationDate,
+    string InitialEmploymentStatus,
+    DateOnly StatusEffectiveFrom);
+
+public static class V180InternalUserCreateRules
+{
+    private static readonly HashSet<string> AllowedStatuses =
+        new(
+            [
+                EmploymentStatuses.Active,
+                EmploymentStatuses.Leave,
+                EmploymentStatuses.Terminated,
+                EmploymentStatuses.PreHire
+            ],
+            StringComparer.OrdinalIgnoreCase);
+
+    public static CreateInternalUserRequest Normalize(
+        CreateInternalUserRequest request)
+    {
+        var employeeNo = (request.EmployeeNo ?? "").Trim();
+        var displayName = (request.DisplayName ?? "").Trim();
+        var email = string.IsNullOrWhiteSpace(request.Email)
+            ? null
+            : request.Email.Trim().ToLowerInvariant();
+        var status = (request.InitialEmploymentStatus ?? "").Trim();
+
+        if (employeeNo.Length == 0 || employeeNo.Length > 100)
+            throw new InvalidOperationException("工號為必填，且不可超過 100 個字元。");
+        if (displayName.Length == 0 || displayName.Length > 100)
+            throw new InvalidOperationException("姓名為必填，且不可超過 100 個字元。");
+        if (email is not null)
+        {
+            if (email.Length > 256)
+                throw new InvalidOperationException("Email 不可超過 256 個字元。");
+            try { _ = new MailAddress(email); }
+            catch { throw new InvalidOperationException("Email 格式不正確。"); }
+        }
+        if (!AllowedStatuses.Contains(status))
+            throw new InvalidOperationException("初始人事狀態只允許 Active、Leave、Terminated、PreHire。");
+        status = status.ToLowerInvariant() switch
+        {
+            "active" => EmploymentStatuses.Active,
+            "leave" => EmploymentStatuses.Leave,
+            "terminated" => EmploymentStatuses.Terminated,
+            "prehire" => EmploymentStatuses.PreHire,
+            _ => status
+        };
+
+        if (request.HireDate.HasValue
+            && request.TerminationDate.HasValue
+            && request.TerminationDate.Value < request.HireDate.Value)
+            throw new InvalidOperationException("離職日不可早於入職日。");
+
+        if (status == EmploymentStatuses.Terminated
+            && !request.TerminationDate.HasValue)
+            throw new InvalidOperationException("初始狀態為離職時，離職日必填。");
+
+        return request with
+        {
+            EmployeeNo = employeeNo,
+            DisplayName = displayName,
+            Email = email,
+            InitialEmploymentStatus = status
+        };
+    }
+}
+
 public sealed record InternalTeamAssignmentInput(
     int TeamId,
     bool IsPrimary);
@@ -475,6 +548,11 @@ public static class V170InternalUserAccessRules
 
 public interface IV170PeopleAdminWriter
 {
+    Task<int> CreateInternalUserAsync(
+        CurrentUserDto admin,
+        CreateInternalUserRequest request,
+        CancellationToken ct);
+
     Task<int> CreateExternalSupervisorAsync(
         CurrentUserDto admin,
         SaveExternalSupervisorRequest request,
