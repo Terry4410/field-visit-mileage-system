@@ -1,6 +1,6 @@
 import {expect,test} from "@playwright/test";
 import{
-  addDays,apiBaseUrl,auth,cleanup,createTrip,deleteProject,login,loginUi,ok,setup,stop,uatBaseUrl,unique
+  addDays,apiBaseUrl,auth,cleanup,createTrip,deleteProject,login,loginUi,ok,setup,stop,unique
 }from"./uat-test-helpers";
 
 test("RC-AUTH-01 role boundaries fail closed for management APIs",async({request})=>{
@@ -132,17 +132,37 @@ test("RC-MOBILE-01 admin critical pages stay inside the mobile shell",async({pag
   await page.setViewportSize({width:390,height:844});
   await loginUi(page,"pilota01","管理儀表板");
 
-  for(const [path,title] of [
-    ["admin/users","人員與權限"],
-    ["admin/teams/members","小組與成員"],
-    ["admin/locations","地點管理"],
-    ["admin/locations/centers","地點管理"],
-    ["admin/query","行程查詢"],
-    ["admin/corrections","更正管理"]
-  ]as const){
-    await page.goto(new URL(`#/${path}`,uatBaseUrl).toString(),{waitUntil:"domcontentloaded"});
+  const assertShell=async(title:string)=>{
     await expect(page.locator(".topbar h1")).toHaveText(title);
-    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
+    const overflow=await page.evaluate(
+      ()=>document.documentElement.scrollWidth-document.documentElement.clientWidth
+    );
     expect(overflow).toBeLessThanOrEqual(2);
+  };
+  const mobile=page.locator(".mobile-tabs");
+
+  await mobile.getByRole("link",{name:"人員",exact:true}).click();
+  await assertShell("人員與權限");
+  await page.getByRole("button",{name:"＋新增人員",exact:true}).click();
+  await expect(page.getByRole("dialog")).toContainText("新增人員");
+  await page.getByRole("dialog").getByRole("button",{name:"關閉",exact:true}).click();
+
+  await mobile.getByRole("link",{name:"小組",exact:true}).click();
+  await assertShell("小組與成員");
+  await page.getByRole("link",{name:"成員配置",exact:true}).click();
+  await assertShell("小組與成員");
+  await expect(page.getByPlaceholder("小組代碼或名稱").first()).toBeVisible();
+
+  await mobile.getByRole("link",{name:"地點",exact:true}).click();
+  await assertShell("地點管理");
+  for(const tab of ["新增地點","Excel 批次維護","就業中心","官方據點"]){
+    await page.getByRole("link",{name:tab,exact:true}).click();
+    await assertShell("地點管理");
   }
+
+  await mobile.getByRole("link",{name:"查詢",exact:true}).click();
+  await assertShell("行程查詢");
+
+  await mobile.getByRole("link",{name:"更正",exact:true}).click();
+  await assertShell("更正管理");
 });
