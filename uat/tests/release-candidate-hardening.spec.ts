@@ -134,10 +134,22 @@ test("RC-MOBILE-01 admin critical pages stay inside the mobile shell",async({pag
 
   const assertShell=async(title:string)=>{
     await expect(page.locator(".topbar h1")).toHaveText(title);
-    const overflow=await page.evaluate(
-      ()=>document.documentElement.scrollWidth-document.documentElement.clientWidth
-    );
-    expect(overflow).toBeLessThanOrEqual(2);
+    const layout=await page.evaluate(()=>{
+      const viewport=document.documentElement.clientWidth;
+      const overflow=document.documentElement.scrollWidth-viewport;
+      const offenders=[...document.querySelectorAll<HTMLElement>("body *")]
+        .map(el=>({el,right:el.getBoundingClientRect().right,width:el.getBoundingClientRect().width}))
+        .filter(x=>x.right>viewport+2||x.width>viewport+2)
+        .slice(0,8)
+        .map(x=>({
+          tag:x.el.tagName.toLowerCase(),
+          className:String(x.el.className||"").slice(0,120),
+          right:Math.round(x.right),
+          width:Math.round(x.width)
+        }));
+      return{overflow,offenders};
+    });
+    expect(layout.overflow,JSON.stringify(layout.offenders)).toBeLessThanOrEqual(2);
   };
   const mobile=page.locator(".mobile-tabs");
 

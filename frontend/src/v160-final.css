@@ -14,3 +14,7 @@ button,.btn,a.btn,input,select,textarea{min-height:44px}.btn.small{min-height:44
 .modal-panel{position:relative;-webkit-overflow-scrolling:touch}
 .modal-close{position:sticky;top:0;float:right;z-index:6;background:#fff!important;margin:0 0 8px 12px}
 @media(max-width:600px){.quick-filters{flex-wrap:wrap}.pager{flex-wrap:wrap}.route-item .actions{max-width:150px}.modal-panel{max-height:calc(100dvh - 16px)}}
+@media(max-width:600px){
+ .content,.grid,.card,.grid>*{min-width:0;max-width:100%}
+ .table-wrap{width:100%;max-width:100%;min-width:0}
+}
