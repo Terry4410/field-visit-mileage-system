@@ -215,7 +215,7 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
    &&(!siteStatus||lifecycleLabel(row)===siteStatus);
  });
 
- if(mode==="centers")return <div className="grid cols-2" style={{marginTop:18}}>
+ if(mode==="centers")return <div className="owner-master-stacked" style={{marginTop:18}}>
   <div className="card">
    <div className="section-title"><div><h2>{centerEdit?"修改就業中心":"新增就業中心"}</h2><div className="sub">Center 是官方據點的上層主檔；未指定失效日時，請勾選「無期限」。</div></div>{centerEdit&&<button className="btn small outline" onClick={resetCenter}>取消修改</button>}</div>
    {msg&&<div className="note" style={{marginBottom:14}}>{msg}</div>}
@@ -243,7 +243,7 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
    <div className="section-title"><div><h2>官方據點</h2><div className="sub">Deployment Site 必須綁定正式 Location；搬遷以新的 Location 有效期間處理，不覆寫歷史。</div></div></div>
    {msg&&<div className="note" style={{marginBottom:14}}>{msg}</div>}
   </div>
-  <div className="grid cols-2" style={{marginTop:18}}>
+  <div className="owner-master-stacked" style={{marginTop:18}}>
    <div className="card">
     <div className="section-title"><div><h2>{siteEdit?"修改官方據點":"新增官方據點"}</h2><div className="sub">既有據點 Location 不在一般修改中直接更換；請使用清單的「據點搬遷」。</div></div>{siteEdit&&<button className="btn small outline" onClick={resetSite}>取消修改</button>}</div>
     <div className="grid cols-2">
