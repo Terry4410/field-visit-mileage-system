@@ -140,7 +140,7 @@ test("RC-MOBILE-01 admin critical pages stay inside the mobile shell",async({pag
     ["admin/query","行程查詢"],
     ["admin/corrections","更正管理"]
   ]as const){
-    await page.goto(new URL(path,uatBaseUrl).toString(),{waitUntil:"domcontentloaded"});
+    await page.goto(new URL(`#/${path}`,uatBaseUrl).toString(),{waitUntil:"domcontentloaded"});
     await expect(page.locator(".topbar h1")).toHaveText(title);
     const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(2);
