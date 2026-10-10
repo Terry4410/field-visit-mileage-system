@@ -41,6 +41,18 @@ public sealed class V180B3ReadinessCatalogIntegrityTests
     }
 
     [Fact]
+    public void Enabled_table_trigger_blocks_B3_readiness_even_if_indexes_are_valid()
+    {
+        var sql=V180B3SqlSafetyRules.CatalogCheckSql;
+        Assert.Contains("sys.triggers tr",sql);
+        Assert.Contains("tr.is_disabled=0",sql);
+        Assert.Contains("OBJECT_ID(N'dbo.ChangeRequests',N'U')",sql);
+        Assert.Contains("OBJECT_ID(N'dbo.ChangeRequestEvents',N'U')",sql);
+        Assert.Contains("AND NOT EXISTS",sql);
+        Assert.DoesNotContain("DISABLE TRIGGER",sql,StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Readiness_probe_is_a_select_only_fail_closed_check()
     {
         var sql=V180B3SqlSafetyRules.CatalogCheckSql.TrimStart();

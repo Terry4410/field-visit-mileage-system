@@ -29,6 +29,7 @@ This file is a handoff/checklist, **not** executable SQL, a test-run report or a
 | B4-SQL-02 | Latest version 010 or later than 011, or merely an older 011 row | Readiness DENIED |
 | B4-SQL-03 | Disabled/hypothetical unique Pending index or DecisionKey index | Readiness DENIED |
 | B4-SQL-04 | Column width/type/nullability or CHECK-constraint drift | Readiness DENIED; IA revision before enablement |
+| B4-SQL-21 | Enabled AFTER/INSTEAD OF trigger on ChangeRequests / ChangeRequestEvents | Readiness DENIED; no implicit publish, email, audit replacement or other side effect |
 | B4-SQL-05 | Two parallel submissions for same organization/location | Exactly one Pending, one Submitted event and one conflict; no orphaned audit |
 | B4-SQL-06 | Reuse one DecisionKey against same/different request concurrently | Exactly one valid decision event; replay 409, no double transition |
 | B4-SQL-07 | Stale entity RowVersion or stale request RowVersion | 409; location/request/audit unaffected |

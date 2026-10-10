@@ -25,6 +25,17 @@ public static class V180B3SqlSafetyRules
             OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NOT NULL
             AND OBJECT_ID(N'dbo.ChangeRequests',N'U') IS NOT NULL
             AND OBJECT_ID(N'dbo.ChangeRequestEvents',N'U') IS NOT NULL
+            -- Neither B3 table is permitted to have an enabled trigger:
+            -- an AFTER/INSTEAD OF trigger could mutate Locations or audit
+            -- outside the authorized B3 approval executor (DENY ALL).
+            AND NOT EXISTS (
+                SELECT 1 FROM sys.triggers tr
+                WHERE tr.is_disabled=0
+                  AND tr.parent_id IN (
+                    OBJECT_ID(N'dbo.ChangeRequests',N'U'),
+                    OBJECT_ID(N'dbo.ChangeRequestEvents',N'U')
+                  )
+            )
             AND EXISTS (
                 SELECT 1 FROM sys.columns c
                 WHERE c.object_id=OBJECT_ID(N'dbo.ChangeRequests',N'U')
