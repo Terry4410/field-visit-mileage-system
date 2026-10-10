@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from package_b_evidence import collect, parse_junit, parse_trx
+from package_b_evidence import (collect, parse_junit, parse_trx,
+                                REQUIRED_SECURITY_GATES, FROZEN_PROTECTED_SHA)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -17,8 +18,11 @@ class PackageBEvidenceTests(unittest.TestCase):
         self.junit = base / "frontend.xml"
         self.guard.write_text(json.dumps({
             "kind": "PACKAGE_B_B3_B4_NONDEPLOY",
-            "head_sha": os.environ.get("GITHUB_SHA", "abc"), "frozen_sha": "frozen",
-            "passed": True, "checks": [{"passed": True}]}))
+            "head_sha": os.environ.get("GITHUB_SHA") or ("a" * 40),
+            "frozen_sha": FROZEN_PROTECTED_SHA,
+            "passed": True,
+            "checks": [{"name": name, "passed": True}
+                       for name in sorted(REQUIRED_SECURITY_GATES)]}))
         self.trx.write_text(
             '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
             '<ResultSummary><Counters total="2" passed="2" failed="0" error="0" '
@@ -30,6 +34,42 @@ class PackageBEvidenceTests(unittest.TestCase):
         self.assertEqual("PASS", collect(self.guard, self.trx, self.junit)["result"])
         self.assertEqual(2, parse_trx(self.trx)["passed"])
         self.assertEqual(2, parse_junit(self.junit)["passed"])
+
+    def test_missing_named_security_gate_is_not_a_pass(self):
+        payload = json.loads(self.guard.read_text())
+        payload["checks"] = [c for c in payload["checks"]
+                             if c["name"] != "B3_approve_executor_DENY_ALL"]
+        self.guard.write_text(json.dumps(payload))
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit)["result"])
+
+    def test_duplicate_named_security_gate_is_not_a_pass(self):
+        payload = json.loads(self.guard.read_text())
+        payload["checks"].append(payload["checks"][0])
+        self.guard.write_text(json.dumps(payload))
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit)["result"])
+
+    def test_false_protected_sha_is_not_a_pass(self):
+        payload = json.loads(self.guard.read_text())
+        payload["frozen_sha"] = "b" * 40
+        self.guard.write_text(json.dumps(payload))
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit)["result"])
+
+    def test_non_boolean_success_flag_fails_closed(self):
+        payload = json.loads(self.guard.read_text())
+        payload["checks"][0]["passed"] = "true"
+        self.guard.write_text(json.dumps(payload))
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit)["result"])
+
+    def test_extra_fake_check_fails_closed(self):
+        payload = json.loads(self.guard.read_text())
+        payload["checks"].append({"name": "fake_ok", "passed": True})
+        self.guard.write_text(json.dumps(payload))
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit)["result"])
 
     def test_sha_mismatch_fails_closed(self):
         payload = json.loads(self.guard.read_text())
