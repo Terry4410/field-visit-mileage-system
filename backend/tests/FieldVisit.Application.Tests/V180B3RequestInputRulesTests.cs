@@ -41,6 +41,52 @@ public sealed class V180B3RequestInputRulesTests
                 V180B3RequestInputRules.RequireSubmission(
                     Submit() with {ExpectedRowVersion=token})).Message);
 
+    [Theory]
+    [InlineData("LocationName",200)]
+    [InlineData("City",100)]
+    [InlineData("District",100)]
+    [InlineData("Address",1000)]
+    [InlineData("PlusCode",100)]
+    [InlineData("TaxId",20)]
+    [InlineData("MasterNote",1000)]
+    public void Every_client_field_has_an_exact_bounded_preflight_cap(
+        string field,int limit)
+    {
+        var proposed=Submit().Proposed;
+        var atLimit=new string('x',limit);
+        var over=new string(' ',limit+1);
+        V180B3LocationFields Edit(string value)=>field switch
+        {
+            "LocationName"=>proposed with {LocationName=value},
+            "City"=>proposed with {City=value},
+            "District"=>proposed with {District=value},
+            "Address"=>proposed with {Address=value},
+            "PlusCode"=>proposed with {PlusCode=value},
+            "TaxId"=>proposed with {TaxId=value},
+            "MasterNote"=>proposed with {MasterNote=value},
+            _=>throw new InvalidOperationException("unknown test field")
+        };
+        Assert.Equal(8,V180B3RequestInputRules.RequireSubmission(
+            Submit() with {Proposed=Edit(atLimit)}).Length);
+        Assert.Equal("B3_PROPOSAL_INVALID",
+            Assert.Throws<InvalidOperationException>(()=>
+                V180B3RequestInputRules.RequireSubmission(
+                    Submit() with {Proposed=Edit(over)})).Message);
+    }
+
+    [Fact]
+    public void Review_reason_boundary_is_enforced_without_entering_a_transaction()
+    {
+        var id=Guid.NewGuid();
+        var key=Guid.NewGuid();
+        V180B3RequestInputRules.RequireReviewTarget(
+            id,new V180B3Review(ValidVersion,key,new string('x',1000)));
+        Assert.Equal("B3_REASON_REQUIRED",
+            Assert.Throws<InvalidOperationException>(()=>
+                V180B3RequestInputRules.RequireReviewTarget(
+                    id,new V180B3Review(ValidVersion,key,new string('x',1001)))).Message);
+    }
+
     [Fact]
     public void Massive_proposal_and_reason_are_denied_before_transaction()
     {
