@@ -53,6 +53,10 @@ This file is a handoff/checklist, **not** executable SQL, a test-run report or a
 
 The isolated Package B WORK workflow runs on code, frontend, CI-script and Package-B review-document updates automatically. It archives JSON/Markdown gate evidence and xUnit TRX/frontend JUnit, with fail-closed aggregation. The preflight checks frozen Protected SHA, candidate ancestry, B3 OFF / Apply DENY ALL, no executable 011 migration, no historical migration edits, no unrelated release workflow edits, and rejects 011 workflow content hidden under misleading filenames. Negative CI-script unit tests exercise these gates. **This is not SQL Server UAT, an IT grant, or permission to deploy.**
 
+## CI PASS vs release GO (strictly separate)
+
+Every WORK push now archives one machine-readable combined CI evidence report and Markdown summary. The summary explicitly states that an offline PASS **never** grants Business UAT or Production GO. Its static authorization matrix records SQL Server runtime as NOT_TESTED, 011 as NOT_AUTHORIZED, Manager Grant provenance as BLOCKED, and B3 Approve/Apply as DENY ALL. The entry represents the approved package policy, **not a live deployed-environment attestation**. A separately authorized IT/Owner approval workflow must replace these HOLD states before any promotion or deployment.
+
 ## Transaction and history acceptance evidence
 - Create uniquely identified, disposable records only inside a **separately approved isolated SQL test database**, never UAT business records without explicit authorization.
 - Capture transaction correlation IDs, request/public IDs, precise before/after RowVersions, row counts, status transitions, index/FK/check metadata, full CI SHA and test logs.

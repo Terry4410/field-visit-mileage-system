@@ -6,7 +6,8 @@ from pathlib import Path
 
 from package_b_evidence import (collect, parse_junit, parse_trx,
                                 REQUIRED_SECURITY_GATES, FROZEN_PROTECTED_SHA,
-                                REQUIRED_SUCCESSFUL_STEPS, validate_step_outcomes)
+                                REQUIRED_SUCCESSFUL_STEPS, validate_step_outcomes,
+                                RELEASE_HOLD_CONTRACT)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -39,6 +40,19 @@ class PackageBEvidenceTests(unittest.TestCase):
                               'errors="0" skipped="0">'
                               '<testcase name="a"/><testcase name="b"/>'
                               '</testsuite></testsuites>')
+
+    def test_even_perfect_offline_ci_does_not_authorize_business_uat_or_production(self):
+        rows = {key: {"outcome": "success"} for key in REQUIRED_SUCCESSFUL_STEPS}
+        report = collect(self.guard, self.trx, self.junit, self.matrix, rows)
+        self.assertEqual("PASS", report["result"])
+        self.assertFalse(report["release_go"])
+        self.assertEqual("HOLD", report["release_authorization"]["business_uat"])
+        self.assertEqual("HARD_HOLD", report["release_authorization"]["production"])
+        self.assertEqual("NOT_TESTED",
+                         report["release_authorization"]["sql_server_runtime_and_concurrency"])
+        self.assertEqual("NOT_AUTHORIZED",
+                         report["release_authorization"]["schema_1800_011"])
+        self.assertEqual(RELEASE_HOLD_CONTRACT, report["release_authorization"])
 
     def test_all_required_successful_actions_steps_are_verified(self):
         step_data = {key: {"outcome": "success"}

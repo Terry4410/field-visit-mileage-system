@@ -63,6 +63,20 @@ def validate_guard(guard: dict, github_sha: str | None = None) -> dict:
     }
 
 
+# This is an authorization matrix, not a statement about live SQL/UAT state.
+# All release gates remain blocked regardless of offline CI test success.
+RELEASE_HOLD_CONTRACT = {
+    "manager_grant_provenance": "BLOCKED_OWNER_IT_ATTESTATION",
+    "schema_1800_011": "NOT_AUTHORIZED",
+    "sql_server_runtime_and_concurrency": "NOT_TESTED",
+    "b3_feature_flag": "OFF_REQUIRED",
+    "b3_approve_apply": "DENY_ALL_REQUIRED",
+    "protected_source_promotion": "NOT_AUTHORIZED",
+    "business_uat": "HOLD",
+    "production": "HARD_HOLD",
+}
+
+
 REQUIRED_SUCCESSFUL_STEPS = frozenset({
     "checkout", "security_gate", "python_syntax", "python_tests",
     "matrix_gate", "baseline_gate", "setup_dotnet", "setup_node",
@@ -145,7 +159,10 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
                 "backend": None, "frontend": None, "b4_matrix": None,
-                "build_and_ci_steps": None, "errors": []}
+                "build_and_ci_steps": None,
+                "release_authorization": dict(RELEASE_HOLD_CONTRACT),
+                "release_go": False,
+                "errors": []}
     try:
         guard = json.loads(guard_path.read_text(encoding="utf-8"))
         evidence["guard"] = validate_guard(guard, os.environ.get("GITHUB_SHA"))
@@ -210,7 +227,10 @@ def main() -> int:
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
                       encoding="utf-8")
     lines = ["### Package B consolidated automated test evidence",
-             "Status: **" + result["result"] + "**", "",
+             "Offline CI status: **" + result["result"] + "**",
+             "Release authorization: **HARD HOLD — NOT GO**",
+             "These are code/CI checks, not SQL Server runtime, Business UAT, or deployment approval.",
+             "",
              "| Evidence | Result |", "| --- | --- |"]
     if result["guard"]:
         lines.append("| Protected + feature/approval/migration guard | " +
@@ -228,6 +248,8 @@ def main() -> int:
     if result["b4_matrix"]:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")
+    for name, status in result["release_authorization"].items():
+        lines.append("| Release gate: " + name + " | " + status + " |")
     for error in result["errors"]:
         lines.append("| Gate failure | " + error.replace("|", "/") + " |")
     lines.extend(["", "Offline CI only. 011 migration, live SQL, B3 apply, promotion, "
