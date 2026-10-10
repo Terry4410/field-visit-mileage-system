@@ -1,0 +1,48 @@
+name: Package B B1 isolated branch verification
+on:
+  push:
+    branches:
+      - work/v180-package-b-b1-ownership-guards
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/package-b-b1-branch-verify.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-b-b1-verify
+  cancel-in-progress: false
+
+jobs:
+  isolated-tests:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-package-b-b1-ownership-guards'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ensure authorized immutable base remains ancestor
+        run: git merge-base --is-ancestor 68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2 HEAD
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Backend build (no deploy)
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Backend unit tests (no database writes)
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger 'console;verbosity=normal'
+      - name: Frontend restore
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test
+      - name: Frontend TypeScript + Vite build (no deploy)
+        working-directory: frontend
+        run: npm run build
