@@ -22,6 +22,11 @@ public sealed class V180SafeDeleteService(
         var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(x=>
             x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
             ??throw new UnauthorizedAccessException("管理帳號或組織授權已失效。");
+        // Internal HR eligibility alone does not prove the Users account is
+        // enabled. Refuse an explicitly disabled account before ANY preview
+        // or destructive SafeDelete operation, even if HR status is Active.
+        if(!account.IsActive)
+            throw new UnauthorizedAccessException("管理帳號已停用，禁止永久刪除。");
         if(!(await new V170AccessControl(db).EvaluateLoginAsync(
             user.UserId,account.IsActive,ct)).IsAllowed)
             throw new UnauthorizedAccessException("目前 HR 身分不允許永久刪除。");
