@@ -26,7 +26,8 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         self.workflow = self.root / ".github/workflows/package-b-b2-b3-controlled-verify.yml"
         self.workflow.write_text(
             "permissions:\n  contents: read\n  persist-credentials: false\n"
-            "  python3 scripts/ci/package_b_guard.py\n")
+            "  python3 scripts/ci/package_b_guard.py\n"
+            "  if-no-files-found: error\n  include-hidden-files: true\n")
         self.changed_sql = ""
         self.changed_workflows = ""
         self.remote = guard.FROZEN
@@ -77,6 +78,15 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         (self.root / ".github/workflows/neutral-filename.yml").write_text(
             "run: echo 1800_011")
         self.assertIn("no_hidden_011_workflow_dispatch", self.failures())
+
+    def test_missing_artifact_visibility_or_error_handling_fails(self):
+        original = self.workflow.read_text()
+        self.workflow.write_text(original.replace("include-hidden-files: true",
+                                                  "include-hidden-files: false"))
+        self.assertIn("CI_readonly_no_deploy", self.failures())
+        self.workflow.write_text(original.replace("if-no-files-found: error",
+                                                  "if-no-files-found: warn"))
+        self.assertIn("CI_readonly_no_deploy", self.failures())
 
     def test_unapproved_workflow_change_fails(self):
         self.changed_workflows = ".github/workflows/api-azure.yml"
