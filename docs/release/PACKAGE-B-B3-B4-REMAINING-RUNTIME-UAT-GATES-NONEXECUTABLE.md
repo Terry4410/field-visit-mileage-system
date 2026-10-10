@@ -81,6 +81,25 @@ individual case ID/outcome/duration with the GitHub source SHA in the
 SQL-only JSON artifact. These are candidate fixture checks; they are
 not full B4 HTTP/API UAT or an approval/activation signal.
 
+## Additional WORK-only SQL runtime and evidence-integrity suite
+
+This iteration adds seven disposable-engine cases: disabled DecisionKey index,
+enabled event-table trigger, untrusted event DecisionState CHECK, retry after a
+rolled-back Submitted-event FK violation, stale review RowVersion with zero
+decision audit, missing RequestPublicId uniqueness, and two independent
+organization-partitioned pending/audit histories (index evidence only;
+**not authorization/tenant isolation proof**). The exact immutable SQL TRX
+manifest requires **33/33 named passes**. The SQL evidence validator also
+rejects missing SHA, abnormal/aborted/timeout counters, duplicated run
+summaries, and missing or malformed durations, while publishing per-case
+outcomes and the raw TRX SHA-256 digest for IT verification.
+
+Offline tests additionally assert the B3 Controller route/method/role contract
+and the controller-wide authentication requirement. These reflection tests
+are **not** HTTP/API E2E. Neither B3 flag nor review/apply executor is
+activated. No 011 migration, promotion, deployment or existing database
+access is authorized by this work. All 22 B4 scenarios remain **PENDING**.
+
 ## B4 22-case evidence classification (isolated-only; NOT full B4 sign-off)
 
 The columns distinguish **existence of an isolated SQL engine check** from an executed full B4 acceptance scenario. The new five fixture cases are provisional until their exact GitHub SHA/TRX is green; passing a fixture never changes a scenario to GO. "HTTP" requires separately authorized isolated API E2E with live HR/role/team/ownership data. "Independent" includes owner approval of candidate 011 execution or UAT gate as applicable. This matrix is a handoff mapping, not a waiver.

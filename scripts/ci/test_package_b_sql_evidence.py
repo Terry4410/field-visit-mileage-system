@@ -29,7 +29,7 @@ class SqlEvidenceTests(unittest.TestCase):
 
     def test_complete_named_sql_suite_remains_nonrelease(self):
         result=validate(self.path,"a"*40)
-        self.assertEqual(26,result["tests_passed"])
+        self.assertEqual(33,result["tests_passed"])
         self.assertEqual(self.names,result["verified_case_names"])
         self.assertEqual("HARD_HOLD",result["production"])
         self.assertEqual("NOT_EXECUTED",result["formal_schema_migration"])
@@ -37,8 +37,8 @@ class SqlEvidenceTests(unittest.TestCase):
     def test_case_results_are_individually_exported_and_sha_bound(self):
         result=validate(self.path,"a"*40)
         self.assertEqual("a"*40,result["source_sha"])
-        self.assertEqual(26,len(result["case_results"]))
-        self.assertEqual(26,len({x["test_id"] for x in result["case_results"]}))
+        self.assertEqual(33,len(result["case_results"]))
+        self.assertEqual(33,len({x["test_id"] for x in result["case_results"]}))
         self.assertTrue(all(x["outcome"]=="Passed" for x in result["case_results"]))
         self.assertTrue(all(x["duration"]=="00:00:00.001" for x in result["case_results"]))
 
@@ -53,6 +53,49 @@ class SqlEvidenceTests(unittest.TestCase):
             '<ResultSummary outcome="Completed">','<ResultSummary>'))
         with self.assertRaisesRegex(ValueError,"not completed"):
             validate(self.path)
+
+    def test_missing_sha_fails_even_with_all_33_green_results(self):
+        with self.assertRaisesRegex(ValueError,"SHA"):
+            validate(self.path)
+
+    def test_trx_sha256_is_recorded_for_IT_reconciliation(self):
+        import hashlib
+        result=validate(self.path,"b"*40)
+        self.assertEqual(hashlib.sha256(self.path.read_bytes()).hexdigest(),
+                         result["trx_sha256"])
+
+    def test_timeout_counter_cannot_be_hidden_by_forged_passes(self):
+        content=self.path.read_text()
+        self.path.write_text(content.replace('notExecuted="0"',
+                                             'notExecuted="0" timeout="1"'))
+        with self.assertRaisesRegex(ValueError,"aborted results"):
+            validate(self.path,"c"*40)
+
+    def test_nonrunnable_counter_fails_closed(self):
+        content=self.path.read_text()
+        self.path.write_text(content.replace('notExecuted="0"',
+                                             'notExecuted="0" notRunnable="1"'))
+        with self.assertRaisesRegex(ValueError,"aborted results"):
+            validate(self.path,"c"*40)
+
+    def test_duplicate_result_summary_fails_closed(self):
+        content=self.path.read_text()
+        summary=content[content.index("<ResultSummary"):content.index("</ResultSummary>")+len("</ResultSummary>")]
+        self.path.write_text(content.replace("</TestRun>",summary+"</TestRun>"))
+        with self.assertRaisesRegex(ValueError,"duplicated run summaries"):
+            validate(self.path,"c"*40)
+
+    def test_missing_per_test_duration_fails_closed(self):
+        self.path.write_text(self.path.read_text().replace(
+            ' duration="00:00:00.001"','',1))
+        with self.assertRaisesRegex(ValueError,"duration"):
+            validate(self.path,"c"*40)
+
+    def test_malformed_per_test_duration_fails_closed(self):
+        self.path.write_text(self.path.read_text().replace(
+            'duration="00:00:00.001"','duration="negative"',1))
+        with self.assertRaisesRegex(ValueError,"duration"):
+            validate(self.path,"c"*40)
 
     def test_missing_trx_fails_closed(self):
         self.path.unlink()

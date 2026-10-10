@@ -2,6 +2,7 @@
 """Validate real SQL Server disposable-fixture TRX. Never authorize UAT GO."""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,13 @@ REQUIRED_SQL_TESTS=frozenset({
     "Rejected_history_blocks_delete_after_new_pending_is_created",
     "Catalog_denies_reordered_pending_unique_index_keys_until_restored",
     "Catalog_denies_missing_event_table_without_attempted_schema_repair",
+    "Catalog_denies_disabled_decision_unique_index_until_rebuilt",
+    "Catalog_denies_enabled_event_trigger_until_removed",
+    "Catalog_denies_untrusted_event_decision_check_until_retrusted",
+    "Rolled_back_submission_can_retry_with_one_committed_audit",
+    "Stale_reviewer_rowversion_cannot_create_decision_audit",
+    "Catalog_denies_missing_request_public_unique_index_until_restored",
+    "Cross_organization_pending_submission_preserves_separate_audit_histories",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
@@ -57,6 +65,12 @@ def validate(path: Path, sha: str | None = None) -> dict:
     summary = root.find(".//{*}ResultSummary")
     if summary is None or summary.get("outcome") != "Completed":
         raise ValueError("SQL Server TRX summary is missing or not completed")
+    if len(root.findall(".//{*}ResultSummary")) != 1:
+        raise ValueError("SQL Server TRX duplicated run summaries")
+    for key in ("aborted","timeout","inconclusive","notRunnable",
+                "disconnected","passedButRunAborted","pending","inProgress"):
+        if key in counters.attrib and int(counters.attrib[key]) != 0:
+            raise ValueError("SQL Server TRX includes incomplete or aborted results: " + key)
     cases = root.findall(".//{*}UnitTestResult")
     if len(cases) != results["total"]:
         raise ValueError("SQL Server TRX per-test count mismatch")
@@ -80,8 +94,12 @@ def validate(path: Path, sha: str | None = None) -> dict:
         } for case in cases),
         key=lambda item: item["name"],
     )
-    if sha is not None and not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise ValueError("invalid GitHub source SHA")
+    for case in cases:
+        duration=case.get("duration")
+        if not duration or not re.fullmatch(r"\d{2,}:[0-5]\d:[0-5]\d(?:\.\d{1,7})?",duration):
+            raise ValueError("SQL Server TRX missing or malformed per-test duration")
+    if sha is None or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("invalid or missing GitHub source SHA")
     return {
         "kind": "B3_ISOLATED_REAL_SQL_SERVER_EVIDENCE",
         "status": "PASS",
@@ -90,6 +108,7 @@ def validate(path: Path, sha: str | None = None) -> dict:
         "tests_total": results["total"],
         "verified_case_names": sorted(REQUIRED_SQL_TESTS),
         "case_results": case_results,
+        "trx_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "scope": "DISPOSABLE_LOCALHOST_SQL_SERVER_2022",
         "full_22_case_b4_sql_runtime": "NOT_COMPLETE",
         "formal_schema_migration": "NOT_EXECUTED",
