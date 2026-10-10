@@ -849,4 +849,144 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             V180B3SqlSafetyRules.CatalogCheckSql)));
     }
 
+
+    [Fact]
+    public async Task Failed_submitted_event_fk_rolls_back_new_pending_without_orphan_history()
+    {
+        var entity="SUBMITTED_FK_ROLLBACK_"+Guid.NewGuid().ToString("N");
+        var existing=await _fixture.InsertRequestAsync();
+        await _fixture.ExecuteAsync("""
+            INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                ActorUserId,OccurredAt,CorrelationId,DetailsJson)
+            VALUES(@id,N'Submitted',10,SYSUTCDATETIME(),NEWID(),N'{}')
+            """,("@id",existing));
+        await using(var conn=await _fixture.ConnectAsync())
+        await using(var tx=(SqlTransaction)await conn.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await using var create=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequests(RequestPublicId,OrganizationId,
+                    TeamId,EntityKind,EntityId,OperationCode,RiskCode,
+                    ExpectedEntityRowVersion,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+                VALUES(@guid,1,7,N'Location',@entity,N'UpdatePublishedLocation',
+                    N'High',0x0102030405060708,N'{}',10,SYSUTCDATETIME(),N'Pending');
+                SELECT CAST(SCOPE_IDENTITY() AS bigint)
+                """,conn,tx);
+            create.Parameters.AddWithValue("@guid",Guid.NewGuid());
+            create.Parameters.AddWithValue("@entity",entity);
+            var created=Convert.ToInt64(await create.ExecuteScalarAsync());
+            await using var badEvent=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                    ActorUserId,OccurredAt,CorrelationId,DetailsJson)
+                VALUES(@id,N'Submitted',999999,SYSUTCDATETIME(),NEWID(),N'{}')
+                """,conn,tx);
+            badEvent.Parameters.AddWithValue("@id",created);
+            Assert.Equal(547,(await Assert.ThrowsAsync<SqlException>(
+                ()=>badEvent.ExecuteNonQueryAsync())).Number);
+            await tx.RollbackAsync();
+        }
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE EntityId=@entity",
+            ("@entity",entity))));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents e
+            JOIN dbo.ChangeRequests r ON e.ChangeRequestId=r.ChangeRequestId
+            WHERE r.EntityId=@entity
+            """,("@entity",entity))));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",existing))));
+    }
+
+    [Fact]
+    public async Task Rejected_history_blocks_delete_after_new_pending_is_created()
+    {
+        var entity="HISTORY_FK_"+Guid.NewGuid().ToString("N");
+        var old=await _fixture.InsertRequestAsync(entity);
+        var key=Guid.NewGuid();
+        await using(var conn=await _fixture.ConnectAsync())
+        await using(var tx=(SqlTransaction)await conn.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await using var update=new SqlCommand("""
+                UPDATE dbo.ChangeRequests SET Status=N'Rejected',
+                    ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),
+                    ReviewReason=N'Independent review'
+                WHERE ChangeRequestId=@id AND Status=N'Pending'
+                """,conn,tx);
+            update.Parameters.AddWithValue("@id",old);
+            Assert.Equal(1,await update.ExecuteNonQueryAsync());
+            await using var audit=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                    ActorUserId,OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+                VALUES(@id,N'Rejected',20,SYSUTCDATETIME(),NEWID(),@key,N'{}')
+                """,conn,tx);
+            audit.Parameters.AddWithValue("@id",old);
+            audit.Parameters.AddWithValue("@key",key);
+            Assert.Equal(1,await audit.ExecuteNonQueryAsync());
+            await tx.CommitAsync();
+        }
+        var fresh=await _fixture.InsertRequestAsync(entity);
+        var ex=await Assert.ThrowsAsync<SqlException>(()=>
+            _fixture.ExecuteAsync("DELETE FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                ("@id",old)));
+        Assert.Equal(547,ex.Number);
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE EntityId=@entity",
+            ("@entity",entity))));
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",fresh)));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id AND DecisionKey=@key",
+            ("@id",old),("@key",key))));
+    }
+
+    [Fact]
+    public async Task Catalog_denies_reordered_pending_unique_index_keys_until_restored()
+    {
+        const string idx="UX_B3_ChangeRequests_Org_Entity_Pending";
+        await _fixture.ExecuteAsync($"DROP INDEX [{idx}] ON dbo.ChangeRequests");
+        try
+        {
+            await _fixture.ExecuteAsync($"""
+                CREATE UNIQUE INDEX [{idx}] ON dbo.ChangeRequests(
+                    EntityKind,OrganizationId,EntityId) WHERE [Status]=N'Pending'
+                """);
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                V180B3SqlSafetyRules.CatalogCheckSql)));
+        }
+        finally
+        {
+            await _fixture.ExecuteAsync($"DROP INDEX IF EXISTS [{idx}] ON dbo.ChangeRequests");
+            await _fixture.ExecuteAsync($"""
+                CREATE UNIQUE INDEX [{idx}] ON dbo.ChangeRequests(
+                    OrganizationId,EntityKind,EntityId) WHERE [Status]=N'Pending'
+                """);
+        }
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Catalog_denies_missing_event_table_without_attempted_schema_repair()
+    {
+        await _fixture.ExecuteAsync(
+            "EXEC sp_rename N'dbo.ChangeRequestEvents', N'ChangeRequestEvents_IsolatedProbe'");
+        try
+        {
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                V180B3SqlSafetyRules.CatalogCheckSql)));
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM sys.tables WHERE name=N'ChangeRequestEvents'")));
+            Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM sys.tables WHERE name=N'ChangeRequestEvents_IsolatedProbe'")));
+        }
+        finally
+        {
+            await _fixture.ExecuteAsync(
+                "EXEC sp_rename N'dbo.ChangeRequestEvents_IsolatedProbe', N'ChangeRequestEvents'");
+        }
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
 }

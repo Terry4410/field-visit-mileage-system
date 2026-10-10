@@ -20,19 +20,39 @@ class SqlEvidenceTests(unittest.TestCase):
             outcome=(outcomes or {}).get(name,"Passed")
             cases.append(
                 f'<UnitTestResult testName="{SQL_TEST_PREFIX}{name}"'
-                f' outcome="{outcome}"{attrs}/>')
+                f' outcome="{outcome}" duration="00:00:00.001"{attrs}/>')
         self.path.write_text(
             '<TestRun><Results>'+''.join(cases)+'</Results>'
-            '<ResultSummary><Counters total="'+str(len(names))+
+            '<ResultSummary outcome="Completed"><Counters total="'+str(len(names))+
             '" passed="'+str(len(names)-skip)+'" failed="0" error="0"'
             ' notExecuted="'+str(skip)+'"/></ResultSummary></TestRun>')
 
     def test_complete_named_sql_suite_remains_nonrelease(self):
         result=validate(self.path,"a"*40)
-        self.assertEqual(22,result["tests_passed"])
+        self.assertEqual(26,result["tests_passed"])
         self.assertEqual(self.names,result["verified_case_names"])
         self.assertEqual("HARD_HOLD",result["production"])
         self.assertEqual("NOT_EXECUTED",result["formal_schema_migration"])
+
+    def test_case_results_are_individually_exported_and_sha_bound(self):
+        result=validate(self.path,"a"*40)
+        self.assertEqual("a"*40,result["source_sha"])
+        self.assertEqual(26,len(result["case_results"]))
+        self.assertEqual(26,len({x["test_id"] for x in result["case_results"]}))
+        self.assertTrue(all(x["outcome"]=="Passed" for x in result["case_results"]))
+        self.assertTrue(all(x["duration"]=="00:00:00.001" for x in result["case_results"]))
+
+    def test_noncompleted_summary_fails_even_with_all_green_case_rows(self):
+        self.path.write_text(self.path.read_text().replace(
+            'outcome="Completed"','outcome="Failed"'))
+        with self.assertRaisesRegex(ValueError,"not completed"):
+            validate(self.path)
+
+    def test_absent_result_summary_fails_closed(self):
+        self.path.write_text(self.path.read_text().replace(
+            '<ResultSummary outcome="Completed">','<ResultSummary>'))
+        with self.assertRaisesRegex(ValueError,"not completed"):
+            validate(self.path)
 
     def test_missing_trx_fails_closed(self):
         self.path.unlink()

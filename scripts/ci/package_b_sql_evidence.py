@@ -34,6 +34,10 @@ REQUIRED_SQL_TESTS=frozenset({
     "Concurrent_submission_transactions_commit_exactly_one_submitted_event",
     "Catalog_denies_altered_decision_filter_until_exact_index_is_restored",
     "Catalog_denies_column_width_drift_until_exact_type_is_restored",
+    "Failed_submitted_event_fk_rolls_back_new_pending_without_orphan_history",
+    "Rejected_history_blocks_delete_after_new_pending_is_created",
+    "Catalog_denies_reordered_pending_unique_index_keys_until_restored",
+    "Catalog_denies_missing_event_table_without_attempted_schema_repair",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
@@ -50,6 +54,9 @@ def validate(path: Path, sha: str | None = None) -> dict:
     if (results["total"] != len(REQUIRED_SQL_TESTS) or results["passed"] != results["total"]
             or any(results[k] for k in ("failed","error","notExecuted"))):
         raise ValueError("SQL Server tests missing, skipped or failed: " + str(results))
+    summary = root.find(".//{*}ResultSummary")
+    if summary is None or summary.get("outcome") != "Completed":
+        raise ValueError("SQL Server TRX summary is missing or not completed")
     cases = root.findall(".//{*}UnitTestResult")
     if len(cases) != results["total"]:
         raise ValueError("SQL Server TRX per-test count mismatch")
@@ -63,6 +70,16 @@ def validate(path: Path, sha: str | None = None) -> dict:
         identifiers=[case.get(attr) for case in cases]
         if any(not value for value in identifiers) or len(set(identifiers))!=len(identifiers):
             raise ValueError("SQL Server missing or duplicated "+attr)
+    case_results = sorted(
+        ({
+            "name": case.get("testName"),
+            "outcome": case.get("outcome"),
+            "duration": case.get("duration"),
+            "test_id": case.get("testId"),
+            "execution_id": case.get("executionId"),
+        } for case in cases),
+        key=lambda item: item["name"],
+    )
     if sha is not None and not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("invalid GitHub source SHA")
     return {
@@ -72,6 +89,7 @@ def validate(path: Path, sha: str | None = None) -> dict:
         "tests_passed": results["passed"],
         "tests_total": results["total"],
         "verified_case_names": sorted(REQUIRED_SQL_TESTS),
+        "case_results": case_results,
         "scope": "DISPOSABLE_LOCALHOST_SQL_SERVER_2022",
         "full_22_case_b4_sql_runtime": "NOT_COMPLETE",
         "formal_schema_migration": "NOT_EXECUTED",

@@ -67,6 +67,20 @@ A separate real SQL Server 2022 job exercises the ephemeral candidate B3 schema 
 | B4-SQL-19 | SqlException 2601/2627 vs unrelated constraint/deadlock error | Known named B3 duplicates 409; unknown error fail closed, no false success |
 | B4-SQL-20 | Business HR/Role/Team/Project/OfficialSite bulk operations after Admin role revoked | All sensitive writes denied; audit and dependent history unchanged |
 
+## Next isolated SQL integrity regression batch (WORK-only, no deployment)
+
+The disposable SQL fixture additionally verifies that a failed Submitted-event
+actor foreign key rolls the Pending insert back without damaging prior audit,
+that rejected historical decisions cannot be deleted after a new Pending
+request exists, that a Pending-index key-order mutation is rejected by
+readiness, and that a temporarily missing audit table fails closed without
+automatic DDL repair. The fixture restores metadata only in its disposable
+database; it never runs formal 1800_011 migration. CI requires **26 named
+SQL engine cases**, checks the TRX summary outcome, and exports every
+individual case ID/outcome/duration with the GitHub source SHA in the
+SQL-only JSON artifact. These are candidate fixture checks; they are
+not full B4 HTTP/API UAT or an approval/activation signal.
+
 ## B4 22-case evidence classification (isolated-only; NOT full B4 sign-off)
 
 The columns distinguish **existence of an isolated SQL engine check** from an executed full B4 acceptance scenario. The new five fixture cases are provisional until their exact GitHub SHA/TRX is green; passing a fixture never changes a scenario to GO. "HTTP" requires separately authorized isolated API E2E with live HR/role/team/ownership data. "Independent" includes owner approval of candidate 011 execution or UAT gate as applicable. This matrix is a handoff mapping, not a waiver.
