@@ -120,11 +120,11 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
     {msg&&<div className="note" style={{marginTop:10}}>{msg}</div>}
 
     <div className="grid cols-2" style={{marginTop:14}}>
-      <div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮／區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div>
-      <div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div>
-      <div className="field"><label>統一編號</label><input value={taxId} onChange={e=>setTaxId(e.target.value)} maxLength={20}/></div><div className="field span-2"><label>主檔備註</label><textarea value={masterNote} onChange={e=>setMasterNote(e.target.value)} maxLength={1000}/></div>
+      <div className="field"><label>縣市</label><input value={city} disabled={!isAdmin} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮／區</label><input value={district} disabled={!isAdmin} onChange={e=>setDistrict(e.target.value)}/></div>
+      <div className="field span-2"><label>地址</label><input value={address} disabled={!isAdmin} onChange={e=>setAddress(e.target.value)}/></div><div className="field"><label>Plus Code</label><input value={plus} disabled={!isAdmin} onChange={e=>setPlus(e.target.value)}/></div>
+      <div className="field"><label>統一編號</label><input value={taxId} disabled={!isAdmin} onChange={e=>setTaxId(e.target.value)} maxLength={20}/></div><div className="field span-2"><label>主檔備註</label><textarea value={masterNote} disabled={!isAdmin} onChange={e=>setMasterNote(e.target.value)} maxLength={1000}/></div>
     </div>
-    <div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save()}>儲存地點資料</button></div>
+    {isAdmin?<div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save()}>儲存地點資料</button></div>:<div className="note">正式主檔不開放直接修改。請至地點管理修改本人或授權小組的待審核草稿。</div>}
 
     {isAdmin&&<><hr/>
       <div className="section-title"><div><h4>官方據點</h4><div className="sub">Location-first：地點完成解析／發布後，只需在這裡指定所屬中心；Site Code 由系統自動產生。</div></div></div>

@@ -167,7 +167,8 @@ public sealed record ManagedLocationDto(
     int? DuplicateOfLocationId = null,
     string? DuplicateReason = null,
     string? TaxId = null,
-    string? MasterNote = null);
+    string? MasterNote = null,
+    int? CreatedByUserId = null);
 
 public sealed record ManagedLocationQueryRequest(
     string? Q = null,

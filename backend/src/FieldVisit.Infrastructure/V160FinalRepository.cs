@@ -798,6 +798,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             request.LocationType,row.LocationType);
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         EnsureLocationWriteScope(row, user);
+        if(!admin&&string.IsNullOrWhiteSpace(request.RowVersion))
+            throw new InvalidOperationException("ROWVERSION_REQUIRED：請重新載入後再修改地點。");
         EnsureRowVersion(row.RowVersion, request.RowVersion);
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;
@@ -1432,7 +1434,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     private static ManagedLocationDto MapManagedLocation(Location x, string? teamName) => new(
         x.LocationId, x.LocationCode ?? "", x.TeamId, teamName, x.LocationName, x.LocationType, x.City, x.District, x.Address, x.PlusCode,
         x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []),
-        x.DuplicateOfLocationId, x.DuplicateReason, x.TaxId, x.MasterNote);
+        x.DuplicateOfLocationId, x.DuplicateReason, x.TaxId, x.MasterNote, x.CreatedByUserId);
 
     private static void EnsureRowVersion(byte[] currentValue, string? expectedBase64)
     {
