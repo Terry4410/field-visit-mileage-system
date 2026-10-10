@@ -8,6 +8,8 @@ namespace FieldVisit.Application.Tests;
 
 /// <summary>Security-changing role and membership commands fail before writing
 /// when any live Admin gate is revoked. No SQL Server or UAT DB is accessed.
+/// Effective dates use BusinessTime.Today (Taipei), not the UTC calendar
+/// date; these differ near midnight and security tests must not be flaky.
 /// </summary>
 public sealed class V180SecurityGrantWriteGatesTests
 {
@@ -26,7 +28,7 @@ public sealed class V180SecurityGrantWriteGatesTests
     {
         var db=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"security-grant-{Guid.NewGuid()}").Options);
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);
+        var today=BusinessTime.Today;
         db.Users.Add(new User{
             UserId=701,OrganizationId=1,DisplayName="Admin",
             IsActive=active,CreatedAt=DateTime.UtcNow});
@@ -52,7 +54,7 @@ public sealed class V180SecurityGrantWriteGatesTests
     {
         var actor=new Current(user);
         var ct=CancellationToken.None;
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);
+        var today=BusinessTime.Today;
         var roles=new V180InternalRoleCommandService(db,actor);
         var teams=new V180TeamMembershipCommandService(db,actor);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
@@ -131,7 +133,7 @@ public sealed class V180SecurityGrantWriteGatesTests
 
         // The target intentionally does not exist. Authorization must pass,
         // then existing business validation must reject unknown person.
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);
+        var today=BusinessTime.Today;
         var roleError=await Assert.ThrowsAsync<InvalidOperationException>(()=>
             new V180InternalRoleCommandService(db,actor).UpdateAsync(
                 999,new V180InternalRoleAccessRequest(["visitor"],today),
@@ -153,7 +155,7 @@ public sealed class V180SecurityGrantWriteGatesTests
         string newStatus,string legacyStatus,bool shouldAllow)
     {
         await using var db=await SeedAsync(hr:legacyStatus);
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);
+        var today=BusinessTime.Today;
         db.UserIdentityProfiles.Add(new UserIdentityProfile{
             UserId=701,EmploymentId=7001,UserType=UserTypes.Internal,UserCode="A701"});
         db.Employments.Add(new Employment{
