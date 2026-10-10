@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +17,7 @@ class PackageBEvidenceTests(unittest.TestCase):
         self.junit = base / "frontend.xml"
         self.guard.write_text(json.dumps({
             "kind": "PACKAGE_B_B3_B4_NONDEPLOY",
-            "head_sha": "abc", "frozen_sha": "frozen",
+            "head_sha": os.environ.get("GITHUB_SHA", "abc"), "frozen_sha": "frozen",
             "passed": True, "checks": [{"passed": True}]}))
         self.trx.write_text(
             '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
@@ -29,6 +30,16 @@ class PackageBEvidenceTests(unittest.TestCase):
         self.assertEqual("PASS", collect(self.guard, self.trx, self.junit)["result"])
         self.assertEqual(2, parse_trx(self.trx)["passed"])
         self.assertEqual(2, parse_junit(self.junit)["passed"])
+
+    def test_sha_mismatch_fails_closed(self):
+        payload = json.loads(self.guard.read_text())
+        payload["head_sha"] = "an-intentionally-incorrect-sha"
+        self.guard.write_text(json.dumps(payload))
+        # Explicitly simulates the real GitHub Actions SHA guard.
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"GITHUB_SHA": "the-real-head-sha"}):
+            self.assertEqual("FAIL_CLOSED", collect(
+                self.guard, self.trx, self.junit)["result"])
 
     def test_guard_failure_fails_closed(self):
         data = json.loads(self.guard.read_text())
