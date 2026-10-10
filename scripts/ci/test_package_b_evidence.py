@@ -36,7 +36,9 @@ class PackageBEvidenceTests(unittest.TestCase):
             '<ResultSummary><Counters total="2" passed="2" failed="0" error="0" '
             'notExecuted="0"/></ResultSummary></TestRun>')
         self.junit.write_text('<testsuites><testsuite tests="2" failures="0" '
-                              'errors="0" skipped="0"/></testsuites>')
+                              'errors="0" skipped="0">'
+                              '<testcase name="a"/><testcase name="b"/>'
+                              '</testsuite></testsuites>')
 
     def test_all_required_successful_actions_steps_are_verified(self):
         step_data = {key: {"outcome": "success"}
@@ -169,11 +171,30 @@ class PackageBEvidenceTests(unittest.TestCase):
         self.assertEqual("FAIL_CLOSED", collect(
             self.guard, self.trx, self.junit, self.matrix)["result"])
 
+    def test_junit_forged_count_cannot_mark_one_case_as_many_passes(self):
+        xml = self.junit.read_text().replace('tests="2"', 'tests="500"')
+        self.junit.write_text(xml)
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit, self.matrix)["result"])
+
+    def test_junit_embedded_failure_cannot_be_hidden_by_suite_zero_failures(self):
+        self.junit.write_text('<testsuite tests="1" failures="0" errors="0" '
+                              'skipped="0"><testcase name="bad">'
+                              '<failure message="hidden"/></testcase></testsuite>')
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit, self.matrix)["result"])
+
+    def test_trx_missing_not_executed_counter_is_invalid(self):
+        self.trx.write_text(self.trx.read_text().replace('notExecuted="0"', ''))
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit, self.matrix)["result"])
+
     def test_nested_junit_counts_leaf_suites_once(self):
         self.junit.write_text(
             '<testsuites tests="3"><testsuite name="parent" tests="3">'
-            '<testsuite name="a" tests="1" failures="0"/>'
-            '<testsuite name="b" tests="2" failures="0"/>'
+            '<testsuite name="a" tests="1" failures="0"><testcase name="a"/></testsuite>'
+            '<testsuite name="b" tests="2" failures="0">'
+            '<testcase name="b"/><testcase name="c"/></testsuite>'
             '</testsuite></testsuites>')
         self.assertEqual(3, parse_junit(self.junit)["total"])
 

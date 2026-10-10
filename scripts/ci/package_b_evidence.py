@@ -97,24 +97,42 @@ def parse_trx(path: Path) -> dict[str, int]:
     counters = root.find(".//{*}Counters")
     if counters is None:
         raise ValueError("TRX Counters missing")
-    return {key: int(counters.attrib.get(key, "0"))
-            for key in ("total", "passed", "failed", "error", "notExecuted")}
+    required = ("total", "passed", "failed", "error", "notExecuted")
+    if any(key not in counters.attrib for key in required):
+        raise ValueError("TRX required counters missing")
+    data = {key: int(counters.attrib[key]) for key in required}
+    if any(n < 0 or n > data["total"] for n in data.values()):
+        raise ValueError("TRX counters invalid or negative")
+    return data
 
 
 def parse_junit(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
-    suites = [root] if root.tag == "testsuite" else root.findall(".//testsuite")
+    def tag_name(element: ET.Element) -> str:
+        return element.tag.rsplit("}", 1)[-1]
+    suites = [node for node in root.iter() if tag_name(node) == "testsuite"]
     if not suites:
         raise ValueError("JUnit suites missing")
-    # Count leaf suites to avoid double counting aggregate parent suites.
-    leaves = [s for s in suites if not s.findall("testsuite")]
-    if not leaves:
-        raise ValueError("JUnit leaf suites missing")
+    # Leaf suites own the testcases; aggregate suites must not double count.
+    leaves = [suite for suite in suites
+              if not any(tag_name(node) == "testsuite"
+                         for node in suite.iter() if node is not suite)]
     data = {"total": 0, "passed": 0, "failed": 0, "skipped": 0}
     for suite in leaves:
-        n = int(suite.get("tests", "0"))
+        n = int(suite.get("tests", "-1"))
         failures = int(suite.get("failures", "0")) + int(suite.get("errors", "0"))
         skipped = int(suite.get("skipped", "0"))
+        cases = [node for node in suite.iter() if tag_name(node) == "testcase"]
+        if n < 0 or failures < 0 or skipped < 0 or n != len(cases):
+            raise ValueError("JUnit testcase count does not match reported suite")
+        actual_failed = sum(any(tag_name(c) in ("failure", "error")
+                                for c in case.iter() if c is not case)
+                            for case in cases)
+        actual_skipped = sum(any(tag_name(c) == "skipped"
+                                 for c in case.iter() if c is not case)
+                             for case in cases)
+        if failures != actual_failed or skipped != actual_skipped:
+            raise ValueError("JUnit testcase statuses do not match suite counters")
         data["total"] += n
         data["failed"] += failures
         data["skipped"] += skipped
