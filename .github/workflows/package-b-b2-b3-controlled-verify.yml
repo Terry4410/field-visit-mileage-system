@@ -30,6 +30,8 @@ jobs:
           persist-credentials: false
       - name: Automated B3/B4 safety gates (NO DEPLOY)
         run: python3 scripts/ci/package_b_guard.py --report .ci-artifacts/guard.json --summary .ci-artifacts/guard.md
+      - name: Verify CI evidence parser negative tests
+        run: python3 -m unittest discover -s scripts/ci -p 'test_package_b_*.py'
       - name: Verify immutable authorized baseline
         run: git merge-base --is-ancestor c1ee3c0c3df000491fd54df727482815d3c38917 HEAD
       - uses: actions/setup-dotnet@v4
@@ -41,22 +43,28 @@ jobs:
       - name: Backend build (NO DEPLOY)
         run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
       - name: Backend unit tests (NO DB)
-        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger 'console;verbosity=normal'
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger 'console;verbosity=normal' --logger 'trx;LogFileName=backend-tests.trx' --results-directory .ci-artifacts
       - name: Frontend restore
         working-directory: frontend
         run: npm ci
       - name: Frontend tests
         working-directory: frontend
-        run: npm run test
+        run: npm run test -- --reporter=default --reporter=junit --outputFile.junit=../.ci-artifacts/frontend-tests.xml
       - name: Frontend build (NO DEPLOY)
         working-directory: frontend
         run: npm run build
+      - name: Consolidate automated B3/B4 CI evidence (NO DEPLOY)
+        if: always()
+        run: python3 scripts/ci/package_b_evidence.py --guard .ci-artifacts/guard.json --trx .ci-artifacts/backend-tests.trx --junit .ci-artifacts/frontend-tests.xml --output .ci-artifacts/ci-evidence.json --summary .ci-artifacts/ci-evidence.md
       - name: Publish security-gate summary
         if: always()
         shell: bash
         run: |
           if [ -f .ci-artifacts/guard.md ]; then
             cat .ci-artifacts/guard.md >> "$GITHUB_STEP_SUMMARY"
+            if [ -f .ci-artifacts/ci-evidence.md ]; then
+              cat .ci-artifacts/ci-evidence.md >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             echo "Package B guard report missing: FAIL CLOSED" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -65,6 +73,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: package-b-b3-b4-security-evidence
-          path: .ci-artifacts/guard.*
+          path: .ci-artifacts/*
           if-no-files-found: warn
           retention-days: 30
