@@ -832,7 +832,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task DeactivateManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct)
     {
+        await EnsureCurrentAdminManagedLocationAsync(user,ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
+        V180LocationAdminMutationRules.RequireScopedLocation(user,row.OrganizationId);
         EnsureLocationWriteScope(row, user);
         row.IsActive = false;
         row.UpdatedAt = DateTime.UtcNow;
@@ -845,8 +847,10 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         int locationId,
         CancellationToken ct)
     {
+        await EnsureCurrentAdminManagedLocationAsync(user,ct);
         var row = await db.Locations.AsNoTracking().FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
+        V180LocationAdminMutationRules.RequireScopedLocation(user,row.OrganizationId);
         EnsureLocationWriteScope(row, user);
 
         var tripRefs = await db.VisitTripStops.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
@@ -854,8 +858,18 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var favoriteRefs = await db.UserFavoriteLocations.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
         var approvalHistory = await db.LocationApprovalHistories.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
         var governmentMatches = await db.GovernmentLocationMasters.AsNoTracking().CountAsync(x => x.MatchedLocationId == locationId, ct);
-
-        var canDelete = tripRefs == 0 && projectRefs == 0 && favoriteRefs == 0 && approvalHistory == 0 && governmentMatches == 0;
+        // The original 5 counters are preserved for API backwards compatibility.
+        // These additional references must also block permanent deletion, even
+        // where the database relationship permits a nullable reference.
+        var snapshotRefs = await db.VisitTripSnapshotStops.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var notes = await db.TeamLocationNotes.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var noteHistory = await db.TeamLocationNoteHistories.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var geocodingHistory = await db.GeocodingAttempts.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var deploymentHistory = await db.DeploymentSiteLocationAssignments.AsNoTracking().CountAsync(x => x.LocationId == locationId, ct);
+        var duplicateReferences = await db.Locations.AsNoTracking().CountAsync(x => x.DuplicateOfLocationId == locationId, ct);
+        var canDelete = V180ManagedLocationDeletionRules.CanPermanentlyDelete(
+            tripRefs,projectRefs,favoriteRefs,approvalHistory,governmentMatches,
+            snapshotRefs,notes,noteHistory,geocodingHistory,deploymentHistory,duplicateReferences);
         string? reason = null;
         if (!canDelete)
         {
@@ -865,6 +879,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             if (favoriteRefs > 0) reasons.Add($"已有 {favoriteRefs} 筆常用地點引用");
             if (approvalHistory > 0) reasons.Add($"已有 {approvalHistory} 筆核准/解析歷史");
             if (governmentMatches > 0) reasons.Add($"已有 {governmentMatches} 筆政府主檔比對");
+            if (snapshotRefs > 0) reasons.Add($"已有 {snapshotRefs} 筆行程 Snapshot 歷史");
+            if (notes > 0) reasons.Add($"已有 {notes} 筆小組備註");
+            if (noteHistory > 0) reasons.Add($"已有 {noteHistory} 筆備註變更歷史");
+            if (geocodingHistory > 0) reasons.Add($"已有 {geocodingHistory} 筆地理解析歷史");
+            if (deploymentHistory > 0) reasons.Add($"已有 {deploymentHistory} 筆派駐據點期間");
+            if (duplicateReferences > 0) reasons.Add($"已有 {duplicateReferences} 筆合併/重複地點關聯");
             reason = string.Join("；", reasons) + "，因此只能停用，不能永久刪除。";
         }
 
@@ -875,8 +895,14 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task DeleteManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct)
     {
+        await EnsureCurrentAdminManagedLocationAsync(user,ct);
+        // Serialize dependency inspection and deletion to prevent references
+        // arriving between the impact check and the destructive operation.
+        await using var tx=await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable,ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
+        V180LocationAdminMutationRules.RequireScopedLocation(user,row.OrganizationId);
         EnsureLocationWriteScope(row, user);
 
         var impact = await GetManagedLocationDeleteImpactAsync(user, locationId, ct);
@@ -891,6 +917,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         db.Locations.Remove(row);
         AddAudit(user.UserId, "Location", locationId.ToString(), "LocationPermanentDelete", auditValue);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     public async Task<DashboardSummaryDto> GetDashboardAsync(CurrentUserDto user, CancellationToken ct)
@@ -1066,6 +1093,36 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         if (string.IsNullOrWhiteSpace(name)) throw new InvalidOperationException("小組名稱必填。");
         if (name.Length > 100) throw new InvalidOperationException("小組名稱不可超過 100 個字元。");
         return name;
+    }
+
+    /// <summary>
+    /// Admin-only hard deletion / deactivation must use current HR and
+    /// effective-dated Admin grants; JWT and UserRoles alone are insufficient.
+    /// This is not a B3 approval or team-manager attestation.
+    /// </summary>
+    private async Task EnsureCurrentAdminManagedLocationAsync(CurrentUserDto user,CancellationToken ct)
+    {
+        if(!user.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("管理者缺少有效組織。");
+        var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(x=>
+            x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
+            ??throw new UnauthorizedAccessException("管理者帳號或組織授權已失效。");
+        if(!(await access.EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
+            throw new UnauthorizedAccessException("人事狀態無權停用或刪除地點。");
+        var today=BusinessTime.Today;
+        var dated=await (
+            from grant in db.UserRoleAssignments.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId&&role.IsActive
+                &&grant.EffectiveFrom<=today
+                &&(!grant.EffectiveTo.HasValue||grant.EffectiveTo>=today)
+            select role.RoleCode).ToListAsync(ct);
+        var projected=await (
+            from grant in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId&&role.IsActive
+            select role.RoleCode).ToListAsync(ct);
+        V180LocationAdminMutationRules.RequireCurrentAdmin(user,dated,projected);
     }
 
     private async Task<IReadOnlyList<int>> EffectiveLocationWriteTeamsAsync(CurrentUserDto user,CancellationToken ct)
