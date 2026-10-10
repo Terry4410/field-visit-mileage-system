@@ -38,6 +38,38 @@ public sealed class V180B3ProposalSafetyRulesTests
             Existing() with {LocationName="Changed"},Existing(),"  "));
     }
 
+    [Fact]
+    public void Overlong_raw_strings_are_rejected_before_trim_or_normalization()
+    {
+        var oversized=new string(' ',2_000_000);
+        Assert.Equal("B3_PROPOSAL_INVALID",
+            Assert.Throws<InvalidOperationException>(()=>
+                V180B3ProposalSafetyRules.Validate(
+                    Existing() with {LocationName="Changed",MasterNote=oversized},
+                    Existing(),"Reason")).Message);
+        Assert.Equal("B3_PROPOSAL_INVALID",
+            Assert.Throws<InvalidOperationException>(()=>
+                V180B3ProposalSafetyRules.Validate(
+                    Existing() with {LocationName="Changed"},Existing(),oversized)).Message);
+        Assert.Equal("B3_REASON_REQUIRED",
+            Assert.Throws<InvalidOperationException>(()=>
+                V180B3ProposalSafetyRules.RequireIndependentReview(
+                    1,2,"Pending",new byte[8],
+                    Convert.ToBase64String(new byte[8]),Guid.NewGuid(),oversized)).Message);
+    }
+
+    [Fact]
+    public void Maximum_length_raw_reason_with_real_change_is_accepted()
+    {
+        var reason=new string('x',1000);
+        var fields=Existing() with {LocationName="Changed"};
+        var result=V180B3ProposalSafetyRules.Validate(fields,Existing(),reason);
+        Assert.Equal(1000,result.Reason.Length);
+        Assert.Equal(reason,V180B3ProposalSafetyRules.RequireIndependentReview(
+            1,2,"Pending",new byte[8],Convert.ToBase64String(new byte[8]),
+            Guid.NewGuid(),reason));
+    }
+
     [Fact] public void Review_cannot_be_self_approved_replayed_or_stale()
     {
         var version=new byte[]{1,2,3,4,5,6,7,8};
