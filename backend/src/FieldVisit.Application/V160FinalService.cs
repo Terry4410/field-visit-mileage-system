@@ -108,16 +108,16 @@ public sealed class V160FinalService(
         repository.DeactivateManagedTeamAsync(RequireRole("admin"), teamId, ct);
 
     public Task<IReadOnlyList<ManagedLocationDto>> ManagedLocationsAsync(bool includeInactive, CancellationToken ct) =>
-        repository.GetManagedLocationsAsync(RequireAny("admin", "leader"), includeInactive, ct);
+        repository.GetManagedLocationsAsync(RequireAny("admin", "leader", "visitor"), includeInactive, ct);
 
     public Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(ManagedLocationQueryRequest request, CancellationToken ct) =>
-        repository.SearchManagedLocationsAsync(RequireAny("admin", "leader"), request, ct);
+        repository.SearchManagedLocationsAsync(RequireAny("admin", "leader", "visitor"), request, ct);
 
     public Task<ManagedLocationDto> CreateManagedLocationAsync(SaveManagedLocationRequest request, CancellationToken ct) =>
-        repository.CreateManagedLocationAsync(RequireAny("admin", "leader"), request, ct);
+        repository.CreateManagedLocationAsync(RequireAny("admin", "leader", "visitor"), request, ct);
 
     public Task<ManagedLocationDto> UpdateManagedLocationAsync(int id, SaveManagedLocationRequest request, CancellationToken ct) =>
-        repository.UpdateManagedLocationAsync(RequireAny("admin", "leader"), id, request, ct);
+        repository.UpdateManagedLocationAsync(RequireAny("admin", "leader", "visitor"), id, request, ct);
 
     public Task DeactivateManagedLocationAsync(int id, CancellationToken ct) =>
         repository.DeactivateManagedLocationAsync(RequireRole("admin"), id, ct);

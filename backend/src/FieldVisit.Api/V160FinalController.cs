@@ -87,24 +87,24 @@ public sealed class V160FinalController(V160FinalService service) : ControllerBa
     }
 
     [HttpGet("managed-locations")]
-    [Authorize(Roles = "admin,leader")]
+    [Authorize(Roles = "admin,leader,visitor")]
     public async Task<ActionResult<IReadOnlyList<ManagedLocationDto>>> ManagedLocations([FromQuery] bool includeInactive = true, CancellationToken ct = default) =>
         Ok(await service.ManagedLocationsAsync(includeInactive, ct));
 
     [HttpGet("managed-locations/search")]
-    [Authorize(Roles = "admin,leader")]
+    [Authorize(Roles = "admin,leader,visitor")]
     public async Task<ActionResult<PagedResult<ManagedLocationDto>>> SearchManagedLocations(
         [FromQuery] ManagedLocationQueryRequest request,
         CancellationToken ct = default) =>
         Ok(await service.SearchManagedLocationsAsync(request, ct));
 
     [HttpPost("managed-locations")]
-    [Authorize(Roles = "admin,leader")]
+    [Authorize(Roles = "admin,leader,visitor")]
     public async Task<ActionResult<ManagedLocationDto>> CreateLocation(SaveManagedLocationRequest request, CancellationToken ct) =>
         Ok(await service.CreateManagedLocationAsync(request, ct));
 
     [HttpPut("managed-locations/{locationId:int}")]
-    [Authorize(Roles = "admin,leader")]
+    [Authorize(Roles = "admin,leader,visitor")]
     public async Task<ActionResult<ManagedLocationDto>> UpdateLocation(int locationId, SaveManagedLocationRequest request, CancellationToken ct) =>
         Ok(await service.UpdateManagedLocationAsync(locationId, request, ct));
 

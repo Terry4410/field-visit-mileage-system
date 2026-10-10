@@ -701,6 +701,7 @@ public sealed class V170LocationRepository(
     public async Task<V170LocationMaintenanceDto> UpdateMaintenanceAsync(
         CurrentUserDto user,int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct)
     {
+        V180LocationOwnershipRules.EnsurePublishedMasterWrite(user);
         var accessible=await AccessibleLocations(user).AnyAsync(x=>x.LocationId==locationId,ct);
         if(!accessible)throw new KeyNotFoundException("找不到可維護的正式地點。");
 
@@ -767,13 +768,28 @@ public sealed class V170LocationRepository(
             &&!user.TeamIds.Contains(request.TeamId))
             throw new UnauthorizedAccessException("無權新增其他小組的地點備註。");
 
-        var accessible=await AccessibleLocations(user,request.TeamId).AnyAsync(x=>x.LocationId==locationId,ct);
-        if(!accessible)throw new KeyNotFoundException("找不到可維護的正式地點。");
+        var accessible=await AccessibleLocations(user,request.TeamId)
+            .FirstOrDefaultAsync(x=>x.LocationId==locationId,ct);
+        if(accessible is null)throw new KeyNotFoundException("找不到可維護的正式地點。");
+        if(!user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase))
+        {
+            var valid=accessible.TeamId==request.TeamId
+                && accessible.OrganizationId==user.OrganizationId
+                && await db.UserTeamScopes.AsNoTracking().AnyAsync(x=>
+                    x.UserId==user.UserId&&x.TeamId==request.TeamId&&x.IsActive,ct);
+            if(!valid || (user.Roles.Contains("visitor",StringComparer.OrdinalIgnoreCase)
+                    && accessible.CreatedByUserId!=user.UserId))
+                throw new UnauthorizedAccessException("無權修改其他人、小組或共用地點的備註。");
+        }
 
         await using var tx=await db.Database.BeginTransactionAsync(ct);
         var row=await db.TeamLocationNotes
             .SingleOrDefaultAsync(x=>x.TeamId==request.TeamId&&x.LocationId==locationId,ct);
         var now=DateTime.UtcNow;
+        if(row is not null && user.Roles.Contains("visitor",StringComparer.OrdinalIgnoreCase)
+           && !user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
+           && row.CreatedByUserId!=user.UserId)
+            throw new UnauthorizedAccessException("不得覆寫其他人建立的備註。");
         var old=row?.Note;
         var action=row is null?"Created":"Updated";
 

@@ -766,6 +766,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        var effectiveTeams=HasRole(user,"admin")?user.TeamIds:await EffectiveLocationWriteTeamsAsync(user,ct);
+        V180LocationOwnershipRules.EnsureDraftCreate(user,request.TeamId,effectiveTeams,request.IsActive,request.LocationType);
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var orgId = RequireOrganization(user);
         var row = new Location
@@ -787,15 +789,21 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
-        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
+        var admin=HasRole(user,"admin");
+        var effectiveTeams=admin?user.TeamIds:await EffectiveLocationWriteTeamsAsync(user,ct);
+        V180LocationOwnershipRules.EnsureDraftUpdate(
+            user,row.OrganizationId,row.TeamId,row.CreatedByUserId,
+            row.ApprovalStatus,row.IsActive,effectiveTeams,request.TeamId,request.IsActive,
+            request.LocationType,row.LocationType);
+        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         EnsureLocationWriteScope(row, user);
         EnsureRowVersion(row.RowVersion, request.RowVersion);
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;
         row.LocationName = request.LocationName.Trim();
         row.LocationType = string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType.Trim();
-        row.City = request.City?.Trim(); row.District = request.District?.Trim(); row.Address = request.Address?.Trim(); row.PlusCode = request.PlusCode?.Trim(); row.TaxId = string.IsNullOrWhiteSpace(request.TaxId) ? null : request.TaxId.Trim(); row.MasterNote = string.IsNullOrWhiteSpace(request.MasterNote) ? null : request.MasterNote.Trim();
+        row.City = request.City?.Trim(); row.District = request.District?.Trim(); row.Address = request.Address?.Trim(); row.PlusCode = request.PlusCode?.Trim(); row.TaxId = !admin && request.TaxId is null ? row.TaxId : string.IsNullOrWhiteSpace(request.TaxId) ? null : request.TaxId.Trim(); row.MasterNote = !admin && request.MasterNote is null ? row.MasterNote : string.IsNullOrWhiteSpace(request.MasterNote) ? null : request.MasterNote.Trim();
         row.IsActive = request.IsActive && row.ApprovalStatus == "Approved";
         row.GeocodingStatus = "Pending";
         row.UpdatedAt = DateTime.UtcNow;
@@ -1016,7 +1024,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             var teamIds = user.TeamIds;
             q = teamIds.Count == 0 ? q.Where(x => false) : q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
         }
-        else if (HasRole(user, "visitor")) q = q.Where(x => x.TeamId == user.TeamId || x.TeamId == null);
+        else if (HasRole(user, "visitor")) q = q.Where(x => x.CreatedByUserId == user.UserId && x.TeamId.HasValue && user.TeamIds.Contains(x.TeamId.Value));
         return q;
     }
 
@@ -1042,6 +1050,31 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         if (string.IsNullOrWhiteSpace(name)) throw new InvalidOperationException("小組名稱必填。");
         if (name.Length > 100) throw new InvalidOperationException("小組名稱不可超過 100 個字元。");
         return name;
+    }
+
+    private async Task<IReadOnlyList<int>> EffectiveLocationWriteTeamsAsync(CurrentUserDto user,CancellationToken ct)
+    {
+        if(!user.OrganizationId.HasValue||user.TeamIds.Count==0)
+            throw new UnauthorizedAccessException("缺少目前有效授權的小組。");
+        var account=await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x=>x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
+            ??throw new UnauthorizedAccessException("帳號或組織權限已失效。");
+        if(!(await access.EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
+            throw new UnauthorizedAccessException("目前人事狀態不允許維護地點。");
+        var ids=user.TeamIds.ToArray();
+        var today=BusinessTime.Today;
+        var teams=await (
+            from scope in db.UserTeamScopes.AsNoTracking()
+            join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
+            where scope.UserId==user.UserId && scope.IsActive
+                  && ids.Contains(scope.TeamId)
+                  && team.IsActive && team.OrganizationId==user.OrganizationId
+                  && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
+                  && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
+            select team.TeamId).Distinct().ToListAsync(ct);
+        if(teams.Count==0)
+            throw new UnauthorizedAccessException("目前沒有有效的小組維護權限。");
+        return teams;
     }
 
     private async Task EnsureManagedLocationTeamAsync(CurrentUserDto user, int? teamId, CancellationToken ct)
