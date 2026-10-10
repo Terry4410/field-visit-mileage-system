@@ -1,0 +1,125 @@
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+
+namespace FieldVisit.Infrastructure;
+
+/// <summary>
+/// Read-only, fail-closed B3 catalog contract and known unique-index error
+/// translation. Not a migration; no feature flag change and no apply grant.
+/// </summary>
+public static class V180B3SqlSafetyRules
+{
+    public const string RequestPublicIdIndex="UX_B3_ChangeRequests_RequestPublicId";
+    public const string PendingRequestIndex="UX_B3_ChangeRequests_Org_Entity_Pending";
+    public const string DecisionKeyIndex="UX_B3_ChangeRequestEvents_DecisionKey";
+    public const string LatestSchemaVersionSql=
+        "SELECT TOP (1) VersionNumber AS Value FROM dbo.SchemaVersions " +
+        "ORDER BY AppliedAt DESC, VersionNumber DESC";
+
+    // This check runs ONLY when B3 feature flag is explicitly enabled.
+    // Absence of any required object / index produces 0, never creates DDL.
+    // SQL Server filtered-index definitions may contain brackets, N prefix,
+    // spaces and redundant parentheses, but no additional predicates.
+    public const string CatalogCheckSql = """
+        SELECT CAST(CASE WHEN
+            OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NOT NULL
+            AND OBJECT_ID(N'dbo.ChangeRequests',N'U') IS NOT NULL
+            AND OBJECT_ID(N'dbo.ChangeRequestEvents',N'U') IS NOT NULL
+            AND EXISTS (
+                SELECT 1 FROM sys.columns c
+                WHERE c.object_id=OBJECT_ID(N'dbo.ChangeRequests',N'U')
+                    AND c.name=N'RowVersion' AND c.system_type_id=189
+                    AND c.is_nullable=0
+            )
+            AND EXISTS (
+                SELECT 1 FROM sys.indexes i
+                JOIN sys.index_columns ic ON ic.object_id=i.object_id
+                    AND ic.index_id=i.index_id AND ic.key_ordinal=1
+                JOIN sys.columns c ON c.object_id=ic.object_id
+                    AND c.column_id=ic.column_id
+                WHERE i.object_id=OBJECT_ID(N'dbo.ChangeRequests',N'U')
+                    AND i.name=N'UX_B3_ChangeRequests_RequestPublicId'
+                    AND i.is_unique=1 AND i.has_filter=0
+                    AND c.name=N'RequestPublicId'
+                    AND (SELECT COUNT(*) FROM sys.index_columns ix
+                         WHERE ix.object_id=i.object_id
+                           AND ix.index_id=i.index_id AND ix.key_ordinal>0)=1
+            )
+            AND EXISTS (
+                SELECT 1 FROM sys.indexes i
+                WHERE i.object_id=OBJECT_ID(N'dbo.ChangeRequests',N'U')
+                    AND i.name=N'UX_B3_ChangeRequests_Org_Entity_Pending'
+                    AND i.is_unique=1 AND i.has_filter=1
+                    AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                        LOWER(i.filter_definition),N'[',N''),N']',N''),
+                        N' ',N''),N'(',N''),N')',N'')
+                        IN (N'status=''pending''',N'status=n''pending''')
+                    AND (SELECT COUNT(*) FROM sys.index_columns ix
+                         WHERE ix.object_id=i.object_id
+                           AND ix.index_id=i.index_id AND ix.key_ordinal>0)=3
+                    AND EXISTS (
+                        SELECT 1 FROM sys.index_columns ic
+                        JOIN sys.columns c ON c.object_id=ic.object_id
+                            AND c.column_id=ic.column_id
+                        WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id
+                            AND ic.key_ordinal=1 AND c.name=N'OrganizationId')
+                    AND EXISTS (
+                        SELECT 1 FROM sys.index_columns ic
+                        JOIN sys.columns c ON c.object_id=ic.object_id
+                            AND c.column_id=ic.column_id
+                        WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id
+                            AND ic.key_ordinal=2 AND c.name=N'EntityKind')
+                    AND EXISTS (
+                        SELECT 1 FROM sys.index_columns ic
+                        JOIN sys.columns c ON c.object_id=ic.object_id
+                            AND c.column_id=ic.column_id
+                        WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id
+                            AND ic.key_ordinal=3 AND c.name=N'EntityId')
+            )
+            AND EXISTS (
+                SELECT 1 FROM sys.indexes i
+                JOIN sys.index_columns ic ON ic.object_id=i.object_id
+                    AND ic.index_id=i.index_id AND ic.key_ordinal=1
+                JOIN sys.columns c ON c.object_id=ic.object_id
+                    AND c.column_id=ic.column_id
+                WHERE i.object_id=OBJECT_ID(N'dbo.ChangeRequestEvents',N'U')
+                    AND i.name=N'UX_B3_ChangeRequestEvents_DecisionKey'
+                    AND i.is_unique=1 AND i.has_filter=1
+                    AND c.name=N'DecisionKey'
+                    AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                        LOWER(i.filter_definition),N'[',N''),N']',N''),
+                        N' ',N''),N'(',N''),N')',N'')=N'decisionkeyisnotnull'
+                    AND (SELECT COUNT(*) FROM sys.index_columns ix
+                         WHERE ix.object_id=i.object_id
+                           AND ix.index_id=i.index_id AND ix.key_ordinal>0)=1
+            )
+            THEN 1 ELSE 0 END AS int) AS Value
+        """;
+
+    public static void RequireLatestSchemaVersion(string? latestVersion)
+    {
+        if(!string.Equals(latestVersion,"1.8.0-011",StringComparison.Ordinal))
+            throw new InvalidOperationException("B3_SCHEMA_NOT_VERIFIED");
+    }
+
+    public static string? RecognizedUniqueConflict(int sqlNumber,string? sqlMessage)
+    {
+        if(sqlNumber is not (2601 or 2627) || string.IsNullOrEmpty(sqlMessage))
+            return null;
+        if(sqlMessage.Contains(PendingRequestIndex,StringComparison.OrdinalIgnoreCase))
+            return "B3_PENDING_REQUEST_EXISTS";
+        if(sqlMessage.Contains(DecisionKeyIndex,StringComparison.OrdinalIgnoreCase))
+            return "B3_DECISION_KEY_REPLAY";
+        return null; // Other SQL violations are NOT approval for retries.
+    }
+
+    public static bool IsConflictCode(string? code) =>
+        code is "B3_PENDING_REQUEST_EXISTS" or "B3_DECISION_KEY_REPLAY";
+
+    public static void RethrowRecognizedUniqueConflict(DbUpdateException error)
+    {
+        if(error.InnerException is SqlException sql &&
+            RecognizedUniqueConflict(sql.Number,sql.Message) is { } code)
+            throw new InvalidOperationException(code,error);
+    }
+}

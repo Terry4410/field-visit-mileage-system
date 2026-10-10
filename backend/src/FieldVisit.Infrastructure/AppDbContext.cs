@@ -92,15 +92,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.ToTable("ChangeRequests"); e.HasKey(x => x.ChangeRequestId);
             e.Property(x => x.ChangeRequestId).ValueGeneratedOnAdd();
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
-            e.HasIndex(x => x.RequestPublicId).IsUnique();
+            e.HasIndex(x => x.RequestPublicId).IsUnique()
+                .HasDatabaseName(V180B3SqlSafetyRules.RequestPublicIdIndex);
             e.HasIndex(x => new {x.OrganizationId,x.EntityKind,x.EntityId})
-                .IsUnique().HasFilter("[Status] = 'Pending'");
+                .IsUnique().HasFilter("[Status] = 'Pending'")
+                .HasDatabaseName(V180B3SqlSafetyRules.PendingRequestIndex);
         });
         b.Entity<V180B3ChangeEvent>(e => {
             e.ToTable("ChangeRequestEvents"); e.HasKey(x => x.ChangeRequestEventId);
             e.Property(x => x.ChangeRequestEventId).ValueGeneratedOnAdd();
             e.HasIndex(x => x.DecisionKey).IsUnique()
-                .HasFilter("[DecisionKey] IS NOT NULL");
+                .HasFilter("[DecisionKey] IS NOT NULL")
+                .HasDatabaseName(V180B3SqlSafetyRules.DecisionKeyIndex);
         });
         b.Entity<TeamLocationNote>(e =>
         {

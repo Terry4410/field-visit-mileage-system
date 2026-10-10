@@ -28,7 +28,7 @@ This is NOT an `Up.sql` or `Verify.sql` and must not be executed. B3 feature fla
 | AppliedAt | DATETIME2(3) | NULL until successful atomic application |
 | RowVersion | ROWVERSION | NOT NULL, EF concurrency token |
 
-Constraints/indexes: unique RequestPublicId; unique filtered (OrganizationId, EntityKind, EntityId) **WHERE Status='Pending'**; queue lookup (OrganizationId, Status, SubmittedAt); Mine (RequestedByUserId, SubmittedAt); check status/risk/entity strings, JSON, and review status consistency. No cascading history delete.
+Constraints/indexes (proposed exact names; NOT deployed): unique RequestPublicId `UX_B3_ChangeRequests_RequestPublicId`; unique filtered (OrganizationId, EntityKind, EntityId) `UX_B3_ChangeRequests_Org_Entity_Pending` **WHERE Status='Pending'**; queue lookup (OrganizationId, Status, SubmittedAt); Mine (RequestedByUserId, SubmittedAt); check status/risk/entity strings, JSON, and review status consistency. No cascading history delete.
 
 ### ChangeRequestEvents
 | Field | Type | Contract |
@@ -42,7 +42,15 @@ Constraints/indexes: unique RequestPublicId; unique filtered (OrganizationId, En
 | DecisionKey | UNIQUEIDENTIFIER | NULL; unique filtered nonnull for replay safety |
 | DetailsJson | NVARCHAR(MAX) | nullable, auditable JSON, no secrets |
 
-Indexes: (ChangeRequestId, OccurredAt, ChangeRequestEventId); CorrelationId; unique filtered DecisionKey NOT NULL. Events append-only. EF mapping must match actual indexed filter and SQL column lengths exactly.
+Indexes: (ChangeRequestId, OccurredAt, ChangeRequestEventId); CorrelationId; `UX_B3_ChangeRequestEvents_DecisionKey` unique filtered DecisionKey NOT NULL. Events append-only. EF mapping must match actual indexed filter and SQL column lengths exactly.
+
+## Readiness and conflict behavior (NONEXECUTABLE contract)
+- B3 must remain disabled until the live SQL catalog proves both tables, 8-byte ROWVERSION concurrency token, a unique RequestPublicId index, the exact three-key Pending filtered unique index, and a DecisionKey filtered unique index. A version row without these safety structures is NOT ready.
+- Query the latest applied SchemaVersions entry ordered by AppliedAt DESC, VersionNumber DESC; it must equal 1.8.0-011, not merely contain an old 011 row.
+- Draft index names are required by the current candidate EF mappings and read-only catalog gate; IT must reconcile exact names, key order, SQL filter definitions and constraints during a separately authorized IA review.
+- DB duplicate key (2601/2627) is translated into a conflict only when the named B3 Pending or DecisionKey index is identified. Any unknown constraint/error remains fail-closed, with no false success or automatic retry. B3 HTTP error mapping uses 409 for these recognized conflicts.
+- A precheck for an existing DecisionKey runs inside the Reject transaction, but concurrent correctness still requires the physical unique index and approved SQL Server integration testing; local InMemory unit tests do not establish this.
+- Nothing in these checks creates schema objects, approves, applies, promotes, or publishes data.
 
 ## Atomic application and security gates — NOT IMPLEMENTED
 - B3 submission requires valid effective HR/role/org/team/current ownership, active approved Customer record, and expected 8-byte entity RowVersion. No-op or malformed proposals rejected; unique pending index protects concurrent requests.

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -62,13 +63,15 @@ public sealed class V180B3ChangeRequestService(
     private async Task ReadyAsync(CancellationToken ct)
     {
         if(!Enabled) throw new InvalidOperationException("B3_DISABLED");
-        // Runtime schema check: appsettings DbSchemaVersion is not proof.
+        // Read-only catalog proof first; a recorded version alone is not
+        // enough to prove unique Pending and DecisionKey indexes exist.
+        // Do not select SchemaVersions until its table is confirmed present.
         var valid=await db.Database.SqlQueryRaw<int>(
-            @"SELECT CAST(CASE WHEN OBJECT_ID(N'dbo.ChangeRequests',N'U') IS NOT NULL
-                AND OBJECT_ID(N'dbo.ChangeRequestEvents',N'U') IS NOT NULL
-                AND EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-011')
-                THEN 1 ELSE 0 END AS int) AS Value").SingleAsync(ct);
+            V180B3SqlSafetyRules.CatalogCheckSql).SingleAsync(ct);
         if(valid!=1)throw new InvalidOperationException("B3_SCHEMA_NOT_VERIFIED");
+        var latest=await db.Database.SqlQueryRaw<string>(
+            V180B3SqlSafetyRules.LatestSchemaVersionSql).FirstOrDefaultAsync(ct);
+        V180B3SqlSafetyRules.RequireLatestSchemaVersion(latest);
     }
     private static byte[] Version(string input)
     {
@@ -168,7 +171,8 @@ public sealed class V180B3ChangeRequestService(
             ProposedJson=JsonSerializer.Serialize(proposal.Proposed),
             RequestedByUserId=user.UserId,SubmittedAt=DateTime.UtcNow,Status="Pending"};
         db.ChangeRequests.Add(row);
-        await db.SaveChangesAsync(ct);
+        try { await db.SaveChangesAsync(ct); }
+        catch(DbUpdateException ex) { V180B3SqlSafetyRules.RethrowRecognizedUniqueConflict(ex); throw; }
         db.ChangeRequestEvents.Add(new V180B3ChangeEvent{
             ChangeRequestId=row.ChangeRequestId,EventType="Submitted",ActorUserId=user.UserId,
             OccurredAt=DateTime.UtcNow,CorrelationId=Guid.NewGuid(),
@@ -210,6 +214,11 @@ public sealed class V180B3ChangeRequestService(
         var reviewReason=V180B3ProposalSafetyRules.RequireIndependentReview(
             row.RequestedByUserId,user.UserId,row.Status,row.RowVersion,
             input.RequestRowVersion,input.DecisionKey,input.Reason);
+        // Friendly replay rejection; the separate database unique index
+        // remains the authoritative concurrent replay barrier.
+        if(await db.ChangeRequestEvents.AsNoTracking().AnyAsync(x=>
+            x.DecisionKey==input.DecisionKey,ct))
+            throw new InvalidOperationException("B3_DECISION_KEY_REPLAY");
         row.Status="Rejected";row.ReviewedByUserId=user.UserId;
         row.ReviewedAt=DateTime.UtcNow;row.ReviewReason=reviewReason;
         db.ChangeRequestEvents.Add(new V180B3ChangeEvent{
@@ -217,7 +226,9 @@ public sealed class V180B3ChangeRequestService(
             ActorUserId=user.UserId,OccurredAt=DateTime.UtcNow,
             CorrelationId=Guid.NewGuid(),DecisionKey=input.DecisionKey,
             DetailsJson=JsonSerializer.Serialize(new{Reason=reviewReason})});
-        await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);
+        try { await db.SaveChangesAsync(ct); }
+        catch(DbUpdateException ex) { V180B3SqlSafetyRules.RethrowRecognizedUniqueConflict(ex); throw; }
+        await tx.CommitAsync(ct);
         return ToView(row);
     }
     public async Task<V180B3RequestView> ApproveAsync(
