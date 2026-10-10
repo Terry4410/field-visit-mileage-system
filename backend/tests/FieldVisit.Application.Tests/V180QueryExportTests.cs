@@ -163,6 +163,31 @@ public sealed class V180QueryExportTests
             bounds);
     }
 
+    [Fact]
+    public void History_audit_validation_rejects_duplicate_source_ids_and_backward_dates()
+    {
+        var eventType = typeof(V180QueryExportController)
+            .GetNestedType("PersonnelHistoryEvent", BindingFlags.NonPublic)!;
+        var list = (System.Collections.IList)Activator.CreateInstance(
+            typeof(List<>).MakeGenericType(eventType))!;
+        object Create(string kind, long sourceId, DateOnly from, DateOnly? to) =>
+            Activator.CreateInstance(eventType,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, ["001", kind, "visitor", "外訪員", from, to, "42", null, null, sourceId], null)!;
+        var valid = Create("角色", 10, new DateOnly(2026, 1, 1), null);
+        list.Add(valid);
+        var validator = typeof(V180QueryExportController)
+            .GetMethod("ValidateHistorySourceIntegrity", BindingFlags.Static | BindingFlags.NonPublic)!;
+        validator.Invoke(null, [list]);
+        list.Add(Create("角色", 10, new DateOnly(2026, 2, 1), null));
+        var duplicate = Assert.Throws<TargetInvocationException>(() => validator.Invoke(null, [list]));
+        Assert.Contains("來源重複", duplicate.InnerException!.Message);
+        list.RemoveAt(1);
+        list.Add(Create("小組", 11, new DateOnly(2026, 4, 5), new DateOnly(2026, 4, 4)));
+        var invalid = Assert.Throws<TargetInvocationException>(() => validator.Invoke(null, [list]));
+        Assert.Contains("有效期間異常", invalid.InnerException!.Message);
+    }
+
     private static Task<List<string>> InvokeAll(Func<int, Task<PagedResult<string>>> loader)
     {
         var method = typeof(V180QueryExportController)
