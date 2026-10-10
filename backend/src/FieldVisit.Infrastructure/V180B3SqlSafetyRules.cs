@@ -243,6 +243,9 @@ public static class V180B3SqlSafetyRules
         return null; // Other SQL violations are NOT approval for retries.
     }
 
+    public static bool IsForbiddenCode(string? code) =>
+        code is "B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED";
+
     public static bool IsUnavailableCode(string? code) =>
         code is "B3_DISABLED" or "B3_SCHEMA_NOT_VERIFIED";
 

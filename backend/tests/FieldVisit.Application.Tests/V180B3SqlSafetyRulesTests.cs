@@ -83,6 +83,19 @@ public sealed class V180B3SqlSafetyRulesTests
         => Assert.False(V180B3SqlSafetyRules.IsUnavailableCode(code));
 
     [Fact]
+    public void Unapproved_apply_executor_is_explicitly_forbidden_not_a_validation_error()
+    {
+        Assert.True(V180B3SqlSafetyRules.IsForbiddenCode(
+            "B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED"));
+        foreach(var other in new[]{
+            "B3_DISABLED","B3_SCHEMA_NOT_VERIFIED",
+            "B3_PENDING_REQUEST_EXISTS","B3_DECISION_KEY_REPLAY",
+            "ROWVERSION_CONFLICT"})
+            Assert.False(V180B3SqlSafetyRules.IsForbiddenCode(other));
+        Assert.False(V180B3SqlSafetyRules.IsForbiddenCode(null));
+    }
+
+    [Fact]
     public void Non_conflict_message_is_not_an_http409_exception()
     {
         Assert.False(V180B3SqlSafetyRules.IsConflictCode("B3_DISABLED"));
