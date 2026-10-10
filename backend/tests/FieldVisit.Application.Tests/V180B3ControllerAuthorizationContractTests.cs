@@ -2,6 +2,7 @@ using System.Reflection;
 using FieldVisit.Api.Controllers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
