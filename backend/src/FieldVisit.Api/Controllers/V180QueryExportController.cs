@@ -267,6 +267,9 @@ public sealed class V180QueryExportController(
             foreach (var count in new[] { periods.Count, legacy.Count, roles.Count, teams.Count,
                 sites.Count, scopes.Count, capabilities.Count }) GuardOfficialCount(count);
 
+            var employeeByUserId = peopleRows.ToDictionary(
+                x => x.UserId.ToString(CultureInfo.InvariantCulture),
+                x => x.EmployeeNo ?? x.UserCode, StringComparer.Ordinal);
             var events = new List<PersonnelHistoryEvent>();
             void Include(string kind, IEnumerable<V180MasterDataRow> rows, bool byEmployeeNumber = false)
             {
@@ -274,8 +277,10 @@ public sealed class V180QueryExportController(
                 {
                     if (!(byEmployeeNumber ? employeeNos.Contains(x.Key) : ids.Contains(x.ReferenceKey ?? "")))
                         continue;
+                    var employeeKey = !byEmployeeNumber && employeeByUserId.TryGetValue(x.ReferenceKey ?? "", out var mapped)
+                        ? mapped : x.Key;
                     events.Add(new PersonnelHistoryEvent(
-                        x.Key, kind, x.ParentKey ?? "", x.Detail ?? "",
+                        employeeKey, kind, x.ParentKey ?? "", x.Detail ?? "",
                         x.EffectiveFrom, x.EffectiveTo, x.ReferenceKey ?? "",
                         x.IsPrimary, x.IsActive, x.Id));
                 }
@@ -328,7 +333,9 @@ public sealed class V180QueryExportController(
                     if (valid.Count == 0) continue;
                     string Items(string category) => string.Join("、", valid
                         .Where(x => x.Kind == category)
-                        .Select(x => string.IsNullOrWhiteSpace(x.Detail) ? x.Code : x.Detail)
+                        .Select(x => category == "功能權限"
+                            ? x.Code + (x.IsActive == true ? "（允許）" : x.IsActive == false ? "（拒絕）" : "（未知）")
+                            : string.IsNullOrWhiteSpace(x.Detail) ? x.Code : x.Detail)
                         .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.Ordinal)
                         .OrderBy(x => x, StringComparer.Ordinal));
                     var statuses = string.Join("、", new[] { "人事狀態", "舊人事狀態" }
