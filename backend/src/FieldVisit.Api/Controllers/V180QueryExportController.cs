@@ -328,6 +328,13 @@ public sealed class V180QueryExportController(
                     continue;
                 }
                 var bounds = BuildPeriodBounds(h, today);
+                if (bounds.Count < 2)
+                {
+                    // All available history starts in the future. Preserve original
+                    // events in the audit sheet without inventing a current assignment.
+                    snapshots.Add(Cells(number, person.DisplayName, "", "", "", "", "",
+                        "", "", "僅有未來生效歷史"));
+                }
                 for (var i = 0; i + 1 < bounds.Count; i++)
                 {
                     var from = bounds[i];
