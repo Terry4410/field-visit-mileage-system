@@ -30,6 +30,8 @@ jobs:
           persist-credentials: false
       - name: Automated B3/B4 safety gates (NO DEPLOY)
         run: python3 scripts/ci/package_b_guard.py --report .ci-artifacts/guard.json --summary .ci-artifacts/guard.md
+      - name: Python CI scripts syntax validation
+        run: python3 -m compileall -q scripts/ci
       - name: Verify CI evidence parser negative tests
         run: python3 -m unittest discover -s scripts/ci -p 'test_package_b_*.py'
       - name: Validate every B4 SQL runtime HOLD case (DOCUMENT ONLY)

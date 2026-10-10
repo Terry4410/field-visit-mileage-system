@@ -165,7 +165,7 @@ def main() -> int:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")
     for error in result["errors"]:
-        lines.append("| Gate failure |  + error.replace("|", "/") + " |")
+        lines.append("| Gate failure | " + error.replace("|", "/") + " |")
     lines.extend(["", "Offline CI only. 011 migration, live SQL, B3 apply, promotion, "
                           "deployment and Production remain HARD HOLD."])
     report = Path(args.summary)
