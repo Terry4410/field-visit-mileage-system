@@ -69,7 +69,7 @@ public sealed class V180QueryExportController(
             rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName, string.Join("、", x.Roles),
                 x.EmploymentStatus, x.PrimaryTeamName,
                 string.Join("、", x.TeamAssignments.Where(t => !t.IsPrimary).Select(t => t.TeamName)),
-                x.PrimaryDeploymentSiteName)));
+                x.PrimaryDeploymentSiteName)), $"小組{request.TeamId}");
     }
 
     [HttpGet("locations.xlsx")]
@@ -81,7 +81,7 @@ public sealed class V180QueryExportController(
             ["地點代碼", "名稱", "統一編號", "主檔備註", "小組", "縣市", "鄉鎮區", "地址", "Plus Code", "類型", "審核狀態", "解析狀態", "啟用"],
             rows.Select(x => Cells(x.LocationCode, x.LocationName, x.TaxId, x.MasterNote, x.TeamName,
                 x.City, x.District, x.Address, x.PlusCode, x.LocationType, x.ApprovalStatus,
-                x.GeocodingStatus, x.IsActive ? "是" : "否")));
+                x.GeocodingStatus, x.IsActive ? "是" : "否")), request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
     }
 
     [HttpGet("projects.xlsx")]
@@ -92,7 +92,7 @@ public sealed class V180QueryExportController(
         return Workbook("專案", request,
             ["專案代碼", "專案名稱", "歸屬小組 ID", "說明", "地點方式", "開始日", "結束日", "啟用", "固定地點數"],
             rows.Select(x => Cells(x.ProjectCode, x.ProjectName, x.TeamId, x.Description,
-                x.LocationMode, x.StartDate, x.EndDate, x.IsActive ? "是" : "否", x.LocationCount)));
+                x.LocationMode, x.StartDate, x.EndDate, x.IsActive ? "是" : "否", x.LocationCount)), request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
     }
 
     [HttpGet("visit-types.xlsx")]
@@ -165,7 +165,7 @@ public sealed class V180QueryExportController(
             new ExportSheet("小組據點對應",
                 ["小組代碼","Site Code","有效起日","有效迄日"],
                 teamSites.Select(x=>Cells(x.Key,x.ParentKey,x.EffectiveFrom,x.EffectiveTo)))
-        ]);
+        ], request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
     }
 
     private static void GuardOfficialCount(int count)
@@ -194,7 +194,7 @@ public sealed class V180QueryExportController(
 
     private sealed record ExportSheet(string Name, string[] Headers, IEnumerable<string[]> Rows);
 
-    private IActionResult WorkbookSheets(string title, object filters, IReadOnlyList<ExportSheet> sheets)
+    private IActionResult WorkbookSheets(string title, object filters, IReadOnlyList<ExportSheet> sheets, string scopeLabel = "全組織")
     {
         using var book = new XSSFWorkbook();
         var metadata = book.CreateSheet("報表資訊");
@@ -218,7 +218,7 @@ public sealed class V180QueryExportController(
         }
         using var stream=new MemoryStream();
         book.Write(stream);
-        var name=$"FieldVisit_{SafeName(title)}_全組織_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
+        var name=$"FieldVisit_{SafeName(title)}_{SafeName(scopeLabel)}_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
         return File(stream.ToArray(),Mime,name);
     }
 
@@ -274,7 +274,8 @@ public sealed class V180QueryExportController(
             sheets.Add(new("功能權限歷史",["工號","權限代碼","允許","生效日","失效日"],
                 capabilities.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.IsActive==true?"是":"否",x.EffectiveFrom,x.EffectiveTo))));
         }
-        return WorkbookSheets("人事完整履歷",new {request,columns,includeHistory,Criteria="人員總覽每人一列；各歷史表依有效期間列示"},sheets);
+        return WorkbookSheets("人事完整履歷",new {request,columns,includeHistory,Criteria="人員總覽每人一列；各歷史表依有效期間列示"},sheets,
+            request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
     }
 
     private sealed record PersonnelColumn(string Id, string Header, Func<V170PeopleRowDto,string> Getter);
@@ -341,7 +342,7 @@ public sealed class V180QueryExportController(
             _ => Convert.ToString(x, CultureInfo.InvariantCulture) ?? ""
         }).ToArray();
 
-    private IActionResult Workbook(string title, object filters, string[] headers, IEnumerable<string[]> records)
+    private IActionResult Workbook(string title, object filters, string[] headers, IEnumerable<string[]> records, string scopeLabel = "全組織")
     {
         using var book = new XSSFWorkbook();
         var sheet = book.CreateSheet("查詢結果");
@@ -358,7 +359,8 @@ public sealed class V180QueryExportController(
         using var stream = new MemoryStream();
         book.Write(stream);
         var cleanTitle = SafeName(title);
-        var filename = $"FieldVisit_{cleanTitle}_全組織_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
+        WriteRow(meta, 5, ["符合查詢筆數", (rowNumber - 1).ToString(CultureInfo.InvariantCulture)]);
+        var filename = $"FieldVisit_{cleanTitle}_{SafeName(scopeLabel)}_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
         return File(stream.ToArray(), Mime, filename);
     }
 
