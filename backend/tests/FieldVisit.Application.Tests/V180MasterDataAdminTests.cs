@@ -154,6 +154,34 @@ public sealed class V180MasterDataAdminTests
     }
 
     [Fact]
+    public async Task Employment_site_history_exposes_readable_site_name_and_preserves_code()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        SeedSite(db, 40, "S40", 30, "L30");
+        db.DeploymentSites.Local.Single(x => x.DeploymentSiteId == 40).SiteName = "員林就業中心";
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
+        {
+            EmploymentDeploymentSiteAssignmentId = 70,
+            EmploymentId = 100,
+            DeploymentSiteId = 40,
+            IsPrimary = true,
+            EffectiveFrom = Today.AddDays(-10),
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var rows = await new V180MasterDataAdminRepository(db)
+            .ListAsync(User("admin"), "employment-sites", default);
+
+        var row = Assert.Single(rows);
+        Assert.Equal("E100", row.Key);
+        Assert.Equal("S40", row.ParentKey);
+        Assert.Equal("員林就業中心", row.Detail);
+        Assert.True(row.IsPrimary == true);
+    }
+
+    [Fact]
     public async Task Deployment_site_list_includes_location_reference_key_for_admin_edit()
     {
         await using var db = Db();
