@@ -32,6 +32,8 @@ jobs:
         run: python3 scripts/ci/package_b_guard.py --report .ci-artifacts/guard.json --summary .ci-artifacts/guard.md
       - name: Verify CI evidence parser negative tests
         run: python3 -m unittest discover -s scripts/ci -p 'test_package_b_*.py'
+      - name: Validate every B4 SQL runtime HOLD case (DOCUMENT ONLY)
+        run: python3 scripts/ci/package_b_matrix.py --input docs/release/PACKAGE-B-B3-B4-REMAINING-RUNTIME-UAT-GATES-NONEXECUTABLE.md --report .ci-artifacts/b4-matrix.json --summary .ci-artifacts/b4-matrix.md
       - name: Verify immutable authorized baseline
         run: git merge-base --is-ancestor c1ee3c0c3df000491fd54df727482815d3c38917 HEAD
       - uses: actions/setup-dotnet@v4
@@ -64,6 +66,9 @@ jobs:
             cat .ci-artifacts/guard.md >> "$GITHUB_STEP_SUMMARY"
             if [ -f .ci-artifacts/ci-evidence.md ]; then
               cat .ci-artifacts/ci-evidence.md >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ -f .ci-artifacts/b4-matrix.md ]; then
+              cat .ci-artifacts/b4-matrix.md >> "$GITHUB_STEP_SUMMARY"
             fi
           else
             echo "Package B guard report missing: FAIL CLOSED" >> "$GITHUB_STEP_SUMMARY"
