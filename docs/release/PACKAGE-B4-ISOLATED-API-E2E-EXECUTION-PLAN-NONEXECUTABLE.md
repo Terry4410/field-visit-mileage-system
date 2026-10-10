@@ -28,6 +28,22 @@ This checklist is NOT executed evidence, a workflow, executable migration, autho
 
 The current Controller reflection and direct disabled tests are **offline source evidence**, not execution of the eight HTTP scenarios.
 
+## Phase 0 implementation candidate — actual HTTP pipeline, B3 OFF
+
+The WORK-only .NET test class `V180B3OffHttpPipelineTests` uses the
+application's own ASP.NET Core HTTP routing, JWT bearer authentication,
+role authorization and Controller with B3 **explicitly OFF**. It runs on
+the in-memory TestServer, with background SQL workers disabled and an
+unreachable local-only SQL connection. No database is used or created.
+
+It covers unauthenticated 401 (five routes), wrong-role 403 (five role
+and endpoint combinations), authorized but feature-disabled 503
+B3_DISABLED (seven combinations) and invalid/expired JWT 401 (two
+combinations). Results are **candidate only until a green CI report**,
+and do not establish actual deployed UAT configuration, live HR
+employment grants, or B4 full 22-case acceptance. API-OFF-08
+(authoritative HR middleware) remains an outstanding E2E scenario.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
