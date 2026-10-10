@@ -49,6 +49,17 @@ This file is a handoff/checklist, **not** executable SQL, a test-run report or a
 | B4-SQL-19 | SqlException 2601/2627 vs unrelated constraint/deadlock error | Known named B3 duplicates 409; unknown error fail closed, no false success |
 | B4-SQL-20 | Business HR/Role/Team/Project/OfficialSite bulk operations after Admin role revoked | All sensitive writes denied; audit and dependent history unchanged |
 
+## Automated future-regression prevention
+
+CI now includes a named fail-closed gate
+`B3_bounded_payload_before_SQL_transaction`. Every WORK push must prove
+the service invokes Submit and Reject request preflight **after schema/flag
+readiness but before** its serializable transaction and live-actor queries;
+the input helper must retain bounded fields and canonical eight-byte
+RowVersion decoding. Separate negative tests intentionally remove/move
+these guards to demonstrate the CI refuses such regressions. This is a
+source-level test, **not** SQL Server runtime evidence.
+
 ## Untrusted B3 request preflight (candidate only)
 
 The candidate now bounds Submit and Reject payloads **before** opening their

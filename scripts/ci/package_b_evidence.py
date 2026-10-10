@@ -28,6 +28,7 @@ REQUIRED_SECURITY_GATES = frozenset({
     "no_011_deploy_workflow",
     "no_hidden_011_workflow_dispatch",
     "CI_readonly_no_deploy",
+    "B3_bounded_payload_before_SQL_transaction",
 })
 
 

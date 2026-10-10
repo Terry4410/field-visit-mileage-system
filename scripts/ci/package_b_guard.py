@@ -58,6 +58,34 @@ def scan():
         gate("B3_approve_executor_DENY_ALL", allowed, "Approve contains no DB writes")
     except (ValueError, OSError) as exc:
         gate("B3_approve_executor_DENY_ALL", False, exc)
+    # Prevent future refactors from moving large untrusted DTO parsing into
+    # SQL transactions or allowing malformed payloads to perform DB queries.
+    try:
+        source = service
+        submit_start = source.index("public async Task<V180B3RequestView> SubmitAsync(")
+        mine_start = source.index("public async Task<IReadOnlyList<V180B3RequestView>> MineAsync(")
+        reject_start = source.index("public async Task<V180B3RequestView> RejectAsync(")
+        approve_start = source.index("public async Task<V180B3RequestView> ApproveAsync(")
+        submit = source[submit_start:mine_start]
+        reject = source[reject_start:approve_start]
+        def safe_order(body: str, preflight: str) -> bool:
+            ready = body.index("await ReadyAsync(ct)")
+            parsed = body.index(preflight)
+            tx = body.index("BeginTransactionAsync(")
+            live = body.index("LiveActorAsync(ct)")
+            return ready < parsed < tx < live
+        entry = ROOT / "backend/src/FieldVisit.Infrastructure/V180B3RequestInputRules.cs"
+        rules = entry.read_text(encoding="utf-8")
+        safe = (safe_order(submit, "V180B3RequestInputRules.RequireSubmission(input)")
+                and safe_order(reject, "V180B3RequestInputRules.RequireReviewTarget(id,input)")
+                and "Oversize(input.Proposed.LocationName,200)" in rules
+                and "Oversize(input.Reason,1000)" in rules
+                and "V180B3RowVersionRules.Parse(input.ExpectedRowVersion)" in rules
+                and "V180B3RowVersionRules.Parse(input.RequestRowVersion)" in rules)
+        gate("B3_bounded_payload_before_SQL_transaction", safe,
+             "flag/schema -> bounded DTO preflight -> transaction -> live actor")
+    except (OSError, ValueError) as exc:
+        gate("B3_bounded_payload_before_SQL_transaction", False, exc)
     migration_dir = ROOT / "database/migrations"
     gate("migration_dir_present", migration_dir.is_dir(), migration_dir)
     # No previously approved migration may be edited to hide unapproved DDL.

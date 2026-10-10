@@ -23,6 +23,27 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         self.approval.write_text(
             'public async Task<V180B3RequestView> ApproveAsync('
             '{ throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED"); }')
+        # A tiny service fixture that preserves only the safety-critical
+        # statement order; no C# is executed by these Python negative tests.
+        self.approval.write_text(
+            'public async Task<V180B3RequestView> SubmitAsync('
+            '{ await ReadyAsync(ct); '
+            'V180B3RequestInputRules.RequireSubmission(input); '
+            'BeginTransactionAsync(); LiveActorAsync(ct); }'
+            'public async Task<IReadOnlyList<V180B3RequestView>> MineAsync('
+            '{ }'
+            'public async Task<V180B3RequestView> RejectAsync('
+            '{ await ReadyAsync(ct); '
+            'V180B3RequestInputRules.RequireReviewTarget(id,input); '
+            'BeginTransactionAsync(); LiveActorAsync(ct); }'
+            'public async Task<V180B3RequestView> ApproveAsync('
+            '{ throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED"); }')
+        input_rules = self.root / "backend/src/FieldVisit.Infrastructure/V180B3RequestInputRules.cs"
+        input_rules.write_text(
+            'Oversize(input.Proposed.LocationName,200) '
+            'Oversize(input.Reason,1000) '
+            'V180B3RowVersionRules.Parse(input.ExpectedRowVersion) '
+            'V180B3RowVersionRules.Parse(input.RequestRowVersion)')
         self.workflow = self.root / ".github/workflows/package-b-b2-b3-controlled-verify.yml"
         self.workflow.write_text(
             "permissions:\n  contents: read\n  persist-credentials: false\n"
@@ -87,6 +108,27 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         self.workflow.write_text(original.replace("if-no-files-found: error",
                                                   "if-no-files-found: warn"))
         self.assertIn("CI_readonly_no_deploy", self.failures())
+
+    def test_removed_submit_preflight_is_rejected_automatically(self):
+        s = self.approval.read_text().replace(
+            "V180B3RequestInputRules.RequireSubmission(input); ", "")
+        self.approval.write_text(s)
+        self.assertIn("B3_bounded_payload_before_SQL_transaction", self.failures())
+
+    def test_review_preflight_moved_inside_transaction_is_rejected(self):
+        s = self.approval.read_text().replace(
+            "V180B3RequestInputRules.RequireReviewTarget(id,input); "
+            "BeginTransactionAsync();",
+            "BeginTransactionAsync(); "
+            "V180B3RequestInputRules.RequireReviewTarget(id,input);")
+        self.approval.write_text(s)
+        self.assertIn("B3_bounded_payload_before_SQL_transaction", self.failures())
+
+    def test_removing_bounded_field_validation_is_rejected(self):
+        path = self.root / "backend/src/FieldVisit.Infrastructure/V180B3RequestInputRules.cs"
+        path.write_text(path.read_text().replace(
+            "Oversize(input.Proposed.LocationName,200)", "true"))
+        self.assertIn("B3_bounded_payload_before_SQL_transaction", self.failures())
 
     def test_unapproved_workflow_change_fails(self):
         self.changed_workflows = ".github/workflows/api-azure.yml"
