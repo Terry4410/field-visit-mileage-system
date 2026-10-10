@@ -17,7 +17,7 @@ public sealed class V180QueryExportTests
         var method = typeof(V180QueryExportController).GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = (FileContentResult)method.Invoke(controller,
             ["人事資料", new { Keyword = "test" }, new[] { "工號", "姓名" },
-             new[] { new[] { "00123", "=HYPERLINK(\"http://evil\")" } }.AsEnumerable()])!;
+             new[] { new[] { "00123", "=HYPERLINK(\"http://evil\")" } }.AsEnumerable(), "全組織"])!;
         Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", result.ContentType);
         using var stream = new MemoryStream(result.FileContents);
         using var book = new XSSFWorkbook(stream);
@@ -80,7 +80,7 @@ public sealed class V180QueryExportTests
             .GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = (FileContentResult)method.Invoke(controller,
             ["人事完整履歷/2026", new { Keyword = "test" }, new[]{"欄位"},
-             new[]{ new[]{"=1+1"} }.AsEnumerable()])!;
+             new[]{ new[]{"=1+1"} }.AsEnumerable(), "全組織"])!;
         Assert.StartsWith("FieldVisit_人事完整履歷_2026_全組織_",result.FileDownloadName);
         Assert.EndsWith(".xlsx",result.FileDownloadName);
     }
