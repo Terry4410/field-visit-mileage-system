@@ -101,6 +101,42 @@ public sealed class V180QueryExportTests
         Assert.Contains("locations-official.xlsx",endpoints);
     }
 
+    [Fact]
+    public void Single_sheet_workbook_includes_final_row_count_metadata()
+    {
+        var controller = new V180QueryExportController(null!, null!, null!, null!, null!, null!);
+        var method = typeof(V180QueryExportController)
+            .GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var output = (FileContentResult)method.Invoke(controller,
+            ["人事資料", new { Keyword = "test" }, new[] { "工號" },
+             new[] { new[] { "001" }, new[] { "002" } }.AsEnumerable(), "全組織"])!;
+        using var data = new MemoryStream(output.FileContents);
+        using var book = new XSSFWorkbook(data);
+        Assert.Equal("符合查詢筆數", book.GetSheet("匯出資訊").GetRow(5).GetCell(0).StringCellValue);
+        Assert.Equal("2", book.GetSheet("匯出資訊").GetRow(5).GetCell(1).StringCellValue);
+    }
+
+    [Fact]
+    public void Personnel_history_period_boundaries_do_not_multiply_overlaps()
+    {
+        var nested = typeof(V180QueryExportController)
+            .GetNestedType("PersonnelHistoryEvent", BindingFlags.NonPublic)!;
+        var listType = typeof(List<>).MakeGenericType(nested);
+        var entries = (System.Collections.IList)Activator.CreateInstance(listType)!;
+        object Create(string kind, DateOnly start, DateOnly? end) =>
+            Activator.CreateInstance(nested, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, ["001", kind, "A", "Test", start, end, "42", null, null], null)!;
+        entries.Add(Create("角色", new DateOnly(2026, 1, 1), new DateOnly(2026, 3, 31)));
+        entries.Add(Create("小組", new DateOnly(2026, 2, 1), null));
+        var boundsMethod = typeof(V180QueryExportController)
+            .GetMethod("BuildPeriodBounds", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var bounds = (List<DateOnly>)boundsMethod.Invoke(null, [entries, new DateOnly(2026, 4, 30)])!;
+        Assert.Equal(
+            [new DateOnly(2026, 1, 1), new DateOnly(2026, 2, 1),
+             new DateOnly(2026, 4, 1), new DateOnly(2026, 5, 1)],
+            bounds);
+    }
+
     private static Task<List<string>> InvokeAll(Func<int, Task<PagedResult<string>>> loader)
     {
         var method = typeof(V180QueryExportController)
