@@ -57,7 +57,7 @@ jobs:
         run: npm run build
       - name: Consolidate automated B3/B4 CI evidence (NO DEPLOY)
         if: always()
-        run: python3 scripts/ci/package_b_evidence.py --guard .ci-artifacts/guard.json --trx .ci-artifacts/backend-tests.trx --junit .ci-artifacts/frontend-tests.xml --output .ci-artifacts/ci-evidence.json --summary .ci-artifacts/ci-evidence.md
+        run: python3 scripts/ci/package_b_evidence.py --guard .ci-artifacts/guard.json --trx .ci-artifacts/backend-tests.trx --junit .ci-artifacts/frontend-tests.xml --matrix .ci-artifacts/b4-matrix.json --output .ci-artifacts/ci-evidence.json --summary .ci-artifacts/ci-evidence.md
       - name: Publish security-gate summary
         if: always()
         shell: bash

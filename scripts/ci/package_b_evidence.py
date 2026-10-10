@@ -93,10 +93,10 @@ def parse_junit(path: Path) -> dict[str, int]:
     return data
 
 
-def collect(guard_path: Path, trx: Path, junit: Path) -> dict:
+def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
-                "backend": None, "frontend": None, "errors": []}
+                "backend": None, "frontend": None, "b4_matrix": None, "errors": []}
     try:
         guard = json.loads(guard_path.read_text(encoding="utf-8"))
         evidence["guard"] = validate_guard(guard, os.environ.get("GITHUB_SHA"))
@@ -118,6 +118,22 @@ def collect(guard_path: Path, trx: Path, junit: Path) -> dict:
         evidence["frontend"] = data
     except (OSError, ValueError, ET.ParseError) as exc:
         evidence["errors"].append("frontend: " + str(exc))
+    try:
+        matrix_data = json.loads(matrix.read_text(encoding="utf-8"))
+        expected_ids = [f"B4-SQL-{i:02d}" for i in range(1, 23)]
+        observed = matrix_data.get("ids")
+        if (matrix_data.get("passed") is not True
+                or matrix_data.get("status") != "DOCUMENTED_ONLY_SQL_RUNTIME_NOT_TESTED"
+                or matrix_data.get("present") != 22
+                or matrix_data.get("required") != 22
+                or not isinstance(observed, list)
+                or observed != expected_ids
+                or matrix_data.get("candidate_sha") != evidence["guard"]["sha"]):
+            raise ValueError("B4 runtime HOLD matrix missing, forged or SHA mismatch")
+        evidence["b4_matrix"] = {"documented": 22,
+                                 "sql_server_runtime": "NOT_TESTED"}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        evidence["errors"].append("B4 matrix: " + str(exc))
     if not evidence["errors"]:
         evidence["result"] = "PASS"
     evidence["notice"] = "No SQL Server runtime or migration verification. Full UAT and Production HOLD."
@@ -126,10 +142,10 @@ def collect(guard_path: Path, trx: Path, junit: Path) -> dict:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    for key in ("guard", "trx", "junit", "output", "summary"):
+    for key in ("guard", "trx", "junit", "matrix", "output", "summary"):
         p.add_argument("--" + key, required=True)
     args = p.parse_args()
-    result = collect(Path(args.guard), Path(args.trx), Path(args.junit))
+    result = collect(Path(args.guard), Path(args.trx), Path(args.junit), Path(args.matrix))
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -145,8 +161,11 @@ def main() -> int:
             x = result[name]
             lines.append("| " + name + " | " + str(x["passed"]) + "/" +
                          str(x["total"]) + " PASS |")
+    if result["b4_matrix"]:
+        lines.append("| B4 SQL runtime checklist (documentation only) | "
+                     "22/22 documented; NOT executed on SQL Server |")
     for error in result["errors"]:
-        lines.append("| Gate failure | " + error.replace("|", "/") + " |")
+        lines.append("| Gate failure |  + error.replace("|", "/") + " |")
     lines.extend(["", "Offline CI only. 011 migration, live SQL, B3 apply, promotion, "
                           "deployment and Production remain HARD HOLD."])
     report = Path(args.summary)
