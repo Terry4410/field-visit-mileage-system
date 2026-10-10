@@ -28,6 +28,24 @@ public sealed class V180B2B3SecurityGatesTests
     }
 
     [Fact]
+    public void Geocoding_failure_preserves_published_state_and_never_activates_pending()
+    {
+        var published = new Location { ApprovalStatus = "Approved", IsActive = true };
+        V180LocationPublicationRules.PreserveReviewStateAfterGeocoding(published);
+        Assert.Equal("Approved", published.ApprovalStatus);
+        Assert.True(published.IsActive);
+
+        var suspended = new Location { ApprovalStatus = "Approved", IsActive = false };
+        V180LocationPublicationRules.PreserveReviewStateAfterGeocoding(suspended);
+        Assert.False(suspended.IsActive);
+
+        var pending = new Location { ApprovalStatus = "Pending", IsActive = true };
+        V180LocationPublicationRules.PreserveReviewStateAfterGeocoding(pending);
+        Assert.Equal("Pending", pending.ApprovalStatus);
+        Assert.False(pending.IsActive);
+    }
+
+    [Fact]
     public void Unattested_manager_grants_are_fail_closed()
     {
         Assert.Throws<UnauthorizedAccessException>(()=>

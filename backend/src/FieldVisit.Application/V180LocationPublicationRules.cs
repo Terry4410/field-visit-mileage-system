@@ -1,7 +1,7 @@
 namespace FieldVisit.Application;
 
 /// <summary>
-/// Geocoding is a coordinate calculation, never a review decision.
+/// Geocoding success OR failure is a coordinate result, never a review decision.
 /// An already-approved location keeps its prior state, whereas a Pending
 /// location must remain inactive until a separate authorized decision.
 /// </summary>

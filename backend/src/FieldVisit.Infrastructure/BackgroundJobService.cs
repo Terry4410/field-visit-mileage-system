@@ -18,6 +18,26 @@ public sealed class BackgroundJobService(
     private readonly bool useGoogleRoutes =
         (configuration["Providers:Route"] ?? "Mock").Equals("Google", StringComparison.OrdinalIgnoreCase);
 
+    // A token or compatibility UserRoles projection is never sufficient by itself.
+    // Evaluate effective-dated employment role grants again at enqueue and execution.
+    private async Task<bool> HasCurrentGeocodingRoleAsync(int userId, string roleCode, CancellationToken ct)
+    {
+        var today = BusinessTime.Today;
+        var assigned = await (
+            from grant in db.UserRoleAssignments.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId == userId && role.RoleCode == roleCode && role.IsActive
+                && grant.EffectiveFrom <= today
+                && (!grant.EffectiveTo.HasValue || grant.EffectiveTo.Value >= today)
+            select grant.RoleId).AnyAsync(ct);
+        if (!assigned) return false;
+        return await (
+            from projection in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on projection.RoleId equals role.RoleId
+            where projection.UserId == userId && role.RoleCode == roleCode && role.IsActive
+            select projection.RoleId).AnyAsync(ct);
+    }
+
     public async Task<BackgroundJobDto> EnqueueMileageAsync(CurrentUserDto user, MileageBatchRequest request, CancellationToken ct)
     {
         if (!HasRole(user, "leader") || user.TeamIds.Count == 0) throw new UnauthorizedAccessException("只有具有效小組授權的小組長可以建立里程工作。");
@@ -52,7 +72,19 @@ public sealed class BackgroundJobService(
         // Server-owned job scope: leaders may geocode ONLY their currently
         // authorized team drafts. They may not publish or modify shared masters.
         if (HasRole(user, "admin"))
+        {
+            if (!user.OrganizationId.HasValue)
+                throw new UnauthorizedAccessException("沒有有效組織權限，不得建立解析工作。");
+            var account = await db.Users.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.UserId == user.UserId
+                    && x.OrganizationId == user.OrganizationId, ct)
+                ?? throw new UnauthorizedAccessException("帳號或組織權限已失效。");
+            if (!(await new V170AccessControl(db)
+                    .EvaluateLoginAsync(user.UserId, account.IsActive, ct)).IsAllowed
+                || !await HasCurrentGeocodingRoleAsync(user.UserId, "admin", ct))
+                throw new UnauthorizedAccessException("目前人事或管理者角色無權建立解析工作。");
             row.TeamScopeJson = JsonSerializer.Serialize(Array.Empty<int>(), JsonOptions);
+        }
         else
         {
             // B1C: pending audited manager grants, membership is NOT manager authority.
@@ -76,11 +108,7 @@ public sealed class BackgroundJobService(
                 select team.TeamId).Distinct().ToListAsync(ct);
             if(activeTeams.Count==0)
                 throw new UnauthorizedAccessException("有效小組權限已結束。");
-            var stillLeader=await (
-                from ur in db.UserRoles.AsNoTracking()
-                join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
-                where ur.UserId==user.UserId && role.RoleCode=="leader" && role.IsActive
-                select role.RoleId).AnyAsync(ct);
+            var stillLeader=await HasCurrentGeocodingRoleAsync(user.UserId,"leader",ct);
             if(!stillLeader)
                 throw new UnauthorizedAccessException("小組長角色已失效，請重新登入。");
             if(mode.Equals("Selected",StringComparison.OrdinalIgnoreCase))
@@ -457,11 +485,7 @@ public sealed class BackgroundJobService(
            || !(await new V170AccessControl(db).EvaluateLoginAsync(
                requester.UserId,requester.IsActive,ct)).IsAllowed)
             throw new UnauthorizedAccessException("申請者的人事或組織權限已失效。");
-        var currentAdmin=await (
-            from ur in db.UserRoles.AsNoTracking()
-            join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
-            where ur.UserId==requester.UserId && role.RoleCode=="admin" && role.IsActive
-            select role.RoleId).AnyAsync(ct);
+        var currentAdmin=await HasCurrentGeocodingRoleAsync(requester.UserId,"admin",ct);
         var adminJob=queuedTeamIds.Count==0;
         if(adminJob&&!currentAdmin)
             throw new UnauthorizedAccessException("沒有有效管理者權限，不得發布地點。");
@@ -482,16 +506,12 @@ public sealed class BackgroundJobService(
                 select team.TeamId).Distinct().ToListAsync(ct);
             if(teamIds.Count==0)
                 throw new UnauthorizedAccessException("申請者的小組解析權限已失效。");
-            var currentLeader=await (
-                from ur in db.UserRoles.AsNoTracking()
-                join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
-                where ur.UserId==requester.UserId && role.RoleCode=="leader" && role.IsActive
-                select role.RoleId).AnyAsync(ct);
+            var currentLeader=await HasCurrentGeocodingRoleAsync(requester.UserId,"leader",ct);
             if(!currentLeader)
                 throw new UnauthorizedAccessException("申請者的小組長權限已失效。");
         }
         var q = db.Locations.Where(x =>
-            (adminJob ? (x.OrganizationId==job.OrganizationId||x.OrganizationId==null)
+            (adminJob ? (x.OrganizationId==job.OrganizationId&&x.OrganizationId!=null)
                       : (x.OrganizationId==job.OrganizationId
                          && x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)))
             && (adminJob
@@ -573,7 +593,10 @@ public sealed class BackgroundJobService(
             }
             catch (Exception ex)
             {
-                location.GeocodingStatus = "Failed"; location.IsActive = false; item.Status = "Failed"; item.ErrorCode = "GEOCODING_JOB_FAILED"; item.ErrorMessage = ex.Message; job.FailedCount++;
+                location.GeocodingStatus = "Failed";
+                // Failure is not a business deactivation decision: retain published state.
+                V180LocationPublicationRules.PreserveReviewStateAfterGeocoding(location);
+                item.Status = "Failed"; item.ErrorCode = "GEOCODING_JOB_FAILED"; item.ErrorMessage = ex.Message; job.FailedCount++;
             }
             item.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
