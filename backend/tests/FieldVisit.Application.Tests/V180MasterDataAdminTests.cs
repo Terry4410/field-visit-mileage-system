@@ -839,6 +839,53 @@ public sealed class V180MasterDataAdminTests
             TeamName: null,
             Roles: [role]);
 
+
+    [Fact]
+    public async Task Personnel_history_and_official_location_history_are_organization_scoped()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        SeedSite(db, 20, "S20", 30, "L30");
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentStatusPeriodId=41, EmploymentId=100,EmploymentStatus=EmploymentStatuses.Leave,
+            EffectiveFrom=Today.AddDays(-20),EffectiveTo=Today.AddDays(-10),SourceType="UAT"
+        });
+        db.UserTeamAssignments.Add(new UserTeamAssignment
+        {
+            UserTeamAssignmentId=11,UserId=1,TeamId=10,IsPrimary=true,
+            EffectiveFrom=Today.AddDays(-30)
+        });
+        db.Users.Add(new User
+        {
+            UserId=2,OrganizationId=2,EmployeeNo="OTHER99",DisplayName="Other Organization",
+            IsActive=true,CreatedAt=DateTime.UtcNow
+        });
+        db.UserRoleAssignments.Add(new UserRoleAssignment
+        {
+            UserRoleAssignmentId=2,UserId=2,RoleId=1,EffectiveFrom=Today.AddDays(-30)
+        });
+        await db.SaveChangesAsync();
+
+        var repository=new V180MasterDataAdminRepository(db);
+        var roles=await repository.ListAsync(User("admin"),"personnel-role-history",default);
+        Assert.Single(roles);
+        Assert.Equal("E100",roles[0].Key);
+        Assert.Equal("1",roles[0].ReferenceKey);
+
+        var periods=await repository.ListAsync(User("admin"),"personnel-status-history",default);
+        Assert.Single(periods);
+        Assert.Equal(EmploymentStatuses.Leave,periods[0].ParentKey);
+
+        var memberships=await repository.ListAsync(User("admin"),"personnel-team-history",default);
+        Assert.Single(memberships);
+        Assert.Equal("T10",memberships[0].ParentKey);
+
+        var siteHistory=await repository.ListAsync(User("admin"),"deployment-site-locations",default);
+        Assert.Single(siteHistory);
+        Assert.Equal("L30",siteHistory[0].ReferenceKey);
+    }
+
     private static void SeedVisitorIdentity(AppDbContext db)
     {
         db.Roles.Add(new Role
