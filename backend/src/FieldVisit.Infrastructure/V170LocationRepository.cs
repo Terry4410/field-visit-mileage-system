@@ -807,19 +807,35 @@ public sealed class V170LocationRepository(
         if(accessible is null)throw new KeyNotFoundException("找不到可維護的正式地點。");
         if(!writeRoles.Admin)
         {
-            var valid=accessible.TeamId==request.TeamId
-                && accessible.OrganizationId==user.OrganizationId
-                && await (
+            // A read/picker team scope is not a write grant. Require current,
+            // independently effective membership AND assignment as well.
+            var employmentId=await db.UserIdentityProfiles.AsNoTracking()
+                .Where(x=>x.UserId==user.UserId&&x.UserType==UserTypes.Internal)
+                .Select(x=>x.EmploymentId).FirstOrDefaultAsync(ct);
+            var effectiveMember=false;
+            if(employmentId.HasValue)
+                effectiveMember=await (
                     from scope in db.UserTeamScopes.AsNoTracking()
                     join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
+                    join assignment in db.UserTeamAssignments.AsNoTracking()
+                        on new {scope.UserId,scope.TeamId}
+                        equals new {assignment.UserId,assignment.TeamId}
+                    join membership in db.TeamMemberships.AsNoTracking()
+                        on new {EmploymentId=employmentId.Value,scope.TeamId}
+                        equals new {membership.EmploymentId,membership.TeamId}
                     where scope.UserId==user.UserId&&scope.TeamId==request.TeamId
                         && scope.IsActive&&team.IsActive
                         && team.OrganizationId==user.OrganizationId
                         && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
                         && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
+                        && assignment.EffectiveFrom<=today
+                        && (!assignment.EffectiveTo.HasValue||assignment.EffectiveTo>=today)
+                        && membership.EffectiveFrom<=today
+                        && (!membership.EffectiveTo.HasValue||membership.EffectiveTo>=today)
                     select team.TeamId).AnyAsync(ct);
-            if(!valid || accessible.CreatedByUserId!=user.UserId)
-                throw new UnauthorizedAccessException("無權修改其他人、小組或共用地點的備註。");
+            V180LocationNoteWriteRules.RequireOwnTeamNote(
+                user.OrganizationId,accessible.OrganizationId,accessible.TeamId,
+                request.TeamId,accessible.CreatedByUserId,user.UserId,effectiveMember);
         }
 
         await using var tx=await db.Database.BeginTransactionAsync(ct);
