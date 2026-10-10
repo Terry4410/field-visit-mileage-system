@@ -83,8 +83,6 @@ public sealed class V180B3ChangeRequestService(
             throw new InvalidOperationException("B3_SCHEMA_NOT_VERIFIED",ex);
         }
     }
-    private static byte[] Version(string input) =>
-        V180B3RowVersionRules.Parse(input);
     private static V180B3RequestView ToView(V180B3ChangeRequest r)=>
         new(r.RequestPublicId,r.EntityId,r.TeamId,r.RiskCode,r.Status,
             r.RequestedByUserId,r.SubmittedAt,r.BeforeJson,r.ProposedJson,
@@ -135,6 +133,9 @@ public sealed class V180B3ChangeRequestService(
         V180B3SubmitLocation input,CancellationToken ct)
     {
         await ReadyAsync(ct);
+        // Fail fast on malformed client payloads before acquiring a DB transaction
+        // or loading HR/team/location records. B3_DISABLED still takes precedence.
+        var expectedVersion=V180B3RequestInputRules.RequireSubmission(input);
         // Keep source version, live role/membership, pending uniqueness precheck
         // and request + Submitted audit event in a single serializable transaction.
         // DB filtered unique index remains mandatory for concurrent requests.
@@ -153,7 +154,8 @@ public sealed class V180B3ChangeRequestService(
            ||!user.TeamIds.Contains(loc.TeamId.Value)
            ||!await VisitorTeamAsync(user.UserId,user.OrganizationId.Value,loc.TeamId.Value,ct))
             throw new UnauthorizedAccessException("B3_NO_VERIFIED_LOCATION_WRITE_SCOPE");
-        if(!loc.RowVersion.SequenceEqual(Version(input.ExpectedRowVersion)))
+        if(loc.RowVersion is null || loc.RowVersion.Length!=8
+            ||!loc.RowVersion.SequenceEqual(expectedVersion))
             throw new InvalidOperationException("ROWVERSION_CONFLICT");
         var proposal=V180B3ProposalSafetyRules.Validate(
             input.Proposed,
@@ -206,6 +208,7 @@ public sealed class V180B3ChangeRequestService(
         Guid id,V180B3Review input,CancellationToken ct)
     {
         await ReadyAsync(ct);
+        V180B3RequestInputRules.RequireReviewTarget(id,input);
         // Review authorization is deliberately re-evaluated INSIDE the
         // serializable decision transaction, not on a stale pre-transaction
         // token/role snapshot. The physical indexes remain mandatory.
