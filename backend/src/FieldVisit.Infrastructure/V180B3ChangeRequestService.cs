@@ -1,6 +1,6 @@
 using System.Text.Json;
 using FieldVisit.Application;
-using FieldVisit.Domain;
+using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
