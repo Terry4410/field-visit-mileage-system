@@ -334,7 +334,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     x.EmploymentDeploymentSiteAssignmentId,
                     e.EmployeeNo ?? "",
                     s.SiteCode,
-                    null,
+                    s.SiteName,
                     x.EffectiveFrom,
                     x.EffectiveTo,
                     null,
