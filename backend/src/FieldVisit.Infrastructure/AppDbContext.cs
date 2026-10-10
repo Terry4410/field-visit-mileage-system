@@ -88,22 +88,66 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
         b.Entity<LocationApprovalHistory>(e => { e.ToTable("LocationApprovalHistory"); e.HasKey(x => x.LocationApprovalHistoryId); e.Property(x => x.LocationApprovalHistoryId).ValueGeneratedOnAdd(); });
         // Candidate schema only; B3 feature flag is false until approved migration.
-        b.Entity<V180B3ChangeRequest>(e => {
-            e.ToTable("ChangeRequests"); e.HasKey(x => x.ChangeRequestId);
+        b.Entity<V180B3ChangeRequest>(e =>
+        {
+            // Candidate model only: NO migration or DB execution authorized.
+            e.ToTable("ChangeRequests");
+            e.HasKey(x => x.ChangeRequestId);
             e.Property(x => x.ChangeRequestId).ValueGeneratedOnAdd();
+            e.Property(x => x.EntityKind).HasMaxLength(40).IsRequired();
+            e.Property(x => x.EntityId).HasMaxLength(80).IsRequired();
+            e.Property(x => x.OperationCode).HasMaxLength(80).IsRequired();
+            e.Property(x => x.RiskCode).HasMaxLength(20).IsRequired();
+            e.Property(x => x.ExpectedEntityRowVersion).HasMaxLength(8);
+            e.Property(x => x.BeforeJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.ProposedJson).HasColumnType("nvarchar(max)").IsRequired();
+            e.Property(x => x.EvidenceJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.SubmittedAt).HasPrecision(3);
+            e.Property(x => x.Status).HasMaxLength(30).IsRequired();
+            e.Property(x => x.ReviewedAt).HasPrecision(3);
+            e.Property(x => x.ReviewReason).HasMaxLength(1000);
+            e.Property(x => x.AppliedAt).HasPrecision(3);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+
+            // Audited request identity must never cascade-delete historical rows.
+            e.HasOne<Organization>().WithMany()
+                .HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Team>().WithMany()
+                .HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany()
+                .HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany()
+                .HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.NoAction);
+
             e.HasIndex(x => x.RequestPublicId).IsUnique()
                 .HasDatabaseName(V180B3SqlSafetyRules.RequestPublicIdIndex);
             e.HasIndex(x => new {x.OrganizationId,x.EntityKind,x.EntityId})
                 .IsUnique().HasFilter("[Status] = 'Pending'")
                 .HasDatabaseName(V180B3SqlSafetyRules.PendingRequestIndex);
+            e.HasIndex(x => new {x.OrganizationId,x.Status,x.SubmittedAt})
+                .HasDatabaseName("IX_B3_ChangeRequests_Org_Status_SubmittedAt");
+            e.HasIndex(x => new {x.RequestedByUserId,x.SubmittedAt})
+                .HasDatabaseName("IX_B3_ChangeRequests_Requester_SubmittedAt");
         });
-        b.Entity<V180B3ChangeEvent>(e => {
-            e.ToTable("ChangeRequestEvents"); e.HasKey(x => x.ChangeRequestEventId);
+        b.Entity<V180B3ChangeEvent>(e =>
+        {
+            e.ToTable("ChangeRequestEvents");
+            e.HasKey(x => x.ChangeRequestEventId);
             e.Property(x => x.ChangeRequestEventId).ValueGeneratedOnAdd();
+            e.Property(x => x.EventType).HasMaxLength(40).IsRequired();
+            e.Property(x => x.OccurredAt).HasPrecision(3);
+            e.Property(x => x.DetailsJson).HasColumnType("nvarchar(max)");
+            e.HasOne<V180B3ChangeRequest>().WithMany()
+                .HasForeignKey(x => x.ChangeRequestId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany()
+                .HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => x.DecisionKey).IsUnique()
                 .HasFilter("[DecisionKey] IS NOT NULL")
                 .HasDatabaseName(V180B3SqlSafetyRules.DecisionKeyIndex);
+            e.HasIndex(x => new {x.ChangeRequestId,x.OccurredAt,x.ChangeRequestEventId})
+                .HasDatabaseName("IX_B3_ChangeRequestEvents_Request_OccurredAt");
+            e.HasIndex(x => x.CorrelationId)
+                .HasDatabaseName("IX_B3_ChangeRequestEvents_CorrelationId");
         });
         b.Entity<TeamLocationNote>(e =>
         {

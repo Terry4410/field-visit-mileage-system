@@ -44,6 +44,13 @@ Constraints/indexes (proposed exact names; NOT deployed): unique RequestPublicId
 
 Indexes: (ChangeRequestId, OccurredAt, ChangeRequestEventId); CorrelationId; `UX_B3_ChangeRequestEvents_DecisionKey` unique filtered DecisionKey NOT NULL. Events append-only. EF mapping must match actual indexed filter and SQL column lengths exactly.
 
+## EF model / proposed 011 DDL alignment (REVIEW ONLY)
+- This WORK candidate now defines explicit max lengths for EntityKind 40, EntityId 80, OperationCode 80, RiskCode 20, Status 30, ReviewReason 1000, EventType 40, and 8-byte ExpectedEntityRowVersion, together with DATETIME2(3) precision for SubmittedAt / ReviewedAt / AppliedAt / OccurredAt. JSON payloads remain NVARCHAR(MAX), with ProposedJson required.
+- Proposed foreign keys: ChangeRequests.OrganizationId → Organizations, TeamId → Teams, RequestedByUserId / ReviewedByUserId → Users, ChangeRequestEvents.ChangeRequestId → ChangeRequests, and ActorUserId → Users; every delete behavior is NO ACTION (never cascade-delete audit history).
+- Proposed supporting index names: `IX_B3_ChangeRequests_Org_Status_SubmittedAt`, `IX_B3_ChangeRequests_Requester_SubmittedAt`, `IX_B3_ChangeRequestEvents_Request_OccurredAt`, and `IX_B3_ChangeRequestEvents_CorrelationId`.
+- EF metadata tests validate this **candidate model only** without executing SQL Server commands. The runtime readiness catalog probe currently enforces the three core unique indexes and ROWVERSION, but **does not yet prove the required foreign keys and check constraints**. Therefore actual FK/trust/drift verification, SQL Server transaction tests, and IT-approved 011 DDL remain explicit HOLD gates.
+- Do not infer that changing EF mappings creates a table or authorizes a migration. No UAT database object has been created or altered by this change.
+
 ## Readiness and conflict behavior (NONEXECUTABLE contract)
 - B3 must remain disabled until the live SQL catalog proves both tables, 8-byte ROWVERSION concurrency token, a unique RequestPublicId index, the exact three-key Pending filtered unique index, and a DecisionKey filtered unique index. A version row without these safety structures is NOT ready.
 - Query the latest applied SchemaVersions entry ordered by AppliedAt DESC, VersionNumber DESC; it must equal 1.8.0-011, not merely contain an old 011 row.
