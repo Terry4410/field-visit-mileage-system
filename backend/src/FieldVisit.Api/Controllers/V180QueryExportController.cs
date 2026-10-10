@@ -277,7 +277,7 @@ public sealed class V180QueryExportController(
                     events.Add(new PersonnelHistoryEvent(
                         x.Key, kind, x.ParentKey ?? "", x.Detail ?? "",
                         x.EffectiveFrom, x.EffectiveTo, x.ReferenceKey ?? "",
-                        x.IsPrimary, x.IsActive));
+                        x.IsPrimary, x.IsActive, x.Id));
                 }
             }
             Include("人事狀態", periods);
@@ -349,16 +349,16 @@ public sealed class V180QueryExportController(
                  "小組", "派駐據點", "資料範圍", "功能權限"], snapshots));
             sheets.Add(new("人員異動事件明細",
                 ["工號", "姓名", "異動類型", "項目代碼", "項目內容", "生效日", "失效日",
-                 "主要歸屬", "來源關聯鍵"],
+                 "主要歸屬", "來源關聯鍵", "來源紀錄ID"],
                 events.OrderBy(x => x.EmployeeNo).ThenBy(x => x.From).ThenBy(x => x.Kind)
                     .Select(x => Cells(x.EmployeeNo, names.GetValueOrDefault(x.EmployeeNo, ""),
                         x.Kind, x.Code, x.Detail, x.From, x.To,
                         x.IsPrimary == true ? "是" : x.IsPrimary == false ? "否" : "",
-                        x.ReferenceKey))));
+                        x.ReferenceKey, x.SourceId))));
             sheets.Add(new("完整稽核資料",
-                ["來源類型", "來源工號", "來源項目代碼", "來源說明", "來源關聯鍵",
+                ["來源類型", "來源紀錄ID", "來源工號", "來源項目代碼", "來源說明", "來源關聯鍵",
                  "生效日", "失效日", "主要歸屬旗標", "啟用旗標"],
-                events.Select(x => Cells(x.Kind, x.EmployeeNo, x.Code, x.Detail, x.ReferenceKey,
+                events.Select(x => Cells(x.Kind, x.SourceId, x.EmployeeNo, x.Code, x.Detail, x.ReferenceKey,
                     x.From, x.To, x.IsPrimary, x.IsActive))));
         }
         return WorkbookSheets("人事完整履歷",
@@ -370,7 +370,8 @@ public sealed class V180QueryExportController(
 
     private sealed record PersonnelHistoryEvent(
         string EmployeeNo, string Kind, string Code, string Detail,
-        DateOnly From, DateOnly? To, string ReferenceKey, bool? IsPrimary, bool? IsActive);
+        DateOnly From, DateOnly? To, string ReferenceKey, bool? IsPrimary, bool? IsActive,
+        long SourceId);
 
     // Inclusive source effective dates -> sorted exclusive boundaries, capped at today's end.
     // The result has at most 2*N+2 boundaries and never cross-joins separate histories.
