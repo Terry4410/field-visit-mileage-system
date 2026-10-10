@@ -378,6 +378,124 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
     }
 
     [Fact]
+    public async Task Live_latest_version_is_denied_if_an_older_schema_row_is_newer()
+    {
+        await _fixture.ExecuteAsync(
+            "INSERT INTO dbo.SchemaVersions VALUES (N'1.8.0-010',DATEADD(day,1,SYSUTCDATETIME()))");
+        try
+        {
+            var version=(string?)await _fixture.ScalarAsync(
+                V180B3SqlSafetyRules.LatestSchemaVersionSql);
+            Assert.Equal("1.8.0-010",version);
+            Assert.Equal("B3_SCHEMA_NOT_VERIFIED",
+                Assert.Throws<InvalidOperationException>(()=>
+                    V180B3SqlSafetyRules.RequireLatestSchemaVersion(version)).Message);
+        }
+        finally
+        {
+            await _fixture.ExecuteAsync(
+                "DELETE FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010'");
+        }
+    }
+
+    [Fact]
+    public async Task Real_sql_constraints_block_self_review_null_reason_and_premature_review_fields()
+    {
+        var id=await _fixture.InsertRequestAsync();
+        var commands=new[]
+        {
+            "UPDATE dbo.ChangeRequests SET Status=N'Rejected',ReviewedByUserId=10,ReviewedAt=SYSUTCDATETIME(),ReviewReason=N'valid' WHERE ChangeRequestId=@id",
+            "UPDATE dbo.ChangeRequests SET Status=N'Rejected',ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),ReviewReason=NULL WHERE ChangeRequestId=@id",
+            "UPDATE dbo.ChangeRequests SET Status=N'Rejected',ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),ReviewReason=N'  ' WHERE ChangeRequestId=@id",
+            "UPDATE dbo.ChangeRequests SET ReviewReason=N'premature' WHERE ChangeRequestId=@id"
+        };
+        foreach(var command in commands)
+        {
+            var ex=await Assert.ThrowsAsync<SqlException>(()=>
+                _fixture.ExecuteAsync(command,("@id",id)));
+            Assert.Equal(547,ex.Number);
+        }
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",("@id",id)));
+    }
+
+    [Fact]
+    public async Task Real_sql_rejects_invalid_audit_types_missing_actor_and_broken_json()
+    {
+        var id=await _fixture.InsertRequestAsync();
+        var commands=new[]
+        {
+            "INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,OccurredAt,CorrelationId) VALUES(@id,N'Approved',20,SYSUTCDATETIME(),NEWID())",
+            "INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,OccurredAt,CorrelationId) VALUES(@id,N'Submitted',NULL,SYSUTCDATETIME(),NEWID())",
+            "INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,OccurredAt,CorrelationId) VALUES(@id,N'Rejected',20,SYSUTCDATETIME(),NEWID())",
+            "INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,OccurredAt,CorrelationId,DetailsJson) VALUES(@id,N'Submitted',10,SYSUTCDATETIME(),NEWID(),N'broken')"
+        };
+        foreach(var command in commands)
+        {
+            var ex=await Assert.ThrowsAsync<SqlException>(()=>
+                _fixture.ExecuteAsync(command,("@id",id)));
+            Assert.Equal(547,ex.Number);
+        }
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",id))));
+    }
+
+    [Fact]
+    public async Task Serializable_transaction_rolls_back_request_if_audit_insert_is_invalid()
+    {
+        var entity="ROLLBACK_"+Guid.NewGuid().ToString("N");
+        await using var conn=await _fixture.ConnectAsync();
+        await using var tx=(SqlTransaction)await conn.BeginTransactionAsync(
+            IsolationLevel.Serializable);
+        await using var create=new SqlCommand("""
+            INSERT INTO dbo.ChangeRequests(
+                RequestPublicId,OrganizationId,TeamId,EntityKind,EntityId,
+                OperationCode,RiskCode,ExpectedEntityRowVersion,ProposedJson,
+                RequestedByUserId,SubmittedAt,Status)
+            VALUES(@guid,1,7,N'Location',@entity,N'UpdatePublishedLocation',
+                N'High',0x0102030405060708,N'{"Name":"test"}',
+                10,SYSUTCDATETIME(),N'Pending');
+            SELECT CAST(SCOPE_IDENTITY() AS bigint)
+            """,conn,tx);
+        create.Parameters.AddWithValue("@guid",Guid.NewGuid());
+        create.Parameters.AddWithValue("@entity",entity);
+        var id=Convert.ToInt64(await create.ExecuteScalarAsync());
+        await using var invalid=new SqlCommand("""
+            INSERT INTO dbo.ChangeRequestEvents(
+                ChangeRequestId,EventType,ActorUserId,OccurredAt,CorrelationId)
+            VALUES(@id,N'Approved',20,SYSUTCDATETIME(),NEWID())
+            """,conn,tx);
+        invalid.Parameters.AddWithValue("@id",id);
+        Assert.Equal(547,(await Assert.ThrowsAsync<SqlException>(
+            ()=>invalid.ExecuteNonQueryAsync())).Number);
+        await tx.RollbackAsync();
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE EntityId=@entity",
+            ("@entity",entity))));
+    }
+
+    [Fact]
+    public async Task Untrusted_foreign_key_fails_catalog_until_it_is_retrusted()
+    {
+        const string name="FK_B3_Events_Actor";
+        await _fixture.ExecuteAsync(
+            $"ALTER TABLE dbo.ChangeRequestEvents NOCHECK CONSTRAINT [{name}]");
+        try
+        {
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                V180B3SqlSafetyRules.CatalogCheckSql)));
+        }
+        finally
+        {
+            await _fixture.ExecuteAsync(
+                $"ALTER TABLE dbo.ChangeRequestEvents WITH CHECK CHECK CONSTRAINT [{name}]");
+        }
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
     public async Task Catalog_rejects_untrusted_check_until_constraint_is_retrusted()
     {
         const string constraint="CK_B3_ChangeRequests_KnownStatus";
