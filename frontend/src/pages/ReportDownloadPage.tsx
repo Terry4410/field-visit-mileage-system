@@ -6,7 +6,7 @@ import type{ManagedTeam}from"../types";
 type ReportKind="personnel"|"personnel-full"|"roles"|"teams"|"members"|"locations"|"centers"|"deployment-sites"|"locations-official"|"projects"|"visit-types";
 const reports:{kind:ReportKind;title:string;description:string}[]=[
  {kind:"personnel",title:"人事總覽",description:"目前狀態，依人員一人一列"},
- {kind:"personnel-full",title:"人事完整履歷",description:"含留停、人事狀態、角色、小組、派駐及資料權限有效期間"},
+ {kind:"personnel-full",title:"人事完整履歷",description:"5 工作表：完整總覽、歷史期間快照、異動事件、稽核資料及報表資訊；下載後免 Lookup"},
  {kind:"roles",title:"角色與登入",description:"目前角色、登入資格與小組"},
  {kind:"teams",title:"小組主檔",description:"小組設定及人數"},
  {kind:"members",title:"小組成員配置",description:"指定小組的成員現況，不代替人事完整履歷"},
@@ -84,9 +84,9 @@ export default function ReportDownloadPage(){
   </div>
   <div className="note" style={{marginTop:12}}><strong>{info.title}</strong>｜{info.description}<div className="sub">目前快速下載仍保留在各維護頁面；小組成員報表與人事完整履歷採不同資料列定義，不會混用。</div></div>
   {isPersonnel&&<>
-   <div className="section-title" style={{marginTop:18}}><div><h3>選擇總覽欄位</h3><div className="sub">歷史期間另列工作表，不會與人員總覽做一對多展開。</div></div><div className="actions"><button className="btn small outline" onClick={()=>setSelected(allColumns)}>全選</button><button className="btn small outline" onClick={()=>setSelected(["employeeNo","name","employmentStatus","primaryTeam","primarySite"])}>簡要欄位</button></div></div>
+   <div className="section-title" style={{marginTop:18}}><div><h3>選擇總覽欄位</h3><div className="sub">勾選的欄位適用人員總覽；歷史期間由伺服器預先整合，不需跨工作表 Lookup。</div></div><div className="actions"><button className="btn small outline" onClick={()=>setSelected(allColumns)}>全選</button><button className="btn small outline" onClick={()=>setSelected(["employeeNo","name","employmentStatus","primaryTeam","primarySite"])}>簡要欄位</button></div></div>
    {fields.map(group=><div key={group.group} style={{marginTop:10}}><strong>{group.group}</strong><div className="grid cols-3" style={{marginTop:5}}>{group.list.map(f=><label key={f.key} className="check-row"><input type="checkbox" checked={selected.includes(f.key)} onChange={e=>setSelected(old=>e.target.checked?[...old,f.key]:old.filter(x=>x!==f.key))}/>{f.label}</label>)}</div></div>)}
-   <label className="check-row" style={{marginTop:16}}><input type="checkbox" checked={includeHistory} onChange={e=>setIncludeHistory(e.target.checked)}/>加入人事狀態、留停、角色、小組、派駐與權限歷史工作表</label>
+   <label className="check-row" style={{marginTop:16}}><input type="checkbox" checked={includeHistory} onChange={e=>setIncludeHistory(e.target.checked)}/>加入歷史期間快照、異動事件及稽核明細工作表</label>
   </>}
   <div className="note" style={{marginTop:18}}>檔名示例：<code>{filenamePreview}</code><div className="sub">上限依後端匯出規則控管；Excel 全部儲存為文字，避免代碼前導零消失或公式被執行。</div></div>
   <div className="actions" style={{marginTop:14}}><button className="btn ok" disabled={busy||isPersonnel&&selected.length===0||needsTeam&&!teamId} onClick={()=>void download()}>{busy?"正在產生 Excel…":"下載 Excel 報表"}</button></div>
