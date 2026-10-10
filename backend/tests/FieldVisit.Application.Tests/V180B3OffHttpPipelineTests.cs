@@ -48,6 +48,17 @@ public sealed class B3DisabledHttpFactory : WebApplicationFactory<V180B3ChangeRe
             }));
         builder.ConfigureTestServices(services=>
         {
+            // For minimal-hosting integration tests, Program registers its
+            // JwtBearer validation parameters before test-only app config.
+            // PostConfigure ONLY this in-memory TestServer's AppJwt options.
+            // Do not change authentication middleware or relax validation.
+            services.PostConfigure<JwtBearerOptions>("AppJwt",options=>
+            {
+                options.TokenValidationParameters.ValidIssuer=Issuer;
+                options.TokenValidationParameters.ValidAudience=Audience;
+                options.TokenValidationParameters.IssuerSigningKey=
+                    new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestKey));
+            });
             // Background processing must never access SQL during HTTP-OFF tests.
             foreach(var service in services.Where(s=>
                 s.ServiceType==typeof(IHostedService) &&
