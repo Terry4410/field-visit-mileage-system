@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using FieldVisit.Infrastructure;
 using Xunit;
 
@@ -20,8 +19,14 @@ public sealed class V180B3ReadinessColumnContractTests
         Assert.Contains("c.is_nullable=required.IsNullable",sql);
         Assert.Contains("c.scale=required.ScaleValue",sql);
         Assert.Contains(")=28",sql);
-        Assert.Equal(28,Regex.Matches(sql,@"\(N'ChangeRequests?',N'").Count
-            +Regex.Matches(sql,@"\(N'ChangeRequestEvents',N'").Count - 7);
+        // Count ONLY rows of the 28-column VALUES contract; never include
+        // the separate FK VALUES table or subtract a magic correction.
+        var catalogRows=sql.Split("AS required(TableName,ColumnName,SqlType,MaxBytes,IsNullable,ScaleValue)")[0]
+            .Split("-- Exact structural shape for the candidate 011 fields.")[1]
+            .Split('\n')
+            .Count(line=>line.TrimStart().StartsWith("(N'ChangeRequests',",StringComparison.Ordinal)
+                ||line.TrimStart().StartsWith("(N'ChangeRequestEvents',",StringComparison.Ordinal));
+        Assert.Equal(28,catalogRows);
     }
 
     [Theory]
