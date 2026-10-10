@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FieldVisit.Application;
+using FieldVisit.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -105,12 +106,19 @@ public sealed class V180B3ChangeRequestService(
         var roles=V180LocationLiveRoleRules.Evaluate(user.Roles,assigned,projected);
         return(user,roles.Admin,roles.Visitor);
     }
-    private async Task<bool> VisitorTeamAsync(int userId,int teamId,CancellationToken ct)
+    private async Task<bool> VisitorTeamAsync(int userId,int organizationId,int teamId,CancellationToken ct)
     {
         var today=BusinessTime.Today;
+        // Scope and membership alone do not prove that the TEAM remains usable.
+        var team=await db.Teams.AsNoTracking().Where(x=>x.TeamId==teamId)
+            .Select(x=>new{x.OrganizationId,x.IsActive,x.EffectiveFrom,x.EffectiveTo})
+            .SingleOrDefaultAsync(ct);
+        if(team is null || !V180B3LocationTeamRules.IsEffectiveForOrganization(
+            organizationId,team.OrganizationId,team.IsActive,
+            team.EffectiveFrom,team.EffectiveTo,today))return false;
         var employment=await db.UserIdentityProfiles.AsNoTracking()
-            .Where(x=>x.UserId==userId).Select(x=>x.EmploymentId)
-            .FirstOrDefaultAsync(ct);
+            .Where(x=>x.UserId==userId&&x.UserType==UserTypes.Internal)
+            .Select(x=>x.EmploymentId).FirstOrDefaultAsync(ct);
         if(!employment.HasValue)return false;
         return await db.UserTeamScopes.AsNoTracking().AnyAsync(x=>
                x.UserId==userId&&x.TeamId==teamId&&x.IsActive,ct)
@@ -137,7 +145,7 @@ public sealed class V180B3ChangeRequestService(
            ||loc.CreatedByUserId!=user.UserId||loc.LocationType!="Customer"
            ||loc.ApprovalStatus!="Approved"||!loc.IsActive
            ||!user.TeamIds.Contains(loc.TeamId.Value)
-           ||!await VisitorTeamAsync(user.UserId,loc.TeamId.Value,ct))
+           ||!await VisitorTeamAsync(user.UserId,user.OrganizationId.Value,loc.TeamId.Value,ct))
             throw new UnauthorizedAccessException("B3_NO_VERIFIED_LOCATION_WRITE_SCOPE");
         if(!loc.RowVersion.SequenceEqual(Version(input.ExpectedRowVersion)))
             throw new InvalidOperationException("ROWVERSION_CONFLICT");
