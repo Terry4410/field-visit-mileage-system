@@ -138,6 +138,31 @@ public sealed class V180QueryExportTests
             bounds);
     }
 
+    [Fact]
+    public void Period_boundaries_cover_inclusive_overlap_and_one_day_changes()
+    {
+        var nested = typeof(V180QueryExportController)
+            .GetNestedType("PersonnelHistoryEvent", BindingFlags.NonPublic)!;
+        var entries = (System.Collections.IList)Activator.CreateInstance(
+            typeof(List<>).MakeGenericType(nested))!;
+        object Create(DateOnly start, DateOnly? end, long id) =>
+            Activator.CreateInstance(nested,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, ["001", "角色", "visitor", "外訪員", start, end, "42", null, null, id], null)!;
+        entries.Add(Create(new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 1), 1));
+        entries.Add(Create(new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 3), 2));
+        entries.Add(Create(new DateOnly(2026, 1, 3), null, 3));
+        entries.Add(Create(new DateOnly(2027, 1, 1), null, 4));
+        var method = typeof(V180QueryExportController)
+            .GetMethod("BuildPeriodBounds", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var bounds = (List<DateOnly>)method.Invoke(null, [entries, new DateOnly(2026, 1, 5)])!;
+        Assert.Equal(
+            [new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 2),
+             new DateOnly(2026, 1, 3), new DateOnly(2026, 1, 4),
+             new DateOnly(2026, 1, 6)],
+            bounds);
+    }
+
     private static Task<List<string>> InvokeAll(Func<int, Task<PagedResult<string>>> loader)
     {
         var method = typeof(V180QueryExportController)
