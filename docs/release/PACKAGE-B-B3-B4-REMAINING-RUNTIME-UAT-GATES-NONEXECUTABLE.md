@@ -100,6 +100,19 @@ are **not** HTTP/API E2E. Neither B3 flag nor review/apply executor is
 activated. No 011 migration, promotion, deployment or existing database
 access is authorized by this work. All 22 B4 scenarios remain **PENDING**.
 
+## Third-party-style negative engine checks (WORK branch only)
+
+The SQL 2022 disposable-fixture suite adds nine targeted negative cases:
+reopening a historically rejected request while another Pending exists must
+fail without losing its decision event; invalid Organization/Team FKs,
+unknown Location operation/risk codes and malformed RowVersion values cannot
+write; Pending review metadata and Submitted/Rejected event decision keys
+must satisfy the physical CHECKs; JSON damage must not rewrite prior audit;
+a referenced reviewer or request cannot be deleted; and a future latest
+schema version fails readiness. The named TRX manifest therefore requires
+**42/42** passing engine cases before marking *isolated SQL* PASS. This
+number must never be used as B4 scenario signoff.
+
 ## B4 22-case evidence classification (isolated-only; NOT full B4 sign-off)
 
 The columns distinguish **existence of an isolated SQL engine check** from an executed full B4 acceptance scenario. The new five fixture cases are provisional until their exact GitHub SHA/TRX is green; passing a fixture never changes a scenario to GO. "HTTP" requires separately authorized isolated API E2E with live HR/role/team/ownership data. "Independent" includes owner approval of candidate 011 execution or UAT gate as applicable. This matrix is a handoff mapping, not a waiver.

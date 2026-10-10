@@ -29,7 +29,7 @@ class SqlEvidenceTests(unittest.TestCase):
 
     def test_complete_named_sql_suite_remains_nonrelease(self):
         result=validate(self.path,"a"*40)
-        self.assertEqual(33,result["tests_passed"])
+        self.assertEqual(42,result["tests_passed"])
         self.assertEqual(self.names,result["verified_case_names"])
         self.assertEqual("HARD_HOLD",result["production"])
         self.assertEqual("NOT_EXECUTED",result["formal_schema_migration"])
@@ -37,8 +37,8 @@ class SqlEvidenceTests(unittest.TestCase):
     def test_case_results_are_individually_exported_and_sha_bound(self):
         result=validate(self.path,"a"*40)
         self.assertEqual("a"*40,result["source_sha"])
-        self.assertEqual(33,len(result["case_results"]))
-        self.assertEqual(33,len({x["test_id"] for x in result["case_results"]}))
+        self.assertEqual(42,len(result["case_results"]))
+        self.assertEqual(42,len({x["test_id"] for x in result["case_results"]}))
         self.assertTrue(all(x["outcome"]=="Passed" for x in result["case_results"]))
         self.assertTrue(all(x["duration"]=="00:00:00.001" for x in result["case_results"]))
 
@@ -54,7 +54,7 @@ class SqlEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"not completed"):
             validate(self.path)
 
-    def test_missing_sha_fails_even_with_all_33_green_results(self):
+    def test_missing_sha_fails_even_with_all_42_green_results(self):
         with self.assertRaisesRegex(ValueError,"SHA"):
             validate(self.path)
 
@@ -96,6 +96,29 @@ class SqlEvidenceTests(unittest.TestCase):
             'duration="00:00:00.001"','duration="negative"',1))
         with self.assertRaisesRegex(ValueError,"duration"):
             validate(self.path,"c"*40)
+
+    def test_duplicate_test_id_is_denied(self):
+        self.path.write_text(self.path.read_text().replace(
+            'testId="test-1"','testId="test-0"'))
+        with self.assertRaisesRegex(ValueError,"duplicated testId"):
+            validate(self.path,"e"*40)
+
+    def test_missing_test_name_is_denied(self):
+        self.path.write_text(self.path.read_text().replace(
+            f'testName="{SQL_TEST_PREFIX}{self.names[0]}"',''))
+        with self.assertRaisesRegex(ValueError,"mandatory named test cases"):
+            validate(self.path,"e"*40)
+
+    def test_inconclusive_outcome_with_forged_counter_is_denied(self):
+        self.make(outcomes={self.names[0]:"Inconclusive"})
+        with self.assertRaisesRegex(ValueError,"non-passing"):
+            validate(self.path,"e"*40)
+
+    def test_negative_total_is_denied(self):
+        self.path.write_text(self.path.read_text().replace(
+            'total="42"','total="-42"'))
+        with self.assertRaisesRegex(ValueError,"missing, skipped or failed"):
+            validate(self.path,"e"*40)
 
     def test_missing_trx_fails_closed(self):
         self.path.unlink()

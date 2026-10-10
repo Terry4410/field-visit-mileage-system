@@ -46,6 +46,15 @@ REQUIRED_SQL_TESTS=frozenset({
     "Stale_reviewer_rowversion_cannot_create_decision_audit",
     "Catalog_denies_missing_request_public_unique_index_until_restored",
     "Cross_organization_pending_submission_preserves_separate_audit_histories",
+    "Rejected_request_cannot_reopen_pending_when_newer_pending_exists",
+    "Invalid_organization_or_team_fk_never_persists_change_request",
+    "Invalid_request_operation_or_risk_codes_are_rejected_by_real_checks",
+    "Pending_request_cannot_carry_reviewer_or_applied_fields",
+    "Submitted_audit_cannot_have_decision_key_and_rejected_audit_requires_one",
+    "Malformed_audit_event_cannot_replace_committed_decision_history",
+    "Decision_audit_fk_preserves_reviewer_and_event_history",
+    "Future_schema_version_is_rejected_until_latest_version_is_restored",
+    "Request_with_invalid_expected_rowversion_bytes_is_denied_without_audit",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
