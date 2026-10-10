@@ -181,7 +181,7 @@ public static class V180B3SqlSafetyRules
                 )
             )=6
 
-            -- The 7 candidate 011 CHECK constraints must all be enabled and
+            -- The 8 candidate 011 CHECK constraints must all be enabled and
             -- trusted. Names + essential expression tokens are checked here;
             -- full normalized definition matching and live SQL Server proof
             -- remain an independent IT/Owner gate before feature activation.
@@ -193,7 +193,8 @@ public static class V180B3SqlSafetyRules
                     (N'ChangeRequests',N'CK_B3_ChangeRequests_ProposedJson',N'isjson',N'proposedjson'),
                     (N'ChangeRequests',N'CK_B3_ChangeRequests_ReviewState',N'reviewedbyuserid',N'appliedat'),
                     (N'ChangeRequestEvents',N'CK_B3_ChangeRequestEvents_EventType',N'submitted',N'rejected'),
-                    (N'ChangeRequestEvents',N'CK_B3_ChangeRequestEvents_DetailsJson',N'isjson',N'detailsjson')
+                    (N'ChangeRequestEvents',N'CK_B3_ChangeRequestEvents_DetailsJson',N'isjson',N'detailsjson'),
+                    (N'ChangeRequestEvents',N'CK_B3_ChangeRequestEvents_DecisionState',N'decisionkey',N'actoruserid')
                 ) AS required(TableName,ConstraintName,Token1,Token2)
                 WHERE EXISTS (
                     SELECT 1 FROM sys.check_constraints cc
@@ -203,7 +204,7 @@ public static class V180B3SqlSafetyRules
                       AND LOWER(cc.definition) LIKE N'%'+required.Token1+N'%'
                       AND LOWER(cc.definition) LIKE N'%'+required.Token2+N'%'
                 )
-            )=7
+            )=8
             THEN 1 ELSE 0 END AS int) AS Value
         """;
 

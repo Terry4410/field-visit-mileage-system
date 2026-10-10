@@ -53,7 +53,7 @@ Indexes: (ChangeRequestId, OccurredAt, ChangeRequestEventId); CorrelationId; `UX
 
 ## Candidate 011 CHECK constraints (DRAFT — not executable)
 
-The candidate EF Model declares seven named SQL Server CHECK constraints for defense in depth. **These are not installed.** Names and draft expressions require IT review of SQL Server CHECK semantics and future workflow statuses before an executable migration can be authorized.
+The candidate EF Model declares eight named SQL Server CHECK constraints for defense in depth. **These are not installed.** Names and draft expressions require IT review of SQL Server CHECK semantics and future workflow statuses before an executable migration can be authorized.
 
 | Constraint | Intended fail-closed check |
 | --- | --- |
@@ -61,11 +61,12 @@ The candidate EF Model declares seven named SQL Server CHECK constraints for def
 | `CK_B3_ChangeRequests_KnownStatus` | Status from Pending, Rejected, Returned, Applied, Cancelled |
 | `CK_B3_ChangeRequests_ExpectedLocationVersion` | Source Location ROWVERSION evidence is non-null and exactly 8 bytes |
 | `CK_B3_ChangeRequests_ProposedJson` | ProposedJson must be valid JSON |
-| `CK_B3_ChangeRequests_ReviewState` | Pending has no review/applied fields; Rejected has independent decision identity, timestamp, reason and no AppliedAt |
+| `CK_B3_ChangeRequests_ReviewState` | Pending has no review/applied fields; Rejected has independent decision identity, timestamp, explicitly NON-NULL nonblank reason and no AppliedAt (avoid SQL CHECK UNKNOWN passing on NULL) |
 | `CK_B3_ChangeRequestEvents_EventType` | Submitted or Rejected audit event types only until future apply is authorized |
 | `CK_B3_ChangeRequestEvents_DetailsJson` | Optional event DetailsJson must be valid JSON |
+| `CK_B3_ChangeRequestEvents_DecisionState` | Submitted event requires no DecisionKey; Rejected requires a non-null DecisionKey and real actor |
 
-Runtime read-only catalog gate checks all seven named constraints exist, are enabled/trusted, and mention key expression tokens. **Token checks cannot prove semantic equivalence to the approved DDL**. Actual SQL Server compile, normalized constraint definitions, effective behavior, 011 migration and UAT concurrency remain HOLD until separately approved. Future applied-event types or status transitions must undergo a new IA rather than silently changing these gates.
+Runtime read-only catalog gate checks all eight named constraints exist, are enabled/trusted, and mention key expression tokens. **Token checks cannot prove semantic equivalence to the approved DDL**. Actual SQL Server compile, normalized constraint definitions, effective behavior, 011 migration and UAT concurrency remain HOLD until separately approved. Future applied-event types or status transitions must undergo a new IA rather than silently changing these gates.
 
 ## Readiness and conflict behavior (NONEXECUTABLE contract)
 - B3 must remain disabled until the live SQL catalog proves both tables, 8-byte ROWVERSION concurrency token, enabled/non-hypothetical unique RequestPublicId, the exact three-key Pending filtered unique, and DecisionKey filtered unique indexes, plus six trusted, enabled, NO ACTION foreign keys. A version row without these safety structures is NOT ready.

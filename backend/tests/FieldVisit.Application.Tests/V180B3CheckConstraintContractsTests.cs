@@ -25,6 +25,7 @@ public sealed class V180B3CheckConstraintContractsTests
     [InlineData("ChangeRequests","CK_B3_ChangeRequests_ReviewState")]
     [InlineData("ChangeRequestEvents","CK_B3_ChangeRequestEvents_EventType")]
     [InlineData("ChangeRequestEvents","CK_B3_ChangeRequestEvents_DetailsJson")]
+    [InlineData("ChangeRequestEvents","CK_B3_ChangeRequestEvents_DecisionState")]
     public void Required_named_constraints_present_in_candidate_EF_and_readiness(
         string table,string constraint)
     {
@@ -39,10 +40,10 @@ public sealed class V180B3CheckConstraintContractsTests
     }
 
     [Fact]
-    public void All_seven_required_constraints_are_checked_without_running_SQL()
+    public void All_eight_required_constraints_are_checked_without_running_SQL()
     {
         var sql=V180B3SqlSafetyRules.CatalogCheckSql;
-        Assert.Contains(")=7",sql);
+        Assert.Contains(")=8",sql);
         Assert.Contains("cc.parent_object_id=OBJECT_ID",sql);
         Assert.Contains("LOWER(cc.definition)",sql);
         Assert.DoesNotContain("ALTER TABLE",sql,StringComparison.OrdinalIgnoreCase);
@@ -64,9 +65,16 @@ public sealed class V180B3CheckConstraintContractsTests
         Assert.Contains("ReviewedByUserId",review);
         Assert.Contains("ReviewedAt",review);
         Assert.Contains("AppliedAt",review);
+        Assert.Contains("[ReviewReason] IS NOT NULL",review);
+        Assert.Contains("LEN(LTRIM(RTRIM([ReviewReason])))>0",review);
         var events=db.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(V180B3ChangeEvent))!;
-        Assert.Equal(2,events.GetCheckConstraints().Count());
+        Assert.Equal(3,events.GetCheckConstraints().Count());
         Assert.Contains("ISJSON",events.GetCheckConstraints().Single(x=>
             x.Name=="CK_B3_ChangeRequestEvents_DetailsJson").Sql);
+        var decision=events.GetCheckConstraints().Single(x=>
+            x.Name=="CK_B3_ChangeRequestEvents_DecisionState").Sql;
+        Assert.Contains("[DecisionKey] IS NULL",decision);
+        Assert.Contains("[DecisionKey] IS NOT NULL",decision);
+        Assert.Contains("[ActorUserId] IS NOT NULL",decision);
     }
 }
