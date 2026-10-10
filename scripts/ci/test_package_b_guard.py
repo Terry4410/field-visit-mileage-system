@@ -109,6 +109,12 @@ class PackageBGuardNegativeTests(unittest.TestCase):
                                                   "if-no-files-found: warn"))
         self.assertIn("CI_readonly_no_deploy", self.failures())
 
+    def test_missing_service_source_records_both_guard_failures_without_exception(self):
+        self.approval.unlink()
+        errors = self.failures()
+        self.assertIn("B3_approve_executor_DENY_ALL", errors)
+        self.assertIn("B3_bounded_payload_before_SQL_transaction", errors)
+
     def test_removed_submit_preflight_is_rejected_automatically(self):
         s = self.approval.read_text().replace(
             "V180B3RequestInputRules.RequireSubmission(input); ", "")

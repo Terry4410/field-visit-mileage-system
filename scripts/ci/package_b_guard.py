@@ -61,7 +61,7 @@ def scan():
     # Prevent future refactors from moving large untrusted DTO parsing into
     # SQL transactions or allowing malformed payloads to perform DB queries.
     try:
-        source = service
+        source = (ROOT / "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs").read_text(encoding="utf-8")
         submit_start = source.index("public async Task<V180B3RequestView> SubmitAsync(")
         mine_start = source.index("public async Task<IReadOnlyList<V180B3RequestView>> MineAsync(")
         reject_start = source.index("public async Task<V180B3RequestView> RejectAsync(")
