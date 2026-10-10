@@ -225,6 +225,94 @@ public sealed class V180QueryExportController(
     private static string SafeName(string raw) =>
         new string(raw.Select(x=>char.IsLetterOrDigit(x)||x=='-'||x=='_'?x:'_').Take(60).ToArray());
 
+
+    // Read-only multi-sheet HR report. All heavy history relations are loaded in
+    // bounded organization-scoped queries rather than one API call per employee.
+    [HttpGet("personnel-full.xlsx")]
+    public async Task<IActionResult> PersonnelFull(
+        [FromQuery] V170PeopleQueryRequest request,
+        [FromQuery] string? columns,
+        [FromQuery] bool includeHistory = true,
+        CancellationToken ct = default)
+    {
+        request = request with { UserType = "Internal" };
+        var peopleRows = await GetAllAsync(page =>
+            people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
+        var columnDefs = ParsePersonnelColumns(columns);
+        var ids = peopleRows.Select(x => x.UserId.ToString(CultureInfo.InvariantCulture))
+            .ToHashSet(StringComparer.Ordinal);
+        var employeeNos = peopleRows.Select(x => x.EmployeeNo ?? x.UserCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var sheets = new List<ExportSheet>
+        {
+            new("人員總覽",columnDefs.Select(x=>x.Header).ToArray(),
+                peopleRows.Select(row=>columnDefs.Select(x=>x.Getter(row)).ToArray()))
+        };
+        if (includeHistory)
+        {
+            var periods = await official.ListAsync("personnel-status-history",ct);
+            var legacy = await official.ListAsync("personnel-legacy-status-history",ct);
+            var roles = await official.ListAsync("personnel-role-history",ct);
+            var teams = await official.ListAsync("personnel-team-history",ct);
+            var sites = await official.ListAsync("employment-sites",ct);
+            var scopes = await official.ListAsync("personnel-scope-history",ct);
+            var capabilities = await official.ListAsync("personnel-capability-history",ct);
+            foreach (var count in new[] {periods.Count,legacy.Count,roles.Count,teams.Count,sites.Count,scopes.Count,capabilities.Count})
+                GuardOfficialCount(count);
+            var employment = periods.Concat(legacy).Where(x=>ids.Contains(x.ReferenceKey??""))
+                .OrderBy(x=>x.Key).ThenBy(x=>x.EffectiveFrom).ToList();
+            sheets.Add(new("人事狀態歷史",["工號","人事狀態","生效日","失效日","來源"],
+                employment.Select(x=>Cells(x.Key,x.ParentKey,x.EffectiveFrom,x.EffectiveTo,x.Detail))));
+            sheets.Add(new("角色有效期間",["工號","角色代碼","角色名稱","生效日","失效日"],
+                roles.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.Detail,x.EffectiveFrom,x.EffectiveTo))));
+            sheets.Add(new("小組歸屬歷史",["工號","小組代碼","小組名稱","主要小組","生效日","失效日"],
+                teams.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.Detail,x.IsPrimary==true?"是":"否",x.EffectiveFrom,x.EffectiveTo))));
+            sheets.Add(new("派駐據點歷史",["工號","Site Code","主要派駐","生效日","失效日"],
+                sites.Where(x=>employeeNos.Contains(x.Key)).Select(x=>Cells(x.Key,x.ParentKey,x.IsPrimary==true?"是":"否",x.EffectiveFrom,x.EffectiveTo))));
+            sheets.Add(new("資料範圍歷史",["工號","範圍類型","範圍識別","生效日","失效日"],
+                scopes.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.Detail,x.EffectiveFrom,x.EffectiveTo))));
+            sheets.Add(new("功能權限歷史",["工號","權限代碼","允許","生效日","失效日"],
+                capabilities.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.IsActive==true?"是":"否",x.EffectiveFrom,x.EffectiveTo))));
+        }
+        return WorkbookSheets("人事完整履歷",new {request,columns,includeHistory,Criteria="人員總覽每人一列；各歷史表依有效期間列示"},sheets);
+    }
+
+    private sealed record PersonnelColumn(string Id, string Header, Func<V170PeopleRowDto,string> Getter);
+    private static readonly PersonnelColumn[] AllPersonnelColumns =
+    [
+        new("employeeNo","工號",x=>x.EmployeeNo??x.UserCode),
+        new("name","姓名",x=>x.DisplayName),
+        new("email","Email",x=>x.Email??""),
+        new("userType","人員類型",x=>x.UserType),
+        new("employmentStatus","目前人事狀態",x=>x.EmploymentStatus??""),
+        new("hireDate","入職日",x=>Cells(x.HireDate)[0]),
+        new("terminationDate","離職日",x=>Cells(x.TerminationDate)[0]),
+        new("primaryTeam","主要小組",x=>x.PrimaryTeamName??""),
+        new("otherTeams","其他小組",x=>string.Join("、",x.TeamAssignments.Where(t=>!t.IsPrimary).Select(t=>t.TeamName))),
+        new("primarySite","主要派駐據點",x=>x.PrimaryDeploymentSiteName??""),
+        new("primaryCenter","就業中心",x=>x.PrimaryCenterName??""),
+        new("roles","目前角色",x=>string.Join("、",x.Roles)),
+        new("login","實際登入",x=>x.ActualAccess?"允許登入":"不可登入"),
+        new("authorizationFrom","授權起日",x=>Cells(x.AuthorizationFrom)[0]),
+        new("authorizationTo","授權迄日",x=>Cells(x.AuthorizationTo)[0])
+    ];
+    private static IReadOnlyList<PersonnelColumn> ParsePersonnelColumns(string? columns)
+    {
+        if(string.IsNullOrWhiteSpace(columns))return AllPersonnelColumns;
+        var requested=columns.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
+        if(requested.Length is < 1 or > 15 || requested.Distinct(StringComparer.Ordinal).Count()!=requested.Length)
+            throw new InvalidOperationException("匯出欄位重複、過多或為空。");
+        var byId=AllPersonnelColumns.ToDictionary(x=>x.Id,StringComparer.Ordinal);
+        var selection=new List<PersonnelColumn>();
+        foreach(var id in requested)
+        {
+            if(!byId.TryGetValue(id,out var column))
+                throw new InvalidOperationException("匯出欄位不在允許清單。");
+            selection.Add(column);
+        }
+        return selection;
+    }
+
     private static async Task<List<T>> GetAllAsync<T>(
         Func<int, Task<PagedResult<T>>> pageQuery, CancellationToken ct)
     {

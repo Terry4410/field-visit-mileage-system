@@ -268,6 +268,62 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     B64(x.RowVersion),
                     null)).ToListAsync(ct),
 
+
+            // Organization-scoped, batched read-only history for HR export.
+            // ReferenceKey is the stable user ID; never join across employees by display name.
+            "personnel-status-history" => await (
+                from p in db.EmploymentStatusPeriods.AsNoTracking()
+                join e in db.Employments.AsNoTracking() on p.EmploymentId equals e.EmploymentId
+                join ident in db.UserIdentityProfiles.AsNoTracking() on (long?)e.EmploymentId equals ident.EmploymentId
+                join u in db.Users.AsNoTracking() on ident.UserId equals u.UserId
+                where u.OrganizationId == org && e.OrganizationId == org
+                select new V180MasterDataRow(p.EmploymentStatusPeriodId,u.EmployeeNo??"",
+                    p.EmploymentStatus,p.SourceType,p.EffectiveFrom,p.EffectiveTo,
+                    null,null,null,u.UserId.ToString())).ToListAsync(ct),
+
+            "personnel-legacy-status-history" => await (
+                from p in db.UserEmploymentPeriods.AsNoTracking()
+                join u in db.Users.AsNoTracking() on p.UserId equals u.UserId
+                where u.OrganizationId == org && !db.UserIdentityProfiles.Any(i=>i.UserId==u.UserId && i.EmploymentId.HasValue)
+                select new V180MasterDataRow(p.UserEmploymentPeriodId,u.EmployeeNo??"",
+                    p.EmploymentStatus,p.SourceType,p.EffectiveFrom,p.EffectiveTo,
+                    null,null,null,u.UserId.ToString())).ToListAsync(ct),
+
+            "personnel-role-history" => await (
+                from a in db.UserRoleAssignments.AsNoTracking()
+                join u in db.Users.AsNoTracking() on a.UserId equals u.UserId
+                join role in db.Roles.AsNoTracking() on a.RoleId equals role.RoleId
+                where u.OrganizationId == org
+                select new V180MasterDataRow(a.UserRoleAssignmentId,u.EmployeeNo??"",
+                    role.RoleCode,role.RoleName,a.EffectiveFrom,a.EffectiveTo,
+                    null,null,null,u.UserId.ToString())).ToListAsync(ct),
+
+            "personnel-team-history" => await (
+                from a in db.UserTeamAssignments.AsNoTracking()
+                join u in db.Users.AsNoTracking() on a.UserId equals u.UserId
+                join team in db.Teams.AsNoTracking() on a.TeamId equals team.TeamId
+                where u.OrganizationId == org && team.OrganizationId == org
+                select new V180MasterDataRow(a.UserTeamAssignmentId,u.EmployeeNo??"",
+                    team.TeamCode,team.TeamName,a.EffectiveFrom,a.EffectiveTo,
+                    null,a.IsPrimary,null,u.UserId.ToString())).ToListAsync(ct),
+
+            "personnel-scope-history" => await (
+                from a in db.UserDataScopes.AsNoTracking()
+                join u in db.Users.AsNoTracking() on a.UserId equals u.UserId
+                where u.OrganizationId == org
+                select new V180MasterDataRow(a.UserDataScopeId,u.EmployeeNo??"",
+                    a.ScopeType,a.OrganizationId.HasValue?"Organization ID: "+a.OrganizationId.Value.ToString():
+                    a.TeamId.HasValue?"Team ID: "+a.TeamId.Value.ToString():"",
+                    a.EffectiveFrom,a.EffectiveTo,null,null,null,u.UserId.ToString())).ToListAsync(ct),
+
+            "personnel-capability-history" => await (
+                from a in db.UserCapabilities.AsNoTracking()
+                join u in db.Users.AsNoTracking() on a.UserId equals u.UserId
+                where u.OrganizationId == org
+                select new V180MasterDataRow(a.UserCapabilityId,u.EmployeeNo??"",
+                    a.CapabilityCode,null,a.EffectiveFrom,a.EffectiveTo,
+                    a.IsAllowed,null,null,u.UserId.ToString())).ToListAsync(ct),
+
             "employment-sites" => await (
                 from x in db.EmploymentDeploymentSiteAssignments
                 join e in db.Employments on x.EmploymentId equals e.EmploymentId
