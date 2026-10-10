@@ -119,4 +119,63 @@ public sealed class V180SecurityGrantWriteGatesTests
         await AssertSecurityWritesDeniedAsync(db,Actor(orgId:null));
         await AssertSecurityWritesDeniedAsync(db,Actor(orgId:2));
     }
+
+    [Fact]
+    public async Task Active_admin_is_allowed_through_security_gate_to_normal_business_validation()
+    {
+        await using var db=await SeedAsync();
+        var actor=new Current(Actor());
+        var admin=await V180CurrentAdminWriteGuard.RequireAsync(
+            db,actor.GetRequired(),CancellationToken.None);
+        Assert.Equal(701,admin.UserId);
+
+        // The target intentionally does not exist. Authorization must pass,
+        // then existing business validation must reject unknown person.
+        var today=DateOnly.FromDateTime(DateTime.UtcNow);
+        var roleError=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+            new V180InternalRoleCommandService(db,actor).UpdateAsync(
+                999,new V180InternalRoleAccessRequest(["visitor"],today),
+                CancellationToken.None));
+        Assert.Contains("Internal User",roleError.Message);
+        var teamError=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+            new V180TeamMembershipCommandService(db,actor).UpdateAsync(
+                999,new V180ReplaceTeamMembershipsRequest([],today),
+                CancellationToken.None));
+        Assert.Contains("內部人員",teamError.Message);
+        Assert.Empty(await db.AuditLogs.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(EmploymentStatuses.Leave,EmploymentStatuses.Active,false)]
+    [InlineData(EmploymentStatuses.Terminated,EmploymentStatuses.Active,false)]
+    [InlineData(EmploymentStatuses.Active,EmploymentStatuses.Leave,true)]
+    public async Task Bound_v18_HR_period_is_authoritative_over_legacy_status(
+        string newStatus,string legacyStatus,bool shouldAllow)
+    {
+        await using var db=await SeedAsync(hr:legacyStatus);
+        var today=DateOnly.FromDateTime(DateTime.UtcNow);
+        db.UserIdentityProfiles.Add(new UserIdentityProfile{
+            UserId=701,EmploymentId=7001,UserType=UserTypes.Internal,UserCode="A701"});
+        db.Employments.Add(new Employment{
+            EmploymentId=7001,PersonId=7001,OrganizationId=1,
+            LegacyUserId=701,SourceType="UAT"});
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod{
+            EmploymentStatusPeriodId=7001,EmploymentId=7001,
+            EmploymentStatus=newStatus,EffectiveFrom=today.AddDays(-2),
+            SourceType="UAT"});
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        if(shouldAllow)
+        {
+            var result=await V180CurrentAdminWriteGuard.RequireAsync(
+                db,Actor(),CancellationToken.None);
+            Assert.Equal(701,result.UserId);
+        }
+        else
+        {
+            await AssertSecurityWritesDeniedAsync(db,Actor());
+        }
+        Assert.Empty(await db.AuditLogs.ToListAsync());
+    }
 }
