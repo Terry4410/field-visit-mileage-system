@@ -60,6 +60,19 @@ def scan():
         gate("B3_approve_executor_DENY_ALL", False, exc)
     migration_dir = ROOT / "database/migrations"
     gate("migration_dir_present", migration_dir.is_dir(), migration_dir)
+    # No previously approved migration may be edited to hide unapproved DDL.
+    try:
+        changed_sql = git("diff", "--name-only", BASELINE, "HEAD", "--",
+                          "database/migrations")
+        gate("all_migrations_unchanged_since_baseline", not bool(changed_sql),
+             "changed migration files: " + str(changed_sql.splitlines()))
+        changed_workflows = git("diff", "--name-only", BASELINE, "HEAD", "--",
+                                ".github/workflows")
+        unapproved = [p for p in changed_workflows.splitlines()
+                      if p != ".github/workflows/package-b-b2-b3-controlled-verify.yml"]
+        gate("no_unapproved_workflow_edits_since_baseline", not unapproved, unapproved)
+    except (subprocess.CalledProcessError, OSError) as exc:
+        gate("no_migration_or_workflow_release_changes", False, exc)
     forbidden = sorted(str(p.relative_to(ROOT)) for p in migration_dir.rglob("*")
                        if p.is_file() and re.search(r"1800[_-]011", p.name, re.I))
     gate("no_executable_011_migration", not forbidden, forbidden)
@@ -68,6 +81,11 @@ def scan():
     dispatch = sorted(str(p.relative_to(ROOT)) for p in workflow_dir.glob("*")
                       if p.is_file() and re.search(r"1800[_-]011", p.name, re.I))
     gate("no_011_deploy_workflow", not dispatch, dispatch)
+    # Reject a disguised workflow that dispatches 011 using a neutral filename.
+    embedded = sorted(str(p.relative_to(ROOT)) for p in workflow_dir.glob("*")
+                      if p.is_file() and p.suffix in (".yml", ".yaml")
+                      and re.search(r"1800[_-]011", p.read_text(encoding="utf-8"), re.I))
+    gate("no_hidden_011_workflow_dispatch", not embedded, embedded)
     try:
         yml = (workflow_dir / "package-b-b2-b3-controlled-verify.yml").read_text(encoding="utf-8")
         valid = ("contents: read" in yml and "persist-credentials: false" in yml

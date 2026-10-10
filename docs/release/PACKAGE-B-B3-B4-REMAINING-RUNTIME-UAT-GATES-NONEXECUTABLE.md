@@ -49,6 +49,10 @@ This file is a handoff/checklist, **not** executable SQL, a test-run report or a
 | B4-SQL-19 | SqlException 2601/2627 vs unrelated constraint/deadlock error | Known named B3 duplicates 409; unknown error fail closed, no false success |
 | B4-SQL-20 | Business HR/Role/Team/Project/OfficialSite bulk operations after Admin role revoked | All sensitive writes denied; audit and dependent history unchanged |
 
+## Automated read-only GitHub Actions evidence
+
+The isolated Package B WORK workflow runs on code, frontend, CI-script and Package-B review-document updates automatically. It archives JSON/Markdown gate evidence and xUnit TRX/frontend JUnit, with fail-closed aggregation. The preflight checks frozen Protected SHA, candidate ancestry, B3 OFF / Apply DENY ALL, no executable 011 migration, no historical migration edits, no unrelated release workflow edits, and rejects 011 workflow content hidden under misleading filenames. Negative CI-script unit tests exercise these gates. **This is not SQL Server UAT, an IT grant, or permission to deploy.**
+
 ## Transaction and history acceptance evidence
 - Create uniquely identified, disposable records only inside a **separately approved isolated SQL test database**, never UAT business records without explicit authorization.
 - Capture transaction correlation IDs, request/public IDs, precise before/after RowVersions, row counts, status transitions, index/FK/check metadata, full CI SHA and test logs.
