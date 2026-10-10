@@ -1,5 +1,7 @@
 using FieldVisit.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -27,7 +29,7 @@ public sealed class V180B3CheckConstraintContractsTests
         string table,string constraint)
     {
         using var db=ModelOnly();
-        var model=db.Model.GetEntityTypes().Single(x=>x.GetTableName()==table);
+        var model=db.GetService<IDesignTimeModel>().Model.GetEntityTypes().Single(x=>x.GetTableName()==table);
         var definition=model.GetCheckConstraints().Single(x=>x.Name==constraint).Sql;
         Assert.False(string.IsNullOrWhiteSpace(definition));
         var catalog=V180B3SqlSafetyRules.CatalogCheckSql;
@@ -52,7 +54,7 @@ public sealed class V180B3CheckConstraintContractsTests
     public void Proposed_checks_preserve_review_and_audit_state_invariants()
     {
         using var db=ModelOnly();
-        var requests=db.Model.FindEntityType(typeof(V180B3ChangeRequest))!;
+        var requests=db.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(V180B3ChangeRequest))!;
         var checks=requests.GetCheckConstraints().ToArray();
         Assert.Equal(5,checks.Length);
         var status=checks.Single(x=>x.Name=="CK_B3_ChangeRequests_KnownStatus").Sql;
@@ -62,7 +64,7 @@ public sealed class V180B3CheckConstraintContractsTests
         Assert.Contains("ReviewedByUserId",review);
         Assert.Contains("ReviewedAt",review);
         Assert.Contains("AppliedAt",review);
-        var events=db.Model.FindEntityType(typeof(V180B3ChangeEvent))!;
+        var events=db.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(V180B3ChangeEvent))!;
         Assert.Equal(2,events.GetCheckConstraints().Count());
         Assert.Contains("ISJSON",events.GetCheckConstraints().Single(x=>
             x.Name=="CK_B3_ChangeRequestEvents_DetailsJson").Sql);
