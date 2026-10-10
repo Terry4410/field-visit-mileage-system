@@ -48,6 +48,24 @@ employment grants, or B4 full 22-case acceptance. API-OFF-08
 
 GitHub Run [38094069834](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38094069834), exact SHA `2ece32dac5b2111846c3de9ef7a3c3dab5d5addf`: 19/19 real HTTP JWT-route-middleware checks PASS in isolated in-memory TestServer, B3 OFF, no DB; 702/702 backend, 92/92 frontend, 65/65 Python and 42/42 separate disposable SQL Server fixture checks. Cases cover five 401 unauthenticated, five wrong-role 403, seven disabled 503 and two invalid/expired JWT 401. The next WORK CI adds a fail-closed TRX named-case evidence requirement so missing/replaced tests cannot be hidden by a passing backend total. API-OFF-08 (live authoritative HR revocation) is still pending, all 22 B4 full scenarios remain PENDING, VAL-B1-002 BLOCKED, 1800_011 unauthorized, Apply/Approve DENY ALL, Business UAT HOLD, Production HARD HOLD.
 
+## Next WORK-only expanded security regression suite
+
+The candidate adds nine HTTP TestServer cases: wrong JWT audience,
+incorrect JWT signature, not-yet-valid token, malformed bearer token
+(all expected 401), and invalid HTTP method requests on all five
+B3 endpoints (all expected 405). The CI named-case manifest now
+requires **28/28 individually named** B3-OFF HTTP tests, independent
+of the aggregate Backend total. These tests exercise the real
+ASP.NET Core middleware and routing against an in-memory host,
+without a B3 schema, SQL access, external UAT, or feature enablement.
+They do not establish that an authenticated HR-ineligible user is
+denied by *live* HR middleware (API-OFF-08 still pending).
+
+Additional EF InMemory tests exercise live HR/role revocation and
+requester/admin tenant query projections. These remain non-SQL
+service/predicate evidence, not UAT HTTP authorization or B4 sign-off.
+All 22 full B4 scenarios remain PENDING and all release gates HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |

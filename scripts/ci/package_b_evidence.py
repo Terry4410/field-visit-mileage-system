@@ -120,7 +120,11 @@ HTTP_REQUIRED=frozenset(
                        ("Mine","visitor"),("Mine","admin"),
                        ("Pending","admin"),("Reject","admin"),("Approve","admin"))]
     + ["HTTP_expired_or_wrong_issuer_JWT_cannot_read_B3_queue(expired: True, wrongIssuer: False)",
-       "HTTP_expired_or_wrong_issuer_JWT_cannot_read_B3_queue(expired: False, wrongIssuer: True)"])
+       "HTTP_expired_or_wrong_issuer_JWT_cannot_read_B3_queue(expired: False, wrongIssuer: True)"]
+    + [f'HTTP_bad_JWT_variant_rejected_with_401_before_disabled_gate(variant: "{variant}")'
+       for variant in ("wrong-audience","wrong-signature","not-yet-valid","malformed")]
+    + [f'HTTP_wrong_method_cannot_bypass_endpoint_role_or_feature_gate(action: "{action}")'
+       for action in ("locations","mine","admin/pending","admin/reject","admin/approve")])
 
 
 def validate_http_off_trx(path: Path) -> dict:

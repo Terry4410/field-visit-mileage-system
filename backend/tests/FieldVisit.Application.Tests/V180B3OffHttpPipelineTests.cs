@@ -71,7 +71,8 @@ public sealed class B3DisabledHttpFactory : WebApplicationFactory<V180B3ChangeRe
         BaseAddress=new Uri("https://localhost"),
         AllowAutoRedirect=false
     });
-    public string Token(string role,bool expired=false,bool wrongIssuer=false)
+    public string Token(string role,bool expired=false,bool wrongIssuer=false,
+        bool wrongAudience=false,bool notYetValid=false,bool invalidSignature=false)
     {
         // Bind test JWT to the *actual* app authentication options, not
         // a guessed appsettings snapshot; assert that test config overrides
@@ -99,11 +100,13 @@ public sealed class B3DisabledHttpFactory : WebApplicationFactory<V180B3ChangeRe
         };
         var jwt=new JwtSecurityToken(
             issuer:wrongIssuer?"WRONG-ISSUER":Issuer,
-            audience:Audience,claims:claims,
-            notBefore:DateTime.UtcNow.AddMinutes(-15),
-            expires:expired?DateTime.UtcNow.AddMinutes(-5):DateTime.UtcNow.AddMinutes(10),
+            audience:wrongAudience?"WRONG-AUDIENCE":Audience,claims:claims,
+            notBefore:notYetValid?DateTime.UtcNow.AddMinutes(12):DateTime.UtcNow.AddMinutes(-15),
+            expires:expired?DateTime.UtcNow.AddMinutes(-5)
+                :notYetValid?DateTime.UtcNow.AddMinutes(24):DateTime.UtcNow.AddMinutes(10),
             signingCredentials:new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestKey)),
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
+                    invalidSignature?"WRONG_SIGNING_KEY_B3_HTTP_ISOLATED_98765":TestKey)),
                 SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(jwt);
     }
@@ -193,4 +196,52 @@ public sealed class V180B3OffHttpPipelineTests(B3DisabledHttpFactory factory)
         using var response=await Send(client,"Pending");
         Assert.Equal(HttpStatusCode.Unauthorized,response.StatusCode);
     }
+
+    [Theory]
+    [InlineData("wrong-audience")]
+    [InlineData("wrong-signature")]
+    [InlineData("not-yet-valid")]
+    [InlineData("malformed")]
+    public async Task HTTP_bad_JWT_variant_rejected_with_401_before_disabled_gate(string variant)
+    {
+        using var client=factory.Client();
+        var token=variant switch
+        {
+            "wrong-audience"=>factory.Token("admin",wrongAudience:true),
+            "wrong-signature"=>factory.Token("admin",invalidSignature:true),
+            "not-yet-valid"=>factory.Token("admin",notYetValid:true),
+            "malformed"=>"not-a-valid-jwt-token",
+            _=>throw new ArgumentOutOfRangeException(nameof(variant))
+        };
+        client.DefaultRequestHeaders.Authorization=
+            new AuthenticationHeaderValue("Bearer",token);
+        using var response=await Send(client,"Pending");
+        Assert.Equal(HttpStatusCode.Unauthorized,response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("locations")]
+    [InlineData("mine")]
+    [InlineData("admin/pending")]
+    [InlineData("admin/reject")]
+    [InlineData("admin/approve")]
+    public async Task HTTP_wrong_method_cannot_bypass_endpoint_role_or_feature_gate(string action)
+    {
+        var path=action switch
+        {
+            "locations"=>"/api/v1/change-requests/locations",
+            "mine"=>"/api/v1/change-requests/mine",
+            "admin/pending"=>"/api/v1/change-requests/admin/pending",
+            "admin/reject"=>$"/api/v1/change-requests/admin/{RequestId}/reject",
+            "admin/approve"=>$"/api/v1/change-requests/admin/{RequestId}/approve",
+            _=>throw new ArgumentOutOfRangeException(nameof(action))
+        };
+        using var client=factory.Client();
+        var method=action is "locations" or "admin/reject" or "admin/approve"
+            ?HttpMethod.Get:HttpMethod.Post;
+        using var request=new HttpRequestMessage(method,path);
+        using var response=await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed,response.StatusCode);
+    }
+
 }

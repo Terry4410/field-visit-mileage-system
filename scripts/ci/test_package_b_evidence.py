@@ -232,9 +232,9 @@ class B3HttpOffEvidenceCases(unittest.TestCase):
             rows.append(f'<UnitTestResult testName="{HTTP_PREFIX}{safe_name}" outcome="{outcome}"{ids}/>')
         self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
 
-    def test_all_19_named_cases_preserve_uat_hold(self):
+    def test_all_28_named_cases_preserve_uat_hold(self):
         x=validate_http_off_trx(self.trx)
-        self.assertEqual(19,x["passed"])
+        self.assertEqual(28,x["passed"])
         self.assertEqual("HOLD",x["business_uat"])
 
     def test_missing_case_denied(self):
