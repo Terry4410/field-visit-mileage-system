@@ -701,18 +701,14 @@ public sealed class V170LocationRepository(
     public async Task<V170LocationMaintenanceDto> UpdateMaintenanceAsync(
         CurrentUserDto user,int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct)
     {
-        V180LocationOwnershipRules.EnsurePublishedMasterWrite(user);
-        var currentAdmin=await (
-            from ur in db.UserRoles.AsNoTracking()
-            join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
-            where ur.UserId==user.UserId && role.IsActive && role.RoleCode=="admin"
-            select role.RoleId).AnyAsync(ct);
-        if(!currentAdmin)
-            throw new UnauthorizedAccessException("管理權限已失效，請重新登入。");
+        await EnsureCurrentAdminLocationMutationAsync(user,ct);
         var accessible=await AccessibleLocations(user).AnyAsync(x=>x.LocationId==locationId,ct);
         if(!accessible)throw new KeyNotFoundException("找不到可維護的正式地點。");
 
         var row=await db.Locations.SingleAsync(x=>x.LocationId==locationId,ct);
+        // Readable organization-null masters require separate privileged governance,
+        // and cannot be changed through this organization-scoped maintenance path.
+        V180LocationAdminMutationRules.RequireScopedLocation(user,row.OrganizationId);
         EnsureRowVersion(row.RowVersion,request.RowVersion);
 
         var before=new
@@ -1068,6 +1064,7 @@ public sealed class V170LocationRepository(
     public async Task ConfirmDistinctAsync(
         CurrentUserDto admin,int sourceLocationId,V170LocationDuplicateDistinctRequest request,CancellationToken ct)
     {
+        await EnsureCurrentAdminLocationMutationAsync(admin,ct);
         var org=admin.OrganizationId??throw new UnauthorizedAccessException("管理者缺少 Organization scope。");
         var source=await db.Locations.SingleOrDefaultAsync(
             x=>x.LocationId==sourceLocationId&&x.OrganizationId==org,ct)
@@ -1130,6 +1127,7 @@ public sealed class V170LocationRepository(
     public async Task MergeAsync(
         CurrentUserDto admin,int sourceLocationId,V170LocationMergeRequest request,CancellationToken ct)
     {
+        await EnsureCurrentAdminLocationMutationAsync(admin,ct);
         var preview=await PreviewMergeAsync(admin,sourceLocationId,request.SurvivorLocationId,ct);
         if(!preview.CanMerge)throw new InvalidOperationException(preview.BlockingReason??"此地點目前不可合併。");
 
@@ -1263,6 +1261,40 @@ public sealed class V170LocationRepository(
         await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,survivor,admin.UserId,ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// A current bearer token or compatibility UserRoles row alone is not
+    /// administrative authority. Recheck HR and both role sources for every
+    /// privileged Location maintenance, duplicate-review and merge mutation.
+    /// This is NOT a B3 approval/execution grant.
+    /// </summary>
+    private async Task EnsureCurrentAdminLocationMutationAsync(
+        CurrentUserDto user,CancellationToken ct)
+    {
+        V180LocationOwnershipRules.EnsurePublishedMasterWrite(user);
+        if(!user.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("管理者缺少有效組織授權。");
+        var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(x=>
+            x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
+            ??throw new UnauthorizedAccessException("管理帳號或組織已失效。");
+        if(!(await new V170AccessControl(db).EvaluateLoginAsync(
+            user.UserId,account.IsActive,ct)).IsAllowed)
+            throw new UnauthorizedAccessException("目前人事狀態不允許維護正式地點。");
+        var today=BusinessTime.Today;
+        var dated=await (
+            from grant in db.UserRoleAssignments.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId&&role.IsActive
+                &&grant.EffectiveFrom<=today
+                &&(!grant.EffectiveTo.HasValue||grant.EffectiveTo.Value>=today)
+            select role.RoleCode).ToListAsync(ct);
+        var projected=await (
+            from grant in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId&&role.IsActive
+            select role.RoleCode).ToListAsync(ct);
+        V180LocationAdminMutationRules.RequireCurrentAdmin(user,dated,projected);
     }
 
     private static string? TrimToNull(string? value)
