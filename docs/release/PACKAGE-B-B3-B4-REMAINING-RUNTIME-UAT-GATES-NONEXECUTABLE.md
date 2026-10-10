@@ -27,6 +27,10 @@ This file is a handoff/checklist, **not** executable SQL, a test-run report or a
 
 On the controlled WORK branch, a separate GitHub Actions job starts a disposable Microsoft SQL Server 2022 Developer Edition container bound ONLY to 127.0.0.1:14335. It generates a one-run password, creates a fresh random `B3SqlFixture_<GUID>` database, exercises candidate B3 SQL Server catalog/uniqueness/FK/CHECK/RowVersion behavior, then drops the database and deletes the container. Its C# test fixture is NOT `1800_011` and must never be copied to UAT as a migration. The job uses **no Azure secrets or existing SQL Server**. SQL Server results are distinct artifacts and cannot certify the absent 011 schema in UAT, complete business authorization, HTTP E2E, all 22 B4 cases, or production readiness. Any failing fixture job fails the overall WORK CI. Full Business UAT and Production remain HOLD.
 
+## Owner-authorized disposable SQL Server runtime evidence
+
+A separate real SQL Server 2022 job exercises the ephemeral candidate B3 schema (never the formal migration) and now also covers invalid independent reviews, corrupted Submitted/Rejected audit events, transaction rollback on failed event insert, untrusted FK, and latest-schema drift. It captures TRX in a dedicated SQL-only artifact and runs a fail-closed parser that checks per-case outcomes, totals, missing/skipped evidence, exact WORK SHA and explicit UAT/Production HOLD. The number of passing fixture tests is **not** a count of completed B4 cases on a deployed UAT database.
+
 ## Required B4 negative cases (NOT YET PASSED in SQL Server runtime)
 | ID | Scenario | Expected result / invariant |
 | --- | --- | --- |

@@ -133,6 +133,14 @@ jobs:
             -c Release --logger 'console;verbosity=normal' \
             --logger 'trx;LogFileName=b3-sql-server-tests.trx' \
             --results-directory .ci-artifacts
+      - name: Validate actual SQL Server TRX and publish isolated-only evidence
+        if: always()
+        run: |
+          python3 scripts/ci/package_b_sql_evidence.py \
+            --trx .ci-artifacts/b3-sql-server-tests.trx \
+            --report .ci-artifacts/b3-sql-evidence.json \
+            --summary .ci-artifacts/b3-sql-evidence.md
+          cat .ci-artifacts/b3-sql-evidence.md >> "$GITHUB_STEP_SUMMARY"
       - name: Capture disposable SQL runtime test evidence
         if: always()
         shell: bash
