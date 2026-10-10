@@ -496,6 +496,125 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
     }
 
     [Fact]
+    public async Task Valid_rejection_reopens_pending_slot_but_preserves_decision_history()
+    {
+        var entity="REOPEN_"+Guid.NewGuid().ToString("N");
+        var original=await _fixture.InsertRequestAsync(entity);
+        await using(var conn=await _fixture.ConnectAsync())
+        await using(var tx=(SqlTransaction)await conn.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await using var update=new SqlCommand("""
+                UPDATE dbo.ChangeRequests SET Status=N'Rejected',
+                    ReviewedByUserId=20, ReviewedAt=SYSUTCDATETIME(),
+                    ReviewReason=N'Independent rejection'
+                WHERE ChangeRequestId=@id AND Status=N'Pending'
+                """,conn,tx);
+            update.Parameters.AddWithValue("@id",original);
+            Assert.Equal(1,await update.ExecuteNonQueryAsync());
+            await using var audit=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                    ActorUserId,OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+                VALUES(@id,N'Rejected',20,SYSUTCDATETIME(),
+                    NEWID(),@key,N'{"reason":"independent"}')
+                """,conn,tx);
+            audit.Parameters.AddWithValue("@id",original);
+            audit.Parameters.AddWithValue("@key",Guid.NewGuid());
+            Assert.Equal(1,await audit.ExecuteNonQueryAsync());
+            await tx.CommitAsync();
+        }
+        var fresh=await _fixture.InsertRequestAsync(entity);
+        Assert.NotEqual(original,fresh);
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE EntityId=@entity AND Status=N'Pending'",
+            ("@entity",entity))));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE EntityId=@entity AND Status=N'Rejected'",
+            ("@entity",entity))));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id AND EventType=N'Rejected'",
+            ("@id",original))));
+    }
+
+    [Fact]
+    public async Task Competing_serializable_reviewers_on_same_rowversion_commit_one_audit_event()
+    {
+        var id=await _fixture.InsertRequestAsync();
+        var version=(byte[])(await _fixture.ScalarAsync(
+            "SELECT RowVersion FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)))!;
+        async Task<bool> Review(int reviewer)
+        {
+            await using var conn=await _fixture.ConnectAsync();
+            await using var tx=(SqlTransaction)await conn.BeginTransactionAsync(
+                IsolationLevel.Serializable);
+            await using var update=new SqlCommand("""
+                UPDATE dbo.ChangeRequests SET Status=N'Rejected',
+                    ReviewedByUserId=@reviewer,ReviewedAt=SYSUTCDATETIME(),
+                    ReviewReason=N'Independent decision'
+                WHERE ChangeRequestId=@id AND Status=N'Pending' AND RowVersion=@version
+                """,conn,tx);
+            update.Parameters.AddWithValue("@id",id);
+            update.Parameters.AddWithValue("@reviewer",reviewer);
+            update.Parameters.AddWithValue("@version",version);
+            if(await update.ExecuteNonQueryAsync()!=1)
+            {
+                await tx.RollbackAsync();
+                return false;
+            }
+            await using var audit=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                    ActorUserId,OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+                VALUES(@id,N'Rejected',@reviewer,SYSUTCDATETIME(),NEWID(),@key,N'{}')
+                """,conn,tx);
+            audit.Parameters.AddWithValue("@id",id);
+            audit.Parameters.AddWithValue("@reviewer",reviewer);
+            audit.Parameters.AddWithValue("@key",Guid.NewGuid());
+            Assert.Equal(1,await audit.ExecuteNonQueryAsync());
+            await tx.CommitAsync();
+            return true;
+        }
+        var outcomes=await Task.WhenAll(
+            Task.Run(()=>Review(20)),Task.Run(()=>Review(30)));
+        Assert.Single(outcomes.Where(x=>x));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id AND EventType=N'Rejected'",
+            ("@id",id))));
+    }
+
+    [Fact]
+    public async Task Request_public_identity_cannot_be_reused_for_a_different_location()
+    {
+        var id=await _fixture.InsertRequestAsync();
+        var key=(Guid)(await _fixture.ScalarAsync(
+            "SELECT RequestPublicId FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)))!;
+        var sql="""
+            INSERT INTO dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                EntityKind,EntityId,OperationCode,RiskCode,
+                ExpectedEntityRowVersion,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+            VALUES(@key,1,7,N'Location',@entity,N'UpdatePublishedLocation',N'High',
+                0x0102030405060708,N'{}',10,SYSUTCDATETIME(),N'Pending')
+            """;
+        var ex=await Assert.ThrowsAsync<SqlException>(()=>
+            _fixture.ExecuteAsync(sql,
+                ("@key",key),("@entity",Guid.NewGuid().ToString("N"))));
+        Assert.True(ex.Number is 2601 or 2627);
+    }
+
+    [Fact]
+    public async Task Pending_unique_key_partitions_identical_entity_ids_by_organization()
+    {
+        var entity="PARTITION_"+Guid.NewGuid().ToString("N");
+        var one=await _fixture.InsertRequestAsync(entity,org:1);
+        var two=await _fixture.InsertRequestAsync(entity,org:2);
+        Assert.NotEqual(one,two);
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE EntityId=@entity AND Status=N'Pending'",
+            ("@entity",entity))));
+        // A separate live role/team/HR service check is still mandatory.
+    }
+
+    [Fact]
     public async Task Catalog_rejects_untrusted_check_until_constraint_is_retrusted()
     {
         const string constraint="CK_B3_ChangeRequests_KnownStatus";
