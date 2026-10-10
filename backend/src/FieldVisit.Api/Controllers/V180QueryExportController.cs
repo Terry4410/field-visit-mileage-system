@@ -17,7 +17,8 @@ public sealed class V180QueryExportController(
     IV160FinalRepository repository,
     ICurrentUserService current,
     V160FinalService locations,
-    MasterService master) : ControllerBase
+    MasterService master,
+    V180MasterDataAdminService official) : ControllerBase
 {
     private const int MaxRows = 10000;
     private const int BatchSize = 100;
@@ -105,6 +106,125 @@ public sealed class V180QueryExportController(
                 x.Description, x.SortOrder, x.IsActive ? "是" : "否")));
     }
 
+
+    // Independent official master exports preserve their own effective periods.
+    [HttpGet("centers.xlsx")]
+    public async Task<IActionResult> Centers([FromQuery] string? keyword, [FromQuery] string? status, CancellationToken ct)
+    {
+        var rows = (await official.ListAsync("centers", ct)).OrderBy(x => x.Key).ToList();
+        GuardOfficialCount(rows.Count);
+        var filtered = rows.Where(x => MatchCenter(x, keyword, status));
+        return Workbook("就業中心", new { keyword, status },
+            ["Center Code", "就業中心名稱", "生效日", "失效日", "目前狀態"],
+            filtered.Select(x => Cells(x.Key, x.Detail, x.EffectiveFrom, x.EffectiveTo, StatusOf(x))));
+    }
+
+    [HttpGet("deployment-sites.xlsx")]
+    public async Task<IActionResult> DeploymentSites([FromQuery] string? keyword, [FromQuery] string? status,
+        [FromQuery] string? centerCode, CancellationToken ct)
+    {
+        var centers = await official.ListAsync("centers", ct);
+        var centerNames = centers.ToDictionary(x => x.Key, x => x.Detail ?? x.Key);
+        var sites = (await official.ListAsync("deployment-sites", ct)).OrderBy(x => x.ParentKey).ThenBy(x => x.Key).ToList();
+        GuardOfficialCount(sites.Count);
+        var filtered = sites.Where(x => MatchSite(x, keyword, status, centerCode, centerNames));
+        return Workbook("官方據點", new { keyword, status, centerCode },
+            ["Center Code", "就業中心", "Site Code", "據點名稱", "Location Code", "生效日", "失效日", "目前狀態"],
+            filtered.Select(x => Cells(x.ParentKey, centerNames.GetValueOrDefault(x.ParentKey ?? ""), x.Key,
+                x.Detail, x.ReferenceKey, x.EffectiveFrom, x.EffectiveTo, StatusOf(x))));
+    }
+
+    [HttpGet("locations-official.xlsx")]
+    public async Task<IActionResult> LocationsOfficial([FromQuery] ManagedLocationQueryRequest request, CancellationToken ct)
+    {
+        var all = await GetAllAsync(page => locations.SearchManagedLocationsAsync(
+            request with { Page = page, PageSize = BatchSize }, ct), ct);
+        var centers = await official.ListAsync("centers", ct);
+        var sites = await official.ListAsync("deployment-sites", ct);
+        var assignments = await official.ListAsync("deployment-site-locations", ct);
+        var teamCenters = await official.ListAsync("team-centers", ct);
+        var teamSites = await official.ListAsync("team-sites", ct);
+        foreach(var count in new[] {centers.Count,sites.Count,assignments.Count,teamCenters.Count,teamSites.Count}) GuardOfficialCount(count);
+        return WorkbookSheets("地點與官方據點整合", request,
+        [
+            new ExportSheet("地點主檔",
+                ["Location Code","名稱","統編","主檔備註","小組","縣市","鄉鎮區","地址","Plus Code","狀態"],
+                all.Select(x=>Cells(x.LocationCode,x.LocationName,x.TaxId,x.MasterNote,x.TeamName,x.City,x.District,x.Address,x.PlusCode,x.IsActive?"啟用":"停用"))),
+            new ExportSheet("就業中心",
+                ["Center Code","中心名稱","生效日","失效日","狀態"],
+                centers.Select(x=>Cells(x.Key,x.Detail,x.EffectiveFrom,x.EffectiveTo,StatusOf(x)))),
+            new ExportSheet("官方據點",
+                ["Center Code","Site Code","據點名稱","目前 Location Code","生效日","失效日","狀態"],
+                sites.Select(x=>Cells(x.ParentKey,x.Key,x.Detail,x.ReferenceKey,x.EffectiveFrom,x.EffectiveTo,StatusOf(x)))),
+            new ExportSheet("據點地點歷史",
+                ["Site Code","Center Code","Location Code","關聯起日","關聯迄日","異動原因"],
+                assignments.Select(x=>Cells(x.Key,x.ParentKey,x.ReferenceKey,x.EffectiveFrom,x.EffectiveTo,x.Detail))),
+            new ExportSheet("小組中心對應",
+                ["小組代碼","Center Code","有效起日","有效迄日"],
+                teamCenters.Select(x=>Cells(x.Key,x.ParentKey,x.EffectiveFrom,x.EffectiveTo))),
+            new ExportSheet("小組據點對應",
+                ["小組代碼","Site Code","有效起日","有效迄日"],
+                teamSites.Select(x=>Cells(x.Key,x.ParentKey,x.EffectiveFrom,x.EffectiveTo)))
+        ]);
+    }
+
+    private static void GuardOfficialCount(int count)
+    {
+        if (count > MaxRows) throw new InvalidOperationException("主檔歷史筆數超過匯出上限，請聯絡系統管理員。");
+    }
+
+    private static string StatusOf(V180MasterDataRow row)
+    {
+        var today = BusinessTime.Today;
+        if (row.IsActive == false) return "停用";
+        if (row.EffectiveFrom > today) return "未生效";
+        if (row.EffectiveTo.HasValue && row.EffectiveTo < today) return "已失效";
+        return "有效";
+    }
+    private static bool MatchCenter(V180MasterDataRow row, string? keyword, string? status) =>
+        (string.IsNullOrWhiteSpace(keyword) || new[]{row.Key,row.Detail??""}.Any(x=>x.Contains(keyword.Trim(),StringComparison.OrdinalIgnoreCase)))
+        && (string.IsNullOrWhiteSpace(status) || StatusOf(row)==status);
+
+    private static bool MatchSite(V180MasterDataRow row, string? keyword, string? status,
+        string? centerCode, IReadOnlyDictionary<string,string> centers) =>
+        (string.IsNullOrWhiteSpace(keyword) || new[]{row.Key,row.Detail??"",row.ReferenceKey??"",row.ParentKey??"",
+            centers.GetValueOrDefault(row.ParentKey??"")??""}.Any(x=>x.Contains(keyword.Trim(),StringComparison.OrdinalIgnoreCase)))
+        && (string.IsNullOrWhiteSpace(status) || StatusOf(row)==status)
+        && (string.IsNullOrWhiteSpace(centerCode) || row.ParentKey == centerCode);
+
+    private sealed record ExportSheet(string Name, string[] Headers, IEnumerable<string[]> Rows);
+
+    private IActionResult WorkbookSheets(string title, object filters, IReadOnlyList<ExportSheet> sheets)
+    {
+        using var book = new XSSFWorkbook();
+        var metadata = book.CreateSheet("報表資訊");
+        WriteRow(metadata,0,["報表種類",title]);
+        WriteRow(metadata,1,["產生時間（台北）",DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd HH:mm:ss")]);
+        WriteRow(metadata,2,["查詢條件",JsonSerializer.Serialize(filters)]);
+        WriteRow(metadata,3,["資料權限","僅組織管理員可匯出，其他角色由 API 拒絕"]);
+        var line=4;
+        foreach(var data in sheets)
+        {
+            var sheet=book.CreateSheet(data.Name);
+            WriteRow(sheet,0,data.Headers);
+            var row=1;
+            foreach(var values in data.Rows)
+            {
+                if(row>MaxRows)throw new InvalidOperationException("工作表資料超過 10000 筆匯出上限。");
+                WriteRow(sheet,row++,values);
+            }
+            sheet.CreateFreezePane(0,1);
+            WriteRow(metadata,line++,[data.Name,"筆數", (row-1).ToString(CultureInfo.InvariantCulture)]);
+        }
+        using var stream=new MemoryStream();
+        book.Write(stream);
+        var name=$"FieldVisit_{SafeName(title)}_全組織_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
+        return File(stream.ToArray(),Mime,name);
+    }
+
+    private static string SafeName(string raw) =>
+        new string(raw.Select(x=>char.IsLetterOrDigit(x)||x=='-'||x=='_'?x:'_').Take(60).ToArray());
+
     private static async Task<List<T>> GetAllAsync<T>(
         Func<int, Task<PagedResult<T>>> pageQuery, CancellationToken ct)
     {
@@ -149,7 +269,8 @@ public sealed class V180QueryExportController(
         sheet.CreateFreezePane(0, 1);
         using var stream = new MemoryStream();
         book.Write(stream);
-        var filename = $"fieldvisit_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx";
+        var cleanTitle = SafeName(title);
+        var filename = $"FieldVisit_{cleanTitle}_全組織_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
         return File(stream.ToArray(), Mime, filename);
     }
 

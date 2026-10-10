@@ -13,7 +13,7 @@ public sealed class V180QueryExportTests
     [Fact]
     public void Workbook_has_filter_metadata_and_preserves_leading_zeros_as_text()
     {
-        var controller = new V180QueryExportController(null!, null!, null!, null!, null!);
+        var controller = new V180QueryExportController(null!, null!, null!, null!, null!, null!);
         var method = typeof(V180QueryExportController).GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var result = (FileContentResult)method.Invoke(controller,
             ["人事資料", new { Keyword = "test" }, new[] { "工號", "姓名" },

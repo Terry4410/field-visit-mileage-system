@@ -239,6 +239,17 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                     B64(x.RowVersion),
                     locationCode)).ToListAsync(ct),
 
+            "deployment-site-locations" => await (
+                from a in db.DeploymentSiteLocationAssignments.AsNoTracking()
+                join s in db.DeploymentSites.AsNoTracking() on a.DeploymentSiteId equals s.DeploymentSiteId
+                join center in db.Centers.AsNoTracking() on s.CenterId equals center.CenterId
+                join loc in db.Locations.AsNoTracking() on a.LocationId equals loc.LocationId
+                where center.OrganizationId == org && (loc.OrganizationId == org || loc.OrganizationId == null)
+                select new V180MasterDataRow(
+                    a.DeploymentSiteLocationAssignmentId, s.SiteCode, center.CenterCode,
+                    a.ChangeReason, a.EffectiveFrom, a.EffectiveTo, null, null,
+                    B64(a.RowVersion), loc.LocationCode)).ToListAsync(ct),
+
             "team-sites" => await (
                 from x in db.TeamDeploymentSiteAssignments
                 join t in db.Teams on x.TeamId equals t.TeamId

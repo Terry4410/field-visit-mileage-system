@@ -3,7 +3,7 @@ import {apiDownload} from "../api";
 import {qs} from "../v160";
 
 type FilterValue=string|number|boolean|null|undefined;
-type Props={dataset:"personnel"|"roles"|"teams"|"members"|"locations"|"projects"|"visit-types";
+type Props={dataset:"personnel"|"roles"|"teams"|"members"|"locations"|"projects"|"visit-types"|"centers"|"deployment-sites"|"locations-official";
  filters:Record<string,FilterValue>|null; label?:string; disabled?:boolean};
 
 export default function ExportFilteredButton({dataset,filters,label="匯出查詢結果 Excel",disabled=false}:Props){
