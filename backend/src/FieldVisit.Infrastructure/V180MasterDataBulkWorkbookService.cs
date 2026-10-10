@@ -57,6 +57,9 @@ public sealed class V180MasterDataBulkWorkbookService(
 
     public async Task<ImportPreviewDto> PreviewAsync(CurrentUserDto admin, byte[] content, CancellationToken ct)
     {
+        // Preview itself persists staged HR/master records and an audit event.
+        // Refuse stale Admin identity before any staging or workbook processing.
+        await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
         var orgId = RequireAdmin(admin);
         if (content.Length == 0) throw new InvalidOperationException("BULK_WORKBOOK_REQUIRED");
         if (content.Length > 10 * 1024 * 1024) throw new InvalidOperationException("BULK_WORKBOOK_TOO_LARGE");
@@ -119,6 +122,7 @@ public sealed class V180MasterDataBulkWorkbookService(
         Guid importBatchId,
         CancellationToken ct)
     {
+        await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
         var orgId = RequireAdmin(admin);
 
         if (!db.Database.IsRelational())
@@ -131,6 +135,9 @@ public sealed class V180MasterDataBulkWorkbookService(
         {
             db.ChangeTracker.Clear();
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            // Recheck authorization inside the same transaction before locks
+            // and master writes, including retries of the execution strategy.
+            await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
             await AcquireAppLockAsync(
                 $"FieldVisit.E2.ImportBatch:{importBatchId:D}",
                 "E2_IMPORT_BATCH_LOCK_FAILED",

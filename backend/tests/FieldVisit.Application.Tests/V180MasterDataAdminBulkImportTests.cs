@@ -483,7 +483,90 @@ public sealed class V180MasterDataAdminBulkImportTests
         Assert.Equal("Previewed", db.ImportBatches.Single().Status);
     }
 
-    private static AppDbContext Db() => new(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase($"v180-bulk-{Guid.NewGuid()}").Options);
+
+    [Fact]
+    public async Task Revoked_admin_cannot_stage_or_confirm_master_data_and_writes_nothing()
+    {
+        await using var db=Db();
+        var oldGrant=await db.UserRoleAssignments.SingleAsync(x=>x.UserId==900);
+        oldGrant.EffectiveTo=DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var service=new V180MasterDataBulkWorkbookService(db);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            service.PreviewAsync(Admin(),Workbook(EmptyWorkbook()),default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            service.ConfirmAsync(Admin(),Guid.NewGuid(),default));
+        Assert.Empty(await db.ImportBatches.ToListAsync());
+        Assert.Empty(await db.ImportBatchItems.ToListAsync());
+        Assert.Empty(await db.AuditLogs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Disabled_admin_cannot_stage_or_confirm_master_data()
+    {
+        await using var db=Db();
+        var actor=await db.Users.SingleAsync(x=>x.UserId==900);
+        actor.IsActive=false;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var service=new V180MasterDataBulkWorkbookService(db);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            service.PreviewAsync(Admin(),Workbook(EmptyWorkbook()),default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            service.ConfirmAsync(Admin(),Guid.NewGuid(),default));
+        Assert.Empty(await db.ImportBatches.ToListAsync());
+        Assert.Empty(await db.AuditLogs.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(EmploymentStatuses.Leave)]
+    [InlineData(EmploymentStatuses.Terminated)]
+    public async Task Ineligible_HR_status_cannot_stage_or_confirm_master_data(string status)
+    {
+        await using var db=Db();
+        var period=await db.UserEmploymentPeriods.SingleAsync(x=>x.UserId==900);
+        period.EmploymentStatus=status;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var service=new V180MasterDataBulkWorkbookService(db);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            service.PreviewAsync(Admin(),Workbook(EmptyWorkbook()),default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            service.ConfirmAsync(Admin(),Guid.NewGuid(),default));
+        Assert.Empty(await db.ImportBatches.ToListAsync());
+        Assert.Empty(await db.AuditLogs.ToListAsync());
+    }
+
+    private static AppDbContext Db()
+    {
+        // Explicit, valid Admin test identities. The service must no longer
+        // rely on a bare token during preview/confirm business test fixtures.
+        var db=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"v180-bulk-{Guid.NewGuid()}").Options);
+        var since=new DateOnly(2020,1,1);
+        db.Roles.Add(new Role{
+            RoleId=1,RoleCode="admin",RoleName="Admin",
+            IsActive=true,CreatedAt=DateTime.UtcNow});
+        foreach(var (id,org) in new[]{(900,1),(901,2)})
+        {
+            db.Users.Add(new User{
+                UserId=id,OrganizationId=org,DisplayName="Admin",
+                IsActive=true,CreatedAt=DateTime.UtcNow});
+            db.UserEmploymentPeriods.Add(new UserEmploymentPeriod{
+                UserEmploymentPeriodId=id,UserId=id,
+                EmploymentStatus=EmploymentStatuses.Active,
+                EffectiveFrom=since});
+            db.UserRoleAssignments.Add(new UserRoleAssignment{
+                UserRoleAssignmentId=id,UserId=id,RoleId=1,
+                EffectiveFrom=since,CreatedAt=DateTime.UtcNow});
+            db.UserRoles.Add(new UserRole{
+                UserRoleId=id,UserId=id,RoleId=1,AssignedAt=DateTime.UtcNow});
+        }
+        db.SaveChanges();
+        db.ChangeTracker.Clear();
+        return db;
+    }
     private static CurrentUserDto Admin() => new(900, "ADMIN", "Admin", "admin@example.test", 1, null, null, ["admin"]);
     private static Task<ImportPreviewDto> Preview(AppDbContext db, Dictionary<string, string[][]> rows) => new V180MasterDataBulkWorkbookService(db).PreviewAsync(Admin(), Workbook(rows), default);
     private static Dictionary<string, string[][]> StagedBase()
