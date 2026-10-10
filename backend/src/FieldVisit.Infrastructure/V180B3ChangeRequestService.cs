@@ -87,12 +87,7 @@ public sealed class V180B3ChangeRequestService(
     private async Task<(CurrentUserDto User,bool Admin,bool Visitor)> LiveActorAsync(CancellationToken ct)
     {
         var user=current.GetRequired();
-        var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(x=>
-            x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
-            ??throw new UnauthorizedAccessException("B3_ACCOUNT_INVALID");
-        if(!(await new V170AccessControl(db)
-            .EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
-            throw new UnauthorizedAccessException("B3_HR_STATUS_DENIED");
+        await V180B3ActorEligibility.RequireAsync(db,user,ct);
         var today=BusinessTime.Today;
         var assigned=await (from a in db.UserRoleAssignments.AsNoTracking()
             join r in db.Roles.AsNoTracking() on a.RoleId equals r.RoleId
@@ -134,6 +129,11 @@ public sealed class V180B3ChangeRequestService(
         V180B3SubmitLocation input,CancellationToken ct)
     {
         await ReadyAsync(ct);
+        // Keep source version, live role/membership, pending uniqueness precheck
+        // and request + Submitted audit event in a single serializable transaction.
+        // DB filtered unique index remains mandatory for concurrent requests.
+        await using var tx=await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable,ct);
         var(user,_,visitor)=await LiveActorAsync(ct);
         var loc=await db.Locations.AsNoTracking().SingleOrDefaultAsync(x=>
             x.LocationId==input.LocationId,ct)
@@ -167,7 +167,6 @@ public sealed class V180B3ChangeRequestService(
                 loc.District,loc.Address,loc.PlusCode,loc.TaxId,loc.MasterNote}),
             ProposedJson=JsonSerializer.Serialize(proposal.Proposed),
             RequestedByUserId=user.UserId,SubmittedAt=DateTime.UtcNow,Status="Pending"};
-        await using var tx=await db.Database.BeginTransactionAsync(ct);
         db.ChangeRequests.Add(row);
         await db.SaveChangesAsync(ct);
         db.ChangeRequestEvents.Add(new V180B3ChangeEvent{
@@ -202,10 +201,12 @@ public sealed class V180B3ChangeRequestService(
         await ReadyAsync(ct);var(user,admin,_)=await LiveActorAsync(ct);
         if(!admin||!user.OrganizationId.HasValue)
             throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
-        await using var tx=await db.Database.BeginTransactionAsync(ct);
+        await using var tx=await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable,ct);
         var row=await db.ChangeRequests.SingleOrDefaultAsync(x=>
             x.RequestPublicId==id&&x.OrganizationId==user.OrganizationId,ct)
             ??throw new KeyNotFoundException("B3_REQUEST_NOT_FOUND");
+        V180B3ReviewTargetRules.RequireSupportedTarget(row,user.OrganizationId.Value,id);
         var reviewReason=V180B3ProposalSafetyRules.RequireIndependentReview(
             row.RequestedByUserId,user.UserId,row.Status,row.RowVersion,
             input.RequestRowVersion,input.DecisionKey,input.Reason);
