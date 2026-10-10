@@ -99,3 +99,63 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 30
+
+  sql-server-disposable-fixture:
+    # Explicit Owner authorization covers isolated test DBs only.
+    # This job does NOT touch Azure, UAT, Prod, existing DBs or migrations.
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-package-b-b2-b3-controlled'
+    needs: isolated-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Start disposable localhost SQL Server 2022 (TEST ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="B3SqlCi!$(python3 -c 'import secrets;print(secrets.token_urlsafe(27))')"
+          echo "::add-mask::$password"
+          echo "B3_SQL_TEST_CONNECTION=Server=127.0.0.1,14335;Database=master;User ID=sa;Password=$password;Encrypt=False;TrustServerCertificate=True;Connection Timeout=4" >> "$GITHUB_ENV"
+          docker run --rm -d --name b3-sql-fixture -p 127.0.0.1:14335:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD="$password" \
+            mcr.microsoft.com/mssql/server:2022-latest
+      - name: Execute real disposable SQL Server schema, concurrency and audit tests (NO UAT)
+        shell: bash
+        run: |
+          dotnet test backend/tests/FieldVisit.B3.SqlServer.Tests/FieldVisit.B3.SqlServer.Tests.csproj \
+            -c Release --logger 'console;verbosity=normal' \
+            --logger 'trx;LogFileName=b3-sql-server-tests.trx' \
+            --results-directory .ci-artifacts
+      - name: Capture disposable SQL runtime test evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p .ci-artifacts
+          {
+            echo "SQL Server: disposable localhost GitHub runner container only"
+            echo "Source SHA: $GITHUB_SHA"
+            echo "Schema: per-test random B3SqlFixture database, NOT 1800_011 migration"
+            echo "UAT/Prod credentials or DB: never used"
+            echo "Actual approval/apply: DENY ALL"
+            echo "SQL Server partial B4 fixture is NOT Business UAT GO"
+          } > .ci-artifacts/b3-sql-scope.txt
+          docker logs b3-sql-fixture --tail 60 > .ci-artifacts/sql-container-logs.txt 2>&1 || true
+      - name: Destroy disposable SQL Server container
+        if: always()
+        run: docker rm -f b3-sql-fixture || true
+      - name: Upload disposable SQL test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-b-b3-real-sql-disposable-only
+          path: .ci-artifacts/*
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30

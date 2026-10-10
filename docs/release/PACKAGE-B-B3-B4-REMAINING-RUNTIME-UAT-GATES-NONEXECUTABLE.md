@@ -23,6 +23,10 @@ This file is a handoff/checklist, **not** executable SQL, a test-run report or a
 | Permissions | Live HR/role/org/ownership gates and offline unit negatives | API-level negative/IDOR tests against approved isolated SQL database |
 | Environment | appsettings flag OFF; API disabled tests + CI tripwire | Explicit UAT flag OFF verification on **deployed** artifact and runtime environment overrides |
 
+## Owner-authorized isolated real SQL Server fixture (NOT UAT)
+
+On the controlled WORK branch, a separate GitHub Actions job starts a disposable Microsoft SQL Server 2022 Developer Edition container bound ONLY to 127.0.0.1:14335. It generates a one-run password, creates a fresh random `B3SqlFixture_<GUID>` database, exercises candidate B3 SQL Server catalog/uniqueness/FK/CHECK/RowVersion behavior, then drops the database and deletes the container. Its C# test fixture is NOT `1800_011` and must never be copied to UAT as a migration. The job uses **no Azure secrets or existing SQL Server**. SQL Server results are distinct artifacts and cannot certify the absent 011 schema in UAT, complete business authorization, HTTP E2E, all 22 B4 cases, or production readiness. Any failing fixture job fails the overall WORK CI. Full Business UAT and Production remain HOLD.
+
 ## Required B4 negative cases (NOT YET PASSED in SQL Server runtime)
 | ID | Scenario | Expected result / invariant |
 | --- | --- | --- |
