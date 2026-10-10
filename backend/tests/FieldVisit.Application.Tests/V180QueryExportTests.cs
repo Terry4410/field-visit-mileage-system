@@ -125,9 +125,10 @@ public sealed class V180QueryExportTests
         var entries = (System.Collections.IList)Activator.CreateInstance(listType)!;
         object Create(string kind, DateOnly start, DateOnly? end) =>
             Activator.CreateInstance(nested, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                null, ["001", kind, "A", "Test", start, end, "42", null, null], null)!;
+                null, ["001", kind, "A", "Test", start, end, "42", null, null, 123L], null)!;
         entries.Add(Create("角色", new DateOnly(2026, 1, 1), new DateOnly(2026, 3, 31)));
         entries.Add(Create("小組", new DateOnly(2026, 2, 1), null));
+        entries.Add(Create("派駐據點", new DateOnly(2026, 6, 1), null)); // Future assignment must not create an interval.
         var boundsMethod = typeof(V180QueryExportController)
             .GetMethod("BuildPeriodBounds", BindingFlags.Static | BindingFlags.NonPublic)!;
         var bounds = (List<DateOnly>)boundsMethod.Invoke(null, [entries, new DateOnly(2026, 4, 30)])!;
