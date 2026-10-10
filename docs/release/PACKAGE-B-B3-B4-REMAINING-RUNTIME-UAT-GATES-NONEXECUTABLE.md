@@ -18,6 +18,7 @@ This file is a handoff/checklist, **not** executable SQL, a test-run report or a
 | 011 schema predecessor | Nonexecutable IA requires actual latest 010 | Exact LIVE DB identity and latest SchemaVersions 1.8.0-010 read-only evidence |
 | 011 schema objects | Candidate EF model and offline metadata tests only | Separate Owner migration authorization; SQL indexes, 28 columns, six trusted NO ACTION FKs, required CHECK constraints |
 | Index/ROWVERSION | Read-only query source and static text tests | SQL Server catalog execution and EF runtime behavior verified by IT |
+| B3 unavailable response | Checked-in endpoint returns 503 when flag OFF; Schema readiness faults mapped to 503 | Validate enabled-but-invalid schema/permission failure at isolated runtime; no SQL repair or retries |
 | Permissions | Live HR/role/org/ownership gates and offline unit negatives | API-level negative/IDOR tests against approved isolated SQL database |
 | Environment | appsettings flag OFF; API disabled tests + CI tripwire | Explicit UAT flag OFF verification on **deployed** artifact and runtime environment overrides |
 

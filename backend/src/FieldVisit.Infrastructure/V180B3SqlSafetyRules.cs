@@ -224,6 +224,9 @@ public static class V180B3SqlSafetyRules
         return null; // Other SQL violations are NOT approval for retries.
     }
 
+    public static bool IsUnavailableCode(string? code) =>
+        code is "B3_DISABLED" or "B3_SCHEMA_NOT_VERIFIED";
+
     public static bool IsConflictCode(string? code) =>
         code is "B3_PENDING_REQUEST_EXISTS" or "B3_DECISION_KEY_REPLAY";
 

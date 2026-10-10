@@ -66,12 +66,22 @@ public sealed class V180B3ChangeRequestService(
         // Read-only catalog proof first; a recorded version alone is not
         // enough to prove unique Pending and DecisionKey indexes exist.
         // Do not select SchemaVersions until its table is confirmed present.
-        var valid=await db.Database.SqlQueryRaw<int>(
-            V180B3SqlSafetyRules.CatalogCheckSql).SingleAsync(ct);
-        if(valid!=1)throw new InvalidOperationException("B3_SCHEMA_NOT_VERIFIED");
-        var latest=await db.Database.SqlQueryRaw<string>(
-            V180B3SqlSafetyRules.LatestSchemaVersionSql).FirstOrDefaultAsync(ct);
-        V180B3SqlSafetyRules.RequireLatestSchemaVersion(latest);
+        try
+        {
+            var valid=await db.Database.SqlQueryRaw<int>(
+                V180B3SqlSafetyRules.CatalogCheckSql).SingleAsync(ct);
+            if(valid!=1)throw new InvalidOperationException("B3_SCHEMA_NOT_VERIFIED");
+            var latest=await db.Database.SqlQueryRaw<string>(
+                V180B3SqlSafetyRules.LatestSchemaVersionSql).FirstOrDefaultAsync(ct);
+            V180B3SqlSafetyRules.RequireLatestSchemaVersion(latest);
+        }
+        catch(SqlException ex)
+        {
+            // Unverifiable schema (including insufficient catalog permission,
+            // missing columns or broken SQL connection) must NEVER proceed.
+            // No retries, schema auto-repair, or feature activation.
+            throw new InvalidOperationException("B3_SCHEMA_NOT_VERIFIED",ex);
+        }
     }
     private static byte[] Version(string input)
     {

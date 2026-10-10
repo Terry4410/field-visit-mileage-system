@@ -65,6 +65,23 @@ public sealed class V180B3SqlSafetyRulesTests
     public void Unrecognized_errors_never_become_expected_B3_conflicts(int number,string? message)
         => Assert.Null(V180B3SqlSafetyRules.RecognizedUniqueConflict(number,message));
 
+    [Theory]
+    [InlineData("B3_DISABLED")]
+    [InlineData("B3_SCHEMA_NOT_VERIFIED")]
+    public void Disabled_or_unverifiable_schema_maps_only_to_service_unavailable(string code)
+    {
+        Assert.True(V180B3SqlSafetyRules.IsUnavailableCode(code));
+        Assert.False(V180B3SqlSafetyRules.IsConflictCode(code));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("B3_PENDING_REQUEST_EXISTS")]
+    [InlineData("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED")]
+    [InlineData("B3_RANDOM_ERROR")]
+    public void Unrelated_B3_failures_do_not_impersonate_readiness_errors(string? code)
+        => Assert.False(V180B3SqlSafetyRules.IsUnavailableCode(code));
+
     [Fact]
     public void Non_conflict_message_is_not_an_http409_exception()
     {
