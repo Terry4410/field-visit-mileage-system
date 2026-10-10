@@ -50,6 +50,31 @@ public sealed class V180B3ReleaseTripwireTests
     }
 
     [Fact]
+    public void Candidate_011_migration_files_and_dispatch_workflows_are_not_authorized()
+    {
+        // The Owner approved NONEXECUTABLE IA in docs/release only.
+        // Any actual 011 migration or 011 deployment workflow is a hard CI failure.
+        var appsettings=RepositoryFile("backend/src/FieldVisit.Api/appsettings.json");
+        var root=Path.GetFullPath(Path.Combine(
+            Path.GetDirectoryName(appsettings)!, "..","..",".."));
+        var migrations=Path.Combine(root,"database","migrations");
+        Assert.True(Directory.Exists(migrations),"Cannot verify migration directory safety");
+        var forbidden=Directory.EnumerateFiles(migrations,"*",SearchOption.AllDirectories)
+            .Where(path=>path.Contains("1800_011",StringComparison.OrdinalIgnoreCase)
+                ||path.Contains("1800-011",StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        Assert.Empty(forbidden);
+
+        var workflows=Path.Combine(root,".github","workflows");
+        Assert.True(Directory.Exists(workflows),"Cannot verify workflow safety");
+        var unauthorized=Directory.EnumerateFiles(workflows,"*",SearchOption.TopDirectoryOnly)
+            .Where(path=>Path.GetFileName(path).Contains("1800_011",StringComparison.OrdinalIgnoreCase)
+                ||Path.GetFileName(path).Contains("1800-011",StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        Assert.Empty(unauthorized);
+    }
+
+    [Fact]
     public void Unauthorized_CI_test_must_never_trigger_schema_or_release_workflow()
     {
         var workflow=File.ReadAllText(RepositoryFile(
