@@ -116,6 +116,8 @@ public sealed class V180PersonnelBulkService(AppDbContext db) : IV180PersonnelBu
 
     public async Task<V180SimpleBulkConfirmResultDto> ConfirmAsync(CurrentUserDto admin, byte[] content, CancellationToken ct)
     {
+        // This writes Personnel and HR periods; an old Admin token is insufficient.
+        await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
         var preview = await PreviewAsync(admin, content, ct);
         if (preview.ErrorCount > 0) throw new InvalidOperationException("PERSONNEL_BULK_HAS_ERRORS");
         var orgId = RequireOrg(admin);
@@ -126,6 +128,8 @@ public sealed class V180PersonnelBulkService(AppDbContext db) : IV180PersonnelBu
         {
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            // Recheck inside the same transaction, after any preview processing.
+            await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
             var applied = 0;var noChange = 0;
             foreach (var row in rows)
             {

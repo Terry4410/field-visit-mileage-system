@@ -148,6 +148,7 @@ public sealed class V180TeamMembershipBulkService(AppDbContext db)
         byte[] content,
         CancellationToken ct)
     {
+        await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
         var preview = await PreviewTeamMembershipAsync(admin, content, ct);
         if (preview.ErrorCount > 0)
             throw new InvalidOperationException("TEAM_MEMBERSHIP_BULK_HAS_ERRORS");
@@ -161,6 +162,7 @@ public sealed class V180TeamMembershipBulkService(AppDbContext db)
         {
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
             var applied = 0;
             var noChange = 0;
 
@@ -201,6 +203,7 @@ public sealed class V180TeamMembershipBulkService(AppDbContext db)
         V180BatchAddTeamMembersRequest request,
         CancellationToken ct)
     {
+        await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
         var orgId = RequireOrg(admin);
         if (request.EffectiveFrom == default)
             throw new InvalidOperationException("EffectiveFrom 必填。");
@@ -230,6 +233,7 @@ public sealed class V180TeamMembershipBulkService(AppDbContext db)
         {
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await V180CurrentAdminWriteGuard.RequireAsync(db,admin,ct);
             var added = 0;
             var noChange = 0;
 
