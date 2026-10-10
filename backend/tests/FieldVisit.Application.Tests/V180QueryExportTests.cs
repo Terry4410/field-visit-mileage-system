@@ -57,6 +57,50 @@ public sealed class V180QueryExportTests
         Assert.Contains("超過匯出上限", ex.Message);
     }
 
+
+    [Fact]
+    public void Personnel_column_picker_is_server_whitelisted_and_rejects_duplicates()
+    {
+        var method = typeof(V180QueryExportController)
+            .GetMethod("ParsePersonnelColumns", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var selected = ((System.Collections.IEnumerable)method.Invoke(null, ["employeeNo,name,hireDate"])!).Cast<object>().ToList();
+        Assert.Equal(3,selected.Count);
+        foreach(var invalid in new[]{"employeeNo,secret","employeeNo,employeeNo"})
+        {
+            var error = Assert.Throws<TargetInvocationException>(()=>method.Invoke(null,[invalid]));
+            Assert.IsType<InvalidOperationException>(error.InnerException);
+        }
+    }
+
+    [Fact]
+    public void Filename_is_distinct_and_sanitized_for_excel_download()
+    {
+        var controller = new V180QueryExportController(null!,null!,null!,null!,null!,null!);
+        var method = typeof(V180QueryExportController)
+            .GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var result = (FileContentResult)method.Invoke(controller,
+            ["人事完整履歷/2026", new { Keyword = "test" }, new[]{"欄位"},
+             new[]{ new[]{"=1+1"} }.AsEnumerable()])!;
+        Assert.StartsWith("FieldVisit_人事完整履歷_2026_全組織_",result.FileDownloadName);
+        Assert.EndsWith(".xlsx",result.FileDownloadName);
+    }
+
+    [Fact]
+    public void Personnel_and_official_exports_require_admin_role()
+    {
+        var auth = typeof(V180QueryExportController)
+            .GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true)
+            .Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().ToList();
+        Assert.Contains(auth,attribute=>attribute.Roles=="admin");
+        var endpoints = typeof(V180QueryExportController).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .SelectMany(m=>m.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.HttpGetAttribute),true)
+                .Cast<Microsoft.AspNetCore.Mvc.HttpGetAttribute>().Select(a=>a.Template)).ToList();
+        Assert.Contains("personnel-full.xlsx",endpoints);
+        Assert.Contains("centers.xlsx",endpoints);
+        Assert.Contains("deployment-sites.xlsx",endpoints);
+        Assert.Contains("locations-official.xlsx",endpoints);
+    }
+
     private static Task<List<string>> InvokeAll(Func<int, Task<PagedResult<string>>> loader)
     {
         var method = typeof(V180QueryExportController)
