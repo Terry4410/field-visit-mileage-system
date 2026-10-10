@@ -83,15 +83,8 @@ public sealed class V180B3ChangeRequestService(
             throw new InvalidOperationException("B3_SCHEMA_NOT_VERIFIED",ex);
         }
     }
-    private static byte[] Version(string input)
-    {
-        if(string.IsNullOrWhiteSpace(input))
-            throw new InvalidOperationException("ROWVERSION_CONFLICT");
-        try{var b=Convert.FromBase64String(input);
-            if(b.Length==8)return b;}
-        catch(FormatException){}
-        throw new InvalidOperationException("ROWVERSION_CONFLICT");
-    }
+    private static byte[] Version(string input) =>
+        V180B3RowVersionRules.Parse(input);
     private static V180B3RequestView ToView(V180B3ChangeRequest r)=>
         new(r.RequestPublicId,r.EntityId,r.TeamId,r.RiskCode,r.Status,
             r.RequestedByUserId,r.SubmittedAt,r.BeforeJson,r.ProposedJson,

@@ -45,10 +45,8 @@ public static class V180B3ProposalSafetyRules
         if(decisionKey==Guid.Empty||string.IsNullOrWhiteSpace(why)
             ||why.Length>1000||ForbiddenControl(why,true))
             throw new InvalidOperationException("B3_REASON_REQUIRED");
-        byte[] supplied;
-        try{supplied=Convert.FromBase64String(submittedRowVersion??"");}
-        catch(FormatException){throw new InvalidOperationException("ROWVERSION_CONFLICT");}
-        if(supplied.Length!=8||actualRowVersion is null
+        var supplied=V180B3RowVersionRules.Parse(submittedRowVersion);
+        if(actualRowVersion is null || actualRowVersion.Length!=8
             ||!actualRowVersion.SequenceEqual(supplied)||status!="Pending")
             throw new InvalidOperationException("ROWVERSION_CONFLICT");
         return why;
