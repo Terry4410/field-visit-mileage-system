@@ -49,11 +49,43 @@ public sealed class BackgroundJobService(
         var normalized = request with { Mode = mode };
         var row = NewJob("Geocoding", mode, user, JsonSerializer.Serialize(normalized, JsonOptions));
 
-        // Geocoding scope must match the formal-location access rules:
-        // - admin: organization-wide (no TeamId restriction)
-        // - leader: authorized teams + organization-wide locations (TeamId = null)
+        // Server-owned job scope: leaders may geocode ONLY their currently
+        // authorized team drafts. They may not publish or modify shared masters.
         if (HasRole(user, "admin"))
             row.TeamScopeJson = JsonSerializer.Serialize(Array.Empty<int>(), JsonOptions);
+        else
+        {
+            if(!user.OrganizationId.HasValue || user.TeamIds.Count==0)
+                throw new UnauthorizedAccessException("目前沒有有效的小組解析權限。");
+            var account=await db.Users.AsNoTracking()
+                .FirstOrDefaultAsync(x=>x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
+                ??throw new UnauthorizedAccessException("帳號已失效。");
+            if(!(await new V170AccessControl(db).EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
+                throw new UnauthorizedAccessException("目前人事狀態不允許解析地點。");
+            var requestedIds=user.TeamIds.ToArray();
+            var today=BusinessTime.Today;
+            var activeTeams=await (
+                from scope in db.UserTeamScopes.AsNoTracking()
+                join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
+                where scope.UserId==user.UserId && scope.IsActive && requestedIds.Contains(scope.TeamId)
+                    && team.OrganizationId==user.OrganizationId && team.IsActive
+                    && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
+                    && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
+                select team.TeamId).Distinct().ToListAsync(ct);
+            if(activeTeams.Count==0)
+                throw new UnauthorizedAccessException("有效小組權限已結束。");
+            if(mode.Equals("Selected",StringComparison.OrdinalIgnoreCase))
+            {
+                var selected=request.LocationIds!.Distinct().ToArray();
+                var allowed=await db.Locations.AsNoTracking()
+                    .CountAsync(x=>selected.Contains(x.LocationId)
+                        && x.OrganizationId==user.OrganizationId
+                        && x.TeamId.HasValue && activeTeams.Contains(x.TeamId.Value),ct);
+                if(allowed!=selected.Length)
+                    throw new UnauthorizedAccessException("解析清單包含不屬於授權小組的地點。");
+            }
+            row.TeamScopeJson = JsonSerializer.Serialize(activeTeams, JsonOptions);
+        }
 
         await db.BackgroundJobs.AddAsync(row, ct);
         AddAudit(
@@ -67,7 +99,7 @@ public sealed class BackgroundJobService(
                 Count = request.LocationIds?.Count ?? 0,
                 request.StartDate,
                 request.EndDate,
-                Scope = HasRole(user, "admin") ? "Organization" : "TeamsAndGlobal",
+                Scope = HasRole(user, "admin") ? "Organization" : "AuthorizedTeamsOnly",
                 TeamIds = HasRole(user, "admin") ? Array.Empty<int>() : user.TeamIds
             });
         await db.SaveChangesAsync(ct);
@@ -406,14 +438,43 @@ public sealed class BackgroundJobService(
     private async Task ProcessGeocodingAsync(BackgroundJob job, CancellationToken ct)
     {
         var request = JsonSerializer.Deserialize<CreateGeocodingJobRequest>(job.PayloadJson ?? "{}", JsonOptions) ?? new CreateGeocodingJobRequest();
-        var teamIds = ParseTeamIds(job.TeamScopeJson);
-        var q = db.Locations.Where(x => (x.OrganizationId == job.OrganizationId || x.OrganizationId == null) &&
-            (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
-        if (teamIds.Count > 0)
-            q = q.Where(
-                x => x.TeamId == null
-                     || (x.TeamId.HasValue
-                         && teamIds.Contains(x.TeamId.Value)));
+        var queuedTeamIds = ParseTeamIds(job.TeamScopeJson);
+        var requester=await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x=>x.UserId==job.RequestedByUserId,ct)
+            ??throw new UnauthorizedAccessException("地點工作申請者不存在。");
+        if(requester.OrganizationId!=job.OrganizationId
+           || !(await new V170AccessControl(db).EvaluateLoginAsync(
+               requester.UserId,requester.IsActive,ct)).IsAllowed)
+            throw new UnauthorizedAccessException("申請者的人事或組織權限已失效。");
+        var currentAdmin=await (
+            from ur in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
+            where ur.UserId==requester.UserId && role.RoleCode=="admin" && role.IsActive
+            select role.RoleId).AnyAsync(ct);
+        var adminJob=queuedTeamIds.Count==0;
+        if(adminJob&&!currentAdmin)
+            throw new UnauthorizedAccessException("沒有有效管理者權限，不得發布地點。");
+        var teamIds=queuedTeamIds.ToList();
+        if(!adminJob)
+        {
+            var today=BusinessTime.Today;
+            teamIds=await (
+                from scope in db.UserTeamScopes.AsNoTracking()
+                join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
+                where scope.UserId==requester.UserId && scope.IsActive
+                    && queuedTeamIds.Contains(scope.TeamId) && team.IsActive
+                    && team.OrganizationId==job.OrganizationId
+                    && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
+                    && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
+                select team.TeamId).Distinct().ToListAsync(ct);
+            if(teamIds.Count==0)
+                throw new UnauthorizedAccessException("申請者的小組解析權限已失效。");
+        }
+        var q = db.Locations.Where(x =>
+            (adminJob ? (x.OrganizationId==job.OrganizationId||x.OrganizationId==null)
+                      : (x.OrganizationId==job.OrganizationId
+                         && x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)))
+            && (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
             q = q.Where(x => request.LocationIds.Contains(x.LocationId));
 
@@ -483,8 +544,18 @@ public sealed class BackgroundJobService(
             {
                 var result = await geocoding.ResolveAsync(location.Address, location.PlusCode, ct);
                 if (!result.Success || !result.Latitude.HasValue || !result.Longitude.HasValue) throw new InvalidOperationException(result.ErrorMessage ?? result.ErrorCode ?? "地址解析失敗。");
-                location.LocationCode ??= NewLocationCode(); location.Latitude = result.Latitude; location.Longitude = result.Longitude; location.GeocodingStatus = "Completed"; location.GeocodedAt = DateTime.UtcNow; location.ApprovalStatus = "Approved"; location.IsActive = true; location.UpdatedAt = DateTime.UtcNow;
-                db.LocationApprovalHistories.Add(new LocationApprovalHistory { LocationId = location.LocationId, Action = "Approved", ReviewedByUserId = job.RequestedByUserId, Comments = "Background geocoding/publish", ActionAt = DateTime.UtcNow });
+                location.LocationCode ??= NewLocationCode(); location.Latitude = result.Latitude; location.Longitude = result.Longitude; location.GeocodingStatus = "Completed"; location.GeocodedAt = DateTime.UtcNow; location.UpdatedAt = DateTime.UtcNow;
+                // Geocoding is safe for an authorized team draft; publishing is not.
+                // Only a current administrator can approve/activate the master.
+                if(adminJob)
+                {
+                    location.ApprovalStatus = "Approved"; location.IsActive = true;
+                    db.LocationApprovalHistories.Add(new LocationApprovalHistory { LocationId = location.LocationId, Action = "Approved", ReviewedByUserId = job.RequestedByUserId, Comments = "Admin geocoding/publish", ActionAt = DateTime.UtcNow });
+                }
+                else
+                {
+                    location.ApprovalStatus = "Pending"; location.IsActive = false;
+                }
                 item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.Latitude, result.Longitude }, JsonOptions); job.SuccessCount++;
             }
             catch (Exception ex)

@@ -140,6 +140,19 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         if (batch.ImportType == "projects" && !HasRole(user, "admin")) throw new UnauthorizedAccessException("只有管理者可以確認專案匯入。");
 
         var items = await db.ImportBatchItems.Where(x => x.ImportBatchId == importBatchId && x.Status == "Valid").OrderBy(x => x.EntityType == "ProjectLocation" ? 2 : 1).ThenBy(x => x.RowNumber).ToListAsync(ct);
+        if(batch.ImportType=="locations"&&!HasRole(user,"admin"))
+        {
+            var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(
+                x=>x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
+                ??throw new UnauthorizedAccessException("帳號已失效。");
+            if(!(await new V170AccessControl(db).EvaluateLoginAsync(
+                user.UserId,account.IsActive,ct)).IsAllowed)
+                throw new UnauthorizedAccessException("人事狀態不允許匯入地點。");
+            // Existing master updates and team transfers are high-risk.
+            // Reject before processing *any* row: never partially mutate.
+            if(items.Any(x=>x.EntityType=="Location"&&x.Action!="Create"&&x.Action!="NoChange"))
+                throw new UnauthorizedAccessException("修改既有地點的 Excel 匯入須經管理者處理。");
+        }
         int created = 0, updated = 0, unchanged = 0, failed = 0;
         var errors = new List<string>();
         foreach (var item in items)
@@ -154,6 +167,23 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     if (item.Action == "Create")
                     {
                         var teamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
+                        if(!HasRole(user,"admin"))
+                        {
+                            if(!teamId.HasValue)
+                                throw new UnauthorizedAccessException("新增地點必須屬於有效授權小組。");
+                            var today=BusinessTime.Today;
+                            var valid=await (
+                                from scope in db.UserTeamScopes.AsNoTracking()
+                                join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
+                                where scope.UserId==user.UserId && scope.IsActive
+                                    && scope.TeamId==teamId.Value && user.TeamIds.Contains(scope.TeamId)
+                                    && team.IsActive && team.OrganizationId==user.OrganizationId
+                                    && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
+                                    && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
+                                select team.TeamId).AnyAsync(ct);
+                            if(!valid)
+                                throw new UnauthorizedAccessException("無權匯入未授權小組的地點。");
+                        }
                         // Excel imports can never bypass the location lifecycle:
                         // new Locations always require geocoding and approval.
                         locationForDuplicateRefresh = new FieldVisit.Domain.Entities.Location
