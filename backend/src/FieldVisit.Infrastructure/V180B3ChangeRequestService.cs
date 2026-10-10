@@ -149,11 +149,15 @@ public sealed class V180B3ChangeRequestService(
             throw new UnauthorizedAccessException("B3_NO_VERIFIED_LOCATION_WRITE_SCOPE");
         if(!loc.RowVersion.SequenceEqual(Version(input.ExpectedRowVersion)))
             throw new InvalidOperationException("ROWVERSION_CONFLICT");
-        if(input.Proposed is null||string.IsNullOrWhiteSpace(input.Proposed.LocationName)
-           ||string.IsNullOrWhiteSpace(input.Reason)||input.Reason.Length>1000
-           ||input.Proposed.LocationName.Length>200
-           ||input.Proposed.TaxId?.Length>20||input.Proposed.MasterNote?.Length>1000)
-            throw new InvalidOperationException("B3_PROPOSAL_INVALID");
+        var proposal=V180B3ProposalSafetyRules.Validate(
+            input.Proposed,
+            new V180B3LocationFields(loc.LocationName,loc.City,loc.District,
+                loc.Address,loc.PlusCode,loc.TaxId,loc.MasterNote),input.Reason);
+        // Precheck is informative; DB filtered unique index resolves submit races.
+        if(await db.ChangeRequests.AsNoTracking().AnyAsync(x=>
+            x.OrganizationId==loc.OrganizationId&&x.EntityKind=="Location"
+            &&x.EntityId==loc.LocationId.ToString()&&x.Status=="Pending",ct))
+            throw new InvalidOperationException("B3_PENDING_REQUEST_EXISTS");
         var row=new V180B3ChangeRequest{
             RequestPublicId=Guid.NewGuid(),OrganizationId=loc.OrganizationId.Value,
             TeamId=loc.TeamId,EntityKind="Location",EntityId=loc.LocationId.ToString(),
@@ -161,7 +165,7 @@ public sealed class V180B3ChangeRequestService(
             ExpectedEntityRowVersion=loc.RowVersion.ToArray(),
             BeforeJson=JsonSerializer.Serialize(new{loc.LocationName,loc.City,
                 loc.District,loc.Address,loc.PlusCode,loc.TaxId,loc.MasterNote}),
-            ProposedJson=JsonSerializer.Serialize(input.Proposed),
+            ProposedJson=JsonSerializer.Serialize(proposal.Proposed),
             RequestedByUserId=user.UserId,SubmittedAt=DateTime.UtcNow,Status="Pending"};
         await using var tx=await db.Database.BeginTransactionAsync(ct);
         db.ChangeRequests.Add(row);
@@ -169,7 +173,7 @@ public sealed class V180B3ChangeRequestService(
         db.ChangeRequestEvents.Add(new V180B3ChangeEvent{
             ChangeRequestId=row.ChangeRequestId,EventType="Submitted",ActorUserId=user.UserId,
             OccurredAt=DateTime.UtcNow,CorrelationId=Guid.NewGuid(),
-            DetailsJson=JsonSerializer.Serialize(new{Reason=input.Reason.Trim()})});
+            DetailsJson=JsonSerializer.Serialize(new{Reason=proposal.Reason})});
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return ToView(row);
@@ -198,23 +202,20 @@ public sealed class V180B3ChangeRequestService(
         await ReadyAsync(ct);var(user,admin,_)=await LiveActorAsync(ct);
         if(!admin||!user.OrganizationId.HasValue)
             throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
-        if(input.DecisionKey==Guid.Empty||string.IsNullOrWhiteSpace(input.Reason)
-           ||input.Reason.Length>1000)throw new InvalidOperationException("B3_REASON_REQUIRED");
         await using var tx=await db.Database.BeginTransactionAsync(ct);
         var row=await db.ChangeRequests.SingleOrDefaultAsync(x=>
             x.RequestPublicId==id&&x.OrganizationId==user.OrganizationId,ct)
             ??throw new KeyNotFoundException("B3_REQUEST_NOT_FOUND");
-        if(row.RequestedByUserId==user.UserId)
-            throw new UnauthorizedAccessException("B3_SELF_REVIEW_DENIED");
-        if(row.Status!="Pending"||!row.RowVersion.SequenceEqual(Version(input.RequestRowVersion)))
-            throw new InvalidOperationException("ROWVERSION_CONFLICT");
+        var reviewReason=V180B3ProposalSafetyRules.RequireIndependentReview(
+            row.RequestedByUserId,user.UserId,row.Status,row.RowVersion,
+            input.RequestRowVersion,input.DecisionKey,input.Reason);
         row.Status="Rejected";row.ReviewedByUserId=user.UserId;
-        row.ReviewedAt=DateTime.UtcNow;row.ReviewReason=input.Reason.Trim();
+        row.ReviewedAt=DateTime.UtcNow;row.ReviewReason=reviewReason;
         db.ChangeRequestEvents.Add(new V180B3ChangeEvent{
             ChangeRequestId=row.ChangeRequestId,EventType="Rejected",
             ActorUserId=user.UserId,OccurredAt=DateTime.UtcNow,
             CorrelationId=Guid.NewGuid(),DecisionKey=input.DecisionKey,
-            DetailsJson=JsonSerializer.Serialize(new{Reason=input.Reason.Trim()})});
+            DetailsJson=JsonSerializer.Serialize(new{Reason=reviewReason})});
         await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);
         return ToView(row);
     }
