@@ -67,6 +67,37 @@ A separate real SQL Server 2022 job exercises the ephemeral candidate B3 schema 
 | B4-SQL-19 | SqlException 2601/2627 vs unrelated constraint/deadlock error | Known named B3 duplicates 409; unknown error fail closed, no false success |
 | B4-SQL-20 | Business HR/Role/Team/Project/OfficialSite bulk operations after Admin role revoked | All sensitive writes denied; audit and dependent history unchanged |
 
+## B4 22-case evidence classification (isolated-only; NOT full B4 sign-off)
+
+The columns distinguish **existence of an isolated SQL engine check** from an executed full B4 acceptance scenario. The new five fixture cases are provisional until their exact GitHub SHA/TRX is green; passing a fixture never changes a scenario to GO. "HTTP" requires separately authorized isolated API E2E with live HR/role/team/ownership data. "Independent" includes owner approval of candidate 011 execution or UAT gate as applicable. This matrix is a handoff mapping, not a waiver.
+
+| ID | SQL 2022 fixture evidence | Offline / code evidence | Remaining HTTP/API E2E | Separate approval / blocked gate |
+| --- | --- | --- | --- | --- |
+| B4-SQL-01 | Partial: catalog, trusted FK/CHECK | Schema contract | Missing / partial 011 database negative paths | 011 migration NOT AUTHORIZED |
+| B4-SQL-02 | Partial: latest-version drift | Latest 011 check | Enabled-feature readiness rejection | 011 migration NOT AUTHORIZED |
+| B4-SQL-03 | Partial: duplicate keys, index disabled/filter drift | Named index contracts | 409 and 503 mapping | Feature OFF |
+| B4-SQL-04 | Partial: CHECK trust, column-width drift | 28-column contract | Corrupted-schema readiness responses | 011 migration NOT AUTHORIZED |
+| B4-SQL-05 | Partial: concurrent insert and atomic Submitted event | Serializable service ordering | Two actual API submitters / audit counts | Feature OFF; B4 HOLD |
+| B4-SQL-06 | Partial: DecisionKey replay/rollback | Review idempotency checks | Duplicate key API 409 | Feature OFF |
+| B4-SQL-07 | Partial: stale request RowVersion | Version parsing/EF unit tests | Stale entity and request 409 | Feature OFF |
+| B4-SQL-08 | None (identity data not in fixture) | Visitor ownership gates | Same-team peer IDOR | B4 HOLD |
+| B4-SQL-09 | Only org-partitioned unique index, NOT authorization | Cross-org scope guards | Cross-tenant read/write/queue IDOR | B4 HOLD |
+| B4-SQL-10 | None (HR lifecycle not in fixture) | HR state/role checks | Real-time revocation API flow | B4 HOLD |
+| B4-SQL-11 | None (team grant validity not in fixture) | Team grant fail-closed rules | Expiry/revocation API flow | Manager Grant BLOCKED |
+| B4-SQL-12 | None (external identity not in fixture) | Role-origin checks | Forged Admin projection | B4 HOLD |
+| B4-SQL-13 | Partial: self-review SQL CHECK | Independent reviewer gate | Dual-role requester API attempt | Feature OFF |
+| B4-SQL-14 | None | Historical grant rejection gates | Backfilled-leader API negative | VAL-B1-002 BLOCKED |
+| B4-SQL-15 | None (geocoding callbacks not in fixture) | Publish separation tests | Geocoding/pending race E2E | Feature OFF |
+| B4-SQL-16 | Partial: Request/Event FK protects audit | Safe-delete unit checks | Snapshot/note/deployment reference deletion attempts | B4 HOLD |
+| B4-SQL-17 | None (shared history endpoint not in fixture) | Scope query guards | Spoofed teamId API reads | B4 HOLD |
+| B4-SQL-18 | Partial: CHECK rejects unknown codes/JSON | Supported payload preflight | Tampered queue/approval API requests | Approve/Apply DENY ALL |
+| B4-SQL-19 | Partial: engine 2601/2627 failure proof | Exception-to-conflict mapping | API 409 vs unrelated 500/503 | Feature OFF |
+| B4-SQL-20 | None (bulk endpoints not in fixture) | Admin revocation logic | Revoke Admin during bulk operation | B4 HOLD |
+| B4-SQL-21 | Partial: trigger catalog rejection | Disabled executor tripwire | API disabled/readiness response | Feature OFF |
+| B4-SQL-22 | Partial: self-review, reason, audit CHECK | Constraint definition tests | SQL-negative outcomes tied to actual API | 011 migration NOT AUTHORIZED |
+
+**Outcome:** 22/22 scenarios have an evidence classification, **0/22 are declared fully accepted**. SQL-fixture coverage is partial and non-equivalent to approved API/UAT runtime acceptance. Any missing, skipped or failing named SQL test keeps this suite FAIL-CLOSED. SQL TRX, individual names and actual tested SHA take precedence over this review-only mapping.
+
 ## Automated future-regression prevention
 
 CI now includes a named fail-closed gate

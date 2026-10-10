@@ -29,7 +29,7 @@ class SqlEvidenceTests(unittest.TestCase):
 
     def test_complete_named_sql_suite_remains_nonrelease(self):
         result=validate(self.path,"a"*40)
-        self.assertEqual(17,result["tests_passed"])
+        self.assertEqual(22,result["tests_passed"])
         self.assertEqual(self.names,result["verified_case_names"])
         self.assertEqual("HARD_HOLD",result["production"])
         self.assertEqual("NOT_EXECUTED",result["formal_schema_migration"])

@@ -29,6 +29,11 @@ REQUIRED_SQL_TESTS=frozenset({
     "Request_public_identity_cannot_be_reused_for_a_different_location",
     "Pending_unique_key_partitions_identical_entity_ids_by_organization",
     "Catalog_rejects_untrusted_check_until_constraint_is_retrusted",
+    "Failed_rejection_audit_rolls_back_status_rowversion_and_preserves_prior_history",
+    "Replayed_decision_key_rolls_back_second_request_and_keeps_first_audit",
+    "Concurrent_submission_transactions_commit_exactly_one_submitted_event",
+    "Catalog_denies_altered_decision_filter_until_exact_index_is_restored",
+    "Catalog_denies_column_width_drift_until_exact_type_is_restored",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
