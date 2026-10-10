@@ -188,6 +188,48 @@ public sealed class V180QueryExportTests
         Assert.Contains("有效期間異常", invalid.InnerException!.Message);
     }
 
+    [Fact]
+    public void Five_sheet_workbook_roundtrips_without_lookup_and_preserves_source_records()
+    {
+        var controller = new V180QueryExportController(null!, null!, null!, null!, null!, null!);
+        var sheetType = typeof(V180QueryExportController)
+            .GetNestedType("ExportSheet", BindingFlags.NonPublic)!;
+        var list = (System.Collections.IList)Activator.CreateInstance(
+            typeof(List<>).MakeGenericType(sheetType))!;
+        void Add(string title, string[] headers, params string[][] data)
+        {
+            var sheet = Activator.CreateInstance(sheetType,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, [title, headers, data.AsEnumerable()], null)!;
+            list.Add(sheet);
+        }
+        Add("人員完整總覽", ["工號", "姓名", "目前角色"], ["00123", "測試甲", "外訪員、小組長"]);
+        Add("人員歷史期間快照", ["工號", "期間起日", "期間迄日", "角色", "小組"],
+            ["00123", "2026-01-01", "2026-01-31", "外訪員", "北區"],
+            ["00123", "2026-02-01", "", "外訪員、小組長", "北區、南區"]);
+        Add("人員異動事件明細", ["工號", "類型", "來源ID"],
+            ["00123", "角色", "11"], ["00123", "小組", "21"], ["00123", "小組", "22"]);
+        Add("完整稽核資料", ["來源類型", "來源ID", "工號"],
+            ["角色", "11", "00123"], ["小組", "21", "00123"], ["小組", "22", "00123"]);
+        var method = typeof(V180QueryExportController)
+            .GetMethod("WorkbookSheets", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var output = (FileContentResult)method.Invoke(controller,
+            ["人事完整履歷", new { Scope = "全組織" }, list, "全組織"])!;
+        using var stream = new MemoryStream(output.FileContents);
+        using var workbook = new XSSFWorkbook(stream);
+        Assert.Equal(5, workbook.NumberOfSheets);
+        Assert.Equal("00123", workbook.GetSheet("人員完整總覽").GetRow(1).GetCell(0).StringCellValue);
+        Assert.Equal(3, workbook.GetSheet("人員歷史期間快照").LastRowNum + 1);
+        var events = workbook.GetSheet("人員異動事件明細");
+        var audit = workbook.GetSheet("完整稽核資料");
+        Assert.Equal(3, events.LastRowNum);
+        Assert.Equal(events.LastRowNum, audit.LastRowNum);
+        Assert.Equal("22", audit.GetRow(3).GetCell(1).StringCellValue);
+        var info = workbook.GetSheet("報表資訊");
+        Assert.Contains("人員歷史期間快照", Enumerable.Range(4, 4)
+            .Select(i => info.GetRow(i).GetCell(0).StringCellValue));
+    }
+
     private static Task<List<string>> InvokeAll(Func<int, Task<PagedResult<string>>> loader)
     {
         var method = typeof(V180QueryExportController)
