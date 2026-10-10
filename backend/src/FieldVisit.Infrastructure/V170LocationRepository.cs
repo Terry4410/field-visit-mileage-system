@@ -702,6 +702,13 @@ public sealed class V170LocationRepository(
         CurrentUserDto user,int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct)
     {
         V180LocationOwnershipRules.EnsurePublishedMasterWrite(user);
+        var currentAdmin=await (
+            from ur in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
+            where ur.UserId==user.UserId && role.IsActive && role.RoleCode=="admin"
+            select role.RoleId).AnyAsync(ct);
+        if(!currentAdmin)
+            throw new UnauthorizedAccessException("管理權限已失效，請重新登入。");
         var accessible=await AccessibleLocations(user).AnyAsync(x=>x.LocationId==locationId,ct);
         if(!accessible)throw new KeyNotFoundException("找不到可維護的正式地點。");
 
@@ -773,11 +780,25 @@ public sealed class V170LocationRepository(
         if(accessible is null)throw new KeyNotFoundException("找不到可維護的正式地點。");
         if(!user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase))
         {
+            var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(
+                x=>x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
+                ??throw new UnauthorizedAccessException("帳號已失效。");
+            if(!(await new V170AccessControl(db).EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
+                throw new UnauthorizedAccessException("目前人事狀態無權維護地點。");
+            var today=BusinessTime.Today;
             var valid=accessible.TeamId==request.TeamId
                 && accessible.OrganizationId==user.OrganizationId
-                && await db.UserTeamScopes.AsNoTracking().AnyAsync(x=>
-                    x.UserId==user.UserId&&x.TeamId==request.TeamId&&x.IsActive,ct);
+                && await (
+                    from scope in db.UserTeamScopes.AsNoTracking()
+                    join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
+                    where scope.UserId==user.UserId&&scope.TeamId==request.TeamId
+                        && scope.IsActive&&team.IsActive
+                        && team.OrganizationId==user.OrganizationId
+                        && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
+                        && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
+                    select team.TeamId).AnyAsync(ct);
             if(!valid || (user.Roles.Contains("visitor",StringComparer.OrdinalIgnoreCase)
+                    && !user.Roles.Contains("leader",StringComparer.OrdinalIgnoreCase)
                     && accessible.CreatedByUserId!=user.UserId))
                 throw new UnauthorizedAccessException("無權修改其他人、小組或共用地點的備註。");
         }
@@ -787,6 +808,7 @@ public sealed class V170LocationRepository(
             .SingleOrDefaultAsync(x=>x.TeamId==request.TeamId&&x.LocationId==locationId,ct);
         var now=DateTime.UtcNow;
         if(row is not null && user.Roles.Contains("visitor",StringComparer.OrdinalIgnoreCase)
+           && !user.Roles.Contains("leader",StringComparer.OrdinalIgnoreCase)
            && !user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
            && row.CreatedByUserId!=user.UserId)
             throw new UnauthorizedAccessException("不得覆寫其他人建立的備註。");

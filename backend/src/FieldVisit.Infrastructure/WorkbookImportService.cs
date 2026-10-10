@@ -148,6 +148,13 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
             if(!(await new V170AccessControl(db).EvaluateLoginAsync(
                 user.UserId,account.IsActive,ct)).IsAllowed)
                 throw new UnauthorizedAccessException("人事狀態不允許匯入地點。");
+            var activeLeader=await (
+                from ur in db.UserRoles.AsNoTracking()
+                join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
+                where ur.UserId==user.UserId && role.RoleCode=="leader" && role.IsActive
+                select role.RoleId).AnyAsync(ct);
+            if(!activeLeader)
+                throw new UnauthorizedAccessException("小組長角色已失效，請重新登入。");
             // Existing master updates and team transfers are high-risk.
             // Reject before processing *any* row: never partially mutate.
             if(items.Any(x=>x.EntityType=="Location"&&x.Action!="Create"&&x.Action!="NoChange"))

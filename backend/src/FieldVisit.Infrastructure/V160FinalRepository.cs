@@ -1063,6 +1063,16 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             ??throw new UnauthorizedAccessException("帳號或組織權限已失效。");
         if(!(await access.EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
             throw new UnauthorizedAccessException("目前人事狀態不允許維護地點。");
+        // A stale JWT role may not outlive current server-side role assignments.
+        var liveRoles=await (
+            from ur in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
+            where ur.UserId==user.UserId && role.IsActive
+                  && (role.RoleCode=="visitor"||role.RoleCode=="leader")
+            select role.RoleCode).ToListAsync(ct);
+        if(user.Roles.Where(x=>x=="visitor"||x=="leader")
+            .Any(x=>!liveRoles.Contains(x)))
+            throw new UnauthorizedAccessException("目前角色已變更，請重新登入。");
         var ids=user.TeamIds.ToArray();
         var today=BusinessTime.Today;
         var teams=await (

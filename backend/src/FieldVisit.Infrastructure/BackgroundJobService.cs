@@ -74,13 +74,22 @@ public sealed class BackgroundJobService(
                 select team.TeamId).Distinct().ToListAsync(ct);
             if(activeTeams.Count==0)
                 throw new UnauthorizedAccessException("有效小組權限已結束。");
+            var stillLeader=await (
+                from ur in db.UserRoles.AsNoTracking()
+                join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
+                where ur.UserId==user.UserId && role.RoleCode=="leader" && role.IsActive
+                select role.RoleId).AnyAsync(ct);
+            if(!stillLeader)
+                throw new UnauthorizedAccessException("小組長角色已失效，請重新登入。");
             if(mode.Equals("Selected",StringComparison.OrdinalIgnoreCase))
             {
                 var selected=request.LocationIds!.Distinct().ToArray();
                 var allowed=await db.Locations.AsNoTracking()
                     .CountAsync(x=>selected.Contains(x.LocationId)
                         && x.OrganizationId==user.OrganizationId
-                        && x.TeamId.HasValue && activeTeams.Contains(x.TeamId.Value),ct);
+                        && x.TeamId.HasValue && activeTeams.Contains(x.TeamId.Value)
+                        && x.ApprovalStatus=="Pending" && !x.IsActive
+                        && x.LocationType=="Customer",ct);
                 if(allowed!=selected.Length)
                     throw new UnauthorizedAccessException("解析清單包含不屬於授權小組的地點。");
             }
@@ -469,12 +478,21 @@ public sealed class BackgroundJobService(
                 select team.TeamId).Distinct().ToListAsync(ct);
             if(teamIds.Count==0)
                 throw new UnauthorizedAccessException("申請者的小組解析權限已失效。");
+            var currentLeader=await (
+                from ur in db.UserRoles.AsNoTracking()
+                join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
+                where ur.UserId==requester.UserId && role.RoleCode=="leader" && role.IsActive
+                select role.RoleId).AnyAsync(ct);
+            if(!currentLeader)
+                throw new UnauthorizedAccessException("申請者的小組長權限已失效。");
         }
         var q = db.Locations.Where(x =>
             (adminJob ? (x.OrganizationId==job.OrganizationId||x.OrganizationId==null)
                       : (x.OrganizationId==job.OrganizationId
                          && x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value)))
-            && (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
+            && (adminJob
+                ? (x.ApprovalStatus=="Pending"||x.GeocodingStatus=="Pending"||x.GeocodingStatus=="Failed")
+                : (x.ApprovalStatus=="Pending"&&!x.IsActive&&x.LocationType=="Customer")));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
             q = q.Where(x => request.LocationIds.Contains(x.LocationId));
 
