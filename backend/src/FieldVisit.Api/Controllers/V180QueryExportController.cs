@@ -295,12 +295,7 @@ public sealed class V180QueryExportController(
 
             // Fail closed on duplicated source rows (for example an accidental 1:N SQL join).
             // Every source record must survive one-to-one into both event and audit sheets.
-            var repeatedSources = events.GroupBy(x => (x.Kind, x.SourceId))
-                .FirstOrDefault(g => g.Count() > 1);
-            if (repeatedSources is not null)
-                throw new InvalidOperationException("歷史資料來源重複，請檢查來源關聯後重新匯出。");
-            if (events.Any(x => x.To.HasValue && x.To.Value < x.From))
-                throw new InvalidOperationException("歷史資料有效期間異常，請檢查來源資料後重新匯出。");
+            ValidateHistorySourceIntegrity(events);
 
             var names = peopleRows.GroupBy(x => x.EmployeeNo ?? x.UserCode,
                     StringComparer.OrdinalIgnoreCase)
@@ -388,6 +383,16 @@ public sealed class V180QueryExportController(
         string EmployeeNo, string Kind, string Code, string Detail,
         DateOnly From, DateOnly? To, string ReferenceKey, bool? IsPrimary, bool? IsActive,
         long SourceId);
+
+    private static void ValidateHistorySourceIntegrity(IReadOnlyList<PersonnelHistoryEvent> events)
+    {
+        var repeatedSources = events.GroupBy(x => (x.Kind, x.SourceId))
+            .FirstOrDefault(g => g.Count() > 1);
+        if (repeatedSources is not null)
+            throw new InvalidOperationException("歷史資料來源重複，請檢查來源關聯後重新匯出。");
+        if (events.Any(x => x.To.HasValue && x.To.Value < x.From))
+            throw new InvalidOperationException("歷史資料有效期間異常，請檢查來源資料後重新匯出。");
+    }
 
     // Inclusive source effective dates -> sorted exclusive boundaries, capped at today's end.
     // The result has at most 2*N+2 boundaries and never cross-joins separate histories.
