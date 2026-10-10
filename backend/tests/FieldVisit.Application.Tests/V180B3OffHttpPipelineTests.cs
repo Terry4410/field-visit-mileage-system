@@ -6,6 +6,8 @@ using System.Security.Claims;
 using System.Text;
 using FieldVisit.Api.Controllers;
 using FieldVisit.Infrastructure;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -13,6 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -59,6 +62,23 @@ public sealed class B3DisabledHttpFactory : WebApplicationFactory<V180B3ChangeRe
     });
     public string Token(string role,bool expired=false,bool wrongIssuer=false)
     {
+        // Bind test JWT to the *actual* app authentication options, not
+        // a guessed appsettings snapshot; assert that test config overrides
+        // really reached the host before it issues any token.
+        var cfg=Services.GetRequiredService<IConfiguration>();
+        if(cfg["Auth:Issuer"]!=Issuer || cfg["Auth:Audience"]!=Audience
+            || cfg["Auth:JwtKey"]!=TestKey)
+            throw new InvalidOperationException(
+                $"B3 HTTP fixture configuration mismatch: issuer={cfg["Auth:Issuer"]}, audience={cfg["Auth:Audience"]}, key-is-fixture={cfg["Auth:JwtKey"]==TestKey}");
+        var scheme=Services.GetRequiredService<IAuthenticationSchemeProvider>()
+            .GetDefaultAuthenticateSchemeAsync().GetAwaiter().GetResult()
+            ?? throw new InvalidOperationException("No default app JWT scheme");
+        var validation=Services.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(scheme.Name).TokenValidationParameters;
+        if(validation.ValidIssuer!=Issuer || validation.ValidAudience!=Audience ||
+           !Encoding.UTF8.GetBytes(TestKey).SequenceEqual(validation.IssuerSigningKey?.Key??[]))
+            throw new InvalidOperationException(
+                $"B3 JWT middleware configuration mismatch: scheme={scheme.Name}, issuer={validation.ValidIssuer}, audience={validation.ValidAudience}, key-is-fixture={Encoding.UTF8.GetBytes(TestKey).SequenceEqual(validation.IssuerSigningKey?.Key??[])}");
         var claims=new[]{
             new Claim(ClaimTypes.NameIdentifier,"98765"),
             new Claim(ClaimTypes.Name,"B3 isolated fixture"),
