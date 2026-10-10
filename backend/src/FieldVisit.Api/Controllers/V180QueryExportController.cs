@@ -244,39 +244,149 @@ public sealed class V180QueryExportController(
             .ToHashSet(StringComparer.Ordinal);
         var employeeNos = peopleRows.Select(x => x.EmployeeNo ?? x.UserCode)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var sheets = new List<ExportSheet>
+        var sheets = new List<ExportSheet>();
+        // Preserve the existing column-picker contract for the one-person-one-row summary.
+        var summaryHeaders = columnDefs.Select(x => x.Header).Concat(
+            ["角色歷史筆數", "小組歷史筆數", "派駐歷史筆數", "歷史資料狀態"]).ToArray();
+        if (!includeHistory)
         {
-            new("人員總覽",columnDefs.Select(x=>x.Header).ToArray(),
-                peopleRows.Select(row=>columnDefs.Select(x=>x.Getter(row)).ToArray()))
-        };
-        if (includeHistory)
-        {
-            var periods = await official.ListAsync("personnel-status-history",ct);
-            var legacy = await official.ListAsync("personnel-legacy-status-history",ct);
-            var roles = await official.ListAsync("personnel-role-history",ct);
-            var teams = await official.ListAsync("personnel-team-history",ct);
-            var sites = await official.ListAsync("employment-sites",ct);
-            var scopes = await official.ListAsync("personnel-scope-history",ct);
-            var capabilities = await official.ListAsync("personnel-capability-history",ct);
-            foreach (var count in new[] {periods.Count,legacy.Count,roles.Count,teams.Count,sites.Count,scopes.Count,capabilities.Count})
-                GuardOfficialCount(count);
-            var employment = periods.Concat(legacy).Where(x=>ids.Contains(x.ReferenceKey??""))
-                .OrderBy(x=>x.Key).ThenBy(x=>x.EffectiveFrom).ToList();
-            sheets.Add(new("人事狀態歷史",["工號","人事狀態","生效日","失效日","來源"],
-                employment.Select(x=>Cells(x.Key,x.ParentKey,x.EffectiveFrom,x.EffectiveTo,x.Detail))));
-            sheets.Add(new("角色有效期間",["工號","角色代碼","角色名稱","生效日","失效日"],
-                roles.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.Detail,x.EffectiveFrom,x.EffectiveTo))));
-            sheets.Add(new("小組歸屬歷史",["工號","小組代碼","小組名稱","主要小組","生效日","失效日"],
-                teams.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.Detail,x.IsPrimary==true?"是":"否",x.EffectiveFrom,x.EffectiveTo))));
-            sheets.Add(new("派駐據點歷史",["工號","Site Code","主要派駐","生效日","失效日"],
-                sites.Where(x=>employeeNos.Contains(x.Key)).Select(x=>Cells(x.Key,x.ParentKey,x.IsPrimary==true?"是":"否",x.EffectiveFrom,x.EffectiveTo))));
-            sheets.Add(new("資料範圍歷史",["工號","範圍類型","範圍識別","生效日","失效日"],
-                scopes.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.Detail,x.EffectiveFrom,x.EffectiveTo))));
-            sheets.Add(new("功能權限歷史",["工號","權限代碼","允許","生效日","失效日"],
-                capabilities.Where(x=>ids.Contains(x.ReferenceKey??"")).Select(x=>Cells(x.Key,x.ParentKey,x.IsActive==true?"是":"否",x.EffectiveFrom,x.EffectiveTo))));
+            sheets.Add(new("人員完整總覽", columnDefs.Select(x => x.Header).ToArray(),
+                peopleRows.Select(row => columnDefs.Select(x => x.Getter(row)).ToArray())));
         }
-        return WorkbookSheets("人事完整履歷",new {request,columns,includeHistory,Criteria="人員總覽每人一列；各歷史表依有效期間列示"},sheets,
-            request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
+        else
+        {
+            // All sources are loaded once, using the existing organization-scoped master service.
+            // Never join independent one-to-many histories directly: doing so duplicates records.
+            var periods = await official.ListAsync("personnel-status-history", ct);
+            var legacy = await official.ListAsync("personnel-legacy-status-history", ct);
+            var roles = await official.ListAsync("personnel-role-history", ct);
+            var teams = await official.ListAsync("personnel-team-history", ct);
+            var sites = await official.ListAsync("employment-sites", ct);
+            var scopes = await official.ListAsync("personnel-scope-history", ct);
+            var capabilities = await official.ListAsync("personnel-capability-history", ct);
+            foreach (var count in new[] { periods.Count, legacy.Count, roles.Count, teams.Count,
+                sites.Count, scopes.Count, capabilities.Count }) GuardOfficialCount(count);
+
+            var events = new List<PersonnelHistoryEvent>();
+            void Include(string kind, IEnumerable<V180MasterDataRow> rows, bool byEmployeeNumber = false)
+            {
+                foreach (var x in rows)
+                {
+                    if (!(byEmployeeNumber ? employeeNos.Contains(x.Key) : ids.Contains(x.ReferenceKey ?? "")))
+                        continue;
+                    events.Add(new PersonnelHistoryEvent(
+                        x.Key, kind, x.ParentKey ?? "", x.Detail ?? "",
+                        x.EffectiveFrom, x.EffectiveTo, x.ReferenceKey ?? "",
+                        x.IsPrimary, x.IsActive));
+                }
+            }
+            Include("人事狀態", periods);
+            Include("舊人事狀態", legacy);
+            Include("角色", roles);
+            Include("小組", teams);
+            Include("派駐據點", sites, true);
+            Include("資料範圍", scopes);
+            Include("功能權限", capabilities);
+
+            var names = peopleRows.GroupBy(x => x.EmployeeNo ?? x.UserCode,
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().DisplayName, StringComparer.OrdinalIgnoreCase);
+            var byEmployee = events.GroupBy(x => x.EmployeeNo, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.From).ToList(),
+                    StringComparer.OrdinalIgnoreCase);
+            sheets.Add(new("人員完整總覽", summaryHeaders, peopleRows.Select(person =>
+            {
+                var number = person.EmployeeNo ?? person.UserCode;
+                byEmployee.TryGetValue(number, out var h);
+                h ??= [];
+                return columnDefs.Select(x => x.Getter(person))
+                    .Concat(Cells(h.Count(x => x.Kind == "角色"),
+                        h.Count(x => x.Kind == "小組"),
+                        h.Count(x => x.Kind == "派駐據點"),
+                        h.Count == 0 ? "未提供歷史紀錄" : "有歷史紀錄")).ToArray();
+            })));
+
+            var today = BusinessTime.Today;
+            var snapshots = new List<string[]>();
+            foreach (var person in peopleRows)
+            {
+                var number = person.EmployeeNo ?? person.UserCode;
+                if (!byEmployee.TryGetValue(number, out var h) || h.Count == 0)
+                {
+                    // No historical evidence: do not fabricate prior assignments.
+                    snapshots.Add(Cells(number, person.DisplayName, "", "", "", "", "",
+                        "", "", "未提供歷史紀錄"));
+                    continue;
+                }
+                var bounds = BuildPeriodBounds(h, today);
+                for (var i = 0; i + 1 < bounds.Count; i++)
+                {
+                    var from = bounds[i];
+                    var toExclusive = bounds[i + 1];
+                    var valid = h.Where(x => x.From <= from &&
+                        (!x.To.HasValue || x.To.Value >= from)).ToList();
+                    if (valid.Count == 0) continue;
+                    string Items(string category) => string.Join("、", valid
+                        .Where(x => x.Kind == category)
+                        .Select(x => string.IsNullOrWhiteSpace(x.Detail) ? x.Code : x.Detail)
+                        .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.Ordinal)
+                        .OrderBy(x => x, StringComparer.Ordinal));
+                    var statuses = string.Join("、", new[] { "人事狀態", "舊人事狀態" }
+                        .SelectMany(category => valid.Where(x => x.Kind == category))
+                        .Select(x => x.Code).Where(x => x.Length > 0)
+                        .Distinct(StringComparer.Ordinal));
+                    var fromDate = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    var endDate = toExclusive <= today
+                        ? toExclusive.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                        : "";
+                    snapshots.Add(Cells(number, person.DisplayName, fromDate, endDate,
+                        statuses, Items("角色"), Items("小組"), Items("派駐據點"),
+                        Items("資料範圍"), Items("功能權限")));
+                }
+            }
+            sheets.Add(new("人員歷史期間快照",
+                ["工號", "姓名", "期間起日", "期間迄日", "人事狀態", "角色",
+                 "小組", "派駐據點", "資料範圍", "功能權限"], snapshots));
+            sheets.Add(new("人員異動事件明細",
+                ["工號", "姓名", "異動類型", "項目代碼", "項目內容", "生效日", "失效日",
+                 "主要歸屬", "來源關聯鍵"],
+                events.OrderBy(x => x.EmployeeNo).ThenBy(x => x.From).ThenBy(x => x.Kind)
+                    .Select(x => Cells(x.EmployeeNo, names.GetValueOrDefault(x.EmployeeNo, ""),
+                        x.Kind, x.Code, x.Detail, x.From, x.To,
+                        x.IsPrimary == true ? "是" : x.IsPrimary == false ? "否" : "",
+                        x.ReferenceKey))));
+            sheets.Add(new("完整稽核資料",
+                ["來源類型", "來源工號", "來源項目代碼", "來源說明", "來源關聯鍵",
+                 "生效日", "失效日", "主要歸屬旗標", "啟用旗標"],
+                events.Select(x => Cells(x.Kind, x.EmployeeNo, x.Code, x.Detail, x.ReferenceKey,
+                    x.From, x.To, x.IsPrimary, x.IsActive))));
+        }
+        return WorkbookSheets("人事完整履歷",
+            new { request, columns, includeHistory,
+                SnapshotAsOf = BusinessTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                Criteria = "總覽每人一列；快照依有效期間切分；事件與稽核各保留來源紀錄" },
+            sheets, request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
+    }
+
+    private sealed record PersonnelHistoryEvent(
+        string EmployeeNo, string Kind, string Code, string Detail,
+        DateOnly From, DateOnly? To, string ReferenceKey, bool? IsPrimary, bool? IsActive);
+
+    // Inclusive source effective dates -> sorted exclusive boundaries, capped at today's end.
+    // The result has at most 2*N+2 boundaries and never cross-joins separate histories.
+    private static List<DateOnly> BuildPeriodBounds(
+        IReadOnlyList<PersonnelHistoryEvent> events, DateOnly asOf)
+    {
+        var endExclusive = asOf.AddDays(1);
+        var bounds = new SortedSet<DateOnly> { endExclusive };
+        foreach (var e in events)
+        {
+            if (e.From > asOf) continue;
+            bounds.Add(e.From);
+            if (e.To.HasValue && e.To.Value < asOf && e.To.Value < DateOnly.MaxValue)
+                bounds.Add(e.To.Value.AddDays(1));
+        }
+        return bounds.ToList();
     }
 
     private sealed record PersonnelColumn(string Id, string Header, Func<V170PeopleRowDto,string> Getter);
@@ -358,9 +468,9 @@ public sealed class V180QueryExportController(
         foreach (var values in records) WriteRow(sheet, rowNumber++, values);
         sheet.CreateFreezePane(0, 1);
         using var stream = new MemoryStream();
+        WriteRow(meta, 5, ["符合查詢筆數", (rowNumber - 1).ToString(CultureInfo.InvariantCulture)]);
         book.Write(stream);
         var cleanTitle = SafeName(title);
-        WriteRow(meta, 5, ["符合查詢筆數", (rowNumber - 1).ToString(CultureInfo.InvariantCulture)]);
         var filename = $"FieldVisit_{cleanTitle}_{SafeName(scopeLabel)}_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
         return File(stream.ToArray(), Mime, filename);
     }
