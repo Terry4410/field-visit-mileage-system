@@ -145,7 +145,8 @@ public sealed class V180QueryExportController(
         var teamCenters = await official.ListAsync("team-centers", ct);
         var teamSites = await official.ListAsync("team-sites", ct);
         foreach(var count in new[] {centers.Count,sites.Count,assignments.Count,teamCenters.Count,teamSites.Count}) GuardOfficialCount(count);
-        return WorkbookSheets("地點與官方據點整合", request,
+        return WorkbookSheets("地點與官方據點整合",
+            new {LocationFilters=request, OfficialCenterAndSiteScope="目前 Organization 全部已授權主檔與歷史，不受地點主檔文字篩選影響"},
         [
             new ExportSheet("地點主檔",
                 ["Location Code","名稱","統編","主檔備註","小組","縣市","鄉鎮區","地址","Plus Code","狀態"],
