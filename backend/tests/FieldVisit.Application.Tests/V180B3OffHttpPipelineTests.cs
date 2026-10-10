@@ -75,10 +75,12 @@ public sealed class B3DisabledHttpFactory : WebApplicationFactory<V180B3ChangeRe
             ?? throw new InvalidOperationException("No default app JWT scheme");
         var validation=Services.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
             .Get(scheme.Name).TokenValidationParameters;
+        var matchesSigningKey=validation.IssuerSigningKey is SymmetricSecurityKey key &&
+            Encoding.UTF8.GetBytes(TestKey).SequenceEqual(key.Key);
         if(validation.ValidIssuer!=Issuer || validation.ValidAudience!=Audience ||
-           !Encoding.UTF8.GetBytes(TestKey).SequenceEqual(validation.IssuerSigningKey?.Key??[]))
+           !matchesSigningKey)
             throw new InvalidOperationException(
-                $"B3 JWT middleware configuration mismatch: scheme={scheme.Name}, issuer={validation.ValidIssuer}, audience={validation.ValidAudience}, key-is-fixture={Encoding.UTF8.GetBytes(TestKey).SequenceEqual(validation.IssuerSigningKey?.Key??[])}");
+                $"B3 JWT middleware configuration mismatch: scheme={scheme.Name}, issuer={validation.ValidIssuer}, audience={validation.ValidAudience}, key-is-fixture={matchesSigningKey}");
         var claims=new[]{
             new Claim(ClaimTypes.NameIdentifier,"98765"),
             new Claim(ClaimTypes.Name,"B3 isolated fixture"),
