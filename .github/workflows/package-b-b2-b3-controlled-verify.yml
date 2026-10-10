@@ -74,5 +74,6 @@ jobs:
         with:
           name: package-b-b3-b4-security-evidence
           path: .ci-artifacts/*
-          if-no-files-found: warn
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30

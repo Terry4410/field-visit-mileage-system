@@ -90,6 +90,8 @@ def scan():
         yml = (workflow_dir / "package-b-b2-b3-controlled-verify.yml").read_text(encoding="utf-8")
         valid = ("contents: read" in yml and "persist-credentials: false" in yml
                  and "python3 scripts/ci/package_b_guard.py" in yml
+                 and "if-no-files-found: error" in yml
+                 and "include-hidden-files: true" in yml
                  and not re.search(r"azure/login|\bsqlcmd\b|dotnet ef database update", yml, re.I))
         gate("CI_readonly_no_deploy", valid, "readonly workflow restrictions")
     except OSError as exc:
