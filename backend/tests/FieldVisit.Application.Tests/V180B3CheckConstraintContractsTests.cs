@@ -65,6 +65,8 @@ public sealed class V180B3CheckConstraintContractsTests
         Assert.Contains("ReviewedByUserId",review);
         Assert.Contains("ReviewedAt",review);
         Assert.Contains("AppliedAt",review);
+        Assert.Contains("[ReviewReason] IS NULL",review);
+        Assert.Contains("[ReviewedByUserId]<>[RequestedByUserId]",review);
         Assert.Contains("[ReviewReason] IS NOT NULL",review);
         Assert.Contains("LEN(LTRIM(RTRIM([ReviewReason])))>0",review);
         var events=db.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(V180B3ChangeEvent))!;
@@ -76,5 +78,6 @@ public sealed class V180B3CheckConstraintContractsTests
         Assert.Contains("[DecisionKey] IS NULL",decision);
         Assert.Contains("[DecisionKey] IS NOT NULL",decision);
         Assert.Contains("[ActorUserId] IS NOT NULL",decision);
+        Assert.Contains("[EventType]=N'Submitted' AND [DecisionKey] IS NULL AND [ActorUserId] IS NOT NULL",decision);
     }
 }

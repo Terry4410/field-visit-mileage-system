@@ -97,7 +97,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 table.HasCheckConstraint("CK_B3_ChangeRequests_KnownStatus", "[Status] IN (N'Pending',N'Rejected',N'Returned',N'Applied',N'Cancelled')");
                 table.HasCheckConstraint("CK_B3_ChangeRequests_ExpectedLocationVersion", "[ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=8");
                 table.HasCheckConstraint("CK_B3_ChangeRequests_ProposedJson", "ISJSON([ProposedJson])=1");
-                table.HasCheckConstraint("CK_B3_ChangeRequests_ReviewState", "([Status]<>N'Pending' OR ([ReviewedByUserId] IS NULL AND [ReviewedAt] IS NULL AND [AppliedAt] IS NULL)) AND ([Status]<>N'Rejected' OR ([ReviewedByUserId] IS NOT NULL AND [ReviewedAt] IS NOT NULL AND [ReviewReason] IS NOT NULL AND LEN(LTRIM(RTRIM([ReviewReason])))>0 AND [AppliedAt] IS NULL))");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_ReviewState", "([Status]<>N'Pending' OR ([ReviewedByUserId] IS NULL AND [ReviewedAt] IS NULL AND [ReviewReason] IS NULL AND [AppliedAt] IS NULL)) AND ([Status]<>N'Rejected' OR ([ReviewedByUserId] IS NOT NULL AND [ReviewedByUserId]<>[RequestedByUserId] AND [ReviewedAt] IS NOT NULL AND [ReviewReason] IS NOT NULL AND LEN(LTRIM(RTRIM([ReviewReason])))>0 AND [AppliedAt] IS NULL))");
             });
             e.HasKey(x => x.ChangeRequestId);
             e.Property(x => x.ChangeRequestId).ValueGeneratedOnAdd();
@@ -142,7 +142,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             {
                 table.HasCheckConstraint("CK_B3_ChangeRequestEvents_EventType", "[EventType] IN (N'Submitted',N'Rejected')");
                 table.HasCheckConstraint("CK_B3_ChangeRequestEvents_DetailsJson", "[DetailsJson] IS NULL OR ISJSON([DetailsJson])=1");
-                table.HasCheckConstraint("CK_B3_ChangeRequestEvents_DecisionState", "([EventType]=N'Submitted' AND [DecisionKey] IS NULL) OR ([EventType]=N'Rejected' AND [DecisionKey] IS NOT NULL AND [ActorUserId] IS NOT NULL)");
+                table.HasCheckConstraint("CK_B3_ChangeRequestEvents_DecisionState", "([EventType]=N'Submitted' AND [DecisionKey] IS NULL AND [ActorUserId] IS NOT NULL) OR ([EventType]=N'Rejected' AND [DecisionKey] IS NOT NULL AND [ActorUserId] IS NOT NULL)");
             });
             e.HasKey(x => x.ChangeRequestEventId);
             e.Property(x => x.ChangeRequestEventId).ValueGeneratedOnAdd();
