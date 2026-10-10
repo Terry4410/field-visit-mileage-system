@@ -15,8 +15,10 @@ public sealed class V180TeamMembershipCommandService(
 {
     public async Task UpdateAsync(int userId, V180ReplaceTeamMembershipsRequest request, CancellationToken ct)
     {
-        var admin = RequireAdmin();
-        var orgId = admin.OrganizationId ?? throw new UnauthorizedAccessException("管理者缺少 Organization 範圍。");
+        // Membership changes modify write scope, not only read visibility.
+        // Revalidate effective Admin authority before any configuration writes.
+        var admin = await V180CurrentAdminWriteGuard.RequireAsync(db,current.GetRequired(),ct);
+        var orgId = admin.OrganizationId!.Value;
         var today = BusinessTime.Today;
         if (request.EffectiveFrom < today)
             throw new InvalidOperationException("小組歸屬回溯異動請改走正式更正流程；一般維護不可早於今天。");
@@ -180,11 +182,4 @@ public sealed class V180TeamMembershipCommandService(
         });
     }
 
-    private CurrentUserDto RequireAdmin()
-    {
-        var user = current.GetRequired();
-        if (!user.Roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase)))
-            throw new UnauthorizedAccessException("只有管理者可維護小組成員。");
-        return user;
-    }
 }

@@ -19,11 +19,10 @@ public sealed class V180InternalRoleCommandService(
 
     public async Task UpdateAsync(int userId, V180InternalRoleAccessRequest request, CancellationToken ct)
     {
-        var admin = current.GetRequired();
-        if (!admin.Roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase)))
-            throw new UnauthorizedAccessException("只有管理者可以維護角色。");
-        var orgId = admin.OrganizationId
-            ?? throw new UnauthorizedAccessException("管理者缺少 Organization 範圍。");
+        // Role assignment directly changes security authority: a JWT alone
+        // must not authorize grants after HR/role/account revocation.
+        var admin = await V180CurrentAdminWriteGuard.RequireAsync(db,current.GetRequired(),ct);
+        var orgId = admin.OrganizationId!.Value;
         var today = BusinessTime.Today;
         if (request.EffectiveFrom != today)
             throw new InvalidOperationException("一般角色維護只允許今天生效；回溯或未來排程請使用正式授權流程。");
