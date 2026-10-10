@@ -6,6 +6,8 @@ on:
     paths:
       - "backend/**"
       - "frontend/**"
+      - "scripts/ci/**"
+      - "docs/release/PACKAGE-B*"
       - ".github/workflows/package-b-b2-b3-controlled-verify.yml"
   workflow_dispatch:
 
@@ -25,6 +27,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+      - name: Automated B3/B4 safety gates (NO DEPLOY)
+        run: python3 scripts/ci/package_b_guard.py --report .ci-artifacts/guard.json --summary .ci-artifacts/guard.md
       - name: Verify immutable authorized baseline
         run: git merge-base --is-ancestor c1ee3c0c3df000491fd54df727482815d3c38917 HEAD
       - uses: actions/setup-dotnet@v4
@@ -46,3 +51,20 @@ jobs:
       - name: Frontend build (NO DEPLOY)
         working-directory: frontend
         run: npm run build
+      - name: Publish security-gate summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f .ci-artifacts/guard.md ]; then
+            cat .ci-artifacts/guard.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Package B guard report missing: FAIL CLOSED" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload read-only gate evidence (NO DEPLOY)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-b-b3-b4-security-evidence
+          path: .ci-artifacts/guard.*
+          if-no-files-found: warn
+          retention-days: 30
