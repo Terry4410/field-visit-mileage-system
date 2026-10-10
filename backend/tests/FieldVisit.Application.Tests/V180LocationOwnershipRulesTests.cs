@@ -29,17 +29,22 @@ public sealed class V180LocationOwnershipRulesTests
             V180LocationOwnershipRules.EnsureDraftUpdate(Actor(2,"visitor"),1,7,1,"Pending",false,new[]{7},7,false,"Customer","Customer"));
     }
 
-    [Fact] public void Multi_role_leader_can_manage_team_pending_draft()
+    [Fact] public void Multi_role_leader_may_edit_own_visitor_draft_but_not_peer_draft()
     {
         var actor=new CurrentUserDto(3,"mixed3","Test",null,1,7,"Team",
             new[]{"visitor","leader"},new[]{new TeamScopeDto(7,"Team",true)});
         V180LocationOwnershipRules.EnsureDraftUpdate(
-            actor,1,7,1,"Pending",false,new[]{7},7,false,"Customer","Customer");
+            actor,1,7,3,"Pending",false,new[]{7},7,false,"Customer","Customer");
+        Assert.Throws<UnauthorizedAccessException>(()=>
+            V180LocationOwnershipRules.EnsureDraftUpdate(
+                actor,1,7,1,"Pending",false,new[]{7},7,false,"Customer","Customer"));
     }
 
     [Fact] public void Leader_must_manage_active_own_team_and_never_publish_or_change_owner_team()
     {
-        V180LocationOwnershipRules.EnsureDraftUpdate(Actor(3,"leader"),1,7,1,"Pending",false,new[]{7},7,false,"Customer","Customer");
+        // Before Owner attestation, ordinary TeamMembership is not a manager grant.
+        Assert.Throws<UnauthorizedAccessException>(()=>
+            V180LocationOwnershipRules.EnsureDraftUpdate(Actor(3,"leader"),1,7,1,"Pending",false,new[]{7},7,false,"Customer","Customer"));
         Assert.Throws<UnauthorizedAccessException>(()=>
             V180LocationOwnershipRules.EnsureDraftUpdate(Actor(3,"leader"),1,8,1,"Pending",false,new[]{7},8,false,"Customer","Customer"));
         Assert.Throws<UnauthorizedAccessException>(()=>
