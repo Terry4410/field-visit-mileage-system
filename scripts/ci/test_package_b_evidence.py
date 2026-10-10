@@ -228,7 +228,8 @@ class B3HttpOffEvidenceCases(unittest.TestCase):
         for i,name in enumerate(names):
             outcome="Failed" if i==0 and failed else "Passed"
             ids="" if i==0 and missing_ids else f' testId="id-{i}" executionId="run-{i}"'
-            rows.append(f'<UnitTestResult testName="{HTTP_PREFIX}{name}" outcome="{outcome}"{ids}/>')
+            safe_name=name.replace("&","&amp;").replace('"',"&quot;")
+            rows.append(f'<UnitTestResult testName="{HTTP_PREFIX}{safe_name}" outcome="{outcome}"{ids}/>')
         self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
 
     def test_all_19_named_cases_preserve_uat_hold(self):
