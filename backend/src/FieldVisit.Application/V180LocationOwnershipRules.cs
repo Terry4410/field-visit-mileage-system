@@ -35,8 +35,11 @@ public static class V180LocationOwnershipRules
         if(!actor.OrganizationId.HasValue || organizationId!=actor.OrganizationId
            || !teamId.HasValue || !effectiveTeams.Contains(teamId.Value))
             throw new UnauthorizedAccessException("不得維護其他小組、共用或跨組織地點。");
-        if(!HasRole(actor,"leader")&&HasRole(actor,"visitor")&&createdBy!=actor.UserId)
-            throw new UnauthorizedAccessException("外訪員只能維護本人建立的地點。");
+        // Until per-team manager appointments are independently attested,
+        // even a dual-role leader+visitor may edit only their own draft.
+        // Never infer authority over peers from team membership.
+        if(createdBy!=actor.UserId)
+            throw new UnauthorizedAccessException("未經核定的管理小組不得維護他人地點。");
         if(!string.Equals(status,"Pending",StringComparison.OrdinalIgnoreCase)||isActive)
             throw new UnauthorizedAccessException("已發布地點的主檔變更需要管理者核准，目前只能編修待審核草稿。");
         if(requestedTeamId!=teamId || requestedActive

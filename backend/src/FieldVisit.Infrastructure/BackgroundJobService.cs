@@ -55,6 +55,8 @@ public sealed class BackgroundJobService(
             row.TeamScopeJson = JsonSerializer.Serialize(Array.Empty<int>(), JsonOptions);
         else
         {
+            // B1C: pending audited manager grants, membership is NOT manager authority.
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
             if(!user.OrganizationId.HasValue || user.TeamIds.Count==0)
                 throw new UnauthorizedAccessException("目前沒有有效的小組解析權限。");
             var account=await db.Users.AsNoTracking()
@@ -466,6 +468,8 @@ public sealed class BackgroundJobService(
         var teamIds=queuedTeamIds.ToList();
         if(!adminJob)
         {
+            // Stop even queued legacy jobs: never promote membership to management.
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
             var today=BusinessTime.Today;
             teamIds=await (
                 from scope in db.UserTeamScopes.AsNoTracking()
@@ -563,17 +567,8 @@ public sealed class BackgroundJobService(
                 var result = await geocoding.ResolveAsync(location.Address, location.PlusCode, ct);
                 if (!result.Success || !result.Latitude.HasValue || !result.Longitude.HasValue) throw new InvalidOperationException(result.ErrorMessage ?? result.ErrorCode ?? "地址解析失敗。");
                 location.LocationCode ??= NewLocationCode(); location.Latitude = result.Latitude; location.Longitude = result.Longitude; location.GeocodingStatus = "Completed"; location.GeocodedAt = DateTime.UtcNow; location.UpdatedAt = DateTime.UtcNow;
-                // Geocoding is safe for an authorized team draft; publishing is not.
-                // Only a current administrator can approve/activate the master.
-                if(adminJob)
-                {
-                    location.ApprovalStatus = "Approved"; location.IsActive = true;
-                    db.LocationApprovalHistories.Add(new LocationApprovalHistory { LocationId = location.LocationId, Action = "Approved", ReviewedByUserId = job.RequestedByUserId, Comments = "Admin geocoding/publish", ActionAt = DateTime.UtcNow });
-                }
-                else
-                {
-                    location.ApprovalStatus = "Pending"; location.IsActive = false;
-                }
+                // B3: coordinate success is NOT approval or publication.
+                V180LocationPublicationRules.PreserveReviewStateAfterGeocoding(location);
                 item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.Latitude, result.Longitude }, JsonOptions); job.SuccessCount++;
             }
             catch (Exception ex)

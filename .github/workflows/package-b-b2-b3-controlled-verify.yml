@@ -1,0 +1,48 @@
+name: Package B B2-B3 controlled non-deploy verification
+on:
+  push:
+    branches:
+      - work/v180-package-b-b2-b3-controlled
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/package-b-b2-b3-controlled-verify.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-b-b2-b3-controlled-verify
+  cancel-in-progress: false
+
+jobs:
+  isolated-tests:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-package-b-b2-b3-controlled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify immutable authorized baseline
+        run: git merge-base --is-ancestor c1ee3c0c3df000491fd54df727482815d3c38917 HEAD
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Backend build (NO DEPLOY)
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Backend unit tests (NO DB)
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger 'console;verbosity=normal'
+      - name: Frontend restore
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm run test
+      - name: Frontend build (NO DEPLOY)
+        working-directory: frontend
+        run: npm run build

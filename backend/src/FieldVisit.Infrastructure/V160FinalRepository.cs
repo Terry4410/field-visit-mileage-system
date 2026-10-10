@@ -1070,6 +1070,10 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     private async Task<IReadOnlyList<int>> EffectiveLocationWriteTeamsAsync(CurrentUserDto user,CancellationToken ct)
     {
+        // Manager grants await IT/Owner attestation: a pure Leader may not
+        // borrow ordinary membership for any location mutation.
+        if(HasRole(user,"leader") && !HasRole(user,"visitor"))
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         if(!user.OrganizationId.HasValue||user.TeamIds.Count==0)
             throw new UnauthorizedAccessException("缺少目前有效授權的小組。");
         var account=await db.Users.AsNoTracking()
