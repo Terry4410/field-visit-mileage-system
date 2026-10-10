@@ -24,42 +24,57 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - id: checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Automated B3/B4 safety gates (NO DEPLOY)
+        id: security_gate
         run: python3 scripts/ci/package_b_guard.py --report .ci-artifacts/guard.json --summary .ci-artifacts/guard.md
       - name: Python CI scripts syntax validation
+        id: python_syntax
         run: python3 -m compileall -q scripts/ci
       - name: Verify CI evidence parser negative tests
+        id: python_tests
         run: python3 -m unittest discover -s scripts/ci -p 'test_package_b_*.py'
       - name: Validate every B4 SQL runtime HOLD case (DOCUMENT ONLY)
+        id: matrix_gate
         run: python3 scripts/ci/package_b_matrix.py --input docs/release/PACKAGE-B-B3-B4-REMAINING-RUNTIME-UAT-GATES-NONEXECUTABLE.md --report .ci-artifacts/b4-matrix.json --summary .ci-artifacts/b4-matrix.md
       - name: Verify immutable authorized baseline
+        id: baseline_gate
         run: git merge-base --is-ancestor c1ee3c0c3df000491fd54df727482815d3c38917 HEAD
-      - uses: actions/setup-dotnet@v4
+      - id: setup_dotnet
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - uses: actions/setup-node@v4
+      - id: setup_node
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Backend build (NO DEPLOY)
+        id: backend_build
         run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
       - name: Backend unit tests (NO DB)
+        id: backend_tests
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger 'console;verbosity=normal' --logger 'trx;LogFileName=backend-tests.trx' --results-directory .ci-artifacts
       - name: Frontend restore
+        id: frontend_restore
         working-directory: frontend
         run: npm ci
       - name: Frontend tests
+        id: frontend_tests
         working-directory: frontend
         run: npm run test -- --reporter=default --reporter=junit --outputFile.junit=../.ci-artifacts/frontend-tests.xml
       - name: Frontend build (NO DEPLOY)
+        id: frontend_build
         working-directory: frontend
         run: npm run build
       - name: Consolidate automated B3/B4 CI evidence (NO DEPLOY)
         if: always()
-        run: python3 scripts/ci/package_b_evidence.py --guard .ci-artifacts/guard.json --trx .ci-artifacts/backend-tests.trx --junit .ci-artifacts/frontend-tests.xml --matrix .ci-artifacts/b4-matrix.json --output .ci-artifacts/ci-evidence.json --summary .ci-artifacts/ci-evidence.md
+        env:
+          PACKAGE_B_CI_STEP_OUTCOMES: ${{ toJSON(steps) }}
+        run: python3 scripts/ci/package_b_evidence.py --guard .ci-artifacts/guard.json --trx .ci-artifacts/backend-tests.trx --junit .ci-artifacts/frontend-tests.xml --matrix .ci-artifacts/b4-matrix.json --steps-json "$PACKAGE_B_CI_STEP_OUTCOMES" --output .ci-artifacts/ci-evidence.json --summary .ci-artifacts/ci-evidence.md
       - name: Publish security-gate summary
         if: always()
         shell: bash

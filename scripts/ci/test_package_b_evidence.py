@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 
 from package_b_evidence import (collect, parse_junit, parse_trx,
-                                REQUIRED_SECURITY_GATES, FROZEN_PROTECTED_SHA)
+                                REQUIRED_SECURITY_GATES, FROZEN_PROTECTED_SHA,
+                                REQUIRED_SUCCESSFUL_STEPS, validate_step_outcomes)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -36,6 +37,42 @@ class PackageBEvidenceTests(unittest.TestCase):
             'notExecuted="0"/></ResultSummary></TestRun>')
         self.junit.write_text('<testsuites><testsuite tests="2" failures="0" '
                               'errors="0" skipped="0"/></testsuites>')
+
+    def test_all_required_successful_actions_steps_are_verified(self):
+        step_data = {key: {"outcome": "success"}
+                     for key in REQUIRED_SUCCESSFUL_STEPS}
+        validated = validate_step_outcomes(step_data)
+        self.assertEqual(len(REQUIRED_SUCCESSFUL_STEPS), validated["succeeded"])
+        result = collect(self.guard, self.trx, self.junit, self.matrix,
+                         step_outcomes=step_data)
+        self.assertEqual("PASS", result["result"])
+
+    def test_backend_build_failure_cannot_be_masked_by_passing_tests(self):
+        step_data = {key: {"outcome": "success"}
+                     for key in REQUIRED_SUCCESSFUL_STEPS}
+        step_data["backend_build"]["outcome"] = "failure"
+        result = collect(self.guard, self.trx, self.junit, self.matrix,
+                         step_outcomes=step_data)
+        self.assertEqual("FAIL_CLOSED", result["result"])
+        self.assertIn("backend_build", " ".join(result["errors"]))
+
+    def test_skipped_baseline_gate_cannot_be_masked_by_passing_tests(self):
+        step_data = {key: {"outcome": "success"}
+                     for key in REQUIRED_SUCCESSFUL_STEPS}
+        step_data["baseline_gate"]["outcome"] = "skipped"
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit, self.matrix,
+            step_outcomes=step_data)["result"])
+
+    def test_missing_or_malformed_github_step_evidence_is_denied(self):
+        step_data = {key: {"outcome": "success"}
+                     for key in REQUIRED_SUCCESSFUL_STEPS}
+        del step_data["frontend_build"]
+        with self.assertRaisesRegex(ValueError, "missing"):
+            validate_step_outcomes(step_data)
+        step_data["frontend_build"] = "success"
+        with self.assertRaisesRegex(ValueError, "unverifiable"):
+            validate_step_outcomes(step_data)
 
     def test_missing_B4_matrix_fails_closed(self):
         self.matrix.unlink()

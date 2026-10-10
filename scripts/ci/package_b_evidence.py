@@ -63,6 +63,35 @@ def validate_guard(guard: dict, github_sha: str | None = None) -> dict:
     }
 
 
+REQUIRED_SUCCESSFUL_STEPS = frozenset({
+    "checkout", "security_gate", "python_syntax", "python_tests",
+    "matrix_gate", "baseline_gate", "setup_dotnet", "setup_node",
+    "backend_build", "backend_tests", "frontend_restore",
+    "frontend_tests", "frontend_build",
+})
+
+
+def validate_step_outcomes(outcomes: dict) -> dict:
+    """A passing test report is insufficient when Build or CI gate was skipped.
+
+    Consumes the GitHub Actions 'steps' context captured prior to aggregation.
+    Individual step 'outcome', not a caller-controlled PASS label, must
+    explicitly be success. This is still source/CI evidence, not SQL UAT.
+    """
+    if not isinstance(outcomes, dict):
+        raise ValueError("invalid GitHub Actions steps context")
+    missing = sorted(REQUIRED_SUCCESSFUL_STEPS - set(outcomes))
+    if missing:
+        raise ValueError("required CI steps missing: " + ", ".join(missing))
+    bad = sorted(step for step in REQUIRED_SUCCESSFUL_STEPS
+                 if not isinstance(outcomes[step], dict)
+                 or outcomes[step].get("outcome") != "success")
+    if bad:
+        raise ValueError("CI steps failed, skipped or unverifiable: " + ", ".join(bad))
+    return {"required": len(REQUIRED_SUCCESSFUL_STEPS),
+            "succeeded": len(REQUIRED_SUCCESSFUL_STEPS)}
+
+
 def parse_trx(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
     counters = root.find(".//{*}Counters")
@@ -93,10 +122,12 @@ def parse_junit(path: Path) -> dict[str, int]:
     return data
 
 
-def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path) -> dict:
+def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
+            step_outcomes: dict | None = None) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
-                "backend": None, "frontend": None, "b4_matrix": None, "errors": []}
+                "backend": None, "frontend": None, "b4_matrix": None,
+                "build_and_ci_steps": None, "errors": []}
     try:
         guard = json.loads(guard_path.read_text(encoding="utf-8"))
         evidence["guard"] = validate_guard(guard, os.environ.get("GITHUB_SHA"))
@@ -134,6 +165,11 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path) -> dict:
                                  "sql_server_runtime": "NOT_TESTED"}
     except (OSError, ValueError, KeyError, TypeError) as exc:
         evidence["errors"].append("B4 matrix: " + str(exc))
+    if step_outcomes is not None:
+        try:
+            evidence["build_and_ci_steps"] = validate_step_outcomes(step_outcomes)
+        except (ValueError, TypeError) as exc:
+            evidence["errors"].append("CI step outcomes: " + str(exc))
     if not evidence["errors"]:
         evidence["result"] = "PASS"
     evidence["notice"] = "No SQL Server runtime or migration verification. Full UAT and Production HOLD."
@@ -142,10 +178,15 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path) -> dict:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    for key in ("guard", "trx", "junit", "matrix", "output", "summary"):
+    for key in ("guard", "trx", "junit", "matrix", "steps-json", "output", "summary"):
         p.add_argument("--" + key, required=True)
     args = p.parse_args()
-    result = collect(Path(args.guard), Path(args.trx), Path(args.junit), Path(args.matrix))
+    try:
+        steps = json.loads(args.steps_json)
+    except (TypeError, ValueError) as exc:
+        steps = {"invalid": {"outcome": f"invalid JSON: {exc}"}}
+    result = collect(Path(args.guard), Path(args.trx), Path(args.junit),
+                     Path(args.matrix), step_outcomes=steps)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -156,6 +197,11 @@ def main() -> int:
     if result["guard"]:
         lines.append("| Protected + feature/approval/migration guard | " +
                      str(result["guard"]["passed_checks"]) + " checks PASS |")
+    if result["build_and_ci_steps"]:
+        s = result["build_and_ci_steps"]
+        lines.append("| CI build / test / hard-hold steps | " +
+                     str(s["succeeded"]) + "/" + str(s["required"]) +
+                     " mandatory steps successful |")
     for name in ("backend", "frontend"):
         if result[name]:
             x = result[name]
