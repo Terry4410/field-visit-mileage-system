@@ -59,6 +59,7 @@ Indexes: (ChangeRequestId, OccurredAt, ChangeRequestEventId); CorrelationId; `UX
 - DB duplicate key (2601/2627) is translated into a conflict only when the named B3 Pending or DecisionKey index is identified. Any unknown constraint/error remains fail-closed, with no false success or automatic retry. B3 HTTP error mapping uses 409 for these recognized conflicts.
 - A precheck for an existing DecisionKey runs inside the Reject transaction, but concurrent correctness still requires the physical unique index and approved SQL Server integration testing; local InMemory unit tests do not establish this.
 - Nothing in these checks creates schema objects, approves, applies, promotes, or publishes data.
+- B3 queue reads use server-side whitelist predicates for EntityKind=Location / OperationCode=UpdatePublishedLocation / RiskCode=High and a non-null TeamId. Mine is requester + organization + supported Pending/Rejected states; Admin Pending is organization-scoped Pending only. Unsupported or future operation types cannot be surfaced by the currently authorized B3 queue. These filters do not elevate Leader or grant approval.
 
 ## Atomic application and security gates — NOT IMPLEMENTED
 - B3 submission requires valid effective HR/role/org/team/current ownership, active approved Customer record, and expected 8-byte entity RowVersion. No-op or malformed proposals rejected; unique pending index protects concurrent requests.

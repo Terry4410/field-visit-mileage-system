@@ -184,8 +184,8 @@ public sealed class V180B3ChangeRequestService(
     public async Task<IReadOnlyList<V180B3RequestView>> MineAsync(CancellationToken ct)
     {
         await ReadyAsync(ct);var(user,_,_)=await LiveActorAsync(ct);
-        var rows=await db.ChangeRequests.AsNoTracking()
-            .Where(x=>x.RequestedByUserId==user.UserId&&x.OrganizationId==user.OrganizationId)
+        var rows=await V180B3QueueScopeRules.ForRequester(
+                db.ChangeRequests.AsNoTracking(),user)
             .OrderByDescending(x=>x.SubmittedAt).Take(100).ToListAsync(ct);
         return rows.Select(ToView).ToList();
     }
@@ -194,8 +194,8 @@ public sealed class V180B3ChangeRequestService(
         await ReadyAsync(ct);var(user,admin,_)=await LiveActorAsync(ct);
         if(!admin||!user.OrganizationId.HasValue)
             throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
-        var rows=await db.ChangeRequests.AsNoTracking()
-            .Where(x=>x.OrganizationId==user.OrganizationId&&x.Status=="Pending")
+        var rows=await V180B3QueueScopeRules.ForAdminPending(
+                db.ChangeRequests.AsNoTracking(),user)
             .OrderBy(x=>x.SubmittedAt).Take(100).ToListAsync(ct);
         return rows.Select(ToView).ToList();
     }
