@@ -71,6 +71,8 @@ public sealed class V180B3ChangeRequestService(
     }
     private static byte[] Version(string input)
     {
+        if(string.IsNullOrWhiteSpace(input))
+            throw new InvalidOperationException("ROWVERSION_CONFLICT");
         try{var b=Convert.FromBase64String(input);
             if(b.Length==8)return b;}
         catch(FormatException){}

@@ -80,6 +80,8 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         importType = NormalizeType(importType);
         if (content.Length == 0) throw new InvalidOperationException("上傳檔案為空。");
         if (importType == "projects" && !HasRole(user, "admin")) throw new UnauthorizedAccessException("只有管理者可以匯入專案。");
+        if (importType == "locations" && !HasRole(user, "admin"))
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         var orgId = user.OrganizationId ?? throw new InvalidOperationException("目前帳號缺少 OrganizationId。");
         var batch = new ImportBatch
         {
@@ -138,6 +140,9 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         if (batch.ExpiresAt < DateTime.UtcNow) throw new InvalidOperationException("匯入預覽已逾時，請重新上傳。");
         if (batch.ErrorCount > 0) throw new InvalidOperationException("預覽仍有錯誤資料，請修正 Excel 後重新上傳。");
         if (batch.ImportType == "projects" && !HasRole(user, "admin")) throw new UnauthorizedAccessException("只有管理者可以確認專案匯入。");
+        // Revalidate at confirm time, including previews created before this update.
+        if (batch.ImportType == "locations" && !HasRole(user, "admin"))
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
 
         var items = await db.ImportBatchItems.Where(x => x.ImportBatchId == importBatchId && x.Status == "Valid").OrderBy(x => x.EntityType == "ProjectLocation" ? 2 : 1).ThenBy(x => x.RowNumber).ToListAsync(ct);
         if(batch.ImportType=="locations"&&!HasRole(user,"admin"))

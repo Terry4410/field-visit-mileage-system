@@ -29,7 +29,9 @@ const navByRole:Record<string,NavItem[]>={
 };
 const roleLabel:Record<string,string>={visitor:'外訪員',leader:'小組長',admin:'管理者',supervisor:'督導'};
 const priority=['admin','leader','supervisor','visitor'];
-const b3UiEnabled=import.meta.env.VITE_PACKAGE_B3_ENABLED==='true';
+const b3UiEnabled=(import.meta as ImportMeta & {
+ env?: {VITE_PACKAGE_B3_ENABLED?:string}
+}).env?.VITE_PACKAGE_B3_ENABLED==='true';
 
 export default function App(){
  useModalScrollLock();

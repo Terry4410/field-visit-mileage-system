@@ -795,6 +795,10 @@ public sealed class V170LocationRepository(
         var writeRoles=V180LocationLiveRoleRules.Evaluate(user.Roles,datedRoles,projectedRoles);
         if(!writeRoles.Admin&&!writeRoles.Leader&&!writeRoles.Visitor)
             throw new UnauthorizedAccessException("有效角色已失效，無權寫入地點備註。");
+        // A team-level note is shared state. Leader membership is not a
+        // manager grant and a dual-role account cannot bypass note ownership.
+        if(!writeRoles.Admin&&!writeRoles.Visitor)
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         if(!writeRoles.Admin&&!user.TeamIds.Contains(request.TeamId))
             throw new UnauthorizedAccessException("無權新增其他小組的地點備註。");
 
@@ -814,8 +818,7 @@ public sealed class V170LocationRepository(
                         && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
                         && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
                     select team.TeamId).AnyAsync(ct);
-            if(!valid || (writeRoles.Visitor && !writeRoles.Leader
-                    && accessible.CreatedByUserId!=user.UserId))
+            if(!valid || accessible.CreatedByUserId!=user.UserId)
                 throw new UnauthorizedAccessException("無權修改其他人、小組或共用地點的備註。");
         }
 
@@ -823,8 +826,7 @@ public sealed class V170LocationRepository(
         var row=await db.TeamLocationNotes
             .SingleOrDefaultAsync(x=>x.TeamId==request.TeamId&&x.LocationId==locationId,ct);
         var now=DateTime.UtcNow;
-        if(row is not null && writeRoles.Visitor && !writeRoles.Leader
-           && !writeRoles.Admin && row.CreatedByUserId!=user.UserId)
+        if(row is not null && !writeRoles.Admin && row.CreatedByUserId!=user.UserId)
             throw new UnauthorizedAccessException("不得覆寫其他人建立的備註。");
         var old=row?.Note;
         var action=row is null?"Created":"Updated";
