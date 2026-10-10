@@ -40,6 +40,7 @@ public static class V180B3SqlSafetyRules
                 WHERE i.object_id=OBJECT_ID(N'dbo.ChangeRequests',N'U')
                     AND i.name=N'UX_B3_ChangeRequests_RequestPublicId'
                     AND i.is_unique=1 AND i.has_filter=0
+                    AND i.is_disabled=0 AND i.is_hypothetical=0
                     AND c.name=N'RequestPublicId'
                     AND (SELECT COUNT(*) FROM sys.index_columns ix
                          WHERE ix.object_id=i.object_id
@@ -50,6 +51,7 @@ public static class V180B3SqlSafetyRules
                 WHERE i.object_id=OBJECT_ID(N'dbo.ChangeRequests',N'U')
                     AND i.name=N'UX_B3_ChangeRequests_Org_Entity_Pending'
                     AND i.is_unique=1 AND i.has_filter=1
+                    AND i.is_disabled=0 AND i.is_hypothetical=0
                     AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
                         LOWER(i.filter_definition),N'[',N''),N']',N''),
                         N' ',N''),N'(',N''),N')',N'')
@@ -85,6 +87,7 @@ public static class V180B3SqlSafetyRules
                 WHERE i.object_id=OBJECT_ID(N'dbo.ChangeRequestEvents',N'U')
                     AND i.name=N'UX_B3_ChangeRequestEvents_DecisionKey'
                     AND i.is_unique=1 AND i.has_filter=1
+                    AND i.is_disabled=0 AND i.is_hypothetical=0
                     AND c.name=N'DecisionKey'
                     AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
                         LOWER(i.filter_definition),N'[',N''),N']',N''),
@@ -93,6 +96,42 @@ public static class V180B3SqlSafetyRules
                          WHERE ix.object_id=i.object_id
                            AND ix.index_id=i.index_id AND ix.key_ordinal>0)=1
             )
+
+            -- Trusted, enabled, single-column, NO ACTION relationships:
+            -- absent/untrusted/cascade FKs are unsafe for historical audit.
+            AND (
+                SELECT COUNT(*) FROM (VALUES
+                    (N'ChangeRequests',N'OrganizationId',N'Organizations',N'OrganizationId'),
+                    (N'ChangeRequests',N'TeamId',N'Teams',N'TeamId'),
+                    (N'ChangeRequests',N'RequestedByUserId',N'Users',N'UserId'),
+                    (N'ChangeRequests',N'ReviewedByUserId',N'Users',N'UserId'),
+                    (N'ChangeRequestEvents',N'ChangeRequestId',N'ChangeRequests',N'ChangeRequestId'),
+                    (N'ChangeRequestEvents',N'ActorUserId',N'Users',N'UserId')
+                ) AS required(ParentTable,ParentColumn,ReferencedTable,ReferencedColumn)
+                WHERE EXISTS (
+                    SELECT 1 FROM sys.foreign_keys fk
+                    JOIN sys.foreign_key_columns fkc
+                        ON fkc.constraint_object_id=fk.object_id
+                    JOIN sys.columns parent_column
+                        ON parent_column.object_id=fkc.parent_object_id
+                        AND parent_column.column_id=fkc.parent_column_id
+                    JOIN sys.columns reference_column
+                        ON reference_column.object_id=fkc.referenced_object_id
+                        AND reference_column.column_id=fkc.referenced_column_id
+                    WHERE fk.parent_object_id=OBJECT_ID(N'dbo.'+required.ParentTable,N'U')
+                        AND fk.referenced_object_id=OBJECT_ID(N'dbo.'+required.ReferencedTable,N'U')
+                        AND fk.is_disabled=0 AND fk.is_not_trusted=0
+                        AND fk.delete_referential_action=0
+                        AND fkc.constraint_column_id=1
+                        AND parent_column.name=required.ParentColumn
+                        AND reference_column.name=required.ReferencedColumn
+                        AND NOT EXISTS (
+                            SELECT 1 FROM sys.foreign_key_columns other
+                            WHERE other.constraint_object_id=fk.object_id
+                                AND other.constraint_column_id>1
+                        )
+                )
+            )=6
             THEN 1 ELSE 0 END AS int) AS Value
         """;
 
