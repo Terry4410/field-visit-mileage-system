@@ -619,6 +619,10 @@ public sealed class V170LocationRepository(
     public async Task<V170LocationMaintenanceDto> GetMaintenanceAsync(
         CurrentUserDto user,int locationId,int? teamId,CancellationToken ct)
     {
+        // A shared/global picker Location can be readable by many teams.
+        // A requested team ID must never override the caller's team scope.
+        var isAdmin=user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase);
+        V180LocationMaintenanceReadRules.RequireAllowedTeam(user,teamId,isAdmin);
         var row=await AccessibleLocations(user,teamId)
             .FirstOrDefaultAsync(x=>x.LocationId==locationId,ct)
             ?? throw new KeyNotFoundException("找不到可維護的正式地點。");
@@ -627,12 +631,17 @@ public sealed class V170LocationRepository(
             ?await db.Teams.AsNoTracking().Where(x=>x.TeamId==row.TeamId.Value).Select(x=>x.TeamName).FirstOrDefaultAsync(ct)
             :null;
 
-        var allowedTeamIds=user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
-            ?null
-            :user.TeamIds.ToArray();
-
+        var allowedTeamIds=isAdmin?null:user.TeamIds.ToArray();
+        var organizationId=user.OrganizationId!.Value;
+        var permittedTeamIds=user.TeamIds.ToArray();
+        // Historical duplicates may belong to another organization or a
+        // different team. Neither is evidence visible to this caller.
         var evidenceLocations=await db.Locations.AsNoTracking()
-            .Where(x=>x.LocationId==locationId||x.DuplicateOfLocationId==locationId)
+            .Where(x=>x.LocationId==locationId
+                ||(x.DuplicateOfLocationId==locationId
+                    &&x.OrganizationId==organizationId
+                    &&(isAdmin||x.TeamId==null
+                        ||(x.TeamId.HasValue&&permittedTeamIds.Contains(x.TeamId.Value)))))
             .Select(x=>new{x.LocationId,x.LocationName})
             .ToListAsync(ct);
         var evidenceLocationIds=evidenceLocations.Select(x=>x.LocationId).ToArray();
@@ -644,6 +653,8 @@ public sealed class V170LocationRepository(
             join u in db.Users.AsNoTracking() on h.ChangedByUserId equals u.UserId
             join l in db.Locations.AsNoTracking() on h.LocationId equals l.LocationId
             where evidenceLocationIds.Contains(h.LocationId)
+                &&t.OrganizationId==organizationId
+                &&u.OrganizationId==organizationId
             select new {h,t.TeamName,u.DisplayName,l.LocationName};
 
         if(teamId.HasValue) noteQuery=noteQuery.Where(x=>x.h.TeamId==teamId.Value);
@@ -674,6 +685,10 @@ public sealed class V170LocationRepository(
             from u in users.DefaultIfEmpty()
             where audit.EntityType=="Location"
                 && evidenceEntityIds.Contains(audit.EntityId!)
+                && u!=null && u.OrganizationId==organizationId
+                // For a shared global master, no team owns its aggregate
+                // audit trail; non-admin users see only their own actions.
+                &&(isAdmin||row.OrganizationId!=null||audit.UserId==user.UserId)
                 && (audit.Action=="LocationMaintenanceUpdate"
                     ||audit.Action=="LocationMerge"
                     ||audit.Action=="LocationDuplicateDistinctConfirmed"
