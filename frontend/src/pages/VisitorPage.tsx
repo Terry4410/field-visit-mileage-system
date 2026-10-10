@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from "react";
+import {useEffect,useMemo,useRef,useState} from "react";
 import {useSearchParams} from "react-router-dom";
 import {api} from "../api";
 import {useAuth} from "../auth";
@@ -7,6 +7,7 @@ import {TripRouteEndpointDisplay} from "../components/TripRouteDisplay";
 import {hasMinimumVisitStops,manualFallbackDistanceForBody,validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
+import {shouldHydrateTripOnEdit} from "../visitor-draft-transition";
 import type {Project,RoutePreviewResult,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
 
 type ModalKind="stop"|"endpoint"|"submit"|null;
@@ -24,6 +25,9 @@ export default function VisitorPage(){
   const today=new Date().toISOString().slice(0,10);
   const [sp,setSp]=useSearchParams();
   const editId=sp.get("edit");
+  // A draft created by this form is already current; do not re-fetch it while
+  // the route-preview request is in flight (the GET would reset preview state).
+  const locallyCreatedRouteDraftId=useRef<string|null>(null);
 
   const teamScopes=useMemo(
     ()=>{
@@ -79,8 +83,14 @@ export default function VisitorPage(){
   },[]);
 
   useEffect(()=>{
-    if(!editId)return;
+    if(!editId){
+      locallyCreatedRouteDraftId.current=null;
+      return;
+    }
+    if(!shouldHydrateTripOnEdit(editId,locallyCreatedRouteDraftId.current))return;
+    let cancelled=false;
     api<Trip>(`/trips/${editId}`).then(t=>{
+      if(cancelled)return;
       const teamResolution=
         resolveTripTeamForEdit(
           t.teamId,
@@ -130,7 +140,8 @@ export default function VisitorPage(){
           ?`已載入 ${t.tripNo}；請重新確認行程歸屬小組與拜訪地點後再儲存送出。`
           :`已載入 ${t.tripNo}；目前沒有有效的小組可供重新歸屬。`
       );
-    }).catch(e=>setMsg(e.message));
+    }).catch(e=>{if(!cancelled)setMsg(e.message)});
+    return()=>{cancelled=true};
   },[editId,user?.teamId,user?.teamName,teamScopes]);
 
   useEffect(()=>{
@@ -469,7 +480,13 @@ export default function VisitorPage(){
       const body=buildTripBody();
       let t:Trip;
       if(editId)t=await api<Trip>(`/trips/${editId}`,{method:"PUT",headers:{"If-Match":rowVersion},body:JSON.stringify(body)});
-      else t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
+      else{
+        t=await api<Trip>("/trips",{method:"POST",body:JSON.stringify(body)});
+        // Preserve the server-assigned temporary LocationId without a second
+        // asynchronous GET that can overwrite the Google failure message.
+        locallyCreatedRouteDraftId.current=String(t.visitTripId);
+        setStops(t.stops);
+      }
       setRowVersion(t.rowVersion);
       if(!editId)setSp({edit:String(t.visitTripId)});
       const preview=await api<RoutePreviewResult>(`/trips/${t.visitTripId}/route-preview`,{method:"POST"});
