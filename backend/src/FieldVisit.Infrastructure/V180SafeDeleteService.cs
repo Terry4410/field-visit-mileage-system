@@ -14,38 +14,8 @@ public sealed class V180SafeDeleteService(
     /// preview and execution, not just the possibly stale Admin JWT.
     /// No Manager grant, B3 approval or new destructive scope is conferred.
     /// </summary>
-    private async Task<CurrentUserDto> LiveAdminAsync(CancellationToken ct)
-    {
-        var user=current.GetRequired();
-        if(!user.OrganizationId.HasValue)
-            throw new UnauthorizedAccessException("管理者缺少 Organization scope。");
-        var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(x=>
-            x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
-            ??throw new UnauthorizedAccessException("管理帳號或組織授權已失效。");
-        // Internal HR eligibility alone does not prove the Users account is
-        // enabled. Refuse an explicitly disabled account before ANY preview
-        // or destructive SafeDelete operation, even if HR status is Active.
-        if(!account.IsActive)
-            throw new UnauthorizedAccessException("管理帳號已停用，禁止永久刪除。");
-        if(!(await new V170AccessControl(db).EvaluateLoginAsync(
-            user.UserId,account.IsActive,ct)).IsAllowed)
-            throw new UnauthorizedAccessException("目前 HR 身分不允許永久刪除。");
-        var today=BusinessTime.Today;
-        var dated=await (
-            from grant in db.UserRoleAssignments.AsNoTracking()
-            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
-            where grant.UserId==user.UserId&&role.IsActive
-                &&grant.EffectiveFrom<=today
-                &&(!grant.EffectiveTo.HasValue||grant.EffectiveTo>=today)
-            select role.RoleCode).ToListAsync(ct);
-        var projected=await (
-            from grant in db.UserRoles.AsNoTracking()
-            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
-            where grant.UserId==user.UserId&&role.IsActive
-            select role.RoleCode).ToListAsync(ct);
-        V180LocationAdminMutationRules.RequireCurrentAdmin(user,dated,projected);
-        return user;
-    }
+    private Task<CurrentUserDto> LiveAdminAsync(CancellationToken ct)
+        => V180CurrentAdminWriteGuard.RequireAsync(db,current.GetRequired(),ct);
 
     // OWNER-BUAT-SAFE-DELETE-002: dependency inventory is authoritative on both preview and execution.
     public async Task<V180CenterDeleteImpactDto> CenterImpactAsync(int id,CancellationToken ct)

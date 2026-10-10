@@ -1100,29 +1100,10 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     /// effective-dated Admin grants; JWT and UserRoles alone are insufficient.
     /// This is not a B3 approval or team-manager attestation.
     /// </summary>
-    private async Task EnsureCurrentAdminManagedLocationAsync(CurrentUserDto user,CancellationToken ct)
+    private async Task EnsureCurrentAdminManagedLocationAsync(
+        CurrentUserDto user,CancellationToken ct)
     {
-        if(!user.OrganizationId.HasValue)
-            throw new UnauthorizedAccessException("管理者缺少有效組織。");
-        var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(x=>
-            x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
-            ??throw new UnauthorizedAccessException("管理者帳號或組織授權已失效。");
-        if(!(await access.EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
-            throw new UnauthorizedAccessException("人事狀態無權停用或刪除地點。");
-        var today=BusinessTime.Today;
-        var dated=await (
-            from grant in db.UserRoleAssignments.AsNoTracking()
-            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
-            where grant.UserId==user.UserId&&role.IsActive
-                &&grant.EffectiveFrom<=today
-                &&(!grant.EffectiveTo.HasValue||grant.EffectiveTo>=today)
-            select role.RoleCode).ToListAsync(ct);
-        var projected=await (
-            from grant in db.UserRoles.AsNoTracking()
-            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
-            where grant.UserId==user.UserId&&role.IsActive
-            select role.RoleCode).ToListAsync(ct);
-        V180LocationAdminMutationRules.RequireCurrentAdmin(user,dated,projected);
+        await V180CurrentAdminWriteGuard.RequireAsync(db,user,ct);
     }
 
     private async Task<IReadOnlyList<int>> EffectiveLocationWriteTeamsAsync(CurrentUserDto user,CancellationToken ct)

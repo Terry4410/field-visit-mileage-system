@@ -1,4 +1,5 @@
 using FieldVisit.Application;
+using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Infrastructure;
@@ -24,6 +25,15 @@ public static class V180CurrentAdminWriteGuard
         // HR eligibility remains an independent mandatory check.
         if(!account.IsActive)
             throw new UnauthorizedAccessException("ADMIN_WRITE_ACCOUNT_DISABLED");
+        // Explicitly recorded external/unknown identities must never acquire
+        // HR or security-admin write privileges from anomalous role rows.
+        // No profile is treated as legacy Internal only for v1.7 compatibility.
+        var identityType=await db.UserIdentityProfiles.AsNoTracking()
+            .Where(x=>x.UserId==user.UserId)
+            .Select(x=>x.UserType).SingleOrDefaultAsync(ct);
+        if(identityType is not null &&
+            !string.Equals(identityType,UserTypes.Internal,StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("ADMIN_WRITE_INTERNAL_IDENTITY_REQUIRED");
         if(!(await new V170AccessControl(db).EvaluateLoginAsync(
             user.UserId,account.IsActive,ct)).IsAllowed)
             throw new UnauthorizedAccessException("ADMIN_WRITE_HR_DENIED");
