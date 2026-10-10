@@ -13,6 +13,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<LocationApprovalHistory> LocationApprovalHistories => Set<LocationApprovalHistory>();
+    public DbSet<V180B3ChangeRequest> ChangeRequests => Set<V180B3ChangeRequest>();
+    public DbSet<V180B3ChangeEvent> ChangeRequestEvents => Set<V180B3ChangeEvent>();
     public DbSet<TeamLocationNote> TeamLocationNotes => Set<TeamLocationNote>();
     public DbSet<TeamLocationNoteHistory> TeamLocationNoteHistories => Set<TeamLocationNoteHistory>();
     public DbSet<Project> Projects => Set<Project>();
@@ -85,6 +87,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasOne<GeocodingAttempt>().WithMany().HasForeignKey(x => x.SelectedGeocodingAttemptId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<LocationApprovalHistory>(e => { e.ToTable("LocationApprovalHistory"); e.HasKey(x => x.LocationApprovalHistoryId); e.Property(x => x.LocationApprovalHistoryId).ValueGeneratedOnAdd(); });
+        // Candidate schema only; B3 feature flag is false until approved migration.
+        b.Entity<V180B3ChangeRequest>(e => {
+            e.ToTable("ChangeRequests"); e.HasKey(x => x.ChangeRequestId);
+            e.Property(x => x.ChangeRequestId).ValueGeneratedOnAdd();
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => x.RequestPublicId).IsUnique();
+            e.HasIndex(x => new {x.OrganizationId,x.EntityKind,x.EntityId})
+                .IsUnique().HasFilter("[Status] = 'Pending'");
+        });
+        b.Entity<V180B3ChangeEvent>(e => {
+            e.ToTable("ChangeRequestEvents"); e.HasKey(x => x.ChangeRequestEventId);
+            e.Property(x => x.ChangeRequestEventId).ValueGeneratedOnAdd();
+            e.HasIndex(x => x.DecisionKey).IsUnique()
+                .HasFilter("[DecisionKey] IS NOT NULL");
+        });
         b.Entity<TeamLocationNote>(e =>
         {
             e.ToTable("TeamLocationNotes"); e.HasKey(x => x.TeamLocationNoteId); e.Property(x => x.TeamLocationNoteId).ValueGeneratedOnAdd();
