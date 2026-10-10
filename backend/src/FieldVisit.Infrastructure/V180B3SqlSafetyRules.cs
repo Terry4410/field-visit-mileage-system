@@ -97,6 +97,54 @@ public static class V180B3SqlSafetyRules
                            AND ix.index_id=i.index_id AND ix.key_ordinal>0)=1
             )
 
+
+            -- Exact structural shape for the candidate 011 fields.
+            -- Type ids: bigint 127, int 56, uniqueidentifier 36,
+            -- nvarchar 231, varbinary 165, datetime2 42, rowversion 189.
+            -- NVARCHAR widths are stored as UTF-16 BYTES; -1 means MAX.
+            -- MaxBytes=-2 means compare datetime2 scale only.
+            AND (
+                SELECT COUNT(*) FROM (VALUES
+                    (N'ChangeRequests',N'ChangeRequestId',127,8,0,-1),
+                    (N'ChangeRequests',N'RequestPublicId',36,16,0,-1),
+                    (N'ChangeRequests',N'OrganizationId',56,4,0,-1),
+                    (N'ChangeRequests',N'TeamId',56,4,1,-1),
+                    (N'ChangeRequests',N'EntityKind',231,80,0,-1),
+                    (N'ChangeRequests',N'EntityId',231,160,0,-1),
+                    (N'ChangeRequests',N'OperationCode',231,160,0,-1),
+                    (N'ChangeRequests',N'RiskCode',231,40,0,-1),
+                    (N'ChangeRequests',N'ExpectedEntityRowVersion',165,8,1,-1),
+                    (N'ChangeRequests',N'BeforeJson',231,-1,1,-1),
+                    (N'ChangeRequests',N'ProposedJson',231,-1,0,-1),
+                    (N'ChangeRequests',N'EvidenceJson',231,-1,1,-1),
+                    (N'ChangeRequests',N'RequestedByUserId',56,4,0,-1),
+                    (N'ChangeRequests',N'SubmittedAt',42,-2,0,3),
+                    (N'ChangeRequests',N'Status',231,60,0,-1),
+                    (N'ChangeRequests',N'ReviewedByUserId',56,4,1,-1),
+                    (N'ChangeRequests',N'ReviewedAt',42,-2,1,3),
+                    (N'ChangeRequests',N'ReviewReason',231,2000,1,-1),
+                    (N'ChangeRequests',N'AppliedAt',42,-2,1,3),
+                    (N'ChangeRequests',N'RowVersion',189,8,0,-1),
+                    (N'ChangeRequestEvents',N'ChangeRequestEventId',127,8,0,-1),
+                    (N'ChangeRequestEvents',N'ChangeRequestId',127,8,0,-1),
+                    (N'ChangeRequestEvents',N'EventType',231,80,0,-1),
+                    (N'ChangeRequestEvents',N'ActorUserId',56,4,1,-1),
+                    (N'ChangeRequestEvents',N'OccurredAt',42,-2,0,3),
+                    (N'ChangeRequestEvents',N'CorrelationId',36,16,0,-1),
+                    (N'ChangeRequestEvents',N'DecisionKey',36,16,1,-1),
+                    (N'ChangeRequestEvents',N'DetailsJson',231,-1,1,-1)
+                ) AS required(TableName,ColumnName,SqlType,MaxBytes,IsNullable,ScaleValue)
+                WHERE EXISTS (
+                    SELECT 1 FROM sys.columns c
+                    WHERE c.object_id=OBJECT_ID(N'dbo.'+required.TableName,N'U')
+                        AND c.name=required.ColumnName
+                        AND c.system_type_id=required.SqlType
+                        AND (required.MaxBytes=-2 OR c.max_length=required.MaxBytes)
+                        AND c.is_nullable=required.IsNullable
+                        AND (required.ScaleValue=-1 OR c.scale=required.ScaleValue)
+                )
+            )=28
+
             -- Trusted, enabled, single-column, NO ACTION relationships:
             -- absent/untrusted/cascade FKs are unsafe for historical audit.
             AND (
