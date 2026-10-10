@@ -1412,4 +1412,136 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@id",id))));
     }
 
+
+    // EF's actual SQL Server query and concurrency execution, NOT HTTP E2E.
+    private AppDbContext QueryDb() => new(
+        new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlServer(_fixture.DatabaseConnection).Options);
+
+    private static FieldVisit.Application.CurrentUserDto QueueActor(
+        int userId=10,int? organizationId=1) =>
+        new(userId,"B3SqlFixture","Isolated test",null,organizationId,
+            7,"Fixture team",new[]{"visitor"},
+            new[]{new FieldVisit.Application.TeamScopeDto(7,"Fixture team",true)});
+
+    [Fact]
+    public async Task Ef_SQL_Mine_query_hides_peer_and_cross_organization_proposals()
+    {
+        var prefix="SQL_SCOPE_MINE_"+Guid.NewGuid().ToString("N");
+        var mine=await _fixture.InsertRequestAsync(prefix+"_mine");
+        var peer=await _fixture.InsertRequestAsync(prefix+"_peer");
+        var otherOrg=await _fixture.InsertRequestAsync(prefix+"_other",org:2);
+        await _fixture.ExecuteAsync(
+            "UPDATE dbo.ChangeRequests SET RequestedByUserId=20 WHERE ChangeRequestId=@id",
+            ("@id",peer));
+        foreach(var (id,content) in new[]{
+            (mine,"MINE_ALLOWED"),(peer,"PEER_FORBIDDEN"),(otherOrg,"ORG_FORBIDDEN")})
+            await _fixture.ExecuteAsync(
+                "UPDATE dbo.ChangeRequests SET ProposedJson=@json WHERE ChangeRequestId=@id",
+                ("@json","{\"Name\":\""+content+"\"}"),("@id",id));
+        await using var db=QueryDb();
+        var results=await V180B3QueueScopeRules.ForRequester(
+                db.ChangeRequests.AsNoTracking(),QueueActor())
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>x.ProposedJson).ToArrayAsync();
+        Assert.Single(results);
+        Assert.Contains("MINE_ALLOWED",results[0]);
+        Assert.DoesNotContain("PEER_FORBIDDEN",string.Join("|",results));
+        Assert.DoesNotContain("ORG_FORBIDDEN",string.Join("|",results));
+    }
+
+    [Fact]
+    public async Task Ef_SQL_Admin_pending_query_excludes_foreign_org_and_rejected()
+    {
+        var prefix="SQL_SCOPE_ADMIN_"+Guid.NewGuid().ToString("N");
+        var local=await _fixture.InsertRequestAsync(prefix+"_local");
+        var foreign=await _fixture.InsertRequestAsync(prefix+"_foreign",org:2);
+        var rejected=await _fixture.InsertRequestAsync(prefix+"_rejected");
+        await _fixture.ExecuteAsync("""
+            UPDATE dbo.ChangeRequests
+            SET Status=N'Rejected',ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),
+                ReviewReason=N'independently rejected'
+            WHERE ChangeRequestId=@id
+            """,("@id",rejected));
+        await using var db=QueryDb();
+        var found=await V180B3QueueScopeRules.ForAdminPending(
+                db.ChangeRequests.AsNoTracking(),QueueActor())
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>x.ChangeRequestId).ToArrayAsync();
+        Assert.Equal(new long[]{local},found);
+        Assert.DoesNotContain(foreign,found);
+        Assert.DoesNotContain(rejected,found);
+        var other=await V180B3QueueScopeRules.ForAdminPending(
+                db.ChangeRequests.AsNoTracking(),QueueActor(organizationId:2))
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>x.ChangeRequestId).ToArrayAsync();
+        Assert.Equal(new long[]{foreign},other);
+    }
+
+    [Fact]
+    public async Task Ef_SQL_Requester_refuses_unknown_identity_or_tenant_before_query()
+    {
+        await using var db=QueryDb();
+        foreach(var actor in new[]{
+            QueueActor(organizationId:null),
+            QueueActor(organizationId:0),
+            QueueActor(organizationId:-1),
+            QueueActor(userId:0),
+            QueueActor(userId:-1)})
+        {
+            Assert.Throws<UnauthorizedAccessException>(()=>
+                V180B3QueueScopeRules.ForRequester(
+                    db.ChangeRequests.AsNoTracking(),actor));
+        }
+        Assert.Throws<UnauthorizedAccessException>(()=>
+            V180B3QueueScopeRules.ForAdminPending(
+                db.ChangeRequests.AsNoTracking(),QueueActor(organizationId:null)));
+    }
+
+    [Fact]
+    public async Task Ef_SQL_Mine_query_does_not_mutate_rowversion_or_create_events()
+    {
+        var prefix="SQL_READ_ONLY_"+Guid.NewGuid().ToString("N");
+        var id=await _fixture.InsertRequestAsync(prefix);
+        var before=(byte[])(await _fixture.ScalarAsync(
+            "SELECT RowVersion FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)))!;
+        await using(var db=QueryDb())
+        {
+            var rows=await V180B3QueueScopeRules.ForRequester(
+                    db.ChangeRequests.AsNoTracking(),QueueActor())
+                .Where(x=>x.EntityId==prefix).ToListAsync();
+            Assert.Single(rows);
+            Assert.Equal(id,rows[0].ChangeRequestId);
+        }
+        var after=(byte[])(await _fixture.ScalarAsync(
+            "SELECT RowVersion FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)))!;
+        Assert.Equal(before,after);
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",id))));
+    }
+
+    [Fact]
+    public async Task Ef_SQL_stale_tracked_request_update_fails_concurrency_without_audit()
+    {
+        var id=await _fixture.InsertRequestAsync(
+            "EF_CONCURRENCY_"+Guid.NewGuid().ToString("N"));
+        await using var first=QueryDb();
+        await using var stale=QueryDb();
+        var a=await first.ChangeRequests.SingleAsync(x=>x.ChangeRequestId==id);
+        var b=await stale.ChangeRequests.SingleAsync(x=>x.ChangeRequestId==id);
+        a.BeforeJson="{\"Name\":\"first\"}";
+        Assert.Equal(1,await first.SaveChangesAsync());
+        b.BeforeJson="{\"Name\":\"stale\"}";
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(()=>stale.SaveChangesAsync());
+        Assert.Equal("{\"Name\":\"first\"}",(string?)await _fixture.ScalarAsync(
+            "SELECT BeforeJson FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",id))));
+    }
+
 }

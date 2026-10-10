@@ -66,6 +66,21 @@ requester/admin tenant query projections. These remain non-SQL
 service/predicate evidence, not UAT HTTP authorization or B4 sign-off.
 All 22 full B4 scenarios remain PENDING and all release gates HOLD.
 
+## SQL Server 2022 EF query-scope integration (WORK-only)
+
+Five new actual SQL Server query/EF concurrency tests execute the **same**
+`V180B3QueueScopeRules.ForRequester` and `ForAdminPending` LINQ
+predicates used by the candidate service against the disposable B3 SQL Server
+fixture, not EF InMemory. They test peer-proposal denial, cross-organization
+and Rejected-row queue exclusion, refusal of invalid actor scopes, read-only
+rowversion/audit invariance, and stale EF tracked-update concurrency without
+audit insertion. The named CI SQL evidence manifest now requires **47**
+individual real-engine cases. They provide stronger B4 partial query
+translation and data after-state evidence, **not** live authenticated API
+requests or HR/Owner provenance. The fixture's identity records are minimal;
+there is still no full 011 migration, API token/session flow, B3 enablement
+or Manager Grant authorization.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |

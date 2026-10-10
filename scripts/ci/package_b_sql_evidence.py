@@ -55,6 +55,11 @@ REQUIRED_SQL_TESTS=frozenset({
     "Decision_audit_fk_preserves_reviewer_and_event_history",
     "Future_schema_version_is_rejected_until_latest_version_is_restored",
     "Request_with_invalid_expected_rowversion_bytes_is_denied_without_audit",
+    "Ef_SQL_Mine_query_hides_peer_and_cross_organization_proposals",
+    "Ef_SQL_Admin_pending_query_excludes_foreign_org_and_rejected",
+    "Ef_SQL_Requester_refuses_unknown_identity_or_tenant_before_query",
+    "Ef_SQL_Mine_query_does_not_mutate_rowversion_or_create_events",
+    "Ef_SQL_stale_tracked_request_update_fails_concurrency_without_audit",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
