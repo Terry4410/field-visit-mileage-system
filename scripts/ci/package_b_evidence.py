@@ -107,6 +107,40 @@ def validate_step_outcomes(outcomes: dict) -> dict:
             "succeeded": len(REQUIRED_SUCCESSFUL_STEPS)}
 
 
+# Immutable CI-required B3 OFF TestServer HTTP cases, not live business UAT.
+HTTP_PREFIX="FieldVisit.Application.Tests.V180B3OffHttpPipelineTests."
+HTTP_REQUIRED=frozenset(
+    [f'HTTP_unauthenticated_B3_endpoints_return_401(endpoint: "{ep}")'
+     for ep in ("Submit","Mine","Pending","Reject","Approve")]
+    + [f'HTTP_authenticated_wrong_role_returns_403_before_B3_disabled(endpoint: "{ep}", role: "{role}")'
+       for ep,role in (("Submit","admin"),("Mine","auditor"),
+                       ("Pending","visitor"),("Reject","leader"),("Approve","visitor"))]
+    + [f'HTTP_authorized_role_receives_503_B3_DISABLED_no_database(endpoint: "{ep}", role: "{role}")'
+       for ep,role in (("Submit","visitor"),("Submit","leader"),
+                       ("Mine","visitor"),("Mine","admin"),
+                       ("Pending","admin"),("Reject","admin"),("Approve","admin"))]
+    + ["HTTP_expired_or_wrong_issuer_JWT_cannot_read_B3_queue(expired: True, wrongIssuer: False)",
+       "HTTP_expired_or_wrong_issuer_JWT_cannot_read_B3_queue(expired: False, wrongIssuer: True)"])
+
+
+def validate_http_off_trx(path: Path) -> dict:
+    root=ET.parse(path).getroot()
+    tests=[x for x in root.findall(".//{*}UnitTestResult")
+           if x.get("testName","").startswith(HTTP_PREFIX)]
+    expected={HTTP_PREFIX+name for name in HTTP_REQUIRED}
+    observed=[x.get("testName") for x in tests]
+    if len(tests)!=len(expected) or set(observed)!=expected or len(set(observed))!=len(observed):
+        raise ValueError("B3 HTTP mandatory named cases missing, duplicated or replaced")
+    for x in tests:
+        if x.get("outcome")!="Passed" or not x.get("testId") or not x.get("executionId"):
+            raise ValueError("B3 HTTP test outcome or evidence ID missing/failed")
+    return {"status":"PASS", "scope":"ISOLATED_TESTSERVER_JWT_B3_OFF",
+            "passed":len(tests),"required":len(expected),
+            "source":"backend TRX individually named HTTP cases",
+            "api_off_08_hr_runtime":"NOT_TESTED",
+            "business_uat":"HOLD"}
+
+
 def parse_trx(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
     counters = root.find(".//{*}Counters")
@@ -156,10 +190,12 @@ def parse_junit(path: Path) -> dict[str, int]:
 
 
 def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
-            step_outcomes: dict | None = None) -> dict:
+            step_outcomes: dict | None = None,
+            require_http_off: bool = False) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
                 "backend": None, "frontend": None, "b4_matrix": None,
+                "http_off": None,
                 "build_and_ci_steps": None,
                 "release_authorization": dict(RELEASE_HOLD_CONTRACT),
                 "release_go": False,
@@ -177,6 +213,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
         evidence["backend"] = data
     except (OSError, ValueError, ET.ParseError) as exc:
         evidence["errors"].append("backend: " + str(exc))
+    if require_http_off:
+        try:
+            evidence["http_off"]=validate_http_off_trx(trx)
+            evidence["http_off"]["source_sha"]=evidence["guard"]["sha"]
+        except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
+            evidence["errors"].append("B3 HTTP OFF: "+str(exc))
     try:
         data = parse_junit(junit)
         if data["total"] <= 0 or data["failed"] or data["skipped"] or \
@@ -222,7 +264,8 @@ def main() -> int:
     except (TypeError, ValueError) as exc:
         steps = {"invalid": {"outcome": f"invalid JSON: {exc}"}}
     result = collect(Path(args.guard), Path(args.trx), Path(args.junit),
-                     Path(args.matrix), step_outcomes=steps)
+                     Path(args.matrix), step_outcomes=steps,
+                     require_http_off=True)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -246,6 +289,11 @@ def main() -> int:
             x = result[name]
             lines.append("| " + name + " | " + str(x["passed"]) + "/" +
                          str(x["total"]) + " PASS |")
+    if result["http_off"]:
+        h=result["http_off"]
+        lines.append("| B3 OFF JWT HTTP (isolated, no DB) | "+
+                     str(h["passed"])+"/"+str(h["required"])+
+                     " PASS; API-OFF-08 outstanding |")
     if result["b4_matrix"]:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")

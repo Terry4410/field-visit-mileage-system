@@ -44,6 +44,10 @@ and do not establish actual deployed UAT configuration, live HR
 employment grants, or B4 full 22-case acceptance. API-OFF-08
 (authoritative HR middleware) remains an outstanding E2E scenario.
 
+## Verified TestServer Phase 0 results (WORK only)
+
+GitHub Run [38094069834](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38094069834), exact SHA `2ece32dac5b2111846c3de9ef7a3c3dab5d5addf`: 19/19 real HTTP JWT-route-middleware checks PASS in isolated in-memory TestServer, B3 OFF, no DB; 702/702 backend, 92/92 frontend, 65/65 Python and 42/42 separate disposable SQL Server fixture checks. Cases cover five 401 unauthenticated, five wrong-role 403, seven disabled 503 and two invalid/expired JWT 401. The next WORK CI adds a fail-closed TRX named-case evidence requirement so missing/replaced tests cannot be hidden by a passing backend total. API-OFF-08 (live authoritative HR revocation) is still pending, all 22 B4 full scenarios remain PENDING, VAL-B1-002 BLOCKED, 1800_011 unauthorized, Apply/Approve DENY ALL, Business UAT HOLD, Production HARD HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |

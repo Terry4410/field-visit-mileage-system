@@ -7,7 +7,8 @@ from pathlib import Path
 from package_b_evidence import (collect, parse_junit, parse_trx,
                                 REQUIRED_SECURITY_GATES, FROZEN_PROTECTED_SHA,
                                 REQUIRED_SUCCESSFUL_STEPS, validate_step_outcomes,
-                                RELEASE_HOLD_CONTRACT)
+                                RELEASE_HOLD_CONTRACT, HTTP_REQUIRED,
+                                HTTP_PREFIX,validate_http_off_trx)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -211,6 +212,49 @@ class PackageBEvidenceTests(unittest.TestCase):
             '<testcase name="b"/><testcase name="c"/></testsuite>'
             '</testsuite></testsuites>')
         self.assertEqual(3, parse_junit(self.junit)["total"])
+
+
+
+class B3HttpOffEvidenceCases(unittest.TestCase):
+    def setUp(self):
+        self.folder=tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.trx=Path(self.folder.name)/"b3-http.trx"
+        self.names=sorted(HTTP_REQUIRED)
+        self.make(self.names)
+
+    def make(self,names,failed=False,missing_ids=False):
+        rows=[]
+        for i,name in enumerate(names):
+            outcome="Failed" if i==0 and failed else "Passed"
+            ids="" if i==0 and missing_ids else f' testId="id-{i}" executionId="run-{i}"'
+            rows.append(f'<UnitTestResult testName="{HTTP_PREFIX}{name}" outcome="{outcome}"{ids}/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
+
+    def test_all_19_named_cases_preserve_uat_hold(self):
+        x=validate_http_off_trx(self.trx)
+        self.assertEqual(19,x["passed"])
+        self.assertEqual("HOLD",x["business_uat"])
+
+    def test_missing_case_denied(self):
+        self.make(self.names[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_http_off_trx(self.trx)
+
+    def test_duplicate_case_denied(self):
+        self.make(self.names[:-1]+self.names[:1])
+        with self.assertRaisesRegex(ValueError,"duplicated"):
+            validate_http_off_trx(self.trx)
+
+    def test_failed_result_denied(self):
+        self.make(self.names,failed=True)
+        with self.assertRaisesRegex(ValueError,"failed"):
+            validate_http_off_trx(self.trx)
+
+    def test_missing_test_id_denied(self):
+        self.make(self.names,missing_ids=True)
+        with self.assertRaisesRegex(ValueError,"ID"):
+            validate_http_off_trx(self.trx)
 
 
 if __name__ == "__main__":
