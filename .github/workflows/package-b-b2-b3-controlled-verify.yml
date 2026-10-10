@@ -141,7 +141,7 @@ jobs:
           {
             echo "SQL Server: disposable localhost GitHub runner container only"
             echo "Source SHA: $GITHUB_SHA"
-            echo "Schema: per-test random B3SqlFixture database, NOT 1800_011 migration"
+            echo "Schema: per-test random B3SqlFixture database, not a formal migration"
             echo "UAT/Prod credentials or DB: never used"
             echo "Actual approval/apply: DENY ALL"
             echo "SQL Server partial B4 fixture is NOT Business UAT GO"
