@@ -1070,10 +1070,6 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     private async Task<IReadOnlyList<int>> EffectiveLocationWriteTeamsAsync(CurrentUserDto user,CancellationToken ct)
     {
-        // Manager grants await IT/Owner attestation: a pure Leader may not
-        // borrow ordinary membership for any location mutation.
-        if(HasRole(user,"leader") && !HasRole(user,"visitor"))
-            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         if(!user.OrganizationId.HasValue||user.TeamIds.Count==0)
             throw new UnauthorizedAccessException("缺少目前有效授權的小組。");
         var account=await db.Users.AsNoTracking()
@@ -1081,29 +1077,55 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             ??throw new UnauthorizedAccessException("帳號或組織權限已失效。");
         if(!(await access.EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
             throw new UnauthorizedAccessException("目前人事狀態不允許維護地點。");
-        // A stale JWT role may not outlive current server-side role assignments.
-        var liveRoles=await (
-            from ur in db.UserRoles.AsNoTracking()
-            join role in db.Roles.AsNoTracking() on ur.RoleId equals role.RoleId
-            where ur.UserId==user.UserId && role.IsActive
-                  && (role.RoleCode=="visitor"||role.RoleCode=="leader")
-            select role.RoleCode).ToListAsync(ct);
-        if(user.Roles.Where(x=>x=="visitor"||x=="leader")
-            .Any(x=>!liveRoles.Contains(x)))
-            throw new UnauthorizedAccessException("目前角色已變更，請重新登入。");
-        var ids=user.TeamIds.ToArray();
         var today=BusinessTime.Today;
+        var datedRoles=await (
+            from grant in db.UserRoleAssignments.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId && role.IsActive
+                && grant.EffectiveFrom<=today
+                && (!grant.EffectiveTo.HasValue || grant.EffectiveTo.Value>=today)
+            select role.RoleCode).ToListAsync(ct);
+        var projectedRoles=await (
+            from grant in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId && role.IsActive
+            select role.RoleCode).ToListAsync(ct);
+        var effectiveRoles=V180LocationLiveRoleRules.Evaluate(user.Roles,datedRoles,projectedRoles);
+        // A leader role plus membership is NOT an attested team management grant.
+        // Until Owner/IT reconciliation, only an independently effective Visitor
+        // role may write that actor's own Pending Customer draft.
+        if(!effectiveRoles.Visitor)
+        {
+            if(effectiveRoles.Leader)
+                V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
+            throw new UnauthorizedAccessException("沒有有效外訪員角色或已核定的小組管理權限。");
+        }
+        var employmentId=await db.UserIdentityProfiles.AsNoTracking()
+            .Where(x=>x.UserId==user.UserId && x.UserType==UserTypes.Internal)
+            .Select(x=>x.EmploymentId).FirstOrDefaultAsync(ct);
+        if(!employmentId.HasValue)
+            throw new UnauthorizedAccessException("沒有已綁定的人事任用資料，無法確認小組授權。");
+        var ids=user.TeamIds.ToArray();
         var teams=await (
             from scope in db.UserTeamScopes.AsNoTracking()
             join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
+            join userAssignment in db.UserTeamAssignments.AsNoTracking()
+                on new {scope.UserId,scope.TeamId} equals new {userAssignment.UserId,userAssignment.TeamId}
+            join membership in db.TeamMemberships.AsNoTracking()
+                on new {EmploymentId=employmentId.Value,scope.TeamId}
+                equals new {membership.EmploymentId,membership.TeamId}
             where scope.UserId==user.UserId && scope.IsActive
-                  && ids.Contains(scope.TeamId)
-                  && team.IsActive && team.OrganizationId==user.OrganizationId
-                  && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
-                  && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
+                && ids.Contains(scope.TeamId)
+                && team.IsActive && team.OrganizationId==user.OrganizationId
+                && (!team.EffectiveFrom.HasValue || team.EffectiveFrom<=today)
+                && (!team.EffectiveTo.HasValue || team.EffectiveTo>=today)
+                && userAssignment.EffectiveFrom<=today
+                && (!userAssignment.EffectiveTo.HasValue || userAssignment.EffectiveTo.Value>=today)
+                && membership.EffectiveFrom<=today
+                && (!membership.EffectiveTo.HasValue || membership.EffectiveTo.Value>=today)
             select team.TeamId).Distinct().ToListAsync(ct);
         if(teams.Count==0)
-            throw new UnauthorizedAccessException("目前沒有有效的小組維護權限。");
+            throw new UnauthorizedAccessException("沒有同時通過有效期間與組織檢核的小組維護權限。");
         return teams;
     }
 

@@ -17,6 +17,8 @@ public static class V180LocationOwnershipRules
         if(HasRole(actor,"admin"))return;
         if(!HasRole(actor,"visitor")&&!HasRole(actor,"leader"))
             throw new UnauthorizedAccessException("目前角色不得建立地點。");
+        if(!HasRole(actor,"visitor"))
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         if(!actor.OrganizationId.HasValue || !teamId.HasValue
            || !effectiveTeams.Contains(teamId.Value))
             throw new UnauthorizedAccessException("只能在目前有效授權的小組新增地點。");
@@ -32,6 +34,8 @@ public static class V180LocationOwnershipRules
         if(HasRole(actor,"admin"))return;
         if(!HasRole(actor,"visitor")&&!HasRole(actor,"leader"))
             throw new UnauthorizedAccessException("目前角色不得維護地點。");
+        if(!HasRole(actor,"visitor"))
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         if(!actor.OrganizationId.HasValue || organizationId!=actor.OrganizationId
            || !teamId.HasValue || !effectiveTeams.Contains(teamId.Value))
             throw new UnauthorizedAccessException("不得維護其他小組、共用或跨組織地點。");

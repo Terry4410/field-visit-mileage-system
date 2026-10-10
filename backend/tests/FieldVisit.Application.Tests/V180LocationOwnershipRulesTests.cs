@@ -22,6 +22,21 @@ public sealed class V180LocationOwnershipRulesTests
             V180LocationOwnershipRules.EnsureDraftCreate(Actor(1,"visitor"),7,new[]{7},false,"Official"));
     }
 
+    [Fact] public void Leader_membership_cannot_create_or_edit_without_attested_grant()
+    {
+        var leader=Actor(3,"leader");
+        Assert.Throws<UnauthorizedAccessException>(()=>
+            V180LocationOwnershipRules.EnsureDraftCreate(
+                leader,7,new[]{7},false,"Customer"));
+        Assert.Throws<UnauthorizedAccessException>(()=>
+            V180LocationOwnershipRules.EnsureDraftUpdate(
+                leader,1,7,3,"Pending",false,new[]{7},7,false,"Customer","Customer"));
+        var dual=new CurrentUserDto(3,"test3","Test",null,1,7,"Team",
+            new[]{"visitor","leader"},new[]{new TeamScopeDto(7,"Team",true)});
+        V180LocationOwnershipRules.EnsureDraftCreate(
+            dual,7,new[]{7},false,"Customer");
+    }
+
     [Fact] public void Visitor_cannot_edit_another_visitors_draft_in_same_team()
     {
         V180LocationOwnershipRules.EnsureDraftUpdate(Actor(1,"visitor"),1,7,1,"Pending",false,new[]{7},7,false,"Customer","Customer");
