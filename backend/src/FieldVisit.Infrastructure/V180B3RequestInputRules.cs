@@ -30,8 +30,8 @@ public static class V180B3RequestInputRules
     {
         if(requestPublicId==Guid.Empty || input is null
             ||input.DecisionKey==Guid.Empty
-            ||string.IsNullOrWhiteSpace(input.Reason)
-            ||Oversize(input.Reason,1000))
+            ||Oversize(input.Reason,1000)
+            ||string.IsNullOrWhiteSpace(input.Reason))
             throw new InvalidOperationException("B3_REASON_REQUIRED");
         // Canonical 12-character Base64, exactly eight bytes, checked prior
         // to entering a serializable SQL Server transaction.
