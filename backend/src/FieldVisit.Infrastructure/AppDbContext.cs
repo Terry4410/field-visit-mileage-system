@@ -91,7 +91,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         b.Entity<V180B3ChangeRequest>(e =>
         {
             // Candidate model only: NO migration or DB execution authorized.
-            e.ToTable("ChangeRequests");
+            e.ToTable("ChangeRequests",table =>
+            {
+                table.HasCheckConstraint("CK_B3_ChangeRequests_KnownCodes", "[EntityKind]=N'Location' AND [OperationCode]=N'UpdatePublishedLocation' AND [RiskCode]=N'High'");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_KnownStatus", "[Status] IN (N'Pending',N'Rejected',N'Returned',N'Applied',N'Cancelled')");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_ExpectedLocationVersion", "[ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=8");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_ProposedJson", "ISJSON([ProposedJson])=1");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_ReviewState", "([Status]<>N'Pending' OR ([ReviewedByUserId] IS NULL AND [ReviewedAt] IS NULL AND [AppliedAt] IS NULL)) AND ([Status]<>N'Rejected' OR ([ReviewedByUserId] IS NOT NULL AND [ReviewedAt] IS NOT NULL AND LEN(LTRIM(RTRIM([ReviewReason])))>0 AND [AppliedAt] IS NULL))");
+            });
             e.HasKey(x => x.ChangeRequestId);
             e.Property(x => x.ChangeRequestId).ValueGeneratedOnAdd();
             e.Property(x => x.EntityKind).HasMaxLength(40).IsRequired();
@@ -131,7 +138,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         });
         b.Entity<V180B3ChangeEvent>(e =>
         {
-            e.ToTable("ChangeRequestEvents");
+            e.ToTable("ChangeRequestEvents",table =>
+            {
+                table.HasCheckConstraint("CK_B3_ChangeRequestEvents_EventType", "[EventType] IN (N'Submitted',N'Rejected')");
+                table.HasCheckConstraint("CK_B3_ChangeRequestEvents_DetailsJson", "[DetailsJson] IS NULL OR ISJSON([DetailsJson])=1");
+            });
             e.HasKey(x => x.ChangeRequestEventId);
             e.Property(x => x.ChangeRequestEventId).ValueGeneratedOnAdd();
             e.Property(x => x.EventType).HasMaxLength(40).IsRequired();

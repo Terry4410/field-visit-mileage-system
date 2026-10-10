@@ -202,11 +202,15 @@ public sealed class V180B3ChangeRequestService(
     public async Task<V180B3RequestView> RejectAsync(
         Guid id,V180B3Review input,CancellationToken ct)
     {
-        await ReadyAsync(ct);var(user,admin,_)=await LiveActorAsync(ct);
-        if(!admin||!user.OrganizationId.HasValue)
-            throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
+        await ReadyAsync(ct);
+        // Review authorization is deliberately re-evaluated INSIDE the
+        // serializable decision transaction, not on a stale pre-transaction
+        // token/role snapshot. The physical indexes remain mandatory.
         await using var tx=await db.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable,ct);
+        var(user,admin,_)=await LiveActorAsync(ct);
+        if(!admin||!user.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
         var row=await db.ChangeRequests.SingleOrDefaultAsync(x=>
             x.RequestPublicId==id&&x.OrganizationId==user.OrganizationId,ct)
             ??throw new KeyNotFoundException("B3_REQUEST_NOT_FOUND");

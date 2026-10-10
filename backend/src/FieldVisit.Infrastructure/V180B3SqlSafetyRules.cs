@@ -180,6 +180,30 @@ public static class V180B3SqlSafetyRules
                         )
                 )
             )=6
+
+            -- The 7 candidate 011 CHECK constraints must all be enabled and
+            -- trusted. Names + essential expression tokens are checked here;
+            -- full normalized definition matching and live SQL Server proof
+            -- remain an independent IT/Owner gate before feature activation.
+            AND (
+                SELECT COUNT(*) FROM (VALUES
+                    (N'ChangeRequests',N'CK_B3_ChangeRequests_KnownCodes',N'entitykind',N'operationcode'),
+                    (N'ChangeRequests',N'CK_B3_ChangeRequests_KnownStatus',N'pending',N'rejected'),
+                    (N'ChangeRequests',N'CK_B3_ChangeRequests_ExpectedLocationVersion',N'datalength',N'expectedentityrowversion'),
+                    (N'ChangeRequests',N'CK_B3_ChangeRequests_ProposedJson',N'isjson',N'proposedjson'),
+                    (N'ChangeRequests',N'CK_B3_ChangeRequests_ReviewState',N'reviewedbyuserid',N'appliedat'),
+                    (N'ChangeRequestEvents',N'CK_B3_ChangeRequestEvents_EventType',N'submitted',N'rejected'),
+                    (N'ChangeRequestEvents',N'CK_B3_ChangeRequestEvents_DetailsJson',N'isjson',N'detailsjson')
+                ) AS required(TableName,ConstraintName,Token1,Token2)
+                WHERE EXISTS (
+                    SELECT 1 FROM sys.check_constraints cc
+                    WHERE cc.parent_object_id=OBJECT_ID(N'dbo.'+required.TableName,N'U')
+                      AND cc.name=required.ConstraintName
+                      AND cc.is_disabled=0 AND cc.is_not_trusted=0
+                      AND LOWER(cc.definition) LIKE N'%'+required.Token1+N'%'
+                      AND LOWER(cc.definition) LIKE N'%'+required.Token2+N'%'
+                )
+            )=7
             THEN 1 ELSE 0 END AS int) AS Value
         """;
 
