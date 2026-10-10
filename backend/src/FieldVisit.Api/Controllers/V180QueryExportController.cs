@@ -293,6 +293,15 @@ public sealed class V180QueryExportController(
             Include("資料範圍", scopes);
             Include("功能權限", capabilities);
 
+            // Fail closed on duplicated source rows (for example an accidental 1:N SQL join).
+            // Every source record must survive one-to-one into both event and audit sheets.
+            var repeatedSources = events.GroupBy(x => (x.Kind, x.SourceId))
+                .FirstOrDefault(g => g.Count() > 1);
+            if (repeatedSources is not null)
+                throw new InvalidOperationException("歷史資料來源重複，請檢查來源關聯後重新匯出。");
+            if (events.Any(x => x.To.HasValue && x.To.Value < x.From))
+                throw new InvalidOperationException("歷史資料有效期間異常，請檢查來源資料後重新匯出。");
+
             var names = peopleRows.GroupBy(x => x.EmployeeNo ?? x.UserCode,
                     StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First().DisplayName, StringComparer.OrdinalIgnoreCase);
