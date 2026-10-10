@@ -771,21 +771,38 @@ public sealed class V170LocationRepository(
     public async Task<V170LocationMaintenanceDto> AddNoteAsync(
         CurrentUserDto user,int locationId,V170LocationNoteRequest request,CancellationToken ct)
     {
-        if(!user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
-            &&!user.TeamIds.Contains(request.TeamId))
+        // JWT roles alone may be stale. Require both effective-dated role
+        // and current compatibility projection before any note mutation.
+        var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(
+            x=>x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
+            ??throw new UnauthorizedAccessException("帳號或組織權限已失效。");
+        if(!(await new V170AccessControl(db).EvaluateLoginAsync(
+            user.UserId,account.IsActive,ct)).IsAllowed)
+            throw new UnauthorizedAccessException("目前人事狀態無權維護地點。");
+        var today=BusinessTime.Today;
+        var datedRoles=await (
+            from grant in db.UserRoleAssignments.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId && grant.EffectiveFrom<=today
+                && (!grant.EffectiveTo.HasValue||grant.EffectiveTo>=today)
+                && role.IsActive
+            select role.RoleCode).ToListAsync(ct);
+        var projectedRoles=await (
+            from grant in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on grant.RoleId equals role.RoleId
+            where grant.UserId==user.UserId&&role.IsActive
+            select role.RoleCode).ToListAsync(ct);
+        var writeRoles=V180LocationLiveRoleRules.Evaluate(user.Roles,datedRoles,projectedRoles);
+        if(!writeRoles.Admin&&!writeRoles.Leader&&!writeRoles.Visitor)
+            throw new UnauthorizedAccessException("有效角色已失效，無權寫入地點備註。");
+        if(!writeRoles.Admin&&!user.TeamIds.Contains(request.TeamId))
             throw new UnauthorizedAccessException("無權新增其他小組的地點備註。");
 
         var accessible=await AccessibleLocations(user,request.TeamId)
             .FirstOrDefaultAsync(x=>x.LocationId==locationId,ct);
         if(accessible is null)throw new KeyNotFoundException("找不到可維護的正式地點。");
-        if(!user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase))
+        if(!writeRoles.Admin)
         {
-            var account=await db.Users.AsNoTracking().FirstOrDefaultAsync(
-                x=>x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
-                ??throw new UnauthorizedAccessException("帳號已失效。");
-            if(!(await new V170AccessControl(db).EvaluateLoginAsync(user.UserId,account.IsActive,ct)).IsAllowed)
-                throw new UnauthorizedAccessException("目前人事狀態無權維護地點。");
-            var today=BusinessTime.Today;
             var valid=accessible.TeamId==request.TeamId
                 && accessible.OrganizationId==user.OrganizationId
                 && await (
@@ -797,8 +814,7 @@ public sealed class V170LocationRepository(
                         && (!team.EffectiveFrom.HasValue||team.EffectiveFrom<=today)
                         && (!team.EffectiveTo.HasValue||team.EffectiveTo>=today)
                     select team.TeamId).AnyAsync(ct);
-            if(!valid || (user.Roles.Contains("visitor",StringComparer.OrdinalIgnoreCase)
-                    && !user.Roles.Contains("leader",StringComparer.OrdinalIgnoreCase)
+            if(!valid || (writeRoles.Visitor && !writeRoles.Leader
                     && accessible.CreatedByUserId!=user.UserId))
                 throw new UnauthorizedAccessException("無權修改其他人、小組或共用地點的備註。");
         }
@@ -807,10 +823,8 @@ public sealed class V170LocationRepository(
         var row=await db.TeamLocationNotes
             .SingleOrDefaultAsync(x=>x.TeamId==request.TeamId&&x.LocationId==locationId,ct);
         var now=DateTime.UtcNow;
-        if(row is not null && user.Roles.Contains("visitor",StringComparer.OrdinalIgnoreCase)
-           && !user.Roles.Contains("leader",StringComparer.OrdinalIgnoreCase)
-           && !user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
-           && row.CreatedByUserId!=user.UserId)
+        if(row is not null && writeRoles.Visitor && !writeRoles.Leader
+           && !writeRoles.Admin && row.CreatedByUserId!=user.UserId)
             throw new UnauthorizedAccessException("不得覆寫其他人建立的備註。");
         var old=row?.Note;
         var action=row is null?"Created":"Updated";

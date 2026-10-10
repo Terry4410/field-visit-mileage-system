@@ -802,15 +802,29 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             throw new InvalidOperationException("ROWVERSION_REQUIRED：請重新載入後再修改地點。");
         EnsureRowVersion(row.RowVersion, request.RowVersion);
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
+        var nextName=request.LocationName.Trim();
+        var nextAddress=request.Address?.Trim();
+        var nextPlus=request.PlusCode?.Trim();
+        var nextTax=!admin&&request.TaxId is null?row.TaxId:
+            string.IsNullOrWhiteSpace(request.TaxId)?null:request.TaxId.Trim();
+        var nextNote=!admin&&request.MasterNote is null?row.MasterNote:
+            string.IsNullOrWhiteSpace(request.MasterNote)?null:request.MasterNote.Trim();
+        var needsGeocode=V180LocationMaterialChangeRules.RequiresGeocoding(
+            row.Address,row.PlusCode,nextAddress,nextPlus);
+        var needsDuplicate=V180LocationMaterialChangeRules.RequiresDuplicateRecheck(
+            row.LocationName,row.Address,row.PlusCode,row.TaxId,
+            nextName,nextAddress,nextPlus,nextTax);
         row.TeamId = request.TeamId;
-        row.LocationName = request.LocationName.Trim();
+        row.LocationName = nextName;
         row.LocationType = string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType.Trim();
-        row.City = request.City?.Trim(); row.District = request.District?.Trim(); row.Address = request.Address?.Trim(); row.PlusCode = request.PlusCode?.Trim(); row.TaxId = !admin && request.TaxId is null ? row.TaxId : string.IsNullOrWhiteSpace(request.TaxId) ? null : request.TaxId.Trim(); row.MasterNote = !admin && request.MasterNote is null ? row.MasterNote : string.IsNullOrWhiteSpace(request.MasterNote) ? null : request.MasterNote.Trim();
+        row.City=request.City?.Trim(); row.District=request.District?.Trim();
+        row.Address=nextAddress; row.PlusCode=nextPlus; row.TaxId=nextTax; row.MasterNote=nextNote;
         row.IsActive = request.IsActive && row.ApprovalStatus == "Approved";
-        row.GeocodingStatus = "Pending";
+        if(needsGeocode)row.GeocodingStatus="Pending";
         row.UpdatedAt = DateTime.UtcNow;
         AddAudit(user.UserId, "Location", locationId.ToString(), "LocationUpdate", new { before, after = request });
-        await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,row,user.UserId,ct);
+        if(needsDuplicate)
+            await V180LocationDuplicateGovernance.RefreshSuspectFlagAsync(db,row,user.UserId,ct);
         await db.SaveChangesAsync(ct);
         var teamName = row.TeamId.HasValue ? await db.Teams.AsNoTracking().Where(x => x.TeamId == row.TeamId).Select(x => x.TeamName).FirstOrDefaultAsync(ct) : null;
         return MapManagedLocation(row, teamName);
