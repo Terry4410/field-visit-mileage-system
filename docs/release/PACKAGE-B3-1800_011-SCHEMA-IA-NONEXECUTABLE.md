@@ -23,7 +23,7 @@ This is NOT an `Up.sql` or `Verify.sql` and must not be executed. B3 feature fla
 | BeforeJson / ProposedJson / EvidenceJson | NVARCHAR(MAX) | Before/Evidence optional; Proposed required valid JSON; whitelist and redact sensitive data |
 | RequestedByUserId | INT | NOT NULL; FK Users |
 | SubmittedAt | DATETIME2(3) | UTC; NOT NULL |
-| Status | NVARCHAR(30) | Pending, Rejected, Returned, Applied, Cancelled; never confuse approval decision with applied transaction |
+| Status | NVARCHAR(30) | **Current candidate permits Pending / Rejected ONLY**. Returned / Applied / Cancelled are future reserved concepts, NOT authorized or accepted until separate Owner IA and execution gate |
 | ReviewedByUserId / ReviewedAt / ReviewReason | INT / DATETIME2(3) / NVARCHAR(1000) | nullable, FK Users; reason required for rejection |
 | AppliedAt | DATETIME2(3) | NULL until successful atomic application |
 | RowVersion | ROWVERSION | NOT NULL, EF concurrency token |
@@ -58,7 +58,7 @@ The candidate EF Model declares eight named SQL Server CHECK constraints for def
 | Constraint | Intended fail-closed check |
 | --- | --- |
 | `CK_B3_ChangeRequests_KnownCodes` | Only Location / UpdatePublishedLocation / High |
-| `CK_B3_ChangeRequests_KnownStatus` | Status from Pending, Rejected, Returned, Applied, Cancelled |
+| `CK_B3_ChangeRequests_KnownStatus` | Only Pending or Rejected; future Applied / Returned / Cancelled remain BLOCKED |
 | `CK_B3_ChangeRequests_ExpectedLocationVersion` | Source Location ROWVERSION evidence is non-null and exactly 8 bytes |
 | `CK_B3_ChangeRequests_ProposedJson` | ProposedJson must be valid JSON |
 | `CK_B3_ChangeRequests_ReviewState` | Pending has no reviewer/timestamp/reason/AppliedAt; Rejected must have a reviewer different from the submitter, timestamp, explicitly NON-NULL nonblank reason, and no AppliedAt (avoid SQL CHECK UNKNOWN passing on NULL) |
@@ -66,7 +66,7 @@ The candidate EF Model declares eight named SQL Server CHECK constraints for def
 | `CK_B3_ChangeRequestEvents_DetailsJson` | Optional event DetailsJson must be valid JSON |
 | `CK_B3_ChangeRequestEvents_DecisionState` | Submitted event requires no DecisionKey but requires a real actor; Rejected requires a non-null DecisionKey and real actor |
 
-Runtime read-only catalog gate checks all eight named constraints exist, are enabled/trusted, and mention key expression tokens. The catalog gate also requires no enabled DML triggers on either B3 table: B3 stage/rejection events must not have implicit trigger-based publication, cleanup, notifications or hidden side effects. Any trigger proposal requires independent IT/Owner impact analysis; do not silently disable one in UAT. **Token checks cannot prove semantic equivalence to the approved DDL**. Actual SQL Server compile, normalized constraint definitions, effective behavior, 011 migration and UAT concurrency remain HOLD until separately approved. Future applied-event types or status transitions must undergo a new IA rather than silently changing these gates.
+Runtime read-only catalog gate checks all eight named constraints exist, are enabled/trusted, and mention key expression tokens. The catalog gate also requires no enabled DML triggers on either B3 table: B3 stage/rejection events must not have implicit trigger-based publication, cleanup, notifications or hidden side effects. Any trigger proposal requires independent IT/Owner impact analysis; do not silently disable one in UAT. **Token checks cannot prove semantic equivalence to the approved DDL**. Actual SQL Server compile, normalized constraint definitions, effective behavior, 011 migration and UAT concurrency remain HOLD until separately approved. Future applied-event types or status transitions must undergo a new IA rather than silently changing these gates. The read-only gate also refuses any KnownStatus CHECK definition containing reserved `applied`, `returned`, or `cancelled` status strings; this is intentionally restrictive while Approve / Apply remains DENY ALL.
 
 ## Readiness and conflict behavior (NONEXECUTABLE contract)
 - B3 must remain disabled until the live SQL catalog proves both tables, 8-byte ROWVERSION concurrency token, enabled/non-hypothetical unique RequestPublicId, the exact three-key Pending filtered unique, and DecisionKey filtered unique indexes, plus six trusted, enabled, NO ACTION foreign keys. A version row without these safety structures is NOT ready.

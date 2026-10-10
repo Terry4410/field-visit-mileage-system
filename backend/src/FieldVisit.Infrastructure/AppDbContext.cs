@@ -94,7 +94,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.ToTable("ChangeRequests",table =>
             {
                 table.HasCheckConstraint("CK_B3_ChangeRequests_KnownCodes", "[EntityKind]=N'Location' AND [OperationCode]=N'UpdatePublishedLocation' AND [RiskCode]=N'High'");
-                table.HasCheckConstraint("CK_B3_ChangeRequests_KnownStatus", "[Status] IN (N'Pending',N'Rejected',N'Returned',N'Applied',N'Cancelled')");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_KnownStatus", "[Status] IN (N'Pending',N'Rejected')");
                 table.HasCheckConstraint("CK_B3_ChangeRequests_ExpectedLocationVersion", "[ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=8");
                 table.HasCheckConstraint("CK_B3_ChangeRequests_ProposedJson", "ISJSON([ProposedJson])=1");
                 table.HasCheckConstraint("CK_B3_ChangeRequests_ReviewState", "([Status]<>N'Pending' OR ([ReviewedByUserId] IS NULL AND [ReviewedAt] IS NULL AND [ReviewReason] IS NULL AND [AppliedAt] IS NULL)) AND ([Status]<>N'Rejected' OR ([ReviewedByUserId] IS NOT NULL AND [ReviewedByUserId]<>[RequestedByUserId] AND [ReviewedAt] IS NOT NULL AND [ReviewReason] IS NOT NULL AND LEN(LTRIM(RTRIM([ReviewReason])))>0 AND [AppliedAt] IS NULL))");

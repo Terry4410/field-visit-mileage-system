@@ -61,6 +61,9 @@ public sealed class V180B3CheckConstraintContractsTests
         var status=checks.Single(x=>x.Name=="CK_B3_ChangeRequests_KnownStatus").Sql;
         Assert.Contains("Pending",status);
         Assert.Contains("Rejected",status);
+        Assert.DoesNotContain("Applied",status);
+        Assert.DoesNotContain("Returned",status);
+        Assert.DoesNotContain("Cancelled",status);
         var review=checks.Single(x=>x.Name=="CK_B3_ChangeRequests_ReviewState").Sql;
         Assert.Contains("ReviewedByUserId",review);
         Assert.Contains("ReviewedAt",review);

@@ -53,6 +53,16 @@ public sealed class V180B3ReadinessCatalogIntegrityTests
     }
 
     [Fact]
+    public void Catalog_rejects_future_apply_return_or_cancel_status_extensions()
+    {
+        var sql=V180B3SqlSafetyRules.CatalogCheckSql;
+        Assert.Contains("CK_B3_ChangeRequests_KnownStatus",sql);
+        Assert.Contains("LOWER(cc.definition) NOT LIKE N'%applied%'",sql);
+        Assert.Contains("LOWER(cc.definition) NOT LIKE N'%returned%'",sql);
+        Assert.Contains("LOWER(cc.definition) NOT LIKE N'%cancelled%'",sql);
+    }
+
+    [Fact]
     public void Readiness_probe_is_a_select_only_fail_closed_check()
     {
         var sql=V180B3SqlSafetyRules.CatalogCheckSql.TrimStart();

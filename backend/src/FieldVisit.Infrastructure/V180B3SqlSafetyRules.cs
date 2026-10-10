@@ -214,6 +214,13 @@ public static class V180B3SqlSafetyRules
                       AND cc.is_disabled=0 AND cc.is_not_trusted=0
                       AND LOWER(cc.definition) LIKE N'%'+required.Token1+N'%'
                       AND LOWER(cc.definition) LIKE N'%'+required.Token2+N'%'
+                      -- Pending/Rejected are the ONLY staged candidate
+                      -- states. Never treat an old 'Applied' schema as ready
+                      -- before independent approval/apply authorization.
+                      AND (required.ConstraintName<>N'CK_B3_ChangeRequests_KnownStatus'
+                           OR (LOWER(cc.definition) NOT LIKE N'%applied%'
+                               AND LOWER(cc.definition) NOT LIKE N'%returned%'
+                               AND LOWER(cc.definition) NOT LIKE N'%cancelled%'))
                 )
             )=8
             THEN 1 ELSE 0 END AS int) AS Value
