@@ -799,4 +799,31 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Deny(20, plan.DecisionKey, null);
     }
 
+    [Fact]
+    public void Combined_locked_approval_boundary_requires_all_security_conditions()
+    {
+        var request = Pending();
+        request.RowVersion = new byte[8];
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        void Check(V180B3ChangeRequest row, V180B3LocationFields source,
+            int reviewer = 20, bool replay = false, int? team = 7) =>
+            V180B3ApprovalApplyPreflight.RequireLockedApprovalBoundary(
+                plan, row, source, new byte[8], 9, 1, team, 910,
+                "Customer", "Approved", true, reviewer,
+                plan.DecisionKey, "Independent review", replay);
+        Check(request, Before);
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(request, Before with { Address = "Drifted" }));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            Check(request, Before, team: 99));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            Check(request, Before, reviewer: 21));
+        Assert.Equal("B3_DECISION_KEY_REPLAY",
+            Assert.Throws<InvalidOperationException>(() =>
+                Check(request, Before, replay: true)).Message);
+    }
+
 }
