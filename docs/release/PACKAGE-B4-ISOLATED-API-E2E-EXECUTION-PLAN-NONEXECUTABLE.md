@@ -369,6 +369,55 @@ employee's home site. B3 OFF, LiveSessionGuard default OFF,
 1800_011 NOT AUTHORIZED, B4 accepted 0/22, Business UAT HOLD,
 Production HARD HOLD.
 
+## NEW disposable SQL Server 2022 deployment-site proof (NO MIGRATION / NO UAT)
+
+A separate WORK-only SQL test class now uses the **actual EF SQL Server
+provider** and the real V180TripContextReader rather than the EF InMemory
+provider. Every case creates a random B4SiteSql_* database only on the
+existing private localhost SQL Server container (127.0.0.1:14335, master,
+ephemeral SA secret), creates the test EF schema with EnsureCreated,
+seeds a completely isolated employment/team/center/site/location context
+and drops its database. The source code rejects other SQL hosts/catalogs,
+and the runner never accepts Azure/UAT/Production connection strings.
+This is NOT 1800_011 migration execution.
+
+Six separately named SQL cases verify (1) valid primary Site plus real
+SQL-enforced cross-organization official picker exclusion; (2) site
+disabled after prior context and stale draft-site rejection with no
+VisitTrip/AuditLog created; (3) effective-dated team membership expiry;
+(4) duplicate *overlapping* SiteLocation periods with different start
+dates (real SQL unique start-key intact) fail closed; (5) expiry of
+site-to-Location mapping removes its official picker entry; and
+(6) SQL rowversion-concurrent Site edit rejects stale writer, keeping
+the previous committed state. These cases are **reader/database
+integration**, not authenticated HTTP+SQL integration, so no actual
+deployed runtime or business GO is claimed.
+
+GitHub SQL job deliberately **preserves the existing 51 original
+named B3 fixture tests unchanged** and executes these six B4-site
+SQL cases as a second independently named TRX within the *same*
+disposable SQL Server container. Independent validator binds the six
+case IDs/outcomes/durations to the exact WORK SHA, stores TRX SHA-256,
+rejects missing/failed/duplicate tests and has separate Python
+negative tests. Original 51-case SQL evidence, 22-case B4 SQL map and
+the formal 0/22 B4 acceptance remain independent and unchanged.
+
+### Follow-up before UAT
+
+The next technical gate is actual authenticated HTTP + real disposable
+SQL in one TestServer/SQL integration, including DB-read timeout
+fault injection, Azure-style retry and telemetry. The previous six
+authenticated HTTP trip-context cases use EF InMemory, so they are
+**not** the same evidence as the new six SQL reader/database cases.
+Measured load, historical trip draft state, official-site change race
+with writes, Entra ID real identity and migration-owned actual
+schema remain pending. No branch promotion, source merge,
+Azure DB touch or B3 activation is authorized.
+
+**Controls: LiveSessionGuard OFF, B3 OFF, Manager Grant BLOCKED,
+Approve/Apply DENY ALL, 1800_011 NOT EXECUTED, B4 accepted 0/22,
+Business UAT HOLD, Production HARD HOLD.**
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
