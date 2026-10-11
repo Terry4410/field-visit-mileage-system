@@ -89,6 +89,28 @@ def scan():
              "flag/schema -> bounded DTO preflight -> transaction -> live actor")
     except (OSError, ValueError) as exc:
         gate("B3_bounded_payload_before_SQL_transaction", False, exc)
+    # WORK candidate guard must remain OFF by default and preserve
+    # JWT->live effective assignment->current projection intersection.
+    try:
+        middleware = (ROOT / "backend/src/FieldVisit.Api/V180LiveSessionGuardMiddleware.cs").read_text(encoding="utf-8")
+        program = (ROOT / "backend/src/FieldVisit.Api/Program.cs").read_text(encoding="utf-8")
+        sequence = ["app.UseRouting();", "app.UseCors(\"Frontend\");",
+                    "app.UseAuthentication();",
+                    "app.UseMiddleware<V180LiveSessionGuardMiddleware>();",
+                    "app.UseAuthorization();"]
+        positions = [program.index(word) for word in sequence]
+        good = (positions == sorted(positions)
+                and 'Auth:LiveSessionGuard:Enabled' in middleware
+                and 'UserRoles.AsNoTracking()' in middleware
+                and 'UserRoleAssignments.AsNoTracking()' in middleware
+                and 'projected.IntersectWith(effective.Select(NormalizeRole))' in middleware
+                and 'jwtRoles.Any(role=>!projected.Contains(role))' in middleware
+                and 'UserTypes.External' in middleware
+                and 'SESSION_ROLE_REVOKED' in middleware)
+        gate("live_session_role_intersection_and_pipeline", good,
+             "opt-in guard rechecks JWT, effective dated roles, projection and middleware order")
+    except (OSError, ValueError) as exc:
+        gate("live_session_role_intersection_and_pipeline", False, exc)
     migration_dir = ROOT / "database/migrations"
     gate("migration_dir_present", migration_dir.is_dir(), migration_dir)
     # No previously approved migration may be edited to hide unapproved DDL.
