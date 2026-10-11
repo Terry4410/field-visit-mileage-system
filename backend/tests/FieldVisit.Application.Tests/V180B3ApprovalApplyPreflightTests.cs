@@ -146,4 +146,65 @@ public sealed class V180B3ApprovalApplyPreflightTests
             Proposed with { LocationName = "" });
         Assert.Throws<InvalidOperationException>(() => Validate(row));
     }
+    [Fact]
+    public void Independent_reviewer_with_fresh_version_passes_pure_decision_gate()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independently reviewed");
+        Assert.Equal("Independently reviewed",
+            V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                row, 1, row.RequestPublicId, 20, review));
+    }
+
+    [Fact]
+    public void Submitter_cannot_approve_own_request()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Self review");
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                row, 1, row.RequestPublicId, row.RequestedByUserId, review));
+    }
+
+    [Fact]
+    public void Stale_request_version_and_replayed_state_cannot_be_approved()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }),
+            Guid.NewGuid(), "Independent review");
+        Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                row, 1, row.RequestPublicId, 20, review));
+        row.Status = "Rejected";
+        review = review with { RequestRowVersion =
+            Convert.ToBase64String(row.RowVersion) };
+        Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                row, 1, row.RequestPublicId, 20, review));
+    }
+
+    [Fact]
+    public void Missing_reviewer_and_cross_organization_fail_closed()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent review");
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                row, 1, row.RequestPublicId, 0, review));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                row, 2, row.RequestPublicId, 20, review));
+    }
+
 }
