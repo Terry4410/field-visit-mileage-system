@@ -64,6 +64,10 @@ REQUIRED_SQL_TESTS=frozenset({
     "Ef_SQL_peer_and_cross_org_sensitive_before_evidence_json_not_disclosed",
     "Ef_SQL_switching_actor_org_between_queries_never_reuses_previous_tenant_scope",
     "Ef_SQL_admin_org_queue_includes_peer_but_requester_mine_does_not",
+    "Sql_transaction_rejected_event_fk_failure_rolls_back_request_decision",
+    "Sql_transaction_duplicate_decision_key_rolls_back_second_request",
+    "Sql_transaction_check_constraint_failure_rolls_back_decision_and_audit",
+    "Sql_rolled_back_decision_key_is_reusable_without_phantom_event",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
