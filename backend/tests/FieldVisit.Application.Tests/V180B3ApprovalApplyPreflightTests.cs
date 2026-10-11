@@ -429,8 +429,8 @@ public sealed class V180B3ApprovalApplyPreflightTests
     {
         var row = Pending();
         row.ExpectedEntityRowVersion = null;
-        var error = Assert.Throws<InvalidOperationException>(() => Validate(row));
-        Assert.Equal("B3_SOURCE_ROWVERSION_CONFLICT", error.Message);
+        var error = Assert.Throws<UnauthorizedAccessException>(() => Validate(row));
+        Assert.Equal("B3_REVIEW_TARGET_UNSUPPORTED", error.Message);
     }
 
     [Fact]
@@ -442,12 +442,12 @@ public sealed class V180B3ApprovalApplyPreflightTests
         var review = new V180B3Review(
             Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
             "Independent approval");
-        var error = Assert.Throws<InvalidOperationException>(() =>
+        var error = Assert.Throws<UnauthorizedAccessException>(() =>
             V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
                 row, 1, row.RequestPublicId, 20, review,
                 9, 1, 7, 910, "Customer", "Approved", true,
                 new byte[8], Before));
-        Assert.Equal("B3_SOURCE_ROWVERSION_CONFLICT", error.Message);
+        Assert.Equal("B3_REVIEW_TARGET_UNSUPPORTED", error.Message);
     }
 
 }
