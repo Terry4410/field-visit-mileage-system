@@ -760,4 +760,21 @@ public sealed class V180B3ApprovalApplyPreflightTests
             9, 1, 7, 910, "Customer", "Approved", true));
     }
 
+    [Fact]
+    public void Approval_decision_key_guard_rejects_replay_and_empty_key()
+    {
+        var plan = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        V180B3ApprovalApplyPreflight.RequireUnusedDecisionKey(plan, false);
+        Assert.Equal("B3_DECISION_KEY_REPLAY",
+            Assert.Throws<InvalidOperationException>(() =>
+                V180B3ApprovalApplyPreflight.RequireUnusedDecisionKey(plan, true)).Message);
+        Assert.Equal("B3_APPROVAL_PLAN_INVALID",
+            Assert.Throws<InvalidOperationException>(() =>
+                V180B3ApprovalApplyPreflight.RequireUnusedDecisionKey(
+                    plan with { DecisionKey = Guid.Empty }, false)).Message);
+    }
+
 }
