@@ -10,7 +10,7 @@
   duplicate, missing or non-string fields, no-op and invalid proposed values.
 - Unit negatives cover malformed versions, source changes, foreign
   organization, unauthorized operation and tampered proposal JSON.
-- This preflight **does not authorize a reviewer, update a Location,
+- The pure `PrepareImmutablePlan` now composes reviewer/decision validation, active published Customer source provenance, request/source RowVersion checks and before/after JSON audit snapshots; it does not write data.\n- Null or malformed source/request RowVersions fail closed with controlled errors.\n- This preflight **does not authorize a reviewer, update a Location,
   geocode, commit a transaction or emit a decision event**.
 - `V180B3ChangeRequestService.ApproveAsync` still explicitly denies ALL.
   Feature flag remains OFF. No migration or deployment has occurred.
