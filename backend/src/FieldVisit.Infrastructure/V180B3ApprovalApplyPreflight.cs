@@ -27,6 +27,8 @@ public static class V180B3ApprovalApplyPreflight
             throw new InvalidOperationException("B3_APPROVAL_PAYLOAD_INVALID");
         try
         {
+            RequireExactLocationJson(request.BeforeJson);
+            RequireExactLocationJson(request.ProposedJson);
             var before = JsonSerializer.Deserialize<V180B3LocationFields>(
                 request.BeforeJson);
             var proposed = JsonSerializer.Deserialize<V180B3LocationFields>(
@@ -41,6 +43,29 @@ public static class V180B3ApprovalApplyPreflight
         {
             throw new InvalidOperationException("B3_APPROVAL_PAYLOAD_INVALID");
         }
+    }
+
+    private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
+    {
+        "LocationName", "City", "District", "Address",
+        "PlusCode", "TaxId", "MasterNote"
+    };
+
+    private static void RequireExactLocationJson(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("B3_APPROVAL_PAYLOAD_INVALID");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in document.RootElement.EnumerateObject())
+        {
+            if (!AllowedFields.Contains(property.Name)
+                || !seen.Add(property.Name)
+                || property.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                throw new InvalidOperationException("B3_APPROVAL_PAYLOAD_INVALID");
+        }
+        if (seen.Count != AllowedFields.Count)
+            throw new InvalidOperationException("B3_APPROVAL_PAYLOAD_INVALID");
     }
 
     private static bool JsonEquals(
