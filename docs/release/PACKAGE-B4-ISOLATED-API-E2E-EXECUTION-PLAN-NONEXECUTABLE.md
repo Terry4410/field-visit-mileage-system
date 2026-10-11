@@ -418,6 +418,42 @@ Azure DB touch or B3 activation is authorized.
 Approve/Apply DENY ALL, 1800_011 NOT EXECUTED, B4 accepted 0/22,
 Business UAT HOLD, Production HARD HOLD.**
 
+## Real AppJwt HTTP plus disposable SQL Server — WORK candidate only
+
+A standalone FieldVisit.B4.SqlHttp.Tests project connects the real
+ASP.NET Core TestServer, Demo login, TokenService-issued AppJwt,
+the opt-in Session Guard, TripService and the actual SQL-backed
+V180TripContextReader on one SQL Server 2022 database per case.
+The allowed connection is strictly local CI server 127.0.0.1:14335,
+SA and master only. Each test creates and destroys a random
+B4SqlHttp_* database via EnsureCreated. UAT/Prod/Azure are prohibited.
+
+Six exact test cases verify the positive HTTP SQL site context;
+the same old JWT after disabling the SQL deployment site; removal
+of a role projection (403); effective-dated Team grant revocation
+(403); active HR -> Leave after issuance (403); and an injected
+local-only SQL connection failure (generic 500, no secret leak,
+health live 200, zero SQL trip/audit writes). The last case changes
+only the test host scoped DbContext destination to unused local
+port 14336, timeout 1 second. It is NOT real Azure outage
+simulation; IT must separately decide timeouts, 503, telemetry,
+retry, operational health and error response handling.
+
+The disposable SQL workflow runs THREE independent suites:
+B3 original 51 unchanged, B4 dated site Reader 6, and B4 actual
+HTTP + SQL 6. All three produce separate named TRX and independently
+verified source-SHA-bound evidence. Twelve additional Python negative
+tests explicitly reject incomplete, forged, failed or swapped HTTP/SQL
+evidence. Each test uses local randomized fixture rows only.
+
+This is partial SQL + HTTP security evidence, NOT approval of any
+formal B4 acceptance case, business testing, Entra integration,
+real Azure schema, concurrent full trip writes or UAT deployment.
+Protected post-uat SHA remains frozen. B3/LiveSessionGuard default
+OFF; Approve/Apply DENY ALL; Manager Grant BLOCKED; 1800_011
+NOT AUTHORIZED; B4 formally accepted 0/22;
+Business UAT HOLD and Production HARD HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
