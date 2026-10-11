@@ -666,3 +666,38 @@ The automated static P1 report remains expressly scoped to
 upgrade-path rehearsal. These other migration-owned invariants
 remain **NEEDS VALIDATION** on a separately authorized disposable
 migration baseline.
+
+
+### 2026-10-11 continuation — P2 CreateDraft partial-commit gate (ANALYSIS ONLY)
+
+Reconfirmed from `backend/src/FieldVisit.Application/TripService.cs`:
+`CreateAsync` invokes `uow.SaveChangesAsync(ct)` immediately after
+`trips.AddAsync`, then separately adds `MileageCalculation`, status
+history and audit, and invokes a second `SaveChangesAsync`.
+`IUnitOfWork` in `backend/src/FieldVisit.Application/Interfaces.cs`
+exposes only `SaveChangesAsync`, not an explicit transaction boundary.
+**RISK / NEEDS VALIDATION:** an exception between those two saves
+could leave a persisted Draft and Stops without Mileage/History/Audit.
+No claim is made that this has happened in Azure.
+
+Required isolated regression before a behavioral change:
+1. In the existing random `B4SqlHttp_*` SQL Server fixture, create a
+   test-only AFTER INSERT trigger on `MileageCalculations` that throws
+   a distinct error; issue a real JWT-authorized HTTP CreateDraft.
+2. Inspect `VisitTrips`, `VisitTripStops`, `MileageCalculations`,
+   `VisitTripStatusHistories` and `AuditLogs` after the failed HTTP.
+   The desired invariant is **zero committed rows for the attempted trip**.
+3. Only if this red test reproduces the split-commit defect, review an
+   application transaction boundary that encompasses both saves,
+   including generated trip ID, Stop relationships, retries and the
+   `IUnitOfWork` interface compatibility. Implement and rerun the
+   full isolated CI on WORK only; do not modify UAT/Production.
+4. Keep SQL 500 sanitized for injected write failure; do not map
+   arbitrary DB errors to 409 or auto-retry a non-idempotent Create.
+
+Other P2/P3 coverage still pending: multiple-stop ordering, deadlock
+victim, command timeout and retry idempotency. P1 `1800_003` static
+inventory has known differences and is NOT full migration parity.
+All B3/LiveSessionGuard default OFF, VAL-B1-002 BLOCKED,
+Approve/Apply DENY ALL, B4 0/22, Business UAT HOLD,
+Production HARD HOLD, 1800_011 NONEXECUTABLE.
