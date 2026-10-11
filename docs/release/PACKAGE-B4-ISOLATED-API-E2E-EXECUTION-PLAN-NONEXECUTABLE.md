@@ -103,6 +103,26 @@ These fixture additions do not alter the B3 feature flag, UAT schema,
 Approve/Apply DENY ALL, historical manager grants or the blocked
 VAL-B1-002 gate. Full B4 22-case acceptance and API-OFF-08 remain pending.
 
+## B4 evidence traceability crosswalk (CI generated; RELEASE HOLD)
+
+A non-deploy GitHub Actions step consumes the already validated disposable
+SQL Server TRX evidence from the **same** WORK commit. It produces
+.bci-only independent traceability in two files within the SQL-only artifact:
+
+- b4-sql-coverage.json — 22 B4 IDs, each with an explicit partial SQL
+  fixture test linkage (actual test name, test ID and execution ID) or an
+  explicit NO_DIRECT_SQL_FIXTURE gap; SHA and TRX SHA-256 are retained.
+- b4-sql-coverage.md — readable table of missing API/HR/business validation
+  and the separate Owner/IT authorization blockers.
+
+These files are evidence classification, NOT execution of the 22 full B4
+cases. A matching SQL fixture test may support only a narrow predicate
+(e.g., same-team requester queue *read* filtering), NOT a peer location
+*write* denial. The report hardcodes **formal_b4_accepted=0/22**,
+full API/HR/Business E2E NOT EXECUTED and Business UAT / Production HOLD.
+Missing, duplicated, failed, forged or UAT-scoped SQL evidence makes the
+coverage generator FAIL CLOSED. B3 remains OFF and Approve/Apply DENY ALL.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |

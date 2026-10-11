@@ -141,6 +141,15 @@ jobs:
             --report .ci-artifacts/b3-sql-evidence.json \
             --summary .ci-artifacts/b3-sql-evidence.md
           cat .ci-artifacts/b3-sql-evidence.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Produce 22-case partial SQL traceability report (RELEASE HOLD)
+        if: always()
+        shell: bash
+        run: |
+          python3 scripts/ci/package_b_b4_coverage.py \
+            --sql .ci-artifacts/b3-sql-evidence.json \
+            --report .ci-artifacts/b4-sql-coverage.json \
+            --summary .ci-artifacts/b4-sql-coverage.md
+          cat .ci-artifacts/b4-sql-coverage.md >> "$GITHUB_STEP_SUMMARY"
       - name: Capture disposable SQL runtime test evidence
         if: always()
         shell: bash
