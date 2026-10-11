@@ -644,4 +644,55 @@ public sealed class V180B3ApprovalApplyPreflightTests
         }
     }
 
+    [Fact]
+    public void Approval_plan_locked_snapshot_guard_accepts_matching_source_and_request()
+    {
+        var request = Pending();
+        request.RowVersion = new byte[8];
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        V180B3ApprovalApplyPreflight.RequirePlanSnapshotsStillCurrent(
+            plan, Before, new byte[8], request);
+    }
+
+    [Fact]
+    public void Approval_plan_locked_snapshot_guard_rejects_source_request_and_version_drift()
+    {
+        var request = Pending();
+        request.RowVersion = new byte[8];
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        void Deny(V180B3ApprovalApplyPlan candidate,
+            V180B3LocationFields source, byte[]? version, V180B3ChangeRequest row) =>
+            Assert.Equal("B3_APPROVAL_PLAN_STALE",
+                Assert.Throws<InvalidOperationException>(() =>
+                    V180B3ApprovalApplyPreflight.RequirePlanSnapshotsStillCurrent(
+                        candidate, source, version, row)).Message);
+        Deny(plan, Before with { City = "Changed" }, new byte[8], request);
+        Deny(plan, Before, null, request);
+        Deny(plan, Before, new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }, request);
+        Deny(plan, Before, new byte[8], CloneRequest(request, status: "Rejected"));
+        Deny(plan, Before, new byte[8], CloneRequest(request, proposedJson: JsonSerializer.Serialize(Before)));
+        Deny(plan, Before, new byte[8], CloneRequest(request, beforeJson: JsonSerializer.Serialize(Before with { City = "Changed" })));
+        Deny(plan, Before, new byte[8], CloneRequest(request, expectedVersion: new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }));
+    }
+
+    private static V180B3ChangeRequest CloneRequest(
+        V180B3ChangeRequest row, string? status = null,
+        string? proposedJson = null, string? beforeJson = null,
+        byte[]? expectedVersion = null) => new()
+    {
+        RequestPublicId = row.RequestPublicId,
+        EntityId = row.EntityId,
+        Status = status ?? row.Status,
+        RowVersion = row.RowVersion,
+        ExpectedEntityRowVersion = expectedVersion ?? row.ExpectedEntityRowVersion,
+        BeforeJson = beforeJson ?? row.BeforeJson,
+        ProposedJson = proposedJson ?? row.ProposedJson
+    };
+
 }
