@@ -407,7 +407,7 @@ public sealed class B4IsolatedHrLoginFactory : WebApplicationFactory<V180B3Chang
         await db.SaveChangesAsync();
     }
 
-    public static readonly DateOnly DatedTripDay=new(2026,10,12);
+    public static readonly DateOnly DatedTripDay=BusinessTime.Today.AddDays(14);
 
     public async Task SeedDatedTripContextAsync()
     {
@@ -1100,7 +1100,7 @@ public sealed class V180HrLoginHttpPipelineTests
 
 public sealed class V180DeploymentSiteHttpPipelineTests
 {
-    private const string ContextPath="/api/v1/trips/context?visitDate=2026-10-12&teamId=7";
+    private static string ContextPath => $"/api/v1/trips/context?visitDate={B4IsolatedHrLoginFactory.DatedTripDay:yyyy-MM-dd}&teamId=7";
 
     private static async Task<HttpClient> PrepareAsync(B4IsolatedHrLoginFactory factory)
     {
