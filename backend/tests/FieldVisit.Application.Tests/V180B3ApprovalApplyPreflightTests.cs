@@ -528,4 +528,36 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Assert.Equal("B3_SOURCE_ROWVERSION_CONFLICT", error.Message);
     }
 
+    [Fact]
+    public void Approval_plan_version_guard_accepts_only_exact_locked_versions()
+    {
+        var plan = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Review",
+            "{}", "{}", new byte[8], new byte[8]);
+        V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
+            plan, plan.RequestPublicId, 9, new byte[8], new byte[8]);
+    }
+
+    [Fact]
+    public void Approval_plan_version_guard_rejects_request_source_or_identity_drift()
+    {
+        var plan = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Review",
+            "{}", "{}", new byte[8], new byte[8]);
+        var stale = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 };
+        void Deny(Guid id, int locationId, byte[]? request, byte[]? source) =>
+            Assert.Equal("B3_APPROVAL_PLAN_STALE",
+                Assert.Throws<InvalidOperationException>(() =>
+                    V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
+                        plan, id, locationId, request, source)).Message);
+        Deny(Guid.NewGuid(), 9, new byte[8], new byte[8]);
+        Deny(plan.RequestPublicId, 10, new byte[8], new byte[8]);
+        Deny(plan.RequestPublicId, 9, stale, new byte[8]);
+        Deny(plan.RequestPublicId, 9, new byte[8], stale);
+        Deny(plan.RequestPublicId, 9, null, new byte[8]);
+        Deny(plan.RequestPublicId, 9, new byte[8], null);
+        Deny(plan.RequestPublicId, 9, new byte[7], new byte[8]);
+        Deny(plan.RequestPublicId, 9, new byte[8], new byte[9]);
+    }
+
 }
