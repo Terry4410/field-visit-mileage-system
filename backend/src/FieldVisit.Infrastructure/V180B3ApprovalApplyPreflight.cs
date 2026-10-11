@@ -265,6 +265,25 @@ public static class V180B3ApprovalApplyPreflight
         }
     }
 
+    /// <summary>
+    /// Must run against a freshly locked location row, not against the
+    /// request's untrusted copied scope. No database writes are performed.
+    /// </summary>
+    public static void RequireLockedPublishedLocationScope(
+        V180B3ApprovalApplyPlan plan, V180B3ChangeRequest request,
+        int lockedLocationId, int? lockedOrganizationId, int? lockedTeamId,
+        int? lockedCreatedByUserId, string? lockedLocationType,
+        string? lockedApprovalStatus, bool lockedIsActive)
+    {
+        if (plan.RequestPublicId != request.RequestPublicId
+            || plan.LocationId != lockedLocationId)
+            throw new UnauthorizedAccessException("B3_APPROVAL_SOURCE_SCOPE_DENIED");
+        RequirePublishedSourceEligibility(
+            request, lockedLocationId, lockedOrganizationId, lockedTeamId,
+            lockedCreatedByUserId, lockedLocationType, lockedApprovalStatus,
+            lockedIsActive);
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
