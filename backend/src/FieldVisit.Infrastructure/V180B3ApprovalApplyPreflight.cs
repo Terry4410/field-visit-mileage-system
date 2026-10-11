@@ -317,6 +317,36 @@ public static class V180B3ApprovalApplyPreflight
             throw new UnauthorizedAccessException("B3_APPROVAL_DECISION_IDENTITY_DRIFT");
     }
 
+    /// <summary>
+    /// Single, read-only transaction-boundary gate for a future executor.
+    /// All arguments describing location and request MUST originate from
+    /// rows freshly locked within the SAME serializable transaction.
+    /// Caller must separately re-check live Admin authority, team membership,
+    /// schema readiness, and SQL uniqueness; this method never applies data.
+    /// </summary>
+    public static void RequireLockedApprovalBoundary(
+        V180B3ApprovalApplyPlan plan,
+        V180B3ChangeRequest lockedRequest,
+        V180B3LocationFields lockedLocationFields,
+        byte[]? lockedLocationRowVersion,
+        int lockedLocationId, int? lockedOrganizationId,
+        int? lockedTeamId, int? lockedCreatedByUserId,
+        string? lockedLocationType, string? lockedApprovalStatus,
+        bool lockedIsActive, int liveReviewerUserId,
+        Guid submittedDecisionKey, string? submittedReviewReason,
+        bool decisionKeyAlreadyExists)
+    {
+        RequirePlanSnapshotsStillCurrent(
+            plan, lockedLocationFields, lockedLocationRowVersion, lockedRequest);
+        RequireLockedPublishedLocationScope(
+            plan, lockedRequest, lockedLocationId, lockedOrganizationId,
+            lockedTeamId, lockedCreatedByUserId, lockedLocationType,
+            lockedApprovalStatus, lockedIsActive);
+        RequireLockedDecisionIdentity(
+            plan, liveReviewerUserId, submittedDecisionKey, submittedReviewReason);
+        RequireUnusedDecisionKey(plan, decisionKeyAlreadyExists);
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
