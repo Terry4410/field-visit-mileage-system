@@ -133,6 +133,8 @@ public static class V180B3ApprovalApplyPreflight
         string? locationType, string? approvalStatus, bool isActive,
         byte[] currentLocationRowVersion, V180B3LocationFields current)
     {
+        if (currentLocationRowVersion is not { Length: 8 })
+            throw new InvalidOperationException("B3_SOURCE_ROWVERSION_CONFLICT");
         var reason = RequireIndependentApprovalDecision(
             request, organizationId, publicId, reviewerUserId, review);
         RequirePublishedSourceEligibility(request, locationId,
