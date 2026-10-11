@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using FieldVisit.Application;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -115,4 +116,35 @@ public sealed partial class B4RealSqlHttpPipelineTests
         Assert.Empty(await check.VisitTripSnapshots.AsNoTracking().ToListAsync());
         Assert.Empty(await check.VisitTripSnapshotStops.AsNoTracking().ToListAsync());
     }
+
+    [Fact]
+    public async Task SQL_HTTP_DRAFT_injected_mileage_SQL_error_must_not_leave_partial_trip()
+    {
+        await using var f = await DisposableTestDatabase.StartAsync();
+        using var host = new RealSqlHttpFactory(f.Connection);
+        using var client = await LoginAsync(host, f);
+        await using (var db = f.Db())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER dbo.TR_B4_Isolated_RejectMileage " +
+                "ON dbo.MileageCalculations AFTER INSERT AS " +
+                "BEGIN SET NOCOUNT ON; " +
+                "THROW 51002, N'ISOLATED_MILEAGE_WRITE_FAILURE_MARKER', 1; END");
+        }
+
+        using var response = await client.PostAsJsonAsync("/api/v1/trips", Draft(f));
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("ISOLATED_MILEAGE_WRITE_FAILURE_MARKER", body,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("SqlException", body, StringComparison.OrdinalIgnoreCase);
+        await using var check = f.Db();
+        Assert.Empty(await check.VisitTrips.AsNoTracking().ToListAsync());
+        Assert.Empty(await check.VisitTripStops.AsNoTracking().ToListAsync());
+        Assert.Empty(await check.MileageCalculations.AsNoTracking().ToListAsync());
+        Assert.Empty(await check.VisitTripStatusHistories.AsNoTracking().ToListAsync());
+        Assert.Empty(await check.AuditLogs.AsNoTracking()
+            .Where(x => x.EntityType == "Trip").ToListAsync());
+    }
+
 }
