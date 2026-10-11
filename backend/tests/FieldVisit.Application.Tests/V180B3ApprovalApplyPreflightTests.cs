@@ -596,6 +596,9 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Deny(valid with { ReviewerUserId = -1 });
         Deny(valid with { ReviewReason = "" });
         Deny(valid with { ReviewReason = "  " });
+        Deny(valid with { ReviewReason = " padded" });
+        Deny(valid with { ReviewReason = "padded " });
+        Deny(valid with { ReviewReason = "bad\\u0000control" });
         Deny(valid with { ReviewReason = new string('X', 1001) });
     }
 
