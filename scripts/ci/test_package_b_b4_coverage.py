@@ -59,6 +59,23 @@ class CoverageTests(unittest.TestCase):
             self.assertEqual("NO_DIRECT_SQL_FIXTURE",row["sql_fixture_status"])
         self.assertEqual("VAL_B1_002_BLOCKED",report["cases"][13]["independent_gate"])
 
+    def test_external_approval_gates_cannot_be_dropped_from_b4_matrix(self):
+        report=map_sql_evidence(proof())
+        by_id={row["id"]:row for row in report["cases"]}
+        for number in (1,2,4,21):
+            self.assertEqual("1800_011_NOT_AUTHORIZED",
+                by_id[f"B4-SQL-{number:02d}"]["independent_gate"])
+        for number in (11,14):
+            self.assertEqual("VAL_B1_002_BLOCKED",
+                by_id[f"B4-SQL-{number:02d}"]["independent_gate"])
+        self.assertEqual("APPROVE_APPLY_DENY_ALL",
+            by_id["B4-SQL-18"]["independent_gate"])
+        self.assertEqual("NOT_AUTHORIZED",report["migration_1800_011"])
+        self.assertEqual("BLOCKED",report["manager_grant"])
+        self.assertEqual("OFF",report["b3_flag"])
+        self.assertEqual("DENY_ALL",report["approve_apply"])
+        self.assertEqual("NOT_EXECUTED",report["full_b4_api_hr_uat"])
+
     def test_summary_explicitly_preserves_hard_hold(self):
         report=map_sql_evidence(proof())
         md=summarize(report)
