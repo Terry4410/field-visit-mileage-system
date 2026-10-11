@@ -206,3 +206,34 @@ migration chain or B4 22/22 UAT.
 **GO/NO-GO:** FULL PACKAGE B UAT = NO-GO. B3 OFF,
 Approve/Apply DENY ALL, B4 0/22, Business UAT HOLD,
 Production HARD HOLD.
+
+
+## Owner 2026-10-11 controlled-completion authorization — execution boundary
+
+The Owner authorized autonomous WORK-branch implementation, GitHub commits,
+CI retries, disposable SQL Server testing, B2/B3/B4 hardening, evidence
+mapping and IT handoff preparation. This **does not authorize** applying
+1800_011, executing any forward migration against UAT/production, deploying,
+promoting, enabling B3, or lifting any HOLD. Approval/apply must continue to
+deny every call while the feature is off or the executor/schema remains
+unapproved. The authorized design baseline is Pending -> Rejected / Applied,
+with one atomic terminal decision and immutable evidence; the existing
+rejection-only 011 contract remains unchanged.
+
+### Single consolidated external decision packet (do not infer consent)
+
+| External gate | Evidence / explicit decision required | Until received |
+| --- | --- | --- |
+| Forward-only schema | Owner/IT approve distinct version, lifecycle CHECKs, unique DecisionKey and correlation/audit contract, migration predecessor, failure recovery | Prepare nonexecutable DDL/design only; no DB execution |
+| Manager grant VAL-B1-002 | Independent HR/IT attestation of effective role assignment, provenance, validity period and actual denied/allowed API cases | Leader elevated writes denied; grant HOLD |
+| Publication safety | Owner/IT sign off duplicate/merge policy, geocode-to-publish separation, historical reference integrity and seven-field update allowlist | Approve/apply DENY ALL |
+| Formal UAT environment | Authorized endpoint, test identities, verified HR/team records, approved migration plan and execution window | Disposable SQL evidence is partial; B4 formal 0/22 |
+| Release activation | Separate approval for branch promotion, UAT backend/frontend deployment, feature flag and Business UAT start after evidence review | B3 OFF; Business UAT HOLD; Production HARD HOLD |
+
+**Automation completion rule:** a green WORK CI is technical evidence, never
+a B4 formal acceptance or release GO. Report each of the 22 scenarios with
+its real API/HR/SQL execution and after-state evidence, identify independent
+approver and exact source SHA, and keep any missing proof as PENDING.
+Only independently authorized formal acceptance may change 0/22 or HOLD
+status. Never invent test identities, production credentials, approver
+attestations or environment permissions.
