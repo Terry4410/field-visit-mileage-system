@@ -1860,4 +1860,52 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@key",key))));
     }
 
+    [Fact]
+    public async Task Serializable_update_lock_blocks_competing_request_reader_until_release()
+    {
+        // Proves UPDLOCK/HOLDLOCK serializes a second reviewer on the same
+        // Pending request in disposable SQL Server; no approval/apply occurs.
+        var id=await _fixture.InsertRequestAsync(
+            "LOCK_CONTENTION_"+Guid.NewGuid().ToString("N"));
+        await using var first=await _fixture.ConnectAsync();
+        await using var second=await _fixture.ConnectAsync();
+        using var tx=first.BeginTransaction(IsolationLevel.Serializable);
+        await using(var lockRow=new SqlCommand("""
+            SELECT ChangeRequestId FROM dbo.ChangeRequests WITH (UPDLOCK,HOLDLOCK)
+            WHERE ChangeRequestId=@id
+            """,first,tx))
+        {
+            lockRow.Parameters.AddWithValue("@id",id);
+            Assert.Equal(id,Convert.ToInt64(await lockRow.ExecuteScalarAsync()));
+        }
+        await using(var competing=new SqlCommand("""
+            SET LOCK_TIMEOUT 500;
+            SELECT ChangeRequestId FROM dbo.ChangeRequests WITH (UPDLOCK,HOLDLOCK)
+            WHERE ChangeRequestId=@id
+            """,second))
+        {
+            competing.Parameters.AddWithValue("@id",id);
+            competing.CommandTimeout=5;
+            var timeout=await Assert.ThrowsAsync<SqlException>(
+                async ()=>await competing.ExecuteScalarAsync());
+            Assert.Equal(1222,timeout.Number);
+        }
+        await tx.RollbackAsync();
+        await using(var released=new SqlCommand("""
+            SET LOCK_TIMEOUT 3000;
+            SELECT ChangeRequestId FROM dbo.ChangeRequests WITH (UPDLOCK,HOLDLOCK)
+            WHERE ChangeRequestId=@id
+            """,second))
+        {
+            released.Parameters.AddWithValue("@id",id);
+            Assert.Equal(id,Convert.ToInt64(await released.ExecuteScalarAsync()));
+        }
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",id))));
+    }
+
 }
