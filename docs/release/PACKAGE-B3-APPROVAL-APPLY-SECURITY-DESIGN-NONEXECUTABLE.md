@@ -128,6 +128,67 @@ Owner/IT-reviewed **forward-only schema revision** must define and test:
 `ApproveAsync = DENY ALL`, `B3 Enabled = false`. No SQL is authorized
 for execution by this section.
 
+
+## Forward-only approval schema contract — proposed IA, NOT DDL
+
+**Compatibility:** The existing candidate `1.8.0-011` remains
+rejection-only. A future separately numbered revision must not reuse
+`1.8.0-011` or change the historical meaning of that version. The
+revision identifier and upgrade path require Owner/IT approval.
+
+| Object | Required proposed contract | Failure gate |
+| --- | --- | --- |
+| ChangeRequests.Status | Pending, Rejected, Applied only; Pending is the sole nonterminal state | No Approved half-state, no reverse transition |
+| ChangeRequests.ReviewedByUserId / ReviewedAt / ReviewReason | All NULL for Pending; all required for terminal states; reviewer differs from requester; bounded nonblank reason | SQL CHECK must explicitly handle NULL/UNKNOWN |
+| ChangeRequests.AppliedAt | NULL for Pending/Rejected, NOT NULL for Applied | No partially applied status |
+| ChangeRequestEvents.EventType | Submitted, Rejected, Applied; immutable append-only | No unrecognized event |
+| ChangeRequestEvents.DecisionKey | NULL for Submitted, required for Rejected/Applied; one key per terminal decision | Filtered UNIQUE index enforces replay prevention |
+| ChangeRequestEvents.CorrelationId | Required for every event; stable correlation for one atomic apply | Audit evidence cannot be disconnected |
+| Locations.RowVersion | Engine-generated, compare expected version under same serializable transaction | Stale version => zero writes |
+| Organization/team provenance | Live HR/Admin authorization, submitter membership, source org/team/creator checked under transaction | Revocation or cross-tenant drift => rollback |
+
+**Proposed terminal write order (same transaction):**
+Acquire request lock, then location lock; reauthorize; validate exact
+request and location versions, JSON snapshots, geocode and duplicate
+safety; update the seven allowlisted Location fields using the locked
+source RowVersion; mark request Applied with reviewer/reason/timestamps;
+insert exactly one Applied decision event with DecisionKey, source and
+result snapshots; commit only after every write succeeds. If any write
+fails, rollback all. There must be no intermediate committed Approved
+state, and a retry must re-read the terminal state without applying
+again.
+
+**Transition matrix (candidate, not executable):**
+
+| Current state | Action | Proposed state | Required outcome |
+| --- | --- | --- | --- |
+| Pending | Reject | Rejected | Existing independently reviewed rejection path |
+| Pending | Apply | Applied | Future authorized atomic executor only |
+| Pending | Submit duplicate | Pending unchanged | Unique pending index rejects duplicate |
+| Rejected | Reject / Apply | Rejected unchanged | Deny, no new decision event |
+| Applied | Reject / Apply | Applied unchanged | Deny/replay-safe response, no second update |
+| Any | Unknown operation or foreign org | Unchanged | Deny without disclosure |
+
+**Required SQL Server proof:** trusted CHECK constraints must be
+evaluated against both NULL and malformed values; unique DecisionKey
+must reject concurrent replay; failure to insert audit/event must
+rollback location and request; stale RowVersion and revoked reviewer
+must prevent writes; two concurrent reviewers cannot both commit.
+The disposable SQL fixture is *not* equivalent to a formally approved
+migration chain or B4 22/22 UAT.
+
+**Open decisions for Owner/IT before any executable DDL:**
+1. Choose the forward migration version and preflight predecessor chain.
+2. Approve whether a single Applied decision event with before/after
+   JSON is sufficient for immutable audit, or whether a second event
+   without DecisionKey is required.
+3. Define the authoritative duplicate/merge and geocoding safety gate,
+   including which persisted evidence is considered valid.
+4. Approve the effective manager-grant provenance attestation and
+   test identities. VAL-B1-002 remains HOLD until independently proven.
+5. Approve executable SQL and migration deployment separately; no
+   inferred permission from this specification.
+
 ## Isolated verification still required
 
 - Real disposable SQL Server 2022: one successful independent approval
