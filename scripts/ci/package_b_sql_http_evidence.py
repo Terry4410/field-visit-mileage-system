@@ -18,6 +18,12 @@ REQUIRED=frozenset({
     "SQL_HTTP_team_revoked_after_JWT_issue_denies_old_token_403",
     "SQL_HTTP_HR_leave_after_JWT_issue_denies_old_token_403",
     "SQL_HTTP_disconnected_SQL_500_generic_no_access_or_business_write",
+    "SQL_HTTP_DRAFT_create_writes_real_SQL_trip_history_and_audit",
+    "SQL_HTTP_DRAFT_disabled_site_rejects_update_no_extra_SQL_writes",
+    "SQL_HTTP_DRAFT_disabled_site_rejects_submit_and_preserves_history",
+    "SQL_HTTP_DRAFT_stale_RowVersion_does_not_create_new_audit",
+    "SQL_HTTP_DRAFT_competing_same_RowVersion_updates_only_one_winner",
+    "SQL_HTTP_DRAFT_forged_official_site_rejected_without_trip_or_audit",
 })
 RELEASE_HOLD={
     "runtime_scope":"ACTUAL_ASPNETCORE_APPJWT_AND_LOCAL_SQL2022",
@@ -102,7 +108,7 @@ def main()->int:
         "### Actual App JWT + real disposable SQL Server 2022 HTTP integration",
         "Status: "+result["status"],"Source SHA: "+str(result.get("source_sha")),
         "Cases: "+str(result.get("passed",0))+"/"+str(len(REQUIRED)),
-        "Includes old JWT role/team/HR revocation, dated site, simulated SQL connection failure.",
+        "Includes old JWT role/team/HR revocation, dated-site HTTP, outage, draft lifecycle, and competing RowVersion.",
         "Only GitHub localhost disposable DB. This is NOT UAT/Production SQL or formal B4 acceptance.",
         "B4 accepted 0/22, B3 OFF, 011 NOT AUTHORIZED, Approve/Apply DENY ALL.",
         "Manager Grant BLOCKED, Business UAT HOLD, Production HARD HOLD."
