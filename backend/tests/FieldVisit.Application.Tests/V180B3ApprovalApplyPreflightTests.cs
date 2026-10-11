@@ -533,7 +533,7 @@ public sealed class V180B3ApprovalApplyPreflightTests
     {
         var plan = new V180B3ApprovalApplyPlan(
             Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Review",
-            "{}", "{}", new byte[8], new byte[8]);
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed), new byte[8], new byte[8]);
         V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
             plan, plan.RequestPublicId, 9, new byte[8], new byte[8]);
     }
@@ -543,7 +543,7 @@ public sealed class V180B3ApprovalApplyPreflightTests
     {
         var plan = new V180B3ApprovalApplyPlan(
             Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Review",
-            "{}", "{}", new byte[8], new byte[8]);
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed), new byte[8], new byte[8]);
         var stale = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 };
         void Deny(Guid id, int locationId, byte[]? request, byte[]? source) =>
             Assert.Equal("B3_APPROVAL_PLAN_STALE",
@@ -565,7 +565,7 @@ public sealed class V180B3ApprovalApplyPreflightTests
     {
         var plan = new V180B3ApprovalApplyPlan(
             Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Review",
-            "{}", "{}", new byte[8], new byte[8]);
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed), new byte[8], new byte[8]);
         plan.ExpectedRequestRowVersion[0] = 1;
         Assert.Equal("B3_APPROVAL_PLAN_STALE",
             Assert.Throws<InvalidOperationException>(() =>
@@ -584,7 +584,7 @@ public sealed class V180B3ApprovalApplyPreflightTests
     {
         var valid = new V180B3ApprovalApplyPlan(
             Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Independent review",
-            "{}", "{}", new byte[8], new byte[8]);
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed), new byte[8], new byte[8]);
         void Deny(V180B3ApprovalApplyPlan candidate) =>
             Assert.Equal("B3_APPROVAL_PLAN_INVALID",
                 Assert.Throws<InvalidOperationException>(() =>
@@ -597,6 +597,28 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Deny(valid with { ReviewReason = "" });
         Deny(valid with { ReviewReason = "  " });
         Deny(valid with { ReviewReason = new string('X', 1001) });
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("not-json")]
+    [InlineData("{\"LocationName\":\"A\",\"City\":null}")]
+    public void Approval_plan_boundary_rejects_invalid_audit_snapshot_shape(string invalid)
+    {
+        var plan = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        foreach (var candidate in new[]
+        {
+            plan with { BeforeJson = invalid },
+            plan with { ProposedJson = invalid }
+        })
+            Assert.Equal("B3_APPROVAL_PLAN_INVALID",
+                Assert.Throws<InvalidOperationException>(() =>
+                    V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
+                        candidate, candidate.RequestPublicId, 9,
+                        new byte[8], new byte[8])).Message);
     }
 
 }
