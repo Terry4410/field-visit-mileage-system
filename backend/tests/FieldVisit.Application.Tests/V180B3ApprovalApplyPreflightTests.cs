@@ -237,4 +237,29 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 row, 1, row.RequestPublicId, 20, review));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Nonpositive_team_ids_cannot_pass_approval_target_gate(int teamId)
+    {
+        var row = Pending();
+        row.TeamId = teamId;
+        Assert.Throws<UnauthorizedAccessException>(() => Validate(row));
+    }
+
+    [Fact]
+    public void Empty_public_id_and_nonpositive_tenant_cannot_pass_review()
+    {
+        var row = Pending();
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ReviewTargetRules.RequireSupportedTarget(
+                row, 1, Guid.Empty));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ReviewTargetRules.RequireSupportedTarget(
+                row, 0, row.RequestPublicId));
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ReviewTargetRules.RequireSupportedTarget(
+                row, -1, row.RequestPublicId));
+    }
+
 }
