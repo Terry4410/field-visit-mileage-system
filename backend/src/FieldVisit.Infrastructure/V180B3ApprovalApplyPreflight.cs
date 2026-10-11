@@ -163,6 +163,11 @@ public static class V180B3ApprovalApplyPreflight
         int locationId, byte[]? requestRowVersion,
         byte[]? locationRowVersion)
     {
+        if (plan.DecisionKey == Guid.Empty
+            || plan.ReviewerUserId <= 0
+            || string.IsNullOrWhiteSpace(plan.ReviewReason)
+            || plan.ReviewReason.Length > 1000)
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_INVALID");
         if (requestPublicId == Guid.Empty
             || plan.RequestPublicId != requestPublicId
             || locationId <= 0 || plan.LocationId != locationId
