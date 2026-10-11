@@ -722,3 +722,30 @@ success from commit, queued run or old green artifacts. Review actual
 SQL HTTP TRX, transaction rollback and source SHA. Remaining risks
 include deadlocks, timeouts, transient retry behavior and migration
 schema parity. All HOLD gates remain unchanged.
+
+### 2026-10-11 post-run verified closure — isolated CreateDraft atomicity only
+
+GitHub Actions run `38123279041`, exact source
+`9bbbf9ddbc6d190750eadd22819add172318da7b`,
+**COMPLETED / SUCCESS**. Both `isolated-tests` and
+`sql-server-disposable-fixture` jobs completed SUCCESS.
+Verified from actual job logs:
+- Backend **804/804 PASS**, frontend **92/92 PASS**.
+- Disposable SQL B3 **51/51 PASS**.
+- Dated-site SQL **6/6 PASS**.
+- Real App JWT/HTTP + disposable SQL **20/20 PASS**, including
+  `SQL_HTTP_DRAFT_injected_mileage_SQL_error_must_not_leave_partial_trip`.
+- SQL total **77/77 PASS**.
+- SQL artifact ID `11696242159`; CI/security artifact ID
+  `11696022783`.
+
+Pre-fix injected-failure run `38123047800` ended FAILURE;
+post-fix runs `38123261466` and `38123279041` ended SUCCESS.
+**Disposition: P2 CreateDraft atomic transaction isolated regression PASS;
+NOT a formal migration parity proof or B4 business acceptance.**
+No deployment, migration, production SQL access or protected-branch write.
+The separate EF EnsureCreated vs 1800_003/007/009/010 schema-parity
+risk and deadlock/timeout/retry idempotency remain OPEN.
+B3 OFF, LiveSessionGuard default OFF, Approve/Apply DENY ALL,
+Manager Grant BLOCKED, B4 0/22, Business UAT HOLD,
+Production HARD HOLD, 1800_011 NONEXECUTABLE.
