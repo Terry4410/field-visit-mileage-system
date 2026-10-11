@@ -281,7 +281,9 @@ public sealed class B4DatedSiteSqlServerTests
                 new DeploymentSiteLocationAssignment
                 {
                     DeploymentSiteId=f.SiteId,LocationId=f.LocationId,
-                    EffectiveFrom=Start,CreatedAt=DateTime.UtcNow
+                    // Different start date avoids the SQL unique-start index;
+                    // both rows are still effective on VisitDate.
+                    EffectiveFrom=Start.AddDays(1),CreatedAt=DateTime.UtcNow
                 });
             await db.SaveChangesAsync();
         }
