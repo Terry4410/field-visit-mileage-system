@@ -756,4 +756,208 @@ public sealed class V180HrLoginHttpPipelineTests
         return client;
     }
 
+
+    [Fact]
+    public async Task TEAM_default_OFF_revoked_legacy_team_still_accepted_by_old_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory();
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SeedLegacyTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.RevokeTeamAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_valid_legacy_membership_primary_JWT_allowed()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SeedLegacyTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_legacy_membership_revoked_JWT_403()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SeedLegacyTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.RevokeTeamAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+        Assert.Contains("SESSION_TEAM_REVOKED",
+            await response.Content.ReadAsStringAsync(),StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_primary_switch_invalidates_old_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SeedLegacyTeamAsync(twoTeams:true);
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.ChangePrimaryTeamAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_disabled_team_invalidates_old_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SeedLegacyTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.DisableTeamAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_cross_org_team_invalidates_old_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SeedLegacyTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.TransferTeamToOtherOrganizationAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_team_rename_keeps_same_authority_valid()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SeedLegacyTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.RenameTeamAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_modern_effective_team_assignment_allowed()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupModernInternalIdentityAsync();
+        await f.SeedModernTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TEAM_optin_ON_modern_team_assignment_expiry_revokes_old_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupModernInternalIdentityAsync();
+        await f.SeedModernTeamAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.RevokeTeamAsync(modern:true);
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SCOPE_optin_ON_supervisor_valid_org_scope_allows_existing_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SCOPE_optin_ON_supervisor_scope_removed_denies_existing_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.RevokeExternalDataScopeAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+        Assert.Contains("SESSION_DATA_SCOPE_REVOKED",
+            await response.Content.ReadAsStringAsync(),StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SCOPE_optin_ON_supervisor_scope_expired_denies_existing_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.ExpireExternalDataScopeAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SCOPE_optin_ON_supervisor_wrong_org_scope_denies_existing_JWT()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.ChangeExternalDataScopeToWrongOrgAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+        Assert.Contains("SESSION_DATA_SCOPE_INVALID",
+            await response.Content.ReadAsStringAsync(),StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SCOPE_optin_ON_supervisor_changed_to_valid_team_live_scope_not_old_org()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.ChangeExternalDataScopeToTeamAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+        using var doc=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var json=doc.RootElement.GetProperty("dataScopes").GetRawText();
+        Assert.Contains("Team",json,StringComparison.Ordinal);
+        Assert.DoesNotContain("Organization",json,StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SCOPE_optin_ON_supervisor_team_scope_foreign_org_denied()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.ChangeExternalDataScopeToTeamAsync(foreignTeam:true);
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SCOPE_optin_ON_supervisor_team_scope_disabled_denied()
+    {
+        using var f=new B4IsolatedHrLoginFactory(true);
+        await f.SeedAsync(EmploymentStatuses.Active);
+        await f.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(f);
+        await f.ChangeExternalDataScopeToTeamAsync();
+        await f.DisableTeamAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+
 }
