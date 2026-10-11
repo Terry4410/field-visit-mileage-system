@@ -41,6 +41,17 @@ class CoverageTests(unittest.TestCase):
         self.assertIn("read only",row["remaining_proof"])
         self.assertEqual("PENDING",row["formal_acceptance"])
 
+    def test_concurrent_submission_includes_independent_request_lock_scope(self):
+        report=map_sql_evidence(proof())
+        row=report["cases"][4]
+        self.assertEqual("B4-SQL-05",row["id"])
+        names={item["name"] for item in row["sql_test_links"]}
+        self.assertIn("Serializable_request_lock_does_not_block_unrelated_pending_request",names)
+        self.assertIn("Two_concurrent_pending_inserts_yield_one_winner_and_unique_conflict",names)
+        self.assertEqual("PARTIAL_ISOLATED_ONLY",row["sql_fixture_status"])
+        self.assertEqual("PENDING",row["live_api_hr_business_proof"])
+        self.assertEqual("PENDING",row["formal_acceptance"])
+
     def test_manager_hr_and_shared_history_have_no_direct_sql_fixture(self):
         report=map_sql_evidence(proof())
         for i in (10,11,12,14,15,17,20):
