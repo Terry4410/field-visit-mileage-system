@@ -16,6 +16,7 @@ REQUIRED_SQL_TESTS=frozenset({
     "Candidate_011_catalog_probe_executes_and_accepts_intact_schema",
     "Ef_composable_request_update_lock_executes_on_real_sql_server",
     "Serializable_update_lock_blocks_competing_request_reader_until_release",
+    "Serializable_request_lock_does_not_block_unrelated_pending_request",
     "Two_concurrent_pending_inserts_yield_one_winner_and_unique_conflict",
     "Same_decision_key_across_concurrent_reviews_never_creates_two_events",
     "Stale_rowversion_cannot_update_request",
