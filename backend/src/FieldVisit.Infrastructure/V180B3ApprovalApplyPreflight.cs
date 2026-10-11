@@ -7,6 +7,12 @@ namespace FieldVisit.Infrastructure;
 /// This class does not authorize a reviewer, write SQL, geocode, or publish.
 /// ApproveAsync remains DENY ALL until independently authorized.
 /// </summary>
+public sealed record V180B3ApprovalApplyPlan(
+    Guid RequestPublicId, int LocationId, int ReviewerUserId,
+    Guid DecisionKey, string ReviewReason, string BeforeJson,
+    string ProposedJson, byte[] ExpectedLocationRowVersion,
+    byte[] ExpectedRequestRowVersion);
+
 public static class V180B3ApprovalApplyPreflight
 {
     public static V180B3LocationFields RequireValidatedProposal(
@@ -93,6 +99,37 @@ public static class V180B3ApprovalApplyPreflight
             || !isActive)
             throw new UnauthorizedAccessException(
                 "B3_APPROVAL_SOURCE_SCOPE_DENIED");
+    }
+
+    /// <summary>
+    /// Generates immutable, bounded approval evidence for a future executor.
+    /// This is a pure value plan: no SQL write, status change or authorization.
+    /// A transactional caller must persist both decision and apply events
+    /// atomically with the actual location update.
+    /// </summary>
+    public static V180B3ApprovalApplyPlan PrepareImmutablePlan(
+        V180B3ChangeRequest request, int organizationId, Guid publicId,
+        int reviewerUserId, V180B3Review review,
+        int locationId, int? locationOrganizationId,
+        int? locationTeamId, int? createdByUserId,
+        string? locationType, string? approvalStatus, bool isActive,
+        byte[] currentLocationRowVersion, V180B3LocationFields current)
+    {
+        var reason = RequireIndependentApprovalDecision(
+            request, organizationId, publicId, reviewerUserId, review);
+        RequirePublishedSourceEligibility(request, locationId,
+            locationOrganizationId, locationTeamId, createdByUserId,
+            locationType, approvalStatus, isActive);
+        var proposed = RequireValidatedProposal(
+            request, organizationId, publicId, currentLocationRowVersion,
+            current);
+        return new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, locationId, reviewerUserId,
+            review.DecisionKey, reason,
+            JsonSerializer.Serialize(current),
+            JsonSerializer.Serialize(proposed),
+            currentLocationRowVersion.ToArray(),
+            request.RowVersion.ToArray());
     }
 
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
