@@ -83,6 +83,16 @@ class PackageBSchemaParityStaticTests(unittest.TestCase):
         self.assertEqual("FAIL_CLOSED", r["status"])
         self.assertTrue(any("1800_010" in x for x in r["failures"]))
 
+    def test_010_extra_unapproved_reason_fails_closed(self):
+        corrupted = DDL_010.read_text(encoding="utf-8").replace(
+            "OR CalculationReason = N'BackgroundMileageJob'",
+            "OR CalculationReason = N'BackgroundMileageJob'\n"
+            "            OR CalculationReason = N'UnapprovedJob'", 1)
+        r = analyze(self.sql, self.ef, "a" * 40,
+                    DDL_009.read_text(encoding="utf-8"), corrupted)
+        self.assertEqual("FAIL_CLOSED", r["status"])
+        self.assertTrue(any("1800_010" in x for x in r["failures"]))
+
     def test_no_runtime_db_or_azure_migration_is_invoked_by_inventory(self):
         source = Path(__file__).with_name("package_b_schema_parity.py").read_text(encoding="utf-8")
         self.assertNotIn("SqlConnection(", source)
