@@ -76,5 +76,14 @@ public sealed class V180B3RequestPreflightOrderTests
         Assert.DoesNotContain("BeginTransactionAsync(",method);
         Assert.DoesNotContain("db.SaveChangesAsync(",method);
         Assert.DoesNotContain("db.Locations.Update(",method);
+        // A future change must not silently route approval through a
+        // preview/preflight helper or a raw SQL write while the executor
+        // remains unauthorized and the approved schema is rejection-only.
+        Assert.DoesNotContain("PreviewApprovalFromLiveDataAsync(",method);
+        Assert.DoesNotContain("PrepareImmutablePlan(",method);
+        Assert.DoesNotContain("ExecuteSqlRaw",method);
+        Assert.DoesNotContain("ExecuteUpdateAsync(",method);
+        Assert.DoesNotContain("ChangeRequestEvents.Add(",method);
+        Assert.DoesNotContain("CommitAsync(",method);
     }
 }
