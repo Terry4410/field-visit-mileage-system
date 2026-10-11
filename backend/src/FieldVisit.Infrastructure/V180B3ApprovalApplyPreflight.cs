@@ -219,9 +219,19 @@ public static class V180B3ApprovalApplyPreflight
         V180B3ChangeRequest lockedRequest)
     {
         if (lockedRequest.RequestPublicId != plan.RequestPublicId
+            || lockedRequest.OrganizationId <= 0
+            || lockedRequest.TeamId is null or <= 0
+            || lockedRequest.EntityKind != "Location"
+            || lockedRequest.OperationCode != "UpdatePublishedLocation"
+            || lockedRequest.RiskCode != "High"
+            || lockedRequest.RequestedByUserId <= 0
+            || lockedRequest.RequestedByUserId == plan.ReviewerUserId
             || !int.TryParse(lockedRequest.EntityId, out var requestLocationId)
             || requestLocationId != plan.LocationId
-            || lockedRequest.Status != "Pending")
+            || lockedRequest.Status != "Pending"
+            || lockedRequest.ReviewedByUserId is not null
+            || lockedRequest.ReviewedAt is not null
+            || lockedRequest.AppliedAt is not null)
             throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
         RequirePlanVersionsStillCurrent(
             plan, lockedRequest.RequestPublicId, requestLocationId,
