@@ -241,6 +241,58 @@ public sealed class V180B3ChangeRequestService(
         await tx.CommitAsync(ct);
         return ToView(row);
     }
+    // WORK-only read-only integration candidate. NOT exposed as an endpoint
+    // and deliberately NOT called by ApproveAsync (which remains DENY ALL).
+    // Serializable EF reads do not replace a reviewed UPDLOCK lock contract
+    // for the future write executor. No event/status/location is changed.
+    internal async Task<V180B3ApprovalApplyPlan> PreviewApprovalFromLiveDataAsync(
+        Guid id, V180B3Review input, CancellationToken ct)
+    {
+        await ReadyAsync(ct);
+        V180B3RequestInputRules.RequireReviewTarget(id, input);
+        await using var tx = await db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, ct);
+        var (reviewer, admin, _) = await LiveActorAsync(ct);
+        if (!admin || !reviewer.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
+        var request = await db.ChangeRequests.AsNoTracking().SingleOrDefaultAsync(
+            x => x.RequestPublicId == id
+                && x.OrganizationId == reviewer.OrganizationId, ct)
+            ?? throw new KeyNotFoundException("B3_REQUEST_NOT_FOUND");
+        V180B3ReviewTargetRules.RequireSupportedTarget(
+            request, reviewer.OrganizationId.Value, id);
+        if (!int.TryParse(request.EntityId, out var locationId))
+            throw new UnauthorizedAccessException("B3_REVIEW_TARGET_UNSUPPORTED");
+        var location = await db.Locations.AsNoTracking().SingleOrDefaultAsync(
+            x => x.LocationId == locationId
+                && x.OrganizationId == reviewer.OrganizationId, ct)
+            ?? throw new KeyNotFoundException("B3_LOCATION_NOT_FOUND");
+        var member = request.TeamId.HasValue
+            && await VisitorTeamAsync(request.RequestedByUserId,
+                request.OrganizationId, request.TeamId.Value, ct);
+        var replay = await db.ChangeRequestEvents.AsNoTracking().AnyAsync(
+            x => x.DecisionKey == input.DecisionKey, ct);
+        var current = new V180B3LocationFields(
+            location.LocationName, location.City, location.District,
+            location.Address, location.PlusCode, location.TaxId,
+            location.MasterNote);
+        var plan = V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+            request, reviewer.OrganizationId.Value, id, reviewer.UserId,
+            input, location.LocationId, location.OrganizationId,
+            location.TeamId, location.CreatedByUserId, location.LocationType,
+            location.ApprovalStatus, location.IsActive, location.RowVersion,
+            current);
+        V180B3ApprovalApplyPreflight.RequireLockedApprovalBoundary(
+            plan, request, current, location.RowVersion,
+            location.LocationId, location.OrganizationId, location.TeamId,
+            location.CreatedByUserId, location.LocationType,
+            location.ApprovalStatus, location.IsActive, reviewer.UserId,
+            reviewer.OrganizationId, admin, member, input.DecisionKey,
+            plan.ReviewReason, replay);
+        await tx.RollbackAsync(ct);
+        return plan;
+    }
+
     public async Task<V180B3RequestView> ApproveAsync(
         Guid id,V180B3Review input,CancellationToken ct)
     {
