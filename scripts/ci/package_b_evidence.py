@@ -227,6 +227,32 @@ def validate_session_guard_http_trx(path: Path) -> dict:
             "business_uat":"HOLD","production":"HARD_HOLD"}
 
 
+ROLE_HTTP_PREFIX="FieldVisit.Application.Tests.V180HrLoginHttpPipelineTests."
+ROLE_HTTP_REQUIRED=frozenset(["ROLE_default_OFF_removed_legacy_role_old_JWT_still_reaches_me","ROLE_optin_ON_legacy_role_revoke_denies_old_JWT","ROLE_optin_ON_role_catalog_disabled_denies_old_JWT","ROLE_optin_ON_modern_valid_effective_and_projected_role_allows","ROLE_optin_ON_modern_expired_assignment_denies_old_JWT","ROLE_optin_ON_modern_projection_revoked_denies_old_JWT","ROLE_optin_ON_external_conversion_denies_visitor_JWT","ROLE_optin_ON_external_supervisor_with_current_grant_allows","ROLE_optin_ON_external_supervisor_expired_grant_denies_old_JWT"])
+
+def validate_role_http_trx(path: Path) -> dict:
+    root=ET.parse(path).getroot()
+    cases=[x for x in root.findall(".//{*}UnitTestResult")
+           if x.get("testName","").startswith(ROLE_HTTP_PREFIX+"ROLE_")]
+    expected={ROLE_HTTP_PREFIX+x for x in ROLE_HTTP_REQUIRED}
+    names=[x.get("testName") for x in cases]
+    if len(cases)!=len(expected) or set(names)!=expected or len(set(names))!=len(names):
+        raise ValueError("role HTTP mandatory cases missing/duplicated/replaced")
+    ids=set()
+    for case in cases:
+        if case.get("outcome")!="Passed":
+            raise ValueError("role HTTP mandatory case failed")
+        for key in ("testId","executionId"):
+            value=case.get(key)
+            if not value or value in ids:
+                raise ValueError("role HTTP result ID missing/duplicated")
+            ids.add(value)
+    return {"status":"PASS", "scope":"ISOLATED_HTTP_INMEMORY_EFFECTIVE_ROLE",
+            "passed":len(cases),"required":len(expected),
+            "live_guard_deployed":"OFF_REQUIRED","formal_b4":"PENDING",
+            "manager_grant":"BLOCKED","business_uat":"HOLD","production":"HARD_HOLD"}
+
+
 def parse_trx(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
     counters = root.find(".//{*}Counters")
@@ -279,11 +305,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             step_outcomes: dict | None = None,
             require_http_off: bool = False,
             require_hr_http: bool = False,
-            require_session_http: bool = False) -> dict:
+            require_session_http: bool = False,
+            require_role_http: bool = False) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
                 "backend": None, "frontend": None, "b4_matrix": None,
-                "http_off": None, "hr_http": None, "session_http": None,
+                "http_off": None, "hr_http": None, "session_http": None, "role_http": None,
                 "build_and_ci_steps": None,
                 "release_authorization": dict(RELEASE_HOLD_CONTRACT),
                 "release_go": False,
@@ -319,6 +346,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             evidence["session_http"]["source_sha"]=evidence["guard"]["sha"]
         except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
             evidence["errors"].append("Live HR session HTTP: "+str(exc))
+    if require_role_http:
+        try:
+            evidence["role_http"]=validate_role_http_trx(trx)
+            evidence["role_http"]["source_sha"]=evidence["guard"]["sha"]
+        except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
+            evidence["errors"].append("Role HTTP: "+str(exc))
     try:
         data = parse_junit(junit)
         if data["total"] <= 0 or data["failed"] or data["skipped"] or \
@@ -366,7 +399,7 @@ def main() -> int:
     result = collect(Path(args.guard), Path(args.trx), Path(args.junit),
                      Path(args.matrix), step_outcomes=steps,
                      require_http_off=True, require_hr_http=True,
-                     require_session_http=True)
+                     require_session_http=True, require_role_http=True)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -405,6 +438,11 @@ def main() -> int:
         lines.append("| HR old JWT guard (isolated; default OFF) | "+
                      str(h["passed"])+"/"+str(h["required"])+
                      " PASS; UAT current-session revocation NOT TESTED |")
+    if result["role_http"]:
+        h=result["role_http"]
+        lines.append("| Role JWT recertification (isolated, default OFF) | "+
+                     str(h["passed"])+"/"+str(h["required"])+
+                     " PASS; Manager Grant/B4/UAT HOLD |")
     if result["b4_matrix"]:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")
