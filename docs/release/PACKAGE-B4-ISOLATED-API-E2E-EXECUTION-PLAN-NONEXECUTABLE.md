@@ -532,3 +532,75 @@ Before any execution beyond Phase 0, independently approve the exact isolated en
 - Business UAT = HOLD; Production = HARD HOLD.
 
 **NONEXECUTABLE DOCUMENT — NO RELEASE AUTHORIZATION.**
+
+
+## 2026-10-11 P1/P2/P3 continuation — static parity inventory, no Migration execution
+
+**Evidence starting point:** WORK `a3ffe287b873ce84023b22d693523cf5b9beebb4`,
+protected `68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2`,
+[last fully verified run 38109478440](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38109478440):
+804 backend / 92 frontend / 156 Python / 51 B3 SQL + 6 site SQL + 16 real JWT/HTTP SQL.
+This is the *pre-continuation* checkpoint; never cite it as evidence that this new parity script ran.
+
+### P1 — scoped 1800_003 comparison matrix
+
+`scripts/ci/package_b_schema_parity.py` inventories
+`database/migrations/1800_003_deployment_sites/Up.sql` against
+`backend/src/FieldVisit.Infrastructure/AppDbContext.cs` without connecting to SQL,
+executing Migration DDL or modifying any database. CI emits a named JSON/Markdown
+artifact tied to the running GitHub SHA. The script fails closed if the expected
+DDL/EF mapping or known SQL trigger vanishes. Passing means the **inventory is
+valid with known differences**, not that the schemas are interchangeable.
+
+| Area | Static assessment | Why / remaining validation |
+| --- | --- | --- |
+| Four deployment-site tables (names) | MATCH | Table naming only; type/nullability/FK catalog proof remains required |
+| Four RowVersion declarations | MATCH | EF concurrency token vs migration ROWVERSION; verify actual catalog and stale HTTP behavior separately |
+| Four named unique keys | MATCH | Name presence only; verify key order/index implementations and constraints against SQL catalog |
+| Four effective-date CHECK constraints | DIFFERENCE | Present in Up.sql; absent from EF EnsureCreated CHECK definitions |
+| Seven migration-only triggers | DIFFERENCE | Center Period, Site-Location overlap, Team-Site coverage/overlap, Employment-Site overlap/Primary, and parent-update protections do not run under EnsureCreated |
+| FK rules and included indexes | NEEDS VALIDATION | EF model and DDL need full column/type/FK/delete/index include comparison |
+| 1600/1700/1800_001..010 chain | BLOCKED | No authorized disposable *migration-baseline* rehearsal yet; do not substitute EnsureCreated |
+| Trip / stop / snapshot / audit / status history | NEEDS VALIDATION | Current SQL HTTP data-after-state checks do not establish full migration/backfill/history parity |
+
+### P2 — transaction and race assessment (not yet full closure)
+
+`TripService.SubmitAsync` calls the history, audit and Submitted Snapshot
+repositories, then issues a single `uow.SaveChangesAsync`. The existing SQL
+HTTP tests prove the happy-path and selected pre-save negative paths in the
+EF-created fixture. They do **not** prove a rollback after an actual SQL
+failure inside the final write, multiple-stop ordering, repeated/concurrent
+Submit interleavings or the migration-defined snapshot/index invariants.
+The prior stale RowVersion result is a helpful single-writer check, not
+two competing Submit transaction evidence.
+
+Separate attention: `TripService.CreateAsync` performs its initial
+`uow.SaveChangesAsync` to obtain the trip identity **before** inserting
+MileageCalculation, History and Audit in a second SaveChanges. Absent an
+external encompassing transaction, a failure between writes may leave a
+Draft without complete audit/history/mileage. This is a **risk requiring
+isolation testing and an explicit transaction-impact review**, not a
+claim that production has already lost data. Do not silently wrap it in
+a new transaction without compatibility and retry review.
+
+### P3 — SQL failure and API compatibility assessment
+
+The verified SQL HTTP outage test changes only a private TestServer's
+connection to unused `127.0.0.1:14336` with a short timeout. It
+produces a sanitized **HTTP 500** and denies access. It does not cover
+actual command timeout, SQL deadlock victim/retry, transaction-write
+rollback, idempotent replays, application logs/telemetry or Azure
+network/database failures. Evaluate 503 semantics, frontend retry/display
+and correlation IDs with IT before changing any response contract.
+Never retry non-idempotent write requests without a stable business
+idempotency key and audited after-state.
+
+### Remaining ownership and release controls
+
+- P1 catalog-level parity and full 1600..1800_010 chain: NEEDS VALIDATION / BLOCKED, respectively.
+- P2 concurrent Submit, multi-stop ordering, write-failure rollback and stable SnapshotVersion: NEEDS VALIDATION.
+- P3 command timeout, deadlock, retry safety and log-correlation: NEEDS VALIDATION.
+- All new checks are WORK-only and non-deploy; their exact CI proof must be obtained separately.
+- B3 OFF, LiveSessionGuard default OFF, Approve/Apply DENY ALL,
+  VAL-B1-002 BLOCKED, 1800_011 NOT AUTHORIZED / NONEXECUTABLE DRAFT,
+  B4 acceptance 0/22, Business UAT HOLD, Production HARD HOLD.
