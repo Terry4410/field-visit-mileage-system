@@ -28,7 +28,7 @@ namespace FieldVisit.B4.SqlHttp.Tests;
 /// Every fact creates and drops its own randomly named local database.
 /// The B3 OFF/Manager blocked/011 not authorized/HARD HOLD gates remain.
 /// </summary>
-public sealed class B4RealSqlHttpPipelineTests
+public sealed partial class B4RealSqlHttpPipelineTests
 {
     private static readonly DateOnly Start=new(2026,1,1);
     private static readonly DateOnly VisitDay=new(2026,10,12);
