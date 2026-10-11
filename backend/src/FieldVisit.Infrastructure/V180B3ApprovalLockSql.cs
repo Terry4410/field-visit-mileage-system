@@ -4,7 +4,8 @@ namespace FieldVisit.Infrastructure;
 
 /// <summary>
 /// Parameterized, deterministic lock-order SQL for WORK-only B3 preview.
-/// Never interpolate untrusted values into SQL text. This is NOT an apply
+/// Never interpolate untrusted values into SQL text. The lock acquisition
+/// order must be request then location for every decision path. This is NOT an apply
 /// executor, and SQL Server catalog/migration approval remains separate.
 /// </summary>
 internal static class V180B3ApprovalLockSql
