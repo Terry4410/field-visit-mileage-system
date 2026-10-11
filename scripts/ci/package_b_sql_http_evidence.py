@@ -19,6 +19,7 @@ REQUIRED=frozenset({
     "SQL_HTTP_HR_leave_after_JWT_issue_denies_old_token_403",
     "SQL_HTTP_disconnected_SQL_500_generic_no_access_or_business_write",
     "SQL_HTTP_DRAFT_create_writes_real_SQL_trip_history_and_audit",
+    "SQL_HTTP_DRAFT_injected_mileage_SQL_error_must_not_leave_partial_trip",
     "SQL_HTTP_DRAFT_disabled_site_rejects_update_no_extra_SQL_writes",
     "SQL_HTTP_DRAFT_disabled_site_rejects_submit_and_preserves_history",
     "SQL_HTTP_DRAFT_stale_RowVersion_does_not_create_new_audit",
@@ -115,7 +116,7 @@ def main()->int:
         "### Actual App JWT + real disposable SQL Server 2022 HTTP integration",
         "Status: "+result["status"],"Source SHA: "+str(result.get("source_sha")),
         "Cases: "+str(result.get("passed",0))+"/"+str(len(REQUIRED)),
-        "Includes live JWT revocation, SQL outage, draft RowVersion and complete submitted Snapshot transaction.",
+        "Includes live JWT revocation, SQL outage, draft RowVersion, injected mileage rollback and complete submitted Snapshot transaction.",
         "Only GitHub localhost disposable DB. This is NOT UAT/Production SQL or formal B4 acceptance.",
         "B4 accepted 0/22, B3 OFF, 011 NOT AUTHORIZED, Approve/Apply DENY ALL.",
         "Manager Grant BLOCKED, Business UAT HOLD, Production HARD HOLD."
