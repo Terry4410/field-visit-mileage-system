@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using FieldVisit.Api;
 using FieldVisit.Api.Controllers;
+using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -398,4 +399,146 @@ public sealed class B4RealSqlHttpPipelineTests
         Assert.Equal(HttpStatusCode.OK,health.StatusCode);
         await AssertNoBusinessWriteAsync(db);
     }
+
+    private static SaveTripRequest Draft(DisposableTestDatabase f,
+        string notes="Initial draft")=>
+        new(VisitDay,new TimeOnly(9,0),new TimeOnly(10,0),
+            null,"Controlled SQL draft",notes,false,
+            Array.Empty<TripStopInput>(),f.TeamId,f.SiteId,f.SiteId);
+
+    private static async Task<(long Id,string Version)> CreateDraftAsync(
+        HttpClient client,DisposableTestDatabase f)
+    {
+        using var response=await client.PostAsJsonAsync("/api/v1/trips",Draft(f));
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+        using var doc=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("Draft",doc.RootElement.GetProperty("status").GetString());
+        return (doc.RootElement.GetProperty("visitTripId").GetInt64(),
+                doc.RootElement.GetProperty("rowVersion").GetString()!);
+    }
+
+    private static async Task<HttpResponseMessage> UpdateDraftAsync(
+        HttpClient client,long tripId,string version,SaveTripRequest request)
+    {
+        using var message=new HttpRequestMessage(HttpMethod.Put,
+            $"/api/v1/trips/{tripId}");
+        message.Headers.TryAddWithoutValidation("If-Match",version);
+        message.Content=JsonContent.Create(request);
+        return await client.SendAsync(message);
+    }
+
+    private static async Task<HttpResponseMessage> SubmitDraftAsync(
+        HttpClient client,long tripId,string version)
+    {
+        using var message=new HttpRequestMessage(HttpMethod.Post,
+            $"/api/v1/trips/{tripId}/submit");
+        message.Headers.TryAddWithoutValidation("If-Match",version);
+        message.Content=JsonContent.Create(new SubmitTripRequest(false));
+        return await client.SendAsync(message);
+    }
+
+    private static async Task<(string Status,string? Notes,int StartId,
+        int EndId,int AuditCount,int HistoryCount)> DraftStateAsync(
+        DisposableTestDatabase f,long tripId)
+    {
+        await using var db=f.Db();
+        var trip=await db.VisitTrips.AsNoTracking().SingleAsync(x=>x.VisitTripId==tripId);
+        return (trip.Status,trip.Notes,
+                trip.StartDeploymentSiteId??-1,trip.EndDeploymentSiteId??-1,
+                await db.AuditLogs.CountAsync(x=>x.EntityType=="Trip"&&x.EntityId==tripId.ToString()),
+                await db.VisitTripStatusHistories.CountAsync(x=>x.VisitTripId==tripId));
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_DRAFT_create_writes_real_SQL_trip_history_and_audit()
+    {
+        await using var db=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(db.Connection);
+        using var client=await LoginAsync(host,db);
+        var created=await CreateDraftAsync(client,db);
+        Assert.False(string.IsNullOrWhiteSpace(created.Version));
+        var state=await DraftStateAsync(db,created.Id);
+        Assert.Equal("Draft",state.Status);
+        Assert.Equal("Initial draft",state.Notes);
+        Assert.Equal(db.SiteId,state.StartId);
+        Assert.Equal(db.SiteId,state.EndId);
+        Assert.Equal(1,state.AuditCount);
+        Assert.Equal(1,state.HistoryCount);
+        await using var verify=db.Db();
+        Assert.Equal(db.UserId,
+            (await verify.VisitTrips.AsNoTracking().SingleAsync()).UserId);
+        Assert.Single(await verify.MileageCalculations.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_DRAFT_disabled_site_rejects_update_no_extra_SQL_writes()
+    {
+        await using var db=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(db.Connection);
+        using var client=await LoginAsync(host,db);
+        var created=await CreateDraftAsync(client,db);
+        var before=await DraftStateAsync(db,created.Id);
+        await using(var edit=db.Db())
+        {
+            var site=await edit.DeploymentSites.SingleAsync(x=>x.DeploymentSiteId==db.SiteId);
+            site.IsActive=false;
+            await edit.SaveChangesAsync();
+        }
+        using var response=await UpdateDraftAsync(client,created.Id,created.Version,
+            Draft(db,"MUST NOT PERSIST"));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity,response.StatusCode);
+        var after=await DraftStateAsync(db,created.Id);
+        Assert.Equal(before,after);
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_DRAFT_disabled_site_rejects_submit_and_preserves_history()
+    {
+        await using var db=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(db.Connection);
+        using var client=await LoginAsync(host,db);
+        var created=await CreateDraftAsync(client,db);
+        var before=await DraftStateAsync(db,created.Id);
+        await using(var edit=db.Db())
+        {
+            var site=await edit.DeploymentSites.SingleAsync(x=>x.DeploymentSiteId==db.SiteId);
+            site.IsActive=false;
+            await edit.SaveChangesAsync();
+        }
+        using var response=await SubmitDraftAsync(client,created.Id,created.Version);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity,response.StatusCode);
+        var after=await DraftStateAsync(db,created.Id);
+        Assert.Equal(before,after);
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_DRAFT_stale_RowVersion_does_not_create_new_audit()
+    {
+        await using var db=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(db.Connection);
+        using var client=await LoginAsync(host,db);
+        var created=await CreateDraftAsync(client,db);
+        using var first=await UpdateDraftAsync(client,created.Id,created.Version,
+            Draft(db,"Winning edit"));
+        Assert.Equal(HttpStatusCode.OK,first.StatusCode);
+        var afterFirst=await DraftStateAsync(db,created.Id);
+        Assert.Equal("Winning edit",afterFirst.Notes);
+        using var stale=await UpdateDraftAsync(client,created.Id,created.Version,
+            Draft(db,"Stale edit must fail"));
+        Assert.Equal(HttpStatusCode.Conflict,stale.StatusCode);
+        Assert.Equal(afterFirst,await DraftStateAsync(db,created.Id));
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_DRAFT_forged_official_site_rejected_without_trip_or_audit()
+    {
+        await using var db=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(db.Connection);
+        using var client=await LoginAsync(host,db);
+        var bad=Draft(db) with {StartDeploymentSiteId=int.MaxValue};
+        using var response=await client.PostAsJsonAsync("/api/v1/trips",bad);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity,response.StatusCode);
+        await AssertNoBusinessWriteAsync(db);
+    }
+
 }
