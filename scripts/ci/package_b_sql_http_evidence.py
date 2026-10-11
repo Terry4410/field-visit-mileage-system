@@ -28,6 +28,9 @@ REQUIRED=frozenset({
     "SQL_HTTP_SUBMIT_snapshot_values_survive_later_SQL_site_and_location_rename",
     "SQL_HTTP_SUBMIT_no_mileage_or_stop_denies_with_zero_snapshot_or_history_writes",
     "SQL_HTTP_SUBMIT_stale_rowversion_denies_without_submitted_snapshot",
+    "SQL_HTTP_SUBMIT_two_concurrent_clients_commit_exactly_one_snapshot",
+    "SQL_HTTP_SUBMIT_racing_draft_update_never_commits_both_versions",
+    "SQL_HTTP_SUBMIT_injected_snapshot_SQL_error_rolls_back_history_and_audit",
 })
 RELEASE_HOLD={
     "runtime_scope":"ACTUAL_ASPNETCORE_APPJWT_AND_LOCAL_SQL2022",
