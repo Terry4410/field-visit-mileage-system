@@ -190,7 +190,10 @@ public static class V180B3ApprovalApplyPreflight
         if (plan.DecisionKey == Guid.Empty
             || plan.ReviewerUserId <= 0
             || string.IsNullOrWhiteSpace(plan.ReviewReason)
-            || plan.ReviewReason.Length > 1000)
+            || plan.ReviewReason.Length > 1000
+            || plan.ReviewReason != plan.ReviewReason.Trim()
+            || plan.ReviewReason.Any(ch => char.IsControl(ch)
+                && ch != '\r' && ch != '\n' && ch != '\t'))
             throw new InvalidOperationException("B3_APPROVAL_PLAN_INVALID");
         if (requestPublicId == Guid.Empty
             || plan.RequestPublicId != requestPublicId
