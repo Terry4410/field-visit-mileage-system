@@ -701,3 +701,24 @@ inventory has known differences and is NOT full migration parity.
 All B3/LiveSessionGuard default OFF, VAL-B1-002 BLOCKED,
 Approve/Apply DENY ALL, B4 0/22, Business UAT HOLD,
 Production HARD HOLD, 1800_011 NONEXECUTABLE.
+
+### 2026-10-11 implementation — atomic CreateDraft candidate (WORK ONLY)
+
+WORK candidate `ef6795ae69052aab2c8cdf7e153f569b327e6c15`
+adds `IUnitOfWork.ExecuteInTransactionAsync<T>`, implemented by
+`AppDbContext` with an explicit EF Core SQL transaction.
+`TripService.CreateAsync` now encloses both identity-generation
+`SaveChangesAsync` and the dependent Mileage/History/Audit
+`SaveChangesAsync` in that transaction. The subsequent DTO read
+occurs after commit. Non-transactional providers fail closed.
+
+New mandatory isolated SQL HTTP regression:
+`SQL_HTTP_DRAFT_injected_mileage_SQL_error_must_not_leave_partial_trip`.
+The fail-closed TRX manifest requires 20 named SQL HTTP cases, with
+all 20 passing before isolated verification can report PASS.
+
+**Validation status at documentation time: PENDING.** Do not infer
+success from commit, queued run or old green artifacts. Review actual
+SQL HTTP TRX, transaction rollback and source SHA. Remaining risks
+include deadlocks, timeouts, transient retry behavior and migration
+schema parity. All HOLD gates remain unchanged.
