@@ -1908,4 +1908,43 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@id",id))));
     }
 
+    [Fact]
+    public async Task Serializable_request_lock_does_not_block_unrelated_pending_request()
+    {
+        // Locks must serialize competing reviewers of ONE request without
+        // unintentionally preventing review of a different Pending request.
+        var firstId=await _fixture.InsertRequestAsync(
+            "LOCK_SCOPE_A_"+Guid.NewGuid().ToString("N"));
+        var otherId=await _fixture.InsertRequestAsync(
+            "LOCK_SCOPE_B_"+Guid.NewGuid().ToString("N"));
+        await using var first=await _fixture.ConnectAsync();
+        await using var second=await _fixture.ConnectAsync();
+        using var tx=first.BeginTransaction(IsolationLevel.Serializable);
+        await using(var held=new SqlCommand("""
+            SELECT ChangeRequestId FROM dbo.ChangeRequests WITH (UPDLOCK,HOLDLOCK)
+            WHERE ChangeRequestId=@id
+            """,first,tx))
+        {
+            held.Parameters.AddWithValue("@id",firstId);
+            Assert.Equal(firstId,Convert.ToInt64(await held.ExecuteScalarAsync()));
+        }
+        await using(var unrelated=new SqlCommand("""
+            SET LOCK_TIMEOUT 2000;
+            SELECT ChangeRequestId FROM dbo.ChangeRequests WITH (UPDLOCK,HOLDLOCK)
+            WHERE ChangeRequestId=@id
+            """,second))
+        {
+            unrelated.CommandTimeout=5;
+            unrelated.Parameters.AddWithValue("@id",otherId);
+            Assert.Equal(otherId,Convert.ToInt64(await unrelated.ExecuteScalarAsync()));
+        }
+        await tx.RollbackAsync();
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",firstId)));
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",otherId)));
+    }
+
 }
