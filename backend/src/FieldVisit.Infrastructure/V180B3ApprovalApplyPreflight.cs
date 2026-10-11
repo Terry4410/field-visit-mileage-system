@@ -152,6 +152,29 @@ public static class V180B3ApprovalApplyPreflight
             request.RowVersion.ToArray());
     }
 
+    /// <summary>
+    /// Pure transaction-boundary guard for a future executor. A preflight plan
+    /// is not authority: reject if either request or source changed after
+    /// planning. Caller MUST still re-read both records under SQL locks,
+    /// re-evaluate live authorization and all publication invariants.
+    /// </summary>
+    public static void RequirePlanVersionsStillCurrent(
+        V180B3ApprovalApplyPlan plan, Guid requestPublicId,
+        int locationId, byte[]? requestRowVersion,
+        byte[]? locationRowVersion)
+    {
+        if (requestPublicId == Guid.Empty
+            || plan.RequestPublicId != requestPublicId
+            || locationId <= 0 || plan.LocationId != locationId
+            || plan.ExpectedRequestRowVersion is not { Length: 8 }
+            || plan.ExpectedLocationRowVersion is not { Length: 8 }
+            || requestRowVersion is not { Length: 8 }
+            || locationRowVersion is not { Length: 8 }
+            || !plan.ExpectedRequestRowVersion.SequenceEqual(requestRowVersion)
+            || !plan.ExpectedLocationRowVersion.SequenceEqual(locationRowVersion))
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
