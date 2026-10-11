@@ -100,8 +100,8 @@ def analyze(sql: str, ef: str, sha: str = "LOCAL",
     # These definitions are intentionally NOT enforced by EF EnsureCreated.
     if sql_009 is not None:
         valid_009 = bool(re.search(
-            r"ALTER\\s+TABLE\\s+dbo\\.RouteCalculationAttempts\\s+WITH\\s+CHECK\\s+ADD"
-            r"\\s+CONSTRAINT\\s+CK_RouteCalculationAttempts_StopCount\\s+CHECK\\s*\\(\\s*StopCount\\s*>=\\s*1\\s*\\)",
+            r"ALTER\s+TABLE\s+dbo\.RouteCalculationAttempts\s+WITH\s+CHECK\s+ADD"
+            r"\s+CONSTRAINT\s+CK_RouteCalculationAttempts_StopCount\s+CHECK\s*\(\s*StopCount\s*>=\s*1\s*\)",
             sql_009, re.I))
         if not valid_009:
             failures.append("1800_009 StopCount >= 1 constraint missing or drifted")
@@ -110,13 +110,13 @@ def analyze(sql: str, ef: str, sha: str = "LOCAL",
                "Migration-only SQL CHECK; EF EnsureCreated does not enforce it")
     if sql_010 is not None:
         reason_block = re.search(
-            r"CONSTRAINT\\s+CK_RouteCalculationAttempts_Reason\\s+CHECK\\s*\\((.*?)\\)\\s*;",
+            r"CONSTRAINT\s+CK_RouteCalculationAttempts_Reason\s+CHECK\s*\((.*?)\)\s*;",
             sql_010, re.I | re.S)
         expected_reasons = (
             "VisitorCalculate", "LeaderRetry",
             "CorrectionRecalculate", "BackgroundMileageJob")
         valid_010 = bool(reason_block and all(
-            re.search(r"CalculationReason\\s*=\\s*N'" + reason + r"'", reason_block.group(1), re.I)
+            re.search(r"CalculationReason\s*=\s*N'" + reason + r"'", reason_block.group(1), re.I)
             for reason in expected_reasons))
         if not valid_010:
             failures.append("1800_010 reason CHECK missing or drifted")
