@@ -428,7 +428,8 @@ The allowed connection is strictly local CI server 127.0.0.1:14335,
 SA and master only. Each test creates and destroys a random
 B4SqlHttp_* database via EnsureCreated. UAT/Prod/Azure are prohibited.
 
-Six exact test cases verify the positive HTTP SQL site context;
+Twelve real JWT+SQL HTTP cases now run as an exact, independently
+verified named suite. The original six include site context;
 the same old JWT after disabling the SQL deployment site; removal
 of a role projection (403); effective-dated Team grant revocation
 (403); active HR -> Leave after issuance (403); and an injected
@@ -445,6 +446,31 @@ HTTP + SQL 6. All three produce separate named TRX and independently
 verified source-SHA-bound evidence. Twelve additional Python negative
 tests explicitly reject incomplete, forged, failed or swapped HTTP/SQL
 evidence. Each test uses local randomized fixture rows only.
+
+### Dated official-site draft lifecycle and concurrency (new tests)
+
+Six new authenticated SQL HTTP test cases build on the prior six
+Session Guard/SQL fixtures. An actual visitor POST /api/v1/trips
+creates a persisted Draft plus MileageCalculation, history event and
+audit; tests assert exactly one create-history and audit event.
+After a new SQL admin change disables the official site, both
+PUT /trips/{tripId} and POST /trips/{tripId}/submit are denied
+with no alteration to the persisted draft, status, locations,
+history or audit counts. A second update using a stale If-Match
+RowVersion returns HTTP 409 without any extra audit/history.
+Two independently authenticated clients competing on the exact
+same RowVersion must yield exactly one successful PUT and one 409,
+and exactly one committed update/audit/history (no partial writer).
+Finally an invalid official Site ID in POST is denied without
+writing a trip or audit.
+
+These tests do NOT change production code or enable approval.
+No historical Submitted/Approved snapshot recreation is claimed;
+snapshot/geocoding, large data sets, high-concurrency stress and
+migration-owned deployed Azure SQL remain separate IT acceptance.
+The independent SHA+TRX validator rejects any partial or missing
+12-case result. The 51 B3 SQL and 6 Site Reader SQL manifests
+remain separate and unchanged.
 
 This is partial SQL + HTTP security evidence, NOT approval of any
 formal B4 acceptance case, business testing, Entra integration,
