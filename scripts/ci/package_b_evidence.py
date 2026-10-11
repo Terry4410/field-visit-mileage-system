@@ -289,6 +289,37 @@ def validate_team_scope_http_trx(path: Path) -> dict:
             "business_uat":"HOLD","production":"HARD_HOLD"}
 
 
+# Real dated Trip Context reader with an isolated EF InMemory DB.
+# No deployed API, migration, Azure UAT SQL or formal B4 GO.
+SITE_RUNTIME_PREFIX="FieldVisit.Application.Tests.V180DeploymentSiteIsolatedRuntimeTests."
+SITE_RUNTIME_REQUIRED=frozenset(["SITE_live_context_resolves_primary_and_eligible_official_site","SITE_official_alternate_same_org_can_be_selected_without_employment_assignment","SITE_foreign_org_official_site_never_appears_in_picker","SITE_inactive_deployment_site_not_eligible","SITE_future_deployment_site_not_eligible","SITE_expired_center_not_eligible","SITE_expired_site_location_assignment_not_eligible","SITE_inactive_location_not_eligible","SITE_pending_location_not_eligible","SITE_cross_org_employment_site_denied_before_official_picker","SITE_no_team_center_must_fail_closed_before_creating_draft","SITE_expired_membership_not_eligible_even_if_site_is_active","SITE_unassigned_requested_team_denied","SITE_ambiguous_primary_employment_deployments_denied","SITE_ambiguous_site_to_location_assignment_denied","SITE_ambiguous_team_center_assignment_denied","SITE_identity_without_employment_binding_denied","SITE_context_HR_leave_day_disallows_trip","SITE_invalid_existing_override_falls_back_to_valid_primary","SITE_ineligible_context_never_accepts_forged_official_endpoints"])
+
+def validate_dated_site_runtime_trx(path: Path) -> dict:
+    root=ET.parse(path).getroot()
+    rows=[x for x in root.findall(".//{*}UnitTestResult")
+          if x.get("testName","").startswith(SITE_RUNTIME_PREFIX)]
+    expected={SITE_RUNTIME_PREFIX+x for x in SITE_RUNTIME_REQUIRED}
+    names=[x.get("testName") for x in rows]
+    if len(rows)!=len(expected) or set(names)!=expected or len(set(names))!=len(names):
+        raise ValueError("deployment site runtime mandatory cases missing/duplicate")
+    keys=set()
+    for case in rows:
+        if case.get("outcome")!="Passed":
+            raise ValueError("deployment site runtime case failed")
+        for field in ("testId","executionId"):
+            key=case.get(field)
+            if not key or key in keys:
+                raise ValueError("deployment site runtime result IDs missing/duplicate")
+            keys.add(key)
+    return {"status":"PASS","scope":"ISOLATED_EF_INMEMORY_REAL_DATED_CONTEXT_READER",
+            "passed":len(rows),"required":len(expected),
+            "trip_context_http_endpoint":"NOT_TESTED",
+            "deployed_sql_server":"NOT_TESTED",
+            "formal_B4_acceptance":0,
+            "migration_011":"NOT_AUTHORIZED",
+            "business_uat":"HOLD","production":"HARD_HOLD"}
+
+
 def parse_trx(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
     counters = root.find(".//{*}Counters")
@@ -343,11 +374,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             require_hr_http: bool = False,
             require_session_http: bool = False,
             require_role_http: bool = False,
-            require_team_scope_http: bool = False) -> dict:
+            require_team_scope_http: bool = False,
+            require_site_runtime: bool = False) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
                 "backend": None, "frontend": None, "b4_matrix": None,
-                "http_off": None, "hr_http": None, "session_http": None, "role_http": None, "team_scope_http": None,
+                "http_off": None, "hr_http": None, "session_http": None, "role_http": None, "team_scope_http": None, "site_runtime": None,
                 "build_and_ci_steps": None,
                 "release_authorization": dict(RELEASE_HOLD_CONTRACT),
                 "release_go": False,
@@ -395,6 +427,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             evidence["team_scope_http"]["source_sha"]=evidence["guard"]["sha"]
         except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
             evidence["errors"].append("Team/supervisor HTTP: "+str(exc))
+    if require_site_runtime:
+        try:
+            evidence["site_runtime"]=validate_dated_site_runtime_trx(trx)
+            evidence["site_runtime"]["source_sha"]=evidence["guard"]["sha"]
+        except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
+            evidence["errors"].append("Deployment Site date runtime: "+str(exc))
     try:
         data = parse_junit(junit)
         if data["total"] <= 0 or data["failed"] or data["skipped"] or \
@@ -443,7 +481,7 @@ def main() -> int:
                      Path(args.matrix), step_outcomes=steps,
                      require_http_off=True, require_hr_http=True,
                      require_session_http=True, require_role_http=True,
-                     require_team_scope_http=True)
+                     require_team_scope_http=True, require_site_runtime=True)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -492,6 +530,11 @@ def main() -> int:
         lines.append("| JWT team/primary and external Supervisor DataScope (isolated, OFF) | "+
                      str(h["passed"])+"/"+str(h["required"])+
                      " PASS; B4 API/IT deployment NOT EXECUTED |")
+    if result["site_runtime"]:
+        h=result["site_runtime"]
+        lines.append("| Dated official site/TripContext EF isolated runtime | "+
+                     str(h["passed"])+"/"+str(h["required"])+
+                     " PASS; live SQL/API and B4 approval NOT TESTED |")
     if result["b4_matrix"]:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")

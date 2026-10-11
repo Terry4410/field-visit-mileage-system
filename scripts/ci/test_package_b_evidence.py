@@ -13,7 +13,8 @@ from package_b_evidence import (collect, parse_junit, parse_trx,
                                 SESSION_HTTP_PREFIX,SESSION_HTTP_REQUIRED,validate_session_guard_http_trx,
                                 ROLE_HTTP_PREFIX,ROLE_HTTP_REQUIRED,validate_role_http_trx,
                                 TEAM_SCOPE_HTTP_PREFIX,TEAM_HTTP_REQUIRED,
-                                SUPERVISOR_SCOPE_HTTP_REQUIRED,validate_team_scope_http_trx)
+                                SUPERVISOR_SCOPE_HTTP_REQUIRED,validate_team_scope_http_trx,
+                                SITE_RUNTIME_PREFIX,SITE_RUNTIME_REQUIRED,validate_dated_site_runtime_trx)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -506,6 +507,61 @@ class B4TeamSupervisorHttpEvidenceTests(unittest.TestCase):
             with self.subTest(validator=validator.__name__):
                 with self.assertRaisesRegex(ValueError,"mandatory"):
                     validator(self.trx)
+
+
+
+class DatedSiteRuntimeEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.trx=Path(self.temp.name)/"dated-site.trx"
+        self.names=sorted(SITE_RUNTIME_REQUIRED)
+        self.make()
+
+    def make(self,names=None,failed=False,missing_id=False):
+        names=self.names if names is None else names
+        rows=[]
+        for i,name in enumerate(names):
+            outcome="Failed" if failed and i==0 else "Passed"
+            ids="" if missing_id and i==0 else f' testId="s-{i}" executionId="e-{i}"'
+            rows.append(f'<UnitTestResult testName="{SITE_RUNTIME_PREFIX}{name}" outcome="{outcome}"{ids}/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
+
+    def test_twenty_exact_dated_site_cases_keep_B4_and_UAT_hold(self):
+        result=validate_dated_site_runtime_trx(self.trx)
+        self.assertEqual(20,result["passed"])
+        self.assertEqual(0,result["formal_B4_acceptance"])
+        self.assertEqual("NOT_TESTED",result["trip_context_http_endpoint"])
+        self.assertEqual("NOT_TESTED",result["deployed_sql_server"])
+        self.assertEqual("HARD_HOLD",result["production"])
+
+    def test_missing_site_test_denies_evidence(self):
+        self.make(self.names[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_dated_site_runtime_trx(self.trx)
+
+    def test_duplicate_site_name_denies_evidence(self):
+        self.make(self.names[:-1]+self.names[:1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_dated_site_runtime_trx(self.trx)
+
+    def test_failed_site_test_denies_evidence(self):
+        self.make(failed=True)
+        with self.assertRaisesRegex(ValueError,"failed"):
+            validate_dated_site_runtime_trx(self.trx)
+
+    def test_site_evidence_requires_unique_result_ids(self):
+        self.make(missing_id=True)
+        with self.assertRaisesRegex(ValueError,"IDs"):
+            validate_dated_site_runtime_trx(self.trx)
+
+    def test_site_suite_cannot_replace_live_session_coverage(self):
+        self.assertEqual(20,validate_dated_site_runtime_trx(self.trx)["passed"])
+        for fn in (validate_role_http_trx,validate_hr_login_http_trx,
+                   validate_session_guard_http_trx,validate_team_scope_http_trx):
+            with self.subTest(kind=fn.__name__):
+                with self.assertRaisesRegex(ValueError,"mandatory"):
+                    fn(self.trx)
 
 
 if __name__ == "__main__":

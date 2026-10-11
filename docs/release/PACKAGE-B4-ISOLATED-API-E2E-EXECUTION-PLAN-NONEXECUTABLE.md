@@ -305,6 +305,48 @@ B3 OFF, Approve/Apply DENY ALL, 1800_011 NOT AUTHORIZED,
 VAL-B1-002 BLOCKED, B4 0/22, Business UAT HOLD,
 Production HARD HOLD. No source promotion is authorized.
 
+## Dated official deployment-site runtime hardening — WORK-only
+
+Added one fail-closed production-code condition to
+V180TripPersistenceRules.ResolveDraftSites: if
+V180TripContextDto.EligibleForTrip is false, the system cannot
+create or edit a trip draft through this method, even when a
+TeamId was previously resolved and a stale official site ID is
+supplied. This protects a Team with no valid Team-Center mapping,
+an inactive Center/DeploymentSite, expired Location assignment,
+or a site removed after a previous draft. Submit-time validation
+remains independent and is not weakened.
+
+A private EF InMemory fixture executes the **actual**
+V180TripContextReader, dated lookups, official site cross-tenant
+filtering, and persistence rules (not a mocked reader). Exactly
+20 named tests are required in the backend TRX evidence:
+valid primary; official alternate of the same organization but
+outside the employee-specific eligible set (approved behavior);
+cross-organization official picker exclusion; future/inactive/
+expired Site and Center; expired site→Location link; inactive/
+unapproved Location; cross-org employee Site; missing Team-Center
+refusal; expired membership; unassigned Team; ambiguous primary,
+Location and Team-Center assignment; missing Employment binding;
+HR Leave on visit date; stale draft override fallback; and
+explicit ineligible-context draft refusal.
+
+The actual /api/v1/trips/context HTTP pipeline backed by a
+Microsoft SQL Server deployment is still **not tested** by
+this fixture. DB RowVersion, deployment migrations, historical
+draft table updates, end-to-end Google mileage, and real concurrent
+admin changes must be separately verified before Business UAT.
+
+Tests bind to a frozen explicit 20-name manifest with individual
+passed outcomes and unique TRX test/execution IDs; missing/duplicate/
+failed cases force FAIL_CLOSED. SQL Server 51/51 in a separate
+disposable SQL job is not joint API/database acceptance.
+Official picker remains legitimately organization-scoped;
+never silently limit all officially authorized sites to the
+employee's home site. B3 OFF, LiveSessionGuard default OFF,
+1800_011 NOT AUTHORIZED, B4 accepted 0/22, Business UAT HOLD,
+Production HARD HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
