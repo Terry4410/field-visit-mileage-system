@@ -11,7 +11,9 @@ from package_b_evidence import (collect, parse_junit, parse_trx,
                                 HTTP_PREFIX,validate_http_off_trx,
                                 HR_HTTP_PREFIX,HR_HTTP_REQUIRED,validate_hr_login_http_trx,
                                 SESSION_HTTP_PREFIX,SESSION_HTTP_REQUIRED,validate_session_guard_http_trx,
-                                ROLE_HTTP_PREFIX,ROLE_HTTP_REQUIRED,validate_role_http_trx)
+                                ROLE_HTTP_PREFIX,ROLE_HTTP_REQUIRED,validate_role_http_trx,
+                                TEAM_SCOPE_HTTP_PREFIX,TEAM_HTTP_REQUIRED,
+                                SUPERVISOR_SCOPE_HTTP_REQUIRED,validate_team_scope_http_trx)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -438,6 +440,72 @@ class B4RoleHttpNamedEvidenceTests(unittest.TestCase):
             validate_hr_login_http_trx(self.trx)
         with self.assertRaisesRegex(ValueError,"mandatory"):
             validate_session_guard_http_trx(self.trx)
+
+
+
+class B4TeamSupervisorHttpEvidenceTests(unittest.TestCase):
+    """A passing aggregate cannot replace either live-scope named suite."""
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.trx=Path(self.temp.name)/"team-scope.trx"
+        self.team=sorted(TEAM_HTTP_REQUIRED)
+        self.scope=sorted(SUPERVISOR_SCOPE_HTTP_REQUIRED)
+        self.make()
+
+    def make(self,teams=None,scopes=None,failed=False,missing_id=False):
+        ts=self.team if teams is None else teams
+        ss=self.scope if scopes is None else scopes
+        rows=[]
+        for i,name in enumerate(ts+ss):
+            ids="" if i==0 and missing_id else f' testId="T-{i}" executionId="E-{i}"'
+            state="Failed" if i==0 and failed else "Passed"
+            rows.append(f'<UnitTestResult testName="{TEAM_SCOPE_HTTP_PREFIX}{name}" outcome="{state}"{ids}/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
+
+    def test_all_16_isolated_cases_still_mean_zero_live_B4(self):
+        r=validate_team_scope_http_trx(self.trx)
+        self.assertEqual(16,r["passed"])
+        self.assertEqual(9,r["team_passed"])
+        self.assertEqual(7,r["supervisor_scope_passed"])
+        self.assertEqual("OFF_REQUIRED",r["live_session_guard_deployed"])
+        self.assertEqual("NOT_PRESENT",r["deployment_site_jwt_claim"])
+        self.assertEqual("NOT_EXECUTED",r["formal_api_b4"])
+        self.assertEqual("HARD_HOLD",r["production"])
+
+    def test_missing_team_not_replaced_by_scope_pass(self):
+        self.make(teams=self.team[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_team_scope_http_trx(self.trx)
+
+    def test_missing_scope_not_replaced_by_team_pass(self):
+        self.make(scopes=self.scope[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_team_scope_http_trx(self.trx)
+
+    def test_forged_duplicate_named_case_fails(self):
+        self.make(teams=self.team[:-1]+self.team[:1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_team_scope_http_trx(self.trx)
+
+    def test_failed_live_scope_http_fails_closed(self):
+        self.make(failed=True)
+        with self.assertRaisesRegex(ValueError,"failed"):
+            validate_team_scope_http_trx(self.trx)
+
+    def test_missing_independent_trx_identifiers_fails_closed(self):
+        self.make(missing_id=True)
+        with self.assertRaisesRegex(ValueError,"ID"):
+            validate_team_scope_http_trx(self.trx)
+
+    def test_team_scope_results_do_not_substitute_for_role_HR_or_session(self):
+        self.assertEqual(16,validate_team_scope_http_trx(self.trx)["passed"])
+        for validator in (validate_hr_login_http_trx,
+                          validate_role_http_trx,
+                          validate_session_guard_http_trx):
+            with self.subTest(validator=validator.__name__):
+                with self.assertRaisesRegex(ValueError,"mandatory"):
+                    validator(self.trx)
 
 
 if __name__ == "__main__":
