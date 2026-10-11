@@ -837,4 +837,78 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 Check(request, Before, replay: true)).Message);
     }
 
+    [Fact]
+    public void Atomic_audit_pair_accepts_only_one_correlated_independent_decision()
+    {
+        var request = Pending();
+        request.ChangeRequestId = 17;
+        request.RowVersion = new byte[8];
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Reviewed",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        var now = DateTime.UtcNow;
+        var correlation = Guid.NewGuid();
+        var approved = new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Approved",
+            ActorUserId = 20, DecisionKey = plan.DecisionKey,
+            CorrelationId = correlation, OccurredAt = now
+        };
+        var applied = new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Applied",
+            ActorUserId = 20, DecisionKey = null,
+            CorrelationId = correlation, OccurredAt = now
+        };
+        void Check(V180B3ChangeRequest row, V180B3ChangeEvent decision,
+            V180B3ChangeEvent publication) =>
+            V180B3ApprovalApplyPreflight.RequireAtomicAuditPair(
+                plan, row, decision, publication);
+        Check(request, approved, applied);
+        void Deny(V180B3ChangeRequest row, V180B3ChangeEvent decision,
+            V180B3ChangeEvent publication) =>
+            Assert.Equal("B3_ATOMIC_AUDIT_PAIR_INVALID",
+                Assert.Throws<InvalidOperationException>(() =>
+                    Check(row, decision, publication)).Message);
+        Deny(request, approved_with("Rejected"), applied);
+        Deny(request, approved, new V180B3ChangeEvent { ChangeRequestId = 17, EventType = "Approved", ActorUserId = 20, CorrelationId = correlation, OccurredAt = now });
+        Deny(request, approved, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Applied",
+            ActorUserId = 20, DecisionKey = Guid.NewGuid(),
+            CorrelationId = correlation, OccurredAt = now
+        });
+        Deny(request, approved, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Applied",
+            ActorUserId = 20, CorrelationId = Guid.NewGuid(), OccurredAt = now
+        });
+        Deny(request, approved, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Applied",
+            ActorUserId = 21, CorrelationId = correlation, OccurredAt = now
+        });
+        Deny(request, approved, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Applied",
+            ActorUserId = 20, CorrelationId = correlation,
+            OccurredAt = now.AddSeconds(-1)
+        });
+        request.Status = "Rejected";
+        Deny(request, approved, applied);
+        request.Status = "Pending";
+        request.ReviewedByUserId = 20;
+        Deny(request, approved, applied);
+
+        V180B3ChangeEvent approved_with(string eventType) => new()
+        {
+            ChangeRequestId = approved.ChangeRequestId, EventType = eventType,
+            ActorUserId = approved.ActorUserId,
+            DecisionKey = approved.DecisionKey,
+            CorrelationId = approved.CorrelationId,
+            OccurredAt = approved.OccurredAt
+        };
+    }
+
 }
