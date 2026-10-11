@@ -38,6 +38,13 @@ jobs:
       - name: Verify CI evidence parser negative tests
         id: python_tests
         run: python3 -m unittest discover -s scripts/ci -p 'test_package_b_*.py'
+      - name: Read-only 1800_003 vs EF schema parity inventory (NO DDL)
+        id: schema_parity
+        run: |
+          python3 scripts/ci/package_b_schema_parity.py \
+            --report .ci-artifacts/schema-parity-1800-003.json \
+            --summary .ci-artifacts/schema-parity-1800-003.md
+          cat .ci-artifacts/schema-parity-1800-003.md >> "$GITHUB_STEP_SUMMARY"
       - name: Validate every B4 SQL runtime HOLD case (DOCUMENT ONLY)
         id: matrix_gate
         run: python3 scripts/ci/package_b_matrix.py --input docs/release/PACKAGE-B-B3-B4-REMAINING-RUNTIME-UAT-GATES-NONEXECUTABLE.md --report .ci-artifacts/b4-matrix.json --summary .ci-artifacts/b4-matrix.md
