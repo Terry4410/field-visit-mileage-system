@@ -1947,4 +1947,99 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@id",otherId)));
     }
 
+    [Fact]
+    public async Task Serializable_rejection_transaction_rolls_back_request_and_audit_on_injected_failure()
+    {
+        var id=await _fixture.InsertRequestAsync(
+            "ROLLBACK_REJECT_"+Guid.NewGuid().ToString("N"));
+        var correlation=Guid.NewGuid();
+        await using(var conn=await _fixture.ConnectAsync())
+        {
+            using var tx=conn.BeginTransaction(IsolationLevel.Serializable);
+            try
+            {
+                await using(var update=new SqlCommand("""
+                    UPDATE dbo.ChangeRequests
+                    SET Status=N'Rejected', ReviewedByUserId=20,
+                        ReviewedAt=SYSUTCDATETIME(), ReviewReason=N'Fixture only'
+                    WHERE ChangeRequestId=@id AND Status=N'Pending'
+                    """,conn,tx))
+                {
+                    update.Parameters.AddWithValue("@id",id);
+                    Assert.Equal(1,await update.ExecuteNonQueryAsync());
+                }
+                await using(var audit=new SqlCommand("""
+                    INSERT INTO dbo.ChangeRequestEvents(
+                        ChangeRequestId,EventType,ActorUserId,OccurredAt,
+                        CorrelationId,DecisionKey)
+                    VALUES(@id,N'Rejected',20,SYSUTCDATETIME(),@correlation,@decision)
+                    """,conn,tx))
+                {
+                    audit.Parameters.AddWithValue("@id",id);
+                    audit.Parameters.AddWithValue("@correlation",correlation);
+                    audit.Parameters.AddWithValue("@decision",Guid.NewGuid());
+                    Assert.Equal(1,await audit.ExecuteNonQueryAsync());
+                }
+                throw new InvalidOperationException("B3_ISOLATED_INJECTED_FAILURE");
+            }
+            catch(InvalidOperationException ex) when(
+                ex.Message=="B3_ISOLATED_INJECTED_FAILURE")
+            {
+                await tx.RollbackAsync();
+            }
+        }
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",id))));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE ChangeRequestId=@id AND ReviewedAt IS NOT NULL",
+            ("@id",id))));
+    }
+
+    [Fact]
+    public async Task Serializable_rejection_audit_insert_error_rolls_back_request_update()
+    {
+        var id=await _fixture.InsertRequestAsync(
+            "ROLLBACK_FK_"+Guid.NewGuid().ToString("N"));
+        await using(var conn=await _fixture.ConnectAsync())
+        {
+            using var tx=conn.BeginTransaction(IsolationLevel.Serializable);
+            await using(var update=new SqlCommand("""
+                UPDATE dbo.ChangeRequests
+                SET Status=N'Rejected', ReviewedByUserId=20,
+                    ReviewedAt=SYSUTCDATETIME(), ReviewReason=N'Fixture only'
+                WHERE ChangeRequestId=@id AND Status=N'Pending'
+                """,conn,tx))
+            {
+                update.Parameters.AddWithValue("@id",id);
+                Assert.Equal(1,await update.ExecuteNonQueryAsync());
+            }
+            await using(var audit=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequestEvents(
+                    ChangeRequestId,EventType,ActorUserId,OccurredAt,
+                    CorrelationId,DecisionKey)
+                VALUES(@id,N'Rejected',999999,SYSUTCDATETIME(),@correlation,@decision)
+                """,conn,tx))
+            {
+                audit.Parameters.AddWithValue("@id",id);
+                audit.Parameters.AddWithValue("@correlation",Guid.NewGuid());
+                audit.Parameters.AddWithValue("@decision",Guid.NewGuid());
+                await Assert.ThrowsAsync<SqlException>(()=>audit.ExecuteNonQueryAsync());
+            }
+            await tx.RollbackAsync();
+        }
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",id))));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE ChangeRequestId=@id AND ReviewedByUserId IS NOT NULL",
+            ("@id",id))));
+    }
+
 }
