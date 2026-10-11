@@ -233,6 +233,13 @@ public sealed class B4IsolatedHrLoginFactory : WebApplicationFactory<V180B3Chang
             EffectiveFrom=BusinessTime.Today.AddDays(-20),
             CreatedAt=DateTime.UtcNow
         });
+        db.UserDataScopes.Add(new UserDataScope
+        {
+            UserDataScopeId=4001,UserId=UserId,
+            ScopeType=DataScopeTypes.Organization,OrganizationId=1,
+            EffectiveFrom=BusinessTime.Today.AddDays(-20),
+            CreatedAt=DateTime.UtcNow
+        });
         await db.SaveChangesAsync();
     }
 
@@ -242,6 +249,161 @@ public sealed class B4IsolatedHrLoginFactory : WebApplicationFactory<V180B3Chang
         var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var profile=await db.UserIdentityProfiles.SingleAsync(x=>x.UserId==UserId);
         profile.AuthorizationTo=BusinessTime.Today.AddDays(-1);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task SeedLegacyTeamAsync(bool twoTeams=false)
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Teams.Add(new Team
+        {
+            TeamId=7,OrganizationId=1,TeamCode="TEAM7",
+            TeamName="Primary Team 7",IsActive=true,CreatedAt=DateTime.UtcNow
+        });
+        db.UserTeamScopes.Add(new UserTeamScope
+        {
+            UserTeamScopeId=7001,UserId=UserId,TeamId=7,
+            IsPrimary=true,IsActive=true,AssignedAt=DateTime.UtcNow
+        });
+        if(twoTeams)
+        {
+            db.Teams.Add(new Team
+            {
+                TeamId=8,OrganizationId=1,TeamCode="TEAM8",
+                TeamName="Secondary Team 8",IsActive=true,CreatedAt=DateTime.UtcNow
+            });
+            db.UserTeamScopes.Add(new UserTeamScope
+            {
+                UserTeamScopeId=7002,UserId=UserId,TeamId=8,
+                IsPrimary=false,IsActive=true,AssignedAt=DateTime.UtcNow
+            });
+        }
+        var account=await db.Users.SingleAsync(x=>x.UserId==UserId);
+        account.TeamId=7;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task SeedModernTeamAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Teams.Add(new Team
+        {
+            TeamId=7,OrganizationId=1,TeamCode="TEAM7",
+            TeamName="Primary Team 7",IsActive=true,CreatedAt=DateTime.UtcNow
+        });
+        db.UserTeamAssignments.Add(new UserTeamAssignment
+        {
+            UserTeamAssignmentId=7101,UserId=UserId,TeamId=7,
+            IsPrimary=true,EffectiveFrom=BusinessTime.Today.AddDays(-20),
+            CreatedAt=DateTime.UtcNow
+        });
+        var account=await db.Users.SingleAsync(x=>x.UserId==UserId);
+        account.TeamId=7;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RevokeTeamAsync(bool modern=false)
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        if(modern)
+        {
+            var a=await db.UserTeamAssignments.SingleAsync(x=>x.UserId==UserId);
+            a.EffectiveTo=BusinessTime.Today.AddDays(-1);
+        }
+        else
+        {
+            var a=await db.UserTeamScopes.SingleAsync(x=>x.UserId==UserId&&x.TeamId==7);
+            a.IsActive=false;
+        }
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ChangePrimaryTeamAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var rows=await db.UserTeamScopes.Where(x=>x.UserId==UserId).ToListAsync();
+        foreach(var x in rows)x.IsPrimary=x.TeamId==8;
+        var account=await db.Users.SingleAsync(x=>x.UserId==UserId);
+        account.TeamId=8;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RenameTeamAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var team=await db.Teams.SingleAsync(x=>x.TeamId==7);
+        team.TeamName="Renamed Team 7";
+        await db.SaveChangesAsync();
+    }
+
+    public async Task DisableTeamAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var team=await db.Teams.SingleAsync(x=>x.TeamId==7);
+        team.IsActive=false;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task TransferTeamToOtherOrganizationAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var team=await db.Teams.SingleAsync(x=>x.TeamId==7);
+        team.OrganizationId=2;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ExpireExternalDataScopeAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row=await db.UserDataScopes.SingleAsync(x=>x.UserId==UserId);
+        row.EffectiveTo=BusinessTime.Today.AddDays(-1);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RevokeExternalDataScopeAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.UserDataScopes.RemoveRange(
+            await db.UserDataScopes.Where(x=>x.UserId==UserId).ToListAsync());
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ChangeExternalDataScopeToWrongOrgAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row=await db.UserDataScopes.SingleAsync(x=>x.UserId==UserId);
+        row.OrganizationId=2;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ChangeExternalDataScopeToTeamAsync(bool foreignTeam=false)
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row=await db.UserDataScopes.SingleAsync(x=>x.UserId==UserId);
+        db.UserDataScopes.Remove(row);
+        db.Teams.Add(new Team
+        {
+            TeamId=7,OrganizationId=foreignTeam?2:1,TeamCode="SCOPE7",
+            TeamName="Supervisor Team 7",IsActive=true,CreatedAt=DateTime.UtcNow
+        });
+        db.UserDataScopes.Add(new UserDataScope
+        {
+            UserDataScopeId=4002,UserId=UserId,ScopeType=DataScopeTypes.Team,
+            TeamId=7,OrganizationId=1,
+            EffectiveFrom=BusinessTime.Today.AddDays(-10),
+            CreatedAt=DateTime.UtcNow
+        });
         await db.SaveChangesAsync();
     }
 
