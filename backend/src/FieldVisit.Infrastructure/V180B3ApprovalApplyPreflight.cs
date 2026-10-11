@@ -215,6 +215,7 @@ public static class V180B3ApprovalApplyPreflight
     public static void RequirePlanSnapshotsStillCurrent(
         V180B3ApprovalApplyPlan plan,
         V180B3LocationFields lockedCurrentLocation,
+        byte[]? lockedLocationRowVersion,
         V180B3ChangeRequest lockedRequest)
     {
         if (lockedRequest.RequestPublicId != plan.RequestPublicId
@@ -224,7 +225,10 @@ public static class V180B3ApprovalApplyPreflight
             throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
         RequirePlanVersionsStillCurrent(
             plan, lockedRequest.RequestPublicId, requestLocationId,
-            lockedRequest.RowVersion, lockedRequest.ExpectedEntityRowVersion);
+            lockedRequest.RowVersion, lockedLocationRowVersion);
+        if (lockedRequest.ExpectedEntityRowVersion is not { Length: 8 }
+            || !lockedRequest.ExpectedEntityRowVersion.SequenceEqual(lockedLocationRowVersion!))
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
         try
         {
             RequireExactLocationJson(plan.BeforeJson);
