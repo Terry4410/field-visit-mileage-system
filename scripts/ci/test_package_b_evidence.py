@@ -14,7 +14,8 @@ from package_b_evidence import (collect, parse_junit, parse_trx,
                                 ROLE_HTTP_PREFIX,ROLE_HTTP_REQUIRED,validate_role_http_trx,
                                 TEAM_SCOPE_HTTP_PREFIX,TEAM_HTTP_REQUIRED,
                                 SUPERVISOR_SCOPE_HTTP_REQUIRED,validate_team_scope_http_trx,
-                                SITE_RUNTIME_PREFIX,SITE_RUNTIME_REQUIRED,validate_dated_site_runtime_trx)
+                                SITE_RUNTIME_PREFIX,SITE_RUNTIME_REQUIRED,validate_dated_site_runtime_trx,
+                                SITE_HTTP_PREFIX,SITE_HTTP_REQUIRED,validate_site_http_trx)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -562,6 +563,62 @@ class DatedSiteRuntimeEvidenceTests(unittest.TestCase):
             with self.subTest(kind=fn.__name__):
                 with self.assertRaisesRegex(ValueError,"mandatory"):
                     fn(self.trx)
+
+
+
+class RealDatedSiteHttpEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.trx=Path(self.tmp.name)/"site-http.trx"
+        self.names=sorted(SITE_HTTP_REQUIRED)
+        self.make()
+
+    def make(self,names=None,failed=False,missing_id=False):
+        names=self.names if names is None else names
+        rows=[]
+        for i,name in enumerate(names):
+            ids="" if missing_id and i==0 else f' testId="t-{i}" executionId="e-{i}"'
+            outcome="Failed" if failed and i==0 else "Passed"
+            rows.append(f'<UnitTestResult testName="{SITE_HTTP_PREFIX}{name}" outcome="{outcome}"{ids}/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
+
+    def test_all_six_HTTP_cases_are_explicitly_not_UAT_acceptance(self):
+        x=validate_site_http_trx(self.trx)
+        self.assertEqual(6,x["passed"])
+        self.assertEqual(0,x["formal_b4_accepted"])
+        self.assertEqual("NOT_TESTED",x["real_azure_sql_http"])
+        self.assertEqual("HARD_HOLD",x["production"])
+
+    def test_missing_HTTP_case_cannot_hide_in_reader_suite(self):
+        self.make(self.names[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_site_http_trx(self.trx)
+
+    def test_duplicate_HTTP_name_does_not_replace_required(self):
+        self.make(self.names[:-1]+self.names[:1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_site_http_trx(self.trx)
+
+    def test_failed_HTTP_case_rejected(self):
+        self.make(failed=True)
+        with self.assertRaisesRegex(ValueError,"failed"):
+            validate_site_http_trx(self.trx)
+
+    def test_missing_HTTP_test_execution_id_rejected(self):
+        self.make(missing_id=True)
+        with self.assertRaisesRegex(ValueError,"IDs"):
+            validate_site_http_trx(self.trx)
+
+    def test_HTTP_case_cannot_replace_reader_or_HR_authority(self):
+        self.assertEqual(6,validate_site_http_trx(self.trx)["passed"])
+        for validator in (validate_dated_site_runtime_trx,
+                          validate_hr_login_http_trx,
+                          validate_session_guard_http_trx,
+                          validate_role_http_trx):
+            with self.subTest(validator=validator.__name__):
+                with self.assertRaisesRegex(ValueError,"mandatory"):
+                    validator(self.trx)
 
 
 if __name__ == "__main__":
