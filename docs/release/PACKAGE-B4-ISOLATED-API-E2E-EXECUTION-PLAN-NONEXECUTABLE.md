@@ -604,3 +604,28 @@ idempotency key and audited after-state.
 - B3 OFF, LiveSessionGuard default OFF, Approve/Apply DENY ALL,
   VAL-B1-002 BLOCKED, 1800_011 NOT AUTHORIZED / NONEXECUTABLE DRAFT,
   B4 acceptance 0/22, Business UAT HOLD, Production HARD HOLD.
+
+
+### Follow-up WORK candidate — 19 real JWT HTTP + disposable SQL cases
+
+Three additional `FieldVisit.B4.SqlHttp.Tests` tests extend the frozen
+16-case manifest to **19 individually named cases**: concurrent Submit
+against the same RowVersion (exactly one submitted snapshot), simultaneous
+Submit versus Draft Update (only one committed version), and deliberate
+**test-only** SQL Server snapshot INSERT trigger failure verifying rolled
+back trip status, history, audit and snapshots with generic error response.
+The test-only trigger `TR_B4_Isolated_RejectSnapshot` is created solely
+inside a random `B4SqlHttp_*` disposable database; no Migration file,
+Azure database or deployed application is changed.
+
+`scripts/ci/package_b_sql_http_evidence.py` rejects fewer than 19,
+a duplicated test, a failed/aborted case, bad TRX identity or non-WORK
+SHA. Its negative tests are aligned to 19 total / 7 Submit cases;
+the B3 51 and dated-site 6 manifests remain separate.
+
+**Candidate until a fully green GitHub Actions run at this exact commit:**
+these assertions do not themselves establish PASS. Even when green,
+actual deadlock/retry/idempotency, multi-stop ordering, full migration
+schema parity and operational SQL timeouts remain unverified. The
+previous 16/16 checkpoint continues to be the last verified SQL HTTP
+count until replacement evidence is complete.
