@@ -25,22 +25,22 @@ class RealJwtSqlHttpEvidenceTests(unittest.TestCase):
             f'total="{len(names)}" passed="{len(names)-skip}" failed="0" error="0"'
             f' notExecuted="{skip}"/></ResultSummary></TestRun>')
 
-    def test_exact_nineteen_hold_contract_and_sha(self):
+    def test_exact_twenty_hold_contract_and_sha(self):
         proof=validate(self.trx,"a"*40)
-        self.assertEqual(19,proof["passed"])
+        self.assertEqual(20,proof["passed"])
         self.assertEqual("a"*40,proof["source_sha"])
         self.assertEqual("HARD_HOLD",proof["production"])
         self.assertEqual(0,proof["formal_b4_accepted"])
         self.assertEqual("NOT_AUTHORIZED",proof["011_migration"])
         self.assertEqual("OFF",proof["b3_flag"])
         self.assertEqual("DENY_ALL",proof["approve_apply"])
-        self.assertEqual(19,len(proof["case_results"]))
+        self.assertEqual(20,len(proof["case_results"]))
         self.assertEqual(hashlib.sha256(self.trx.read_bytes()).hexdigest(),
                          proof["trx_sha256"])
 
-    def test_all_six_draft_paths_independently_required(self):
+    def test_all_seven_draft_paths_independently_required(self):
         draft=[x for x in self.names if "SQL_HTTP_DRAFT_" in x]
-        self.assertEqual(6,len(draft))
+        self.assertEqual(7,len(draft))
         for case in draft:
             with self.subTest(missing_case=case):
                 self.make([n for n in self.names if n!=case])
