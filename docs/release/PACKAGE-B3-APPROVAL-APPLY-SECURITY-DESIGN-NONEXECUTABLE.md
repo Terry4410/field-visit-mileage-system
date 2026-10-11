@@ -237,3 +237,43 @@ approver and exact source SHA, and keep any missing proof as PENDING.
 Only independently authorized formal acceptance may change 0/22 or HOLD
 status. Never invent test identities, production credentials, approver
 attestations or environment permissions.
+
+
+## Conditional UAT preparation authority — Owner, 2026-10-11
+
+The Owner additionally authorizes **preparation only** for UAT migration,
+backend/frontend deployment and the formal B4 22-case acceptance. This
+extends the existing controlled WORK authorization to planning, dry-run
+validation in disposable environments, deployment manifests, runbooks,
+rollback/forward-recovery analysis, evidence mapping, and a consolidated
+final execution-approval packet. It is **not** an instruction or permission
+to execute any UAT migration, deploy, promote, turn B3 on, seed or change
+formal UAT records, or change a release HOLD.
+
+### Final combined execution approval packet — required before any UAT change
+
+The execution request must identify, in one reviewable package:
+
+1. Exact repository branch, candidate commit SHA/tree, immutable artifact
+   versions, diff versus the protected baseline, and green required CI.
+2. Reviewed SQL scripts, dependency order, predecessor/schema version,
+   catalog and constraint checks, data impact, estimated lock/downtime,
+   idempotency/failure behavior, backup/restore ownership and recovery steps.
+3. Exact UAT database/server/environment target and authorized execution
+   identity; never print or commit credentials, tokens or connection strings.
+4. Backend/frontend release artifacts, deployment order, health checks,
+   post-deploy smoke checks and safe application rollback plan.
+5. Formal B4 22-case matrix with expected HTTP/SQL/HR after-state,
+   independently authorized test actors, evidence owner and acceptance
+   signatures; disposable fixture results are not formal UAT proof.
+6. VAL-B1-002 independent HR/IT manager-role provenance and effective-date
+   attestation, or an explicit unresolved HOLD.
+7. B3 activation decision as a separate explicit yes/no gate after security
+   and schema evidence; default remains OFF, Approve/Apply DENY ALL.
+8. Go/no-go criteria, stop triggers, incident contacts, remaining risks,
+   and an unambiguous Owner approval field for each proposed UAT action.
+
+Until that packet is approved, **NO UAT SQL execution, NO deployment,
+NO promotion, NO B3 activation, NO release GO**. Production remains
+HARD HOLD regardless of any UAT decision. A conditional authorization
+cannot substitute for independent HR/IT attestation.
