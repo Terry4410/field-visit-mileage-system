@@ -941,4 +941,67 @@ public sealed class V180B3ApprovalApplyPreflightTests
         };
     }
 
+    [Fact]
+    public void Atomic_guarded_source_update_requires_one_row_and_original_version()
+    {
+        var request = Pending();
+        request.RowVersion = new byte[8];
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Reviewed",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        void Check(int rows, int id, byte[]? version) =>
+            V180B3ApprovalApplyPreflight.RequireExactlyOneGuardedSourceUpdate(
+                plan, rows, id, version);
+        Check(1, 9, new byte[8]);
+        foreach (var rows in new[] { -1, 0, 2 })
+            Assert.Equal("B3_ATOMIC_SOURCE_UPDATE_CONFLICT",
+                Assert.Throws<InvalidOperationException>(() =>
+                    Check(rows, 9, new byte[8])).Message);
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, 10, new byte[8]));
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, 9, new byte[7]));
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, 9, new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }));
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, 9, null));
+    }
+
+    [Fact]
+    public void Atomic_guarded_request_transition_requires_pending_and_one_row()
+    {
+        var request = Pending();
+        request.RowVersion = new byte[8];
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Reviewed",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        void Check(int rows, byte[]? version) =>
+            V180B3ApprovalApplyPreflight.RequireExactlyOneGuardedRequestTransition(
+                plan, rows, request, version);
+        Check(1, new byte[8]);
+        foreach (var rows in new[] { -1, 0, 2 })
+            Assert.Equal("B3_ATOMIC_REQUEST_UPDATE_CONFLICT",
+                Assert.Throws<InvalidOperationException>(() =>
+                    Check(rows, new byte[8])).Message);
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, new byte[7]));
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }));
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, null));
+        request.Status = "Applied";
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, new byte[8]));
+        request.Status = "Pending";
+        request.ReviewedByUserId = 20;
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, new byte[8]));
+        request.ReviewedByUserId = null;
+        request.AppliedAt = DateTime.UtcNow;
+        Assert.Throws<InvalidOperationException>(() =>
+            Check(1, new byte[8]));
+    }
+
 }
