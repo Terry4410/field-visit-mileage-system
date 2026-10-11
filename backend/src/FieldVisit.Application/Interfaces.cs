@@ -117,4 +117,9 @@ public interface IGeocodingService
 public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken ct);
+
+    // Fail closed for providers without an explicit atomic implementation.
+    // The delegate may SaveChanges more than once for generated SQL identities.
+    Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct) =>
+        throw new NotSupportedException("ATOMIC_UNIT_OF_WORK_REQUIRED");
 }
