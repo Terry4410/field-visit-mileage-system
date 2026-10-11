@@ -726,6 +726,7 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Deny(x => x.RiskCode = "Low");
         Deny(x => x.RequestedByUserId = 20);
         Deny(x => x.ReviewedByUserId = 20);
+        Deny(x => x.ReviewReason = "Already reviewed");
         Deny(x => x.ReviewedAt = DateTime.UtcNow);
         Deny(x => x.AppliedAt = DateTime.UtcNow);
     }
