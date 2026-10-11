@@ -154,6 +154,97 @@ public sealed class B4IsolatedHrLoginFactory : WebApplicationFactory<V180B3Chang
         await db.SaveChangesAsync();
     }
 
+    public async Task SetupModernInternalIdentityAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.UserIdentityProfiles.Add(new UserIdentityProfile
+        {
+            UserId=UserId,UserCode=LoginAccount,UserType=UserTypes.Internal,
+            CreatedAt=DateTime.UtcNow
+        });
+        db.UserRoleAssignments.Add(new UserRoleAssignment
+        {
+            UserRoleAssignmentId=2001,UserId=UserId,RoleId=1,
+            EffectiveFrom=BusinessTime.Today.AddDays(-30),
+            CreatedAt=DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RevokeRoleProjectionAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.UserRoles.RemoveRange(await db.UserRoles.Where(x=>x.UserId==UserId).ToListAsync());
+        await db.SaveChangesAsync();
+    }
+
+    public async Task DisableRoleCatalogAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var role=await db.Roles.SingleAsync(x=>x.RoleId==1);
+        role.IsActive=false;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ExpireModernRoleAssignmentAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row=await db.UserRoleAssignments.SingleAsync(x=>x.UserId==UserId);
+        row.EffectiveTo=BusinessTime.Today.AddDays(-1);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ConvertInternalToExternalWithoutRoleResetAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var profile=await db.UserIdentityProfiles.SingleAsync(x=>x.UserId==UserId);
+        profile.UserType=UserTypes.External;
+        profile.AuthorizationFrom=BusinessTime.Today.AddDays(-20);
+        profile.AuthorizationTo=BusinessTime.Today.AddDays(20);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task SetupExternalSupervisorAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Roles.Add(new Role { RoleId=2,RoleCode="supervisor",
+            RoleName="Supervisor",IsActive=true,CreatedAt=DateTime.UtcNow });
+        db.UserIdentityProfiles.Add(new UserIdentityProfile
+        {
+            UserId=UserId,UserCode=LoginAccount,UserType=UserTypes.External,
+            AuthorizationFrom=BusinessTime.Today.AddDays(-20),
+            AuthorizationTo=BusinessTime.Today.AddDays(20),
+            CreatedAt=DateTime.UtcNow
+        });
+        db.UserRoles.RemoveRange(await db.UserRoles.Where(x=>x.UserId==UserId).ToListAsync());
+        db.UserRoles.Add(new UserRole
+        {
+            UserRoleId=2,UserId=UserId,RoleId=2,AssignedAt=DateTime.UtcNow
+        });
+        db.UserRoleAssignments.Add(new UserRoleAssignment
+        {
+            UserRoleAssignmentId=2002,UserId=UserId,RoleId=2,
+            EffectiveFrom=BusinessTime.Today.AddDays(-20),
+            CreatedAt=DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ExpireExternalAuthorizationAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var profile=await db.UserIdentityProfiles.SingleAsync(x=>x.UserId==UserId);
+        profile.AuthorizationTo=BusinessTime.Today.AddDays(-1);
+        await db.SaveChangesAsync();
+    }
+
     public static Task<HttpResponseMessage> Login(HttpClient client,
         string account=LoginAccount,string password=LoginPassword)=>
         client.PostAsJsonAsync("/api/v1/auth/demo-login",new { Account=account,Password=password });
@@ -384,6 +475,123 @@ public sealed class V180HrLoginHttpPipelineTests
         using var client=factory.Client();
         using var response=await client.GetAsync("/api/v1/me");
         Assert.Equal(HttpStatusCode.Unauthorized,response.StatusCode);
+    }
+
+
+    [Fact]
+    public async Task ROLE_default_OFF_removed_legacy_role_old_JWT_still_reaches_me()
+    {
+        using var factory=new B4IsolatedHrLoginFactory();
+        using var client=await AuthenticatedAsync(factory);
+        await factory.RevokeRoleProjectionAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_legacy_role_revoke_denies_old_JWT()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await AuthenticatedAsync(factory);
+        await factory.RevokeRoleProjectionAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+        Assert.Contains("SESSION_ROLE_REVOKED",
+            await response.Content.ReadAsStringAsync(),StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_role_catalog_disabled_denies_old_JWT()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await AuthenticatedAsync(factory);
+        await factory.DisableRoleCatalogAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_modern_valid_effective_and_projected_role_allows()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        await factory.SeedAsync(EmploymentStatuses.Active);
+        await factory.SetupModernInternalIdentityAsync();
+        using var client=await AuthenticatedExistingAsync(factory);
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_modern_expired_assignment_denies_old_JWT()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        await factory.SeedAsync(EmploymentStatuses.Active);
+        await factory.SetupModernInternalIdentityAsync();
+        using var client=await AuthenticatedExistingAsync(factory);
+        await factory.ExpireModernRoleAssignmentAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_modern_projection_revoked_denies_old_JWT()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        await factory.SeedAsync(EmploymentStatuses.Active);
+        await factory.SetupModernInternalIdentityAsync();
+        using var client=await AuthenticatedExistingAsync(factory);
+        await factory.RevokeRoleProjectionAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_external_conversion_denies_visitor_JWT()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        await factory.SeedAsync(EmploymentStatuses.Active);
+        await factory.SetupModernInternalIdentityAsync();
+        using var client=await AuthenticatedExistingAsync(factory);
+        await factory.ConvertInternalToExternalWithoutRoleResetAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_external_supervisor_with_current_grant_allows()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        await factory.SeedAsync(EmploymentStatuses.Active);
+        await factory.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(factory);
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ROLE_optin_ON_external_supervisor_expired_grant_denies_old_JWT()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        await factory.SeedAsync(EmploymentStatuses.Active);
+        await factory.SetupExternalSupervisorAsync();
+        using var client=await AuthenticatedExistingAsync(factory);
+        await factory.ExpireExternalAuthorizationAsync();
+        using var response=await client.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
+    }
+
+    private static async Task<HttpClient> AuthenticatedExistingAsync(
+        B4IsolatedHrLoginFactory factory)
+    {
+        var client=factory.Client();
+        using var response=await B4IsolatedHrLoginFactory.Login(client);
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+        using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var token=json.RootElement.GetProperty("accessToken").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(token));
+        client.DefaultRequestHeaders.Authorization=
+            new AuthenticationHeaderValue("Bearer",token);
+        return client;
     }
 
 }
