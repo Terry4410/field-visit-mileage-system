@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using FieldVisit.Application;
+using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -70,9 +71,19 @@ public sealed class V180LiveSessionGuardMiddleware(RequestDelegate next)
         var projected=new HashSet<string>(
             projection.Select(NormalizeRole),StringComparer.OrdinalIgnoreCase);
 
-        var hasV170=await db.UserIdentityProfiles.AsNoTracking()
-            .AnyAsync(x=>x.UserId==userId,context.RequestAborted);
-        if(hasV170)
+        var userType=await db.UserIdentityProfiles.AsNoTracking()
+            .Where(x=>x.UserId==userId).Select(x=>x.UserType)
+            .SingleOrDefaultAsync(context.RequestAborted);
+        if(userType is not null
+            && !string.Equals(userType,UserTypes.Internal,StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(userType,UserTypes.External,StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("SESSION_ROLE_REVOKED");
+        // An external supervisor may read within separately authorized
+        // scopes, never retain a legacy visitor/leader/admin JWT.
+        if(string.Equals(userType,UserTypes.External,StringComparison.OrdinalIgnoreCase)
+            && jwtRoles.Any(x=>x!="supervisor"))
+            throw new UnauthorizedAccessException("SESSION_ROLE_REVOKED");
+        if(userType is not null)
         {
             var today=BusinessTime.Today;
             var effective=await (
