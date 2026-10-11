@@ -629,3 +629,40 @@ actual deadlock/retry/idempotency, multi-stop ordering, full migration
 schema parity and operational SQL timeouts remain unverified. The
 previous 16/16 checkpoint continues to be the last verified SQL HTTP
 count until replacement evidence is complete.
+
+
+### P2 concurrent Submit defect isolated / narrow 409 correction candidate
+
+Isolated SQL run [38120398771](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38120398771)
+(on intermediate WORK SHA `7a12d9ede7ea897bc4e68c50fb911b4ba4e547f3`)
+identified a reproducible rejected concurrent Submit path:
+SQL error **2601**, unique index
+`IX_VisitTripSnapshots_VisitTripId_SnapshotVersion` with duplicate (trip, version).
+The API returned HTTP 500, so the new concurrency case failed. This
+run is explicitly **FAILED / NOT usable as acceptance evidence**.
+The other two new SQL cases (racing draft update, SQL snapshot
+write-failure rollback) passed in that intermediate run; both must be
+reproven with the whole suite on the final SHA.
+
+`backend/src/FieldVisit.Api/Program.cs` now maps **only** a
+`DbUpdateException` with SQL 2601/2627 naming that exact
+snapshot unique index to a sanitized HTTP **409** with stable
+`SNAPSHOT_VERSION_CONFLICT` detail. This leaves generic SQL, FK,
+other unique-index, deadlock, timeout and network errors under their
+existing handling. Impact: a losing concurrent Submit is now treated
+as a user-recoverable conflict instead of an unexpected server error;
+no API route/response schema, authorization or database contract is
+changed. UI consumers already handle 409 for stale RowVersion, but
+IT must still check localized retry/display behavior before deployment.
+
+Additional P1 gap from read-only DDL inspection: migration
+`1800_007_mileage_google_governance/Up.sql` contains **five
+additional migration-only triggers** (route attempt/trip linkage,
+selected geocoding, mileage route-trip and decision evidence, and
+snapshot/route attempt-trip linkage). Migrations
+`1800_009` and `1800_010` replace CHECK constraint definitions.
+The automated static P1 report remains expressly scoped to
+`1800_003`, not a comprehensive schema-diff or a formal
+upgrade-path rehearsal. These other migration-owned invariants
+remain **NEEDS VALIDATION** on a separately authorized disposable
+migration baseline.
