@@ -9,7 +9,7 @@ namespace FieldVisit.Api;
 /// <summary>
 /// WORK-only security candidate. OFF by default and not approved for
 /// UAT/production activation. Checks already-issued JWT sessions against
-/// authoritative HR state; grants no roles, Manager rights, or B3 approval.
+/// authoritative HR state AND effective roles; grants no roles, Manager rights, or B3 approval.
 /// </summary>
 public sealed class V180LiveSessionGuardMiddleware(RequestDelegate next)
 {
@@ -52,6 +52,52 @@ public sealed class V180LiveSessionGuardMiddleware(RequestDelegate next)
         if(!hr.IsAllowed)
             throw new UnauthorizedAccessException("SESSION_ACCESS_REVOKED");
 
+        // JWT role claims are a historical snapshot, not an authorization
+        // grant. Revalidate the entire claimed set, not only the selected
+        // X-Active-Role. Partial removal also requires a new JWT.
+        var jwtRoles=context.User.FindAll(ClaimTypes.Role)
+            .Select(x=>NormalizeRole(x.Value)).ToArray();
+        if(jwtRoles.Length==0 || jwtRoles.Any(string.IsNullOrWhiteSpace))
+            throw new UnauthorizedAccessException("SESSION_ROLE_REVOKED");
+
+        var projection=await (
+            from userRole in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking()
+                on userRole.RoleId equals role.RoleId
+            where userRole.UserId==userId && role.IsActive
+            select role.RoleCode
+        ).ToListAsync(context.RequestAborted);
+        var projected=new HashSet<string>(
+            projection.Select(NormalizeRole),StringComparer.OrdinalIgnoreCase);
+
+        var hasV170=await db.UserIdentityProfiles.AsNoTracking()
+            .AnyAsync(x=>x.UserId==userId,context.RequestAborted);
+        if(hasV170)
+        {
+            var today=BusinessTime.Today;
+            var effective=await (
+                from assignment in db.UserRoleAssignments.AsNoTracking()
+                join role in db.Roles.AsNoTracking()
+                    on assignment.RoleId equals role.RoleId
+                where assignment.UserId==userId && role.IsActive
+                    && assignment.EffectiveFrom<=today
+                    && (!assignment.EffectiveTo.HasValue
+                        || assignment.EffectiveTo.Value>=today)
+                select role.RoleCode
+            ).ToListAsync(context.RequestAborted);
+            projected.IntersectWith(effective.Select(NormalizeRole));
+        }
+
+        if(jwtRoles.Any(role=>!projected.Contains(role)))
+            throw new UnauthorizedAccessException("SESSION_ROLE_REVOKED");
+
         await next(context);
     }
+
+    private static string NormalizeRole(string role)=>
+        role.Trim().ToLowerInvariant() switch
+        {
+            "government"=>"supervisor",
+            var normalized=>normalized
+        };
 }
