@@ -204,7 +204,7 @@ jobs:
             echo "UAT/Prod credentials or DB: never used"
             echo "Actual approval/apply: DENY ALL"
             echo "SQL Server partial B4 fixture is NOT Business UAT GO"
-            echo "B4 dated-site SQL: separately verified, never counted in B3 51-case suite"
+            echo "B4 dated-site SQL: separately verified, never counted in B3 55-case suite"
             echo "REAL JWT HTTP + disposable SQL integration: 20 named cases (NONRELEASE)"
             echo "Real Azure/UAT SQL, Entra, migration-owned schema: NOT TESTED"
           } > .ci-artifacts/b3-sql-scope.txt
