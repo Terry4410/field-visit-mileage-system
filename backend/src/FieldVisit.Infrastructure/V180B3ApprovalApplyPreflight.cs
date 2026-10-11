@@ -16,7 +16,6 @@ public static class V180B3ApprovalApplyPreflight
         V180B3ReviewTargetRules.RequireSupportedTarget(
             request, organizationId, publicId);
         if (request.Status != "Pending"
-            || request.ExpectedEntityRowVersion is not { Length: 8 }
             || currentLocationRowVersion is not { Length: 8 }
             || !request.ExpectedEntityRowVersion.SequenceEqual(currentLocationRowVersion))
             throw new InvalidOperationException("B3_SOURCE_ROWVERSION_CONFLICT");
