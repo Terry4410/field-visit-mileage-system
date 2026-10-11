@@ -132,7 +132,7 @@ public sealed partial class B4RealSqlHttpPipelineTests
                 "THROW 51002, N'ISOLATED_MILEAGE_WRITE_FAILURE_MARKER', 1; END");
         }
 
-        using var response = await client.PostAsJsonAsync("/api/v1/trips", Draft(f));
+        using var response = await client.PostAsJsonAsync("/api/v1/trips", ReadyForSubmit(f));
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
         Assert.DoesNotContain("ISOLATED_MILEAGE_WRITE_FAILURE_MARKER", body,
