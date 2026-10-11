@@ -163,6 +163,24 @@ public static class V180B3ApprovalApplyPreflight
         int locationId, byte[]? requestRowVersion,
         byte[]? locationRowVersion)
     {
+        if (string.IsNullOrWhiteSpace(plan.BeforeJson)
+            || string.IsNullOrWhiteSpace(plan.ProposedJson)
+            || plan.BeforeJson.Length > 10000
+            || plan.ProposedJson.Length > 10000)
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_INVALID");
+        try
+        {
+            RequireExactLocationJson(plan.BeforeJson);
+            RequireExactLocationJson(plan.ProposedJson);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_INVALID");
+        }
+        catch (InvalidOperationException)
+        {
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_INVALID");
+        }
         if (plan.DecisionKey == Guid.Empty
             || plan.ReviewerUserId <= 0
             || string.IsNullOrWhiteSpace(plan.ReviewReason)
