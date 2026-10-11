@@ -1749,4 +1749,77 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@key",key))));
     }
 
+    [Fact]
+    public async Task Sql_transaction_check_constraint_failure_rolls_back_decision_and_audit()
+    {
+        var id=await _fixture.InsertRequestAsync(
+            "ROLLBACK_CHECK_"+Guid.NewGuid().ToString("N"));
+        await using(var conn=await _fixture.ConnectAsync())
+        {
+            using var tx=conn.BeginTransaction(IsolationLevel.Serializable);
+            await using(var update=new SqlCommand("""
+                UPDATE dbo.ChangeRequests SET Status=N'Rejected',
+                    ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),
+                    ReviewReason=N'rollback check'
+                WHERE ChangeRequestId=@id
+                """,conn,tx))
+            {
+                update.Parameters.AddWithValue("@id",id);
+                Assert.Equal(1,await update.ExecuteNonQueryAsync());
+            }
+            await using var invalid=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequestEvents(
+                    ChangeRequestId,EventType,ActorUserId,OccurredAt,
+                    CorrelationId,DecisionKey,DetailsJson)
+                VALUES(@id,N'UnapprovedEvent',20,SYSUTCDATETIME(),
+                    NEWID(),NEWID(),N'{}')
+                """,conn,tx);
+            invalid.Parameters.AddWithValue("@id",id);
+            var error=await Assert.ThrowsAsync<SqlException>(
+                ()=>invalid.ExecuteNonQueryAsync());
+            Assert.Equal(547,error.Number);
+            await tx.RollbackAsync();
+        }
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+            ("@id",id)));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+            ("@id",id))));
+    }
+
+    [Fact]
+    public async Task Sql_rolled_back_decision_key_is_reusable_without_phantom_event()
+    {
+        var id=await _fixture.InsertRequestAsync(
+            "ROLLBACK_KEY_"+Guid.NewGuid().ToString("N"));
+        var key=Guid.NewGuid();
+        await using(var conn=await _fixture.ConnectAsync())
+        {
+            using var tx=conn.BeginTransaction(IsolationLevel.Serializable);
+            await using var insert=new SqlCommand("""
+                INSERT INTO dbo.ChangeRequestEvents(
+                    ChangeRequestId,EventType,ActorUserId,OccurredAt,
+                    CorrelationId,DecisionKey,DetailsJson)
+                VALUES(@id,N'Rejected',20,SYSUTCDATETIME(),NEWID(),@key,N'{}')
+                """,conn,tx);
+            insert.Parameters.AddWithValue("@id",id);
+            insert.Parameters.AddWithValue("@key",key);
+            Assert.Equal(1,await insert.ExecuteNonQueryAsync());
+            await tx.RollbackAsync();
+        }
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE DecisionKey=@key",
+            ("@key",key))));
+        Assert.Equal(1,await _fixture.ExecuteAsync("""
+            INSERT INTO dbo.ChangeRequestEvents(
+                ChangeRequestId,EventType,ActorUserId,OccurredAt,
+                CorrelationId,DecisionKey,DetailsJson)
+            VALUES(@id,N'Rejected',20,SYSUTCDATETIME(),NEWID(),@key,N'{}')
+            """,("@id",id),("@key",key)));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE DecisionKey=@key",
+            ("@key",key))));
+    }
+
 }
