@@ -24,6 +24,10 @@ REQUIRED=frozenset({
     "SQL_HTTP_DRAFT_stale_RowVersion_does_not_create_new_audit",
     "SQL_HTTP_DRAFT_competing_same_RowVersion_updates_only_one_winner",
     "SQL_HTTP_DRAFT_forged_official_site_rejected_without_trip_or_audit",
+    "SQL_HTTP_SUBMIT_valid_trip_persists_snapshot_stop_history_and_audit_atomically",
+    "SQL_HTTP_SUBMIT_snapshot_values_survive_later_SQL_site_and_location_rename",
+    "SQL_HTTP_SUBMIT_no_mileage_or_stop_denies_with_zero_snapshot_or_history_writes",
+    "SQL_HTTP_SUBMIT_stale_rowversion_denies_without_submitted_snapshot",
 })
 RELEASE_HOLD={
     "runtime_scope":"ACTUAL_ASPNETCORE_APPJWT_AND_LOCAL_SQL2022",
@@ -108,7 +112,7 @@ def main()->int:
         "### Actual App JWT + real disposable SQL Server 2022 HTTP integration",
         "Status: "+result["status"],"Source SHA: "+str(result.get("source_sha")),
         "Cases: "+str(result.get("passed",0))+"/"+str(len(REQUIRED)),
-        "Includes old JWT role/team/HR revocation, dated-site HTTP, outage, draft lifecycle, and competing RowVersion.",
+        "Includes live JWT revocation, SQL outage, draft RowVersion and complete submitted Snapshot transaction.",
         "Only GitHub localhost disposable DB. This is NOT UAT/Production SQL or formal B4 acceptance.",
         "B4 accepted 0/22, B3 OFF, 011 NOT AUTHORIZED, Approve/Apply DENY ALL.",
         "Manager Grant BLOCKED, Business UAT HOLD, Production HARD HOLD."

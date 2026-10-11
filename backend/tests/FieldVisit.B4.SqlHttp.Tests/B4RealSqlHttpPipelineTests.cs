@@ -571,4 +571,124 @@ public sealed class B4RealSqlHttpPipelineTests
         await AssertNoBusinessWriteAsync(db);
     }
 
+
+    private static SaveTripRequest ReadyForSubmit(DisposableTestDatabase f)=>
+        Draft(f,"Authoritative submitted draft") with
+        {
+            ClaimedDistanceKm=12.5m,
+            Stops=new[]
+            {
+                new TripStopInput(f.LocationId,null,null,"Master",
+                    "Immutable visit snapshot","2026 original visit address",
+                    "Site visit","Original stop notes")
+            }
+        };
+
+    private static async Task<(long Id,string Version)> CreateReadyDraftAsync(
+        HttpClient client,DisposableTestDatabase f)
+    {
+        using var response=await client.PostAsJsonAsync("/api/v1/trips",ReadyForSubmit(f));
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+        using var doc=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return (doc.RootElement.GetProperty("visitTripId").GetInt64(),
+            doc.RootElement.GetProperty("rowVersion").GetString()!);
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_SUBMIT_valid_trip_persists_snapshot_stop_history_and_audit_atomically()
+    {
+        await using var f=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(f.Connection);
+        using var client=await LoginAsync(host,f);
+        var created=await CreateReadyDraftAsync(client,f);
+        using var response=await SubmitDraftAsync(client,created.Id,created.Version);
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+        var state=await DraftStateAsync(f,created.Id);
+        Assert.Equal("Submitted",state.Status);
+        Assert.Equal(2,state.AuditCount);
+        Assert.Equal(2,state.HistoryCount);
+        await using var db=f.Db();
+        var snapshots=await db.VisitTripSnapshots.AsNoTracking()
+            .Where(x=>x.VisitTripId==created.Id).ToListAsync();
+        var snapshot=Assert.Single(snapshots);
+        Assert.Equal("Submitted",snapshot.SnapshotType);
+        Assert.Equal(1,snapshot.SnapshotVersion);
+        Assert.Equal("Submitted",snapshot.StatusSnapshot);
+        Assert.Equal(12.5m,snapshot.ClaimedDistanceKmSnapshot);
+        Assert.Equal("B4HS",snapshot.StartDeploymentSiteCodeSnapshot);
+        Assert.Equal("B4HS",snapshot.EndDeploymentSiteCodeSnapshot);
+        Assert.NotNull(snapshot.SubmittedAtSnapshot);
+        var stop=Assert.Single(await db.VisitTripSnapshotStops.AsNoTracking()
+            .Where(x=>x.VisitTripSnapshotId==snapshot.VisitTripSnapshotId)
+            .ToListAsync());
+        Assert.Equal(f.LocationId,stop.LocationId);
+        Assert.Equal("Immutable visit snapshot",stop.LocationNameSnapshot);
+        Assert.Equal("2026 original visit address",stop.AddressSnapshot);
+        Assert.Equal("Original stop notes",stop.NotesSnapshot);
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_SUBMIT_snapshot_values_survive_later_SQL_site_and_location_rename()
+    {
+        await using var f=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(f.Connection);
+        using var client=await LoginAsync(host,f);
+        var created=await CreateReadyDraftAsync(client,f);
+        using(var response=await SubmitDraftAsync(client,created.Id,created.Version))
+            Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+        await using(var db=f.Db())
+        {
+            var site=await db.DeploymentSites.SingleAsync(x=>x.DeploymentSiteId==f.SiteId);
+            site.SiteCode="B4HS-RENAMED";
+            site.SiteName="Renamed after submit";
+            var loc=await db.Locations.SingleAsync(x=>x.LocationId==f.LocationId);
+            loc.LocationName="Changed after historical snapshot";
+            await db.SaveChangesAsync();
+        }
+        await using var check=f.Db();
+        var snap=Assert.Single(await check.VisitTripSnapshots.AsNoTracking()
+            .Where(x=>x.VisitTripId==created.Id).ToListAsync());
+        Assert.Equal("B4HS",snap.StartDeploymentSiteCodeSnapshot);
+        Assert.Equal("B4HS",snap.EndDeploymentSiteCodeSnapshot);
+        var stop=Assert.Single(await check.VisitTripSnapshotStops.AsNoTracking()
+            .Where(x=>x.VisitTripSnapshotId==snap.VisitTripSnapshotId).ToListAsync());
+        Assert.Equal("Immutable visit snapshot",stop.LocationNameSnapshot);
+        Assert.Equal("2026 original visit address",stop.AddressSnapshot);
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_SUBMIT_no_mileage_or_stop_denies_with_zero_snapshot_or_history_writes()
+    {
+        await using var f=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(f.Connection);
+        using var client=await LoginAsync(host,f);
+        var created=await CreateDraftAsync(client,f);
+        var before=await DraftStateAsync(f,created.Id);
+        using var response=await SubmitDraftAsync(client,created.Id,created.Version);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity,response.StatusCode);
+        Assert.Equal(before,await DraftStateAsync(f,created.Id));
+        await using var db=f.Db();
+        Assert.Empty(await db.VisitTripSnapshots.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.VisitTripSnapshotStops.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task SQL_HTTP_SUBMIT_stale_rowversion_denies_without_submitted_snapshot()
+    {
+        await using var f=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(f.Connection);
+        using var client=await LoginAsync(host,f);
+        var created=await CreateReadyDraftAsync(client,f);
+        using(var edit=await UpdateDraftAsync(client,created.Id,created.Version,
+            ReadyForSubmit(f) with { Notes="Updated; old token should fail" }))
+            Assert.Equal(HttpStatusCode.OK,edit.StatusCode);
+        var afterEdit=await DraftStateAsync(f,created.Id);
+        using var response=await SubmitDraftAsync(client,created.Id,created.Version);
+        Assert.Equal(HttpStatusCode.Conflict,response.StatusCode);
+        Assert.Equal(afterEdit,await DraftStateAsync(f,created.Id));
+        await using var db=f.Db();
+        Assert.Empty(await db.VisitTripSnapshots.AsNoTracking().ToListAsync());
+    }
+
+
 }

@@ -480,6 +480,36 @@ OFF; Approve/Apply DENY ALL; Manager Grant BLOCKED; 1800_011
 NOT AUTHORIZED; B4 formally accepted 0/22;
 Business UAT HOLD and Production HARD HOLD.
 
+## Real SQL HTTP Submitted Snapshot transaction and schema caveat
+
+Four additional SQL Server 2022 + real JWT authenticated HTTP cases
+cover: valid draft submit with at least one approved visit stop and
+claimed mileage, asserting ONE Submitted Snapshot and ONE snapshot
+stop plus persisted status/history/audit together; historical snapshot
+site code and visit stop address remaining unchanged after later SQL
+site/location rename; missing stops/mileage preventing submission with
+NO snapshot/history/audit mutation; and stale RowVersion preventing a
+Submitted snapshot after a legitimate prior draft update.
+
+The canonical SQL HTTP suite now has 16 individually named cases,
+bound to independent TRX identities and the exact WORK source SHA.
+The earlier 51 B3 SQL and 6 site-reader SQL cases are unchanged.
+
+**Schema compatibility boundary:** EF Database.EnsureCreated in the
+disposable CI database does NOT run the migration chain
+1600_001..1800_010, and does not create SQL objects solely defined
+in migration scripts such as dbo.TR_DeploymentSites_CenterPeriod.
+Historical SQL Server triggers, constraints, data backfills,
+permission grants and deployment-owned checks may therefore differ.
+The supported evidence is a contract test for the EF runtime model
+only, NOT a UAT-schema parity certificate. A true upgrade-path
+migration rehearsal on an authorized *disposable* migration
+baseline remains pending; this is NOT permission to apply 1800_011.
+
+All controls unchanged: LiveSessionGuard opt-in test only/default OFF,
+B3 OFF; Approve/Apply DENY ALL; Manager Grant BLOCKED;
+B4 formally accepted 0/22; Business UAT HOLD, Production HARD HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
