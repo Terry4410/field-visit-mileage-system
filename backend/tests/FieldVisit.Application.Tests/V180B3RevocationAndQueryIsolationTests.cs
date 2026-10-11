@@ -167,4 +167,65 @@ public sealed class V180B3RevocationAndQueryIsolationTests
             .Select(x=>x.ChangeRequestId).ToArrayAsync();
         Assert.Equal(new long[]{301},ids);
     }
+
+    [Fact]
+    public async Task Changed_organization_revokes_existing_actor_identity_immediately()
+    {
+        await using var db=await ActiveUserAsync();
+        await V180B3ActorEligibility.RequireAsync(db,Actor(),CancellationToken.None);
+        var account=await db.Users.SingleAsync(x=>x.UserId==UserId);
+        account.OrganizationId=2;
+        await db.SaveChangesAsync();db.ChangeTracker.Clear();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            V180B3ActorEligibility.RequireAsync(db,Actor(),CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Conversion_from_legacy_internal_to_external_denies_stale_internal_actor()
+    {
+        await using var db=await ActiveUserAsync();
+        await V180B3ActorEligibility.RequireAsync(db,Actor(),CancellationToken.None);
+        db.UserIdentityProfiles.Add(new UserIdentityProfile{
+            UserId=UserId,UserCode="B3TEST",UserType=UserTypes.External,
+            CreatedAt=DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();db.ChangeTracker.Clear();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            V180B3ActorEligibility.RequireAsync(db,Actor(),CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Future_dated_HR_leave_does_not_override_present_active_eligibility()
+    {
+        await using var db=await ActiveUserAsync();
+        db.UserEmploymentPeriods.Add(new UserEmploymentPeriod{
+            UserEmploymentPeriodId=1002,UserId=UserId,
+            EmploymentStatus=EmploymentStatuses.Leave,
+            EffectiveFrom=BusinessTime.Today.AddDays(1)
+        });
+        await db.SaveChangesAsync();db.ChangeTracker.Clear();
+        await V180B3ActorEligibility.RequireAsync(db,Actor(),CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Future_dated_active_period_does_not_authorize_current_login()
+    {
+        await using var db=await ActiveUserAsync();
+        var active=await db.UserEmploymentPeriods.SingleAsync(x=>x.UserId==UserId);
+        active.EffectiveFrom=BusinessTime.Today.AddDays(1);
+        await db.SaveChangesAsync();db.ChangeTracker.Clear();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            V180B3ActorEligibility.RequireAsync(db,Actor(),CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Spoofed_user_identity_with_valid_organization_does_not_get_other_user_access()
+    {
+        await using var db=await ActiveUserAsync();
+        await V180B3ActorEligibility.RequireAsync(db,Actor(),CancellationToken.None);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+            V180B3ActorEligibility.RequireAsync(db,Actor(id:UserId+1),
+                CancellationToken.None));
+    }
+
 }

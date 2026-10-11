@@ -1544,4 +1544,117 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@id",id))));
     }
 
+
+    [Fact]
+    public async Task Ef_SQL_rejected_history_visible_only_to_owner_not_admin_pending()
+    {
+        var prefix="SQL_REJECTED_OWNER_"+Guid.NewGuid().ToString("N");
+        var mine=await _fixture.InsertRequestAsync(prefix+"_mine");
+        var peer=await _fixture.InsertRequestAsync(prefix+"_peer");
+        await _fixture.ExecuteAsync(
+            "UPDATE dbo.ChangeRequests SET RequestedByUserId=20 WHERE ChangeRequestId=@id",
+            ("@id",peer));
+        foreach(var id in new[]{mine,peer})
+        {
+            await _fixture.ExecuteAsync("""
+                UPDATE dbo.ChangeRequests SET Status=N'Rejected',ReviewedByUserId=30,
+                    ReviewedAt=SYSUTCDATETIME(),ReviewReason=N'independent decision'
+                WHERE ChangeRequestId=@id
+                """,("@id",id));
+            await _fixture.ExecuteAsync("""
+                INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                    ActorUserId,OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+                VALUES(@id,N'Rejected',30,SYSUTCDATETIME(),NEWID(),NEWID(),N'{}')
+                """,("@id",id));
+        }
+        await using var db=QueryDb();
+        var own=await V180B3QueueScopeRules.ForRequester(
+                db.ChangeRequests.AsNoTracking(),QueueActor())
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>x.ChangeRequestId).ToArrayAsync();
+        Assert.Equal(new long[]{mine},own);
+        var pending=await V180B3QueueScopeRules.ForAdminPending(
+                db.ChangeRequests.AsNoTracking(),QueueActor())
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>x.ChangeRequestId).ToArrayAsync();
+        Assert.Empty(pending);
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE ChangeRequestId IN (@mine,@peer) AND EventType=N'Rejected'
+            """,("@mine",mine),("@peer",peer))));
+    }
+
+    [Fact]
+    public async Task Ef_SQL_peer_and_cross_org_sensitive_before_evidence_json_not_disclosed()
+    {
+        var prefix="SQL_SENSITIVE_JSON_"+Guid.NewGuid().ToString("N");
+        var mine=await _fixture.InsertRequestAsync(prefix+"_mine");
+        var peer=await _fixture.InsertRequestAsync(prefix+"_peer");
+        var foreign=await _fixture.InsertRequestAsync(prefix+"_foreign",org:2);
+        await _fixture.ExecuteAsync(
+            "UPDATE dbo.ChangeRequests SET RequestedByUserId=20 WHERE ChangeRequestId=@id",
+            ("@id",peer));
+        foreach(var (id,content) in new[]{
+            (mine,"SAFE_OWN"),(peer,"FORBIDDEN_PEER"),(foreign,"FORBIDDEN_FOREIGN")})
+            await _fixture.ExecuteAsync("""
+                UPDATE dbo.ChangeRequests
+                SET BeforeJson=@before, EvidenceJson=@evidence
+                WHERE ChangeRequestId=@id
+                """,("@before","{\"Name\":\""+content+"\"}"),
+                ("@evidence","{\"Evidence\":\""+content+"\"}"),("@id",id));
+        await using var db=QueryDb();
+        var views=await V180B3QueueScopeRules.ForRequester(
+                db.ChangeRequests.AsNoTracking(),QueueActor())
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>new{x.BeforeJson,x.EvidenceJson}).ToArrayAsync();
+        Assert.Single(views);
+        Assert.Contains("SAFE_OWN",views[0].BeforeJson);
+        Assert.Contains("SAFE_OWN",views[0].EvidenceJson);
+        Assert.DoesNotContain("FORBIDDEN_PEER",
+            string.Join("|",views.Select(x=>x.BeforeJson+x.EvidenceJson)));
+        Assert.DoesNotContain("FORBIDDEN_FOREIGN",
+            string.Join("|",views.Select(x=>x.BeforeJson+x.EvidenceJson)));
+    }
+
+    [Fact]
+    public async Task Ef_SQL_switching_actor_org_between_queries_never_reuses_previous_tenant_scope()
+    {
+        var prefix="SQL_ORG_SWITCH_"+Guid.NewGuid().ToString("N");
+        var org1=await _fixture.InsertRequestAsync(prefix+"_org1",org:1);
+        var org2=await _fixture.InsertRequestAsync(prefix+"_org2",org:2);
+        await using var db=QueryDb();
+        foreach(var org in new[]{1,2,1,2})
+        {
+            var ids=await V180B3QueueScopeRules.ForRequester(
+                    db.ChangeRequests.AsNoTracking(),QueueActor(organizationId:org))
+                .Where(x=>x.EntityId.StartsWith(prefix))
+                .Select(x=>x.ChangeRequestId).ToArrayAsync();
+            Assert.Equal(new long[]{org==1?org1:org2},ids);
+        }
+    }
+
+    [Fact]
+    public async Task Ef_SQL_admin_org_queue_includes_peer_but_requester_mine_does_not()
+    {
+        var prefix="SQL_ADMIN_VS_OWNER_"+Guid.NewGuid().ToString("N");
+        var mine=await _fixture.InsertRequestAsync(prefix+"_mine");
+        var peer=await _fixture.InsertRequestAsync(prefix+"_peer");
+        var foreign=await _fixture.InsertRequestAsync(prefix+"_foreign",org:2);
+        await _fixture.ExecuteAsync(
+            "UPDATE dbo.ChangeRequests SET RequestedByUserId=20 WHERE ChangeRequestId=@id",
+            ("@id",peer));
+        await using var db=QueryDb();
+        var own=await V180B3QueueScopeRules.ForRequester(
+                db.ChangeRequests.AsNoTracking(),QueueActor())
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>x.ChangeRequestId).OrderBy(x=>x).ToArrayAsync();
+        var admin=await V180B3QueueScopeRules.ForAdminPending(
+                db.ChangeRequests.AsNoTracking(),QueueActor())
+            .Where(x=>x.EntityId.StartsWith(prefix))
+            .Select(x=>x.ChangeRequestId).OrderBy(x=>x).ToArrayAsync();
+        Assert.Equal(new long[]{mine},own);
+        Assert.Equal(new long[]{mine,peer},admin);
+        Assert.DoesNotContain(foreign,admin);
+    }
+
 }

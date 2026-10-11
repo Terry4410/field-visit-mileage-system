@@ -60,6 +60,10 @@ REQUIRED_SQL_TESTS=frozenset({
     "Ef_SQL_Requester_refuses_unknown_identity_or_tenant_before_query",
     "Ef_SQL_Mine_query_does_not_mutate_rowversion_or_create_events",
     "Ef_SQL_stale_tracked_request_update_fails_concurrency_without_audit",
+    "Ef_SQL_rejected_history_visible_only_to_owner_not_admin_pending",
+    "Ef_SQL_peer_and_cross_org_sensitive_before_evidence_json_not_disclosed",
+    "Ef_SQL_switching_actor_org_between_queries_never_reuses_previous_tenant_scope",
+    "Ef_SQL_admin_org_queue_includes_peer_but_requester_mine_does_not",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

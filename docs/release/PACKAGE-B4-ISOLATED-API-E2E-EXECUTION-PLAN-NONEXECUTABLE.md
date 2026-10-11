@@ -81,6 +81,28 @@ requests or HR/Owner provenance. The fixture's identity records are minimal;
 there is still no full 011 migration, API token/session flow, B3 enablement
 or Manager Grant authorization.
 
+## Fourth WORK-only query and live actor regression batch
+
+The candidate now adds four actual EF Core / SQL Server 2022 query-scope
+regressions in the disposable localhost database: Rejected history visible
+to its original requester while absent from Pending Admin queue; BeforeJson
+and EvidenceJson isolation against same-team peer and foreign organization;
+repeated organization switching across SQL queries to avoid stale scope
+reuse; and Admin organization-wide pending visibility without granting a
+visitor access to another person's Mine queue. The SQL evidence manifest
+requires **51 named engine cases**, each with an individual TRX record.
+
+Five additional EF InMemory / live actor checks cover account moving to a
+different organization after an existing identity was established, a legacy
+internal profile changed to External, future-dated Leave not prematurely
+revoking today's eligibility, future-dated Active not prematurely granting
+access, and spoofed user ID refusal. These are isolated code/data tests,
+**not proof of an operating HTTP HR middleware with deployed databases**.
+
+These fixture additions do not alter the B3 feature flag, UAT schema,
+Approve/Apply DENY ALL, historical manager grants or the blocked
+VAL-B1-002 gate. Full B4 22-case acceptance and API-OFF-08 remain pending.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
