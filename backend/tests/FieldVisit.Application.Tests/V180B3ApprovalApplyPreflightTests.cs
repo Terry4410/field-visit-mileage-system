@@ -361,4 +361,22 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 new byte[8], Before));
     }
 
+    [Fact]
+    public void Missing_or_malformed_request_rowversion_cannot_create_approval_plan()
+    {
+        var row = Pending();
+        var review = new V180B3Review(
+            Convert.ToBase64String(new byte[8]), Guid.NewGuid(),
+            "Independent approval");
+        foreach (var version in new[] { Array.Empty<byte>(), new byte[7], new byte[9] })
+        {
+            row.RowVersion = version;
+            Assert.Throws<InvalidOperationException>(() =>
+                V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                    row, 1, row.RequestPublicId, 20, review,
+                    9, 1, 7, 910, "Customer", "Approved", true,
+                    new byte[8], Before));
+        }
+    }
+
 }
