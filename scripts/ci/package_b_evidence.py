@@ -254,6 +254,40 @@ def validate_role_http_trx(path: Path) -> dict:
             "manager_grant":"BLOCKED","business_uat":"HOLD","production":"HARD_HOLD"}
 
 
+# Independent B4 WORK-only revocation suites: no formal acceptance.
+TEAM_SCOPE_HTTP_PREFIX="FieldVisit.Application.Tests.V180HrLoginHttpPipelineTests."
+TEAM_HTTP_REQUIRED=frozenset(["TEAM_default_OFF_revoked_legacy_team_still_accepted_by_old_JWT","TEAM_optin_ON_valid_legacy_membership_primary_JWT_allowed","TEAM_optin_ON_legacy_membership_revoked_JWT_403","TEAM_optin_ON_primary_switch_invalidates_old_JWT","TEAM_optin_ON_disabled_team_invalidates_old_JWT","TEAM_optin_ON_cross_org_team_invalidates_old_JWT","TEAM_optin_ON_team_rename_keeps_same_authority_valid","TEAM_optin_ON_modern_effective_team_assignment_allowed","TEAM_optin_ON_modern_team_assignment_expiry_revokes_old_JWT"])
+SUPERVISOR_SCOPE_HTTP_REQUIRED=frozenset(["SCOPE_optin_ON_supervisor_valid_org_scope_allows_existing_JWT","SCOPE_optin_ON_supervisor_scope_removed_denies_existing_JWT","SCOPE_optin_ON_supervisor_scope_expired_denies_existing_JWT","SCOPE_optin_ON_supervisor_wrong_org_scope_denies_existing_JWT","SCOPE_optin_ON_supervisor_changed_to_valid_team_live_scope_not_old_org","SCOPE_optin_ON_supervisor_team_scope_foreign_org_denied","SCOPE_optin_ON_supervisor_team_scope_disabled_denied"])
+
+def validate_team_scope_http_trx(path: Path) -> dict:
+    root=ET.parse(path).getroot()
+    expected={TEAM_SCOPE_HTTP_PREFIX+x for x in
+              TEAM_HTTP_REQUIRED|SUPERVISOR_SCOPE_HTTP_REQUIRED}
+    rows=[r for r in root.findall(".//{*}UnitTestResult")
+          if r.get("testName","").startswith(TEAM_SCOPE_HTTP_PREFIX+"TEAM_")
+          or r.get("testName","").startswith(TEAM_SCOPE_HTTP_PREFIX+"SCOPE_")]
+    names=[r.get("testName") for r in rows]
+    if len(rows)!=len(expected) or set(names)!=expected or len(set(names))!=len(names):
+        raise ValueError("team/supervisor scope HTTP mandatory cases missing, replaced or duplicated")
+    ids=set()
+    for r in rows:
+        if r.get("outcome")!="Passed":
+            raise ValueError("team/supervisor scope HTTP mandatory case failed")
+        for k in ("testId","executionId"):
+            value=r.get(k)
+            if not value or value in ids:
+                raise ValueError("team/supervisor scope HTTP evidence ID absent or duplicated")
+            ids.add(value)
+    return {"status":"PASS","scope":"ISOLATED_TESTSERVER_EF_INMEMORY_TEAM_SUPERVISOR",
+            "team_passed":len(TEAM_HTTP_REQUIRED),
+            "supervisor_scope_passed":len(SUPERVISOR_SCOPE_HTTP_REQUIRED),
+            "passed":len(rows),"required":len(expected),
+            "live_session_guard_deployed":"OFF_REQUIRED",
+            "deployment_site_jwt_claim":"NOT_PRESENT",
+            "formal_api_b4":"NOT_EXECUTED",
+            "business_uat":"HOLD","production":"HARD_HOLD"}
+
+
 def parse_trx(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
     counters = root.find(".//{*}Counters")
@@ -307,11 +341,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             require_http_off: bool = False,
             require_hr_http: bool = False,
             require_session_http: bool = False,
-            require_role_http: bool = False) -> dict:
+            require_role_http: bool = False,
+            require_team_scope_http: bool = False) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
                 "backend": None, "frontend": None, "b4_matrix": None,
-                "http_off": None, "hr_http": None, "session_http": None, "role_http": None,
+                "http_off": None, "hr_http": None, "session_http": None, "role_http": None, "team_scope_http": None,
                 "build_and_ci_steps": None,
                 "release_authorization": dict(RELEASE_HOLD_CONTRACT),
                 "release_go": False,
@@ -353,6 +388,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             evidence["role_http"]["source_sha"]=evidence["guard"]["sha"]
         except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
             evidence["errors"].append("Role HTTP: "+str(exc))
+    if require_team_scope_http:
+        try:
+            evidence["team_scope_http"]=validate_team_scope_http_trx(trx)
+            evidence["team_scope_http"]["source_sha"]=evidence["guard"]["sha"]
+        except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
+            evidence["errors"].append("Team/supervisor HTTP: "+str(exc))
     try:
         data = parse_junit(junit)
         if data["total"] <= 0 or data["failed"] or data["skipped"] or \
@@ -400,7 +441,8 @@ def main() -> int:
     result = collect(Path(args.guard), Path(args.trx), Path(args.junit),
                      Path(args.matrix), step_outcomes=steps,
                      require_http_off=True, require_hr_http=True,
-                     require_session_http=True, require_role_http=True)
+                     require_session_http=True, require_role_http=True,
+                     require_team_scope_http=True)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -444,6 +486,11 @@ def main() -> int:
         lines.append("| Role JWT recertification (isolated, default OFF) | "+
                      str(h["passed"])+"/"+str(h["required"])+
                      " PASS; Manager Grant/B4/UAT HOLD |")
+    if result["team_scope_http"]:
+        h=result["team_scope_http"]
+        lines.append("| JWT team/primary and external Supervisor DataScope (isolated, OFF) | "+
+                     str(h["passed"])+"/"+str(h["required"])+
+                     " PASS; B4 API/IT deployment NOT EXECUTED |")
     if result["b4_matrix"]:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")
