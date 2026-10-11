@@ -16,6 +16,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 DDL = ROOT / "database/migrations/1800_003_deployment_sites/Up.sql"
 MODEL = ROOT / "backend/src/FieldVisit.Infrastructure/AppDbContext.cs"
+DDL_009 = ROOT / "database/migrations/1800_009_one_stop_route_attempt_constraint/Up.sql"
+DDL_010 = ROOT / "database/migrations/1800_010_background_mileage_reason_constraint/Up.sql"
 
 TABLES = {
     "DeploymentSites": "DeploymentSite",
@@ -45,7 +47,8 @@ CHECKS = (
     "CK_EmploymentDeploymentSiteAssignments_Dates",
 )
 
-def analyze(sql: str, ef: str, sha: str = "LOCAL") -> dict:
+def analyze(sql: str, ef: str, sha: str = "LOCAL",
+            sql_009: str | None = None, sql_010: str | None = None) -> dict:
     rows: list[dict[str, str]] = []
     failures: list[str] = []
 
@@ -93,6 +96,34 @@ def analyze(sql: str, ef: str, sha: str = "LOCAL") -> dict:
         record("TRIGGER", name, "DIFFERENCE" if in_sql else "BLOCKED",
                "SQL-only migration trigger; EF EnsureCreated does not execute migration Up.sql")
 
+    # Static, nonexecuting inventory of migration-only 009/010 CHECK changes.
+    # These definitions are intentionally NOT enforced by EF EnsureCreated.
+    if sql_009 is not None:
+        valid_009 = bool(re.search(
+            r"ALTER\\s+TABLE\\s+dbo\\.RouteCalculationAttempts\\s+WITH\\s+CHECK\\s+ADD"
+            r"\\s+CONSTRAINT\\s+CK_RouteCalculationAttempts_StopCount\\s+CHECK\\s*\\(\\s*StopCount\\s*>=\\s*1\\s*\\)",
+            sql_009, re.I))
+        if not valid_009:
+            failures.append("1800_009 StopCount >= 1 constraint missing or drifted")
+        record("MIGRATION_ONLY_CHECK", "1800_009:StopCount>=1",
+               "DIFFERENCE" if valid_009 else "BLOCKED",
+               "Migration-only SQL CHECK; EF EnsureCreated does not enforce it")
+    if sql_010 is not None:
+        reason_block = re.search(
+            r"CONSTRAINT\\s+CK_RouteCalculationAttempts_Reason\\s+CHECK\\s*\\((.*?)\\)\\s*;",
+            sql_010, re.I | re.S)
+        expected_reasons = (
+            "VisitorCalculate", "LeaderRetry",
+            "CorrectionRecalculate", "BackgroundMileageJob")
+        valid_010 = bool(reason_block and all(
+            re.search(r"CalculationReason\\s*=\\s*N'" + reason + r"'", reason_block.group(1), re.I)
+            for reason in expected_reasons))
+        if not valid_010:
+            failures.append("1800_010 reason CHECK missing or drifted")
+        record("MIGRATION_ONLY_CHECK", "1800_010:CalculationReason",
+               "DIFFERENCE" if valid_010 else "BLOCKED",
+               "Four migration-only allowed reasons; EF EnsureCreated does not enforce them")
+
     record("FK_INDEX_INCLUDED_COLUMNS", "1800_003", "NEEDS VALIDATION",
            "Names alone do not establish FK delete rules, included index columns or SQL CHECK enforcement")
     record("TRIP_SNAPSHOT_AUDIT_HISTORY", "1600_*..1800_010", "NEEDS VALIDATION",
@@ -102,7 +133,7 @@ def analyze(sql: str, ef: str, sha: str = "LOCAL") -> dict:
     return {
         "kind": "B4_SCHEMA_PARITY_STATIC_INVENTORY_NONRELEASE",
         "source_sha": sha,
-        "scope": "1800_003 STATIC ONLY; EF AppDbContext vs Up.sql",
+        "scope": "1800_003 static EF comparison; optional 1800_009/010 migration-only CHECK inventory",
         "status": "FAIL_CLOSED" if failures else "PASS_WITH_KNOWN_DIFFERENCES",
         "schema_parity": "NOT_VERIFIED",
         "migration_executed": False,
@@ -123,7 +154,8 @@ def main() -> int:
     parser.add_argument("--summary", required=True)
     args = parser.parse_args()
     result = analyze(DDL.read_text(encoding="utf-8"), MODEL.read_text(encoding="utf-8"),
-                     os.getenv("GITHUB_SHA", "LOCAL"))
+                     os.getenv("GITHUB_SHA", "LOCAL"),
+                     DDL_009.read_text(encoding="utf-8"), DDL_010.read_text(encoding="utf-8"))
     output = Path(args.report)
     summary = Path(args.summary)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -132,7 +164,7 @@ def main() -> int:
     lines = ["### P1: static SQL migration / EF gap inventory (NO MIGRATION)",
              "Status: " + result["status"],
              "Full migration schema parity: NOT_VERIFIED",
-             "Only 1800_003 compared statically; known migration-only triggers and checks are DIFFERENCE.",
+             "1800_003 compared statically; 1800_009/010 migration-only CHECKs inventoried; full parity NOT VERIFIED.",
              "| Kind | Name | Assessment |",
              "| --- | --- | --- |"]
     lines += [f'| {x["kind"]} | {x["name"]} | {x["status"]} |' for x in result["rows"]]
