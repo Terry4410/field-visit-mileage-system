@@ -509,4 +509,23 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 new byte[8], Before));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(7)]
+    [InlineData(9)]
+    public void Approval_plan_rejects_malformed_current_source_rowversion(int length)
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent approval");
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[length], Before));
+        Assert.Equal("B3_SOURCE_ROWVERSION_CONFLICT", error.Message);
+    }
+
 }
