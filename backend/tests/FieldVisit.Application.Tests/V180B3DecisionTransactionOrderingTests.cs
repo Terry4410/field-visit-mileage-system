@@ -43,4 +43,23 @@ public sealed class V180B3DecisionTransactionOrderingTests
         Assert.Contains("B3_DECISION_KEY_REPLAY",body);
         Assert.Contains("B3_ADMIN_REQUIRED",body);
     }
+    [Fact]
+    public void Approval_executor_remains_explicitly_denied_without_location_or_event_writes()
+    {
+        var source = Source();
+        var begin = source.IndexOf("public async Task<V180B3RequestView> ApproveAsync(",
+            StringComparison.Ordinal);
+        Assert.True(begin >= 0);
+        var body = source[begin..];
+        Assert.Contains("await ReadyAsync(ct)", body);
+        Assert.Contains("LiveActorAsync(ct)", body);
+        Assert.Contains("B3_ADMIN_REQUIRED", body);
+        Assert.Contains("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED", body);
+        Assert.DoesNotContain("db.SaveChangesAsync(", body);
+        Assert.DoesNotContain("db.ChangeRequestEvents.Add(", body);
+        Assert.DoesNotContain("db.Locations.Update(", body);
+        Assert.DoesNotContain("db.Database.ExecuteSql", body);
+        Assert.DoesNotContain("BeginTransactionAsync(", body);
+    }
+
 }
