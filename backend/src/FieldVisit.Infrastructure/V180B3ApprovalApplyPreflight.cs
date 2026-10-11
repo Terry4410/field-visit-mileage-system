@@ -23,6 +23,7 @@ public static class V180B3ApprovalApplyPreflight
             request, organizationId, publicId);
         if (request.Status != "Pending"
             || currentLocationRowVersion is not { Length: 8 }
+            || request.ExpectedEntityRowVersion is not { Length: 8 }
             || !request.ExpectedEntityRowVersion.SequenceEqual(currentLocationRowVersion))
             throw new InvalidOperationException("B3_SOURCE_ROWVERSION_CONFLICT");
         if (string.IsNullOrWhiteSpace(request.BeforeJson)
