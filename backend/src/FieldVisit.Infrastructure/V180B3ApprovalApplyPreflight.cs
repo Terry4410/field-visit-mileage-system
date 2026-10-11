@@ -54,6 +54,17 @@ public static class V180B3ApprovalApplyPreflight
     }
 
     /// <summary>
+    /// Defensive check for SQL rowversion shape before constructing any
+    /// approval plan, including data that may have come from a malformed
+    /// isolated fixture rather than the real database.
+    /// </summary>
+    private static void RequireRequestRowVersion(V180B3ChangeRequest request)
+    {
+        if (request.RowVersion is not { Length: 8 })
+            throw new InvalidOperationException("B3_REQUEST_ROWVERSION_INVALID");
+    }
+
+    /// <summary>
     /// Pure approval decision gate. The caller must still revalidate live Admin
     /// authorization inside a serializable SQL transaction and enforce unique
     /// DecisionKey at the database boundary.
@@ -67,6 +78,7 @@ public static class V180B3ApprovalApplyPreflight
         if (reviewerUserId <= 0)
             throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
         V180B3RequestInputRules.RequireReviewTarget(publicId, review);
+        RequireRequestRowVersion(request);
         return V180B3ProposalSafetyRules.RequireIndependentReview(
             request.RequestedByUserId, reviewerUserId,
             request.Status, request.RowVersion,
