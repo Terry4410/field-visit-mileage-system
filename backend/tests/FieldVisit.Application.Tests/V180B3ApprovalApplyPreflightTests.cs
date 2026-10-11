@@ -687,6 +687,12 @@ public sealed class V180B3ApprovalApplyPreflightTests
         byte[]? expectedVersion = null) => new()
     {
         RequestPublicId = row.RequestPublicId,
+        OrganizationId = row.OrganizationId,
+        TeamId = row.TeamId,
+        EntityKind = row.EntityKind,
+        OperationCode = row.OperationCode,
+        RiskCode = row.RiskCode,
+        RequestedByUserId = row.RequestedByUserId,
         EntityId = row.EntityId,
         Status = status ?? row.Status,
         RowVersion = row.RowVersion,
@@ -694,5 +700,34 @@ public sealed class V180B3ApprovalApplyPreflightTests
         BeforeJson = beforeJson ?? row.BeforeJson,
         ProposedJson = proposedJson ?? row.ProposedJson
     };
+
+    [Fact]
+    public void Approval_plan_locked_request_guard_rejects_cross_scope_and_self_review()
+    {
+        var request = Pending();
+        request.RowVersion = new byte[8];
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        void Deny(Action<V180B3ChangeRequest> change)
+        {
+            var row = CloneRequest(request);
+            change(row);
+            Assert.Equal("B3_APPROVAL_PLAN_STALE",
+                Assert.Throws<InvalidOperationException>(() =>
+                    V180B3ApprovalApplyPreflight.RequirePlanSnapshotsStillCurrent(
+                        plan, Before, new byte[8], row)).Message);
+        }
+        Deny(x => x.OrganizationId = 0);
+        Deny(x => x.TeamId = null);
+        Deny(x => x.EntityKind = "Team");
+        Deny(x => x.OperationCode = "DeleteLocation");
+        Deny(x => x.RiskCode = "Low");
+        Deny(x => x.RequestedByUserId = 20);
+        Deny(x => x.ReviewedByUserId = 20);
+        Deny(x => x.ReviewedAt = DateTime.UtcNow);
+        Deny(x => x.AppliedAt = DateTime.UtcNow);
+    }
 
 }
