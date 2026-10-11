@@ -86,6 +86,18 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 row, 2, row.RequestPublicId, new byte[8], Before));
     }
 
+    [Theory]
+    [InlineData("{\\"LocationName\\":\\"New name\\",\\"City\\":\\"Taipei\\",\\"District\\":\\"Xinyi\\",\\"Address\\":\\"Old address\\",\\"PlusCode\\":null,\\"TaxId\\":null,\\"MasterNote\\":null,\\"IsActive\\":true}")]
+    [InlineData("{\\"LocationName\\":\\"New name\\",\\"City\\":\\"Taipei\\",\\"District\\":\\"Xinyi\\",\\"Address\\":\\"Old address\\",\\"PlusCode\\":null,\\"TaxId\\":null}")]
+    [InlineData("{\\"LocationName\\":\\"New name\\",\\"LocationName\\":\\"Injected\\",\\"City\\":\\"Taipei\\",\\"District\\":\\"Xinyi\\",\\"Address\\":\\"Old address\\",\\"PlusCode\\":null,\\"TaxId\\":null,\\"MasterNote\\":null}")]
+    [InlineData("{\\"LocationName\\":7,\\"City\\":\\"Taipei\\",\\"District\\":\\"Xinyi\\",\\"Address\\":\\"Old address\\",\\"PlusCode\\":null,\\"TaxId\\":null,\\"MasterNote\\":null}")]
+    public void Extra_missing_duplicate_or_nonstring_fields_are_rejected(string json)
+    {
+        var row = Pending();
+        row.ProposedJson = json;
+        Assert.Throws<InvalidOperationException>(() => Validate(row));
+    }
+
     [Fact]
     public void Invalid_or_no_change_proposal_fails_closed()
     {
