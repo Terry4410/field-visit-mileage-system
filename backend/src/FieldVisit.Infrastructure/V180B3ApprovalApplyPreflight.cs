@@ -207,6 +207,50 @@ public static class V180B3ApprovalApplyPreflight
             throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
     }
 
+    /// <summary>
+    /// A preflight plan is not a trusted audit source. A future SQL executor
+    /// must compare the plan against freshly locked source fields and the
+    /// freshly loaded Pending request before any write.
+    /// </summary>
+    public static void RequirePlanSnapshotsStillCurrent(
+        V180B3ApprovalApplyPlan plan,
+        V180B3LocationFields lockedCurrentLocation,
+        V180B3ChangeRequest lockedRequest)
+    {
+        if (lockedRequest.RequestPublicId != plan.RequestPublicId
+            || !int.TryParse(lockedRequest.EntityId, out var requestLocationId)
+            || requestLocationId != plan.LocationId
+            || lockedRequest.Status != "Pending")
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
+        RequirePlanVersionsStillCurrent(
+            plan, lockedRequest.RequestPublicId, requestLocationId,
+            lockedRequest.RowVersion, lockedRequest.ExpectedEntityRowVersion);
+        try
+        {
+            RequireExactLocationJson(plan.BeforeJson);
+            RequireExactLocationJson(plan.ProposedJson);
+            RequireExactLocationJson(lockedRequest.BeforeJson ?? "");
+            RequireExactLocationJson(lockedRequest.ProposedJson);
+            var before = JsonSerializer.Deserialize<V180B3LocationFields>(plan.BeforeJson);
+            var proposed = JsonSerializer.Deserialize<V180B3LocationFields>(plan.ProposedJson);
+            var requestBefore = JsonSerializer.Deserialize<V180B3LocationFields>(lockedRequest.BeforeJson);
+            var requestProposed = JsonSerializer.Deserialize<V180B3LocationFields>(lockedRequest.ProposedJson);
+            if (before is null || proposed is null || requestBefore is null
+                || requestProposed is null || !JsonEquals(before, lockedCurrentLocation)
+                || !JsonEquals(before, requestBefore)
+                || !JsonEquals(proposed, requestProposed))
+                throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
+        }
+        catch (InvalidOperationException)
+        {
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
+        }
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
