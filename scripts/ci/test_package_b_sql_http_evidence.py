@@ -25,16 +25,16 @@ class RealJwtSqlHttpEvidenceTests(unittest.TestCase):
             f'total="{len(names)}" passed="{len(names)-skip}" failed="0" error="0"'
             f' notExecuted="{skip}"/></ResultSummary></TestRun>')
 
-    def test_exact_sixteen_hold_contract_and_sha(self):
+    def test_exact_nineteen_hold_contract_and_sha(self):
         proof=validate(self.trx,"a"*40)
-        self.assertEqual(16,proof["passed"])
+        self.assertEqual(19,proof["passed"])
         self.assertEqual("a"*40,proof["source_sha"])
         self.assertEqual("HARD_HOLD",proof["production"])
         self.assertEqual(0,proof["formal_b4_accepted"])
         self.assertEqual("NOT_AUTHORIZED",proof["011_migration"])
         self.assertEqual("OFF",proof["b3_flag"])
         self.assertEqual("DENY_ALL",proof["approve_apply"])
-        self.assertEqual(16,len(proof["case_results"]))
+        self.assertEqual(19,len(proof["case_results"]))
         self.assertEqual(hashlib.sha256(self.trx.read_bytes()).hexdigest(),
                          proof["trx_sha256"])
 
@@ -56,9 +56,9 @@ class RealJwtSqlHttpEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,"missing/failed/skipped"):
                     validate(self.trx,"b"*40)
 
-    def test_all_four_submit_snapshot_paths_mandatory(self):
+    def test_all_seven_submit_snapshot_and_concurrency_paths_mandatory(self):
         cases=[x for x in self.names if x.startswith("SQL_HTTP_SUBMIT_")]
-        self.assertEqual(4,len(cases))
+        self.assertEqual(7,len(cases))
         for removed in cases:
             with self.subTest(removed=removed):
                 self.make([n for n in self.names if n!=removed])
