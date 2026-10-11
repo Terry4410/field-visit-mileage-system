@@ -207,4 +207,34 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 row, 2, row.RequestPublicId, 20, review));
     }
 
+    [Fact]
+    public void Empty_decision_key_and_blank_review_reason_fail_closed()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var version = Convert.ToBase64String(row.RowVersion);
+        foreach (var review in new[]
+        {
+            new V180B3Review(version, Guid.Empty, "Reviewed"),
+            new V180B3Review(version, Guid.NewGuid(), "   ")
+        })
+            Assert.Throws<InvalidOperationException>(() =>
+                V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                    row, 1, row.RequestPublicId, 20, review));
+    }
+
+    [Fact]
+    public void Unknown_operation_cannot_pass_independent_approval_gate()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        row.OperationCode = "DeleteHistoricalTrip";
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Reviewed");
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.RequireIndependentApprovalDecision(
+                row, 1, row.RequestPublicId, 20, review));
+    }
+
 }
