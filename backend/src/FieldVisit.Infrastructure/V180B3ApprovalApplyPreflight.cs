@@ -333,9 +333,18 @@ public static class V180B3ApprovalApplyPreflight
         int? lockedTeamId, int? lockedCreatedByUserId,
         string? lockedLocationType, string? lockedApprovalStatus,
         bool lockedIsActive, int liveReviewerUserId,
+        int? liveReviewerOrganizationId, bool liveAdminAuthorized,
+        bool submitterTeamMembershipStillValid,
         Guid submittedDecisionKey, string? submittedReviewReason,
         bool decisionKeyAlreadyExists)
     {
+        // These are inputs supplied by a future transaction's fresh,
+        // authoritative HR/role/team queries; never accept client flags.
+        if (liveReviewerOrganizationId is null or <= 0
+            || liveReviewerOrganizationId != lockedRequest.OrganizationId
+            || !liveAdminAuthorized
+            || !submitterTeamMembershipStillValid)
+            throw new UnauthorizedAccessException("B3_APPROVAL_LIVE_AUTHORIZATION_DENIED");
         RequirePlanSnapshotsStillCurrent(
             plan, lockedLocationFields, lockedLocationRowVersion, lockedRequest);
         RequireLockedPublishedLocationScope(
