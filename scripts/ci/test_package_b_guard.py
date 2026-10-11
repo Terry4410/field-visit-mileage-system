@@ -18,7 +18,8 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         (self.root / "database/migrations").mkdir(parents=True)
         (self.root / ".github/workflows").mkdir(parents=True)
         self.config = self.root / "backend/src/FieldVisit.Api/appsettings.json"
-        self.config.write_text(json.dumps({"PackageB": {"B3": {"Enabled": False}}}))
+        self.config.write_text(json.dumps({"PackageB": {"B3": {"Enabled": False}},
+                                          "Auth": {"LiveSessionGuard": {"Enabled": False}}}))
         self.approval = self.root / "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs"
         self.approval.write_text(
             'public async Task<V180B3RequestView> ApproveAsync('
@@ -82,6 +83,19 @@ class PackageBGuardNegativeTests(unittest.TestCase):
     def test_feature_enablement_fails(self):
         self.config.write_text('{"PackageB":{"B3":{"Enabled":true}}}')
         self.assertIn("feature_flag_off", self.failures())
+
+    def test_unauthorized_live_session_guard_enablement_fails(self):
+        self.config.write_text(json.dumps({
+            "PackageB": {"B3": {"Enabled": False}},
+            "Auth": {"LiveSessionGuard": {"Enabled": True}}
+        }))
+        self.assertIn("live_session_guard_default_off", self.failures())
+
+    def test_missing_live_guard_config_does_not_count_as_clean(self):
+        self.config.write_text(json.dumps({
+            "PackageB": {"B3": {"Enabled": False}}
+        }))
+        self.assertNotEqual(set(), self.failures())
 
     def test_approval_write_fails(self):
         self.approval.write_text(self.approval.read_text() + " await db.SaveChangesAsync();")
