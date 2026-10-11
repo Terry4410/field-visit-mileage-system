@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
@@ -15,7 +16,7 @@ namespace FieldVisit.Api;
 public sealed class V180LiveSessionGuardMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, IConfiguration configuration,
-        AppDbContext db, IV170AccessControl access)
+        AppDbContext db, IV170AccessControl access, IUserRepository users)
     {
         if (!configuration.GetValue<bool>("Auth:LiveSessionGuard:Enabled")
             || !context.Request.Path.StartsWithSegments("/api/v1")
@@ -101,6 +102,103 @@ public sealed class V180LiveSessionGuardMiddleware(RequestDelegate next)
 
         if(jwtRoles.Any(role=>!projected.Contains(role)))
             throw new UnauthorizedAccessException("SESSION_ROLE_REVOKED");
+
+        // Team claims in JWT are a point-in-time snapshot. Resolve the live
+        // profile from authoritative effective-dated/legacy memberships;
+        // no token may retain a removed, disabled or re-primary team.
+        var profile=await users.GetProfileAsync(userId,context.RequestAborted)
+            ??throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+        var teamClaims=context.User.FindAll("team_id").ToArray();
+        if(teamClaims.Length>1)
+            throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+        int? tokenPrimary=null;
+        if(teamClaims.Length==1)
+        {
+            if(!int.TryParse(teamClaims[0].Value,out var primary)||primary<=0)
+                throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+            tokenPrimary=primary;
+        }
+        if(profile.TeamId!=tokenPrimary)
+            throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+
+        var scopeClaims=context.User.FindAll("team_scopes").ToArray();
+        if(scopeClaims.Length>1)
+            throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+        List<TeamScopeDto> tokenScopes=[];
+        if(scopeClaims.Length==1)
+        {
+            try
+            {
+                tokenScopes=JsonSerializer.Deserialize<List<TeamScopeDto>>(
+                    scopeClaims[0].Value)
+                    ??throw new JsonException("team scope null");
+            }
+            catch(JsonException)
+            {
+                throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+            }
+        }
+        var liveTeams=(profile.TeamScopes??[]).ToList();
+        // Team names are display-only and may be renamed legitimately.
+        // Authorization relies on exact team IDs and primary flags.
+        if(tokenScopes.Any(x=>x.TeamId<=0)
+            ||tokenScopes.Select(x=>x.TeamId).Distinct().Count()!=tokenScopes.Count
+            ||liveTeams.Count!=tokenScopes.Count
+            ||tokenScopes.Any(x=>!liveTeams.Any(y=>
+                y.TeamId==x.TeamId && y.IsPrimary==x.IsPrimary)))
+            throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+
+        var teamIds=liveTeams.Select(x=>x.TeamId)
+            .Concat(profile.TeamId.HasValue?[profile.TeamId.Value]:Array.Empty<int>())
+            .Distinct().ToArray();
+        if(teamIds.Length>0)
+        {
+            var today=BusinessTime.Today;
+            var valid=await db.Teams.AsNoTracking()
+                .Where(x=>teamIds.Contains(x.TeamId)
+                    && x.IsActive && x.OrganizationId==account.OrganizationId
+                    && (!x.EffectiveFrom.HasValue||x.EffectiveFrom.Value<=today)
+                    && (!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today))
+                .Select(x=>x.TeamId).ToListAsync(context.RequestAborted);
+            if(valid.Count!=teamIds.Length)
+                throw new UnauthorizedAccessException("SESSION_TEAM_REVOKED");
+        }
+
+        // Supervisor DataScopes are NOT JWT claims. Each request therefore
+        // requires an independently live, effective, same-tenant grant.
+        // This does not confer export/mutation or Manager privileges.
+        if(jwtRoles.Contains("supervisor",StringComparer.OrdinalIgnoreCase)
+            && string.Equals(userType,UserTypes.External,StringComparison.OrdinalIgnoreCase))
+        {
+            var today=BusinessTime.Today;
+            var grants=await db.UserDataScopes.AsNoTracking()
+                .Where(x=>x.UserId==userId&&x.EffectiveFrom<=today
+                    && (!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today))
+                .Select(x=>new {x.ScopeType,x.OrganizationId,x.TeamId})
+                .ToListAsync(context.RequestAborted);
+            if(grants.Count==0)
+                throw new UnauthorizedAccessException("SESSION_DATA_SCOPE_REVOKED");
+
+            var scopedTeams=grants.Where(x=>x.TeamId.HasValue)
+                .Select(x=>x.TeamId!.Value).Distinct().ToArray();
+            var allowedTeams=await db.Teams.AsNoTracking()
+                .Where(x=>scopedTeams.Contains(x.TeamId)
+                    && x.IsActive && x.OrganizationId==account.OrganizationId
+                    && (!x.EffectiveFrom.HasValue||x.EffectiveFrom.Value<=today)
+                    && (!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today))
+                .Select(x=>x.TeamId).ToListAsync(context.RequestAborted);
+            var allowedTeamIds=allowedTeams.ToHashSet();
+            if(grants.Any(x=>
+                x.ScopeType==DataScopeTypes.Organization
+                    ? x.OrganizationId!=account.OrganizationId || x.TeamId.HasValue
+                    : x.ScopeType==DataScopeTypes.Team
+                        ? !x.TeamId.HasValue
+                            || !allowedTeamIds.Contains(x.TeamId.Value)
+                            || (x.OrganizationId.HasValue
+                                && x.OrganizationId!=account.OrganizationId)
+                        : true))
+                throw new UnauthorizedAccessException("SESSION_DATA_SCOPE_INVALID");
+        }
 
         await next(context);
     }
