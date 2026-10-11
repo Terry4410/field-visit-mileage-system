@@ -303,4 +303,62 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 row, 9, 1, 7, null, "Customer", "Approved", true));
     }
 
+    [Fact]
+    public void Pure_approval_plan_preserves_both_rowversions_and_audit_snapshots()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[] { 2, 0, 0, 0, 0, 0, 0, 0 };
+        var sourceVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent approval");
+        var plan = V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+            row, 1, row.RequestPublicId, 20, review,
+            9, 1, 7, 910, "Customer", "Approved", true,
+            sourceVersion, Before);
+        Assert.Equal(row.RequestPublicId, plan.RequestPublicId);
+        Assert.Equal(review.DecisionKey, plan.DecisionKey);
+        Assert.Equal("Independent approval", plan.ReviewReason);
+        Assert.Equal(Before, JsonSerializer.Deserialize<V180B3LocationFields>(
+            plan.BeforeJson));
+        Assert.Equal(Proposed, JsonSerializer.Deserialize<V180B3LocationFields>(
+            plan.ProposedJson));
+        Assert.Equal(sourceVersion, plan.ExpectedLocationRowVersion);
+        Assert.Equal(row.RowVersion, plan.ExpectedRequestRowVersion);
+        sourceVersion[0] = 99;
+        row.RowVersion[0] = 99;
+        Assert.Equal(0, plan.ExpectedLocationRowVersion[0]);
+        Assert.Equal(2, plan.ExpectedRequestRowVersion[0]);
+    }
+
+    [Fact]
+    public void Pure_approval_plan_denies_stale_source_even_for_valid_admin()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent approval");
+        Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }, Before));
+    }
+
+    [Fact]
+    public void Pure_approval_plan_denies_source_owner_drift_even_with_valid_payload()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent approval");
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, review,
+                9, 1, 7, 911, "Customer", "Approved", true,
+                new byte[8], Before));
+    }
+
 }
