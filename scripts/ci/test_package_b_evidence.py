@@ -8,7 +8,8 @@ from package_b_evidence import (collect, parse_junit, parse_trx,
                                 REQUIRED_SECURITY_GATES, FROZEN_PROTECTED_SHA,
                                 REQUIRED_SUCCESSFUL_STEPS, validate_step_outcomes,
                                 RELEASE_HOLD_CONTRACT, HTTP_REQUIRED,
-                                HTTP_PREFIX,validate_http_off_trx)
+                                HTTP_PREFIX,validate_http_off_trx,
+                                HR_HTTP_PREFIX,HR_HTTP_REQUIRED,validate_hr_login_http_trx)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -257,6 +258,50 @@ class B3HttpOffEvidenceCases(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"ID"):
             validate_http_off_trx(self.trx)
 
+
+
+class B4HrHttpEvidenceCases(unittest.TestCase):
+    def setUp(self):
+        self.folder=tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.trx=Path(self.folder.name)/"hr-login.trx"
+        self.names=sorted(HR_HTTP_REQUIRED)
+        self.make()
+
+    def make(self,names=None,failed=False,missing_id=False):
+        names=self.names if names is None else names
+        rows=[]
+        for i,name in enumerate(names):
+            outcome="Failed" if failed and i==0 else "Passed"
+            ids="" if missing_id and i==0 else f' testId="case-{i}" executionId="exec-{i}"'
+            rows.append(f'<UnitTestResult testName="{HR_HTTP_PREFIX}{name}" outcome="{outcome}"{ids}/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
+
+    def test_all_11_actual_login_HTTP_cases_preserve_uat_hold(self):
+        result=validate_hr_login_http_trx(self.trx)
+        self.assertEqual(11,result["passed"])
+        self.assertEqual("NOT_TESTED",result["full_api_off_08_deployed_session_revocation"])
+        self.assertEqual("HOLD",result["business_uat"])
+
+    def test_missing_login_case_denied(self):
+        self.make(self.names[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_hr_login_http_trx(self.trx)
+
+    def test_forged_duplicate_case_denied(self):
+        self.make(self.names[:-1]+self.names[:1])
+        with self.assertRaisesRegex(ValueError,"duplicated"):
+            validate_hr_login_http_trx(self.trx)
+
+    def test_forged_pass_counter_with_failed_login_case_denied(self):
+        self.make(failed=True)
+        with self.assertRaisesRegex(ValueError,"failed"):
+            validate_hr_login_http_trx(self.trx)
+
+    def test_missing_individual_login_case_id_denied(self):
+        self.make(missing_id=True)
+        with self.assertRaisesRegex(ValueError,"ID"):
+            validate_hr_login_http_trx(self.trx)
 
 if __name__ == "__main__":
     unittest.main()

@@ -123,6 +123,27 @@ full API/HR/Business E2E NOT EXECUTED and Business UAT / Production HOLD.
 Missing, duplicated, failed, forged or UAT-scoped SQL evidence makes the
 coverage generator FAIL CLOSED. B3 remains OFF and Approve/Apply DENY ALL.
 
+## WORK-only real HTTP Demo Login + HR policy integration (B3 OFF)
+
+The isolated ASP.NET Core TestServer executes **actual**
+POST /api/v1/auth/demo-login -> AuthController -> AuthService ->
+UserRepository -> V170AccessControl, with HR effective dates stored
+in a private EF InMemory database. The happy-path returns a real
+JWT that authenticates at GET /api/v1/me; negative routes return 403
+and no access token. The 11 individually named cases cover
+Leave, Terminated, PreHire, missing HR state, future/expired
+Active, future Leave timing, re-login after HR changes, invalid password
+and unknown identity. The backend TRX evidence aggregator separately
+requires all **11/11** named HR HTTP cases; missing/failed cases fail CI.
+
+This is **more than a mock of HR policy**, but the database is *not*
+Microsoft SQL Server and the tests do *not* exercise existing UAT
+accounts, a real deployed session after HR revocation, Entra sign-in,
+HR period persistence against formal Schema 011 or the B3 change
+endpoints with flag ON. API-OFF-08 formal scope remains PENDING;
+B4 22-case formal acceptance is 0/22, Manager Grant BLOCKED,
+formal migration NOT AUTHORIZED and Business UAT / Production HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
