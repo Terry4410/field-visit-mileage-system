@@ -26,7 +26,7 @@ class CoverageTests(unittest.TestCase):
         validate_links()
         self.assertEqual(set(range(1,23)),set(LINKS))
         report=map_sql_evidence(proof())
-        self.assertEqual(55,report["sql_tests_passed"])
+        self.assertEqual(len(REQUIRED_SQL_TESTS),report["sql_tests_passed"])
         self.assertEqual(22,report["b4_cases"])
         self.assertEqual(0,report["formal_b4_accepted"])
         self.assertEqual(22,report["b4_partial_sql_cases"]+report["b4_without_direct_sql"])
@@ -55,7 +55,7 @@ class CoverageTests(unittest.TestCase):
         self.assertIn("Business UAT HOLD",md)
         self.assertIn("Production HARD HOLD",md)
 
-    def test_missing_case_record_fails_even_if_55_passed_claimed(self):
+    def test_missing_case_record_fails_even_if_all_passed_claimed(self):
         source=proof();source["case_results"].pop()
         with self.assertRaisesRegex(ValueError,"per-case"):
             map_sql_evidence(source)
