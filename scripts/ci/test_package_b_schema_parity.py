@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from package_b_schema_parity import analyze, DDL, MODEL, TRIGGERS, CHECKS, TABLES, UNIQUE
+from package_b_schema_parity import analyze, DDL, MODEL, DDL_009, DDL_010, TRIGGERS, CHECKS, TABLES, UNIQUE
 
 
 class PackageBSchemaParityStaticTests(unittest.TestCase):
@@ -52,6 +52,36 @@ class PackageBSchemaParityStaticTests(unittest.TestCase):
         r = analyze(self.sql, corrupted)
         self.assertEqual("FAIL_CLOSED", r["status"])
         self.assertTrue(any(UNIQUE[0] in v for v in r["failures"]))
+
+
+    def test_009_010_migration_only_checks_inventory_nonparity(self):
+        r = analyze(self.sql, self.ef, "a" * 40,
+                    DDL_009.read_text(encoding="utf-8"),
+                    DDL_010.read_text(encoding="utf-8"))
+        rows = {x["name"]: x["status"] for x in r["rows"]
+                if x["kind"] == "MIGRATION_ONLY_CHECK"}
+        self.assertEqual({"1800_009:StopCount>=1": "DIFFERENCE",
+                          "1800_010:CalculationReason": "DIFFERENCE"}, rows)
+        self.assertEqual("PASS_WITH_KNOWN_DIFFERENCES", r["status"])
+        self.assertEqual("NOT_VERIFIED", r["schema_parity"])
+        self.assertFalse(r["migration_executed"])
+
+    def test_009_missing_one_stop_rule_fails_closed(self):
+        corrupted = DDL_009.read_text(encoding="utf-8").replace(
+            "CHECK (StopCount >= 1)", "CHECK (StopCount >= 2)", 1)
+        r = analyze(self.sql, self.ef, "a" * 40, corrupted,
+                    DDL_010.read_text(encoding="utf-8"))
+        self.assertEqual("FAIL_CLOSED", r["status"])
+        self.assertTrue(any("1800_009" in x for x in r["failures"]))
+
+    def test_010_missing_background_reason_fails_closed(self):
+        corrupted = DDL_010.read_text(encoding="utf-8").replace(
+            "OR CalculationReason = N'BackgroundMileageJob'",
+            "OR CalculationReason = N'DriftedJob'", 1)
+        r = analyze(self.sql, self.ef, "a" * 40,
+                    DDL_009.read_text(encoding="utf-8"), corrupted)
+        self.assertEqual("FAIL_CLOSED", r["status"])
+        self.assertTrue(any("1800_010" in x for x in r["failures"]))
 
     def test_no_runtime_db_or_azure_migration_is_invoked_by_inventory(self):
         source = Path(__file__).with_name("package_b_schema_parity.py").read_text(encoding="utf-8")
