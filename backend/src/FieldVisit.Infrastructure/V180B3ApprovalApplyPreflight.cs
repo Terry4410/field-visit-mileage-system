@@ -35,8 +35,11 @@ public static class V180B3ApprovalApplyPreflight
             if (before is null || proposed is null
                 || !JsonEquals(before, current))
                 throw new InvalidOperationException("B3_APPROVAL_SOURCE_DRIFT");
-            return V180B3ProposalSafetyRules.Validate(
+            var validated = V180B3ProposalSafetyRules.Validate(
                 proposed, before, "Independent review preflight").Proposed;
+            if (!JsonEquals(validated, proposed))
+                throw new InvalidOperationException("B3_APPROVAL_PAYLOAD_NONCANONICAL");
+            return validated;
         }
         catch (JsonException)
         {
