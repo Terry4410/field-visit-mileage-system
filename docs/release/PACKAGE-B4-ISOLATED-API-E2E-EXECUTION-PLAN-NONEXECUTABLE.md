@@ -331,6 +331,28 @@ Location and Team-Center assignment; missing Employment binding;
 HR Leave on visit date; stale draft override fallback; and
 explicit ineligible-context draft refusal.
 
+In addition to the 20 real Reader-level tests, a second suite
+runs the actual ASP.NET Core authenticated
+GET /api/v1/trips/context?visitDate=2026-10-12&teamId=7 endpoint
+with real TokenService JWT, AppJwt authentication, middleware,
+TripService, V180TripContextReader and independent EF InMemory rows.
+Six named end-to-end TestServer cases verify: valid primary
+deployment-site response; disabled/future official Site returns
+EligibleForTrip=false; missing TeamCenter mapping returns an
+explicit NO_ELIGIBLE_DEPLOYMENT_SITE response; HR Leave on
+the *visit date* (while the JWT is still valid today) returns
+EMPLOYMENT_NOT_ACTIVE; and another Organization's official
+Site is omitted from the official picker. This is not a
+production/Azure SQL Server integration test, nor does it test
+draft persistence or Google mileage in a deployed UAT.
+
+The CI artifact requires all **6 separately named Site HTTP**
+cases AND the **20 Reader-level cases**, with unique per-test
+TRX identity, exact SHA and passed status, and verifies that
+one suite cannot impersonate the other. Both evidence layers
+retain zero B4 formal acceptance and all business/production
+release holds.
+
 The actual /api/v1/trips/context HTTP pipeline backed by a
 Microsoft SQL Server deployment is still **not tested** by
 this fixture. DB RowVersion, deployment migrations, historical
