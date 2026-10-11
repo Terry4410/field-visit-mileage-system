@@ -621,4 +621,24 @@ public sealed class V180B3ApprovalApplyPreflightTests
                         new byte[8], new byte[8])).Message);
     }
 
+    [Fact]
+    public void Approval_plan_boundary_rejects_noop_or_noncanonical_proposal()
+    {
+        var valid = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        foreach (var proposed in new[]
+        {
+            JsonSerializer.Serialize(Before),
+            JsonSerializer.Serialize(Proposed with { LocationName = " New name " })
+        })
+        {
+            var plan = valid with { ProposedJson = proposed };
+            Assert.Throws<InvalidOperationException>(() =>
+                V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
+                    plan, plan.RequestPublicId, 9, new byte[8], new byte[8]));
+        }
+    }
+
 }
