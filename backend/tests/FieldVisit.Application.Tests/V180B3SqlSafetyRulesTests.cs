@@ -103,6 +103,39 @@ public sealed class V180B3SqlSafetyRulesTests
         Assert.False(V180B3SqlSafetyRules.IsConflictCode(null));
     }
 
+
+    [Fact]
+    public void Rejection_only_catalog_cannot_be_mistaken_for_atomic_apply_readiness()
+    {
+        // 011 is intentionally a staging/rejection contract. A future
+        // forward-only migration must introduce a separately reviewed gate.
+        var sql=V180B3SqlSafetyRules.CatalogCheckSql;
+        Assert.Contains("CK_B3_ChangeRequests_KnownStatus",sql);
+        Assert.Contains("CK_B3_ChangeRequestEvents_EventType",sql);
+        Assert.Contains("N'pending',N'rejected'",sql);
+        Assert.Contains("N'submitted',N'rejected'",sql);
+        Assert.Contains("LOWER(cc.definition) NOT LIKE N'%applied%'",sql);
+        Assert.Contains("LOWER(cc.definition) NOT LIKE N'%returned%'",sql);
+        Assert.Contains("LOWER(cc.definition) NOT LIKE N'%cancelled%'",sql);
+        Assert.Throws<InvalidOperationException>(()=>
+            V180B3SqlSafetyRules.RequireLatestSchemaVersion("1.8.0-012"));
+        Assert.True(V180B3SqlSafetyRules.IsForbiddenCode(
+            "B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED"));
+    }
+
+    [Fact]
+    public void Catalog_gate_requires_trusted_constraints_and_rejects_implicit_triggers()
+    {
+        var sql=V180B3SqlSafetyRules.CatalogCheckSql;
+        Assert.Contains("cc.is_disabled=0 AND cc.is_not_trusted=0",sql);
+        Assert.Contains("fk.is_disabled=0 AND fk.is_not_trusted=0",sql);
+        Assert.Contains("fk.delete_referential_action=0",sql);
+        Assert.Contains("sys.triggers",sql);
+        Assert.Contains("tr.is_disabled=0",sql);
+        Assert.Contains("CK_B3_ChangeRequests_ReviewState",sql);
+        Assert.Contains("CK_B3_ChangeRequestEvents_DecisionState",sql);
+    }
+
     [Fact]
     public void Unrelated_DbUpdateException_is_never_swallowed()
     {
