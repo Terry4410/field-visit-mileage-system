@@ -95,7 +95,7 @@ or changing a request to `Applied` must fail the database constraints.
 The current `V180B3SqlSafetyRules.CatalogCheckSql` deliberately rejects
 catalog definitions containing an `Applied` request status. **Do not
 silently expand the existing 011 migration, weaken the read-only gate, or
-reinterpret a successful 55-case disposable fixture as approval readiness.**
+reinterpret a successful disposable SQL fixture as approval readiness.**
 
 Before an executor is eligible for implementation or activation, a separate
 Owner/IT-reviewed **forward-only schema revision** must define and test:
