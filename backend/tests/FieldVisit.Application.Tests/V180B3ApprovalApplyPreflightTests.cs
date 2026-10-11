@@ -450,4 +450,63 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Assert.Equal("B3_REVIEW_TARGET_UNSUPPORTED", error.Message);
     }
 
+    [Theory]
+    [InlineData("LocationName")]
+    [InlineData("City")]
+    [InlineData("District")]
+    [InlineData("Address")]
+    [InlineData("PlusCode")]
+    [InlineData("TaxId")]
+    [InlineData("MasterNote")]
+    public void Approval_plan_rejects_each_individual_source_field_drift(string field)
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent review");
+        var current = field switch
+        {
+            "LocationName" => Before with { LocationName = "Changed name" },
+            "City" => Before with { City = "Taichung" },
+            "District" => Before with { District = "Daan" },
+            "Address" => Before with { Address = "Changed address" },
+            "PlusCode" => Before with { PlusCode = "New code" },
+            "TaxId" => Before with { TaxId = "12345678" },
+            "MasterNote" => Before with { MasterNote = "Changed note" },
+            _ => throw new ArgumentOutOfRangeException(nameof(field))
+        };
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], current));
+        Assert.Equal("B3_APPROVAL_SOURCE_DRIFT", error.Message);
+    }
+
+    [Fact]
+    public void Approval_plan_rejects_stale_request_version_and_empty_decision_key()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var stale = new V180B3Review(
+            Convert.ToBase64String(new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 }),
+            Guid.NewGuid(), "Independent review");
+        Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, stale,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], Before));
+        var noKey = stale with
+        {
+            RequestRowVersion = Convert.ToBase64String(row.RowVersion),
+            DecisionKey = Guid.Empty
+        };
+        Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, noKey,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], Before));
+    }
+
 }
