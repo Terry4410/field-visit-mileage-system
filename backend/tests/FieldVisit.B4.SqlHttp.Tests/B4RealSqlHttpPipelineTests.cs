@@ -530,6 +530,36 @@ public sealed class B4RealSqlHttpPipelineTests
     }
 
     [Fact]
+    public async Task SQL_HTTP_DRAFT_competing_same_RowVersion_updates_only_one_winner()
+    {
+        await using var db=await DisposableTestDatabase.StartAsync();
+        using var host=new RealSqlHttpFactory(db.Connection);
+        using var firstClient=await LoginAsync(host,db);
+        using var secondClient=await LoginAsync(host,db);
+        var created=await CreateDraftAsync(firstClient,db);
+        using var firstMessage=new HttpRequestMessage(HttpMethod.Put,
+            $"/api/v1/trips/{created.Id}");
+        firstMessage.Headers.TryAddWithoutValidation("If-Match",created.Version);
+        firstMessage.Content=JsonContent.Create(Draft(db,"Writer A"));
+        using var secondMessage=new HttpRequestMessage(HttpMethod.Put,
+            $"/api/v1/trips/{created.Id}");
+        secondMessage.Headers.TryAddWithoutValidation("If-Match",created.Version);
+        secondMessage.Content=JsonContent.Create(Draft(db,"Writer B"));
+        var pendingA=firstClient.SendAsync(firstMessage);
+        var pendingB=secondClient.SendAsync(secondMessage);
+        using var responseA=await pendingA;
+        using var responseB=await pendingB;
+        var statuses=new []{responseA.StatusCode,responseB.StatusCode};
+        Assert.Single(statuses,x=>x==HttpStatusCode.OK);
+        Assert.Single(statuses,x=>x==HttpStatusCode.Conflict);
+        var state=await DraftStateAsync(db,created.Id);
+        Assert.Contains(state.Notes,new []{"Writer A","Writer B"});
+        Assert.Equal("Draft",state.Status);
+        Assert.Equal(2,state.AuditCount); // create + exactly one committed update
+        Assert.Equal(2,state.HistoryCount);
+    }
+
+    [Fact]
     public async Task SQL_HTTP_DRAFT_forged_official_site_rejected_without_trip_or_audit()
     {
         await using var db=await DisposableTestDatabase.StartAsync();
