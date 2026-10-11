@@ -777,4 +777,26 @@ public sealed class V180B3ApprovalApplyPreflightTests
                     plan with { DecisionKey = Guid.Empty }, false)).Message);
     }
 
+    [Fact]
+    public void Approval_locked_decision_identity_rejects_reviewer_key_and_reason_drift()
+    {
+        var plan = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        V180B3ApprovalApplyPreflight.RequireLockedDecisionIdentity(
+            plan, 20, plan.DecisionKey, "Independent review");
+        void Deny(int reviewer, Guid key, string? reason) =>
+            Assert.Equal("B3_APPROVAL_DECISION_IDENTITY_DRIFT",
+                Assert.Throws<UnauthorizedAccessException>(() =>
+                    V180B3ApprovalApplyPreflight.RequireLockedDecisionIdentity(
+                        plan, reviewer, key, reason)).Message);
+        Deny(0, plan.DecisionKey, "Independent review");
+        Deny(21, plan.DecisionKey, "Independent review");
+        Deny(20, Guid.Empty, "Independent review");
+        Deny(20, Guid.NewGuid(), "Independent review");
+        Deny(20, plan.DecisionKey, "Different reason");
+        Deny(20, plan.DecisionKey, null);
+    }
+
 }
