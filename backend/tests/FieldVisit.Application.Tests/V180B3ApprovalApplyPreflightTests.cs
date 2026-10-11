@@ -579,4 +579,24 @@ public sealed class V180B3ApprovalApplyPreflightTests
                     plan, plan.RequestPublicId, 9, new byte[8], new byte[8])).Message);
     }
 
+    [Fact]
+    public void Approval_plan_boundary_rejects_tampered_decision_identity_and_reason()
+    {
+        var valid = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Independent review",
+            "{}", "{}", new byte[8], new byte[8]);
+        void Deny(V180B3ApprovalApplyPlan candidate) =>
+            Assert.Equal("B3_APPROVAL_PLAN_INVALID",
+                Assert.Throws<InvalidOperationException>(() =>
+                    V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
+                        candidate, candidate.RequestPublicId, 9,
+                        new byte[8], new byte[8])).Message);
+        Deny(valid with { DecisionKey = Guid.Empty });
+        Deny(valid with { ReviewerUserId = 0 });
+        Deny(valid with { ReviewerUserId = -1 });
+        Deny(valid with { ReviewReason = "" });
+        Deny(valid with { ReviewReason = "  " });
+        Deny(valid with { ReviewReason = new string('X', 1001) });
+    }
+
 }
