@@ -45,7 +45,7 @@ public static class V180TripPersistenceRules
         int? existingStart = null,
         int? existingEnd = null)
     {
-        if (!context.SelectedTeamId.HasValue)
+        if (!context.EligibleForTrip || !context.SelectedTeamId.HasValue)
             throw new InvalidOperationException($"{context.ValidationCode}：{context.ValidationMessage}");
 
         var eligible = EndpointSites(context);
