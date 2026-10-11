@@ -111,6 +111,28 @@ def scan():
              "opt-in guard rechecks JWT, effective dated roles, projection and middleware order")
     except (OSError, ValueError) as exc:
         gate("live_session_role_intersection_and_pipeline", False, exc)
+    # The opt-in middleware must never silently discard stale team
+    # membership or trust stale external Supervisor scope on old JWTs.
+    try:
+        src = (ROOT / "backend/src/FieldVisit.Api/V180LiveSessionGuardMiddleware.cs").read_text(encoding="utf-8")
+        required = (
+            "GetProfileAsync(userId,context.RequestAborted)",
+            "SESSION_TEAM_REVOKED",
+            'FindAll("team_scopes")',
+            "JsonSerializer.Deserialize<List<TeamScopeDto>>",
+            "y.TeamId==x.TeamId && y.IsPrimary==x.IsPrimary",
+            "x.OrganizationId==account.OrganizationId",
+            "db.UserDataScopes.AsNoTracking()",
+            "SESSION_DATA_SCOPE_REVOKED",
+            "SESSION_DATA_SCOPE_INVALID",
+            "DataScopeTypes.Organization",
+            "DataScopeTypes.Team",
+            "Auth:LiveSessionGuard:Enabled",
+        )
+        gate("live_team_supervisor_scope_intersection", all(x in src for x in required),
+             "JWT TeamId+primary and effective, tenant-valid external Supervisor DataScope")
+    except OSError as exc:
+        gate("live_team_supervisor_scope_intersection", False, exc)
     migration_dir = ROOT / "database/migrations"
     gate("migration_dir_present", migration_dir.is_dir(), migration_dir)
     # No previously approved migration may be edited to hide unapproved DDL.
