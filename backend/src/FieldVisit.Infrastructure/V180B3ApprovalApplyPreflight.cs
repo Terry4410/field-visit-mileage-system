@@ -14,8 +14,9 @@ public sealed record V180B3ApprovalApplyPlan(
     byte[] ExpectedRequestRowVersion)
 {
     // A plan is a preflight value object only. It is not an execution token.
-    // Array properties are copies at construction, but consumers must not
-    // treat the plan as trusted across transaction boundaries.
+    // Byte-array properties are mutable references, not defensive copies.
+    // The builder copies its inputs; callers must re-read authoritative
+    // database state and never trust a plan across transaction boundaries.
 }
 
 public static class V180B3ApprovalApplyPreflight
@@ -231,6 +232,7 @@ public static class V180B3ApprovalApplyPreflight
             || lockedRequest.Status != "Pending"
             || lockedRequest.ReviewedByUserId is not null
             || lockedRequest.ReviewedAt is not null
+            || lockedRequest.ReviewReason is not null
             || lockedRequest.AppliedAt is not null)
             throw new InvalidOperationException("B3_APPROVAL_PLAN_STALE");
         RequirePlanVersionsStillCurrent(
