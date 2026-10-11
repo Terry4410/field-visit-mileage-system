@@ -46,6 +46,9 @@ def scan():
                             .read_text(encoding="utf-8"))
         enabled = config["PackageB"]["B3"]["Enabled"]
         gate("feature_flag_off", enabled is False, "B3 Enabled=" + str(enabled))
+        live=config["Auth"]["LiveSessionGuard"]["Enabled"]
+        gate("live_session_guard_default_off",live is False,
+             "Auth LiveSessionGuard Enabled="+str(live))
     except (KeyError, ValueError, OSError, TypeError) as exc:
         gate("feature_flag_off", False, exc)
     try:

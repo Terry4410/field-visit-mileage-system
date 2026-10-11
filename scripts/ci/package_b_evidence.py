@@ -19,6 +19,7 @@ REQUIRED_SECURITY_GATES = frozenset({
     "protected_source_frozen",
     "work_branch_only",
     "feature_flag_off",
+    "live_session_guard_default_off",
     "B3_approve_executor_DENY_ALL",
     "migration_dir_present",
     "all_migrations_unchanged_since_baseline",
@@ -185,6 +186,47 @@ def validate_hr_login_http_trx(path: Path) -> dict:
             "business_uat":"HOLD"}
 
 
+# WORK-only live HR session guard (opt-in test host; default OFF in appsettings).
+SESSION_HTTP_PREFIX="FieldVisit.Application.Tests.V180HrLoginHttpPipelineTests."
+SESSION_HTTP_REQUIRED=frozenset({
+    "SESSION_default_OFF_old_JWT_can_still_reach_me_after_HR_leave",
+    "SESSION_optin_ON_active_JWT_reaches_me",
+    'SESSION_optin_ON_old_JWT_denied_after_HR_revoke(status: "Leave")',
+    'SESSION_optin_ON_old_JWT_denied_after_HR_revoke(status: "Terminated")',
+    'SESSION_optin_ON_old_JWT_denied_after_HR_revoke(status: "PreHire")',
+    "SESSION_optin_ON_disabled_account_denies_existing_JWT",
+    "SESSION_optin_ON_org_transfer_denies_stale_organization_JWT",
+    "SESSION_optin_ON_expired_active_period_denies_old_JWT",
+    "SESSION_optin_ON_future_leave_preserves_current_JWT_until_effective",
+    "SESSION_optin_ON_denies_existing_JWT_on_B3_mine_before_DISABLED",
+    "SESSION_optin_ON_public_health_live_still_anonymous",
+    "SESSION_optin_ON_me_without_JWT_still_returns_401",
+})
+
+def validate_session_guard_http_trx(path: Path) -> dict:
+    root=ET.parse(path).getroot()
+    cases=[x for x in root.findall(".//{*}UnitTestResult")
+           if x.get("testName","").startswith(SESSION_HTTP_PREFIX)]
+    expected={SESSION_HTTP_PREFIX+x for x in SESSION_HTTP_REQUIRED}
+    names=[x.get("testName") for x in cases]
+    if len(cases)!=len(expected) or set(names)!=expected or len(set(names))!=len(names):
+        raise ValueError("live session mandatory HTTP cases missing/duplicated")
+    ids=set()
+    for case in cases:
+        if case.get("outcome")!="Passed":
+            raise ValueError("live session mandatory HTTP case failed")
+        for attr in ("testId","executionId"):
+            val=case.get(attr)
+            if not val or val in ids:
+                raise ValueError("live session HTTP evidence ID missing/duplicated")
+            ids.add(val)
+    return {"status":"PASS","scope":"ISOLATED_TESTSERVER_EF_INMEMORY_OPTIN",
+            "passed":len(cases),"required":len(expected),
+            "live_session_guard_deployed":"OFF_REQUIRED",
+            "uat_hr_session_revocation":"NOT_TESTED",
+            "business_uat":"HOLD","production":"HARD_HOLD"}
+
+
 def parse_trx(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
     counters = root.find(".//{*}Counters")
@@ -236,11 +278,12 @@ def parse_junit(path: Path) -> dict[str, int]:
 def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             step_outcomes: dict | None = None,
             require_http_off: bool = False,
-            require_hr_http: bool = False) -> dict:
+            require_hr_http: bool = False,
+            require_session_http: bool = False) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
                 "backend": None, "frontend": None, "b4_matrix": None,
-                "http_off": None, "hr_http": None,
+                "http_off": None, "hr_http": None, "session_http": None,
                 "build_and_ci_steps": None,
                 "release_authorization": dict(RELEASE_HOLD_CONTRACT),
                 "release_go": False,
@@ -270,6 +313,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             evidence["hr_http"]["source_sha"]=evidence["guard"]["sha"]
         except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
             evidence["errors"].append("HR HTTP login: "+str(exc))
+    if require_session_http:
+        try:
+            evidence["session_http"]=validate_session_guard_http_trx(trx)
+            evidence["session_http"]["source_sha"]=evidence["guard"]["sha"]
+        except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
+            evidence["errors"].append("Live HR session HTTP: "+str(exc))
     try:
         data = parse_junit(junit)
         if data["total"] <= 0 or data["failed"] or data["skipped"] or \
@@ -316,7 +365,8 @@ def main() -> int:
         steps = {"invalid": {"outcome": f"invalid JSON: {exc}"}}
     result = collect(Path(args.guard), Path(args.trx), Path(args.junit),
                      Path(args.matrix), step_outcomes=steps,
-                     require_http_off=True, require_hr_http=True)
+                     require_http_off=True, require_hr_http=True,
+                     require_session_http=True)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -350,6 +400,11 @@ def main() -> int:
         lines.append("| Real HR login HTTP (isolated EF InMemory) | "+
                      str(h["passed"])+"/"+str(h["required"])+
                      " PASS; deployed session revocation still NOT TESTED |")
+    if result["session_http"]:
+        h=result["session_http"]
+        lines.append("| HR old JWT guard (isolated; default OFF) | "+
+                     str(h["passed"])+"/"+str(h["required"])+
+                     " PASS; UAT current-session revocation NOT TESTED |")
     if result["b4_matrix"]:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")
