@@ -44,12 +44,14 @@ public static class V180B3ReviewTargetRules
     public static void RequireSupportedTarget(
         V180B3ChangeRequest row,int reviewerOrganizationId,Guid requestedPublicId)
     {
-        if(row.OrganizationId!=reviewerOrganizationId
+        if(reviewerOrganizationId<=0
+           ||requestedPublicId==Guid.Empty
+           ||row.OrganizationId!=reviewerOrganizationId
            ||row.RequestPublicId!=requestedPublicId
            ||row.EntityKind!="Location"
            ||row.OperationCode!="UpdatePublishedLocation"
            ||row.RiskCode!="High"
-           ||!row.TeamId.HasValue
+           ||row.TeamId is null or <= 0
            ||row.RequestedByUserId<=0
            ||!int.TryParse(row.EntityId,out var locationId)
            ||locationId<=0
