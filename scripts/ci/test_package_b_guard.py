@@ -63,7 +63,16 @@ class PackageBGuardNegativeTests(unittest.TestCase):
             'UserRoleAssignments.AsNoTracking() '
             'projected.IntersectWith(effective.Select(NormalizeRole)) '
             'jwtRoles.Any(role=>!projected.Contains(role)) '
-            'UserTypes.External SESSION_ROLE_REVOKED')
+            'UserTypes.External SESSION_ROLE_REVOKED '
+            'GetProfileAsync(userId,context.RequestAborted) '
+            'SESSION_TEAM_REVOKED FindAll("team_scopes") '
+            'JsonSerializer.Deserialize<List<TeamScopeDto>> '
+            'y.TeamId==x.TeamId && y.IsPrimary==x.IsPrimary '
+            'x.OrganizationId==account.OrganizationId '
+            'db.UserDataScopes.AsNoTracking() '
+            'SESSION_DATA_SCOPE_REVOKED SESSION_DATA_SCOPE_INVALID '
+            'DataScopeTypes.Organization DataScopeTypes.Team '
+            'Auth:LiveSessionGuard:Enabled')
         self.changed_sql = ""
         self.changed_workflows = ""
         self.remote = guard.FROZEN
@@ -134,6 +143,25 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         self.session_middleware.unlink()
         self.assertIn("live_session_role_intersection_and_pipeline",
                       self.failures())
+
+    def test_removed_team_scope_snapshot_validation_fails_closed(self):
+        text=self.session_middleware.read_text().replace(
+            'y.TeamId==x.TeamId && y.IsPrimary==x.IsPrimary',
+            'no_effective_team_membership_validation')
+        self.session_middleware.write_text(text)
+        self.assertIn("live_team_supervisor_scope_intersection",self.failures())
+
+    def test_removed_supervisor_current_scope_validation_fails_closed(self):
+        text=self.session_middleware.read_text().replace(
+            'db.UserDataScopes.AsNoTracking()', 'trust_jwt_supervisor_role')
+        self.session_middleware.write_text(text)
+        self.assertIn("live_team_supervisor_scope_intersection",self.failures())
+
+    def test_missing_live_team_profile_refresh_fails_closed(self):
+        text=self.session_middleware.read_text().replace(
+            'GetProfileAsync(userId,context.RequestAborted)', 'stale_token')
+        self.session_middleware.write_text(text)
+        self.assertIn("live_team_supervisor_scope_intersection",self.failures())
 
     def test_approval_write_fails(self):
         self.approval.write_text(self.approval.read_text() + " await db.SaveChangesAsync();")
