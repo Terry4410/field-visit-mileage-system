@@ -239,6 +239,72 @@ invented, and this is not a substitute for original SQL Schema 011
 or the B4 22-case live UAT. All 22 remain PENDING, API-OFF-08 PENDING,
 B3 OFF, Approve/Apply DENY ALL, Production HARD HOLD.
 
+## Legacy/modern team snapshot and Supervisor Data Scope revocation (default OFF)
+
+The application JWT carries (1) primary team_id and (2) a serialized
+team_scopes list of TeamId/TeamName/IsPrimary. Those are **membership**
+snapshots, not External Supervisor read DataScopes. In a disabled-feature
+legacy flow, a signed, previously issued JWT may continue to be
+recognized after a same-team revoke/change.
+
+The isolated opt-in V180LiveSessionGuardMiddleware now loads the
+**current authoritative user profile** on authenticated API calls,
+requires JWT primary TeamId and each TeamId/IsPrimary pair to match
+the current effective/legacy membership, and denies:
+- revoked team assignment or expired effective-dated membership,
+- switched primary team or modified team set,
+- disabled, cross-organization or out-of-date teams,
+- malformed/duplicated team scope claims.
+It deliberately **does not** treat a simple team display-name change
+as a permission revocation. When an account has no team membership,
+the established role/session/HR checks still apply; this check
+does not invent any missing Manager/Team authority.
+
+For External Supervisor JWT, no DataScopes are serialized into the
+token. The opt-in guard therefore **requires a current, effective**
+UserDataScope; each organization-wide scope must match the actor's
+organization, each team scope must belong to an active effective team
+in the actor's organization, and unknown/malformed grants fail closed.
+Removing/expiring all scopes causes old JWT requests to fail.
+Changing from an Organization grant to an authorized Team grant
+remains permitted but /api/v1/me must return the **current Team scope**,
+not the former Organization grant. Export/download permissions and
+actual query row partitioning still require separate tests and
+the existing per-operation server-side authorization.
+
+There are 16 new, individually named real ASP.NET Core TestServer tests:
+9 Team JWT (legacy and modern, revoked, primary switch, inactive,
+cross-org, renamed and positive paths) plus 7 Supervisor DataScopes
+(organization, revoked, expired, wrong org, valid team switch, foreign
+team, disabled team). Python CI verifies 16/16 exact names, Passed,
+unique TRX testId/executionId and protected WORK SHA. This is **partial
+in-memory HTTP evidence**, not formal B4 acceptance or UAT proof.
+
+### Primary deployment site remains a separate authorization gap
+
+The JWT does **not** contain a primary deployment-site entitlement.
+EmploymentDeploymentSiteAssignments, official sites and start/end site
+picker use effective-date/business-context data. This session-guard
+work does not claim those APIs are secure by comparing JWT claims.
+IT should run independent endpoint tests for primary-site effective
+periods, archived sites, cross-team/center access and stale trip
+drafts before broader business acceptance.
+
+### Activation impact analysis
+
+Every opt-in authenticated API request now incurs extra read queries
+for HR, role, teams and (when applicable) Supervisor scope. Before
+any activation, IT/Owner must review SQL performance under realistic
+concurrency, transaction/data-change races between successive reads,
+timeout/error fail-closed behavior, external and Microsoft Entra
+profiles, legitimate profile migration, CORS/middleware order,
+auditability, and per-endpoint export/data-scope enforcement.
+
+Default appsettings guard stays **OFF**; UAT/Production NOT deployed;
+B3 OFF, Approve/Apply DENY ALL, 1800_011 NOT AUTHORIZED,
+VAL-B1-002 BLOCKED, B4 0/22, Business UAT HOLD,
+Production HARD HOLD. No source promotion is authorized.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
