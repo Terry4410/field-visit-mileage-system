@@ -202,6 +202,43 @@ API-OFF-08 and 22 B4 formal scenarios remain PENDING; 011 formal
 migration NOT AUTHORIZED, B3 OFF, Approve/Apply DENY ALL,
 VAL-B1-002 BLOCKED, Business UAT HOLD, Production HARD HOLD.
 
+## Live JWT role invalidation (candidate ONLY, default OFF)
+
+The isolated opt-in V180LiveSessionGuardMiddleware now requires the complete
+JWT role claim set to remain valid against active current UserRoles and Roles.
+For accounts with v1.7 Identity Profiles it further intersects the
+effective-dated UserRoleAssignments, including Role.IsActive. Missing,
+expired, removed or stale role grants deny the old token; the user must
+obtain a fresh token after a legitimate change. The no-profile legacy
+account path rechecks its existing active UserRoles projection without
+inventing historical grants.
+
+An Internal user converted to an External identity may not keep a stale
+Visitor/Leader/Admin JWT even if a role projection accidentally remains.
+The independently authorized External Supervisor path requires current
+Supervisor role assignment and external authorization effectiveness. It
+does not grant supervisor exports, business writes, special data scopes,
+or historical Manager authority.
+
+Nine actual ASP.NET Core + EF InMemory HTTP tests explicitly cover:
+default-OFF stale legacy role gap; opt-in denied legacy revoked roles,
+deactivated catalogue roles, expired effective assignments, removed
+role projection, and Internal-to-External conversion; and positive
+modern-Internal, valid External Supervisor and expiration of an
+External authorization. GitHub CI fails closed unless every exact
+named test is Passed with an individual testId/executionId. Negative
+Python checks ensure a fake test set cannot substitute for actual
+role/security HTTP TRX evidence.
+
+IT/Owner deployment assessment remains independent. This candidate
+adds multiple DB reads per authenticated request; benchmark realistic
+concurrency, SQL timeout/failure responses, Entra claims and active-role
+header behavior, team membership/primary-site scope, Supervisor data
+scope and exports before enabling. No role or Manager grants were
+invented, and this is not a substitute for original SQL Schema 011
+or the B4 22-case live UAT. All 22 remain PENDING, API-OFF-08 PENDING,
+B3 OFF, Approve/Apply DENY ALL, Production HARD HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
