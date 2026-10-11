@@ -67,6 +67,34 @@ public static class V180B3ApprovalApplyPreflight
             review.RequestRowVersion, review.DecisionKey, review.Reason);
     }
 
+    /// <summary>
+    /// Rejects publication when the current source is not the same owned,
+    /// approved and active Customer Location captured at submission.
+    /// Caller must still re-check effective team membership and duplicate/
+    /// geocoding/history rules inside the future SQL transaction.
+    /// </summary>
+    public static void RequirePublishedSourceEligibility(
+        V180B3ChangeRequest request, int locationId,
+        int? locationOrganizationId, int? locationTeamId,
+        int? createdByUserId, string? locationType,
+        string? approvalStatus, bool isActive)
+    {
+        if (!int.TryParse(request.EntityId, out var requestedLocationId)
+            || requestedLocationId <= 0
+            || requestedLocationId != locationId
+            || request.OrganizationId <= 0
+            || request.TeamId is null or <= 0
+            || locationOrganizationId != request.OrganizationId
+            || locationTeamId != request.TeamId
+            || createdByUserId != request.RequestedByUserId
+            || request.RequestedByUserId <= 0
+            || locationType != "Customer"
+            || approvalStatus != "Approved"
+            || !isActive)
+            throw new UnauthorizedAccessException(
+                "B3_APPROVAL_SOURCE_SCOPE_DENIED");
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
