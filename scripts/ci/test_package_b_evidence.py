@@ -9,7 +9,8 @@ from package_b_evidence import (collect, parse_junit, parse_trx,
                                 REQUIRED_SUCCESSFUL_STEPS, validate_step_outcomes,
                                 RELEASE_HOLD_CONTRACT, HTTP_REQUIRED,
                                 HTTP_PREFIX,validate_http_off_trx,
-                                HR_HTTP_PREFIX,HR_HTTP_REQUIRED,validate_hr_login_http_trx)
+                                HR_HTTP_PREFIX,HR_HTTP_REQUIRED,validate_hr_login_http_trx,
+                                SESSION_HTTP_PREFIX,SESSION_HTTP_REQUIRED,validate_session_guard_http_trx)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -302,6 +303,52 @@ class B4HrHttpEvidenceCases(unittest.TestCase):
         self.make(missing_id=True)
         with self.assertRaisesRegex(ValueError,"ID"):
             validate_hr_login_http_trx(self.trx)
+
+
+class B4LiveSessionGuardEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.folder=tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.trx=Path(self.folder.name)/"session.trx"
+        self.names=sorted(SESSION_HTTP_REQUIRED)
+        self.make()
+
+    def make(self,names=None,fail=False,missing_id=False):
+        names=self.names if names is None else names
+        rows=[]
+        for i,name in enumerate(names):
+            status="Failed" if fail and i==0 else "Passed"
+            ids="" if missing_id and i==0 else f' testId="test-{i}" executionId="exec-{i}"'
+            safe=name.replace("&","&amp;").replace('"',"&quot;")
+            rows.append(f'<UnitTestResult testName="{SESSION_HTTP_PREFIX}{safe}" outcome="{status}"{ids}/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
+
+    def test_all_12_named_optin_and_default_off_scenarios_keep_release_hold(self):
+        result=validate_session_guard_http_trx(self.trx)
+        self.assertEqual(12,result["passed"])
+        self.assertEqual("OFF_REQUIRED",result["live_session_guard_deployed"])
+        self.assertEqual("NOT_TESTED",result["uat_hr_session_revocation"])
+        self.assertEqual("HARD_HOLD",result["production"])
+
+    def test_missing_named_case_cannot_hide_under_backend_green(self):
+        self.make(self.names[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_session_guard_http_trx(self.trx)
+
+    def test_duplicate_named_case_cannot_replace_required_case(self):
+        self.make(self.names[:-1]+self.names[:1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_session_guard_http_trx(self.trx)
+
+    def test_failed_case_cannot_fake_pass(self):
+        self.make(fail=True)
+        with self.assertRaisesRegex(ValueError,"failed"):
+            validate_session_guard_http_trx(self.trx)
+
+    def test_case_without_independent_test_and_execution_ids_fails(self):
+        self.make(missing_id=True)
+        with self.assertRaisesRegex(ValueError,"ID"):
+            validate_session_guard_http_trx(self.trx)
 
 if __name__ == "__main__":
     unittest.main()

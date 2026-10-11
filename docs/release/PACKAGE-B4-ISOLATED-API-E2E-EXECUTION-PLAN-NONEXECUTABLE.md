@@ -144,6 +144,58 @@ endpoints with flag ON. API-OFF-08 formal scope remains PENDING;
 B4 22-case formal acceptance is 0/22, Manager Grant BLOCKED,
 formal migration NOT AUTHORIZED and Business UAT / Production HOLD.
 
+## New WORK-only live HR session guard — independent activation HOLD
+
+### Confirmed code-path defect and isolation scope
+
+Login uses AuthService / V170AccessControl to check HR on JWT issue.
+Current authenticated /api/v1/me only reads the user profile, not live
+HR eligibility; middleware checks JWT cryptographic/expiry properties
+but cannot invalidate JWT when an HR record changes. A 12-case isolated
+TestServer suite intentionally shows default-OFF old-JWT /me succeeds
+after HR Leave (the unmitigated gap), then checks the opt-in candidate.
+
+### Non-deploy mitigation candidate and tests
+
+A new V180LiveSessionGuardMiddleware is registered **after routing +
+authentication and before authorization**. It is guarded by
+Auth:LiveSessionGuard:Enabled, explicitly **false** in checked-in
+appsettings and enforced by the WORK CI guard. It is **not deployed or
+activated in UAT**, and does not enable B3. When the candidate is ON
+only in a private TestServer, every authenticated /api/v1 request
+rechecks the persisted account enabled state, matching token vs
+persisted organization, and existing live V170AccessControl HR rules.
+A failure returns 403; query exceptions never invoke downstream APIs.
+Unrecognized JWT user claims fail closed. Anonymous endpoints are
+not converted into privileged endpoints.
+
+12 individually named HTTP tests cover (a) legacy default-OFF
+gap; (b) live active JWT 200; (c) stale JWT after Leave, Terminated,
+PreHire each 403; (d) disabled user; (e) changed organization; (f)
+expired active period; (g) future Leave not yet effective; (h) revoked
+JWT on B3 Mine 403 while active B3 OFF returns 503; (i) public health;
+(j) unauthenticated /me remains 401. Dedicated Python tests reject
+missing, duplicated or forged HTTP TRX case IDs/outcomes.
+
+### Independent Owner/IT impact and enablement gate
+
+This is a **candidate**, not deployment clearance. Enabling introduces
+a database access + HR policy check for each authenticated API call.
+IT/Owner must independently approve its scale/load/latency and
+database outage fail-closed behavior, user organization changes,
+external/Entra identity compatibility, role/projection revocation
+(which is separate from this HR check), instrumentation and regression
+scope. A JWT revoked by HR should not be silently allowed if the
+database cannot be queried; unavailable infrastructure may result in
+an error response, requiring an explicit availability/SLA decision.
+
+Existing tokens can still rely on their old Role claims on endpoints
+that do not independently re-evaluate roles: the HR session guard
+alone does not certify current-role or Manager Grant correctness.
+API-OFF-08 and 22 B4 formal scenarios remain PENDING; 011 formal
+migration NOT AUTHORIZED, B3 OFF, Approve/Apply DENY ALL,
+VAL-B1-002 BLOCKED, Business UAT HOLD, Production HARD HOLD.
+
 ## Phase 1 — separately authorized isolated API + SQL runtime (future only)
 
 | B4 IDs | Scenario cluster | Required proof |
