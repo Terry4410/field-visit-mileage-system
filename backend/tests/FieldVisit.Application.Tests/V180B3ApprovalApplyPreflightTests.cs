@@ -379,4 +379,49 @@ public sealed class V180B3ApprovalApplyPreflightTests
         }
     }
 
+    [Fact]
+    public void Approval_plan_denies_self_review_and_rejected_request_without_side_effects()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent approval");
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 910, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], Before));
+        row.Status = "Rejected";
+        Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], Before));
+    }
+
+    [Fact]
+    public void Approval_plan_denies_forged_before_snapshot_and_cross_tenant()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent approval");
+        row.BeforeJson = JsonSerializer.Serialize(
+            Before with { LocationName = "Forged previous name" });
+        Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], Before));
+        row = Pending();
+        row.RowVersion = new byte[8];
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 2, row.RequestPublicId, 20, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], Before));
+    }
+
 }
