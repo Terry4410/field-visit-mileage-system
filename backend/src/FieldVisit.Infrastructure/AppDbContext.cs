@@ -6,6 +6,15 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
 {
+    public async Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> action, CancellationToken ct)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(ct);
+        var result = await action(ct);
+        await transaction.CommitAsync(ct);
+        return result;
+    }
+
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<User> Users => Set<User>();
