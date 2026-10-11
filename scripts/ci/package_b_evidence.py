@@ -320,6 +320,34 @@ def validate_dated_site_runtime_trx(path: Path) -> dict:
             "business_uat":"HOLD","production":"HARD_HOLD"}
 
 
+# Actual ASP.NET Core /api/v1/trips/context HTTP pipeline + EF InMemory.
+SITE_HTTP_PREFIX="FieldVisit.Application.Tests.V180DeploymentSiteHttpPipelineTests."
+SITE_HTTP_REQUIRED=frozenset(["SITE_HTTP_real_endpoint_valid_primary_site_returns_eligible_context","SITE_HTTP_real_endpoint_disabled_site_returns_ineligible_context","SITE_HTTP_real_endpoint_future_site_not_currently_eligible","SITE_HTTP_real_endpoint_removed_team_center_returns_no_eligible_sites","SITE_HTTP_real_endpoint_future_leave_is_ineligible_for_visit_date","SITE_HTTP_real_endpoint_foreign_org_official_site_excluded"])
+
+def validate_site_http_trx(path: Path) -> dict:
+    root=ET.parse(path).getroot()
+    rows=[x for x in root.findall(".//{*}UnitTestResult")
+          if x.get("testName","").startswith(SITE_HTTP_PREFIX)]
+    expected={SITE_HTTP_PREFIX+x for x in SITE_HTTP_REQUIRED}
+    names=[x.get("testName") for x in rows]
+    if len(rows)!=len(expected) or set(names)!=expected or len(set(names))!=len(names):
+        raise ValueError("deployment site HTTP mandatory named cases missing or duplicated")
+    identities=set()
+    for test in rows:
+        if test.get("outcome")!="Passed":
+            raise ValueError("deployment site HTTP mandatory case failed")
+        for key in ("testId","executionId"):
+            value=test.get(key)
+            if not value or value in identities:
+                raise ValueError("deployment site HTTP result IDs missing or duplicated")
+            identities.add(value)
+    return {"status":"PASS","scope":"REAL_ASPNET_TESTSERVER_EF_INMEMORY_SITE_CONTEXT",
+            "passed":len(rows),"required":len(expected),
+            "real_azure_sql_http":"NOT_TESTED",
+            "formal_b4_accepted":0,
+            "migration_011":"NOT_AUTHORIZED","business_uat":"HOLD","production":"HARD_HOLD"}
+
+
 def parse_trx(path: Path) -> dict[str, int]:
     root = ET.parse(path).getroot()
     counters = root.find(".//{*}Counters")
@@ -375,11 +403,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             require_session_http: bool = False,
             require_role_http: bool = False,
             require_team_scope_http: bool = False,
-            require_site_runtime: bool = False) -> dict:
+            require_site_runtime: bool = False,
+            require_site_http: bool = False) -> dict:
     evidence = {"gate": "PACKAGE_B_B3_B4_CI_EVIDENCE",
                 "result": "FAIL_CLOSED", "guard": None,
                 "backend": None, "frontend": None, "b4_matrix": None,
-                "http_off": None, "hr_http": None, "session_http": None, "role_http": None, "team_scope_http": None, "site_runtime": None,
+                "http_off": None, "hr_http": None, "session_http": None, "role_http": None, "team_scope_http": None, "site_runtime": None, "site_http": None,
                 "build_and_ci_steps": None,
                 "release_authorization": dict(RELEASE_HOLD_CONTRACT),
                 "release_go": False,
@@ -433,6 +462,12 @@ def collect(guard_path: Path, trx: Path, junit: Path, matrix: Path,
             evidence["site_runtime"]["source_sha"]=evidence["guard"]["sha"]
         except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
             evidence["errors"].append("Deployment Site date runtime: "+str(exc))
+    if require_site_http:
+        try:
+            evidence["site_http"]=validate_site_http_trx(trx)
+            evidence["site_http"]["source_sha"]=evidence["guard"]["sha"]
+        except (OSError,ValueError,KeyError,TypeError,ET.ParseError) as exc:
+            evidence["errors"].append("Official Site HTTP: "+str(exc))
     try:
         data = parse_junit(junit)
         if data["total"] <= 0 or data["failed"] or data["skipped"] or \
@@ -481,7 +516,8 @@ def main() -> int:
                      Path(args.matrix), step_outcomes=steps,
                      require_http_off=True, require_hr_http=True,
                      require_session_http=True, require_role_http=True,
-                     require_team_scope_http=True, require_site_runtime=True)
+                     require_team_scope_http=True, require_site_runtime=True,
+                     require_site_http=True)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n",
@@ -535,6 +571,11 @@ def main() -> int:
         lines.append("| Dated official site/TripContext EF isolated runtime | "+
                      str(h["passed"])+"/"+str(h["required"])+
                      " PASS; live SQL/API and B4 approval NOT TESTED |")
+    if result["site_http"]:
+        h=result["site_http"]
+        lines.append("| Real GET /trips/context HTTP (isolated InMemory) | "+
+                     str(h["passed"])+"/"+str(h["required"])+
+                     " PASS; UAT SQL and B4 acceptance NOT TESTED |")
     if result["b4_matrix"]:
         lines.append("| B4 SQL runtime checklist (documentation only) | "
                      "22/22 documented; NOT executed on SQL Server |")
