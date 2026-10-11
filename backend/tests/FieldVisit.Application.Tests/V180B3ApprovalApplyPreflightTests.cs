@@ -262,4 +262,45 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 row, -1, row.RequestPublicId));
     }
 
+    [Fact]
+    public void Published_source_matching_owner_team_and_active_approval_passes()
+    {
+        var row = Pending();
+        V180B3ApprovalApplyPreflight.RequirePublishedSourceEligibility(
+            row, 9, 1, 7, 910, "Customer", "Approved", true);
+    }
+
+    [Theory]
+    [InlineData(10, 1, 7, 910, "Customer", "Approved", true)]
+    [InlineData(9, 2, 7, 910, "Customer", "Approved", true)]
+    [InlineData(9, 1, 8, 910, "Customer", "Approved", true)]
+    [InlineData(9, 1, 7, 911, "Customer", "Approved", true)]
+    [InlineData(9, 1, 7, 910, "Official", "Approved", true)]
+    [InlineData(9, 1, 7, 910, "Customer", "Pending", true)]
+    [InlineData(9, 1, 7, 910, "Customer", "Approved", false)]
+    public void Published_source_drift_or_unapproved_source_is_denied(
+        int locationId, int? orgId, int? teamId, int? ownerId,
+        string locationType, string approvalStatus, bool isActive)
+    {
+        var row = Pending();
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.RequirePublishedSourceEligibility(
+                row, locationId, orgId, teamId, ownerId,
+                locationType, approvalStatus, isActive));
+    }
+
+    [Fact]
+    public void Missing_published_source_ownership_and_team_are_denied()
+    {
+        var row = Pending();
+        row.TeamId = null;
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.RequirePublishedSourceEligibility(
+                row, 9, 1, 7, 910, "Customer", "Approved", true));
+        row = Pending();
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180B3ApprovalApplyPreflight.RequirePublishedSourceEligibility(
+                row, 9, 1, 7, null, "Customer", "Approved", true));
+    }
+
 }
