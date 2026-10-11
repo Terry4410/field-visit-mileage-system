@@ -20,6 +20,7 @@ public sealed class V180B3ApprovalApplyPreflightTests
         EntityId = "9",
         OperationCode = "UpdatePublishedLocation",
         RiskCode = "High",
+        RequestedByUserId = 910,
         Status = "Pending",
         ExpectedEntityRowVersion = new byte[8],
         BeforeJson = JsonSerializer.Serialize(Before),
