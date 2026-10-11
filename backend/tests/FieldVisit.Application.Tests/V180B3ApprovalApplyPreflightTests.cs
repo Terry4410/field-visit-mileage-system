@@ -75,6 +75,26 @@ public sealed class V180B3ApprovalApplyPreflightTests
     }
 
     [Fact]
+    public void Tampered_before_snapshot_fails_closed()
+    {
+        var row = Pending();
+        row.BeforeJson = JsonSerializer.Serialize(
+            Before with { LocationName = "Forged before" });
+        Assert.Throws<InvalidOperationException>(() => Validate(row));
+    }
+
+    [Fact]
+    public void Source_rowversion_missing_or_malformed_fails_closed()
+    {
+        var row = Pending();
+        row.ExpectedEntityRowVersion = new byte[7];
+        Assert.Throws<UnauthorizedAccessException>(() => Validate(row));
+        row = Pending();
+        Assert.Throws<InvalidOperationException>(() =>
+            Validate(row, new byte[7]));
+    }
+
+    [Fact]
     public void Unsupported_operation_and_foreign_org_fail_closed()
     {
         var row = Pending();
