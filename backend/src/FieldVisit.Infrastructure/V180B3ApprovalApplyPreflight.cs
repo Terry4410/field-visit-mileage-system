@@ -396,6 +396,48 @@ public static class V180B3ApprovalApplyPreflight
             throw new InvalidOperationException("B3_ATOMIC_AUDIT_PAIR_INVALID");
     }
 
+    /// <summary>
+    /// WORK-only pure contract for a future guarded SQL source UPDATE.
+    /// A matching rowversion is necessary but not sufficient: the SQL writer
+    /// must also use org/team/creator/active/approved predicates and demand
+    /// exactly one affected row inside the approval transaction.
+    /// </summary>
+    public static void RequireExactlyOneGuardedSourceUpdate(
+        V180B3ApprovalApplyPlan plan, int affectedRows,
+        int lockedLocationId, byte[]? originalLocationRowVersion)
+    {
+        if (plan.LocationId <= 0
+            || lockedLocationId != plan.LocationId
+            || plan.ExpectedLocationRowVersion is not { Length: 8 }
+            || originalLocationRowVersion is not { Length: 8 }
+            || !plan.ExpectedLocationRowVersion.SequenceEqual(originalLocationRowVersion)
+            || affectedRows != 1)
+            throw new InvalidOperationException("B3_ATOMIC_SOURCE_UPDATE_CONFLICT");
+    }
+
+    /// <summary>
+    /// A future executor must apply the Pending-to-Applied transition with
+    /// the original request rowversion, in the same SQL transaction.
+    /// This method performs no write and does not authorize the executor.
+    /// </summary>
+    public static void RequireExactlyOneGuardedRequestTransition(
+        V180B3ApprovalApplyPlan plan, int affectedRows,
+        V180B3ChangeRequest lockedRequest, byte[]? originalRequestRowVersion)
+    {
+        if (plan.RequestPublicId == Guid.Empty
+            || lockedRequest.RequestPublicId != plan.RequestPublicId
+            || lockedRequest.Status != "Pending"
+            || lockedRequest.ReviewedByUserId is not null
+            || lockedRequest.ReviewedAt is not null
+            || lockedRequest.ReviewReason is not null
+            || lockedRequest.AppliedAt is not null
+            || plan.ExpectedRequestRowVersion is not { Length: 8 }
+            || originalRequestRowVersion is not { Length: 8 }
+            || !plan.ExpectedRequestRowVersion.SequenceEqual(originalRequestRowVersion)
+            || affectedRows != 1)
+            throw new InvalidOperationException("B3_ATOMIC_REQUEST_UPDATE_CONFLICT");
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
