@@ -152,7 +152,7 @@ jobs:
             --report .ci-artifacts/b4-site-sql-evidence.json \
             --summary .ci-artifacts/b4-site-sql-evidence.md
           cat .ci-artifacts/b4-site-sql-evidence.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Execute 12 real JWT HTTP + disposable SQL Server security/draft cases
+      - name: Execute 16 real JWT HTTP + disposable SQL Server security/draft/submit cases
         shell: bash
         run: |
           dotnet test backend/tests/FieldVisit.B4.SqlHttp.Tests/FieldVisit.B4.SqlHttp.Tests.csproj \
@@ -198,7 +198,7 @@ jobs:
             echo "Actual approval/apply: DENY ALL"
             echo "SQL Server partial B4 fixture is NOT Business UAT GO"
             echo "B4 dated-site SQL: separately verified, never counted in B3 51-case suite"
-            echo "REAL JWT HTTP + disposable SQL integration: 12 named cases (NONRELEASE)"
+            echo "REAL JWT HTTP + disposable SQL integration: 16 named cases (NONRELEASE)"
             echo "Real Azure/UAT SQL, Entra, migration-owned schema: NOT TESTED"
           } > .ci-artifacts/b3-sql-scope.txt
           docker logs b3-sql-fixture --tail 60 > .ci-artifacts/sql-container-logs.txt 2>&1 || true
