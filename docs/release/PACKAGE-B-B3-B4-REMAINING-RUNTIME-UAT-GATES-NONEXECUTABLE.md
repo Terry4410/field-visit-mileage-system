@@ -109,9 +109,22 @@ unknown Location operation/risk codes and malformed RowVersion values cannot
 write; Pending review metadata and Submitted/Rejected event decision keys
 must satisfy the physical CHECKs; JSON damage must not rewrite prior audit;
 a referenced reviewer or request cannot be deleted; and a future latest
-schema version fails readiness. The named TRX manifest therefore requires
+schema version fails readiness. The historical named TRX manifest at that iteration required
 **42/42** passing engine cases before marking *isolated SQL* PASS. This
 number must never be used as B4 scenario signoff.
+
+## Current isolated SQL manifest reconciliation (2026-10-11)
+
+The current WORK branch has advanced beyond the historical 42-case section.
+The immutable SQL evidence parser now requires **55 named B3 SQL Server
+fixture tests**. The latest independently completed green WORK CI before
+this documentation change is SHA
+`a949a6600c97042e2893a4f4c10665778d7249fb`,
+run `38127490302`. The count is for the disposable fixture only.
+It is **not** B4 formal acceptance and does not authorize the 011
+migration, B3 feature activation, approval executor, UAT deployment
+or promotion. The newer WORK commits must pass their own exact-SHA CI
+before being considered verified.
 
 ## B4 22-case evidence classification (isolated-only; NOT full B4 sign-off)
 
