@@ -172,6 +172,12 @@ public static class V180B3ApprovalApplyPreflight
         {
             RequireExactLocationJson(plan.BeforeJson);
             RequireExactLocationJson(plan.ProposedJson);
+            var before = JsonSerializer.Deserialize<V180B3LocationFields>(plan.BeforeJson);
+            var proposed = JsonSerializer.Deserialize<V180B3LocationFields>(plan.ProposedJson);
+            if (before is null || proposed is null
+                || !JsonEquals(V180B3ProposalSafetyRules.Validate(
+                    proposed, before, "Independent review preflight").Proposed, proposed))
+                throw new InvalidOperationException("B3_APPROVAL_PLAN_INVALID");
         }
         catch (JsonException)
         {
