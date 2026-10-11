@@ -10,7 +10,8 @@ from package_b_evidence import (collect, parse_junit, parse_trx,
                                 RELEASE_HOLD_CONTRACT, HTTP_REQUIRED,
                                 HTTP_PREFIX,validate_http_off_trx,
                                 HR_HTTP_PREFIX,HR_HTTP_REQUIRED,validate_hr_login_http_trx,
-                                SESSION_HTTP_PREFIX,SESSION_HTTP_REQUIRED,validate_session_guard_http_trx)
+                                SESSION_HTTP_PREFIX,SESSION_HTTP_REQUIRED,validate_session_guard_http_trx,
+                                ROLE_HTTP_PREFIX,ROLE_HTTP_REQUIRED,validate_role_http_trx)
 
 
 class PackageBEvidenceTests(unittest.TestCase):
@@ -382,6 +383,59 @@ class B4CombinedHttpTrxSeparationTests(unittest.TestCase):
     def test_missing_one_session_case_cannot_be_substituted_by_HR_case(self):
         self.make(drop=SESSION_HTTP_PREFIX+sorted(SESSION_HTTP_REQUIRED)[0])
         self.assertEqual(11,validate_hr_login_http_trx(self.trx)["passed"])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_session_guard_http_trx(self.trx)
+
+
+
+class B4RoleHttpNamedEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.trx=Path(self.temp.name)/"role.trx"
+        self.names=sorted(ROLE_HTTP_REQUIRED)
+        self.make()
+
+    def make(self,names=None,failed=False,missing_id=False):
+        names=self.names if names is None else names
+        rows=[]
+        for i,name in enumerate(names):
+            status="Failed" if failed and i==0 else "Passed"
+            ids="" if missing_id and i==0 else f' testId="t-{i}" executionId="e-{i}"'
+            rows.append(f'<UnitTestResult testName="{ROLE_HTTP_PREFIX}{name}" outcome="{status}"{ids}/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(rows)+"</Results></TestRun>")
+
+    def test_all_nine_exact_roles_still_hold_release(self):
+        result=validate_role_http_trx(self.trx)
+        self.assertEqual(9,result["passed"])
+        self.assertEqual("OFF_REQUIRED",result["live_guard_deployed"])
+        self.assertEqual("PENDING",result["formal_b4"])
+        self.assertEqual("HARD_HOLD",result["production"])
+
+    def test_missing_role_case_fails_closed(self):
+        self.make(self.names[:-1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_role_http_trx(self.trx)
+
+    def test_duplicate_role_case_fails_closed(self):
+        self.make(self.names[:-1]+self.names[:1])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_role_http_trx(self.trx)
+
+    def test_failed_role_case_fails_closed(self):
+        self.make(failed=True)
+        with self.assertRaisesRegex(ValueError,"failed"):
+            validate_role_http_trx(self.trx)
+
+    def test_missing_individual_role_test_id_fails_closed(self):
+        self.make(missing_id=True)
+        with self.assertRaisesRegex(ValueError,"ID"):
+            validate_role_http_trx(self.trx)
+
+    def test_role_suite_cannot_replace_login_or_hr_session_suite(self):
+        self.assertEqual(9,validate_role_http_trx(self.trx)["passed"])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_hr_login_http_trx(self.trx)
         with self.assertRaisesRegex(ValueError,"mandatory"):
             validate_session_guard_http_trx(self.trx)
 
