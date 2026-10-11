@@ -217,8 +217,11 @@ public sealed class V180B3ChangeRequestService(
         var(user,admin,_)=await LiveActorAsync(ct);
         if(!admin||!user.OrganizationId.HasValue)
             throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
-        var row=await db.ChangeRequests.SingleOrDefaultAsync(x=>
-            x.RequestPublicId==id&&x.OrganizationId==user.OrganizationId,ct)
+        // Match the approval preview's request-first lock order, so two
+        // reviewers cannot both decide from an unlocked Pending snapshot.
+        var row=await db.ChangeRequests.FromSqlInterpolated(
+            V180B3ApprovalLockSql.RequestByPublicId(id,user.OrganizationId.Value))
+            .SingleOrDefaultAsync(ct)
             ??throw new KeyNotFoundException("B3_REQUEST_NOT_FOUND");
         V180B3ReviewTargetRules.RequireSupportedTarget(row,user.OrganizationId.Value,id);
         var reviewReason=V180B3ProposalSafetyRules.RequireIndependentReview(
