@@ -21,6 +21,7 @@ REQUIRED_SECURITY_GATES = frozenset({
     "feature_flag_off",
     "live_session_guard_default_off",
     "live_session_role_intersection_and_pipeline",
+    "live_team_supervisor_scope_intersection",
     "B3_approve_executor_DENY_ALL",
     "migration_dir_present",
     "all_migrations_unchanged_since_baseline",
