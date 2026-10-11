@@ -252,7 +252,12 @@ public sealed class V180DeploymentSiteIsolatedRuntimeTests
         using var f=new Fixture();
         f.Db.TeamMemberships.Single().EffectiveTo=f.Date.AddDays(-1);
         await f.Db.SaveChangesAsync();
-        var c=await f.Resolve();
+        // With no current membership, the API's explicit TeamId must
+        // fail; an omitted TeamId returns a non-eligible context.
+        var ex=await Assert.ThrowsAsync<InvalidOperationException>(
+            ()=>f.Resolve(teamId:7));
+        Assert.Contains("TRIP_CONTEXT_TEAM_NOT_ASSIGNED",ex.Message);
+        var c=await f.Resolve(teamId:null);
         Assert.False(c.EligibleForTrip);
         Assert.Equal("NO_TEAM_MEMBERSHIP",c.ValidationCode);
     }
