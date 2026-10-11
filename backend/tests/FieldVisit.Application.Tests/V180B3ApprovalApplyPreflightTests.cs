@@ -120,6 +120,23 @@ public sealed class V180B3ApprovalApplyPreflightTests
     }
 
     [Fact]
+    public void Whitespace_normalization_during_approval_fails_closed()
+    {
+        var row = Pending();
+        row.ProposedJson = JsonSerializer.Serialize(
+            Proposed with { LocationName = " New name " });
+        Assert.Throws<InvalidOperationException>(() => Validate(row));
+    }
+
+    [Fact]
+    public void Malformed_before_snapshot_json_fails_closed()
+    {
+        var row = Pending();
+        row.BeforeJson = "{";
+        Assert.Throws<InvalidOperationException>(() => Validate(row));
+    }
+
+    [Fact]
     public void Invalid_or_no_change_proposal_fails_closed()
     {
         var row = Pending();
