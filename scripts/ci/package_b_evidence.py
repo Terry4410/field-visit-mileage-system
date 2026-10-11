@@ -165,7 +165,7 @@ HR_HTTP_REQUIRED=frozenset({
 def validate_hr_login_http_trx(path: Path) -> dict:
     root=ET.parse(path).getroot()
     tests=[x for x in root.findall(".//{*}UnitTestResult")
-           if x.get("testName","").startswith(HR_HTTP_PREFIX)]
+           if x.get("testName","").startswith(HR_HTTP_PREFIX+"HTTP_")]
     expected={HR_HTTP_PREFIX+x for x in HR_HTTP_REQUIRED}
     observed=[x.get("testName") for x in tests]
     if len(tests)!=len(expected) or set(observed)!=expected or len(set(observed))!=len(observed):
@@ -206,7 +206,7 @@ SESSION_HTTP_REQUIRED=frozenset({
 def validate_session_guard_http_trx(path: Path) -> dict:
     root=ET.parse(path).getroot()
     cases=[x for x in root.findall(".//{*}UnitTestResult")
-           if x.get("testName","").startswith(SESSION_HTTP_PREFIX)]
+           if x.get("testName","").startswith(SESSION_HTTP_PREFIX+"SESSION_")]
     expected={SESSION_HTTP_PREFIX+x for x in SESSION_HTTP_REQUIRED}
     names=[x.get("testName") for x in cases]
     if len(cases)!=len(expected) or set(names)!=expected or len(set(names))!=len(names):
