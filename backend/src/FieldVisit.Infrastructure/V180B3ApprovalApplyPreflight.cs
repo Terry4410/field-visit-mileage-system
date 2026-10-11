@@ -11,7 +11,12 @@ public sealed record V180B3ApprovalApplyPlan(
     Guid RequestPublicId, int LocationId, int ReviewerUserId,
     Guid DecisionKey, string ReviewReason, string BeforeJson,
     string ProposedJson, byte[] ExpectedLocationRowVersion,
-    byte[] ExpectedRequestRowVersion);
+    byte[] ExpectedRequestRowVersion)
+{
+    // A plan is a preflight value object only. It is not an execution token.
+    // Array properties are copies at construction, but consumers must not
+    // treat the plan as trusted across transaction boundaries.
+}
 
 public static class V180B3ApprovalApplyPreflight
 {
