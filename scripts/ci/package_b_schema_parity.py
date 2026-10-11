@@ -115,9 +115,11 @@ def analyze(sql: str, ef: str, sha: str = "LOCAL",
         expected_reasons = (
             "VisitorCalculate", "LeaderRetry",
             "CorrectionRecalculate", "BackgroundMileageJob")
-        valid_010 = bool(reason_block and all(
-            re.search(r"CalculationReason\s*=\s*N'" + reason + r"'", reason_block.group(1), re.I)
-            for reason in expected_reasons))
+        found_reasons = re.findall(
+            r"CalculationReason\s*=\s*N'([^']+)'",
+            reason_block.group(1), re.I) if reason_block else []
+        valid_010 = (len(found_reasons) == len(expected_reasons)
+                     and set(found_reasons) == set(expected_reasons))
         if not valid_010:
             failures.append("1800_010 reason CHECK missing or drifted")
         record("MIGRATION_ONLY_CHECK", "1800_010:CalculationReason",
