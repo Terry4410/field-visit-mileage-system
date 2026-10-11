@@ -255,17 +255,17 @@ public sealed class V180B3ChangeRequestService(
         var (reviewer, admin, _) = await LiveActorAsync(ct);
         if (!admin || !reviewer.OrganizationId.HasValue)
             throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
-        var request = await db.ChangeRequests.AsNoTracking().SingleOrDefaultAsync(
-            x => x.RequestPublicId == id
-                && x.OrganizationId == reviewer.OrganizationId, ct)
+        var request = await db.ChangeRequests.FromSqlInterpolated(
+            V180B3ApprovalLockSql.RequestByPublicId(id, reviewer.OrganizationId.Value))
+            .AsNoTracking().SingleOrDefaultAsync(ct)
             ?? throw new KeyNotFoundException("B3_REQUEST_NOT_FOUND");
         V180B3ReviewTargetRules.RequireSupportedTarget(
             request, reviewer.OrganizationId.Value, id);
         if (!int.TryParse(request.EntityId, out var locationId))
             throw new UnauthorizedAccessException("B3_REVIEW_TARGET_UNSUPPORTED");
-        var location = await db.Locations.AsNoTracking().SingleOrDefaultAsync(
-            x => x.LocationId == locationId
-                && x.OrganizationId == reviewer.OrganizationId, ct)
+        var location = await db.Locations.FromSqlInterpolated(
+            V180B3ApprovalLockSql.LocationById(locationId, reviewer.OrganizationId.Value))
+            .AsNoTracking().SingleOrDefaultAsync(ct)
             ?? throw new KeyNotFoundException("B3_LOCATION_NOT_FOUND");
         var member = request.TeamId.HasValue
             && await VisitorTeamAsync(request.RequestedByUserId,
