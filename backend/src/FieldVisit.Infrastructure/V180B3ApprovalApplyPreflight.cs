@@ -300,6 +300,23 @@ public static class V180B3ApprovalApplyPreflight
             throw new InvalidOperationException("B3_DECISION_KEY_REPLAY");
     }
 
+    /// <summary>
+    /// The locked SQL row and preflight plan must identify the same reviewer
+    /// and one-time decision; a plan never substitutes for live Admin checks.
+    /// </summary>
+    public static void RequireLockedDecisionIdentity(
+        V180B3ApprovalApplyPlan plan, int liveReviewerUserId,
+        Guid submittedDecisionKey, string? submittedReviewReason)
+    {
+        if (liveReviewerUserId <= 0
+            || plan.ReviewerUserId != liveReviewerUserId
+            || submittedDecisionKey == Guid.Empty
+            || plan.DecisionKey != submittedDecisionKey
+            || !string.Equals(plan.ReviewReason, submittedReviewReason,
+                StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("B3_APPROVAL_DECISION_IDENTITY_DRIFT");
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
