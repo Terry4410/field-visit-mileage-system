@@ -356,6 +356,46 @@ public static class V180B3ApprovalApplyPreflight
         RequireUnusedDecisionKey(plan, decisionKeyAlreadyExists);
     }
 
+    /// <summary>
+    /// Validate the future decision/publication audit pair without persisting it.
+    /// Both events and the source update must later commit in ONE transaction.
+    /// This guard is not authority to enable the approval endpoint.
+    /// </summary>
+    public static void RequireAtomicAuditPair(
+        V180B3ApprovalApplyPlan plan,
+        V180B3ChangeRequest lockedPendingRequest,
+        V180B3ChangeEvent approvedEvent,
+        V180B3ChangeEvent appliedEvent)
+    {
+        if (lockedPendingRequest.ChangeRequestId <= 0
+            || lockedPendingRequest.RequestPublicId != plan.RequestPublicId
+            || lockedPendingRequest.Status != "Pending"
+            || lockedPendingRequest.RequestedByUserId <= 0
+            || lockedPendingRequest.RequestedByUserId == plan.ReviewerUserId
+            || lockedPendingRequest.ReviewedAt is not null
+            || lockedPendingRequest.ReviewedByUserId is not null
+            || lockedPendingRequest.ReviewReason is not null
+            || lockedPendingRequest.AppliedAt is not null
+            || plan.DecisionKey == Guid.Empty
+            || plan.ReviewerUserId <= 0
+            || string.IsNullOrWhiteSpace(plan.ReviewReason)
+            || plan.ReviewReason != plan.ReviewReason.Trim()
+            || approvedEvent.ChangeRequestId != lockedPendingRequest.ChangeRequestId
+            || appliedEvent.ChangeRequestId != lockedPendingRequest.ChangeRequestId
+            || approvedEvent.EventType != "Approved"
+            || appliedEvent.EventType != "Applied"
+            || approvedEvent.ActorUserId != plan.ReviewerUserId
+            || appliedEvent.ActorUserId != plan.ReviewerUserId
+            || approvedEvent.DecisionKey != plan.DecisionKey
+            || appliedEvent.DecisionKey is not null
+            || approvedEvent.CorrelationId == Guid.Empty
+            || approvedEvent.CorrelationId != appliedEvent.CorrelationId
+            || approvedEvent.OccurredAt.Kind != DateTimeKind.Utc
+            || appliedEvent.OccurredAt.Kind != DateTimeKind.Utc
+            || approvedEvent.OccurredAt > appliedEvent.OccurredAt)
+            throw new InvalidOperationException("B3_ATOMIC_AUDIT_PAIR_INVALID");
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
