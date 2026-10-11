@@ -25,18 +25,36 @@ class RealJwtSqlHttpEvidenceTests(unittest.TestCase):
             f'total="{len(names)}" passed="{len(names)-skip}" failed="0" error="0"'
             f' notExecuted="{skip}"/></ResultSummary></TestRun>')
 
-    def test_exact_six_hold_contract_and_sha(self):
+    def test_exact_twelve_hold_contract_and_sha(self):
         proof=validate(self.trx,"a"*40)
-        self.assertEqual(6,proof["passed"])
+        self.assertEqual(12,proof["passed"])
         self.assertEqual("a"*40,proof["source_sha"])
         self.assertEqual("HARD_HOLD",proof["production"])
         self.assertEqual(0,proof["formal_b4_accepted"])
         self.assertEqual("NOT_AUTHORIZED",proof["011_migration"])
         self.assertEqual("OFF",proof["b3_flag"])
         self.assertEqual("DENY_ALL",proof["approve_apply"])
-        self.assertEqual(6,len(proof["case_results"]))
+        self.assertEqual(12,len(proof["case_results"]))
         self.assertEqual(hashlib.sha256(self.trx.read_bytes()).hexdigest(),
                          proof["trx_sha256"])
+
+    def test_all_six_draft_paths_independently_required(self):
+        draft=[x for x in self.names if "SQL_HTTP_DRAFT_" in x]
+        self.assertEqual(6,len(draft))
+        for case in draft:
+            with self.subTest(missing_case=case):
+                self.make([n for n in self.names if n!=case])
+                with self.assertRaisesRegex(ValueError,"missing/failed/skipped"):
+                    validate(self.trx,"b"*40)
+
+    def test_all_six_session_and_site_paths_independently_required(self):
+        initial=[x for x in self.names if "SQL_HTTP_DRAFT_" not in x]
+        self.assertEqual(6,len(initial))
+        for case in initial:
+            with self.subTest(missing_case=case):
+                self.make([n for n in self.names if n!=case])
+                with self.assertRaisesRegex(ValueError,"missing/failed/skipped"):
+                    validate(self.trx,"b"*40)
 
     def test_missing_named_result_fails(self):
         self.make(self.names[:-1])
