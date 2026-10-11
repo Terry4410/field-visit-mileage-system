@@ -50,6 +50,20 @@ class PackageBGuardNegativeTests(unittest.TestCase):
             "permissions:\n  contents: read\n  persist-credentials: false\n"
             "  python3 scripts/ci/package_b_guard.py\n"
             "  if-no-files-found: error\n  include-hidden-files: true\n")
+
+        self.api_program = self.root / "backend/src/FieldVisit.Api/Program.cs"
+        self.api_program.write_text(
+            'app.UseRouting();app.UseCors("Frontend");'
+            'app.UseAuthentication();'
+            'app.UseMiddleware<V180LiveSessionGuardMiddleware>();'
+            'app.UseAuthorization();')
+        self.session_middleware = self.root / "backend/src/FieldVisit.Api/V180LiveSessionGuardMiddleware.cs"
+        self.session_middleware.write_text(
+            'Auth:LiveSessionGuard:Enabled UserRoles.AsNoTracking() '
+            'UserRoleAssignments.AsNoTracking() '
+            'projected.IntersectWith(effective.Select(NormalizeRole)) '
+            'jwtRoles.Any(role=>!projected.Contains(role)) '
+            'UserTypes.External SESSION_ROLE_REVOKED')
         self.changed_sql = ""
         self.changed_workflows = ""
         self.remote = guard.FROZEN
@@ -96,6 +110,30 @@ class PackageBGuardNegativeTests(unittest.TestCase):
             "PackageB": {"B3": {"Enabled": False}}
         }))
         self.assertNotEqual(set(), self.failures())
+
+
+    def test_removed_live_role_intersection_fails_closed(self):
+        source=self.session_middleware.read_text()
+        self.session_middleware.write_text(source.replace(
+            "projected.IntersectWith(effective.Select(NormalizeRole))",
+            "skipped_effective_assignment_intersection"))
+        self.assertIn("live_session_role_intersection_and_pipeline",
+                      self.failures())
+
+    def test_session_middleware_moved_after_authz_fails_closed(self):
+        source=self.api_program.read_text()
+        self.api_program.write_text(source.replace(
+            'app.UseMiddleware<V180LiveSessionGuardMiddleware>();'
+            'app.UseAuthorization();',
+            'app.UseAuthorization();'
+            'app.UseMiddleware<V180LiveSessionGuardMiddleware>();'))
+        self.assertIn("live_session_role_intersection_and_pipeline",
+                      self.failures())
+
+    def test_removed_session_middleware_source_fails_closed(self):
+        self.session_middleware.unlink()
+        self.assertIn("live_session_role_intersection_and_pipeline",
+                      self.failures())
 
     def test_approval_write_fails(self):
         self.approval.write_text(self.approval.read_text() + " await db.SaveChangesAsync();")
