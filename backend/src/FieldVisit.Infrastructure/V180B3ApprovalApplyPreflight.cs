@@ -47,6 +47,26 @@ public static class V180B3ApprovalApplyPreflight
         }
     }
 
+    /// <summary>
+    /// Pure approval decision gate. The caller must still revalidate live Admin
+    /// authorization inside a serializable SQL transaction and enforce unique
+    /// DecisionKey at the database boundary.
+    /// </summary>
+    public static string RequireIndependentApprovalDecision(
+        V180B3ChangeRequest request, int organizationId, Guid publicId,
+        int reviewerUserId, V180B3Review review)
+    {
+        V180B3ReviewTargetRules.RequireSupportedTarget(
+            request, organizationId, publicId);
+        if (reviewerUserId <= 0)
+            throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
+        V180B3RequestInputRules.RequireReviewTarget(publicId, review);
+        return V180B3ProposalSafetyRules.RequireIndependentReview(
+            request.RequestedByUserId, reviewerUserId,
+            request.Status, request.RowVersion,
+            review.RequestRowVersion, review.DecisionKey, review.Reason);
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
