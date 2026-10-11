@@ -424,4 +424,30 @@ public sealed class V180B3ApprovalApplyPreflightTests
                 new byte[8], Before));
     }
 
+    [Fact]
+    public void Null_expected_source_version_fails_with_controlled_conflict()
+    {
+        var row = Pending();
+        row.ExpectedEntityRowVersion = null;
+        var error = Assert.Throws<InvalidOperationException>(() => Validate(row));
+        Assert.Equal("B3_SOURCE_ROWVERSION_CONFLICT", error.Message);
+    }
+
+    [Fact]
+    public void Null_expected_source_version_cannot_create_immutable_approval_plan()
+    {
+        var row = Pending();
+        row.RowVersion = new byte[8];
+        row.ExpectedEntityRowVersion = null;
+        var review = new V180B3Review(
+            Convert.ToBase64String(row.RowVersion), Guid.NewGuid(),
+            "Independent approval");
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            V180B3ApprovalApplyPreflight.PrepareImmutablePlan(
+                row, 1, row.RequestPublicId, 20, review,
+                9, 1, 7, 910, "Customer", "Approved", true,
+                new byte[8], Before));
+        Assert.Equal("B3_SOURCE_ROWVERSION_CONFLICT", error.Message);
+    }
+
 }
