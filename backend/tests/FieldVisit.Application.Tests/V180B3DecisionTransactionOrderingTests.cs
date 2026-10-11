@@ -87,4 +87,35 @@ public sealed class V180B3DecisionTransactionOrderingTests
         Assert.DoesNotContain("db.ChangeRequestEvents.Add(",previewBody);
     }
 
+    [Fact]
+    public void Lock_queries_remain_parameterized_and_explicitly_scoped()
+    {
+        var source=Source();
+        var path=Path.Combine(
+            Path.GetDirectoryName(Path.Combine(
+                FindRepositoryRoot(), "backend", "src",
+                "FieldVisit.Infrastructure", "V180B3ChangeRequestService.cs"))!,
+            "V180B3ApprovalLockSql.cs");
+        var sql=File.ReadAllText(path);
+        Assert.Contains("FormattableString RequestByPublicId(",sql);
+        Assert.Contains("FormattableString LocationById(",sql);
+        Assert.Equal(2,sql.Split("WITH (UPDLOCK, HOLDLOCK)").Length-1);
+        Assert.Contains("RequestPublicId = {publicId} AND OrganizationId = {organizationId}",sql);
+        Assert.Contains("LocationId = {locationId} AND OrganizationId = {organizationId}",sql);
+        Assert.Contains("FromSqlInterpolated(",source);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var dir=new DirectoryInfo(AppContext.BaseDirectory);
+        while(dir is not null)
+        {
+            if(File.Exists(Path.Combine(dir.FullName,"backend","src",
+                "FieldVisit.Infrastructure","V180B3ChangeRequestService.cs")))
+                return dir.FullName;
+            dir=dir.Parent;
+        }
+        throw new FileNotFoundException("Cannot locate repository root");
+    }
+
 }
