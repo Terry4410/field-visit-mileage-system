@@ -407,6 +407,142 @@ public sealed class B4IsolatedHrLoginFactory : WebApplicationFactory<V180B3Chang
         await db.SaveChangesAsync();
     }
 
+    public static readonly DateOnly DatedTripDay=new(2026,10,12);
+
+    public async Task SeedDatedTripContextAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var start=new DateOnly(2026,1,1);
+        var profile=await db.UserIdentityProfiles.SingleAsync();
+        profile.EmploymentId=9001;
+        db.Employments.Add(new Employment
+        {
+            EmploymentId=9001,PersonId=701,OrganizationId=1,
+            EmployeeNo=LoginAccount,HireDate=start
+        });
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentStatusPeriodId=701,EmploymentId=9001,
+            EmploymentStatus=EmploymentStatuses.Active,EffectiveFrom=start
+        });
+        db.TeamMemberships.Add(new TeamMembership
+        {
+            TeamMembershipId=702,EmploymentId=9001,
+            TeamId=7,IsPrimary=true,EffectiveFrom=start
+        });
+        db.Centers.Add(new Center
+        {
+            CenterId=81,OrganizationId=1,CenterCode="C81",
+            CenterName="Center 81",IsActive=true,EffectiveFrom=start
+        });
+        db.TeamCenterAssignments.Add(new TeamCenterAssignment
+        {
+            TeamCenterAssignmentId=703,TeamId=7,CenterId=81,
+            EffectiveFrom=start
+        });
+        db.DeploymentSites.Add(new DeploymentSite
+        {
+            DeploymentSiteId=101,CenterId=81,SiteCode="S101",
+            SiteName="Official Site 101",EffectiveFrom=start,IsActive=true
+        });
+        db.TeamDeploymentSiteAssignments.Add(new TeamDeploymentSiteAssignment
+        {
+            TeamDeploymentSiteAssignmentId=704,TeamId=7,
+            DeploymentSiteId=101,EffectiveFrom=start
+        });
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
+        {
+            EmploymentDeploymentSiteAssignmentId=705,EmploymentId=9001,
+            DeploymentSiteId=101,IsPrimary=true,EffectiveFrom=start
+        });
+        db.Locations.Add(new Location
+        {
+            LocationId=1001,OrganizationId=1,LocationCode="L1001",
+            LocationName="Office 1001",LocationType="Official",
+            IsActive=true,ApprovalStatus="Approved",
+            CreatedAt=DateTime.UtcNow
+        });
+        db.DeploymentSiteLocationAssignments.Add(new DeploymentSiteLocationAssignment
+        {
+            DeploymentSiteLocationAssignmentId=706,DeploymentSiteId=101,
+            LocationId=1001,EffectiveFrom=start
+        });
+        await db.SaveChangesAsync();
+    }
+
+    public async Task DisableDatedDeploymentSiteAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var site=await db.DeploymentSites.SingleAsync(x=>x.DeploymentSiteId==101);
+        site.IsActive=false;
+        await db.SaveChangesAsync();
+    }
+
+    public async Task SetDatedDeploymentFutureAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var site=await db.DeploymentSites.SingleAsync(x=>x.DeploymentSiteId==101);
+        site.EffectiveFrom=DatedTripDay.AddDays(1);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task RemoveDatedTeamCenterAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.TeamCenterAssignments.Remove(
+            await db.TeamCenterAssignments.SingleAsync(x=>x.TeamId==7));
+        await db.SaveChangesAsync();
+    }
+
+    public async Task ScheduleLeaveOnDatedTripDayAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var active=await db.EmploymentStatusPeriods.SingleAsync();
+        active.EffectiveTo=DatedTripDay.AddDays(-1);
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentStatusPeriodId=707,EmploymentId=9001,
+            EmploymentStatus=EmploymentStatuses.Leave,
+            EffectiveFrom=DatedTripDay
+        });
+        await db.SaveChangesAsync();
+    }
+
+    public async Task AddForeignDatedOfficialSiteAsync()
+    {
+        using var scope=Services.CreateScope();
+        var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var start=new DateOnly(2026,1,1);
+        db.Centers.Add(new Center
+        {
+            CenterId=82,OrganizationId=2,CenterCode="C82",
+            CenterName="Foreign Center 82",IsActive=true,EffectiveFrom=start
+        });
+        db.DeploymentSites.Add(new DeploymentSite
+        {
+            DeploymentSiteId=102,CenterId=82,SiteCode="S102",
+            SiteName="Foreign Official Site 102",IsActive=true,
+            EffectiveFrom=start
+        });
+        db.Locations.Add(new Location
+        {
+            LocationId=1002,OrganizationId=2,LocationCode="L1002",
+            LocationName="Foreign Office 1002",LocationType="Official",
+            IsActive=true,ApprovalStatus="Approved",CreatedAt=DateTime.UtcNow
+        });
+        db.DeploymentSiteLocationAssignments.Add(new DeploymentSiteLocationAssignment
+        {
+            DeploymentSiteLocationAssignmentId=708,
+            DeploymentSiteId=102,LocationId=1002,EffectiveFrom=start
+        });
+        await db.SaveChangesAsync();
+    }
+
     public static Task<HttpResponseMessage> Login(HttpClient client,
         string account=LoginAccount,string password=LoginPassword)=>
         client.PostAsJsonAsync("/api/v1/auth/demo-login",new { Account=account,Password=password });
@@ -960,4 +1096,98 @@ public sealed class V180HrLoginHttpPipelineTests
     }
 
 
+}
+
+public sealed class V180DeploymentSiteHttpPipelineTests
+{
+    private const string ContextPath="/api/v1/trips/context?visitDate=2026-10-12&teamId=7";
+
+    private static async Task<HttpClient> PrepareAsync(B4IsolatedHrLoginFactory factory)
+    {
+        await factory.SeedAsync(EmploymentStatuses.Active);
+        await factory.SetupModernInternalIdentityAsync();
+        await factory.SeedModernTeamAsync();
+        await factory.SeedDatedTripContextAsync();
+        var client=factory.Client();
+        using var login=await B4IsolatedHrLoginFactory.Login(client);
+        Assert.Equal(HttpStatusCode.OK,login.StatusCode);
+        using var j=JsonDocument.Parse(await login.Content.ReadAsStringAsync());
+        var token=j.RootElement.GetProperty("accessToken").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(token));
+        client.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",token);
+        return client;
+    }
+
+    private static async Task<JsonDocument> GetOkContext(HttpClient client)
+    {
+        using var response=await client.GetAsync(ContextPath);
+        Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task SITE_HTTP_real_endpoint_valid_primary_site_returns_eligible_context()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await PrepareAsync(factory);
+        using var doc=await GetOkContext(client);
+        Assert.True(doc.RootElement.GetProperty("eligibleForTrip").GetBoolean());
+        Assert.Equal(101,doc.RootElement.GetProperty("primaryDeploymentSiteId").GetInt32());
+    }
+
+    [Fact]
+    public async Task SITE_HTTP_real_endpoint_disabled_site_returns_ineligible_context()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await PrepareAsync(factory);
+        await factory.DisableDatedDeploymentSiteAsync();
+        using var doc=await GetOkContext(client);
+        Assert.False(doc.RootElement.GetProperty("eligibleForTrip").GetBoolean());
+    }
+
+    [Fact]
+    public async Task SITE_HTTP_real_endpoint_future_site_not_currently_eligible()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await PrepareAsync(factory);
+        await factory.SetDatedDeploymentFutureAsync();
+        using var doc=await GetOkContext(client);
+        Assert.False(doc.RootElement.GetProperty("eligibleForTrip").GetBoolean());
+    }
+
+    [Fact]
+    public async Task SITE_HTTP_real_endpoint_removed_team_center_returns_no_eligible_sites()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await PrepareAsync(factory);
+        await factory.RemoveDatedTeamCenterAsync();
+        using var doc=await GetOkContext(client);
+        Assert.False(doc.RootElement.GetProperty("eligibleForTrip").GetBoolean());
+        Assert.Equal("NO_ELIGIBLE_DEPLOYMENT_SITE",
+            doc.RootElement.GetProperty("validationCode").GetString());
+    }
+
+    [Fact]
+    public async Task SITE_HTTP_real_endpoint_future_leave_is_ineligible_for_visit_date()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await PrepareAsync(factory);
+        await factory.ScheduleLeaveOnDatedTripDayAsync();
+        using var doc=await GetOkContext(client);
+        Assert.False(doc.RootElement.GetProperty("eligibleForTrip").GetBoolean());
+        Assert.Equal("EMPLOYMENT_NOT_ACTIVE",
+            doc.RootElement.GetProperty("validationCode").GetString());
+    }
+
+    [Fact]
+    public async Task SITE_HTTP_real_endpoint_foreign_org_official_site_excluded()
+    {
+        using var factory=new B4IsolatedHrLoginFactory(true);
+        using var client=await PrepareAsync(factory);
+        await factory.AddForeignDatedOfficialSiteAsync();
+        using var doc=await GetOkContext(client);
+        var sites=doc.RootElement.GetProperty("officialDeploymentSites");
+        Assert.Equal(1,sites.GetArrayLength());
+        Assert.Equal(101,sites[0].GetProperty("deploymentSiteId").GetInt32());
+    }
 }
