@@ -28,6 +28,12 @@ public sealed partial class B4RealSqlHttpPipelineTests
         Assert.Single(statuses, x => x == HttpStatusCode.OK);
         Assert.Single(statuses, x => x is HttpStatusCode.Conflict
             or HttpStatusCode.UnprocessableEntity);
+        var losing = responseA.StatusCode == HttpStatusCode.OK ? responseB : responseA;
+        var rejectedBody = await losing.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("IX_VisitTripSnapshots", rejectedBody,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SqlException", rejectedBody,
+            StringComparison.OrdinalIgnoreCase);
 
         var state = await DraftStateAsync(f, created.Id);
         Assert.Equal("Submitted", state.Status);
