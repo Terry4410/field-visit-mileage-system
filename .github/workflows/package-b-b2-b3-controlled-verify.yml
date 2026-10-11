@@ -152,6 +152,22 @@ jobs:
             --report .ci-artifacts/b4-site-sql-evidence.json \
             --summary .ci-artifacts/b4-site-sql-evidence.md
           cat .ci-artifacts/b4-site-sql-evidence.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Execute six real JWT HTTP + disposable SQL Server integration cases
+        shell: bash
+        run: |
+          dotnet test backend/tests/FieldVisit.B4.SqlHttp.Tests/FieldVisit.B4.SqlHttp.Tests.csproj \
+            -c Release --logger 'console;verbosity=normal' \
+            --logger 'trx;LogFileName=b4-sql-http-tests.trx' \
+            --results-directory .ci-artifacts
+      - name: Verify real SQL + HTTP evidence and preserve all release HOLD
+        if: always()
+        shell: bash
+        run: |
+          python3 scripts/ci/package_b_sql_http_evidence.py \
+            --trx .ci-artifacts/b4-sql-http-tests.trx \
+            --report .ci-artifacts/b4-sql-http-evidence.json \
+            --summary .ci-artifacts/b4-sql-http-evidence.md
+          cat .ci-artifacts/b4-sql-http-evidence.md >> "$GITHUB_STEP_SUMMARY"
       - name: Validate actual SQL Server TRX and publish isolated-only evidence
         if: always()
         run: |
