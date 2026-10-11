@@ -730,4 +730,33 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Deny(x => x.AppliedAt = DateTime.UtcNow);
     }
 
+    [Fact]
+    public void Approval_locked_location_scope_guard_rejects_reassigned_or_unpublished_source()
+    {
+        var request = Pending();
+        var plan = new V180B3ApprovalApplyPlan(
+            request.RequestPublicId, 9, 20, Guid.NewGuid(), "Independent review",
+            JsonSerializer.Serialize(Before), JsonSerializer.Serialize(Proposed),
+            new byte[8], new byte[8]);
+        void Check(int id = 9, int? org = 1, int? team = 7,
+            int? creator = 910, string? type = "Customer",
+            string? approval = "Approved", bool active = true) =>
+            V180B3ApprovalApplyPreflight.RequireLockedPublishedLocationScope(
+                plan, request, id, org, team, creator, type, approval, active);
+        Check();
+        void Deny(Action action) =>
+            Assert.Equal("B3_APPROVAL_SOURCE_SCOPE_DENIED",
+                Assert.Throws<UnauthorizedAccessException>(action).Message);
+        Deny(() => Check(id: 10));
+        Deny(() => Check(org: 2));
+        Deny(() => Check(team: 8));
+        Deny(() => Check(creator: 20));
+        Deny(() => Check(type: "Official"));
+        Deny(() => Check(approval: "Pending"));
+        Deny(() => Check(active: false));
+        Deny(() => V180B3ApprovalApplyPreflight.RequireLockedPublishedLocationScope(
+            plan with { RequestPublicId = Guid.NewGuid() }, request,
+            9, 1, 7, 910, "Customer", "Approved", true));
+    }
+
 }
