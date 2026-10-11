@@ -48,7 +48,7 @@ class RealJwtSqlHttpEvidenceTests(unittest.TestCase):
                     validate(self.trx,"b"*40)
 
     def test_all_six_session_and_site_paths_independently_required(self):
-        initial=[x for x in self.names if "SQL_HTTP_DRAFT_" not in x]
+        initial=[x for x in self.names if "SQL_HTTP_DRAFT_" not in x and "SQL_HTTP_SUBMIT_" not in x]
         self.assertEqual(6,len(initial))
         for case in initial:
             with self.subTest(missing_case=case):
