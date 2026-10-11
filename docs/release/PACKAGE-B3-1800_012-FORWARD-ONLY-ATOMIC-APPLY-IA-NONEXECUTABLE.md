@@ -114,3 +114,45 @@ performed by creating this document. The final consolidated Owner execution
 approval packet must include exact immutable SQL script checksums, live UAT
 database identity, schema predecessor evidence, IT recovery ownership,
 independent security review, deployment artifacts and the formal B4 matrix.
+
+
+### 6. Transaction failure-injection and rollback evidence contract (WORK only)
+
+This is a NONEXECUTABLE acceptance contract. No UAT write or deployment
+is authorized.
+
+Capture baseline snapshots of the target Location (seven fields and
+RowVersion), Pending request (review fields and RowVersion), request events,
+and historical VisitTripStop/VisitTripSnapshotStop references in a disposable
+SQL Server 2022 fixture. After each forced rollback, compare every captured
+field and event identity with the baseline. SQL identity gaps are not
+rollback evidence.
+
+| Injected failure | Required observation |
+| --- | --- |
+| Before source UPDATE | No source, request or event mutation |
+| Source UPDATE returns zero or multiple rows | Conflict; rollback all changes |
+| After source UPDATE, before request UPDATE | Source rolled back; request remains Pending |
+| Request UPDATE returns zero or multiple rows | Source and request rolled back; no events |
+| After request UPDATE, before Approved INSERT | Both UPDATEs rolled back |
+| Approved INSERT FK, CHECK or uniqueness failure | No source, request or audit mutation |
+| After Approved INSERT, before Applied INSERT | Both UPDATEs and Approved event rolled back |
+| Applied INSERT FK or CHECK failure | Both UPDATEs and both events rolled back |
+| Commit exception or dropped connection | Outcome UNKNOWN; reconcile using immutable correlation and DecisionKey before retry, never return success blindly |
+| Two concurrent reviewers | At most one complete Applied transition; losing reviewer conflicts |
+| Duplicate DecisionKey across requests | Exactly one decision accepted; loser has no mutations |
+| Live permission or schema drift after preview | Locked revalidation denies without writes |
+
+Executor invariants: use one SQL connection and one Serializable transaction
+for both guarded UPDATEs and both audit INSERTs. Lock request first, then
+location; bind all untrusted values as SQL parameters; demand exactly one
+affected row for each UPDATE. Do not convert concurrency, deadlock, timeout
+or ambiguous commit errors into success. Never blindly retry a transaction
+whose commit outcome is unknown. Approved and Applied share one nonempty
+correlation ID and ordered UTC timestamps; only Approved carries DecisionKey.
+
+Each injection requires a fixture/test ID, SQL Server version, exact WORK
+SHA, test-run URL and captured before/after assertions. Pure C# preflight,
+CI success and documentation do not count as isolated SQL runtime PASS or
+formal B4 UAT. Keep B3 OFF, ApproveAsync DENY ALL, 012 nonexecutable and
+Package B NO-GO pending independent approval.
