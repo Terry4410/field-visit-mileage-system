@@ -241,6 +241,44 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
         V180B3SqlSafetyRules.RequireLatestSchemaVersion(version);
     }
 
+
+    [Fact]
+    public async Task Ef_composable_request_update_lock_executes_on_real_sql_server()
+    {
+        // This exercises the same FromSqlInterpolated + SingleOrDefault
+        // shape used by the WORK-only Reject and approval-preview paths.
+        // It is NOT an approval executor or a UAT database test.
+        var publicId=Guid.NewGuid();
+        var entity="LOCK_"+Guid.NewGuid().ToString("N");
+        await _fixture.ExecuteAsync("""
+            INSERT INTO dbo.ChangeRequests(
+                RequestPublicId,OrganizationId,TeamId,EntityKind,EntityId,
+                OperationCode,RiskCode,ExpectedEntityRowVersion,ProposedJson,
+                RequestedByUserId,SubmittedAt,Status)
+            VALUES(@guid,1,7,N'Location',@entity,N'UpdatePublishedLocation',
+                N'High',0x0102030405060708,N'{"Name":"temporary"}',
+                10,SYSUTCDATETIME(),N'Pending')
+            """,("@guid",publicId),("@entity",entity));
+        await using var db=new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlServer(_fixture.DatabaseConnection).Options);
+        await using var tx=await db.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable);
+        var row=await db.ChangeRequests.FromSqlInterpolated($"""
+            SELECT * FROM dbo.ChangeRequests WITH (UPDLOCK, HOLDLOCK)
+            WHERE RequestPublicId = {publicId} AND OrganizationId = {1}
+            """).SingleOrDefaultAsync();
+        Assert.NotNull(row);
+        Assert.Equal(publicId,row.RequestPublicId);
+        Assert.Equal("Pending",row.Status);
+        var foreign=await db.ChangeRequests.FromSqlInterpolated($"""
+            SELECT * FROM dbo.ChangeRequests WITH (UPDLOCK, HOLDLOCK)
+            WHERE RequestPublicId = {publicId} AND OrganizationId = {2}
+            """).AsNoTracking().SingleOrDefaultAsync();
+        Assert.Null(foreign);
+        await tx.RollbackAsync();
+    }
+
     [Fact]
     public async Task Two_concurrent_pending_inserts_yield_one_winner_and_unique_conflict()
     {
