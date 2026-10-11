@@ -286,6 +286,20 @@ public static class V180B3ApprovalApplyPreflight
             lockedIsActive);
     }
 
+    /// <summary>
+    /// Check decision replay inside the same serializable SQL transaction
+    /// after the DecisionKey uniqueness index has been verified. The database
+    /// unique index is still the final race-safe enforcement boundary.
+    /// </summary>
+    public static void RequireUnusedDecisionKey(
+        V180B3ApprovalApplyPlan plan, bool decisionKeyAlreadyExists)
+    {
+        if (plan.DecisionKey == Guid.Empty)
+            throw new InvalidOperationException("B3_APPROVAL_PLAN_INVALID");
+        if (decisionKeyAlreadyExists)
+            throw new InvalidOperationException("B3_DECISION_KEY_REPLAY");
+    }
+
     private static readonly HashSet<string> AllowedFields = new(StringComparer.Ordinal)
     {
         "LocationName", "City", "District", "Address",
