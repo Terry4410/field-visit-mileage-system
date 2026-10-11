@@ -64,22 +64,31 @@ public sealed class TripService(
             UpdatedByUserId = user.UserId
         };
 
-        await BuildStopsAsync(trip, request.Stops, user, ct);
-        await trips.AddAsync(trip, ct);
-        await uow.SaveChangesAsync(ct);
-
-        await mileage.AddAsync(new MileageCalculation
+        // The first save generates the trip identity; the second persists dependent
+        // mileage, history and audit. Both MUST commit or roll back as one unit.
+        // A provider without explicit transaction support fails closed.
+        var createdId = await uow.ExecuteInTransactionAsync(async transactionCt =>
         {
-            VisitTripId = trip.VisitTripId,
-            ClaimedDistanceKm = request.ClaimedDistanceKm,
-            CreatedAt = now,
-            UpdatedAt = now
-        }, ct);
+            await BuildStopsAsync(trip, request.Stops, user, transactionCt);
+            await trips.AddAsync(trip, transactionCt);
+            await uow.SaveChangesAsync(transactionCt);
 
-        await AddHistoryAsync(trip, null, TripStatuses.Draft, "CreateDraft", user.UserId, null, ct);
-        await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(), "TripCreateDraft", null, new { trip.TripNo }, ct);
-        await uow.SaveChangesAsync(ct);
-        return await GetDtoAsync(trip.VisitTripId, ct);
+            await mileage.AddAsync(new MileageCalculation
+            {
+                VisitTripId = trip.VisitTripId,
+                ClaimedDistanceKm = request.ClaimedDistanceKm,
+                CreatedAt = now,
+                UpdatedAt = now
+            }, transactionCt);
+
+            await AddHistoryAsync(trip, null, TripStatuses.Draft, "CreateDraft",
+                user.UserId, null, transactionCt);
+            await AuditAsync(user.UserId, "Trip", trip.VisitTripId.ToString(),
+                "TripCreateDraft", null, new { trip.TripNo }, transactionCt);
+            await uow.SaveChangesAsync(transactionCt);
+            return trip.VisitTripId;
+        }, ct);
+        return await GetDtoAsync(createdId, ct);
     }
 
     public async Task<TripDto> UpdateAsync(long tripId, SaveTripRequest request, string rowVersion, CancellationToken ct)
