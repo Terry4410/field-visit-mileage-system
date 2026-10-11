@@ -560,4 +560,23 @@ public sealed class V180B3ApprovalApplyPreflightTests
         Deny(plan.RequestPublicId, 9, new byte[8], new byte[9]);
     }
 
+    [Fact]
+    public void Approval_plan_version_guard_rejects_mutated_expected_versions()
+    {
+        var plan = new V180B3ApprovalApplyPlan(
+            Guid.NewGuid(), 9, 20, Guid.NewGuid(), "Review",
+            "{}", "{}", new byte[8], new byte[8]);
+        plan.ExpectedRequestRowVersion[0] = 1;
+        Assert.Equal("B3_APPROVAL_PLAN_STALE",
+            Assert.Throws<InvalidOperationException>(() =>
+                V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
+                    plan, plan.RequestPublicId, 9, new byte[8], new byte[8])).Message);
+        plan.ExpectedRequestRowVersion[0] = 0;
+        plan.ExpectedLocationRowVersion[0] = 1;
+        Assert.Equal("B3_APPROVAL_PLAN_STALE",
+            Assert.Throws<InvalidOperationException>(() =>
+                V180B3ApprovalApplyPreflight.RequirePlanVersionsStillCurrent(
+                    plan, plan.RequestPublicId, 9, new byte[8], new byte[8])).Message);
+    }
+
 }
