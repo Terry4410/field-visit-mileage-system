@@ -82,6 +82,52 @@ provenance attestation, and negative SQL tests for rollback/ambiguous retry.
 Until then, a pure preflight plan is not proof of permission or transaction
 safety.
 
+
+## 2026-10-11 schema-to-executor incompatibility — blocking decision
+
+The currently validated **011 candidate is rejection-only**, not an approval
+schema. Its trusted CHECK contracts accept request statuses `Pending` and
+`Rejected` only, and event types `Submitted` and `Rejected` only.
+Therefore the atomic executor outlined above **cannot** be safely enabled
+against the current 011 catalog: inserting `Approved` / `Applied` events
+or changing a request to `Applied` must fail the database constraints.
+
+The current `V180B3SqlSafetyRules.CatalogCheckSql` deliberately rejects
+catalog definitions containing an `Applied` request status. **Do not
+silently expand the existing 011 migration, weaken the read-only gate, or
+reinterpret a successful 55-case disposable fixture as approval readiness.**
+
+Before an executor is eligible for implementation or activation, a separate
+Owner/IT-reviewed **forward-only schema revision** must define and test:
+
+1. An explicit lifecycle: Pending -> Rejected **or** Pending -> Applied,
+   with no intermediate externally visible `Approved` state unless it
+   has a defined durable recovery path. No return to Pending.
+2. Exactly one decision event carrying a non-null globally unique
+   `DecisionKey` for each terminal decision. If both `Approved` and
+   `Applied` events are required, only one may carry that key under
+   the existing unique filtered index; link both via a stable
+   `CorrelationId` and immutable request ID instead of duplicating
+   `DecisionKey`.
+3. An exact trusted CHECK definition for each lifecycle state and
+   event kind, including reviewer, timestamp, nonblank reason,
+   `AppliedAt` and independent actor requirements; no nullable
+   SQL CHECK `UNKNOWN` loopholes.
+4. A read-only version-specific catalog probe that rejects old 011
+   shapes, disabled/untrusted checks, changed event uniqueness,
+   unexpected triggers and partial upgrades.
+5. A separately authorized migration sequence with rollback/recovery
+   plan, including idempotent handling of an interrupted deployment;
+   never mutate UAT or production during this WORK-only design stage.
+6. Disposable SQL Server integration tests proving valid apply,
+   invalid transitions, concurrent decisions, event write failure,
+   rollback, duplicate decision keys, and ambiguous-response retry.
+   Only then schedule the independent B4 formal 22-case acceptance.
+
+**Decision:** Existing WORK code and current 011 draft remain
+`ApproveAsync = DENY ALL`, `B3 Enabled = false`. No SQL is authorized
+for execution by this section.
+
 ## Isolated verification still required
 
 - Real disposable SQL Server 2022: one successful independent approval
