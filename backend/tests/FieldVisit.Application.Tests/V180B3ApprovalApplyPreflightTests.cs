@@ -895,6 +895,36 @@ public sealed class V180B3ApprovalApplyPreflightTests
             ActorUserId = 20, CorrelationId = correlation,
             OccurredAt = now.AddSeconds(-1)
         });
+        Deny(request, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 99, EventType = "Approved",
+            ActorUserId = 20, DecisionKey = plan.DecisionKey,
+            CorrelationId = correlation, OccurredAt = now
+        }, applied);
+        Deny(request, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Approved",
+            ActorUserId = 20, DecisionKey = plan.DecisionKey,
+            CorrelationId = Guid.Empty, OccurredAt = now
+        }, applied);
+        Deny(request, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Approved",
+            ActorUserId = 20, DecisionKey = Guid.NewGuid(),
+            CorrelationId = correlation, OccurredAt = now
+        }, applied);
+        Deny(request, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 17, EventType = "Approved",
+            ActorUserId = 20, DecisionKey = plan.DecisionKey,
+            CorrelationId = correlation,
+            OccurredAt = DateTime.SpecifyKind(now, DateTimeKind.Unspecified)
+        }, applied);
+        Deny(request, approved, new V180B3ChangeEvent
+        {
+            ChangeRequestId = 99, EventType = "Applied",
+            ActorUserId = 20, CorrelationId = correlation, OccurredAt = now
+        });
         request.Status = "Rejected";
         Deny(request, approved, applied);
         request.Status = "Pending";
