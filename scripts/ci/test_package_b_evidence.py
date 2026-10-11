@@ -350,5 +350,41 @@ class B4LiveSessionGuardEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"ID"):
             validate_session_guard_http_trx(self.trx)
 
+
+class B4CombinedHttpTrxSeparationTests(unittest.TestCase):
+    """Both suites share one C# class; one cannot substitute for the other."""
+    def setUp(self):
+        self.folder=tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.trx=Path(self.folder.name)/"combined.trx"
+
+    def make(self,drop=None):
+        names=[HR_HTTP_PREFIX+x for x in HR_HTTP_REQUIRED]
+        names += [SESSION_HTTP_PREFIX+x for x in SESSION_HTTP_REQUIRED]
+        names=sorted(n for n in names if n!=drop)
+        result=[]
+        for i,name in enumerate(names):
+            safe=name.replace("&","&amp;").replace('"',"&quot;")
+            result.append(f'<UnitTestResult testName="{safe}" outcome="Passed" testId="t-{i}" executionId="e-{i}"/>')
+        self.trx.write_text("<TestRun><Results>"+"".join(result)+"</Results></TestRun>")
+
+    def test_mixed_23_results_validate_both_exact_named_suites(self):
+        self.make()
+        self.assertEqual(11,validate_hr_login_http_trx(self.trx)["passed"])
+        self.assertEqual(12,validate_session_guard_http_trx(self.trx)["passed"])
+
+    def test_missing_one_HR_case_cannot_be_substituted_by_session_case(self):
+        self.make(drop=HR_HTTP_PREFIX+sorted(HR_HTTP_REQUIRED)[0])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_hr_login_http_trx(self.trx)
+        self.assertEqual(12,validate_session_guard_http_trx(self.trx)["passed"])
+
+    def test_missing_one_session_case_cannot_be_substituted_by_HR_case(self):
+        self.make(drop=SESSION_HTTP_PREFIX+sorted(SESSION_HTTP_REQUIRED)[0])
+        self.assertEqual(11,validate_hr_login_http_trx(self.trx)["passed"])
+        with self.assertRaisesRegex(ValueError,"mandatory"):
+            validate_session_guard_http_trx(self.trx)
+
+
 if __name__ == "__main__":
     unittest.main()

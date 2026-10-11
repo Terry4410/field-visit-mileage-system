@@ -177,6 +177,12 @@ JWT on B3 Mine 403 while active B3 OFF returns 503; (i) public health;
 (j) unauthenticated /me remains 401. Dedicated Python tests reject
 missing, duplicated or forged HTTP TRX case IDs/outcomes.
 
+The CI TRX parser checks the original 11 HR login HTTP cases
+(`HTTP_*`) and the new 12 already-issued JWT cases (`SESSION_*`)
+as **two disjoint named test groups** even though both are in one
+xUnit class; additional Python negatives enforce that neither group
+can substitute for a missing case in the other.
+
 ### Independent Owner/IT impact and enablement gate
 
 This is a **candidate**, not deployment clearance. Enabling introduces
