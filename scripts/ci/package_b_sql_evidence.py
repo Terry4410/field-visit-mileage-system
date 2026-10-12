@@ -88,6 +88,9 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_probe_audit_check_accepts_four_valid_per_row_event_shapes",
     "Hypothetical_012_probe_untrusted_review_check_is_detected_until_retrusted",
     "Hypothetical_012_probe_untrusted_audit_check_is_denied_until_retrusted",
+    "Hypothetical_012_real_named_tables_catalog_denies_untrusted_and_missing_version",
+    "Hypothetical_012_real_named_tables_atomic_state_and_audit_checks_rollback",
+    "Hypothetical_012_real_named_tables_disabled_unique_decision_index_fails_shape",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

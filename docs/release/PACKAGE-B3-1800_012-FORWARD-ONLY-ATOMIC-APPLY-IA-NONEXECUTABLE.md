@@ -253,3 +253,27 @@ A future 012 catalog gate MUST require BOTH
 `is_disabled=0` AND `is_not_trusted=0` for every required CHECK/FK;
 enabled alone does not mean safe. Neither probe check authorizes executable
 012 DDL, changes the existing 011 readiness, or enables approval.
+
+### 11. Real-named disposable 012 transaction rehearsal (NOT executable UAT migration)
+
+This WORK-only suite now rehearses a **forward-only logical 011→012 contract**
+using the *actual table names* `ChangeRequests` and `ChangeRequestEvents`
+inside the randomly named localhost SQL Server fixture. Four candidate CHECKs
+are dropped/recreated, a simulated `1.8.0-012` version marker is appended,
+and all operations execute inside a single disposable Serializable transaction
+that is **always rolled back**, including on failed assertions.
+
+The named tests verify: 012 partial catalog shape and exact latest marker,
+011 readiness denial against the interim 012 shape, enabled-but-untrusted
+request CHECK denial and restoration, absence of version-marker denial,
+disabled DecisionKey index denial, invalid blank review/self-review/NULL
+decision event denial, valid Applied + correlated two-event insertion, replayed
+DecisionKey rejection, and full rollback to intact 011 catalog and rows.
+
+**Limits:** `PartialShapeSql` is intentionally *not* the full 012 release
+readiness fingerprint. It verifies selected names/trust/uniqueness, NOT exact
+constraint-definition hashes, filtered-key ordering, all 011 physical column
+specifications, physical `Locations` write integration, HR/IT attestation,
+or unknown commit outcome. The fixture does not contain the full live location
+schema. B3 feature flag remains OFF; Approve/Apply remains DENY ALL.
+No 012 DDL file is authorized or executed outside disposable test SQL.

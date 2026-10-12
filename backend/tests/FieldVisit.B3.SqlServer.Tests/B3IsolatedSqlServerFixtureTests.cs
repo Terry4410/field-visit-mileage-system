@@ -2484,4 +2484,130 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
         Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
     }
 
+
+    // Forward-only 012: these tests ALTER the real-named fixture tables but
+    // always ROLLBACK the entire rehearsal. No UAT DDL / Approve API.
+    [Fact]
+    public async Task Hypothetical_012_real_named_tables_catalog_denies_untrusted_and_missing_version()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                async Task<int> Shape() => Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                        B312DisposableForwardOnlyRehearsal.PartialShapeSql));
+                Assert.Equal(1,await Shape());
+                // The 011 application readiness MUST NOT accept this 012 schema.
+                Assert.Equal(0,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                        V180B3SqlSafetyRules.CatalogCheckSql)));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.ChangeRequests NOCHECK CONSTRAINT CK_B3_ChangeRequests_ReviewState");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.ChangeRequests WITH NOCHECK CHECK CONSTRAINT CK_B3_ChangeRequests_ReviewState");
+                Assert.Equal(0,await Shape());
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.ChangeRequests WITH CHECK CHECK CONSTRAINT CK_B3_ChangeRequests_ReviewState");
+                Assert.Equal(1,await Shape());
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-012'");
+                Assert.Equal(0,await Shape());
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+        Assert.Equal("1.8.0-011",(string?)await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.LatestSchemaVersionSql));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_named_tables_atomic_state_and_audit_checks_rollback()
+    {
+        var publicId=Guid.NewGuid();
+        var decisionKey=Guid.NewGuid();
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                var id=Convert.ToInt64(await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx, """
+                    INSERT INTO dbo.ChangeRequests(
+                      RequestPublicId,OrganizationId,TeamId,EntityKind,EntityId,
+                      OperationCode,RiskCode,ExpectedEntityRowVersion,ProposedJson,
+                      RequestedByUserId,SubmittedAt,Status)
+                    VALUES(@publicId,1,7,N'Location',N'012-rehearsal',
+                      N'UpdatePublishedLocation',N'High',0x0102030405060708,
+                      N'{"Name":"012"}',10,SYSUTCDATETIME(),N'Pending');
+                    SELECT CAST(SCOPE_IDENTITY() AS bigint);
+                    """,("@publicId",publicId)));
+                // SQL row constraints reject a missing or blank review reason.
+                await Assert.ThrowsAsync<SqlException>(()=>
+                    B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    UPDATE dbo.ChangeRequests SET Status=N'Applied',
+                    ReviewedByUserId=20,ReviewedAt=DATEADD(second,2,SubmittedAt),
+                    AppliedAt=DATEADD(second,3,SubmittedAt),ReviewReason=N'  '
+                    WHERE ChangeRequestId=@id
+                    """,("@id",id)));
+                await Assert.ThrowsAsync<SqlException>(()=>
+                    B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    UPDATE dbo.ChangeRequests SET Status=N'Applied',
+                    ReviewedByUserId=10,ReviewedAt=DATEADD(second,2,SubmittedAt),
+                    AppliedAt=DATEADD(second,3,SubmittedAt),ReviewReason=N'ok'
+                    WHERE ChangeRequestId=@id
+                    """,("@id",id)));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    UPDATE dbo.ChangeRequests SET Status=N'Applied',
+                    ReviewedByUserId=20,ReviewedAt=DATEADD(second,2,SubmittedAt),
+                    AppliedAt=DATEADD(second,3,SubmittedAt),ReviewReason=N'independent approval'
+                    WHERE ChangeRequestId=@id
+                    """,("@id",id));
+                var correlation=Guid.NewGuid();
+                await Assert.ThrowsAsync<SqlException>(()=>
+                    B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                      ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+                    VALUES(@id,N'Approved',20,SYSUTCDATETIME(),@correlation,NULL)
+                    """,("@id",id),("@correlation",correlation)));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                      ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+                    VALUES(@id,N'Approved',20,SYSUTCDATETIME(),@correlation,@decision)
+                    """,("@id",id),("@correlation",correlation),("@decision",decisionKey));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                      ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+                    VALUES(@id,N'Applied',20,SYSUTCDATETIME(),@correlation,NULL)
+                    """,("@id",id),("@correlation",correlation));
+                await Assert.ThrowsAsync<SqlException>(()=>
+                    B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    INSERT INTO dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                      ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+                    VALUES(@id,N'Approved',20,SYSUTCDATETIME(),NEWID(),@decision)
+                    """,("@id",id),("@decision",decisionKey)));
+                Assert.Equal(2,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                    "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+                    ("@id",id))));
+            });
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE RequestPublicId=@publicId",
+            ("@publicId",publicId))));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_named_tables_disabled_unique_decision_index_fails_shape()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                Assert.Equal(1,Convert.ToInt32(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,B312DisposableForwardOnlyRehearsal.PartialShapeSql)));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER INDEX UX_B3_ChangeRequestEvents_DecisionKey ON dbo.ChangeRequestEvents DISABLE");
+                Assert.Equal(0,Convert.ToInt32(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,B312DisposableForwardOnlyRehearsal.PartialShapeSql)));
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
 }
