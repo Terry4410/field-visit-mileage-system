@@ -474,3 +474,36 @@ nonmutating candidate seven-field write, NOT complete production snapshot
 integrity, trigger/write-permission enforcement, version chain, approval
 hash immutability, real UI/report query selection, or the full actual
 UAT FK/DDL schema. Release remains HARD HOLD.
+
+### 18. Actual V170 login access service + EF snapshot projections on disposable SQL
+
+Unlike the previous pure simulated B312Auth grant check, five new SQL Server
+tests now invoke the real .NET `V170AccessControl.EvaluateLoginAsync` service
+through an EF `AppDbContext` sharing the SAME rollback-only serializable
+transaction as the 011→012 disposable rehearsal. The isolated fixture
+creates the actual-mapped `UserIdentityProfiles` and
+`UserEmploymentPeriods` table shapes needed for the legacy Internal
+(no EmploymentId) login branch; no HR master/real identity data is used.
+
+It verifies Active employment and enabled accounts succeed, disabled accounts
+fail, Leave/Terminated/PreHire statuses fail, expired and future-only Active
+intervals fail, more-recent effective Leave overrides an older Active interval
+and absent HR facts fail even on the legacy Internal profile fallback.
+The test dates are far from today except the deliberate 2026-01-01
+precedence case. A lack of live HR records still cannot authorize any B3
+mutation; actual `V180B3ActorEligibility` plus admin/team authority and
+`VAL-B1-002` require independent in-transaction and IT testing.
+
+Two additional SQL Server tests use actual `AppDbContext` EF LINQ
+projections of `VisitTripSnapshotStops` and `VisitTripSnapshots`,
+respectively, and observe materialized name/address/project and
+approved-distance/organization after seven-field `dbo.Locations`
+updates. The exact historic content is read from the Snapshot tables,
+not recomputed from Locations, and remains intact in this candidate.
+
+**Limitations:** These are narrow, controlled *real service* and *real EF
+projection* regressions on simplified test-only physical tables. They do not
+constitute full production UAT SQL schema parity, live employment-linked
+HR periods, actual HR/IT admin grants, user-role/team temporal provenance,
+real endpoint/UAT authorization, or a guarantee that every UI/export route
+uses the same historical projection. B3 OFF, Approve/Apply DENY ALL.

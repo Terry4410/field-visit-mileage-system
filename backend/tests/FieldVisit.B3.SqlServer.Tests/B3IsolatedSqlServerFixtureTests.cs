@@ -3442,4 +3442,151 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             V180B3SqlSafetyRules.CatalogCheckSql)));
     }
 
+
+    // Call ACTUAL V170AccessControl against EF-mapped physical HR-period
+    // tables inside the same disposable 012 rollback-only SQL transaction.
+    [Fact]
+    public async Task Hypothetical_012_real_V170_login_active_HR_passes_disabled_account_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312V170LoginIntegrationFixture.CreateAsync(conn,tx);
+                Assert.True(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+                Assert.False(await B312V170LoginIntegrationFixture.IsAllowedAsync(
+                    conn,tx,accountEnabled:false));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_V170_login_leave_terminated_prehire_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312V170LoginIntegrationFixture.CreateAsync(conn,tx);
+                foreach(var status in new[]{"Leave","Terminated","PreHire"})
+                {
+                    await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                        "UPDATE dbo.UserEmploymentPeriods SET EmploymentStatus=@status WHERE UserId=10",
+                        ("@status",status));
+                    Assert.False(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+                }
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserEmploymentPeriods SET EmploymentStatus=N'Active' WHERE UserId=10");
+                Assert.True(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_V170_login_expired_and_future_effective_HR_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312V170LoginIntegrationFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserEmploymentPeriods SET EffectiveTo='2020-12-31'");
+                Assert.False(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserEmploymentPeriods SET EffectiveFrom='2040-01-01',EffectiveTo=NULL");
+                Assert.False(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserEmploymentPeriods SET EffectiveFrom='2020-01-01'");
+                Assert.True(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_V170_login_most_recent_effective_leave_overrides_active()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312V170LoginIntegrationFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    INSERT INTO dbo.UserEmploymentPeriods(
+                        UserId,EmploymentStatus,EffectiveFrom,EffectiveTo,SourceType,CreatedAt)
+                    VALUES(10,N'Leave','2026-01-01',NULL,N'TestOnly',SYSUTCDATETIME())
+                    """);
+                Assert.False(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.UserEmploymentPeriods WHERE UserId=10 AND EmploymentStatus=N'Leave'");
+                Assert.True(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_V170_login_no_HR_facts_denies_legacy_actor()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312V170LoginIntegrationFixture.CreateAsync(conn,tx);
+                // Fixture Users includes user 20 but no identity profile/HR
+                // period. The real service's legacy fallback must fail closed.
+                Assert.False(await B312V170LoginIntegrationFixture.IsAllowedAsync(
+                    conn,tx,user:20));
+            });
+    }
+
+    // EF projection is the real application model, not a test-only raw JOIN.
+    [Fact]
+    public async Task Hypothetical_012_EF_SnapshotStop_query_reads_frozen_fields_after_location_apply()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.CreateAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.SeedAsync(conn,tx,seed.LocationId);
+                await using var db=new AppDbContext(
+                    new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(conn).Options);
+                await db.Database.UseTransactionAsync(tx);
+                var query=db.VisitTripSnapshotStops.AsNoTracking()
+                    .Where(x=>x.VisitTripSnapshotId==901)
+                    .Select(x=>new {
+                        x.LocationId,x.LocationNameSnapshot,x.AddressSnapshot,
+                        x.ProjectNameSnapshot,x.StopSequence
+                    });
+                var before=await query.SingleAsync();
+                Assert.Equal("Original fixture location",before.LocationNameSnapshot);
+                Assert.Equal("Original address",before.AddressSnapshot);
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,Guid.NewGuid());
+                var after=await query.SingleAsync();
+                Assert.Equal(before,after);
+                Assert.Equal(seed.LocationId,after.LocationId);
+                Assert.Equal(1,after.StopSequence);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_EF_Snapshot_parent_approved_distance_not_recomputed_on_location_apply()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.CreateAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.SeedAsync(conn,tx,seed.LocationId);
+                await using var db=new AppDbContext(
+                    new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(conn).Options);
+                await db.Database.UseTransactionAsync(tx);
+                var query=db.VisitTripSnapshots.AsNoTracking()
+                    .Where(x=>x.VisitTripSnapshotId==901)
+                    .Select(x=>new {
+                        x.ApprovedDistanceKmSnapshot,x.OrganizationNameSnapshot
+                    });
+                var before=await query.SingleAsync();
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,Guid.NewGuid());
+                Assert.Equal(before,await query.SingleAsync());
+                Assert.Equal(12.50m,before.ApprovedDistanceKmSnapshot);
+                Assert.Equal("Org at approval time",before.OrganizationNameSnapshot);
+            });
+    }
+
 }

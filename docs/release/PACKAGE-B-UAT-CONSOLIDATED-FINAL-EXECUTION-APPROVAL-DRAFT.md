@@ -242,3 +242,16 @@ by a read-only snapshot invariant candidate and rolled back. This does
 not constitute write-level protection of production snapshots.
 Remaining formal B4 accepted 0/22; 011/012 migration unauthorized;
 B3 OFF, Approve/Apply DENY ALL; no UAT or Production deployment.
+
+## 14. Real V170AccessControl against disposable SQL and actual Snapshot EF projections
+
+Seven additional SQL cases exercise the actual .NET V170 login service's
+legacy Internal employment-period pathway, including effective-date expiry,
+most recent leave overriding active, inactive account, terminated, prehire and
+missing HR. Two EF Snapshot queries explicitly select historical persisted
+fields and show that their name, address, project, approved distance and
+organization remain unchanged after simulated seven-field Location publish.
+All test-only SQL DDL and data roll back. This is not a true production
+HR/EmploymentId path or authoritative Admin/team reviewer provenance; it
+does not prove all real UI/export historic reads. VAL-B1-002 and formal
+B4 0/22 remain blocked. No migrations/deployments/activation authorized.
