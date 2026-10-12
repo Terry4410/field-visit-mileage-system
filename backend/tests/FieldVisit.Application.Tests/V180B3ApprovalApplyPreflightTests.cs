@@ -930,6 +930,24 @@ public sealed class V180B3ApprovalApplyPreflightTests
         request.Status = "Pending";
         request.ReviewedByUserId = 20;
         Deny(request, approved, applied);
+        request.ReviewedByUserId = null;
+        request.EntityId = "10";
+        Deny(request, approved, applied);
+        request.EntityId = "9";
+        request.RiskCode = "Low";
+        Deny(request, approved, applied);
+        request.RiskCode = "High";
+        request.RowVersion = new byte[] { 1, 0, 0, 0, 0, 0, 0, 0 };
+        Deny(request, approved, applied);
+        request.RowVersion = new byte[8];
+        request.OrganizationId = 0;
+        Deny(request, approved, applied);
+        request.OrganizationId = 1;
+        request.TeamId = null;
+        Deny(request, approved, applied);
+        request.TeamId = 7;
+        V180B3ApprovalApplyPreflight.RequireAtomicAuditPair(
+            plan, request, approved, applied);
 
         V180B3ChangeEvent approved_with(string eventType) => new()
         {
