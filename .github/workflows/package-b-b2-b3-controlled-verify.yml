@@ -38,6 +38,13 @@ jobs:
       - name: Verify CI evidence parser negative tests
         id: python_tests
         run: python3 -m unittest discover -s scripts/ci -p 'test_package_b_*.py'
+      - name: Generate source-hashed IT handoff ledger (PREP PASS, RELEASE HOLD)
+        id: it_handoff_ledger
+        run: |
+          python3 scripts/ci/package_b_it_handoff.py \
+            --report .ci-artifacts/b3-it-handoff-ledger.json \
+            --summary .ci-artifacts/b3-it-handoff-ledger.md
+          cat .ci-artifacts/b3-it-handoff-ledger.md >> "$GITHUB_STEP_SUMMARY"
       - name: Read-only 1800_003 vs EF schema parity inventory (NO DDL)
         id: schema_parity
         run: |

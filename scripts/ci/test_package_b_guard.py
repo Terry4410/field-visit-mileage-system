@@ -171,6 +171,22 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         (self.root / "database/migrations/1800_011_unauthorized.sql").write_text("SELECT 1")
         self.assertIn("no_executable_011_migration", self.failures())
 
+    def test_new_012_migration_fails(self):
+        (self.root / "database/migrations/1800_012_unauthorized.sql").write_text(
+            "SELECT 1")
+        self.assertIn("no_executable_012_migration", self.failures())
+
+    def test_named_012_deploy_workflow_fails(self):
+        (self.root / ".github/workflows/azure-sql-uat-1800_012.yml").write_text(
+            "name: forbidden")
+        errors = self.failures()
+        self.assertIn("no_012_deploy_workflow", errors)
+
+    def test_disguised_012_workflow_dispatch_fails(self):
+        (self.root / ".github/workflows/neutral-filename.yml").write_text(
+            "run: echo 1800_012")
+        self.assertIn("no_hidden_012_workflow_dispatch", self.failures())
+
     def test_edited_010_migration_fails(self):
         self.changed_sql = "database/migrations/1800_010_legacy/Up.sql"
         self.assertIn("all_migrations_unchanged_since_baseline", self.failures())

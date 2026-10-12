@@ -50,7 +50,7 @@ public sealed class V180B3ReleaseTripwireTests
     }
 
     [Fact]
-    public void Candidate_011_migration_files_and_dispatch_workflows_are_not_authorized()
+    public void Candidate_011_and_012_migration_files_and_dispatch_workflows_are_not_authorized()
     {
         // The Owner approved NONEXECUTABLE IA in docs/release only.
         // Any actual 011 migration or 011 deployment workflow is a hard CI failure.
@@ -61,7 +61,9 @@ public sealed class V180B3ReleaseTripwireTests
         Assert.True(Directory.Exists(migrations),"Cannot verify migration directory safety");
         var forbidden=Directory.EnumerateFiles(migrations,"*",SearchOption.AllDirectories)
             .Where(path=>path.Contains("1800_011",StringComparison.OrdinalIgnoreCase)
-                ||path.Contains("1800-011",StringComparison.OrdinalIgnoreCase))
+                ||path.Contains("1800-011",StringComparison.OrdinalIgnoreCase)
+                ||path.Contains("1800_012",StringComparison.OrdinalIgnoreCase)
+                ||path.Contains("1800-012",StringComparison.OrdinalIgnoreCase))
             .ToArray();
         Assert.Empty(forbidden);
 
@@ -69,7 +71,9 @@ public sealed class V180B3ReleaseTripwireTests
         Assert.True(Directory.Exists(workflows),"Cannot verify workflow safety");
         var unauthorized=Directory.EnumerateFiles(workflows,"*",SearchOption.TopDirectoryOnly)
             .Where(path=>Path.GetFileName(path).Contains("1800_011",StringComparison.OrdinalIgnoreCase)
-                ||Path.GetFileName(path).Contains("1800-011",StringComparison.OrdinalIgnoreCase))
+                ||Path.GetFileName(path).Contains("1800-011",StringComparison.OrdinalIgnoreCase)
+                ||Path.GetFileName(path).Contains("1800_012",StringComparison.OrdinalIgnoreCase)
+                ||Path.GetFileName(path).Contains("1800-012",StringComparison.OrdinalIgnoreCase))
             .ToArray();
         Assert.Empty(unauthorized);
     }

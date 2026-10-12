@@ -161,6 +161,20 @@ def scan():
                       if p.is_file() and p.suffix in (".yml", ".yaml")
                       and re.search(r"1800[_-]011", p.read_text(encoding="utf-8"), re.I))
     gate("no_hidden_011_workflow_dispatch", not embedded, embedded)
+    # 012 is also PREPARATION ONLY; a neutral workflow name must not
+    # hide execution of a 012 migration. Mirror all 011 negative gates
+    # rather than assuming that blocking 011 implicitly blocks 012.
+    forbidden_012 = sorted(str(p.relative_to(ROOT)) for p in migration_dir.rglob("*")
+                           if p.is_file() and re.search(r"1800[_-]012", p.name, re.I))
+    gate("no_executable_012_migration", not forbidden_012, forbidden_012)
+    dispatch_012 = sorted(str(p.relative_to(ROOT)) for p in workflow_dir.glob("*")
+                          if p.is_file() and re.search(r"1800[_-]012", p.name, re.I))
+    gate("no_012_deploy_workflow", not dispatch_012, dispatch_012)
+    embedded_012 = sorted(str(p.relative_to(ROOT)) for p in workflow_dir.glob("*")
+                          if p.is_file() and p.suffix in (".yml", ".yaml")
+                          and re.search(r"1800[_-]012",
+                                        p.read_text(encoding="utf-8"), re.I))
+    gate("no_hidden_012_workflow_dispatch", not embedded_012, embedded_012)
     try:
         yml = (workflow_dir / "package-b-b2-b3-controlled-verify.yml").read_text(encoding="utf-8")
         valid = ("contents: read" in yml and "persist-credentials: false" in yml

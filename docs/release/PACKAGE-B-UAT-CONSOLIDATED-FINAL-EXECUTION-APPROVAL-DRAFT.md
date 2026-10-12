@@ -360,3 +360,16 @@ BLOCKED 或有限測試證據。
 catalog fingerprint，亦未提供 Owner 的合併最終執行核准。
 本 DRAFT 所列所有條件不構成 UAT SQL／部署／Feature
 Flag 的執行許可。
+
+## 21. Automated IT handoff ledger and 012 migration tripwire
+
+WORK-only CI produces `b3-it-handoff-ledger.json` with the exact
+source SHA, source-file SHA256 for eight review artifacts, unsigned
+IT/DBA/HR gates and explicitly fixed `release_decision=NO_GO`,
+`formal_b4_accepted=0`, B3 OFF and Approve/Apply DENY ALL.
+The previous hardening covered unapproved 011 migrations; it now
+independently blocks unapproved 012 migration files and both named
+and disguised deployment workflows. Negative Python gate tests and
+a .NET release-tripwire contract check ensure fail-closed behavior.
+Even a successful generated ledger only means handoff PREP passed;
+it must not be interpreted as an execution authorization.

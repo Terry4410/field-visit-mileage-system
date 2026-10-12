@@ -62,3 +62,25 @@
 - **需要新核准**：一旦 DDL/資安/來源證據全部齊備，請提出有 exact SHA／檔案雜湊／環境／回退方案的**一次性最終執行核准單**；在取得 Owner 授權前，系統一律 NO-GO。
 
 狀態：**DRAFT — OWNER/IT/DBA/HR/SECURITY 尚未共同簽認；B3 OFF；Approve/Apply DENY ALL；B4 0/22；Business UAT HOLD；Production HARD HOLD。**
+
+## 六、CI 機器可讀證據與自動拒絕界線
+
+WORK-only 非部署 CI 另執行
+`python3 scripts/ci/package_b_it_handoff.py`，產出
+`.ci-artifacts/b3-it-handoff-ledger.json` 與對應 Markdown。
+JSON 逐份記錄本清單、兩份 011／012 IA、候選
+Name/Physical/CHECK+Default 檢核原始碼、Snapshot 匯出測試的
+**來源檔 SHA256**，並以最新 Git HEAD 固定來源；每個
+IT/DBA/HR/資安/Owner Gate 一律標註
+`BLOCKED_UNSIGNED`，總結為
+`IT_HANDOFF_PREP_PASS_RELEASE_HOLD` 與
+`release_decision=NO_GO`。CI 的 PASS 只表示已成功蒐集
+完整、未虛構的工作底稿與 HOLD 證據，不表示簽核完成。
+
+`package_b_guard.py` 與 .NET Release Tripwire 已補上
+**兩個版本 1800_011 與 1800_012** 的 Migration/Workflow
+禁止清單；包含使用不相關 workflow 檔名隱藏 migration 版本
+的情況。日後只有 Owner/IT 明確授權新的正式部署階段，
+並獨立重新設計其防護、完成驗收，才能改變此封鎖。
+本清單的完整工作底稿可供 IT 逐項填入附檔，但不接受
+只將 CI 轉成綠燈即自動發給 GO。
