@@ -146,7 +146,9 @@ internal static class B312PinnedCandidateCheckDefaultsManifest
         {
             if(!actual.TryGetValue(key,out var got)||
                 !string.Equals(got,Normalize(expected),StringComparison.Ordinal))
-                throw new InvalidOperationException("012_CHECK_DEFINITION_DRIFT");
+                throw new InvalidOperationException(
+                    "012_CHECK_DEFINITION_DRIFT:"+key
+                    +" EXPECTED=["+Normalize(expected)+"] ACTUAL=["+got+"]");
         }
     }
 
