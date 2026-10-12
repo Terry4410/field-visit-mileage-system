@@ -142,14 +142,17 @@ internal static class B312PinnedCandidateCheckDefaultsManifest
         }
         if(ExpectedChecks.Count!=8||actual.Count!=8)
             throw new InvalidOperationException("012_CHECK_COUNT_DRIFT");
+        var discrepancies=new List<string>();
         foreach(var (key,expected) in ExpectedChecks)
         {
-            if(!actual.TryGetValue(key,out var got)||
-                !string.Equals(got,Normalize(expected),StringComparison.Ordinal))
-                throw new InvalidOperationException(
-                    "012_CHECK_DEFINITION_DRIFT:"+key
-                    +" EXPECTED=["+Normalize(expected)+"] ACTUAL=["+got+"]");
+            var pinned=Normalize(expected);
+            actual.TryGetValue(key,out var got);
+            if(!string.Equals(got,pinned,StringComparison.Ordinal))
+                discrepancies.Add(key+" EXPECTED=["+pinned+"] ACTUAL=["+got+"]");
         }
+        if(discrepancies.Count>0)
+            throw new InvalidOperationException("012_CHECK_DEFINITION_DRIFT "
+                +string.Join(" \\n ",discrepancies));
     }
 
     /// <summary>
