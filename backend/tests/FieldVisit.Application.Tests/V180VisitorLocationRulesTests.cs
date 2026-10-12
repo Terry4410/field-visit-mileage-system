@@ -1,5 +1,6 @@
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
+using Xunit;
 
 namespace FieldVisit.Application.Tests;
 
