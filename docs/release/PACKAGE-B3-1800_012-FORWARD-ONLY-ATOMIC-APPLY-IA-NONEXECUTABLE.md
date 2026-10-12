@@ -692,3 +692,18 @@ history dependency, migration dry-run on controlled UAT staging, real
 database permissions/triggers, complete B3 approval/apply runtime, HR/IT
 grant authority, and formal B4 Business UAT 0/22. B3 OFF, Approve/Apply
 DENY ALL, Migration NOT AUTHORIZED, Production HARD HOLD.
+
+### 24. IT 獨立簽核交接與正式遷移證據缺口（未授權執行）
+
+IT/DBA/HR/資安的實體 DDL、完整 Schema Catalog、受限權限、
+實際人事及 Reviewer 授權、正式 UAT Migration 與 B4 22-case
+核准紀錄，已整理至
+`PACKAGE-B3-IT-SCHEMA-REVIEW-EXECUTION-HOLD-CHECKLIST-DRAFT.md`。
+該檔同時列出 1800_011／1800_012 正式 Up/Verify、對應 workflow
+及最終執行核准單所需的簽認證據，目前皆為 DRAFT／HOLD。
+
+**IMPORTANT:** CI 163/163 SQL PASS 是 disposable 011→012
+候選與 rollback-only Test Evidence；未經 IT 簽認的 CHECK
+或 Default 期望值不得作為正式 Migration 的授權或正式
+UAT Catalog SHA。不得啟用 B3 Approve/Apply，正式 B4
+仍為 0/22。

@@ -347,3 +347,16 @@ name-only manifest or self-captured runtime fingerprint.
 do NOT execute migrations outside a disposable rollback-only database.
 VAL-B1-002 and formal B4 0/22 remain BLOCKED; feature OFF, real UAT
 migration/deployment unauthorized, Approve/Apply DENY ALL, Production HOLD.
+
+## 20. IT／DBA／HR／資安一次性審核資料索引 — 獨立 HOLD
+
+檢附 `PACKAGE-B3-IT-SCHEMA-REVIEW-EXECUTION-HOLD-CHECKLIST-DRAFT.md`，
+將 `1800_011` 與 `1800_012` 真正的 Up/Verify／移轉權限／
+Workflow／DB catalog／Locations 歷史外鍵／HR 授權來源／
+原始 Snapshot 匯出，以及 B4 22 項驗收責任與附件逐項列為
+BLOCKED 或有限測試證據。
+
+本階段尚未提供 IT 經簽章的實體 SQL migration 和 canonical
+catalog fingerprint，亦未提供 Owner 的合併最終執行核准。
+本 DRAFT 所列所有條件不構成 UAT SQL／部署／Feature
+Flag 的執行許可。
