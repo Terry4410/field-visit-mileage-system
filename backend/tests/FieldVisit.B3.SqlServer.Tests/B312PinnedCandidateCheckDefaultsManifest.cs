@@ -11,47 +11,44 @@ namespace FieldVisit.B3.SqlServer.Tests;
 /// </summary>
 internal static class B312PinnedCandidateCheckDefaultsManifest
 {
+    // SQL Server 2022 rewrites IN lists as equality/OR predicates and wraps
+    // numeric constants with parentheses in sys.check_constraints.definition.
+    // These are source-authored, FIXED compiler-normalized expectations.
+    // Operators and grouping stay pinned; no self-captured runtime baseline.
     private static readonly Dictionary<string,string> ExpectedChecks=
         new(StringComparer.Ordinal)
         {
             ["ChangeRequests|CK_B3_ChangeRequests_KnownCodes"] =
                 "[EntityKind]=N'Location' AND [OperationCode]=N'UpdatePublishedLocation' AND [RiskCode]=N'High'",
             ["ChangeRequests|CK_B3_ChangeRequests_KnownStatus"] =
-                "[Status] IN (N'Pending',N'Rejected',N'Applied')",
+                "[Status]=N'Applied' OR [Status]=N'Rejected' OR [Status]=N'Pending'",
             ["ChangeRequests|CK_B3_ChangeRequests_ExpectedLocationVersion"] =
-                "[ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=8",
+                "[ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=(8)",
             ["ChangeRequests|CK_B3_ChangeRequests_ProposedJson"] =
-                "ISJSON([ProposedJson])=1",
+                "ISJSON([ProposedJson])=(1)",
             ["ChangeRequests|CK_B3_ChangeRequests_ReviewState"] = """
-                ([Status]=N'Pending'
-                    AND [ReviewedByUserId] IS NULL AND [ReviewedAt] IS NULL
-                    AND [ReviewReason] IS NULL AND [AppliedAt] IS NULL)
-                OR ([Status]=N'Rejected'
-                    AND [ReviewedByUserId] IS NOT NULL AND [ReviewedByUserId]>0
-                    AND [ReviewedByUserId]<>[RequestedByUserId]
+                [Status]=N'Pending' AND [ReviewedByUserId] IS NULL AND [ReviewedAt] IS NULL AND [ReviewReason] IS NULL AND [AppliedAt] IS NULL
+                OR [Status]=N'Rejected' AND [ReviewedByUserId] IS NOT NULL AND [ReviewedByUserId]>(0)
+                    AND [ReviewedByUserId]<>[RequestedByUserId] AND [ReviewedAt] IS NOT NULL
+                    AND [ReviewedAt]>=[SubmittedAt] AND [ReviewReason] IS NOT NULL
+                    AND LEN(LTRIM(RTRIM([ReviewReason])))>(0) AND [AppliedAt] IS NULL
+                OR [Status]=N'Applied' AND [ReviewedByUserId] IS NOT NULL
+                    AND [ReviewedByUserId]>(0) AND [ReviewedByUserId]<>[RequestedByUserId]
                     AND [ReviewedAt] IS NOT NULL AND [ReviewedAt]>=[SubmittedAt]
-                    AND [ReviewReason] IS NOT NULL
-                    AND LEN(LTRIM(RTRIM([ReviewReason])))>0
-                    AND [AppliedAt] IS NULL)
-                OR ([Status]=N'Applied'
-                    AND [ReviewedByUserId] IS NOT NULL AND [ReviewedByUserId]>0
-                    AND [ReviewedByUserId]<>[RequestedByUserId]
-                    AND [ReviewedAt] IS NOT NULL AND [ReviewedAt]>=[SubmittedAt]
-                    AND [ReviewReason] IS NOT NULL
-                    AND LEN(LTRIM(RTRIM([ReviewReason])))>0
-                    AND [AppliedAt] IS NOT NULL AND [AppliedAt]>=[ReviewedAt])
+                    AND [ReviewReason] IS NOT NULL AND LEN(LTRIM(RTRIM([ReviewReason])))>(0)
+                    AND [AppliedAt] IS NOT NULL AND [AppliedAt]>=[ReviewedAt]
                 """,
             ["ChangeRequestEvents|CK_B3_ChangeRequestEvents_EventType"] =
-                "[EventType] IN (N'Submitted',N'Rejected',N'Approved',N'Applied')",
+                "[EventType]=N'Applied' OR [EventType]=N'Approved' OR [EventType]=N'Rejected' OR [EventType]=N'Submitted'",
             ["ChangeRequestEvents|CK_B3_ChangeRequestEvents_DetailsJson"] =
-                "[DetailsJson] IS NULL OR ISJSON([DetailsJson])=1",
+                "[DetailsJson] IS NULL OR ISJSON([DetailsJson])=(1)",
             ["ChangeRequestEvents|CK_B3_ChangeRequestEvents_DecisionState"] = """
-                [ActorUserId] IS NOT NULL AND [ActorUserId]>0
+                [ActorUserId] IS NOT NULL AND [ActorUserId]>(0)
                 AND [CorrelationId]<>'00000000-0000-0000-0000-000000000000'
-                AND (([EventType] IN (N'Submitted',N'Applied') AND [DecisionKey] IS NULL)
-                    OR ([EventType] IN (N'Rejected',N'Approved')
-                        AND [DecisionKey] IS NOT NULL
-                        AND [DecisionKey]<>'00000000-0000-0000-0000-000000000000'))
+                AND (([EventType]=N'Applied' OR [EventType]=N'Submitted') AND [DecisionKey] IS NULL
+                    OR ([EventType]=N'Approved' OR [EventType]=N'Rejected')
+                    AND [DecisionKey] IS NOT NULL
+                    AND [DecisionKey]<>'00000000-0000-0000-0000-000000000000')
                 """
         };
 
