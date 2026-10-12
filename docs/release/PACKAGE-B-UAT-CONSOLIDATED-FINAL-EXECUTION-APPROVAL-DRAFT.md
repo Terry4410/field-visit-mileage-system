@@ -313,3 +313,20 @@ production-verified/IT-signed schema fingerprint. The separate
 dynamic SHA256 still requires a static IT-endorsed full physical
 manifest before release. B4 0/22, migrations unauthorized, flag OFF,
 Approve/Apply DENY ALL and Production HARD HOLD remain in force.
+
+## 18. Pinned candidate physical schema (not IT signed, NOT release-ready)
+
+New source-pinned 012 WORK-only structural evidence now verifies all
+28 candidate request/event column types, lengths, scales,
+nullability/identity/computed flags, 3 unique index predicates and key
+order, and 6 FK source/target directions with trusted noncascade
+requirements. Nine real SQL tests include drift of these precise
+attributes and are attached to the SHA-bound CI named-case gate.
+
+This materially reduces false PASS from catalog objects preserving
+only their names, but still does not establish a complete
+`1800_011`/`1800_012` production DDL design, the real UAT
+Locations/history schema, CHECK/default text parity or an IT-approved
+canonical fingerprint. HR/IT provenance and B4 formal 0/22
+remain BLOCKED. B3 OFF, Approve/Apply DENY ALL, Migration and
+deploy NOT AUTHORIZED, Production HARD HOLD.

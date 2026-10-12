@@ -159,6 +159,15 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_pinned_candidate_manifest_matches_disposable_names",
     "Hypothetical_012_pinned_candidate_manifest_rejects_extra_unreviewed_column",
     "Hypothetical_012_pinned_candidate_manifest_rejects_same_count_renamed_FK",
+    "Hypothetical_012_pinned_physical_columns_indexes_FKs_match_candidate",
+    "Hypothetical_012_pinned_physical_rejects_same_name_nvarchar_width_drift",
+    "Hypothetical_012_pinned_physical_rejects_same_name_nullability_drift",
+    "Hypothetical_012_pinned_physical_rejects_same_name_unique_key_order_drift",
+    "Hypothetical_012_pinned_physical_rejects_same_name_wrong_pending_filter",
+    "Hypothetical_012_pinned_physical_rejects_nonunique_decision_index",
+    "Hypothetical_012_pinned_physical_rejects_same_name_wrong_FK_source",
+    "Hypothetical_012_pinned_physical_rejects_enabled_but_untrusted_FK",
+    "Hypothetical_012_pinned_physical_rejects_extra_same_scope_unique_index",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

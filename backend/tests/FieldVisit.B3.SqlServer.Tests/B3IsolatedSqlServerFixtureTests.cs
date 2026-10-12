@@ -4068,4 +4068,155 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             V180B3SqlSafetyRules.CatalogCheckSql)));
     }
 
+
+    // A source-pinned physical candidate schema manifest. Unlike the
+    // runtime-captured fingerprint, expected types/index keys/FK directions
+    // are fixed in code, not read back as self-authorized truth.
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_columns_indexes_FKs_match_candidate()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_same_name_nvarchar_width_drift()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.ChangeRequests ALTER COLUMN BeforeJson nvarchar(400) NULL");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireColumnsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_same_name_nullability_drift()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.ChangeRequests SET EvidenceJson=N'{}' WHERE EvidenceJson IS NULL");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.ChangeRequests ALTER COLUMN EvidenceJson nvarchar(max) NOT NULL");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireColumnsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_same_name_unique_key_order_drift()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    DROP INDEX UX_B3_ChangeRequests_Org_Entity_Pending ON dbo.ChangeRequests;
+                    CREATE UNIQUE INDEX UX_B3_ChangeRequests_Org_Entity_Pending
+                    ON dbo.ChangeRequests(EntityId,EntityKind,OrganizationId)
+                    WHERE [Status]='Pending';
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireUniqueIndexesAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_same_name_wrong_pending_filter()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    DROP INDEX UX_B3_ChangeRequests_Org_Entity_Pending ON dbo.ChangeRequests;
+                    CREATE UNIQUE INDEX UX_B3_ChangeRequests_Org_Entity_Pending
+                    ON dbo.ChangeRequests(OrganizationId,EntityKind,EntityId)
+                    WHERE [Status]='Applied';
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireUniqueIndexesAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_nonunique_decision_index()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    DROP INDEX UX_B3_ChangeRequestEvents_DecisionKey ON dbo.ChangeRequestEvents;
+                    CREATE INDEX UX_B3_ChangeRequestEvents_DecisionKey
+                    ON dbo.ChangeRequestEvents(DecisionKey)
+                    WHERE DecisionKey IS NOT NULL;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireUniqueIndexesAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_same_name_wrong_FK_source()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests DROP CONSTRAINT FK_B3_Requests_Reviewer;
+                    ALTER TABLE dbo.ChangeRequests WITH CHECK ADD CONSTRAINT
+                        FK_B3_Requests_Reviewer
+                        FOREIGN KEY(RequestedByUserId) REFERENCES dbo.Users(UserId)
+                        ON DELETE NO ACTION;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireForeignKeysAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_enabled_but_untrusted_FK()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests
+                        NOCHECK CONSTRAINT FK_B3_Requests_Reviewer;
+                    ALTER TABLE dbo.ChangeRequests
+                        WITH NOCHECK CHECK CONSTRAINT FK_B3_Requests_Reviewer;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireForeignKeysAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_physical_rejects_extra_same_scope_unique_index()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidatePhysicalManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "CREATE UNIQUE INDEX UQ_B312_UNREVIEWED ON dbo.ChangeRequests(ChangeRequestId)");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidatePhysicalManifest.RequireUniqueIndexesAsync(conn,tx));
+            });
+    }
+
 }

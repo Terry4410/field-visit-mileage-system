@@ -631,3 +631,36 @@ COMPLETE 012 physical schema, index filters, CHECK/FK text,
 trigger inventory, dependency graph and immutable migration
 provenance; the Owner must separately authorize UAT execution.
 Approve/Apply remains DENY ALL; B3 OFF; B4 0/22; Production HARD HOLD.
+
+### 22. Source-pinned 012 candidate PHYSICAL column / unique-index / FK metadata (WORK-only)
+
+New `B312PinnedCandidatePhysicalManifest` extends the prior
+`B312PinnedCandidateNameManifest` from **fixed names** into **fixed physical
+attributes**, independent of the SQL runtime's self-captured fingerprint.
+The source-authored manifest explicitly enumerates all 28
+`ChangeRequests`/`ChangeRequestEvents` fixture candidate columns with
+SQL Server system-type ID, physical max byte length, numeric/date scale,
+NULL, IDENTITY and computed flags. It enumerates three unique indexes
+including exact ordered key columns and normalized filter predicates
+(`Status='Pending'` and `DecisionKey IS NOT NULL`) and all six
+expected non-cascading, trusted FK *source / target column pairs*.
+
+Nine named REAL Microsoft SQL Server 2022 tests require exact physical
+parity and fail closed for changed `BeforeJson` Unicode width,
+`EvidenceJson` nullability, a same-name unique index with reordered
+keys, wrong pending index filter, non-unique DecisionKey index,
+same-name foreign key referencing the wrong source column, an enabled
+but untrusted FK and any additional non-PK unique index.
+The existing source-pinned name manifest and the prior transaction-only
+dynamic catalog SHA256 still run as separate checks. Every DDL mutation
+is confined to the 011→012 rollback-only disposable transaction and
+the externally protected branch remains untouched.
+
+**Scope limitation / independent approval:** This is an independently
+specified *WORK candidate*, NOT a verified 1800_011 or 1800_012
+production migration, the actual UAT database physical schema, all
+CHECK text/default constraints or the complete Locations/historical FK
+graph. SQL CHECK expression semantics are not exhaustively pinned by
+this candidate. No IT/HR/Owner signed canonical hash exists yet.
+No use of this evidence may unlock real 011/012 migrations,
+`ApproveAsync`, feature flag, Business UAT or Production.
