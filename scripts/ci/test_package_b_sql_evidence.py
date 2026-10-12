@@ -125,6 +125,20 @@ class SqlEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"missing"):
             validate(self.path)
 
+    def test_manifest_exactly_matches_real_fixture_fact_methods(self):
+        # Prevent CI-successful SQL tests being rejected at evidence export:
+        # all actual [Fact] methods must be reviewed and explicitly registered.
+        import re
+        fixture=(Path(__file__).resolve().parents[2]/
+            "backend/tests/FieldVisit.B3.SqlServer.Tests/B3IsolatedSqlServerFixtureTests.cs")
+        source=fixture.read_text(encoding="utf-8")
+        names=re.findall(
+            r"\\[Fact\\]\\s+public\\s+async\\s+Task\\s+([A-Za-z_][A-Za-z_0-9]*)\\s*\\(",
+            source)
+        self.assertEqual(len(names),len(set(names)),"duplicate SQL fixture test methods")
+        self.assertEqual(REQUIRED_SQL_TESTS,set(names),
+            "SQL fixture tests and evidence manifest must match exactly")
+
     def test_new_sql_rollback_cases_are_named_and_required(self):
         new_cases={
             "Serializable_rejection_transaction_rolls_back_request_and_audit_on_injected_failure",
