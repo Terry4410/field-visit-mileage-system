@@ -182,6 +182,21 @@ internal static class B312RealNamedLocationApplyProbe
             source.Active,20,1,simulatedLiveAdmin,simulatedLiveMembership,
             decisionKey,reason,replay);
 
+        // Normal disposable-SQL rehearsal executes the product's internal,
+        // unregistered writer.  Fault-injection branches below deliberately
+        // retain their inline writes so each intermediate rollback point can
+        // be asserted without adding a test hook to product code.
+        if(string.IsNullOrEmpty(fault))
+        {
+            await V180B3AtomicApplyExecutor.ExecuteAsync(conn,tx,plan,request,
+                new V180B3AtomicApplyLockedContext(source.Id,source.Org,
+                    source.Team,source.Owner,source.Type,source.Status,
+                    source.Active,source.Version,source.Fields,20,1,
+                    simulatedLiveAdmin,simulatedLiveMembership,decisionKey,
+                    reason,replay),CancellationToken.None);
+            return;
+        }
+
         var proposed=JsonSerializer.Deserialize<V180B3LocationFields>(plan.ProposedJson)!;
         var sourceRows=await WriteAsync(conn,tx, """
             UPDATE dbo.Locations SET
