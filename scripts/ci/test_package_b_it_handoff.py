@@ -29,6 +29,7 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
             "release_authorized": False,
             "signoff_confirmed": False,
             "scope": "SOURCE_ONLY_WORK_CANDIDATE_NOT_UAT_OR_PRODUCTION",
+            "explanation": ledger.EXPECTED_EXPLANATION,
             "gates": [{
                 "id": gid, "owner": owner,
                 "disposition": "BLOCKED_UNSIGNED",
