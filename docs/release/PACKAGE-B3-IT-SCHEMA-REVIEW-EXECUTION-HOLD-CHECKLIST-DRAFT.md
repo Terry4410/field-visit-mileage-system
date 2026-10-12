@@ -11,8 +11,8 @@
 | Repository | `Terry4410/field-visit-mileage-system` / Issue #24 |
 | Protected source | `post-uat/v1.8.0` = `68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2`，本階段不得改動 |
 | WORK 安全分支 | `work/v180-package-b-b2-b3-controlled`（只准 WORK 實作、測試、文件） |
-| 最近經驗證的 CHECK / Default 候選 | WORK commit `039e37a5b07e4c4f384ba56cc82f406b1aa85564`，GitHub Actions Run `38206127018`：Backend/Frontend CI SUCCESS、隔離 SQL **163/163 PASS**、JWT/HTTP+SQL **20/20 PASS** |
-| CI Artifact | `package-b-b3-real-sql-disposable-only`（Run 38206127018, ID 11727746119）；`package-b-b3-b4-security-evidence`（ID 11727840596） |
+| 最近經驗證的 WORK 候選 | WORK commit `90e69473c77829ca531da4abd6f1a60a3ac296b5`，GitHub Actions Run `38217728463`：兩個 non-deploy jobs SUCCESS（完整 backend/frontend CI、隔離 SQL fixture、6 個 dated-site SQL 與 20 個 JWT/HTTP+SQL named cases） |
+| CI Artifact | Run `38217728463` 的 `package-b-b3-real-sql-disposable-only` 及 `package-b-b3-b4-security-evidence`；artifact 與精確 case outcome 由 IT 獨立下載核對 |
 | 說明 | SQL 僅在 random-name `B3SqlFixture_*` / localhost SQL Server 2022 執行，011→012 候選 DDL 在 Serializable 交易內一律 ROLLBACK；不是實際 Migration |
 | 前置文件 | `PACKAGE-B3-1800_011-SCHEMA-IA-NONEXECUTABLE.md`、`PACKAGE-B3-1800_012-FORWARD-ONLY-ATOMIC-APPLY-IA-NONEXECUTABLE.md`、`PACKAGE-B-UAT-CONSOLIDATED-FINAL-EXECUTION-APPROVAL-DRAFT.md` |
 

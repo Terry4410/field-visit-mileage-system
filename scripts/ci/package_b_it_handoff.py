@@ -28,6 +28,7 @@ SOURCE_FILES = (
     "backend/tests/FieldVisit.B3.SqlServer.Tests/B312ExpandedLocationsColumnContract.cs",
     "backend/tests/FieldVisit.B3.SqlServer.Tests/B312RealB3ActorSqlFixture.cs",
     "docs/release/PACKAGE-B3-APPROVAL-APPLY-SECURITY-DESIGN-NONEXECUTABLE.md",
+    "docs/release/PACKAGE-B-INDEPENDENT-REVIEW-READINESS-BATCH-NONEXECUTABLE.md",
     "docs/release/PACKAGE-B-FULL-UAT-22-CASE-TRACEABILITY-NONEXECUTABLE.md",
     "docs/release/PACKAGE-B3-1800_011-SCHEMA-IA-NONEXECUTABLE.md",
     "docs/release/PACKAGE-B3-1800_012-FORWARD-ONLY-ATOMIC-APPLY-IA-NONEXECUTABLE.md",
