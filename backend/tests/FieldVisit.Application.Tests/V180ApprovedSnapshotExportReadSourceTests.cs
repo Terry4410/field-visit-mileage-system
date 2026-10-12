@@ -101,7 +101,7 @@ public sealed class V180ApprovedSnapshotExportReadSourceTests
         AppDbContext db,CurrentUserDto? user=null,
         string? locationKeyword=null,bool exportAll=true)
     {
-        var repo=new V160FinalRepository(db,new V170AccessControl(db));
+        var repo=new V160FinalRepository(db,new V170AccessControl(db),new V180LeaderLocationAuthorizationService(db));
         return await repo.QueryTripsAsync(
             user??Viewer(),
             new TripQueryRequest(
@@ -141,7 +141,7 @@ public sealed class V180ApprovedSnapshotExportReadSourceTests
     {
         await using var db=Db();
         await SeedAsync(db);
-        var repo=new V160FinalRepository(db,new V170AccessControl(db));
+        var repo=new V160FinalRepository(db,new V170AccessControl(db),new V180LeaderLocationAuthorizationService(db));
         var request=new TripQueryRequest(
             StartDate:new DateOnly(2026,10,1),
             EndDate:new DateOnly(2026,10,31),
@@ -210,7 +210,7 @@ public sealed class V180ApprovedSnapshotExportReadSourceTests
     {
         await using var db=Db();
         await SeedAsync(db,snapshot:false);
-        var repo=new V160FinalRepository(db,new V170AccessControl(db));
+        var repo=new V160FinalRepository(db,new V170AccessControl(db),new V180LeaderLocationAuthorizationService(db));
         // Without a date-qualified prefilter, the Approved trip reaches the
         // materialization path; absence of Snapshot is explicitly denied.
         await Assert.ThrowsAsync<InvalidOperationException>(()=>

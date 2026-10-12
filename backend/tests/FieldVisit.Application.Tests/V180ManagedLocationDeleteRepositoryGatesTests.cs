@@ -46,7 +46,7 @@ public sealed class V180ManagedLocationDeleteRepositoryGatesTests
     }
 
     private static V160FinalRepository Repository(AppDbContext db) =>
-        new(db,new V170AccessControl(db));
+        new(db,new V170AccessControl(db),new V180LeaderLocationAuthorizationService(db));
 
     [Fact]
     public async Task Expired_admin_token_cannot_deactivate_or_delete_own_org_location()
