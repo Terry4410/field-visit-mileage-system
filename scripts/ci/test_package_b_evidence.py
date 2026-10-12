@@ -71,6 +71,21 @@ class PackageBEvidenceTests(unittest.TestCase):
                          step_outcomes=step_data)
         self.assertEqual("PASS", result["result"])
 
+    def test_new_012_guard_cannot_be_omitted_from_merged_evidence(self):
+        payload = json.loads(self.guard.read_text())
+        payload["checks"] = [row for row in payload["checks"]
+                             if row["name"] != "no_executable_012_migration"]
+        self.guard.write_text(json.dumps(payload))
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit, self.matrix)["result"])
+
+    def test_IT_handoff_step_skipped_fails_even_with_green_other_steps(self):
+        steps = {key: {"outcome": "success"} for key in REQUIRED_SUCCESSFUL_STEPS}
+        steps["it_handoff_ledger"]["outcome"] = "skipped"
+        self.assertEqual("FAIL_CLOSED", collect(
+            self.guard, self.trx, self.junit, self.matrix,
+            step_outcomes=steps)["result"])
+
     def test_backend_build_failure_cannot_be_masked_by_passing_tests(self):
         step_data = {key: {"outcome": "success"}
                      for key in REQUIRED_SUCCESSFUL_STEPS}

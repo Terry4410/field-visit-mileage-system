@@ -30,6 +30,9 @@ REQUIRED_SECURITY_GATES = frozenset({
     "workflow_dir_present",
     "no_011_deploy_workflow",
     "no_hidden_011_workflow_dispatch",
+    "no_executable_012_migration",
+    "no_012_deploy_workflow",
+    "no_hidden_012_workflow_dispatch",
     "CI_readonly_no_deploy",
     "B3_bounded_payload_before_SQL_transaction",
 })
@@ -83,7 +86,7 @@ RELEASE_HOLD_CONTRACT = {
 
 REQUIRED_SUCCESSFUL_STEPS = frozenset({
     "checkout", "security_gate", "python_syntax", "python_tests",
-    "matrix_gate", "baseline_gate", "setup_dotnet", "setup_node",
+    "it_handoff_ledger", "matrix_gate", "baseline_gate", "setup_dotnet", "setup_node",
     "backend_build", "backend_tests", "frontend_restore",
     "frontend_tests", "frontend_build",
 })
