@@ -20,9 +20,9 @@ public static class V180LocationPublicationRules
 
 /// <summary>
 /// No unverified inferred/legacy TeamLeaderAssignment may grant mutation
-/// or a background job. This code-only candidate has no attested managed
-/// team grant source yet. This must be replaced by a reviewed, effective-dated
-/// and independently attested grant lookup after IT/Owner sign-off.
+/// or a background job. The VAL-B1-002 rule documents the full positive
+/// evidence set, but the deployed schema has no independently attested grant
+/// source yet; this fail-closed boundary must remain until one is supplied.
 /// </summary>
 public static class V180B1ManagerGrantProvenance
 {
