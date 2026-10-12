@@ -591,7 +591,7 @@ Approve/Apply DENY ALL and B4 accepted 0/22.
 
 ### 21. Production Snapshot query-to-export historic source + source-pinned candidate names
 
-Six **backend unit tests** use the actual `V160FinalRepository.QueryTripsAsync`
+Seven **backend unit tests** use the actual `V160FinalRepository.QueryTripsAsync`
 and `ReportDocumentService.CreateExcelAsync` on isolated EF InMemory
 data. For `Approved` trips the repository must return the LATEST
 `VisitTripSnapshot`, including frozen location code/name/address,
@@ -600,7 +600,10 @@ genuine XLSX `拜訪地點明細` worksheet must retain the frozen stop and
 exclude deliberately mutated live Locations and the unapproved trip
 stop. Search by historic location name still finds approved trips;
 search by a renamed *live-only* name must not create a false historic
-match. Missing approved Snapshot fails closed; organization scope denies
+match. Missing approved Snapshot fails closed in two query shapes:
+a date-qualified Approved query excludes the missing-snapshot row,
+while a selected Approved trip without date filtering throws instead
+of falling back to live Location fields. Organization scope denies
 cross-organization reads. This covers the **real repository-to-Excel
 builder path** in tests, but is EF InMemory, not SQL Server translational
 or actual HTTP/export permission integration. Existing isolated real SQL

@@ -194,11 +194,29 @@ public sealed class V180ApprovedSnapshotExportReadSourceTests
     }
 
     [Fact]
-    public async Task Approved_without_snapshot_is_denied_not_backfilled_from_live_location()
+    public async Task Approved_missing_snapshot_with_date_filter_returns_no_live_fallback()
     {
         await using var db=Db();
         await SeedAsync(db,snapshot:false);
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>QueryAsync(db));
+        // Date-qualified Approved filter searches frozen VisitDate in a
+        // Snapshot. With none it excludes the row; no live trip is returned.
+        var result=await QueryAsync(db);
+        Assert.Empty(result.Items);
+        Assert.Equal(0,result.TotalCount);
+    }
+
+    [Fact]
+    public async Task Approved_missing_snapshot_without_date_filter_throws_before_rendering()
+    {
+        await using var db=Db();
+        await SeedAsync(db,snapshot:false);
+        var repo=new V160FinalRepository(db,new V170AccessControl(db));
+        // Without a date-qualified prefilter, the Approved trip reaches the
+        // materialization path; absence of Snapshot is explicitly denied.
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>
+            repo.QueryTripsAsync(Viewer(),
+                new TripQueryRequest(Status:TripStatuses.Approved),
+                true,CancellationToken.None));
     }
 
     [Fact]

@@ -297,9 +297,11 @@ Real `V160FinalRepository.QueryTripsAsync` and
 approved historical Snapshot and a conflicting *current* Location:
 immutable location name/address, project, visitor/team and approved
 financial figures must come from the Snapshot, including the generated
-XLSX stop-detail sheet. Latest Snapshot version, historic keyword
-search, missing Snapshot fail-closed and organization scope are also
-covered. These tests use EF InMemory; verify SQL translation, real
+XLSX stop-detail sheet. Latest Snapshot version, historic keyword search and
+organization scope are also covered. Missing Approved Snapshot with a
+date filter returns no results; without date filtering, a selected
+Approved trip fails closed before rendering instead of falling back
+to the live Location master. These tests use EF InMemory; verify SQL translation, real
 endpoint permissions and live report/export files separately at
 authorized UAT.
 
