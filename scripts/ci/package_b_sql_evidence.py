@@ -106,6 +106,12 @@ REQUIRED_SQL_TESTS=frozenset({
     "Unknown_commit_probe_key_on_foreign_request_is_indeterminate",
     "Unknown_commit_probe_missing_record_never_claims_no_commit",
     "Hypothetical_012_reduced_locations_stub_explicitly_fails_full_EF_parity",
+    "Hypothetical_012_expanded_Locations_all_EF_columns_match_disposable_SQL",
+    "Hypothetical_012_expanded_Locations_guarded_apply_preserves_noneditable_columns",
+    "Hypothetical_012_expanded_Locations_rejects_Unicode_width_and_nullable_drift",
+    "Hypothetical_012_expanded_Locations_detects_missing_duplicate_history_column",
+    "Unknown_commit_simulated_server_commits_then_throws_ack_failure",
+    "Unknown_commit_simulated_server_rolls_back_then_throws_identical_error",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

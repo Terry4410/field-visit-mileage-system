@@ -193,3 +193,20 @@ geocoding/duplicate/history columns: full table parity is still REQUIRED.
 Keep a real COMMIT-ack-loss, concurrent post-commit drift and full
 Locations migration/canonical catalog review on the independent security
 worklist; formal B4 remains 0/22.
+
+## 11. Expanded EF Location columns and uncertain transaction acknowledgment (WORK only)
+
+The non-deploy disposable SQL fixture now has a separate expanded
+`dbo.Locations` structure matching *all EF-mapped column names and types*,
+with negative width/nullability/missing-field checks, plus an isolated
+seven-field write that cannot change noneditable columns. This is NOT the
+full 011/UAT physical schema, linked foreign keys, historical invariants or
+release-ready 012 checksum.
+
+Another isolated B3Probe SQL batch sends identical simulated 51091 error
+responses after either COMMIT or ROLLBACK. A new read-only connection must
+reconcile committed evidence before any operator decision. It does NOT
+simulate an actual network disconnect or authorize automatic replay.
+Required: full Location FKs, snapshot/history references, IT-pinned exact
+012 schema fingerprint, real SQL transport error injection and Owner review.
+B4 accepted 0/22, flag OFF, Approve/Apply DENY ALL, all UAT/Production HOLD.

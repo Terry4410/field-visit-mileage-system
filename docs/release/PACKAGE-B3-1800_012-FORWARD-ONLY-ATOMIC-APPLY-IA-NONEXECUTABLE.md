@@ -369,3 +369,33 @@ is unavailable, the oracle throws; a connection error is NEVER
 converted to "not committed." Rollback-only 012 tests are distinct from
 real committed B3Probe transactions. Actual unknown COMMIT transport
 failure injection and UAT remain NOT EXECUTED.
+
+### 15. Expanded EF Location columns and post-transaction acknowledgment error — WORK SQL only
+
+A separate rollback-only `dbo.Locations` test candidate now covers **every
+currently EF-mapped Location column**, including the geocoding, duplicate,
+location ownership, noneditable metadata, historical timeline and seven
+editable fields. The SQL Server system catalog is compared to the actual
+.NET EF SQL Server relational type mapping for names/count, nullability,
+Unicode width, decimal and date precision, identity and physical rowversion.
+Two negative tests intentionally narrow a Unicode column or relax the
+approval field's nullability and remove the duplicate-history column; the
+comparison fails closed. An additional seven-field atomic update test checks
+that all 21 other original values remain unchanged.
+
+The expanded test-only DDL uses explicit defaults for mandatory metadata
+fields solely to allow isolated insertion. It does NOT recreate production
+FKeys, indexes, geocoding attempts, triggers, historical schema versions or
+the full live target. This is **EF column mapping parity for a disposable
+candidate**, NOT UAT physical schema parity or a complete 011/012 fingerprint.
+
+On B3Probe* mock tables, two additional SQL Server tests execute two
+guarded UPDATEs and a correlated Approved/Applied audit pair in one server
+transaction; the SQL batch either COMMITs or ROLLBACKs and then raises the
+same simulated error 51091 after the decision. A separate connection
+reconciles durable data rather than trusting that error. This models the
+application's ambiguous acknowledgment after server-side transaction
+completion; **it does not physically drop the TCP connection, simulate a
+SQL crash or exercise the real Locations/ChangeRequests executor**.
+No automatic retry, approval API availability or release authorization
+follows from this isolated evidence. B3 remains OFF and DENY ALL.

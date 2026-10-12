@@ -2993,4 +2993,111 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             });
     }
 
+
+    [Fact]
+    public async Task Hypothetical_012_expanded_Locations_all_EF_columns_match_disposable_SQL()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312ExpandedLocationsColumnContract.RequireEfColumnsAsync(_fixture,conn,tx);
+            });
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM sys.tables WHERE name=N'Locations'")));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_expanded_Locations_guarded_apply_preserves_noneditable_columns()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312ExpandedLocationsColumnContract.RequireEfColumnsAsync(_fixture,conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                async Task<string> Snapshot()=>(string)(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,B312ExpandedLocationsColumnContract.NonEditableSnapshotSql,
+                    ("@id",seed.LocationId)))!;
+                var before=await Snapshot();
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,Guid.NewGuid());
+                Assert.Equal(before,await Snapshot());
+                Assert.Equal("Applied",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                    ("@id",seed.RequestId)));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_expanded_Locations_rejects_Unicode_width_and_nullable_drift()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "SAVE TRANSACTION B3Shape");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.Locations ALTER COLUMN City nvarchar(100) NULL");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312ExpandedLocationsColumnContract.RequireEfColumnsAsync(_fixture,conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ROLLBACK TRANSACTION B3Shape");
+                await B312ExpandedLocationsColumnContract.RequireEfColumnsAsync(_fixture,conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.Locations ALTER COLUMN ApprovalStatus nvarchar(max) NULL");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312ExpandedLocationsColumnContract.RequireEfColumnsAsync(_fixture,conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_expanded_Locations_detects_missing_duplicate_history_column()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.Locations DROP COLUMN DuplicateReason");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312ExpandedLocationsColumnContract.RequireEfColumnsAsync(_fixture,conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Unknown_commit_simulated_server_commits_then_throws_ack_failure()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var target=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        var ex=await Assert.ThrowsAsync<SqlException>(()=>
+            B3CommitAcknowledgmentLossProbe.SimulateAsync(_fixture,target,key,true));
+        Assert.Equal(B3CommitAcknowledgmentLossProbe.AckSimulationError,ex.Number);
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.CommittedEvidenceComplete,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,target,key));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",target.RequestId))));
+    }
+
+    [Fact]
+    public async Task Unknown_commit_simulated_server_rolls_back_then_throws_identical_error()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var target=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        var ex=await Assert.ThrowsAsync<SqlException>(()=>
+            B3CommitAcknowledgmentLossProbe.SimulateAsync(_fixture,target,key,false));
+        Assert.Equal(B3CommitAcknowledgmentLossProbe.AckSimulationError,ex.Number);
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.NoCommitEvidenceComplete,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,target,key));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",target.RequestId))));
+    }
+
 }
