@@ -3446,14 +3446,17 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
     // Call ACTUAL V170AccessControl against EF-mapped physical HR-period
     // tables inside the same disposable 012 rollback-only SQL transaction.
     [Fact]
-    public async Task Hypothetical_012_real_V170_login_active_HR_passes_disabled_account_denied()
+    public async Task Hypothetical_012_real_V170_login_active_HR_passes_legacy_flag_not_B3_account_gate()
     {
         await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
             async (conn,tx)=>
             {
                 await B312V170LoginIntegrationFixture.CreateAsync(conn,tx);
                 Assert.True(await B312V170LoginIntegrationFixture.IsAllowedAsync(conn,tx));
-                Assert.False(await B312V170LoginIntegrationFixture.IsAllowedAsync(
+                // V170 permits an Active legacy Internal actor here even when
+                // adminEnabled=false. B3ActorEligibility separately requires
+                // a live database Users.IsActive account check.
+                Assert.True(await B312V170LoginIntegrationFixture.IsAllowedAsync(
                     conn,tx,accountEnabled:false));
             });
     }

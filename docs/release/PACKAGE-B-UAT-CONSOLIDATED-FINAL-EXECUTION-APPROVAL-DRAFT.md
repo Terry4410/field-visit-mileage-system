@@ -247,7 +247,7 @@ B3 OFF, Approve/Apply DENY ALL; no UAT or Production deployment.
 
 Seven additional SQL cases exercise the actual .NET V170 login service's
 legacy Internal employment-period pathway, including effective-date expiry,
-most recent leave overriding active, inactive account, terminated, prehire and
+most recent leave overriding active; the legacy V170 adminEnabled=false flag does NOT block Active Internal actors, so B3 must separately verify Users.IsActive; terminated, prehire and
 missing HR. Two EF Snapshot queries explicitly select historical persisted
 fields and show that their name, address, project, approved distance and
 organization remain unchanged after simulated seven-field Location publish.

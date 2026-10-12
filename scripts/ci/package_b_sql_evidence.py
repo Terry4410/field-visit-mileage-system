@@ -126,7 +126,7 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_SnapshotStop_live_join_is_not_historical_source",
     "Hypothetical_012_SnapshotStop_tampered_history_is_detected_fail_closed",
     "Hypothetical_012_SnapshotStop_has_no_direct_Location_FK_and_rolls_back",
-    "Hypothetical_012_real_V170_login_active_HR_passes_disabled_account_denied",
+    "Hypothetical_012_real_V170_login_active_HR_passes_legacy_flag_not_B3_account_gate",
     "Hypothetical_012_real_V170_login_leave_terminated_prehire_denied",
     "Hypothetical_012_real_V170_login_expired_and_future_effective_HR_denied",
     "Hypothetical_012_real_V170_login_most_recent_effective_leave_overrides_active",

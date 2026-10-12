@@ -485,8 +485,9 @@ creates the actual-mapped `UserIdentityProfiles` and
 `UserEmploymentPeriods` table shapes needed for the legacy Internal
 (no EmploymentId) login branch; no HR master/real identity data is used.
 
-It verifies Active employment and enabled accounts succeed, disabled accounts
-fail, Leave/Terminated/PreHire statuses fail, expired and future-only Active
+It verifies Active employment and enabled accounts succeed, the legacy `adminEnabled=false` flag does NOT deny an otherwise
+Active Internal V170 login (B3 must separately check `Users.IsActive`),
+and Leave/Terminated/PreHire statuses fail, expired and future-only Active
 intervals fail, more-recent effective Leave overrides an older Active interval
 and absent HR facts fail even on the legacy Internal profile fallback.
 The test dates are far from today except the deliberate 2026-01-01
