@@ -9,6 +9,8 @@ import re
 import subprocess
 import sys
 
+from package_b_approval_hold import require_approve_deny_all
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FROZEN = "68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2"
 BASELINE = "c1ee3c0c3df000491fd54df727482815d3c38917"
@@ -53,12 +55,9 @@ def scan():
         gate("feature_flag_off", False, exc)
     try:
         service = (ROOT / "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs").read_text(encoding="utf-8")
-        approval = service[service.index("public async Task<V180B3RequestView> ApproveAsync("):]
-        allowed = ('throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED")' in approval
-                   and "db.SaveChanges" not in approval
-                   and "db.ChangeRequestEvents.Add" not in approval
-                   and "db.Locations.Update" not in approval)
-        gate("B3_approve_executor_DENY_ALL", allowed, "Approve contains no DB writes")
+        require_approve_deny_all(service)
+        gate("B3_approve_executor_DENY_ALL", True,
+             "Exact source-pinned entire ApproveAsync method; no alternate return or DML")
     except (ValueError, OSError) as exc:
         gate("B3_approve_executor_DENY_ALL", False, exc)
     # Prevent future refactors from moving large untrusted DTO parsing into

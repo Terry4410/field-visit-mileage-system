@@ -386,3 +386,15 @@ ID／Owner／source path／HOLD 狀態，來源檔案 SHA256 會反映在
 實際 UAT Schema、HR/IT 身分授權、22 項 Business UAT 與最終
 Owner 簽名都維持未完成；矩陣中的任何綠色 CI 不得當成獨立
 IT／HR／Owner 簽章。
+
+## 22. Approval Deny-All guard: exact method source boundary (WORK only)
+
+The automated IT evidence ledger and nondeploy security guard no longer
+accept a mere `B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED` substring anywhere
+after the entrypoint. They share a strict pinned policy for the entire
+`ApproveAsync` method body (readiness, live Admin gate, unconditional
+throw), with negative spoof/return/DML tests, and the C# release tripwire
+checks the same source boundary. This is a narrow static-regression
+hardening only. Independent IT/Owner approval, B3 application runtime,
+signed HR/IT grants, formal 011/012 Up/Verify and B4 UAT remain BLOCKED.
+B3 OFF / Approve-Apply DENY ALL / Business UAT HOLD / Production HARD HOLD.

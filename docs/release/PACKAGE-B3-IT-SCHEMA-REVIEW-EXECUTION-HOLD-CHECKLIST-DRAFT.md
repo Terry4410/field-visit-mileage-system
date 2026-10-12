@@ -103,3 +103,20 @@ SHA256。少一個 Gate、責任人錯置、引用不在 repository 的正式 SQ
 只證明所有必要差異仍被誠實標為 BLOCKED，不是可執行的 Migration
 核准、B3 Approve/Apply 解除或正式 B4 驗收。所有簽核必須在獨立受控
 流程完成，並另取 Owner 的具體授權。
+
+## ApproveAsync source-contract safety hardening (WORK-only)
+
+The nondeploy CI's prior string search could mistake a throw in a comment
+or after an early return for a real DENY ALL. The WORK-only
+`scripts/ci/package_b_approval_hold.py` now checks the **entire**
+production `ApproveAsync(Guid,V180B3Review,CancellationToken)` method
+against a source-pinned, exact allowlist: `ReadyAsync`, live actor/Admin
+evaluation, and unconditional `B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED`
+rejection. A different method signature, additional statement, conditional
+denial, an early return, or extra DML fails the CI guard. Both
+`package_b_guard.py` and the independent IT handoff ledger use the same
+fail-closed contract. The C# release-tripwire test also asserts the
+entire method source contract. Negative Python tests inject misleading
+comments, early returns, mutation-before-throw and missing entrypoints.
+This is a **static source tripwire**, not a proof of runtime permissions,
+no migration, and cannot certify UAT or enable Approve/Apply.

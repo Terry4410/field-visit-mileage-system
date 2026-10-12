@@ -23,7 +23,12 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         self.approval = self.root / "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs"
         self.approval.write_text(
             'public async Task<V180B3RequestView> ApproveAsync('
-            '{ throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED"); }')
+            'Guid id,V180B3Review input,CancellationToken ct)\n'
+            '    {\n'
+            '        await ReadyAsync(ct);var(_,admin,_)=await LiveActorAsync(ct);\n'
+            '        if(!admin)throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");\n'
+            '        throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");\n'
+            '    }\n')
         # A tiny service fixture that preserves only the safety-critical
         # statement order; no C# is executed by these Python negative tests.
         self.approval.write_text(
@@ -38,7 +43,12 @@ class PackageBGuardNegativeTests(unittest.TestCase):
             'V180B3RequestInputRules.RequireReviewTarget(id,input); '
             'BeginTransactionAsync(); LiveActorAsync(ct); }'
             'public async Task<V180B3RequestView> ApproveAsync('
-            '{ throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED"); }')
+            'Guid id,V180B3Review input,CancellationToken ct)\n'
+            '    {\n'
+            '        await ReadyAsync(ct);var(_,admin,_)=await LiveActorAsync(ct);\n'
+            '        if(!admin)throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");\n'
+            '        throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");\n'
+            '    }\n')
         input_rules = self.root / "backend/src/FieldVisit.Infrastructure/V180B3RequestInputRules.cs"
         input_rules.write_text(
             'Oversize(input.Proposed.LocationName,200) '
@@ -164,8 +174,26 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         self.assertIn("live_team_supervisor_scope_intersection",self.failures())
 
     def test_approval_write_fails(self):
-        self.approval.write_text(self.approval.read_text() + " await db.SaveChangesAsync();")
+        self.approval.write_text(self.approval.read_text().replace(
+            'throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");',
+            'await db.SaveChangesAsync(ct); '
+            'throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");'))
         self.assertIn("B3_approve_executor_DENY_ALL", self.failures())
+
+    def test_comment_only_approval_denial_cannot_pass_guard(self):
+        source=self.approval.read_text()
+        self.approval.write_text(source.replace(
+            'throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");',
+            '// throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");\n'
+            '        return ForgedApproved();'))
+        self.assertIn("B3_approve_executor_DENY_ALL",self.failures())
+
+    def test_conditional_approval_denial_cannot_pass_guard(self):
+        source=self.approval.read_text()
+        self.approval.write_text(source.replace(
+            'throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");',
+            'if(false)throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");'))
+        self.assertIn("B3_approve_executor_DENY_ALL",self.failures())
 
     def test_new_011_migration_fails(self):
         (self.root / "database/migrations/1800_011_unauthorized.sql").write_text("SELECT 1")

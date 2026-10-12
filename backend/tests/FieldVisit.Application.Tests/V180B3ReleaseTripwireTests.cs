@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -35,18 +36,28 @@ public sealed class V180B3ReleaseTripwireTests
     }
 
     [Fact]
-    public void Approval_executor_must_remain_explicitly_denied()
+    public void Approval_executor_must_match_entire_source_pinned_deny_all_body()
     {
         var source=File.ReadAllText(RepositoryFile(
             "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs"));
-        var start=source.IndexOf("public async Task<V180B3RequestView> ApproveAsync(",
-            StringComparison.Ordinal);
-        Assert.True(start>=0,"B3 approval entrypoint was changed: manual review required.");
-        var body=source[start..];
-        Assert.Contains("throw new InvalidOperationException(\"B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED\")",
-            body,StringComparison.Ordinal);
-        Assert.DoesNotContain("db.ChangeRequestEvents.Add(",body,StringComparison.Ordinal);
-        Assert.DoesNotContain("await db.SaveChangesAsync(",body,StringComparison.Ordinal);
+        var signature=Regex.Matches(source,
+            @"(?m)^[ \t]*public\s+async\s+Task<V180B3RequestView>\s+ApproveAsync\s*\(\s*Guid\s+id\s*,\s*V180B3Review\s+input\s*,\s*CancellationToken\s+ct\s*\)\s*\{");
+        var only=Assert.Single(signature.Cast<Match>());
+        var following=source[(only.Index+only.Length)..];
+        var closing=Regex.Match(following,@"(?m)^[ \t]{4}\}[ \t]*$");
+        Assert.True(closing.Success,"B3 approval method boundary changed; manual review required.");
+        var actualBody=following[..closing.Index];
+        // A safety throw in a comment, after a return or in the NEXT method
+        // is not a valid proof of deny-all authorization.
+        var withoutComments=Regex.Replace(actualBody,
+            @"/\*[\s\S]*?\*/|//[^\r\n]*","");
+        var normalized=Regex.Replace(withoutComments,@"\s+","");
+        Assert.Equal(
+            "awaitReadyAsync(ct);"+
+            "var(_,admin,_)=awaitLiveActorAsync(ct);"+
+            "if(!admin)thrownewUnauthorizedAccessException(\"B3_ADMIN_REQUIRED\");"+
+            "thrownewInvalidOperationException(\"B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED\");",
+            normalized);
     }
 
     [Fact]

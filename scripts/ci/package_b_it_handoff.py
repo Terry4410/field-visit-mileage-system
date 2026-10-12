@@ -15,6 +15,8 @@ import re
 import subprocess
 import sys
 
+from package_b_approval_hold import require_approve_deny_all
+
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_PROTECTED = "68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2"
 IT_FILE = "docs/release/PACKAGE-B3-IT-SCHEMA-REVIEW-EXECUTION-HOLD-CHECKLIST-DRAFT.md"
@@ -169,9 +171,10 @@ def collect(root: Path, sha: str) -> dict:
     if json.loads(cfg.read_text(encoding="utf-8"))["PackageB"]["B3"]["Enabled"] is not False:
         raise ValueError("HANDOFF_FEATURE_NOT_OFF")
     content = service.read_text(encoding="utf-8")
-    pos = content.find("public async Task<V180B3RequestView> ApproveAsync(")
-    if pos < 0 or 'throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED")' not in content[pos:]:
-        raise ValueError("HANDOFF_APPROVE_NOT_DENY_ALL")
+    try:
+        require_approve_deny_all(content)
+    except ValueError as exc:
+        raise ValueError("HANDOFF_APPROVE_NOT_DENY_ALL") from exc
 
     migrations = root / "database/migrations"
     workflows = root / ".github/workflows"

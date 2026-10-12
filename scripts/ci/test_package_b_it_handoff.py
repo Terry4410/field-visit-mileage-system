@@ -179,6 +179,26 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "HANDOFF_APPROVE_NOT_DENY_ALL"):
             self.collect()
 
+    def test_misleading_throw_in_comment_is_not_release_hold_proof(self):
+        original = self.service.read_text(encoding="utf-8")
+        altered = original.replace(
+            'throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");',
+            '// throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");'
+            '\n        return ForgedApproval();')
+        self.service.write_text(altered, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "HANDOFF_APPROVE_NOT_DENY_ALL"):
+            self.collect()
+
+    def test_unreachable_throw_after_mutation_is_not_handoff_success(self):
+        original = self.service.read_text(encoding="utf-8")
+        altered = original.replace(
+            'throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");',
+            'await db.SaveChangesAsync(ct);\n'
+            '        throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");')
+        self.service.write_text(altered, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "HANDOFF_APPROVE_NOT_DENY_ALL"):
+            self.collect()
+
     def test_rejects_non_sha_or_unverified_source(self):
         with self.assertRaisesRegex(ValueError, "HANDOFF_INVALID_WORK_SHA"):
             ledger.collect(self.root, "pending")
