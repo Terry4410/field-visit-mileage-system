@@ -91,6 +91,10 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_real_named_tables_catalog_denies_untrusted_and_missing_version",
     "Hypothetical_012_real_named_tables_atomic_state_and_audit_checks_rollback",
     "Hypothetical_012_real_named_tables_disabled_unique_decision_index_fails_shape",
+    "Hypothetical_012_strict_fingerprint_denies_token_preserving_check_relaxation",
+    "Hypothetical_012_strict_fingerprint_denies_same_name_narrowed_unique_filter",
+    "Hypothetical_012_strict_fingerprint_denies_duplicate_011_predecessor",
+    "Hypothetical_012_strict_fingerprint_denies_enabled_side_effect_trigger",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

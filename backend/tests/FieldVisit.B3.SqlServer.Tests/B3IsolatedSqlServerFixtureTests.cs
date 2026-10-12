@@ -2610,4 +2610,98 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             V180B3SqlSafetyRules.CatalogCheckSql)));
     }
 
+
+    [Fact]
+    public async Task Hypothetical_012_strict_fingerprint_denies_token_preserving_check_relaxation()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                var approved=await B312DisposableCatalogFingerprint.CaptureAsync(conn,tx);
+                await B312DisposableCatalogFingerprint.RequireUnchangedAsync(conn,tx,approved);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests
+                      DROP CONSTRAINT CK_B3_ChangeRequests_KnownStatus;
+                    ALTER TABLE dbo.ChangeRequests WITH CHECK
+                      ADD CONSTRAINT CK_B3_ChangeRequests_KnownStatus
+                      CHECK ([Status] IN (N'Pending',N'Rejected',N'Applied',N'Cancelled'));
+                    """);
+                // Names, 8 trusted checks and the word 'Applied' still match
+                // the previous partial fingerprint: it MUST NOT be release-ready.
+                Assert.Equal(1,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                        B312DisposableForwardOnlyRehearsal.PartialShapeSql)));
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312DisposableCatalogFingerprint.RequireUnchangedAsync(conn,tx,approved));
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_strict_fingerprint_denies_same_name_narrowed_unique_filter()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                var approved=await B312DisposableCatalogFingerprint.CaptureAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    DROP INDEX UX_B3_ChangeRequestEvents_DecisionKey
+                      ON dbo.ChangeRequestEvents;
+                    CREATE UNIQUE INDEX UX_B3_ChangeRequestEvents_DecisionKey
+                      ON dbo.ChangeRequestEvents(DecisionKey)
+                      WHERE DecisionKey IS NOT NULL AND ActorUserId IS NOT NULL;
+                    """);
+                Assert.Equal(1,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                        B312DisposableForwardOnlyRehearsal.PartialShapeSql)));
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312DisposableCatalogFingerprint.RequireUnchangedAsync(conn,tx,approved));
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_strict_fingerprint_denies_duplicate_011_predecessor()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                var approved=await B312DisposableCatalogFingerprint.CaptureAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "INSERT INTO dbo.SchemaVersions(VersionNumber,AppliedAt) VALUES(N'1.8.0-011',DATEADD(second,-20,SYSUTCDATETIME()))");
+                // Latest marker still reads 012, but history is ambiguous.
+                Assert.Equal(1,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                        B312DisposableForwardOnlyRehearsal.PartialShapeSql)));
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312DisposableCatalogFingerprint.RequireUnchangedAsync(conn,tx,approved));
+            });
+        Assert.Equal("1.8.0-011",(string?)await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.LatestSchemaVersionSql));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_strict_fingerprint_denies_enabled_side_effect_trigger()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                var approved=await B312DisposableCatalogFingerprint.CaptureAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    CREATE TRIGGER dbo.TR_B312_Disposable_DeniedSideEffects
+                    ON dbo.ChangeRequests AFTER UPDATE
+                    AS BEGIN SET NOCOUNT ON; END
+                    """);
+                Assert.Equal(1,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                        B312DisposableForwardOnlyRehearsal.PartialShapeSql)));
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312DisposableCatalogFingerprint.RequireUnchangedAsync(conn,tx,approved));
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
 }

@@ -150,3 +150,17 @@ Independent HR/IT attestation: **PENDING**. Window: **PENDING**.
   attestation / formal business signoff.
 - If a gate fails, record the failing invariant, do not silently skip it,
   and request one consolidated Owner decision for external blockers.
+
+## 8. Additional 012 WORK-only proof and remaining independent fingerprint sign-off
+
+SQL 2022 fixture now compares full catalog metadata snapshots within a
+rollback-only 011→012 rehearsal. Tests deliberately alter CHECK semantics,
+DecisionKey filtered-index predicates, predecessor history and enabled
+trigger behavior while preserving earlier partial-check shape. This protects
+test evidence against a class of token-preserving schema drift, but **cannot
+serve as a release fingerprint**, because the baseline is captured
+inside a disposable fixture rather than pinned to an independently signed
+DDL artifact. Separate IT-approved, immutable 012 fingerprint and actual
+Locations DDL parity are **BLOCKED / REQUIRED**. The exact green WORK SHA,
+SQL TRX SHA-256 and current named case list must accompany any later
+security review. Formal B4 stays 0/22 and all release decisions remain HOLD.

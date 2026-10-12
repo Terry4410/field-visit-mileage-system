@@ -277,3 +277,33 @@ specifications, physical `Locations` write integration, HR/IT attestation,
 or unknown commit outcome. The fixture does not contain the full live location
 schema. B3 feature flag remains OFF; Approve/Apply remains DENY ALL.
 No 012 DDL file is authorized or executed outside disposable test SQL.
+
+### 12. Exact-metadata snapshot drift detector — WORK/disposable-only
+
+Four isolated SQL Server 2022 cases exercise a *snapshot-equality*
+candidate `B312DisposableCatalogFingerprint`, captured only **after**
+the reviewed in-test 011→012 rehearsal has built its disposable catalog.
+SHA-256 covers physical candidate columns (type, width, nullability, scale,
+identity/computed), all eight **complete** CHECK definitions and trust bits,
+six FK shapes/trust/delete-action bits, three unique-index ordered keys and
+full filter strings, trigger definitions, and the 011→012 SchemaVersions
+history. It also requires exact isolated fixture object counts and the
+existing partial-shape check. The catalog is read through the SAME
+serializable test-only SQL transaction: no DDL repair or mutation.
+
+These cases deliberately show that the old partial check would accept
+**a trusted CHECK with extra Cancelled state**, **a more restrictive
+DecisionKey index filter**, **a duplicate 011 predecessor marker**,
+or **an enabled side-effect trigger**; the exact snapshot detector
+denies them. All mutations and the entire 012 schema rehearsal roll back.
+
+**Critical limitation:** this is a short-lived fingerprint captured
+against known fixture DDL; it is *not* a pinned IT-reviewed schema hash,
+a production readiness function, or a substitute for proof of the actual
+full `Locations` schema/rowversion and real HR/Team provenance.
+Before any actual 012 readiness is designed for use by an executor, IT
+must independently pin the approved DDL checksum and expected canonical
+catalog fingerprint, verify complete 011 predecessor/revision ordering
+in the named target environment, block untrusted/disabled CHECK/FK or
+index/trigger drift, and sign the rollback/recovery plan.
+`ApproveAsync` remains DENY ALL; the flag remains OFF.
