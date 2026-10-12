@@ -31,7 +31,7 @@ LINKS = {
  19: ("Known duplicate versus SQL faults", ("Two_concurrent_pending_inserts_yield_one_winner_and_unique_conflict", "Same_decision_key_across_concurrent_reviews_never_creates_two_events"), "409 named conflicts; unknown SQL errors fail closed"),
  20: ("Revoked Admin bulk operations", (), "Live bulk API rights after HR/role revocation"),
  21: ("Enabled SQL triggers", ("Catalog_denies_enabled_event_trigger_until_removed", "Catalog_denies_disabled_unique_index_and_enabled_table_trigger"), "Enabled-feature HTTP 503 without trigger mutation"),
- 22: ("Malformed review and audit CHECK", ("Pending_request_cannot_carry_reviewer_or_applied_fields", "Submitted_audit_cannot_have_decision_key_and_rejected_audit_requires_one"), "Invalid review HTTP + audit after-state"),
+ 22: ("Malformed review and audit CHECK", ("Pending_request_cannot_carry_reviewer_or_applied_fields", "Submitted_audit_cannot_have_decision_key_and_rejected_audit_requires_one", "Serializable_rejection_transaction_rolls_back_request_and_audit_on_injected_failure", "Serializable_rejection_audit_insert_error_rolls_back_request_update"), "Invalid review HTTP + audit after-state"),
 }
 EXTRA_GATE = {1:"1800_011_NOT_AUTHORIZED",2:"1800_011_NOT_AUTHORIZED",4:"1800_011_NOT_AUTHORIZED",
               11:"VAL_B1_002_BLOCKED",14:"VAL_B1_002_BLOCKED",
