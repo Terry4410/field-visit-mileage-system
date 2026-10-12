@@ -4219,4 +4219,136 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             });
     }
 
+
+    // Source-authored CHECK semantics: no runtime-captured expected baseline.
+    [Fact]
+    public async Task Hypothetical_012_pinned_CHECK_and_default_candidate_exact_shape()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_CHECK_same_name_widened_request_status_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests DROP CONSTRAINT CK_B3_ChangeRequests_KnownStatus;
+                    ALTER TABLE dbo.ChangeRequests WITH CHECK ADD CONSTRAINT CK_B3_ChangeRequests_KnownStatus
+                        CHECK ([Status] IN(N'Pending',N'Rejected',N'Applied',N'Archived'));
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateCheckDefaultsManifest.RequireCheckDefinitionsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_CHECK_same_name_permissive_JSON_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests DROP CONSTRAINT CK_B3_ChangeRequests_ProposedJson;
+                    ALTER TABLE dbo.ChangeRequests WITH CHECK ADD CONSTRAINT CK_B3_ChangeRequests_ProposedJson
+                        CHECK (ISJSON([ProposedJson])=1 OR [ProposedJson]=N'not-json');
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateCheckDefaultsManifest.RequireCheckDefinitionsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_CHECK_same_name_weakened_review_state_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests DROP CONSTRAINT CK_B3_ChangeRequests_ReviewState;
+                    ALTER TABLE dbo.ChangeRequests WITH CHECK ADD CONSTRAINT CK_B3_ChangeRequests_ReviewState
+                        CHECK([Status] IN(N'Pending',N'Rejected',N'Applied'));
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateCheckDefaultsManifest.RequireCheckDefinitionsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_CHECK_same_name_widened_event_type_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequestEvents DROP CONSTRAINT CK_B3_ChangeRequestEvents_EventType;
+                    ALTER TABLE dbo.ChangeRequestEvents WITH CHECK ADD CONSTRAINT CK_B3_ChangeRequestEvents_EventType
+                        CHECK([EventType] IN(N'Submitted',N'Rejected',N'Approved',N'Applied',N'Deleted'));
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateCheckDefaultsManifest.RequireCheckDefinitionsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_CHECK_enabled_but_untrusted_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests
+                        NOCHECK CONSTRAINT CK_B3_ChangeRequests_KnownCodes;
+                    ALTER TABLE dbo.ChangeRequests
+                        WITH NOCHECK CHECK CONSTRAINT CK_B3_ChangeRequests_KnownCodes;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateCheckDefaultsManifest.RequireCheckDefinitionsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_default_request_status_introduced_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequests ADD CONSTRAINT
+                        DF_B312_UnreviewedRequestStatus DEFAULT(N'Pending') FOR Status;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateCheckDefaultsManifest.RequireNoUnreviewedDefaultsAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_default_event_timestamp_introduced_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateCheckDefaultsManifest.RequireAllAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.ChangeRequestEvents ADD CONSTRAINT
+                        DF_B312_UnreviewedEventDate DEFAULT(SYSUTCDATETIME()) FOR OccurredAt;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateCheckDefaultsManifest.RequireNoUnreviewedDefaultsAsync(conn,tx));
+            });
+    }
+
 }

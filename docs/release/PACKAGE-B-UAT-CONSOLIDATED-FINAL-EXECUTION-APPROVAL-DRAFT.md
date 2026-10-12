@@ -330,3 +330,20 @@ Locations/history schema, CHECK/default text parity or an IT-approved
 canonical fingerprint. HR/IT provenance and B4 formal 0/22
 remain BLOCKED. B3 OFF, Approve/Apply DENY ALL, Migration and
 deploy NOT AUTHORIZED, Production HARD HOLD.
+
+## 19. Source-pinned candidate CHECK definitions and DEFAULT prohibition
+
+The 012 reduced **disposable** candidate now compares all eight real
+SQL Server CHECK definitions to independently authored literal expressions
+and enforces enabled/trusted metadata. It expects zero DEFAULT constraints
+on the 28 request/event test columns. Eight SQL cases verify no silent
+widening of Status/EventType, no invalid-JSON acceptance, no weakened
+review transition, no untrusted CHECK and no introduced DEFAULT. SQL
+logic is compared with grouping and literal contents preserved, not a
+name-only manifest or self-captured runtime fingerprint.
+
+**Owner/IT approval is still required** to pin an actual production
+011/012 canonical DDL and its independent catalog signature. These tests
+do NOT execute migrations outside a disposable rollback-only database.
+VAL-B1-002 and formal B4 0/22 remain BLOCKED; feature OFF, real UAT
+migration/deployment unauthorized, Approve/Apply DENY ALL, Production HOLD.

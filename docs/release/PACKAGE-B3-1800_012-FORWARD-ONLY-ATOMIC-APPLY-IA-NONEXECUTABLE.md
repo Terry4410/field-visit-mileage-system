@@ -664,3 +664,31 @@ graph. SQL CHECK expression semantics are not exhaustively pinned by
 this candidate. No IT/HR/Owner signed canonical hash exists yet.
 No use of this evidence may unlock real 011/012 migrations,
 `ApproveAsync`, feature flag, Business UAT or Production.
+
+### 23. Source-authored CHECK / DEFAULT constraint candidate manifest — disposable only
+
+The immutable candidate `B312PinnedCandidateCheckDefaultsManifest` pins
+the logical SQL expressions of all eight `dbo.ChangeRequests` /
+`dbo.ChangeRequestEvents` CHECK constraints. It compares
+`sys.check_constraints.definition` against authored (not runtime captured)
+text. The limited SQL normalizer ignores whitespace and identifier brackets
+outside quoted literals and whole-expression redundant parentheses; it
+**preserves boolean grouping, comparison operators and quoted values**.
+Every expected CHECK must be present, enabled and trusted. Eight named SQL
+tests provide a positive candidate, a same-name widened status allowed set,
+permissive invalid-JSON acceptance, weakened review transition, broadened
+event types, an enabled but untrusted CHECK, plus added request and event
+DEFAULT constraints. All negative mutations must FAIL CLOSED.
+
+This simplified WORK candidate currently expects **no DEFAULT constraints**
+on any of the 28 request/event columns. This is a pinned test-only shape,
+not IT's future production design. The manifest augments the prior pinned
+names/physical columns/index/FK source contracts and the disposable dynamic
+SHA256; it is not an independently approved production checksum.
+
+**Not yet validated for formal release:** complete 011 / 012 authoritative
+forward-only DDL and IT-signed schema provenance, every Locations/index/FK
+history dependency, migration dry-run on controlled UAT staging, real
+database permissions/triggers, complete B3 approval/apply runtime, HR/IT
+grant authority, and formal B4 Business UAT 0/22. B3 OFF, Approve/Apply
+DENY ALL, Migration NOT AUTHORIZED, Production HARD HOLD.

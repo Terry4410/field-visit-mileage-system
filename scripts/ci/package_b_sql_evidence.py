@@ -168,6 +168,14 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_pinned_physical_rejects_same_name_wrong_FK_source",
     "Hypothetical_012_pinned_physical_rejects_enabled_but_untrusted_FK",
     "Hypothetical_012_pinned_physical_rejects_extra_same_scope_unique_index",
+    "Hypothetical_012_pinned_CHECK_and_default_candidate_exact_shape",
+    "Hypothetical_012_pinned_CHECK_same_name_widened_request_status_denied",
+    "Hypothetical_012_pinned_CHECK_same_name_permissive_JSON_denied",
+    "Hypothetical_012_pinned_CHECK_same_name_weakened_review_state_denied",
+    "Hypothetical_012_pinned_CHECK_same_name_widened_event_type_denied",
+    "Hypothetical_012_pinned_CHECK_enabled_but_untrusted_denied",
+    "Hypothetical_012_pinned_default_request_status_introduced_denied",
+    "Hypothetical_012_pinned_default_event_timestamp_introduced_denied",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
