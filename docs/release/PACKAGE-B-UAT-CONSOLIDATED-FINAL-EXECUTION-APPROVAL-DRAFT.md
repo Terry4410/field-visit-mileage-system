@@ -285,9 +285,11 @@ active Team Scope, time-effective Team Assignment and actual
 Employment TeamMembership. Missing/expired/disabled privileges are
 denied and a mid-transaction revocation is re-read.
 
-WORK now contains an internal, unregistered atomic SQL writer exercised only
-by the disposable rollback-only SQL Server fixture. It cannot be reached from
-HTTP, open/commit its own transaction, enable B3 or bypass the public
+WORK now contains an internal, unregistered atomic SQL writer plus a separate
+internal orchestrator. The orchestrator owns only a serializable transaction,
+request-first/Location-second locks, live authorization re-read and an
+unknown-COMMIT fresh-connection observation; neither component is registered
+or reachable from HTTP. They cannot enable B3 or bypass the public
 Approve/Apply DENY ALL boundary. No migration, flag, actual UAT DB or deployed
 executor was touched. Actual HR/IT roles, complete Location
 ownership/published security, Snapshot reporting and the reviewed 012 full

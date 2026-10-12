@@ -44,4 +44,26 @@ public sealed class V180B3AtomicApplyExecutorIsolationTests
         Assert.DoesNotContain("V180B3AtomicApplyExecutor", approve);
         Assert.Contains("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED", approve);
     }
+
+    [Fact]
+    public void Orchestrator_is_internal_request_first_and_never_retries_unknown_commit()
+    {
+        var orchestrator = Read(Path.Combine("backend","src","FieldVisit.Infrastructure",
+            "V180B3AtomicApplyOrchestrator.cs"));
+        var service = Read(Path.Combine("backend","src","FieldVisit.Infrastructure",
+            "V180B3ChangeRequestService.cs"));
+        var program = Read(Path.Combine("backend","src","FieldVisit.Api","Program.cs"));
+        Assert.Contains("internal sealed class V180B3AtomicApplyOrchestrator", orchestrator);
+        Assert.Contains("BeginTransactionAsync(\n            IsolationLevel.Serializable", orchestrator);
+        var requestLock = orchestrator.IndexOf("RequestByPublicId(", StringComparison.Ordinal);
+        var locationLock = orchestrator.IndexOf("LocationById(", StringComparison.Ordinal);
+        Assert.True(requestLock >= 0 && locationLock > requestLock);
+        Assert.Contains("V180B3AtomicApplyExecutor.ExecuteAsync(", orchestrator);
+        Assert.Contains("await transaction.CommitAsync(ct)", orchestrator);
+        Assert.Contains("new SqlConnection(connectionString)", orchestrator);
+        Assert.Contains("B3_UNKNOWN_COMMIT_", orchestrator);
+        Assert.DoesNotContain("V180B3AtomicApplyOrchestrator", program);
+        Assert.DoesNotContain("V180B3AtomicApplyOrchestrator", service);
+        Assert.DoesNotContain("ExecuteAsync(id,input", service);
+    }
 }
