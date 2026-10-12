@@ -22,7 +22,7 @@ class PackageBGuardNegativeTests(unittest.TestCase):
                                           "Auth": {"LiveSessionGuard": {"Enabled": False}}}))
         self.approval = self.root / "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs"
         self.approval.write_text(
-            'public async Task<V180B3RequestView> ApproveAsync('
+            '\npublic async Task<V180B3RequestView> ApproveAsync('
             'Guid id,V180B3Review input,CancellationToken ct)\n'
             '    {\n'
             '        await ReadyAsync(ct);var(_,admin,_)=await LiveActorAsync(ct);\n'
@@ -42,7 +42,7 @@ class PackageBGuardNegativeTests(unittest.TestCase):
             '{ await ReadyAsync(ct); '
             'V180B3RequestInputRules.RequireReviewTarget(id,input); '
             'BeginTransactionAsync(); LiveActorAsync(ct); }'
-            'public async Task<V180B3RequestView> ApproveAsync('
+            '\npublic async Task<V180B3RequestView> ApproveAsync('
             'Guid id,V180B3Review input,CancellationToken ct)\n'
             '    {\n'
             '        await ReadyAsync(ct);var(_,admin,_)=await LiveActorAsync(ct);\n'

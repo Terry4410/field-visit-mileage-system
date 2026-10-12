@@ -48,10 +48,14 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
         self.service = (self.root /
                         "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs")
         self.service.parent.mkdir(parents=True, exist_ok=True)
-        self.service.write_text(
-            'public async Task<V180B3RequestView> ApproveAsync('
-            '{throw new InvalidOperationException('
-            '"B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");}')
+        self.service.write_text("""public async Task<V180B3RequestView> ApproveAsync(
+        Guid id,V180B3Review input,CancellationToken ct)
+    {
+        await ReadyAsync(ct);var(_,admin,_)=await LiveActorAsync(ct);
+        if(!admin)throw new UnauthorizedAccessException("B3_ADMIN_REQUIRED");
+        throw new InvalidOperationException("B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED");
+    }
+""")
         (self.root / "database/migrations").mkdir(parents=True)
         (self.root / ".github/workflows").mkdir(parents=True)
 
