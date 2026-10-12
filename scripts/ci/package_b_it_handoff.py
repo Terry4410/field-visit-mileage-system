@@ -74,6 +74,36 @@ EVIDENCE_SOURCE_BY_GATE = {
     "B4-UAT": "docs/release/PACKAGE-B-FULL-UAT-22-CASE-TRACEABILITY-NONEXECUTABLE.md",
     "PRODUCTION": "docs/release/PACKAGE-B-UAT-CONSOLIDATED-FINAL-EXECUTION-APPROVAL-DRAFT.md",
 }
+
+# Source-authored requirements, independent of user-editable JSON entries.
+# A nonempty but weakened requirement MUST NOT count as a reviewable gate.
+EVIDENCE_REQUIREMENT_BY_GATE = {
+    "DDL-01": "IT/DBA 獨立審查 011 Up.sql、Verify.sql、前置版本與來源 SHA256",
+    "DDL-02": "IT/DBA 獨立審查 012 Up.sql、Verify.sql、前向修改及失敗補償",
+    "CAT-01": "DBA 實際完整 SQL catalog 欄位與 EF 對照及簽認",
+    "CAT-02": "DBA 實際 CHECK、DEFAULT、Index filter 與 SQL 定義簽認",
+    "CAT-03": "DBA 真實 FK、trigger、permission、dependency 完整清單簽認",
+    "LOC-01": "DBA 實際 Locations 全部索引、依賴、七欄更新相容性簽認",
+    "HIST-01": "DBA 與業務對歷史關聯、完整 Snapshot 查詢及 API／Excel 的真實 UAT 驗證",
+    "VER-01": "IT 從正式受控 DDL 獨立固定且簽署 Schema Fingerprint",
+    "GRANT-01": "資安／DBA 011／012 專屬限時 Grant、Verify、Revoke 與稽核",
+    "DEP-01": "IT DevOps 獨立正式 UAT workflow、SHA pin、backup、rollback 與 postflight",
+    "VAL-B1-002": "HR／IT 真實 HR、Admin grant、Team membership、撤銷與來源證據簽章",
+    "B3-APPROVE": "IT／Owner 正式交易內授權、独立審核與核准/Apply 功能放行",
+    "B4-UAT": "Business Owner 已核准 UAT 環境逐案執行 22/22 並簽名",
+    "PRODUCTION": "Owner／IT 獨立正式上線授權、變更視窗與回退計畫",
+}
+MATRIX_EXPECTED_KEYS = frozenset({
+    "kind", "schema_version", "decision", "release_authorized",
+    "signoff_confirmed", "scope", "explanation", "gates",
+})
+GATE_EXPECTED_KEYS = frozenset({
+    "id", "owner", "disposition", "candidate_evidence_class",
+    "reviewed_source_path", "independent_external_evidence_required",
+    "independent_signoff_received", "can_unlock_migration",
+})
+EXPECTED_EXPLANATION = "Evidence paths identify working candidates or documents, never signed live UAT/IT evidence. All gates remain BLOCKED_UNSIGNED."
+
 WORK_TEST_ONLY_GATES = frozenset({
     "CAT-01", "CAT-02", "CAT-03", "LOC-01", "HIST-01",
     "VER-01", "VAL-B1-002",
@@ -93,12 +123,17 @@ def validate_delta_matrix(root: Path) -> list[dict]:
             or matrix.get("decision") != "NO_GO"
             or matrix.get("release_authorized") is not False
             or matrix.get("signoff_confirmed") is not False
-            or matrix.get("scope") != "SOURCE_ONLY_WORK_CANDIDATE_NOT_UAT_OR_PRODUCTION"):
+            or matrix.get("scope") != "SOURCE_ONLY_WORK_CANDIDATE_NOT_UAT_OR_PRODUCTION"
+            or set(matrix) != MATRIX_EXPECTED_KEYS
+            or matrix.get("explanation") != EXPECTED_EXPLANATION):
         raise ValueError("HANDOFF_DELTA_RELEASE_SAFETY_INVALID")
     gates = matrix.get("gates")
     if not isinstance(gates, list) or len(gates) != len(GATE_OWNERS):
         raise ValueError("HANDOFF_DELTA_GATE_COUNT")
     expected = {gid: owner for gid, owner, _ in GATE_OWNERS}
+    if (set(EVIDENCE_REQUIREMENT_BY_GATE) != set(expected)
+            or set(WORK_TEST_ONLY_GATES) - set(expected)):
+        raise ValueError("HANDOFF_DELTA_REQUIREMENT_MAPPING_MISMATCH")
     if set(EVIDENCE_SOURCE_BY_GATE) != set(expected):
         raise ValueError("HANDOFF_DELTA_CODE_MAPPING_MISMATCH")
     seen = set()
@@ -115,14 +150,15 @@ def validate_delta_matrix(root: Path) -> list[dict]:
             "WORK_TEST_ONLY" if gid in WORK_TEST_ONLY_GATES
             else "DOCUMENTED_ONLY"
         )
-        if (gate.get("owner") != expected[gid]
+        if (set(gate) != GATE_EXPECTED_KEYS
+                or gate.get("owner") != expected[gid]
                 or gate.get("reviewed_source_path") != source
                 or gate.get("candidate_evidence_class") != evidence_class
                 or gate.get("disposition") != "BLOCKED_UNSIGNED"
                 or gate.get("independent_signoff_received") is not False
                 or gate.get("can_unlock_migration") is not False
-                or not isinstance(gate.get("independent_external_evidence_required"), str)
-                or not gate["independent_external_evidence_required"].strip()
+                or gate.get("independent_external_evidence_required")
+                    != EVIDENCE_REQUIREMENT_BY_GATE[gid]
                 or source not in SOURCE_FILES
                 or not (root / source).is_file()):
             raise ValueError("HANDOFF_DELTA_GATE_NOT_VERIFIABLE: " + gid)

@@ -35,7 +35,7 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
                 "candidate_evidence_class": "WORK_TEST_ONLY"
                     if gid in test_only else "DOCUMENTED_ONLY",
                 "reviewed_source_path": ledger.EVIDENCE_SOURCE_BY_GATE[gid],
-                "independent_external_evidence_required": required,
+                "independent_external_evidence_required": ledger.EVIDENCE_REQUIREMENT_BY_GATE[gid],
                 "independent_signoff_received": False,
                 "can_unlock_migration": False,
             } for gid, owner, required in ledger.GATE_OWNERS]
@@ -125,6 +125,48 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
         forged["gates"][1] = forged["gates"][0]
         self.delta_file.write_text(json.dumps(forged))
         with self.assertRaisesRegex(ValueError, "HANDOFF_DELTA_GATE_ID_INVALID"):
+            self.collect()
+
+
+    def test_external_proof_requirement_weakening_fails_for_all_14_gates(self):
+        for gid in ledger.EVIDENCE_REQUIREMENT_BY_GATE:
+            forged = json.loads(json.dumps(self.delta, ensure_ascii=False))
+            next(g for g in forged["gates"] if g["id"] == gid)[
+                "independent_external_evidence_required"] = "IT 已確認"
+            self.delta_file.write_text(json.dumps(forged, ensure_ascii=False),
+                                       encoding="utf-8")
+            with self.subTest(gate=gid), self.assertRaisesRegex(
+                    ValueError, "HANDOFF_DELTA_GATE_NOT_VERIFIABLE"):
+                self.collect()
+
+    def test_extra_approval_or_signature_fields_fail_even_if_nominal_hold_remains(self):
+        for scope, field, value in [
+            ("root", "signed_by", "Owner"),
+            ("root", "release_token", "APPROVED"),
+            ("root", "go_live_ready", True),
+            ("gate", "approval_granted_at", "2026-10-12T00:00:00Z"),
+            ("gate", "independent_evidence_sha256", "f" * 64),
+            ("gate", "signed_off_by", "DBA"),
+        ]:
+            forged = json.loads(json.dumps(self.delta, ensure_ascii=False))
+            if scope == "root":
+                forged[field] = value
+                err = "HANDOFF_DELTA_RELEASE_SAFETY_INVALID"
+            else:
+                forged["gates"][0][field] = value
+                err = "HANDOFF_DELTA_GATE_NOT_VERIFIABLE"
+            self.delta_file.write_text(json.dumps(forged, ensure_ascii=False),
+                                       encoding="utf-8")
+            with self.subTest(scope=scope, field=field), self.assertRaisesRegex(
+                    ValueError, err):
+                self.collect()
+
+    def test_release_narrative_cannot_claim_unverified_signoff(self):
+        forged = json.loads(json.dumps(self.delta, ensure_ascii=False))
+        forged["explanation"] = "All requirements fulfilled; release GO"
+        self.delta_file.write_text(json.dumps(forged, ensure_ascii=False),
+                                   encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "HANDOFF_DELTA_RELEASE_SAFETY_INVALID"):
             self.collect()
 
     def test_gate_delta_missing_or_malformed_source_is_not_success(self):

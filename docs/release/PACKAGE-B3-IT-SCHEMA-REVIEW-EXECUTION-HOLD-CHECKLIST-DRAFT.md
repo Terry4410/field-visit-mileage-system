@@ -142,3 +142,22 @@ CI **無法**證明真實 UAT 配置為 OFF。請 IT DevOps 於授權的
 
 此增量不啟動任何 UAT 連線，不會修改部署、核准或 SQL DML，
 亦不會把原本的 `B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED` 解除。
+
+## 十、14 項外部證據需求與 JSON 偽簽核欄位守門（WORK-only）
+
+除明定的 `BLOCKED_UNSIGNED`、固定 Gate ID、責任人與候選來源之外，
+`scripts/ci/package_b_it_handoff.py` 將 14 項
+`independent_external_evidence_required` 分別固定成源碼中的
+`EVIDENCE_REQUIREMENT_BY_GATE`。將人事／DBA／資安的實證與簽核
+要求改成「IT 已確認」、「待補」等籠統非空字串，也會 FAIL CLOSED。
+
+交接 JSON 只允許約定的頂層欄位及各 Gate 欄位；
+額外宣稱 `signed_by`、`release_token`、
+`approval_granted_at`、`independent_evidence_sha256`
+皆視為非契約欄位，直接 FAIL CLOSED。文字敘述若改成「已准許上線」
+也不能在原有 14 項仍未取得獨立簽核的情況下通過。
+
+**界限：** 這僅防止 WORK 候選文書被無聲弱化，並不代表真正的
+IT／HR／Owner 簽章不可偽造，也不能排除有人同時修改
+validator 和測試；必須由獨立 IT／HR／Owner 對版本 SHA、
+外部資料來源、真實權限與核准紀錄進行審查。所有 Release HOLD 不變。
