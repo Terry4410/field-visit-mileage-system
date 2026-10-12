@@ -4020,4 +4020,52 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             V180B3SqlSafetyRules.CatalogCheckSql)));
     }
 
+
+    // Independent source-pinned NAME baseline, bounded to 012 request/event
+    // candidate only. NOT an IT-signed full catalog or release authorization.
+    [Fact]
+    public async Task Hypothetical_012_pinned_candidate_manifest_matches_disposable_names()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateNameManifest.RequireExactNamedObjectsAsync(conn,tx);
+                var fingerprint=await B312DisposableCatalogFingerprint.CaptureAsync(conn,tx);
+                await B312DisposableCatalogFingerprint.RequireUnchangedAsync(
+                    conn,tx,fingerprint);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_candidate_manifest_rejects_extra_unreviewed_column()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateNameManifest.RequireExactNamedObjectsAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.ChangeRequests ADD Unreviewed012Column nvarchar(50) NULL");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateNameManifest.RequireExactNamedObjectsAsync(conn,tx));
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_pinned_candidate_manifest_rejects_same_count_renamed_FK()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async(conn,tx)=>
+            {
+                await B312PinnedCandidateNameManifest.RequireExactNamedObjectsAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "EXEC sys.sp_rename N'dbo.FK_B3_Requests_Team',N'FK_B312_ForgedTeam',N'OBJECT'");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312PinnedCandidateNameManifest.RequireExactNamedObjectsAsync(conn,tx));
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
 }

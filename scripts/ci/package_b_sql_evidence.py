@@ -156,6 +156,9 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_live_team_disabled_cross_org_denied",
     "Hypothetical_012_live_team_missing_HR_link_or_noninternal_denied",
     "Hypothetical_012_live_role_and_team_revocations_reread_inside_transaction",
+    "Hypothetical_012_pinned_candidate_manifest_matches_disposable_names",
+    "Hypothetical_012_pinned_candidate_manifest_rejects_extra_unreviewed_column",
+    "Hypothetical_012_pinned_candidate_manifest_rejects_same_count_renamed_FK",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

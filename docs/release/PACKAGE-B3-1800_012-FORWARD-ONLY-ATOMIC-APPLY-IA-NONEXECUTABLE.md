@@ -588,3 +588,43 @@ visitor team helper's true result **does not alone authorize a write**:
 the caller must also prove Visitor role, token team, Location organization,
 creator and published status. Current B3 flag stays OFF, real
 Approve/Apply DENY ALL and B4 accepted 0/22.
+
+### 21. Production Snapshot query-to-export historic source + source-pinned candidate names
+
+Six **backend unit tests** use the actual `V160FinalRepository.QueryTripsAsync`
+and `ReportDocumentService.CreateExcelAsync` on isolated EF InMemory
+data. For `Approved` trips the repository must return the LATEST
+`VisitTripSnapshot`, including frozen location code/name/address,
+project, visitor/team, approved distance and amount. The resulting
+genuine XLSX `拜訪地點明細` worksheet must retain the frozen stop and
+exclude deliberately mutated live Locations and the unapproved trip
+stop. Search by historic location name still finds approved trips;
+search by a renamed *live-only* name must not create a false historic
+match. Missing approved Snapshot fails closed; organization scope denies
+cross-organization reads. This covers the **real repository-to-Excel
+builder path** in tests, but is EF InMemory, not SQL Server translational
+or actual HTTP/export permission integration. Existing isolated real SQL
+EF snapshot projection cases remain distinct evidence.
+
+Three new **real disposable SQL Server 2022** tests use the explicit
+`B312PinnedCandidateNameManifest` — 28 authored column names, eight
+CHECK constraint names, six foreign key names and three uniquely named
+indexes across the actual-named `ChangeRequests` and
+`ChangeRequestEvents`. Unlike a self-captured runtime baseline, this
+manifest is authored as constants, so it rejects an added unexpected
+column and a **same-count renamed FK**. It supplements the existing
+transaction-local full-metadata SHA256 drift proof for CHECK/index/FK
+definitions. These new tests run exclusively in the 011-to-012
+rollback-only disposable SQL transaction.
+
+**Deliberate limits:** Name-only manifest is a *WORK/IT-review candidate*,
+not a signed, production-pinned full-schema SHA256. It excludes the
+full `dbo.Locations` physical table, non-B3 objects, production
+permissions, UAT catalog comparisons and independent migration
+provenance. The SHA256 still self-captures the disposable fixture
+and cannot be used as a self-approving readiness token. Before any
+future gate can change, IT must independently review and pin the
+COMPLETE 012 physical schema, index filters, CHECK/FK text,
+trigger inventory, dependency graph and immutable migration
+provenance; the Owner must separately authorize UAT execution.
+Approve/Apply remains DENY ALL; B3 OFF; B4 0/22; Production HARD HOLD.

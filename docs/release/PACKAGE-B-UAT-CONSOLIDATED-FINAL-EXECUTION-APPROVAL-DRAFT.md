@@ -289,3 +289,25 @@ No B3 executor, migration, flag or actual UAT DB was touched. Actual
 HR/IT roles, complete Location ownership/published security,
 Snapshot reporting and the reviewed 012 full catalog fingerprint still
 require separate approval. Formal Business UAT 0/22; Package B NO-GO.
+
+## 17. Actual approved trip Snapshot repository → XLSX history regression and 012 candidate manifest
+
+Real `V160FinalRepository.QueryTripsAsync` and
+`ReportDocumentService.CreateExcelAsync` are exercised with an
+approved historical Snapshot and a conflicting *current* Location:
+immutable location name/address, project, visitor/team and approved
+financial figures must come from the Snapshot, including the generated
+XLSX stop-detail sheet. Latest Snapshot version, historic keyword
+search, missing Snapshot fail-closed and organization scope are also
+covered. These tests use EF InMemory; verify SQL translation, real
+endpoint permissions and live report/export files separately at
+authorized UAT.
+
+The source-pinned `B312PinnedCandidateNameManifest` checks exactly
+28 columns, 8 CHECK names, 6 FK names and 3 named UX indexes in
+disposable 012, including unexpected column and same-count renamed
+FK failures. This is a reviewed-source **CANDIDATE**, NOT
+production-verified/IT-signed schema fingerprint. The separate
+dynamic SHA256 still requires a static IT-endorsed full physical
+manifest before release. B4 0/22, migrations unauthorized, flag OFF,
+Approve/Apply DENY ALL and Production HARD HOLD remain in force.
