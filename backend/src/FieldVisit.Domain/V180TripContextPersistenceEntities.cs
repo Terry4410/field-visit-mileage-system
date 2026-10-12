@@ -99,6 +99,17 @@ public sealed class TeamLeaderAssignment
     public DateOnly? EffectiveTo { get; set; }
     public int? AssignedByUserId { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string GrantStatus { get; set; } = "HistoricalUnverified";
+    public string? AppointmentType { get; set; }
+    public string? ProvenanceType { get; set; }
+    public string? EvidenceReference { get; set; }
+    public int? ApprovedByUserId { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public int? RevokedByUserId { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public string? RevocationReason { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public int? UpdatedByUserId { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }
 
@@ -112,5 +123,16 @@ public sealed class TeamLeaderDelegation
     public string? Reason { get; set; }
     public DateTime CreatedAt { get; set; }
     public int? CreatedByUserId { get; set; }
+    public string GrantStatus { get; set; } = "HistoricalUnverified";
+    public string Scope { get; set; } = "LocationMaintenance";
+    public string? ProvenanceType { get; set; }
+    public string? EvidenceReference { get; set; }
+    public int? ApprovedByUserId { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public int? RevokedByUserId { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public string? RevocationReason { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public int? UpdatedByUserId { get; set; }
     public byte[] RowVersion { get; set; } = [];
 }

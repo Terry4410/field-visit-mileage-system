@@ -18,6 +18,7 @@ function primarySiteLabel(u:V170PeopleRow){if(!u.primaryDeploymentSiteName)retur
 function Tabs(){return <div className="actions" style={{marginBottom:14}}>
  <NavLink end to="/admin/teams" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>小組設定</NavLink>
  <NavLink to="/admin/teams/members" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>成員配置</NavLink>
+ <NavLink to="/admin/teams/leader-grants" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>小組長任命與代理</NavLink>
  <NavLink to="/admin/teams/bulk" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>Excel 批次維護</NavLink>
  </div>}
 

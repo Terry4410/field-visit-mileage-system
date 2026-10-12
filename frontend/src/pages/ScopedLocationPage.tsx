@@ -9,14 +9,15 @@ type Form={teamId:string;locationName:string;city:string;district:string;address
 const empty=(teamId=""):Form=>({teamId,locationName:"",city:"",district:"",address:"",plusCode:"",taxId:"",masterNote:""});
 export default function ScopedLocationPage({role}:{role:Role}){
  const{user}=useAuth();
- const leaderGrantPending=role==="leader";
- const scopes=user?.teamScopes?.length?user.teamScopes:user?.teamId?[{teamId:user.teamId,teamName:user.teamName||"所屬小組",isPrimary:true}]:[];
+ const[leaderScopes,setLeaderScopes]=useState<{teamId:number;teamName:string;isPrimary:boolean}[]>([]);
+ const leaderGrantPending=role==="leader"&&!leaderScopes.length;
+ const scopes=role==="leader"?leaderScopes:(user?.teamScopes?.length?user.teamScopes:user?.teamId?[{teamId:user.teamId,teamName:user.teamName||"所屬小組",isPrimary:true}]:[]);
  const ids=scopes.map(x=>x.teamId);
  const[rows,setRows]=useState<ManagedLocation[]>([]),[edit,setEdit]=useState<ManagedLocation|null>(null);
  const[form,setForm]=useState<Form>(()=>empty(user?.teamId?String(user.teamId):""));
  const[busy,setBusy]=useState(false),[error,setError]=useState(""),[msg,setMsg]=useState("");
  const load=async()=>setRows(await api<ManagedLocation[]>("/managed-locations?includeInactive=true"));
- useEffect(()=>{void load().catch(e=>setError(e instanceof Error?e.message:"讀取地點失敗"))},[]);
+ useEffect(()=>{void load().catch(e=>setError(e instanceof Error?e.message:"讀取地點失敗"));if(role==="leader")void api<{teamId:number;teamName:string;isPrimary:boolean}[]>("/managed-locations/leader-authorization").then(setLeaderScopes).catch(()=>setLeaderScopes([]))},[role]);
  const change=(field:keyof Form,value:string)=>setForm(f=>({...f,[field]:value}));
  const reset=()=>{setEdit(null);setForm(empty(user?.teamId?String(user.teamId):""))};
  const open=(x:ManagedLocation)=>{
@@ -34,7 +35,7 @@ export default function ScopedLocationPage({role}:{role:Role}){
  };
  return <div className="card">
   <div className="section-title"><div><h2>{role==="visitor"?"我的地點":"小組地點"}｜新增與維護</h2><div className="sub">外訪員僅限本人建立；小組長須有獨立核定的有效管理授權。正式主檔及共用地點不可直接修改。</div></div>{role==="leader"&&<Link className="btn small outline" to="/leader/locations">返回小組地點清單</Link>}</div>
-  <div className="note">{leaderGrantPending?"小組長管理授權（VAL-B1-002）尚未由 HR／IT 獨立核定；目前不可新增、修改或處理同組地點。若同時具外訪員角色，請切換為外訪員後僅維護本人草稿。":"可直接儲存待審核草稿；任何正式發布／高風險異動需管理者核准。"}</div>
+  <div className="note">{leaderGrantPending?"小組長管理授權（VAL-B1-002）目前沒有有效、管理員核定的任命或代理；不可新增、修改或處理同組地點。若同時具外訪員角色，請切換為外訪員後僅維護本人草稿。":"已驗證有效小組長授權：可在核定小組直接儲存低風險待審核草稿；任何正式發布／高風險異動仍需管理者核准。"}</div>
   <div className="grid cols-2">
    <div className="field"><label>所屬小組</label><select value={form.teamId} disabled={busy||!!edit} onChange={e=>change("teamId",e.target.value)}><option value="">請選擇</option>{scopes.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div>
    <div className="field"><label>地點名稱</label><input value={form.locationName} onChange={e=>change("locationName",e.target.value)}/></div>

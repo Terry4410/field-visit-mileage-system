@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Infrastructure;
 
-public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessControl access) : IV160FinalRepository
+public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessControl access, V180LeaderLocationAuthorizationService leaderGrants) : IV160FinalRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -766,8 +766,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
-        var effectiveTeams=HasRole(user,"admin")?user.TeamIds:await EffectiveLocationWriteTeamsAsync(user,ct);
-        V180LocationOwnershipRules.EnsureDraftCreate(user,request.TeamId,effectiveTeams,request.IsActive,request.LocationType);
+        var authorization=HasRole(user,"admin")?new LocationWriteAuthorization(user.TeamIds, user.TeamIds):await EffectiveLocationWriteTeamsAsync(user,ct);
+        V180LocationOwnershipRules.EnsureDraftCreate(user,request.TeamId,authorization.EffectiveTeams,request.IsActive,request.LocationType,authorization.ManagerTeams.Contains(request.TeamId ?? -1));
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var orgId = RequireOrganization(user);
         var row = new Location
@@ -791,11 +791,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         ValidateLocationRequest(user, request);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         var admin=HasRole(user,"admin");
-        var effectiveTeams=admin?user.TeamIds:await EffectiveLocationWriteTeamsAsync(user,ct);
+        var authorization=admin?new LocationWriteAuthorization(user.TeamIds, user.TeamIds):await EffectiveLocationWriteTeamsAsync(user,ct);
         V180LocationOwnershipRules.EnsureDraftUpdate(
             user,row.OrganizationId,row.TeamId,row.CreatedByUserId,
-            row.ApprovalStatus,row.IsActive,effectiveTeams,request.TeamId,request.IsActive,
-            request.LocationType,row.LocationType);
+            row.ApprovalStatus,row.IsActive,authorization.EffectiveTeams,request.TeamId,request.IsActive,
+            request.LocationType,row.LocationType,authorization.ManagerTeams.Contains(row.TeamId ?? -1));
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         EnsureLocationWriteScope(row, user);
         if(!admin&&string.IsNullOrWhiteSpace(request.RowVersion))
@@ -1106,9 +1106,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         await V180CurrentAdminWriteGuard.RequireAsync(db,user,ct);
     }
 
-    private async Task<IReadOnlyList<int>> EffectiveLocationWriteTeamsAsync(CurrentUserDto user,CancellationToken ct)
+    private sealed record LocationWriteAuthorization(IReadOnlyList<int> EffectiveTeams,IReadOnlyList<int> ManagerTeams);
+
+    private async Task<LocationWriteAuthorization> EffectiveLocationWriteTeamsAsync(CurrentUserDto user,CancellationToken ct)
     {
-        if(!user.OrganizationId.HasValue||user.TeamIds.Count==0)
+        if(!user.OrganizationId.HasValue)
             throw new UnauthorizedAccessException("缺少目前有效授權的小組。");
         var account=await db.Users.AsNoTracking()
             .FirstOrDefaultAsync(x=>x.UserId==user.UserId&&x.OrganizationId==user.OrganizationId,ct)
@@ -1129,21 +1131,13 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             where grant.UserId==user.UserId && role.IsActive
             select role.RoleCode).ToListAsync(ct);
         var effectiveRoles=V180LocationLiveRoleRules.Evaluate(user.Roles,datedRoles,projectedRoles);
-        // A leader role plus membership is NOT an attested team management grant.
-        // Until Owner/IT reconciliation, only an independently effective Visitor
-        // role may write that actor's own Pending Customer draft.
-        if(!effectiveRoles.Visitor)
-        {
-            if(effectiveRoles.Leader)
-                V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
-            throw new UnauthorizedAccessException("沒有有效外訪員角色或已核定的小組管理權限。");
-        }
+        if(!effectiveRoles.Visitor&&!effectiveRoles.Leader)
+            throw new UnauthorizedAccessException("沒有有效外訪員角色或小組長角色。 ");
         var employmentId=await db.UserIdentityProfiles.AsNoTracking()
             .Where(x=>x.UserId==user.UserId && x.UserType==UserTypes.Internal)
             .Select(x=>x.EmploymentId).FirstOrDefaultAsync(ct);
         if(!employmentId.HasValue)
             throw new UnauthorizedAccessException("沒有已綁定的人事任用資料，無法確認小組授權。");
-        var ids=user.TeamIds.ToArray();
         var teams=await (
             from scope in db.UserTeamScopes.AsNoTracking()
             join team in db.Teams.AsNoTracking() on scope.TeamId equals team.TeamId
@@ -1153,7 +1147,6 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 on new {EmploymentId=employmentId.Value,scope.TeamId}
                 equals new {membership.EmploymentId,membership.TeamId}
             where scope.UserId==user.UserId && scope.IsActive
-                && ids.Contains(scope.TeamId)
                 && team.IsActive && team.OrganizationId==user.OrganizationId
                 && (!team.EffectiveFrom.HasValue || team.EffectiveFrom<=today)
                 && (!team.EffectiveTo.HasValue || team.EffectiveTo>=today)
@@ -1164,7 +1157,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             select team.TeamId).Distinct().ToListAsync(ct);
         if(teams.Count==0)
             throw new UnauthorizedAccessException("沒有同時通過有效期間與組織檢核的小組維護權限。");
-        return teams;
+        var managerTeams=effectiveRoles.Leader
+            ? (await leaderGrants.TrustedManagedTeamsAsync(user,ct)).Where(teams.Contains).ToList()
+            : [];
+        if(!effectiveRoles.Visitor&&managerTeams.Count==0)
+            V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
+        return new LocationWriteAuthorization(teams,managerTeams);
     }
 
     private async Task EnsureManagedLocationTeamAsync(CurrentUserDto user, int? teamId, CancellationToken ct)
@@ -1181,13 +1179,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         if (request.TaxId?.Trim().Length > 20) throw new InvalidOperationException("統一編號長度不可超過 20 字元。");
         if (request.MasterNote?.Trim().Length > 1000) throw new InvalidOperationException("主檔備註不可超過 1000 字元。");
         if (string.IsNullOrWhiteSpace(request.Address) && string.IsNullOrWhiteSpace(request.PlusCode)) throw new InvalidOperationException("地址與 Plus Code 至少需要一項。");
-        if (HasRole(user, "leader") && (!request.TeamId.HasValue || !user.TeamIds.Contains(request.TeamId.Value))) throw new UnauthorizedAccessException("小組長只能維護授權小組地點。");
     }
 
     private void EnsureLocationWriteScope(Location row, CurrentUserDto user)
     {
         if (user.OrganizationId.HasValue && row.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId) throw new UnauthorizedAccessException("無權維護其他 Organization 地點。");
-        if (HasRole(user, "leader") && (!row.TeamId.HasValue || !user.TeamIds.Contains(row.TeamId.Value))) throw new UnauthorizedAccessException("無權維護未授權小組地點。");
     }
 
     private async Task<VisitTripSnapshot?> GetLatestSnapshotAsync(long tripId, CancellationToken ct) =>

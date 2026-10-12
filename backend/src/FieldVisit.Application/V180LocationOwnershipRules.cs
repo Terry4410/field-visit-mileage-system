@@ -12,12 +12,12 @@ public static class V180LocationOwnershipRules
 
     public static void EnsureDraftCreate(
         CurrentUserDto actor,int? teamId,IReadOnlyCollection<int> effectiveTeams,
-        bool requestedActive,string locationType)
+        bool requestedActive,string locationType,bool verifiedManagerGrant=false)
     {
         if(HasRole(actor,"admin"))return;
         if(!HasRole(actor,"visitor")&&!HasRole(actor,"leader"))
             throw new UnauthorizedAccessException("目前角色不得建立地點。");
-        if(!HasRole(actor,"visitor"))
+        if(!HasRole(actor,"visitor")&&!verifiedManagerGrant)
             V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         if(!actor.OrganizationId.HasValue || !teamId.HasValue
            || !effectiveTeams.Contains(teamId.Value))
@@ -29,12 +29,13 @@ public static class V180LocationOwnershipRules
     public static void EnsureDraftUpdate(
         CurrentUserDto actor,int? organizationId,int? teamId,int? createdBy,
         string status,bool isActive,IReadOnlyCollection<int> effectiveTeams,
-        int? requestedTeamId,bool requestedActive,string requestedType,string currentType)
+        int? requestedTeamId,bool requestedActive,string requestedType,string currentType,
+        bool verifiedManagerGrant=false)
     {
         if(HasRole(actor,"admin"))return;
         if(!HasRole(actor,"visitor")&&!HasRole(actor,"leader"))
             throw new UnauthorizedAccessException("目前角色不得維護地點。");
-        if(!HasRole(actor,"visitor"))
+        if(!HasRole(actor,"visitor")&&!verifiedManagerGrant)
             V180B1ManagerGrantProvenance.RequireVerifiedManagerGrant();
         if(!actor.OrganizationId.HasValue || organizationId!=actor.OrganizationId
            || !teamId.HasValue || !effectiveTeams.Contains(teamId.Value))
@@ -42,7 +43,7 @@ public static class V180LocationOwnershipRules
         // Until per-team manager appointments are independently attested,
         // even a dual-role leader+visitor may edit only their own draft.
         // Never infer authority over peers from team membership.
-        if(createdBy!=actor.UserId)
+        if(createdBy!=actor.UserId&&!verifiedManagerGrant)
             throw new UnauthorizedAccessException("未經核定的管理小組不得維護他人地點。");
         if(!string.Equals(status,"Pending",StringComparison.OrdinalIgnoreCase)||isActive)
             throw new UnauthorizedAccessException("已發布地點的主檔變更需要管理者核准，目前只能編修待審核草稿。");

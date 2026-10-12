@@ -68,6 +68,17 @@ public sealed class V180LocationOwnershipRulesTests
             V180LocationOwnershipRules.EnsureDraftUpdate(Actor(3,"leader"),1,7,1,"Pending",false,new[]{7},8,false,"Customer","Customer"));
     }
 
+    [Fact] public void Independently_verified_leader_may_manage_peer_pending_draft_but_not_publish_or_move_it()
+    {
+        var leader=Actor(3,"leader");
+        V180LocationOwnershipRules.EnsureDraftCreate(leader,7,new[]{7},false,"Customer",verifiedManagerGrant:true);
+        V180LocationOwnershipRules.EnsureDraftUpdate(leader,1,7,1,"Pending",false,new[]{7},7,false,"Customer","Customer",verifiedManagerGrant:true);
+        Assert.Throws<UnauthorizedAccessException>(()=>V180LocationOwnershipRules.EnsureDraftUpdate(
+            leader,1,7,1,"Approved",true,new[]{7},7,true,"Customer","Customer",verifiedManagerGrant:true));
+        Assert.Throws<UnauthorizedAccessException>(()=>V180LocationOwnershipRules.EnsureDraftUpdate(
+            leader,1,7,1,"Pending",false,new[]{7},8,false,"Customer","Customer",verifiedManagerGrant:true));
+    }
+
     [Fact] public void Shared_and_foreign_org_drafts_denied_even_if_visitors_can_read_them()
     {
         Assert.Throws<UnauthorizedAccessException>(()=>

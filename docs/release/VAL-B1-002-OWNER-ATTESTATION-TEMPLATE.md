@@ -36,4 +36,4 @@ Permit a Leader to create or maintain only `Customer` Location drafts for an act
 
 ## Current system limitation / HOLD
 
-`TeamLeaderAssignments` and `TeamLeaderDelegations` have effective dates and row versions, but no independent-attestation provenance fields. Moreover, `1800_002` created direct assignments by backfilling Leader role plus Team membership. Therefore the application must keep Leader location mutation **DENY ALL** until an approved, independently attested source is available and mapped. This template does not itself create that source.
+The protected/deployed schema has no independent-attestation provenance fields. Candidate `1800_013` adds an explicit `AdminMaintained` source, evidence reference, approval/revocation fields and preserves all existing records as `HistoricalUnverified`. Until that candidate is separately approved, deployed, and reconciled, Leader location mutation remains **DENY ALL**. This template does not itself create a real HR appointment.

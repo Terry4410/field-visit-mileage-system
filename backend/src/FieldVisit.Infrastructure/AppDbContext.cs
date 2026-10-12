@@ -461,6 +461,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.ToTable("TeamLeaderAssignments");
             e.HasKey(x => x.TeamLeaderAssignmentId);
             e.Property(x => x.TeamLeaderAssignmentId).ValueGeneratedOnAdd();
+            e.Property(x => x.GrantStatus).HasMaxLength(30);
+            e.Property(x => x.AppointmentType).HasMaxLength(30);
+            e.Property(x => x.ProvenanceType).HasMaxLength(50);
+            e.Property(x => x.EvidenceReference).HasMaxLength(200);
+            e.Property(x => x.RevocationReason).HasMaxLength(500);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
             e.HasIndex(x => new { x.TeamId, x.EmploymentId, x.EffectiveFrom }).IsUnique()
                 .HasDatabaseName("UQ_TeamLeaderAssignments_Start");
@@ -475,6 +480,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasKey(x => x.TeamLeaderDelegationId);
             e.Property(x => x.TeamLeaderDelegationId).ValueGeneratedOnAdd();
             e.Property(x => x.Reason).HasMaxLength(500);
+            e.Property(x => x.GrantStatus).HasMaxLength(30);
+            e.Property(x => x.Scope).HasMaxLength(50);
+            e.Property(x => x.ProvenanceType).HasMaxLength(50);
+            e.Property(x => x.EvidenceReference).HasMaxLength(200);
+            e.Property(x => x.RevocationReason).HasMaxLength(500);
             e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
             e.HasIndex(x => new { x.TeamLeaderAssignmentId, x.DelegateEmploymentId, x.EffectiveFrom }).IsUnique()
                 .HasDatabaseName("UQ_TeamLeaderDelegations_Start");
