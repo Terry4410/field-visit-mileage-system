@@ -3218,4 +3218,228 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             });
     }
 
+
+    // WORK-only effective date proofs: B312Auth* is a synthetic provenance
+    // fixture, never real HR/IT attestation or a permitted live Approve call.
+    [Fact]
+    public async Task Hypothetical_012_effective_HR_reviewer_and_team_grants_are_valid_on_inclusive_end_date()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312EffectiveDatedAuthorityFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    UPDATE dbo.B312AuthRoles SET EffectiveTo='2026-10-12';
+                    UPDATE dbo.B312AuthTeams SET EffectiveTo='2026-10-12';
+                    UPDATE dbo.B312AuthMemberships SET EffectiveTo='2026-10-12';
+                    UPDATE dbo.B312AuthTeamAssignments SET EffectiveTo='2026-10-12';
+                    """);
+                await B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                    B312EffectiveDatedAuthorityFixture.AsOf);
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        new DateTime(2026,10,13)));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_effective_HR_leave_or_terminated_submitter_denies_approval()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312EffectiveDatedAuthorityFixture.CreateAsync(conn,tx);
+                foreach(var status in new[]{"Leave","Terminated","PreHire"})
+                {
+                    await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                        "UPDATE dbo.B312AuthEmployment SET Status=@status WHERE UserId=10",
+                        ("@status",status));
+                    await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                        B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                            B312EffectiveDatedAuthorityFixture.AsOf));
+                }
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthEmployment SET Status=N'Active' WHERE UserId=10");
+                await B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                    B312EffectiveDatedAuthorityFixture.AsOf);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_effective_reviewer_admin_grant_revocation_and_employment_deny()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312EffectiveDatedAuthorityFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthRoles SET EffectiveTo='2026-10-11'");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthRoles SET EffectiveTo=NULL,IsActive=0");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthRoles SET IsActive=1");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthEmployment SET Status=N'Leave' WHERE UserId=20");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_effective_team_membership_scope_cannot_substitute_or_outlive_assignment()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312EffectiveDatedAuthorityFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.B312AuthMemberships WHERE UserId=10");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "INSERT INTO dbo.B312AuthMemberships VALUES(10,7,'2026-01-01','2026-10-11')");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthMemberships SET EffectiveTo=NULL");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthTeamAssignments SET EffectiveTo='2026-10-11'");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_effective_organization_inactive_team_and_self_review_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312EffectiveDatedAuthorityFixture.CreateAsync(conn,tx);
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf,
+                        requester:10,reviewer:10));
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf,
+                        organization:2));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthTeams SET IsActive=0");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthTeams SET IsActive=1");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.B312AuthActors SET IsActive=0 WHERE UserId=20");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312EffectiveDatedAuthorityFixture.RequireAsync(conn,tx,
+                        B312EffectiveDatedAuthorityFixture.AsOf));
+            });
+    }
+
+    // Snapshot is an immutable materialized description, NOT a live Location
+    // join. These tests do not imply FK-backed protection of snapshot names.
+    [Fact]
+    public async Task Hypothetical_012_SnapshotStop_published_values_survive_seven_field_location_apply()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.CreateAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.SeedAsync(conn,tx,seed.LocationId);
+                var before=await B312SnapshotHistoricalInvariantFixture.CaptureAsync(conn,tx);
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,Guid.NewGuid());
+                await B312SnapshotHistoricalInvariantFixture.RequireFrozenAsync(conn,tx,before);
+                Assert.Equal("Applied",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                    ("@id",seed.RequestId)));
+            });
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM sys.tables WHERE name=N'VisitTripSnapshotStops'")));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_SnapshotStop_live_join_is_not_historical_source()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.CreateAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.SeedAsync(conn,tx,seed.LocationId);
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,Guid.NewGuid());
+                Assert.Equal(B3ProbeFields.Original.LocationName,(string?)await
+                    B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                    "SELECT LocationNameSnapshot FROM dbo.VisitTripSnapshotStops WHERE VisitTripSnapshotId=901"));
+                Assert.Equal(B3ProbeFields.Proposed.LocationName,(string?)await
+                    B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                    "SELECT l.LocationName FROM dbo.VisitTripSnapshotStops s JOIN dbo.Locations l ON l.LocationId=s.LocationId WHERE s.VisitTripSnapshotId=901"));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_SnapshotStop_tampered_history_is_detected_fail_closed()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.CreateAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.SeedAsync(conn,tx,seed.LocationId);
+                var before=await B312SnapshotHistoricalInvariantFixture.CaptureAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "SAVE TRANSACTION B312Snapshot");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.VisitTripSnapshotStops SET AddressSnapshot=N'corrupted' WHERE VisitTripSnapshotId=901");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312SnapshotHistoricalInvariantFixture.RequireFrozenAsync(conn,tx,before));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ROLLBACK TRANSACTION B312Snapshot");
+                await B312SnapshotHistoricalInvariantFixture.RequireFrozenAsync(conn,tx,before);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_SnapshotStop_has_no_direct_Location_FK_and_rolls_back()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.CreateAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await B312SnapshotHistoricalInvariantFixture.SeedAsync(conn,tx,seed.LocationId);
+                Assert.Equal(0,Convert.ToInt32(await
+                    B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx, """
+                    SELECT COUNT(*) FROM sys.foreign_keys
+                    WHERE parent_object_id=OBJECT_ID(N'dbo.VisitTripSnapshotStops',N'U')
+                      AND referenced_object_id=OBJECT_ID(N'dbo.Locations',N'U')
+                    """)));
+                var frozen=await B312SnapshotHistoricalInvariantFixture.CaptureAsync(conn,tx);
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,Guid.NewGuid());
+                await B312SnapshotHistoricalInvariantFixture.RequireFrozenAsync(conn,tx,frozen);
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
 }

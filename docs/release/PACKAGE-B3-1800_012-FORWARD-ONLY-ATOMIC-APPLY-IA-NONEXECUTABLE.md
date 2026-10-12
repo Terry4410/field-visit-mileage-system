@@ -434,3 +434,43 @@ these direct Location foreign keys; Snapshot immutable-content rules
 require separate application/database evidence. Formal IT catalog
 and UAT approval remain blocked. The feature stays OFF and
 `ApproveAsync` DENY ALL.
+
+### 17. Effective-dated HR/Admin/Team revocation and Snapshot historical invariants — isolated only
+
+Five new SQL Server 2022 cases exercise a read-only, fixture-only
+`B312EffectiveDatedAuthorityFixture` in the SAME Serializable transaction as
+the rollback-only 011→012 rehearsal. It explicitly requires both actor
+accounts active and Internal in the same organization, effective ACTIVE HR
+status with no contradictory active non-Active status, active effective-dated
+reviewer Admin grant, active/effective matching Team organization, submitter
+active team scope PLUS effective team assignment PLUS effective membership,
+and an independent reviewer. End dates are inclusive and the date is
+deterministically pinned by the test case rather than system-clock guessing.
+Cases prove expiry at the following day, Leave/Terminated/PreHire,
+revoked Admin, reviewer Leave, missing/expired membership, expired
+assignment despite continuing scope, inactive Team, wrong org, inactive
+reviewer and self-approval fail CLOSED.
+
+**Limits:** All test facts come from disposable `B312Auth*` tables. This is
+a *proposed validation shape*, not real HR master records, live V170
+identity/effective dates, authoritative reviewer Admin grant or VAL-B1-002
+HR/IT attestation. There is NO product-code executor and no B3 activation.
+Real rules must be independently security-reviewed, and source records
+freshly reloaded and locked at review time.
+
+Four more SQL fixture tests simulate `VisitTripSnapshots` and
+`VisitTripSnapshotStops` with materialized LocationNameSnapshot and
+AddressSnapshot plus approved distance and organization. Updating the
+actual-named disposable `dbo.Locations`' seven editable fields leaves
+the full persisted historical snapshot JSON unchanged. An explicit live
+Location JOIN returns the *new* Location name, proving it must never replace
+the historical name stored in Snapshot. Tampering with the Snapshot address
+is detected and a savepoint rollback restores the original description.
+No direct SnapshotStop→Location FK is assumed or inferred. All fixture
+rows and DDL are rolled back.
+
+**Limits:** This is a small materialized Snapshot sample and proof of a
+nonmutating candidate seven-field write, NOT complete production snapshot
+integrity, trigger/write-permission enforcement, version chain, approval
+hash immutability, real UI/report query selection, or the full actual
+UAT FK/DDL schema. Release remains HARD HOLD.

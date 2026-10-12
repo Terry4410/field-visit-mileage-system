@@ -117,6 +117,15 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_Locations_relations_same_named_wrong_FK_column_denied",
     "Hypothetical_012_Locations_relations_narrowed_selected_attempt_filter_denied",
     "Hypothetical_012_Locations_relations_existing_history_survives_apply_and_delete_denied",
+    "Hypothetical_012_effective_HR_reviewer_and_team_grants_are_valid_on_inclusive_end_date",
+    "Hypothetical_012_effective_HR_leave_or_terminated_submitter_denies_approval",
+    "Hypothetical_012_effective_reviewer_admin_grant_revocation_and_employment_deny",
+    "Hypothetical_012_effective_team_membership_scope_cannot_substitute_or_outlive_assignment",
+    "Hypothetical_012_effective_organization_inactive_team_and_self_review_denied",
+    "Hypothetical_012_SnapshotStop_published_values_survive_seven_field_location_apply",
+    "Hypothetical_012_SnapshotStop_live_join_is_not_historical_source",
+    "Hypothetical_012_SnapshotStop_tampered_history_is_detected_fail_closed",
+    "Hypothetical_012_SnapshotStop_has_no_direct_Location_FK_and_rolls_back",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

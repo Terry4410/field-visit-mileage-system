@@ -225,3 +225,20 @@ direct Location foreign key. Require IT review, genuine live SQL catalog,
 full reference inventory and B4 22-case execution before considering
 activation. Current gate: B3 OFF / DENY ALL / Business UAT HOLD /
 Production HARD HOLD.
+
+## 13. Effective-date authority + Snapshot materialization — NO RELEASE
+
+Read-only, transaction-scoped B312Auth fixture verifies inclusive effective
+HR/Admin/Team intervals and negative Leave/Terminated/PreHire, grant
+revocation, team/scope/membership gaps, cross-organization scope,
+inactive reviewer and self-review. It is simulated provenance only, NOT
+live HR records or VAL-B1-002 attestation. True approval transaction must
+re-read authoritative HR/Team/Role rows with independent IT sign-off.
+
+Materialized SnapshotStop/approved-distance values survive a seven-field
+Location update; live Location JOIN intentionally differs and must NEVER be
+used as the historical description. Tampering in isolated SQL is detected
+by a read-only snapshot invariant candidate and rolled back. This does
+not constitute write-level protection of production snapshots.
+Remaining formal B4 accepted 0/22; 011/012 migration unauthorized;
+B3 OFF, Approve/Apply DENY ALL; no UAT or Production deployment.
