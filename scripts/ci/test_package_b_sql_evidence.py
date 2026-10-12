@@ -133,7 +133,7 @@ class SqlEvidenceTests(unittest.TestCase):
             "backend/tests/FieldVisit.B3.SqlServer.Tests/B3IsolatedSqlServerFixtureTests.cs")
         source=fixture.read_text(encoding="utf-8")
         names=re.findall(
-            r"\\[Fact\\]\\s+public\\s+async\\s+Task\\s+([A-Za-z_][A-Za-z_0-9]*)\\s*\\(",
+            r"\[Fact\]\s+public\s+async\s+Task\s+([A-Za-z_][A-Za-z_0-9]*)\s*\(",
             source)
         self.assertEqual(len(names),len(set(names)),"duplicate SQL fixture test methods")
         self.assertEqual(REQUIRED_SQL_TESTS,set(names),
