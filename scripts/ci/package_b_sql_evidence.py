@@ -78,6 +78,10 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_atomic_probe_duplicate_decision_key_rolls_back_second_apply",
     "Hypothetical_atomic_probe_stale_request_and_source_versions_fail_closed",
     "Hypothetical_atomic_probe_concurrent_reviewers_commit_at_most_once",
+    "Hypothetical_atomic_probe_seven_fields_persist_and_scope_columns_remain_unchanged",
+    "Hypothetical_atomic_probe_seven_fields_nullables_are_written_as_sql_null",
+    "Hypothetical_atomic_probe_seven_field_rollback_restores_data_and_versions",
+    "Hypothetical_atomic_probe_denies_foreign_peer_inactive_unapproved_and_noncustomer_scopes",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

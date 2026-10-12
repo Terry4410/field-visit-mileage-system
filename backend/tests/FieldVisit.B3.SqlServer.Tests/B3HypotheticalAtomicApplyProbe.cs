@@ -1,4 +1,5 @@
 using System.Data;
+using FieldVisit.Infrastructure;
 using Microsoft.Data.SqlClient;
 
 namespace FieldVisit.B3.SqlServer.Tests;
@@ -7,6 +8,18 @@ namespace FieldVisit.B3.SqlServer.Tests;
 // objects, NEVER a candidate 1800_012 migration, application executor, or UAT access.
 internal sealed record B3ProbeCase(
     long SourceId, long RequestId, byte[] SourceRowVersion, byte[] RequestRowVersion);
+
+// Seven supported Location fields mirrored by a disposable SQL probe only.
+internal static class B3ProbeFields
+{
+    internal static V180B3LocationFields Original => new(
+        "Original fixture location", "Taipei", "Xinyi", "Original address",
+        "PROBE_OLD", "TAX_OLD", "Original fixture note");
+    internal static V180B3LocationFields Proposed => new(
+        "Applied in disposable probe", "New Taipei", "Wugu", "Edited address",
+        "PROBE_NEW", "TAX_NEW", "Edited fixture note");
+}
+
 
 internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture)
 {
@@ -20,6 +33,15 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
                 TeamId int NOT NULL,
                 CreatedByUserId int NOT NULL,
                 LocationName nvarchar(200) NOT NULL,
+                City nvarchar(100) NULL,
+                District nvarchar(100) NULL,
+                Address nvarchar(500) NULL,
+                PlusCode nvarchar(100) NULL,
+                TaxId nvarchar(30) NULL,
+                MasterNote nvarchar(1000) NULL,
+                LocationType nvarchar(24) NOT NULL,
+                ApprovalStatus nvarchar(24) NOT NULL,
+                IsActive bit NOT NULL,
                 RowVersion rowversion NOT NULL)
             """);
         await fixture.ExecuteAsync("""
@@ -76,14 +98,27 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
             """);
     }
 
-    public async Task<B3ProbeCase> SeedPendingAsync()
+    public async Task<B3ProbeCase> SeedPendingAsync(
+        int sourceOrganizationId=1,int sourceTeamId=7,
+        int sourceOwnerUserId=10,string sourceLocationType="Customer",
+        string sourceApprovalStatus="Approved",bool sourceIsActive=true)
     {
+        var original=B3ProbeFields.Original;
         var sourceId=Convert.ToInt64(await fixture.ScalarAsync("""
             INSERT INTO dbo.B3ProbeSources(
-                OrganizationId,TeamId,CreatedByUserId,LocationName)
-            VALUES(1,7,10,N'Original fixture location');
+                OrganizationId,TeamId,CreatedByUserId,LocationName,
+                City,District,Address,PlusCode,TaxId,MasterNote,
+                LocationType,ApprovalStatus,IsActive)
+            VALUES(@org,@team,@owner,@name,@city,@district,@address,
+                @plus,@tax,@note,@type,@status,@active);
             SELECT CAST(SCOPE_IDENTITY() AS bigint)
-            """));
+            """,("@org",sourceOrganizationId),("@team",sourceTeamId),
+                ("@owner",sourceOwnerUserId),("@name",original.LocationName),
+                ("@city",original.City),("@district",original.District),
+                ("@address",original.Address),("@plus",original.PlusCode),
+                ("@tax",original.TaxId),("@note",original.MasterNote),
+                ("@type",sourceLocationType),("@status",sourceApprovalStatus),
+                ("@active",sourceIsActive)));
         var requestId=Convert.ToInt64(await fixture.ScalarAsync("""
             INSERT INTO dbo.B3ProbeRequests(
                 RequestPublicId,SourceId,OrganizationId,TeamId,
@@ -98,6 +133,27 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
             (byte[])(await fixture.ScalarAsync(
                 "SELECT RowVersion FROM dbo.B3ProbeRequests WHERE RequestId=@id",
                 ("@id",requestId)))!);
+    }
+
+
+    public async Task<V180B3LocationFields> ReadFieldsAsync(long sourceId)
+    {
+        async Task<string?> Field(string column)
+        {
+            // Column is selected only from the private, constant allowlist.
+            if(column is not ("LocationName" or "City" or "District" or
+                "Address" or "PlusCode" or "TaxId" or "MasterNote"))
+                throw new InvalidOperationException("B3_PROBE_COLUMN_NOT_ALLOWED");
+            var value=await fixture.ScalarAsync(
+                "SELECT ["+column+"] FROM dbo.B3ProbeSources WHERE SourceId=@id",
+                ("@id",sourceId));
+            return value is DBNull ? null : (string?)value;
+        }
+        return new V180B3LocationFields(
+            (await Field("LocationName"))!,await Field("City"),
+            await Field("District"),await Field("Address"),
+            await Field("PlusCode"),await Field("TaxId"),
+            await Field("MasterNote"));
     }
 
     private static async Task<object?> Sql(
@@ -124,7 +180,8 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
     // This transaction proves SQL atomicity only; no live HR/Admin evaluation,
     // production Locations columns, real 012 constraints, or UAT is exercised.
     public async Task ApplyProbeAsync(B3ProbeCase target,Guid decisionKey,
-        string fault="",int reviewerUserId=20)
+        string fault="",int reviewerUserId=20,
+        V180B3LocationFields? proposedFields=null)
     {
         if(reviewerUserId<=0||reviewerUserId==10||decisionKey==Guid.Empty)
             throw new InvalidOperationException("B3_PROBE_INDEPENDENT_REVIEW_REQUIRED");
@@ -149,6 +206,8 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
                     WITH (UPDLOCK,HOLDLOCK)
                 WHERE SourceId=@id AND OrganizationId=1
                   AND TeamId=7 AND CreatedByUserId=10
+                  AND LocationType=N'Customer'
+                  AND ApprovalStatus=N'Approved' AND IsActive=1
                 """,("@id",target.SourceId)) as byte[];
             if(sourceVersion is not {Length:8}
                 ||!sourceVersion.SequenceEqual(target.SourceRowVersion))
@@ -156,11 +215,24 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
 
             if(fault=="before-source")
                 throw new InvalidOperationException("B3_PROBE_INJECTED_FAILURE");
+            var proposed=proposedFields??B3ProbeFields.Proposed;
+            // Seven parameters: never interpolate proposed Location data into SQL.
             var sourceRows=await Write(conn,tx,"""
-                UPDATE dbo.B3ProbeSources SET LocationName=@name
+                UPDATE dbo.B3ProbeSources SET
+                    LocationName=@name,City=@city,District=@district,
+                    Address=@address,PlusCode=@plus,TaxId=@tax,
+                    MasterNote=@note
                 WHERE SourceId=@id AND OrganizationId=1 AND TeamId=7
-                  AND CreatedByUserId=10 AND RowVersion=@version
-                """,("@name","Applied in disposable probe"),
+                  AND CreatedByUserId=10 AND LocationType=N'Customer'
+                  AND ApprovalStatus=N'Approved' AND IsActive=1
+                  AND RowVersion=@version
+                """,("@name",proposed.LocationName),
+                    ("@city",proposed.City??(object)DBNull.Value),
+                    ("@district",proposed.District??(object)DBNull.Value),
+                    ("@address",proposed.Address??(object)DBNull.Value),
+                    ("@plus",proposed.PlusCode??(object)DBNull.Value),
+                    ("@tax",proposed.TaxId??(object)DBNull.Value),
+                    ("@note",proposed.MasterNote??(object)DBNull.Value),
                     ("@id",target.SourceId),("@version",sourceVersion));
             if(sourceRows!=1)
                 throw new InvalidOperationException("B3_PROBE_SOURCE_CONFLICT");

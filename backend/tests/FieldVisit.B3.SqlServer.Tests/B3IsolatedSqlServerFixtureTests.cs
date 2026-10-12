@@ -2188,4 +2188,94 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@id",row.RequestId))));
     }
 
+    [Fact]
+    public async Task Hypothetical_atomic_probe_seven_fields_persist_and_scope_columns_remain_unchanged()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        Assert.Equal(B3ProbeFields.Original,await probe.ReadFieldsAsync(row.SourceId));
+        await probe.ApplyProbeAsync(row,Guid.NewGuid());
+        Assert.Equal(B3ProbeFields.Proposed,await probe.ReadFieldsAsync(row.SourceId));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync("""
+            SELECT COUNT(*) FROM dbo.B3ProbeSources
+            WHERE SourceId=@id AND OrganizationId=1 AND TeamId=7
+              AND CreatedByUserId=10 AND LocationType=N'Customer'
+              AND ApprovalStatus=N'Approved' AND IsActive=1
+            """,("@id",row.SourceId))));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+    }
+
+    [Fact]
+    public async Task Hypothetical_atomic_probe_seven_fields_nullables_are_written_as_sql_null()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        var proposed=new V180B3LocationFields(
+            "Changed name",null,null,null,null,null,null);
+        await probe.ApplyProbeAsync(row,Guid.NewGuid(),proposedFields:proposed);
+        Assert.Equal(proposed,await probe.ReadFieldsAsync(row.SourceId));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+    }
+
+    [Fact]
+    public async Task Hypothetical_atomic_probe_seven_field_rollback_restores_data_and_versions()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        foreach(var fault in new[]{"after-source","after-request","after-approved","after-applied"})
+        {
+            var row=await probe.SeedPendingAsync();
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                probe.ApplyProbeAsync(row,Guid.NewGuid(),fault,
+                    proposedFields:B3ProbeFields.Proposed));
+            Assert.Equal(B3ProbeFields.Original,await probe.ReadFieldsAsync(row.SourceId));
+            Assert.Equal(row.SourceRowVersion,(byte[])(await _fixture.ScalarAsync(
+                "SELECT RowVersion FROM dbo.B3ProbeSources WHERE SourceId=@id",
+                ("@id",row.SourceId)))!);
+            Assert.Equal(row.RequestRowVersion,(byte[])(await _fixture.ScalarAsync(
+                "SELECT RowVersion FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)))!);
+            Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+                "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)));
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+                ("@id",row.RequestId))));
+        }
+    }
+
+    [Fact]
+    public async Task Hypothetical_atomic_probe_denies_foreign_peer_inactive_unapproved_and_noncustomer_scopes()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var rows=new[]{
+            await probe.SeedPendingAsync(sourceOrganizationId:2),
+            await probe.SeedPendingAsync(sourceTeamId:8),
+            await probe.SeedPendingAsync(sourceOwnerUserId:30),
+            await probe.SeedPendingAsync(sourceIsActive:false),
+            await probe.SeedPendingAsync(sourceApprovalStatus:"Pending"),
+            await probe.SeedPendingAsync(sourceLocationType:"Official")
+        };
+        foreach(var row in rows)
+        {
+            var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                probe.ApplyProbeAsync(row,Guid.NewGuid()));
+            Assert.Equal("B3_PROBE_STALE_SOURCE",error.Message);
+            Assert.Equal(B3ProbeFields.Original,await probe.ReadFieldsAsync(row.SourceId));
+            Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+                "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)));
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+                ("@id",row.RequestId))));
+        }
+    }
+
 }

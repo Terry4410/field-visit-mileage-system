@@ -180,3 +180,23 @@ geocoding, duplicate/location-history requirements, reviewed 012 DDL,
 013+ adjustments, ambiguous commit reconciliation, or end-to-end UAT.
 Accordingly retain 012 **NONEXECUTABLE DRAFT**, B3 OFF, Approve/Apply
 DENY ALL, B4 formal 0/22, Business UAT HOLD and Production HARD HOLD.
+
+
+### 8. Seven-field hypothetical Location writes and fail-closed source scope (NOT 012)
+
+Disposable `B3ProbeSources` now mirrors the exact seven high-risk Location
+field names: `LocationName`, `City`, `District`, `Address`,
+`PlusCode`, `TaxId`, and `MasterNote`. Four additional SQL 2022 fixture
+cases require all seven parameterized fields to persist, SQL NULL optional
+fields to remain NULL, rollback of all seven fields plus both RowVersions at
+each postwrite fault boundary, and fail-closed refusal of foreign organization,
+peer team, forged creator, inactive, unapproved or non-Customer sources.
+Source organization/team/creator/classification/approval/active columns are
+read-only in this rehearsal.
+
+**Important limitation:** the `B3Probe*` tables are not production
+`Locations` or reviewed B3 012 tables. These are mechanics/scope-rehearsal
+cases only; no live HR/role check, duplicate/geocoding veto, historical
+snapshot check, 012 readiness, or actual `ApproveAsync` publication has been
+implemented. Never promote these probes into the application assembly,
+schema migration or formal B4 acceptance. All HOLD gates remain unchanged.
