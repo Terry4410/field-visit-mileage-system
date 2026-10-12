@@ -143,6 +143,19 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_real_B3_actor_employment_linked_leave_terminated_missing_denied",
     "Hypothetical_012_real_B3_actor_employment_linked_hire_termination_date_overrides_active",
     "Hypothetical_012_real_B3_actor_revocation_is_reread_in_same_SQL_transaction",
+    "Hypothetical_012_live_role_intersection_and_team_membership_positive",
+    "Hypothetical_012_live_role_JWT_only_claim_has_no_admin",
+    "Hypothetical_012_live_role_compatibility_projection_required",
+    "Hypothetical_012_live_role_effective_grant_expired_or_future_denied",
+    "Hypothetical_012_live_role_disabled_role_denied",
+    "Hypothetical_012_live_role_HR_leave_denies_even_with_three_role_sources",
+    "Hypothetical_012_live_visitor_requires_token_role_intersection",
+    "Hypothetical_012_live_team_scope_without_membership_denied",
+    "Hypothetical_012_live_team_assignment_expired_denied",
+    "Hypothetical_012_live_team_member_expired_denied",
+    "Hypothetical_012_live_team_disabled_cross_org_denied",
+    "Hypothetical_012_live_team_missing_HR_link_or_noninternal_denied",
+    "Hypothetical_012_live_role_and_team_revocations_reread_inside_transaction",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

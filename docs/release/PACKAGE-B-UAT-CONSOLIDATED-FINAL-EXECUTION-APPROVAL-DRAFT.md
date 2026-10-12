@@ -272,3 +272,20 @@ authority/grants, reviewer Admin/time-bound Team membership, all SQL
 dependencies, external JWT security, a callable Approve/Apply operation
 or permission to deploy 011/012. Feature remains disabled and release
 is NO-GO until new explicit Owner/IT evidence.
+
+## 16. Actual live B3 role/Team EF authorization queries — WORK isolated
+
+Read-only production `LiveActorAsync` / `VisitorTeamAsync`
+queries now delegate to a common `V180B3LiveAuthorizationRead`
+class, allowing 13 disposable SQL tests to execute the same actual
+code. Admin / Visitor require effective JWT-role, UserRoleAssignment
+and UserRoles intersections plus B3 HR account gate; Team eligibility
+requires active effective Team, matching org, Internal HR identity,
+active Team Scope, time-effective Team Assignment and actual
+Employment TeamMembership. Missing/expired/disabled privileges are
+denied and a mid-transaction revocation is re-read.
+
+No B3 executor, migration, flag or actual UAT DB was touched. Actual
+HR/IT roles, complete Location ownership/published security,
+Snapshot reporting and the reviewed 012 full catalog fingerprint still
+require separate approval. Formal Business UAT 0/22; Package B NO-GO.

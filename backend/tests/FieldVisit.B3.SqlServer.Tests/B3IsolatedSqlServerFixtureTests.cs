@@ -3797,4 +3797,227 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             V180B3SqlSafetyRules.CatalogCheckSql)));
     }
 
+
+    // Real B3 Service delegates these read-only queries to the same
+    // helper called here. No ApproveAsync/Apply/feature activation.
+    [Fact]
+    public async Task Hypothetical_012_live_role_intersection_and_team_membership_positive()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                var roles=await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx);
+                Assert.True(roles.Admin);
+                Assert.True(roles.Visitor);
+                Assert.True(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_role_JWT_only_claim_has_no_admin()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.UserRoleAssignments WHERE RoleId=1");
+                var roles=await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx);
+                Assert.False(roles.Admin);
+                Assert.True(roles.Visitor);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_role_compatibility_projection_required()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.UserRoles WHERE RoleId=1");
+                var roles=await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx);
+                Assert.False(roles.Admin);
+                Assert.True(roles.Visitor);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_role_effective_grant_expired_or_future_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserRoleAssignments SET EffectiveTo='2020-12-31' WHERE RoleId=1");
+                Assert.False((await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx)).Admin);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserRoleAssignments SET EffectiveFrom='2040-01-01',EffectiveTo=NULL WHERE RoleId=1");
+                Assert.False((await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx)).Admin);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserRoleAssignments SET EffectiveFrom='2020-01-01' WHERE RoleId=1");
+                Assert.True((await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx)).Admin);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_role_disabled_role_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Roles SET IsActive=0 WHERE RoleId=1");
+                var roles=await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx);
+                Assert.False(roles.Admin);
+                Assert.True(roles.Visitor);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_role_HR_leave_denies_even_with_three_role_sources()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Leave' WHERE EmploymentId=600");
+                var denied=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx));
+                Assert.Equal("B3_HR_STATUS_DENIED",denied.Message);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_visitor_requires_token_role_intersection()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                var roles=await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(
+                    conn,tx,new[]{"admin"});
+                Assert.True(roles.Admin);
+                Assert.False(roles.Visitor);
+                roles=await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(
+                    conn,tx,new[]{"visitor"});
+                Assert.False(roles.Admin);
+                Assert.True(roles.Visitor);
+                roles=await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(
+                    conn,tx,Array.Empty<string>());
+                Assert.False(roles.Admin);
+                Assert.False(roles.Visitor);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_team_scope_without_membership_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.TeamMemberships WHERE EmploymentId=600");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "INSERT INTO dbo.TeamMemberships (TeamMembershipId,EmploymentId,TeamId,IsPrimary,EffectiveFrom) VALUES(101,600,7,1,'2020-01-01')");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserTeamScopes SET IsActive=0 WHERE UserId=10");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_team_assignment_expired_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserTeamAssignments SET EffectiveTo='2020-12-31'");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserTeamAssignments SET EffectiveFrom='2040-01-01',EffectiveTo=NULL");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_team_member_expired_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.TeamMemberships SET EffectiveTo='2020-12-31'");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.TeamMemberships SET EffectiveFrom='2040-01-01',EffectiveTo=NULL");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_team_disabled_cross_org_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Teams SET IsActive=0 WHERE TeamId=7");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Teams SET IsActive=1,OrganizationId=2 WHERE TeamId=7");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(
+                    conn,tx,organizationId:1,teamId:999));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_team_missing_HR_link_or_noninternal_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserIdentityProfiles SET EmploymentId=NULL WHERE UserId=10");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserIdentityProfiles SET EmploymentId=600,UserType=N'External' WHERE UserId=10");
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_live_role_and_team_revocations_reread_inside_transaction()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312LiveRoleAndTeamSqlFixture.CreateAsync(conn,tx);
+                Assert.True((await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx)).Admin);
+                Assert.True(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    UPDATE dbo.UserRoleAssignments
+                       SET EffectiveTo='2020-12-31' WHERE RoleId=1;
+                    UPDATE dbo.UserTeamScopes SET IsActive=0 WHERE UserId=10;
+                    """);
+                Assert.False((await B312LiveRoleAndTeamSqlFixture.ReadRolesAsync(conn,tx)).Admin);
+                Assert.False(await B312LiveRoleAndTeamSqlFixture.ReadTeamAsync(conn,tx));
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
 }

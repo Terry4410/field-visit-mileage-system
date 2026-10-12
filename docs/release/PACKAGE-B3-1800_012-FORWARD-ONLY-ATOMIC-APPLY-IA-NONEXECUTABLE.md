@@ -546,3 +546,45 @@ actual HR/IT Grant or production API is enabled or exercised. Independent
 All SQL changes are rolled back and the protected source, B3 OFF,
 Approve/Apply DENY ALL, 011/012 UAT migration HOLD, Business UAT
 0/22 and Production HARD HOLD remain unchanged.
+
+### 20. Shared actual B3 live Admin role and Team membership EF queries (WORK-only)
+
+To avoid a stale duplicated test reconstruction of the private service's
+authority SQL, the existing read-only `LiveActorAsync` and
+`VisitorTeamAsync` implementation has been extracted **without changing
+logic** into `V180B3LiveAuthorizationRead`. The existing
+`V180B3ChangeRequestService` delegates both private methods to this
+same production helper, passing `BusinessTime.Today`; it does not
+activate any `ApproveAsync`, event publisher, migration, flag, deployment
+or runtime Apply executor.
+
+Thirteen disposable SQL Server 2022 tests invoke the **exact same EF
+query helper** in `AppDbContext` within the same isolated Serializable,
+rollback-only 011-to-012 rehearsal. Test EF-mapped tables include
+Users/Profile/Employment/HR, Roles/UserRoles/UserRoleAssignments, Teams,
+UserTeamScopes/UserTeamAssignments and TeamMemberships.
+They prove that Admin and Visitor require intersection of JWT roles,
+*effective-dated active* role assignment and current UserRoles projection;
+an isolated JWT admin claim, missing projection, expired/future
+assignment, disabled Role or active HR Leave does not mint admin
+rights. A role omitted from JWT remains denied despite both DB grants.
+
+For the Visitor's team eligibility, the query requires a live team
+in the **matching organization**, effective Team status, Internal identity
+linked to EmploymentId, active `UserTeamScopes`, current
+`UserTeamAssignments` AND effective Employment `TeamMemberships`.
+Disabled/cross-organization Team, inactive Scope, expired/future
+assignment, missing/expired membership or missing/non-Internal HR
+identity link fail closed. Both Admin and Team privileges are queried
+again after synthetic revocation inside the SAME SQL transaction, never
+treating an earlier positive as a reusable grant.
+
+**Limits:** All HR/role/team data here are synthetic disposable records;
+the only actual production code changes are a read-only policy extraction
+and service delegation. This is not evidence of `VAL-B1-002` real HR/IT
+role provenance, a locked future Approve transaction, full source
+location ownership validation or actual UAT business approval. The
+visitor team helper's true result **does not alone authorize a write**:
+the caller must also prove Visitor role, token team, Location organization,
+creator and published status. Current B3 flag stays OFF, real
+Approve/Apply DENY ALL and B4 accepted 0/22.

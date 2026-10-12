@@ -88,47 +88,18 @@ public sealed class V180B3ChangeRequestService(
             r.RequestedByUserId,r.SubmittedAt,r.BeforeJson,r.ProposedJson,
             Convert.ToBase64String(r.RowVersion));
 
-    private async Task<(CurrentUserDto User,bool Admin,bool Visitor)> LiveActorAsync(CancellationToken ct)
-    {
-        var user=current.GetRequired();
-        await V180B3ActorEligibility.RequireAsync(db,user,ct);
-        var today=BusinessTime.Today;
-        var assigned=await (from a in db.UserRoleAssignments.AsNoTracking()
-            join r in db.Roles.AsNoTracking() on a.RoleId equals r.RoleId
-            where a.UserId==user.UserId&&r.IsActive&&a.EffectiveFrom<=today
-                &&(!a.EffectiveTo.HasValue||a.EffectiveTo.Value>=today)
-            select r.RoleCode).ToListAsync(ct);
-        var projected=await (from a in db.UserRoles.AsNoTracking()
-            join r in db.Roles.AsNoTracking() on a.RoleId equals r.RoleId
-            where a.UserId==user.UserId&&r.IsActive
-            select r.RoleCode).ToListAsync(ct);
-        var roles=V180LocationLiveRoleRules.Evaluate(user.Roles,assigned,projected);
-        return(user,roles.Admin,roles.Visitor);
-    }
-    private async Task<bool> VisitorTeamAsync(int userId,int organizationId,int teamId,CancellationToken ct)
-    {
-        var today=BusinessTime.Today;
-        // Scope and membership alone do not prove that the TEAM remains usable.
-        var team=await db.Teams.AsNoTracking().Where(x=>x.TeamId==teamId)
-            .Select(x=>new{x.OrganizationId,x.IsActive,x.EffectiveFrom,x.EffectiveTo})
-            .SingleOrDefaultAsync(ct);
-        if(team is null || !V180B3LocationTeamRules.IsEffectiveForOrganization(
-            organizationId,team.OrganizationId,team.IsActive,
-            team.EffectiveFrom,team.EffectiveTo,today))return false;
-        var employment=await db.UserIdentityProfiles.AsNoTracking()
-            .Where(x=>x.UserId==userId&&x.UserType==UserTypes.Internal)
-            .Select(x=>x.EmploymentId).FirstOrDefaultAsync(ct);
-        if(!employment.HasValue)return false;
-        return await db.UserTeamScopes.AsNoTracking().AnyAsync(x=>
-               x.UserId==userId&&x.TeamId==teamId&&x.IsActive,ct)
-            &&await db.UserTeamAssignments.AsNoTracking().AnyAsync(x=>
-               x.UserId==userId&&x.TeamId==teamId&&x.EffectiveFrom<=today
-               &&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today),ct)
-            &&await db.TeamMemberships.AsNoTracking().AnyAsync(x=>
-               x.EmploymentId==employment.Value&&x.TeamId==teamId
-               &&x.EffectiveFrom<=today
-               &&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today),ct);
-    }
+    // B3 live read-only policy is shared with the isolated SQL tests.
+    // This preserves the existing actor and team decisions exactly.
+    private Task<(CurrentUserDto User,bool Admin,bool Visitor)> LiveActorAsync(
+        CancellationToken ct)=>
+        V180B3LiveAuthorizationRead.EvaluateActorAsync(
+            db,current.GetRequired(),BusinessTime.Today,ct);
+
+    private Task<bool> VisitorTeamAsync(
+        int userId,int organizationId,int teamId,CancellationToken ct)=>
+        V180B3LiveAuthorizationRead.IsVisitorTeamValidAsync(
+            db,userId,organizationId,teamId,BusinessTime.Today,ct);
+
     public async Task<V180B3RequestView> SubmitAsync(
         V180B3SubmitLocation input,CancellationToken ct)
     {
