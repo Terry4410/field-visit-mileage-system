@@ -2968,7 +2968,8 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
                       .UseSqlServer(_fixture.DatabaseConnection).Options);
                 var model=db.GetService<IDesignTimeModel>().Model;
                 var entity=model.FindEntityType(typeof(FieldVisit.Domain.Entities.Location))!;
-                var table=StoreObjectIdentifier.Table("Locations","dbo");
+                var table=StoreObjectIdentifier.Create(entity,StoreObjectType.Table)
+                    ?? throw new InvalidOperationException("B3_EF_LOCATION_TABLE_MAPPING_MISSING");
                 var modeled=entity.GetProperties()
                     .Select(x=>x.GetColumnName(table)).Where(x=>x is not null)
                     .Select(x=>x!).ToHashSet(StringComparer.Ordinal);
