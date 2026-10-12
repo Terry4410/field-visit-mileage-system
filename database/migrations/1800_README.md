@@ -23,17 +23,6 @@ date ranges to be administrator-owned instead of database-derived.
 | 7 | `1800_007_mileage_google_governance` | `1.8.0-006` | Google/provider audit and company-approved mileage evidence | Applied |
 | 8 | `1800_008_rate_manual_effective_dates` | `1.8.0-007` | PRE-UAT-013: explicit rate date ranges; no automatic neighboring-date rewrite | **Prepared only** |
 
-## Package B candidate migrations (not in this runner)
-
-`database/candidates/1800_011_b3_change_requests_candidate` and
-`database/candidates/1800_012_b3_atomic_apply_candidate` are executable SQL
-**candidates under WORK review**, each with `Preflight.sql`, `Up.sql`,
-`Verify.sql` and forward-recovery instructions. They are deliberately outside
-`database/migrations`: no workflow discovers or executes them, and they are
-not an authorization to change UAT or Production. A later Owner decision must
-pin exact file SHA256 values, named UAT target, DBA/IT executor, backup and
-recovery evidence before either script can enter an approved migration process.
-
 ## 1.8.0-008 scope
 
 `1800_008` intentionally changes only `dbo.TR_MileageRateRules_ProtectSeries`.
