@@ -285,10 +285,14 @@ active Team Scope, time-effective Team Assignment and actual
 Employment TeamMembership. Missing/expired/disabled privileges are
 denied and a mid-transaction revocation is re-read.
 
-No B3 executor, migration, flag or actual UAT DB was touched. Actual
-HR/IT roles, complete Location ownership/published security,
-Snapshot reporting and the reviewed 012 full catalog fingerprint still
-require separate approval. Formal Business UAT 0/22; Package B NO-GO.
+WORK now contains an internal, unregistered atomic SQL writer exercised only
+by the disposable rollback-only SQL Server fixture. It cannot be reached from
+HTTP, open/commit its own transaction, enable B3 or bypass the public
+Approve/Apply DENY ALL boundary. No migration, flag, actual UAT DB or deployed
+executor was touched. Actual HR/IT roles, complete Location
+ownership/published security, Snapshot reporting and the reviewed 012 full
+catalog fingerprint still require separate approval. Formal Business UAT 0/22;
+Package B NO-GO.
 
 ## 17. Actual approved trip Snapshot repository → XLSX history regression and 012 candidate manifest
 
