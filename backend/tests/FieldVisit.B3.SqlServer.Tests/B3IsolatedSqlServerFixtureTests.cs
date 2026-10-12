@@ -2863,4 +2863,133 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             });
     }
 
+
+    [Fact]
+    public async Task Unknown_commit_probe_complete_persisted_apply_is_read_only_verified()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var target=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        await probe.ApplyProbeAsync(target,key);
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.CommittedEvidenceComplete,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,target,key));
+        // Observation cannot create another Approved/Applied pair.
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",target.RequestId))));
+    }
+
+    [Fact]
+    public async Task Unknown_commit_probe_rolled_back_apply_is_read_only_not_committed_evidence()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var target=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>
+            probe.ApplyProbeAsync(target,key,"after-approved"));
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.NoCommitEvidenceComplete,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,target,key));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",target.RequestId))));
+    }
+
+    [Fact]
+    public async Task Unknown_commit_probe_approved_only_event_is_never_treated_as_success()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var target=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        await _fixture.ExecuteAsync("""
+            INSERT INTO dbo.B3ProbeEvents(
+                RequestId,EventType,ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@request,N'Approved',20,SYSUTCDATETIME(),NEWID(),@key)
+            """,("@request",target.RequestId),("@key",key));
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.IndeterminateRequiresInvestigation,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,target,key));
+    }
+
+    [Fact]
+    public async Task Unknown_commit_probe_changed_source_after_apply_is_indeterminate()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var target=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        await probe.ApplyProbeAsync(target,key);
+        await _fixture.ExecuteAsync("""
+            UPDATE dbo.B3ProbeSources SET City=N'Changed after decision'
+            WHERE SourceId=@source
+            """,("@source",target.SourceId));
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.IndeterminateRequiresInvestigation,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,target,key));
+    }
+
+    [Fact]
+    public async Task Unknown_commit_probe_key_on_foreign_request_is_indeterminate()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var first=await probe.SeedPendingAsync();
+        var second=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        await _fixture.ExecuteAsync("""
+            INSERT INTO dbo.B3ProbeEvents(
+                RequestId,EventType,ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@request,N'Approved',20,SYSUTCDATETIME(),NEWID(),@key)
+            """,("@request",first.RequestId),("@key",key));
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.IndeterminateRequiresInvestigation,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,second,key));
+    }
+
+    [Fact]
+    public async Task Unknown_commit_probe_missing_record_never_claims_no_commit()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var target=await probe.SeedPendingAsync();
+        var missing=target with { RequestId=long.MaxValue };
+        Assert.Equal(B3UnknownCommitReconciliationProbe.Observation.IndeterminateRequiresInvestigation,
+            await B3UnknownCommitReconciliationProbe.ObserveAsync(_fixture,missing,Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_reduced_locations_stub_explicitly_fails_full_EF_parity()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                await B312RealNamedLocationApplyProbe.CreateLocationStubAsync(conn,tx);
+                await using var db=new AppDbContext(
+                    new DbContextOptionsBuilder<AppDbContext>()
+                      .UseSqlServer(_fixture.DatabaseConnection).Options);
+                var model=db.GetService<IDesignTimeModel>().Model;
+                var entity=model.FindEntityType(typeof(FieldVisit.Domain.Entities.Location))!;
+                var table=StoreObjectIdentifier.Table("Locations","dbo");
+                var modeled=entity.GetProperties()
+                    .Select(x=>x.GetColumnName(table)).Where(x=>x is not null)
+                    .Select(x=>x!).ToHashSet(StringComparer.Ordinal);
+                await using var cmd=new SqlCommand("""
+                    SELECT name FROM sys.columns
+                    WHERE object_id=OBJECT_ID(N'dbo.Locations',N'U')
+                    """,conn,tx);
+                var physical=new HashSet<string>(StringComparer.Ordinal);
+                await using(var reader=await cmd.ExecuteReaderAsync())
+                    while(await reader.ReadAsync())physical.Add(reader.GetString(0));
+                var missing=modeled.Except(physical).ToHashSet(StringComparer.Ordinal);
+                Assert.Contains("GeocodingStatus",missing);
+                Assert.Contains("DuplicateOfLocationId",missing);
+                Assert.Contains("SelectedGeocodingAttemptId",missing);
+                Assert.Contains("Latitude",missing);
+                Assert.Contains("Longitude",missing);
+                foreach(var editable in new[]{"LocationName","City","District",
+                    "Address","PlusCode","TaxId","MasterNote"})
+                    Assert.Contains(editable,physical);
+                Assert.NotEmpty(missing);
+            });
+    }
+
 }

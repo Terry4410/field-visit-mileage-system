@@ -334,3 +334,38 @@ authority); durable COMMIT/unknown-outcome reconciliation; geocoding/duplicate
 merge/history invariants; executable 012 migration or UAT activation.
 No approval API calls or application executor are added. The next independent
 security review must address these before any feature can be enabled.
+
+### 14. Lost COMMIT acknowledgment read-only reconciliation — disposable only
+
+Seven further isolated SQL cases distinguish an externally observable
+committed decision from an exactly intact rollback and a conflicting,
+partial or unverifiable result. A TEST-PROJECT-ONLY read-only oracle
+(`B3UnknownCommitReconciliationProbe`) reconnects to the disposable SQL
+Server using a **new connection** and one Serializable read transaction.
+It validates the source's seven expected values and original/new versions,
+organization/team/owner/active/approved Customer scope, request terminal
+state, reviewer, times and reason, matching correlation for precisely one
+Approved and one Applied audit event, and a unique DecisionKey.
+The oracle never updates any row, retries any request or returns API success.
+
+Passing cases: a real committed B3Probe transaction => complete committed
+**observation**; an injected post-Approved failure with a confirmed rollback
+=> complete no-commit **observation**. In contrast, Approved-only history,
+a changed source after commit, reused DecisionKey on another request and
+a missing request are all INDETERMINATE / incident investigation.
+A separate same-transaction EF metadata check explicitly proves the reduced
+`dbo.Locations` stub is *not* production-parity: the official EF model
+contains GeocodingStatus, duplicate/history/geocoding IDs and geographic
+properties that the stub does not model.
+
+**Restrictions:** this is a B3Probe* read-only post-commit oracle, NOT
+the true `dbo.Locations` executor; the actual B3 ApproveAsync remains
+DENY ALL. Even a completed observation is not authority to return HTTP
+success without a separate, reviewed end-to-end protocol and verified
+database state. A "no commit" observation does not authorize automatic
+resubmission; revalidate every live identity/source/version and require
+an independent, separately authorized retry decision. If database access
+is unavailable, the oracle throws; a connection error is NEVER
+converted to "not committed." Rollback-only 012 tests are distinct from
+real committed B3Probe transactions. Actual unknown COMMIT transport
+failure injection and UAT remain NOT EXECUTED.

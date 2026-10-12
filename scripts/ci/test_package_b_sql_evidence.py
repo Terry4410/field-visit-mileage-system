@@ -144,7 +144,7 @@ class SqlEvidenceTests(unittest.TestCase):
             "Serializable_rejection_transaction_rolls_back_request_and_audit_on_injected_failure",
             "Serializable_rejection_audit_insert_error_rolls_back_request_update",
         }
-        self.assertEqual(86,len(REQUIRED_SQL_TESTS))
+        self.assertEqual(93,len(REQUIRED_SQL_TESTS))
         self.assertTrue(new_cases.issubset(REQUIRED_SQL_TESTS))
         for omitted in new_cases:
             with self.subTest(omitted=omitted):

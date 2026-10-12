@@ -99,6 +99,13 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_real_named_locations_four_fault_points_restore_savepoint",
     "Hypothetical_012_real_named_locations_replay_denies_second_write",
     "Hypothetical_012_real_named_locations_stale_versions_and_live_scope_denied",
+    "Unknown_commit_probe_complete_persisted_apply_is_read_only_verified",
+    "Unknown_commit_probe_rolled_back_apply_is_read_only_not_committed_evidence",
+    "Unknown_commit_probe_approved_only_event_is_never_treated_as_success",
+    "Unknown_commit_probe_changed_source_after_apply_is_indeterminate",
+    "Unknown_commit_probe_key_on_foreign_request_is_indeterminate",
+    "Unknown_commit_probe_missing_record_never_claims_no_commit",
+    "Hypothetical_012_reduced_locations_stub_explicitly_fails_full_EF_parity",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

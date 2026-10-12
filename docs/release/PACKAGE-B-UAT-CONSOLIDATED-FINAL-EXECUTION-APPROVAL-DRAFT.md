@@ -176,3 +176,20 @@ parameters. A reduced Locations **test stub** is not physical schema
 equivalence and simulated in-test authorization booleans are not live HR/IT
 proof. Formal executor, unknown COMMIT result resolution and all UAT approvals
 remain expressly blocked. Do not reuse this helper in production code.
+
+
+
+## 10. Unknown COMMIT and physical Locations parity — WORK-only evidence
+
+A separate reconnecting, read-only observation probe now checks the
+B3Probe transaction for terminal Request + seven Location values/versions,
+independent reviewer, exactly matched Approved/Applied audit and one
+DecisionKey, without any retry. An exact rollback may be observed as
+NO_COMMIT evidence; partial audit, drift, cross-request replay and absent
+record are INDETERMINATE. This does not handle a real transport-disconnected
+COMMIT nor authorize user-facing success or resubmission. A separate
+disposable EF model test demonstrates the reduced Locations stub lacks
+geocoding/duplicate/history columns: full table parity is still REQUIRED.
+Keep a real COMMIT-ack-loss, concurrent post-commit drift and full
+Locations migration/canonical catalog review on the independent security
+worklist; formal B4 remains 0/22.
