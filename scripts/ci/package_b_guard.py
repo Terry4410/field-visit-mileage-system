@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 from package_b_approval_hold import require_approve_deny_all
+from package_b_appsettings_hold import checked_in_config_is_off
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FROZEN = "68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2"
@@ -53,6 +54,11 @@ def scan():
              "Auth LiveSessionGuard Enabled="+str(live))
     except (KeyError, ValueError, OSError, TypeError) as exc:
         gate("feature_flag_off", False, exc)
+    # A newly checked-in appsettings.Environment.json must not override
+    # either disabled flag. External App Service/KeyVault config is NOT visible.
+    override_safe, override_note = checked_in_config_is_off(
+        ROOT / "backend/src/FieldVisit.Api")
+    gate("checked_in_appsettings_overrides_off", override_safe, override_note)
     try:
         service = (ROOT / "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs").read_text(encoding="utf-8")
         require_approve_deny_all(service)

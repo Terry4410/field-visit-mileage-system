@@ -120,3 +120,25 @@ entire method source contract. Negative Python tests inject misleading
 comments, early returns, mutation-before-throw and missing entrypoints.
 This is a **static source tripwire**, not a proof of runtime permissions,
 no migration, and cannot certify UAT or enable Approve/Apply.
+
+## 九、Repository 設定覆寫檢查與真實環境差異（未完成 IT 簽認）
+
+WORK CI 的 `scripts/ci/package_b_appsettings_hold.py` 只讀掃描
+`backend/src/FieldVisit.Api/appsettings*.json`：基本
+`appsettings.json` 必須明確維持
+`PackageB:B3:Enabled=false` 與
+`Auth:LiveSessionGuard:Enabled=false`；所有另外加入的
+`appsettings.Development.json`／`appsettings.UAT.json`／
+`appsettings.Production.json` 等變體不得設為 true、字串、
+null 或不合法型態；JSON 解析失敗也會 FAIL CLOSED。
+
+這只針對 repository 所含設定檔。ASP.NET Core 仍可被
+**Azure App Service Environment Variables、Key Vault、
+部署參數、外部 Configuration Provider** 覆寫；本次
+CI **無法**證明真實 UAT 配置為 OFF。請 IT DevOps 於授權的
+執行前置檢查內，獨立出示真實有效設定、變更歷程、
+配置優先序及取證時間（證據不得包含 secret／token）。
+缺乏該正式證據，Feature Flag Gate 維持 BLOCKED_UNSIGNED。
+
+此增量不啟動任何 UAT 連線，不會修改部署、核准或 SQL DML，
+亦不會把原本的 `B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED` 解除。

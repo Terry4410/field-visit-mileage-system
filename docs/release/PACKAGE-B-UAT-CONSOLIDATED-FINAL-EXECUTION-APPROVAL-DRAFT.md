@@ -398,3 +398,14 @@ checks the same source boundary. This is a narrow static-regression
 hardening only. Independent IT/Owner approval, B3 application runtime,
 signed HR/IT grants, formal 011/012 Up/Verify and B4 UAT remain BLOCKED.
 B3 OFF / Approve-Apply DENY ALL / Business UAT HOLD / Production HARD HOLD.
+
+## 22. Checked-in B3 配置覆寫防漏檢（非實際 UAT 配置證明）
+
+同一個 `package_b_appsettings_hold.py` 來源掃描器由
+`package_b_guard.py` 及 `package_b_it_handoff.py` 共用，
+確保所有 API 專案 `appsettings*.json` 的 B3 Flag
+與 LiveSessionGuard 開關均未被新加入的環境設定檔啟用。
+新增負向單元測試包含 UAT／Production 啟用、JSON 格式錯誤與
+維持 OFF 的合法配置。這些只屬於 checked-in WORK 程式碼的
+安全驗證，**仍須 IT 另提供真實 Azure App Service 與外部配置
+覆寫的有效狀態簽認**，才可供 Owner 判斷後續核准。

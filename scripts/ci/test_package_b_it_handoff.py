@@ -44,7 +44,7 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
 
         config = self.root / "backend/src/FieldVisit.Api/appsettings.json"
         config.parent.mkdir(parents=True)
-        config.write_text(json.dumps({"PackageB": {"B3": {"Enabled": False}}}))
+        config.write_text(json.dumps({"PackageB": {"B3": {"Enabled": False}}, "Auth":{"LiveSessionGuard":{"Enabled":False}}}))
         self.service = (self.root /
                         "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs")
         self.service.parent.mkdir(parents=True, exist_ok=True)
@@ -178,9 +178,21 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
         cfg.write_text(json.dumps({"PackageB": {"B3": {"Enabled": True}}}))
         with self.assertRaisesRegex(ValueError, "HANDOFF_FEATURE_NOT_OFF"):
             self.collect()
-        cfg.write_text(json.dumps({"PackageB": {"B3": {"Enabled": False}}}))
+        cfg.write_text(json.dumps({"PackageB": {"B3": {"Enabled": False}}, "Auth":{"LiveSessionGuard":{"Enabled":False}}}))
         self.service.write_text("public async Task<V180B3RequestView> ApproveAsync() { }")
         with self.assertRaisesRegex(ValueError, "HANDOFF_APPROVE_NOT_DENY_ALL"):
+            self.collect()
+
+    def test_handoff_rejects_checked_in_B3_enabled_environment_override(self):
+        file=self.root/"backend/src/FieldVisit.Api/appsettings.Production.json"
+        file.write_text(json.dumps({"PackageB":{"B3":{"Enabled":True}}}))
+        with self.assertRaisesRegex(ValueError,"HANDOFF_FEATURE_NOT_OFF"):
+            self.collect()
+
+    def test_handoff_rejects_checked_in_session_guard_enabled_override(self):
+        file=self.root/"backend/src/FieldVisit.Api/appsettings.UAT.json"
+        file.write_text(json.dumps({"Auth":{"LiveSessionGuard":{"Enabled":True}}}))
+        with self.assertRaisesRegex(ValueError,"HANDOFF_FEATURE_NOT_OFF"):
             self.collect()
 
     def test_misleading_throw_in_comment_is_not_release_hold_proof(self):

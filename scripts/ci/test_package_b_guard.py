@@ -117,6 +117,31 @@ class PackageBGuardNegativeTests(unittest.TestCase):
         self.config.write_text('{"PackageB":{"B3":{"Enabled":true}}}')
         self.assertIn("feature_flag_off", self.failures())
 
+    def test_checked_in_unsafe_B3_environment_override_denied(self):
+        path = self.config.parent / "appsettings.Production.json"
+        path.write_text(json.dumps({"PackageB":{"B3":{"Enabled":True}}}))
+        self.assertIn("checked_in_appsettings_overrides_off",self.failures())
+
+    def test_checked_in_unsafe_session_environment_override_denied(self):
+        path = self.config.parent / "appsettings.UAT.json"
+        path.write_text(json.dumps({
+            "Auth":{"LiveSessionGuard":{"Enabled":True}}
+        }))
+        self.assertIn("checked_in_appsettings_overrides_off",self.failures())
+
+    def test_checked_in_malformed_override_denied(self):
+        path = self.config.parent / "appsettings.Staging.json"
+        path.write_text('{"PackageB":{"B3":')
+        self.assertIn("checked_in_appsettings_overrides_off",self.failures())
+
+    def test_checked_in_explicitly_off_override_passes(self):
+        path = self.config.parent / "appsettings.Development.json"
+        path.write_text(json.dumps({
+            "PackageB":{"B3":{"Enabled":False}},
+            "Auth":{"LiveSessionGuard":{"Enabled":False}}
+        }))
+        self.assertNotIn("checked_in_appsettings_overrides_off",self.failures())
+
     def test_unauthorized_live_session_guard_enablement_fails(self):
         self.config.write_text(json.dumps({
             "PackageB": {"B3": {"Enabled": False}},

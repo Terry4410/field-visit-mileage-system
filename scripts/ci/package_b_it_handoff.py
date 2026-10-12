@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 from package_b_approval_hold import require_approve_deny_all
+from package_b_appsettings_hold import checked_in_config_is_off
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_PROTECTED = "68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2"
@@ -168,8 +169,9 @@ def collect(root: Path, sha: str) -> dict:
     service = root / "backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs"
     if not cfg.is_file() or not service.is_file():
         raise ValueError("HANDOFF_APP_SOURCE_MISSING")
-    if json.loads(cfg.read_text(encoding="utf-8"))["PackageB"]["B3"]["Enabled"] is not False:
-        raise ValueError("HANDOFF_FEATURE_NOT_OFF")
+    checked_off, explanation = checked_in_config_is_off(cfg.parent)
+    if not checked_off:
+        raise ValueError("HANDOFF_FEATURE_NOT_OFF: " + explanation)
     content = service.read_text(encoding="utf-8")
     try:
         require_approve_deny_all(content)
