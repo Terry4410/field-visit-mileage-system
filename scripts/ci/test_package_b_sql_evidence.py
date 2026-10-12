@@ -125,6 +125,24 @@ class SqlEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"missing"):
             validate(self.path)
 
+    def test_new_sql_rollback_cases_are_named_and_required(self):
+        new_cases={
+            "Serializable_rejection_transaction_rolls_back_request_and_audit_on_injected_failure",
+            "Serializable_rejection_audit_insert_error_rolls_back_request_update",
+        }
+        self.assertEqual(60,len(REQUIRED_SQL_TESTS))
+        self.assertTrue(new_cases.issubset(REQUIRED_SQL_TESTS))
+        for omitted in new_cases:
+            with self.subTest(omitted=omitted):
+                self.make([name for name in self.names if name!=omitted])
+                with self.assertRaises(ValueError):
+                    validate(self.path,"d"*40)
+
+    def test_unreviewed_extra_case_cannot_silently_replace_manifest(self):
+        self.make(self.names+["UNREVIEWED_rollback_extra"])
+        with self.assertRaises(ValueError):
+            validate(self.path,"d"*40)
+
     def test_missing_one_required_test_fails_even_if_others_pass(self):
         self.make(self.names[:-1])
         with self.assertRaises(ValueError):
