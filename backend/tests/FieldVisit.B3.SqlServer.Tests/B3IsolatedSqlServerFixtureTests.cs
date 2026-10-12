@@ -2278,4 +2278,157 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
         }
     }
 
+    // Forward-only 012-like CHECK contract is rehearsed on B3Probe objects
+    // only. These assertions do not constitute an executable migration.
+    [Fact]
+    public async Task Hypothetical_012_probe_request_check_rejects_unknown_null_and_self_review_shapes()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        var invalid=new[]{
+            "UPDATE dbo.B3ProbeRequests SET Status=N'Applied' WHERE RequestId=@id",
+            "UPDATE dbo.B3ProbeRequests SET Status=N'Applied',ReviewedByUserId=10,ReviewedAt=SYSUTCDATETIME(),AppliedAt=SYSUTCDATETIME(),ReviewReason=N'Self' WHERE RequestId=@id",
+            "UPDATE dbo.B3ProbeRequests SET Status=N'Applied',ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),AppliedAt=SYSUTCDATETIME(),ReviewReason=N'   ' WHERE RequestId=@id",
+            "UPDATE dbo.B3ProbeRequests SET Status=N'Rejected',ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),AppliedAt=SYSUTCDATETIME(),ReviewReason=N'Rejected' WHERE RequestId=@id",
+            "UPDATE dbo.B3ProbeRequests SET Status=N'Rejected',ReviewedByUserId=20,ReviewedAt=SYSUTCDATETIME(),ReviewReason=NULL WHERE RequestId=@id",
+            "UPDATE dbo.B3ProbeRequests SET Status=N'Applied',ReviewedByUserId=20,ReviewedAt=DATEADD(day,1,SYSUTCDATETIME()),AppliedAt=SYSUTCDATETIME(),ReviewReason=N'Out of order' WHERE RequestId=@id",
+            "UPDATE dbo.B3ProbeRequests SET Status=N'Returned' WHERE RequestId=@id"
+        };
+        foreach(var sql in invalid)
+        {
+            var ex=await Assert.ThrowsAsync<SqlException>(()=>
+                _fixture.ExecuteAsync(sql,("@id",row.RequestId)));
+            Assert.Equal(547,ex.Number);
+            Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+                "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)));
+            Assert.Equal(row.RequestRowVersion,(byte[])(await _fixture.ScalarAsync(
+                "SELECT RowVersion FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)))!);
+        }
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_probe_request_check_accepts_valid_independent_rejection()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        Assert.Equal(1,await _fixture.ExecuteAsync("""
+            UPDATE dbo.B3ProbeRequests
+            SET Status=N'Rejected',ReviewedByUserId=20,
+                ReviewedAt=SYSUTCDATETIME(),ReviewReason=N'Independent decline'
+            WHERE RequestId=@id AND Status=N'Pending'
+            """,("@id",row.RequestId)));
+        Assert.Equal("Rejected",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+            ("@id",row.RequestId)));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeRequests WHERE RequestId=@id AND ReviewedByUserId=20 AND AppliedAt IS NULL AND ReviewReason=N'Independent decline'",
+            ("@id",row.RequestId))));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+        // The row CHECK does not itself require an event; executor must do so.
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_probe_audit_check_rejects_null_actor_key_empty_guid_and_unknown_type()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        var corr=Guid.NewGuid();
+        (string kind,int? actor,Guid? decision,Guid correlation)[] invalid={
+            ("Approved",20,null,corr),
+            ("Rejected",20,null,corr),
+            ("Submitted",20,key,corr),
+            ("Applied",20,key,corr),
+            ("Approved",null,key,corr),
+            ("Approved",0,key,corr),
+            ("Approved",20,Guid.Empty,corr),
+            ("Approved",20,key,Guid.Empty),
+            ("Unknown",20,null,corr),
+        };
+        const string sql="""
+            INSERT INTO dbo.B3ProbeEvents(
+                RequestId,EventType,ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@id,@kind,@actor,SYSUTCDATETIME(),@corr,@key)
+            """;
+        foreach(var item in invalid)
+        {
+            var ex=await Assert.ThrowsAsync<SqlException>(()=>
+                _fixture.ExecuteAsync(sql,("@id",row.RequestId),
+                    ("@kind",item.kind),("@actor",item.actor),
+                    ("@corr",item.correlation),("@key",item.decision)));
+            Assert.Equal(547,ex.Number);
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+                ("@id",row.RequestId))));
+        }
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_probe_audit_check_accepts_four_valid_per_row_event_shapes()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        var corr=Guid.NewGuid();
+        (string kind,Guid? decision)[] valid={
+            ("Submitted",null),("Rejected",Guid.NewGuid()),
+            ("Approved",Guid.NewGuid()),("Applied",null)
+        };
+        const string sql="""
+            INSERT INTO dbo.B3ProbeEvents(
+                RequestId,EventType,ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@id,@kind,20,SYSUTCDATETIME(),@corr,@key)
+            """;
+        foreach(var item in valid)
+            Assert.Equal(1,await _fixture.ExecuteAsync(sql,
+                ("@id",row.RequestId),("@kind",item.kind),
+                ("@corr",corr),("@key",item.decision)));
+        Assert.Equal(4,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id AND DecisionKey IS NOT NULL",
+            ("@id",row.RequestId))));
+        // Per-row SQL checks cannot ensure one Approved/Applied pair or
+        // authenticate reviewer identity. Transactional executor is required.
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_probe_untrusted_review_check_is_detected_until_retrusted()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        const string catalog="""
+            SELECT COUNT(*) FROM sys.check_constraints
+            WHERE parent_object_id=OBJECT_ID(N'dbo.B3ProbeRequests',N'U')
+              AND name IN (N'CK_B3ProbeRequests_KnownStatus',
+                           N'CK_B3ProbeRequests_ReviewShape')
+              AND is_disabled=0 AND is_not_trusted=0
+            """;
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
+        try
+        {
+            await _fixture.ExecuteAsync("""
+                ALTER TABLE dbo.B3ProbeRequests
+                NOCHECK CONSTRAINT CK_B3ProbeRequests_ReviewShape
+                """);
+            Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
+        }
+        finally
+        {
+            await _fixture.ExecuteAsync("""
+                ALTER TABLE dbo.B3ProbeRequests
+                WITH CHECK CHECK CONSTRAINT CK_B3ProbeRequests_ReviewShape
+                """);
+        }
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
+    }
+
 }

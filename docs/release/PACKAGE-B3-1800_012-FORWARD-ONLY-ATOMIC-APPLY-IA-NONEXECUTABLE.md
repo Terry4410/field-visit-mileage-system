@@ -200,3 +200,43 @@ cases only; no live HR/role check, duplicate/geocoding veto, historical
 snapshot check, 012 readiness, or actual `ApproveAsync` publication has been
 implemented. Never promote these probes into the application assembly,
 schema migration or formal B4 acceptance. All HOLD gates remain unchanged.
+
+
+### 9. 012-like CHECK truth-table rehearsal — NONEXECUTABLE / WORK ONLY
+
+The test-only B3Probe requests and events now model the proposed 012 **row
+states** without modifying the current 011 EF model, catalog readiness or
+any application migration. This is a contract *candidate*, not signed-off
+DDL. Actual reviewed SQL Server constraint definitions and full catalog
+fingerprints for 012 remain a separate independent design gate.
+
+| Request state | Reviewer/reason/time | AppliedAt | Allowed probe row |
+| --- | --- | --- | --- |
+| Pending | all absent | absent | YES |
+| Pending | any review field filled | any | NO |
+| Rejected | independent reviewer, nonempty reason, ReviewedAt | absent | YES |
+| Rejected | missing reviewer/reason/time or self-review | any | NO |
+| Rejected | valid rejection review | present | NO |
+| Applied | independent reviewer, nonempty reason, ReviewedAt | present and not earlier than review | YES |
+| Applied | missing reviewer/reason/time, self-review, blank reason or reversed time | any | NO |
+| Returned / Approved / Cancelled or unknown | any | any | NO |
+
+Event shape (actor must exist; correlation must be nonempty): Submitted and
+Applied carry no DecisionKey; Rejected and Approved require distinct nonempty
+DecisionKeys. The filtered unique DecisionKey index remains the authoritative
+concurrent replay barrier. Additional SQL tests intentionally try null actor,
+null/empty decision keys, empty correlation IDs and unknown event types to
+catch three-valued NULL loopholes.
+
+The disposable fixture also proves the *trusted enabled CHECK* catalog count
+drops when the review constraint is disabled and recovers only after a
+WITH CHECK restoration. This does **not** verify the actual 012 catalog,
+exact normalized constraint fingerprints, actual UAT SchemaVersions,
+real Locations DDL or live reviewer identity.
+
+**Security boundary:** independent row CHECKs cannot enforce that an
+Approved event and Applied event share the same transaction/correlation,
+nor that a Rejected request has a corresponding audit event. The atomic
+executor must enforce exact row counts, event ordering, immutable IDs,
+effective HR/roles/team permissions, geocoding/duplicate/history checks,
+and a single commit. B3 remains OFF; ApproveAsync DENY ALL.

@@ -61,16 +61,31 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
                 AppliedAt datetime2(3) NULL,
                 ReviewReason nvarchar(1000) NULL,
                 RowVersion rowversion NOT NULL,
+                CONSTRAINT CK_B3ProbeRequests_KnownStatus CHECK(
+                    Status IN (N'Pending',N'Rejected',N'Applied')),
                 CONSTRAINT CK_B3ProbeRequests_ReviewShape CHECK(
-                  (Status=N'Pending' AND ReviewedByUserId IS NULL
-                    AND ReviewedAt IS NULL AND AppliedAt IS NULL
-                    AND ReviewReason IS NULL)
-                  OR
-                  (Status=N'Applied' AND ReviewedByUserId IS NOT NULL
-                    AND ReviewedByUserId<>RequestedByUserId
-                    AND ReviewedAt IS NOT NULL AND AppliedAt IS NOT NULL
-                    AND ReviewReason IS NOT NULL
-                    AND LEN(LTRIM(RTRIM(ReviewReason)))>0)))
+                    (Status=N'Pending'
+                      AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL
+                      AND AppliedAt IS NULL AND ReviewReason IS NULL)
+                    OR
+                    (Status=N'Rejected'
+                      AND ReviewedByUserId IS NOT NULL
+                      AND ReviewedByUserId>0
+                      AND ReviewedByUserId<>RequestedByUserId
+                      AND ReviewedAt IS NOT NULL
+                      AND AppliedAt IS NULL
+                      AND ReviewReason IS NOT NULL
+                      AND LEN(LTRIM(RTRIM(ReviewReason)))>0)
+                    OR
+                    (Status=N'Applied'
+                      AND ReviewedByUserId IS NOT NULL
+                      AND ReviewedByUserId>0
+                      AND ReviewedByUserId<>RequestedByUserId
+                      AND ReviewedAt IS NOT NULL
+                      AND AppliedAt IS NOT NULL
+                      AND AppliedAt>=ReviewedAt
+                      AND ReviewReason IS NOT NULL
+                      AND LEN(LTRIM(RTRIM(ReviewReason)))>0)))
             """);
         await fixture.ExecuteAsync("""
             IF OBJECT_ID(N'dbo.B3ProbeEvents', N'U') IS NULL
@@ -79,13 +94,28 @@ internal sealed class B3HypotheticalAtomicApplyProbe(DisposableSqlServer fixture
                 RequestId bigint NOT NULL
                     REFERENCES dbo.B3ProbeRequests(RequestId),
                 EventType nvarchar(16) NOT NULL,
-                ActorUserId int NOT NULL,
+                ActorUserId int NULL,
                 OccurredAt datetime2(3) NOT NULL,
                 CorrelationId uniqueidentifier NOT NULL,
                 DecisionKey uniqueidentifier NULL,
-                CONSTRAINT CK_B3ProbeEvents_Type CHECK(
-                    (EventType=N'Approved' AND DecisionKey IS NOT NULL)
-                    OR (EventType=N'Applied' AND DecisionKey IS NULL)))
+                CONSTRAINT CK_B3ProbeEvents_KnownType CHECK(
+                    EventType IN (N'Submitted',N'Rejected',
+                                  N'Approved',N'Applied')),
+                CONSTRAINT CK_B3ProbeEvents_DecisionShape CHECK(
+                    ActorUserId IS NOT NULL AND ActorUserId>0
+                    AND CorrelationId<>
+                      '00000000-0000-0000-0000-000000000000'
+                    AND (
+                        (EventType=N'Submitted' AND DecisionKey IS NULL)
+                        OR (EventType=N'Rejected'
+                            AND DecisionKey IS NOT NULL
+                            AND DecisionKey<>
+                              '00000000-0000-0000-0000-000000000000')
+                        OR (EventType=N'Approved'
+                            AND DecisionKey IS NOT NULL
+                            AND DecisionKey<>
+                              '00000000-0000-0000-0000-000000000000')
+                        OR (EventType=N'Applied' AND DecisionKey IS NULL))))
             """);
         await fixture.ExecuteAsync("""
             IF NOT EXISTS (
