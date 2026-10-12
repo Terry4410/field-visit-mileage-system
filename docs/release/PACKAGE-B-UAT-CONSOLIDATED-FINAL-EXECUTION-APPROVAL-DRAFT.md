@@ -210,3 +210,18 @@ simulate an actual network disconnect or authorize automatic replay.
 Required: full Location FKs, snapshot/history references, IT-pinned exact
 012 schema fingerprint, real SQL transport error injection and Owner review.
 B4 accepted 0/22, flag OFF, Approve/Apply DENY ALL, all UAT/Production HOLD.
+
+## 12. Representative Locations FK and history reference rehearsal — NO RELEASE
+
+The SQL test suite now validates exact source/target column shape for five
+non-cascading disposable `Locations` relationships, their enabled/trusted
+metadata and the selected-geocode filtered index. Fail-closed drift
+scenarios include untrusted FK, same-name wrong FK column and narrowed
+index filter. An isolated atomic seven-field write preserves existing
+trip-stop and team note/history rows; a deletion is rejected by FK.
+This is NOT a full UAT FK/index fingerprint. SnapshotStops retains
+its own historical immutability obligations and was not proven via a
+direct Location foreign key. Require IT review, genuine live SQL catalog,
+full reference inventory and B4 22-case execution before considering
+activation. Current gate: B3 OFF / DENY ALL / Business UAT HOLD /
+Production HARD HOLD.

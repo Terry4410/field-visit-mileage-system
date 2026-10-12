@@ -112,6 +112,11 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_expanded_Locations_detects_missing_duplicate_history_column",
     "Unknown_commit_simulated_server_commits_then_throws_ack_failure",
     "Unknown_commit_simulated_server_rolls_back_then_throws_identical_error",
+    "Hypothetical_012_Locations_relations_trusted_no_cascade_and_exact_filtered_index",
+    "Hypothetical_012_Locations_relations_enabled_but_untrusted_FK_denied",
+    "Hypothetical_012_Locations_relations_same_named_wrong_FK_column_denied",
+    "Hypothetical_012_Locations_relations_narrowed_selected_attempt_filter_denied",
+    "Hypothetical_012_Locations_relations_existing_history_survives_apply_and_delete_denied",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

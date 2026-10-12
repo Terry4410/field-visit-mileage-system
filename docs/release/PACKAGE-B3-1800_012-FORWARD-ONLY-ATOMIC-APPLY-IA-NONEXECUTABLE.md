@@ -399,3 +399,38 @@ completion; **it does not physically drop the TCP connection, simulate a
 SQL crash or exercise the real Locations/ChangeRequests executor**.
 No automatic retry, approval API availability or release authorization
 follows from this isolated evidence. B3 remains OFF and DENY ALL.
+
+### 16. Five bounded Locations relationship + historical FK checks (WORK-only)
+
+The new disposable-only `B312LocationRelationContract` creates five
+explicit No-Action, enabled and trusted location relationships:
+`Locations.DuplicateOfLocationId -> Locations.LocationId`,
+`Locations.SelectedGeocodingAttemptId -> GeocodingAttempts.GeocodingAttemptId`,
+`VisitTripStops.LocationId -> Locations.LocationId`,
+`TeamLocationNotes.LocationId -> Locations.LocationId`, and
+`TeamLocationNoteHistory.LocationId -> Locations.LocationId`. A filtered
+`IX_Locations_SelectedGeocodingAttempt` index must contain exactly
+`SelectedGeocodingAttemptId` with no narrower predicate.
+
+Five real SQL Server 2022 fixture tests require exact FK
+source/target/column shape, trust and enabled state, No-Action
+delete/update action, and the expected filtered-index predicate/key.
+Negative tests fail closed if an FK is enabled-but-UNTRUSTED,
+if a same-named FK points at `TeamId` rather than `DuplicateOfLocationId`,
+or if a same-named geocoding index adds an `IsActive=1` predicate.
+An atomic seven-field location update is also rehearsed with actual
+referencing trip-stop and team note/history test records; the retained
+historical values are verified and attempted deletion must raise SQL
+error 547. **All** schema/data changes, including failed DML, are
+rolled back with the 011→012 rehearsal transaction.
+
+**Deliberate limitation:** the test-specific `FK_B312_*` names and
+minimal referencing tables are **not** production migration DDL. These
+five relationships cover only a reviewed representative subset of
+current EF mappings and are not evidence of full existing UAT foreign
+keys, FK names, triggers, all historic references, or migration parity.
+In particular, `VisitTripSnapshotStops` is not verified by one of
+these direct Location foreign keys; Snapshot immutable-content rules
+require separate application/database evidence. Formal IT catalog
+and UAT approval remain blocked. The feature stays OFF and
+`ApproveAsync` DENY ALL.

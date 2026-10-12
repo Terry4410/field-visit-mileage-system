@@ -3100,4 +3100,122 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@id",target.RequestId))));
     }
 
+
+    // SQL Server 012 WORK-only expanded Location relational candidate.
+    // All FKs, indexes and test records are rolled back after each case.
+    [Fact]
+    public async Task Hypothetical_012_Locations_relations_trusted_no_cascade_and_exact_filtered_index()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312LocationRelationContract.BuildAsync(conn,tx);
+                await B312ExpandedLocationsColumnContract.RequireEfColumnsAsync(_fixture,conn,tx);
+                await B312LocationRelationContract.RequireShapeAsync(conn,tx);
+            });
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM sys.tables WHERE name=N'Locations'")));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_Locations_relations_enabled_but_untrusted_FK_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312LocationRelationContract.BuildAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.VisitTripStops NOCHECK CONSTRAINT FK_B312_VisitTripStops_LocationId");
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.VisitTripStops WITH NOCHECK CHECK CONSTRAINT FK_B312_VisitTripStops_LocationId");
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312LocationRelationContract.RequireShapeAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "ALTER TABLE dbo.VisitTripStops WITH CHECK CHECK CONSTRAINT FK_B312_VisitTripStops_LocationId");
+                await B312LocationRelationContract.RequireShapeAsync(conn,tx);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_Locations_relations_same_named_wrong_FK_column_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312LocationRelationContract.BuildAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    ALTER TABLE dbo.Locations DROP CONSTRAINT FK_B312_Locations_DuplicateOfLocationId;
+                    ALTER TABLE dbo.Locations WITH CHECK ADD CONSTRAINT
+                        FK_B312_Locations_DuplicateOfLocationId FOREIGN KEY(TeamId)
+                        REFERENCES dbo.Locations(LocationId) ON DELETE NO ACTION;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312LocationRelationContract.RequireShapeAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_Locations_relations_narrowed_selected_attempt_filter_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312LocationRelationContract.BuildAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    DROP INDEX IX_Locations_SelectedGeocodingAttempt ON dbo.Locations;
+                    CREATE INDEX IX_Locations_SelectedGeocodingAttempt
+                      ON dbo.Locations(SelectedGeocodingAttemptId)
+                      WHERE SelectedGeocodingAttemptId IS NOT NULL AND IsActive=1;
+                    """);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312LocationRelationContract.RequireShapeAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_Locations_relations_existing_history_survives_apply_and_delete_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312ExpandedLocationsColumnContract.CreateAsync(conn,tx);
+                await B312LocationRelationContract.BuildAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx, """
+                    INSERT INTO dbo.VisitTripStops(LocationId,RecordedName)
+                        VALUES(@id,N'Historical visit');
+                    INSERT INTO dbo.TeamLocationNotes(LocationId,Note)
+                        VALUES(@id,N'Historical note');
+                    INSERT INTO dbo.TeamLocationNoteHistory(LocationId,PreviousNote)
+                        VALUES(@id,N'Prior note');
+                    """,("@id",seed.LocationId));
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,Guid.NewGuid());
+                await B312LocationRelationContract.RequireShapeAsync(conn,tx);
+                Assert.Equal("Historical visit",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT RecordedName FROM dbo.VisitTripStops WHERE LocationId=@id",
+                    ("@id",seed.LocationId)));
+                Assert.Equal("Prior note",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT PreviousNote FROM dbo.TeamLocationNoteHistory WHERE LocationId=@id",
+                    ("@id",seed.LocationId)));
+                Assert.Equal("Historical note",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT Note FROM dbo.TeamLocationNotes WHERE LocationId=@id",
+                    ("@id",seed.LocationId)));
+                var ex=await Assert.ThrowsAsync<SqlException>(()=>
+                    B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                        "DELETE FROM dbo.Locations WHERE LocationId=@id",
+                        ("@id",seed.LocationId)));
+                Assert.Equal(547,ex.Number);
+                Assert.Equal(1,Convert.ToInt32(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT COUNT(*) FROM dbo.Locations WHERE LocationId=@id",
+                    ("@id",seed.LocationId))));
+            });
+    }
+
 }
