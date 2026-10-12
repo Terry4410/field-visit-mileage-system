@@ -95,6 +95,10 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_strict_fingerprint_denies_same_name_narrowed_unique_filter",
     "Hypothetical_012_strict_fingerprint_denies_duplicate_011_predecessor",
     "Hypothetical_012_strict_fingerprint_denies_enabled_side_effect_trigger",
+    "Hypothetical_012_real_named_locations_seven_fields_and_atomic_audit_pair",
+    "Hypothetical_012_real_named_locations_four_fault_points_restore_savepoint",
+    "Hypothetical_012_real_named_locations_replay_denies_second_write",
+    "Hypothetical_012_real_named_locations_stale_versions_and_live_scope_denied",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

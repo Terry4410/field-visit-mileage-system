@@ -164,3 +164,15 @@ DDL artifact. Separate IT-approved, immutable 012 fingerprint and actual
 Locations DDL parity are **BLOCKED / REQUIRED**. The exact green WORK SHA,
 SQL TRX SHA-256 and current named case list must accompany any later
 security review. Formal B4 stays 0/22 and all release decisions remain HOLD.
+
+
+
+## 9. Further isolated Locations integration — only a reduced stub
+
+WORK test source includes a three-table, real-named `dbo.Locations` /
+`dbo.ChangeRequests` / `dbo.ChangeRequestEvents` disposable rehearsal
+with four rollback/replay/scope scenarios and exact seven-field UPDATE
+parameters. A reduced Locations **test stub** is not physical schema
+equivalence and simulated in-test authorization booleans are not live HR/IT
+proof. Formal executor, unknown COMMIT result resolution and all UAT approvals
+remain expressly blocked. Do not reuse this helper in production code.

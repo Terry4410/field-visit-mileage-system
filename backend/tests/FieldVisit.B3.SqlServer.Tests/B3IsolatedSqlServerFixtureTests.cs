@@ -2704,4 +2704,163 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             V180B3SqlSafetyRules.CatalogCheckSql)));
     }
 
+
+    // This next candidate is ONLY a reduced dbo.Locations fixture, inside a
+    // rollback-only 012 transaction. It does not authorize SQL write executor.
+    [Fact]
+    public async Task Hypothetical_012_real_named_locations_seven_fields_and_atomic_audit_pair()
+    {
+        var publicId=Guid.Empty;
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                await B312RealNamedLocationApplyProbe.CreateLocationStubAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                publicId=seed.PublicId;
+                var key=Guid.NewGuid();
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,seed,key);
+                var p=B3ProbeFields.Proposed;
+                foreach(var field in new (string Name,string? Value)[]{
+                    ("LocationName",p.LocationName),("City",p.City),
+                    ("District",p.District),("Address",p.Address),
+                    ("PlusCode",p.PlusCode),("TaxId",p.TaxId),
+                    ("MasterNote",p.MasterNote)})
+                {
+                    var actual=await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                        conn,tx,"SELECT ["+field.Name+"] FROM dbo.Locations WHERE LocationId=@id",
+                        ("@id",seed.LocationId));
+                    Assert.Equal(field.Value,(string?)actual);
+                }
+                Assert.Equal(1,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx, """
+                    SELECT COUNT(*) FROM dbo.Locations
+                    WHERE LocationId=@id AND OrganizationId=1 AND TeamId=7
+                        AND CreatedByUserId=10 AND ApprovalStatus=N'Approved'
+                        AND LocationType=N'Customer' AND IsActive=1
+                    """,("@id",seed.LocationId))));
+                Assert.Equal("Applied",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                    ("@id",seed.RequestId)));
+                Assert.Equal(1,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx, """
+                    SELECT COUNT(*) FROM dbo.ChangeRequestEvents a
+                    JOIN dbo.ChangeRequestEvents b ON
+                      b.ChangeRequestId=a.ChangeRequestId
+                      AND b.CorrelationId=a.CorrelationId
+                    WHERE a.ChangeRequestId=@id AND a.EventType=N'Approved'
+                      AND a.DecisionKey=@key AND b.EventType=N'Applied'
+                      AND b.DecisionKey IS NULL AND a.ActorUserId=b.ActorUserId
+                    """,("@id",seed.RequestId),("@key",key))));
+                Assert.Equal(3,Convert.ToInt32(
+                    await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                      "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+                      ("@id",seed.RequestId))));
+            });
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE RequestPublicId=@id",
+            ("@id",publicId))));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM sys.tables WHERE name=N'Locations'")));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_named_locations_four_fault_points_restore_savepoint()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                await B312RealNamedLocationApplyProbe.CreateLocationStubAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                foreach(var fault in new[]{"after-location","after-request",
+                    "after-approved","after-applied"})
+                {
+                    await B312DisposableForwardOnlyRehearsal.ExecuteAsync(
+                        conn,tx,"SAVE TRANSACTION B312Apply");
+                    var ex=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                        B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                            conn,tx,seed,Guid.NewGuid(),fault));
+                    Assert.Equal("012_TEST_FAULT",ex.Message);
+                    await B312DisposableForwardOnlyRehearsal.ExecuteAsync(
+                        conn,tx,"ROLLBACK TRANSACTION B312Apply");
+                    Assert.Equal("Pending",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                        conn,tx,"SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                        ("@id",seed.RequestId)));
+                    Assert.Equal(B3ProbeFields.Original.LocationName,(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                        conn,tx,"SELECT LocationName FROM dbo.Locations WHERE LocationId=@id",
+                        ("@id",seed.LocationId)));
+                    Assert.Equal(seed.LocationVersion,(byte[])(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                        conn,tx,"SELECT RowVersion FROM dbo.Locations WHERE LocationId=@id",
+                        ("@id",seed.LocationId)))!);
+                    Assert.Equal(seed.RequestVersion,(byte[])(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                        conn,tx,"SELECT RowVersion FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                        ("@id",seed.RequestId)))!);
+                    Assert.Equal(1,Convert.ToInt32(
+                        await B312DisposableForwardOnlyRehearsal.ScalarAsync(conn,tx,
+                          "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+                          ("@id",seed.RequestId))));
+                }
+            });
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM sys.tables WHERE name=N'Locations'")));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_named_locations_replay_denies_second_write()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                await B312RealNamedLocationApplyProbe.CreateLocationStubAsync(conn,tx);
+                var first=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                var second=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                var key=Guid.NewGuid();
+                await B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                    conn,tx,first,key);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                        conn,tx,second,key));
+                Assert.Equal(B3ProbeFields.Original.LocationName,(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT LocationName FROM dbo.Locations WHERE LocationId=@id",
+                    ("@id",second.LocationId)));
+                Assert.Equal("Pending",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                    ("@id",second.RequestId)));
+                Assert.Equal(1,Convert.ToInt32(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE DecisionKey=@key",
+                    ("@key",key))));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_named_locations_stale_versions_and_live_scope_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx) =>
+            {
+                await B312RealNamedLocationApplyProbe.CreateLocationStubAsync(conn,tx);
+                var seed=await B312RealNamedLocationApplyProbe.SeedPendingAsync(conn,tx);
+                await Assert.ThrowsAnyAsync<Exception>(()=>
+                    B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                        conn,tx,seed,Guid.NewGuid(),simulatedLiveAdmin:false));
+                await Assert.ThrowsAnyAsync<Exception>(()=>
+                    B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                        conn,tx,seed,Guid.NewGuid(),simulatedLiveMembership:false));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Locations SET City=N'rowversion drift' WHERE LocationId=@id",
+                    ("@id",seed.LocationId));
+                await Assert.ThrowsAnyAsync<Exception>(()=>
+                    B312RealNamedLocationApplyProbe.ApplyInsideTestTransactionAsync(
+                        conn,tx,seed,Guid.NewGuid()));
+                Assert.Equal("Pending",(string?)await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=@id",
+                    ("@id",seed.RequestId)));
+                Assert.Equal(1,Convert.ToInt32(await B312DisposableForwardOnlyRehearsal.ScalarAsync(
+                    conn,tx,"SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=@id",
+                    ("@id",seed.RequestId))));
+            });
+    }
+
 }

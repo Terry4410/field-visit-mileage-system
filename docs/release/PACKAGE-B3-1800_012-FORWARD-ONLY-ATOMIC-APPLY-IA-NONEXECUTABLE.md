@@ -307,3 +307,30 @@ catalog fingerprint, verify complete 011 predecessor/revision ordering
 in the named target environment, block untrusted/disabled CHECK/FK or
 index/trigger drift, and sign the rollback/recovery plan.
 `ApproveAsync` remains DENY ALL; the flag remains OFF.
+
+### 13. Real-named `dbo.Locations` + Request/Event seven-field rehearsal (WORK only)
+
+The next four disposable SQL Server tests use **all three application table
+names**: `dbo.Locations`, `dbo.ChangeRequests` and
+`dbo.ChangeRequestEvents`. The `Locations` table is created as a **reduced
+test stub** with the seven candidate writable fields, organization/team/owner,
+source status and physical ROWVERSION; it is **NOT** the full EF/011 live table.
+The 011→012 DDL is still an in-transaction rehearsal, always rolled back.
+
+The test-project-only `B312RealNamedLocationApplyProbe` locks Request first
+then Location with `UPDLOCK,HOLDLOCK`, runs existing .NET immutable-plan and
+audit-pair preflight helpers, compares both physical RowVersions, uses
+parameterized seven-field source UPDATE and guarded Pending→Applied Request
+UPDATE, requires exactly one affected row each, and inserts correlated
+Approved/Applied events in the same serializable transaction. Tests cover
+all seven field values, unchanged owner/scope columns, four injected
+post-write failures rolled back to a SQL SAVEPOINT, reused DecisionKey,
+simulated denied authorization flags and stale source data. The final outer
+transaction rolls back ALL inserts and the reduced Locations stub.
+
+**Not proven:** full production Locations physical parity; current, live
+HR/Admin and team effective-date queries (test-only booleans are NOT trusted
+authority); durable COMMIT/unknown-outcome reconciliation; geocoding/duplicate
+merge/history invariants; executable 012 migration or UAT activation.
+No approval API calls or application executor are added. The next independent
+security review must address these before any feature can be enabled.
