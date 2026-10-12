@@ -240,3 +240,16 @@ nor that a Rejected request has a corresponding audit event. The atomic
 executor must enforce exact row counts, event ordering, immutable IDs,
 effective HR/roles/team permissions, geocoding/duplicate/history checks,
 and a single commit. B3 remains OFF; ApproveAsync DENY ALL.
+
+
+### 10. Enabled-but-untrusted CHECK is a mandatory readiness denial
+
+Independent test-only SQL Server 2022 drift verification now distinguishes
+an enabled but **untrusted** request review constraint from a trusted one.
+It performs the same negative catalog check for the audit decision constraint,
+using `WITH NOCHECK CHECK` to deliberately re-enable without verification,
+then `WITH CHECK CHECK` to revalidate within the disposable probe database.
+A future 012 catalog gate MUST require BOTH
+`is_disabled=0` AND `is_not_trusted=0` for every required CHECK/FK;
+enabled alone does not mean safe. Neither probe check authorizes executable
+012 DDL, changes the existing 011 readiness, or enables approval.

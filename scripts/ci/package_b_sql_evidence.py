@@ -87,6 +87,7 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_probe_audit_check_rejects_null_actor_key_empty_guid_and_unknown_type",
     "Hypothetical_012_probe_audit_check_accepts_four_valid_per_row_event_shapes",
     "Hypothetical_012_probe_untrusted_review_check_is_detected_until_retrusted",
+    "Hypothetical_012_probe_untrusted_audit_check_is_denied_until_retrusted",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

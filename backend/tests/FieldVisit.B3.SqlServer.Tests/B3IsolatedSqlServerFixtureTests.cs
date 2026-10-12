@@ -2419,13 +2419,66 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
                 ALTER TABLE dbo.B3ProbeRequests
                 NOCHECK CONSTRAINT CK_B3ProbeRequests_ReviewShape
                 """);
+            // Re-enable without validating legacy rows: enabled, but UNTRUSTED.
+            // A catalog that checks is_disabled alone would incorrectly accept.
+            await _fixture.ExecuteAsync("""
+                ALTER TABLE dbo.B3ProbeRequests
+                WITH NOCHECK CHECK CONSTRAINT CK_B3ProbeRequests_ReviewShape
+                """);
             Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
+            Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync("""
+                SELECT COUNT(*) FROM sys.check_constraints
+                WHERE parent_object_id=OBJECT_ID(N'dbo.B3ProbeRequests',N'U')
+                  AND name=N'CK_B3ProbeRequests_ReviewShape'
+                  AND is_disabled=0 AND is_not_trusted=1
+                """)));
         }
         finally
         {
             await _fixture.ExecuteAsync("""
                 ALTER TABLE dbo.B3ProbeRequests
                 WITH CHECK CHECK CONSTRAINT CK_B3ProbeRequests_ReviewShape
+                """);
+        }
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_probe_untrusted_audit_check_is_denied_until_retrusted()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        const string catalog="""
+            SELECT COUNT(*) FROM sys.check_constraints
+            WHERE parent_object_id=OBJECT_ID(N'dbo.B3ProbeEvents',N'U')
+              AND name IN (N'CK_B3ProbeEvents_KnownType',
+                           N'CK_B3ProbeEvents_DecisionShape')
+              AND is_disabled=0 AND is_not_trusted=0
+            """;
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
+        try
+        {
+            await _fixture.ExecuteAsync("""
+                ALTER TABLE dbo.B3ProbeEvents
+                NOCHECK CONSTRAINT CK_B3ProbeEvents_DecisionShape
+                """);
+            await _fixture.ExecuteAsync("""
+                ALTER TABLE dbo.B3ProbeEvents
+                WITH NOCHECK CHECK CONSTRAINT CK_B3ProbeEvents_DecisionShape
+                """);
+            Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
+            Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync("""
+                SELECT COUNT(*) FROM sys.check_constraints
+                WHERE parent_object_id=OBJECT_ID(N'dbo.B3ProbeEvents',N'U')
+                  AND name=N'CK_B3ProbeEvents_DecisionShape'
+                  AND is_disabled=0 AND is_not_trusted=1
+                """)));
+        }
+        finally
+        {
+            await _fixture.ExecuteAsync("""
+                ALTER TABLE dbo.B3ProbeEvents
+                WITH CHECK CHECK CONSTRAINT CK_B3ProbeEvents_DecisionShape
                 """);
         }
         Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(catalog)));
