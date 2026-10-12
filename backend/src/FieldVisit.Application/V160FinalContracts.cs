@@ -140,6 +140,7 @@ public sealed record AdminUserAccessDto(
     IReadOnlyList<TeamScopeDto> TeamScopes);
 
 public sealed record ManagedTeamDto(int TeamId, int OrganizationId, string TeamCode, string TeamName, bool IsActive);
+public sealed record VisitorTeamDto(int TeamId, string TeamName, bool IsPrimary);
 public sealed record SaveManagedTeamRequest(string TeamCode, string TeamName, bool IsActive = true);
 
 public sealed record SaveUserAccessRequest(bool IsActive, IReadOnlyList<string> Roles, IReadOnlyList<SaveTeamScopeRequest> TeamScopes);
@@ -167,7 +168,8 @@ public sealed record ManagedLocationDto(
     int? DuplicateOfLocationId = null,
     string? DuplicateReason = null,
     string? TaxId = null,
-    string? MasterNote = null);
+    string? MasterNote = null,
+    int? CreatedByUserId = null);
 
 public sealed record ManagedLocationQueryRequest(
     string? Q = null,

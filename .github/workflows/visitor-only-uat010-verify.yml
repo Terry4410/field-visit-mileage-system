@@ -1,0 +1,130 @@
+name: Visitor-only UAT 010 nondeploy verification
+
+on:
+  push:
+    branches: [work/v180-visitor-only-uat010]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visitor-only-uat010-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-visitor-only-uat010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "FieldVisit_Visitor010!Sql"
+        ports:
+          - 1433:1433
+    env:
+      PROTECTED_SHA: 68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2
+      E1_R1_REQUIRED: "1"
+      E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Visitor010!Sql;Encrypt=False;TrustServerCertificate=True;Connect Timeout=2
+    steps:
+      - name: Checkout triggering exact SHA
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Enforce branch, ancestry and migration immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git merge-base --is-ancestor "$PROTECTED_SHA" HEAD
+          if git diff --name-only "$PROTECTED_SHA" HEAD | grep -q '^database/migrations/'; then
+            echo '::error::Formal migration directory changed; Visitor-only branch must remain 010-compatible.'
+            exit 1
+          fi
+
+      - name: Assert Visitor path has no Package B schema dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          if rg -n '1800_011|1800_012|1800_013|ChangeRequest|LeaderGrant|V180B3' \
+            backend/src/FieldVisit.Api/V160FinalController.cs \
+            backend/src/FieldVisit.Application/V160FinalService.cs \
+            backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs \
+            backend/src/FieldVisit.Application/V180VisitorLocationRules.cs \
+            frontend/src/App.tsx frontend/src/pages/ScopedLocationPage.tsx; then
+            echo '::error::Visitor reachable path references Package B-only schema or service.'
+            exit 1
+          fi
+          test "$(jq -r '.App.DbSchemaVersion' backend/src/FieldVisit.Api/appsettings.json)" = '1.8.0-010'
+          echo 'SCHEMA_010_EXACT=UNKNOWN (fixture is disposable EF-model runtime; actual UAT catalog remains separate evidence)' >> verification-status.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore frontend from lockfile
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend Vitest with JUnit
+        id: frontend_tests
+        working-directory: frontend
+        run: |
+          mkdir -p ../verification
+          npm test -- --reporter=default --reporter=junit --outputFile=../verification/frontend-tests.xml
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Backend Release build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Backend tests with TRX
+        id: backend_tests
+        run: |
+          mkdir -p verification
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release \
+            --logger "trx;LogFileName=backend-tests.trx" --results-directory verification
+
+      - name: Disposable SQL Server invariant fixture
+        run: |
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release \
+            --filter 'FullyQualifiedName~V180SqlServerRuntimeInvariantProofTests' \
+            --logger "console;verbosity=normal"
+
+      - name: Nondeploy and evidence assertions
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p verification
+          if grep -Eq '^[[:space:]]*-[[:space:]]+uses:.*(azure/webapps-deploy|deploy-pages|Azure/login)' \
+            .github/workflows/visitor-only-uat010-verify.yml \
+            || grep -Eq '^[[:space:]]*-[[:space:]]+run:.*(sql-uat-migration|az login)' \
+            .github/workflows/visitor-only-uat010-verify.yml; then
+            echo '::error::Deployment or migration runner detected in dedicated verification workflow.'
+            exit 1
+          fi
+          printf 'source_sha=%s\nbranch=%s\nfrontend_status=%s\nbackend_status=%s\nsql_fixture_status=%s\n' \
+            "$(git rev-parse HEAD)" "${GITHUB_REF_NAME}" \
+            "${{ steps.frontend_tests.outcome || 'completed' }}" \
+            "${{ steps.backend_tests.outcome || 'completed' }}" \
+            "${{ job.status }}" > verification/ci-evidence.txt
+          git rev-parse HEAD > verification/source-commit.txt
+          git diff --name-only "$PROTECTED_SHA" HEAD > verification/changed-files.txt
+          cp verification-status.txt verification/schema-compatibility.txt 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visitor-only-uat010-evidence-${{ github.sha }}
+          path: |
+            verification/
+            frontend/dist/
+          retention-days: 30

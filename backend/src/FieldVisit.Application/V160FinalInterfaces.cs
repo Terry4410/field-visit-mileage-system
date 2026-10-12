@@ -21,6 +21,7 @@ public interface IV160FinalRepository
     Task<ManagedTeamDto> CreateManagedTeamAsync(CurrentUserDto user, SaveManagedTeamRequest request, CancellationToken ct);
     Task<ManagedTeamDto> UpdateManagedTeamAsync(CurrentUserDto user, int teamId, SaveManagedTeamRequest request, CancellationToken ct);
     Task DeactivateManagedTeamAsync(CurrentUserDto user, int teamId, CancellationToken ct);
+    Task<IReadOnlyList<VisitorTeamDto>> GetVisitorTeamsAsync(CurrentUserDto user, CancellationToken ct);
 
     Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct);
     Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(CurrentUserDto user, ManagedLocationQueryRequest request, CancellationToken ct);
