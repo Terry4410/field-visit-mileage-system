@@ -75,8 +75,8 @@ UAT SQL Server schema, HTTP authorization, independent HR data or B4 signoff.
 | Review item | Evidence required | Current state |
 | --- | --- | --- |
 | 011 predecessor and exact catalog | Read-only SQL output, DB identity, timestamp | PENDING |
-| 011 candidate schema | Reviewed SQL text, checksum, approved owner, constraint semantics | DRAFT ONLY |
-| Forward-only 012+ | Independent revision/IA for Applied state and audit, no 011 rewrite | NOT APPROVED |
+| 011 candidate schema | Reviewed SQL text, checksum, approved owner, constraint semantics | WORK candidate; NOT APPROVED |
+| Forward-only 012+ | Independent revision/IA for Applied state and audit, no 011 rewrite | WORK candidate; NOT APPROVED |
 | Table/index locks and runtime | SQL Server estimate and maintenance window | UNKNOWN |
 | FK/unique/CHECK/triggers | Six trusted NO ACTION FKs; required unique indexes and eight CHECKs | DISPOSABLE EVIDENCE ONLY |
 | Existing data impact | Counts, compatibility and zero implicit business-data repair | UNVERIFIED |
