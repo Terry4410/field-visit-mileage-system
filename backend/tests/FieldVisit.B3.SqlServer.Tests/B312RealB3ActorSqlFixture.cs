@@ -33,6 +33,11 @@ internal static class B312RealB3ActorSqlFixture
                 CreatedAt datetime2(7) NOT NULL
                     CONSTRAINT DF_B312_Users_Created DEFAULT(SYSUTCDATETIME()),
                 UpdatedAt datetime2(7) NULL;
+            """);
+        // SQL Server compiles the next batch AFTER ADD columns are materialized.
+        // Combining ALTER TABLE and UPDATE new columns in a single batch
+        // raises 207 Invalid column name before executing the ALTER.
+        await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,"""
             UPDATE dbo.Users SET OrganizationId=1,TeamId=7,
                 EmployeeNo=N'B312-10',DisplayName=N'SQL Test Actor',
                 IsActive=1 WHERE UserId=10;
