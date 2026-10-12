@@ -369,6 +369,17 @@ public static class V180B3ApprovalApplyPreflight
     {
         if (lockedPendingRequest.ChangeRequestId <= 0
             || lockedPendingRequest.RequestPublicId != plan.RequestPublicId
+            || lockedPendingRequest.OrganizationId <= 0
+            || lockedPendingRequest.TeamId is null or <= 0
+            || lockedPendingRequest.EntityKind != "Location"
+            || lockedPendingRequest.OperationCode != "UpdatePublishedLocation"
+            || lockedPendingRequest.RiskCode != "High"
+            || plan.LocationId <= 0
+            || lockedPendingRequest.EntityId != plan.LocationId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            || plan.ExpectedRequestRowVersion is not { Length: 8 }
+            || lockedPendingRequest.RowVersion is not { Length: 8 }
+            || !plan.ExpectedRequestRowVersion.SequenceEqual(lockedPendingRequest.RowVersion)
+            || plan.ExpectedLocationRowVersion is not { Length: 8 }
             || lockedPendingRequest.Status != "Pending"
             || lockedPendingRequest.RequestedByUserId <= 0
             || lockedPendingRequest.RequestedByUserId == plan.ReviewerUserId
