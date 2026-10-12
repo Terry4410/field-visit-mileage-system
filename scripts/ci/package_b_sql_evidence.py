@@ -71,6 +71,8 @@ REQUIRED_SQL_TESTS=frozenset({
     "Sql_transaction_duplicate_decision_key_rolls_back_second_request",
     "Sql_transaction_check_constraint_failure_rolls_back_decision_and_audit",
     "Sql_rolled_back_decision_key_is_reusable_without_phantom_event",
+    "Serializable_rejection_transaction_rolls_back_request_and_audit_on_injected_failure",
+    "Serializable_rejection_audit_insert_error_rolls_back_request_update",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:
