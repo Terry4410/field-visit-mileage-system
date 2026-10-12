@@ -20,6 +20,7 @@ REQUIRED_SECURITY_GATES = frozenset({
     "work_branch_only",
     "feature_flag_off",
     "live_session_guard_default_off",
+    "checked_in_appsettings_overrides_off",
     "live_session_role_intersection_and_pipeline",
     "live_team_supervisor_scope_intersection",
     "B3_approve_executor_DENY_ALL",

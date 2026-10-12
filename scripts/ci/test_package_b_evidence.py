@@ -145,6 +145,16 @@ class PackageBEvidenceTests(unittest.TestCase):
         self.assertEqual("FAIL_CLOSED", collect(
             self.guard, self.trx, self.junit, self.matrix)["result"])
 
+    def test_checked_in_appsettings_override_gate_is_mandatory(self):
+        self.assertIn("checked_in_appsettings_overrides_off",
+                      REQUIRED_SECURITY_GATES)
+        payload=json.loads(self.guard.read_text())
+        payload["checks"]=[c for c in payload["checks"]
+                           if c["name"]!="checked_in_appsettings_overrides_off"]
+        self.guard.write_text(json.dumps(payload))
+        self.assertEqual("FAIL_CLOSED",collect(
+            self.guard,self.trx,self.junit,self.matrix)["result"])
+
     def test_duplicate_named_security_gate_is_not_a_pass(self):
         payload = json.loads(self.guard.read_text())
         payload["checks"].append(payload["checks"][0])
