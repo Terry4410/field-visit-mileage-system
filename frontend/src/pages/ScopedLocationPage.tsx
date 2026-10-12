@@ -9,6 +9,7 @@ type Form={teamId:string;locationName:string;city:string;district:string;address
 const empty=(teamId=""):Form=>({teamId,locationName:"",city:"",district:"",address:"",plusCode:"",taxId:"",masterNote:""});
 export default function ScopedLocationPage({role}:{role:Role}){
  const{user}=useAuth();
+ const leaderGrantPending=role==="leader";
  const scopes=user?.teamScopes?.length?user.teamScopes:user?.teamId?[{teamId:user.teamId,teamName:user.teamName||"所屬小組",isPrimary:true}]:[];
  const ids=scopes.map(x=>x.teamId);
  const[rows,setRows]=useState<ManagedLocation[]>([]),[edit,setEdit]=useState<ManagedLocation|null>(null);
@@ -32,8 +33,8 @@ export default function ScopedLocationPage({role}:{role:Role}){
   }catch(e){setError(e instanceof Error?e.message:"儲存失敗")}finally{setBusy(false)}
  };
  return <div className="card">
-  <div className="section-title"><div><h2>{role==="visitor"?"我的地點":"小組地點"}｜新增與維護</h2><div className="sub">外訪員僅限本人建立；小組長僅限有效管理小組。正式主檔及共用地點不可直接修改。</div></div>{role==="leader"&&<Link className="btn small outline" to="/leader/locations">返回小組地點清單</Link>}</div>
-  <div className="note">可直接儲存待審核草稿；任何正式發布／高風險異動需管理者核准。</div>
+  <div className="section-title"><div><h2>{role==="visitor"?"我的地點":"小組地點"}｜新增與維護</h2><div className="sub">外訪員僅限本人建立；小組長須有獨立核定的有效管理授權。正式主檔及共用地點不可直接修改。</div></div>{role==="leader"&&<Link className="btn small outline" to="/leader/locations">返回小組地點清單</Link>}</div>
+  <div className="note">{leaderGrantPending?"小組長管理授權（VAL-B1-002）尚未由 HR／IT 獨立核定；目前不可新增、修改或處理同組地點。若同時具外訪員角色，請切換為外訪員後僅維護本人草稿。":"可直接儲存待審核草稿；任何正式發布／高風險異動需管理者核准。"}</div>
   <div className="grid cols-2">
    <div className="field"><label>所屬小組</label><select value={form.teamId} disabled={busy||!!edit} onChange={e=>change("teamId",e.target.value)}><option value="">請選擇</option>{scopes.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div>
    <div className="field"><label>地點名稱</label><input value={form.locationName} onChange={e=>change("locationName",e.target.value)}/></div>
@@ -44,10 +45,10 @@ export default function ScopedLocationPage({role}:{role:Role}){
    <div className="field"><label>統一編號（選填）</label><input value={form.taxId} maxLength={20} onChange={e=>change("taxId",e.target.value)}/></div>
    <div className="field span-2"><label>主檔備註（選填）</label><textarea value={form.masterNote} maxLength={1000} onChange={e=>change("masterNote",e.target.value)}/></div>
   </div>
-  <div className="actions"><button className="btn ok" disabled={busy||!ids.length} onClick={()=>void save()}>{busy?"處理中…":edit?"儲存草稿修改":"新增待審核地點"}</button>{edit&&<button className="btn secondary" disabled={busy} onClick={reset}>取消</button>}</div>
+  <div className="actions"><button className="btn ok" disabled={busy||!ids.length||leaderGrantPending} title={leaderGrantPending?"等待 VAL-B1-002 獨立核定":""} onClick={()=>void save()}>{busy?"處理中…":edit?"儲存草稿修改":"新增待審核地點"}</button>{edit&&<button className="btn secondary" disabled={busy} onClick={reset}>取消</button>}</div>
   {msg&&<div role="status" className="note ok-note">{msg}</div>}{error&&<div role="alert" className="note danger-note">{error}</div>}
   <hr/><h3>可查詢的授權地點</h3>
-  <div className="table-wrap"><table><thead><tr><th>代碼</th><th>地點</th><th>小組</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(x=><tr key={x.locationId}><td>{x.locationCode}</td><td>{x.locationName}</td><td>{x.teamName||"—"}</td><td>{x.approvalStatus}/{x.geocodingStatus}</td><td><button className="btn small secondary" disabled={busy||!user||!mayEditScopedDraft(x,role,user.userId,ids)} onClick={()=>open(x)}>修改草稿</button></td></tr>)}</tbody></table></div>
+  <div className="table-wrap"><table><thead><tr><th>代碼</th><th>地點</th><th>小組</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map(x=><tr key={x.locationId}><td>{x.locationCode}</td><td>{x.locationName}</td><td>{x.teamName||"—"}</td><td>{x.approvalStatus}/{x.geocodingStatus}</td><td><button className="btn small secondary" disabled={busy||leaderGrantPending||!user||!mayEditScopedDraft(x,role,user.userId,ids)} title={leaderGrantPending?"等待 VAL-B1-002 獨立核定":""} onClick={()=>open(x)}>修改草稿</button></td></tr>)}</tbody></table></div>
   {!rows.length&&<div className="empty compact-empty">目前沒有符合權限的地點。</div>}
  </div>;
 }

@@ -62,6 +62,23 @@ journey are therefore **BLOCKED** until a separate Owner activation decision
 after candidate 1800_011/012 review, deployment and atomic-executor evidence.
 No UAT script may fabricate a successful approval.
 
+## P0 Location create and maintenance SOP (NOT RUN)
+
+This is a controlled functional supplement to the 22-case matrix; it does
+not change formal B4 acceptance from **0/22**.
+
+| Actor / route | Steps | Expected result / evidence |
+| --- | --- | --- |
+| `UAT-VIS-A` → `地點管理` | Open `/locations/manage`; select the current effective team; create a unique `UAT-P0-<batch>-A` Customer Location with synthetic address; reload; edit only that draft using its returned RowVersion. | One Pending, inactive Customer Location owned by A; audit shows A; update succeeds only with the current RowVersion. It is not published or usable as a formal master Location. |
+| `UAT-VIS-B` | Try A's edit URL/API using A's LocationId and forged TeamId, CreatedByUserId, ApprovalStatus or IsActive fields. | 403/404 or conflict as applicable; zero foreign mutation; original owner, org, team, approval state and audit remain unchanged. |
+| `UAT-VIS-C` (other org) | Attempt list/read/write of A's identifier. | No cross-organization disclosure or mutation. Capture sanitized response only. |
+| `UAT-LEAD-H` → `地點管理` | Open `/leader/locations/new` and attempt the same create/update request. | UI declares `VAL-B1-002` pending and disables mutation. Direct API attempt is denied; historical membership/JWT team scope alone is never accepted. |
+| Future independently-attested Leader | Execute only after HR/IT supplies effective manager/delegation evidence and Owner authorizes the separate test case. | Managed-team positive case is **BLOCKED** pending VAL-B1-002; it must not be inferred from this document or a historical assignment. |
+
+Capture: exact candidate SHA, user alias, team/org scope, before/after
+RowVersions, request/response status, correlation/audit identifiers and
+independent reviewer. Use synthetic data and the approved cleanup SOP only.
+
 ## Owner UAT execution approval sheet
 
 | Decision item | Owner decision | Mandatory attachment |
