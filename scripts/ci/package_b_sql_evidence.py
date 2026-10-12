@@ -133,6 +133,16 @@ REQUIRED_SQL_TESTS=frozenset({
     "Hypothetical_012_real_V170_login_no_HR_facts_denies_legacy_actor",
     "Hypothetical_012_EF_SnapshotStop_query_reads_frozen_fields_after_location_apply",
     "Hypothetical_012_EF_Snapshot_parent_approved_distance_not_recomputed_on_location_apply",
+    "Hypothetical_012_real_B3_actor_valid_internal_and_legacy_profile_pass",
+    "Hypothetical_012_real_B3_actor_disabled_SQL_account_denied_even_if_HR_active",
+    "Hypothetical_012_real_B3_actor_missing_or_mismatched_organization_denied",
+    "Hypothetical_012_real_B3_actor_external_unknown_empty_profile_denied",
+    "Hypothetical_012_real_B3_actor_legacy_HR_leave_terminated_prehire_missing_denied",
+    "Hypothetical_012_real_B3_actor_HR_effective_period_expired_or_future_denied",
+    "Hypothetical_012_real_B3_actor_employment_linked_status_source_precedes_legacy",
+    "Hypothetical_012_real_B3_actor_employment_linked_leave_terminated_missing_denied",
+    "Hypothetical_012_real_B3_actor_employment_linked_hire_termination_date_overrides_active",
+    "Hypothetical_012_real_B3_actor_revocation_is_reread_in_same_SQL_transaction",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

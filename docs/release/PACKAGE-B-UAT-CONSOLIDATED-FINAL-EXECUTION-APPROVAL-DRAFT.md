@@ -255,3 +255,20 @@ All test-only SQL DDL and data roll back. This is not a true production
 HR/EmploymentId path or authoritative Admin/team reviewer provenance; it
 does not prove all real UI/export historic reads. VAL-B1-002 and formal
 B4 0/22 remain blocked. No migrations/deployments/activation authorized.
+
+## 15. ACTUAL B3ActorEligibility / effective HR identity source — SQL-only
+
+Ten new disposable SQL Server tests invoke the actual
+`V180B3ActorEligibility` against the EF-mapped Users and both legacy
+UserEmploymentPeriods and EmploymentId-linked EmploymentStatusPeriods.
+Fail-closed cases cover disabled SQL account, cross-org/missing account,
+external identity, missing/future/expired HR, Leave/Terminated/PreHire,
+and master hire/termination boundary. Within one Serializable test
+transaction, the gate re-reads disabled account status after revocation.
+
+This closes a narrow *real .NET actor-gate regression* gap only.
+It does NOT establish current production HR data quality, IT-signed
+authority/grants, reviewer Admin/time-bound Team membership, all SQL
+dependencies, external JWT security, a callable Approve/Apply operation
+or permission to deploy 011/012. Feature remains disabled and release
+is NO-GO until new explicit Owner/IT evidence.

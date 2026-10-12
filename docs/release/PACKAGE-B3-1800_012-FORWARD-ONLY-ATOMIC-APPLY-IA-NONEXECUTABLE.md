@@ -508,3 +508,41 @@ constitute full production UAT SQL schema parity, live employment-linked
 HR periods, actual HR/IT admin grants, user-role/team temporal provenance,
 real endpoint/UAT authorization, or a guarantee that every UI/export route
 uses the same historical projection. B3 OFF, Approve/Apply DENY ALL.
+
+### 19. ACTUAL V180B3ActorEligibility + both HR paths on disposable SQL
+
+The WORK-only SQL 2022 test suite now directly invokes the production
+`V180B3ActorEligibility.RequireAsync` with a real EF `AppDbContext` and
+a shared Serializable SQL transaction. The pre-existing B312
+`UserIdentityProfiles` / `UserEmploymentPeriods` disposable fixture is
+extended ONLY inside this rollback-only transaction with EF-shaped
+`dbo.Users`, `Employments`, and `EmploymentStatusPeriods` tables.
+
+Ten individually named SQL tests check:
+1. Active Internal or missing-profile legacy Internal may pass only when
+   HR is genuinely Active.
+2. `Users.IsActive=0` is rejected by **B3_ACCOUNT_DISABLED**, even though
+   the separate legacy V170 `adminEnabled=false` parameter does not block
+   Active Internal. This is the mandatory B3 account gate.
+3. JWT claimed organization absent/mismatched or missing SQL account is
+   rejected before HR lookup.
+4. External, unknown or empty identity type fails even with Active HR.
+5. Legacy HR Leave, Terminated, PreHire, missing effective HR and
+   expired/future-only HR status fail closed.
+6. EmploymentId-linked identity reads the authoritative
+   `EmploymentStatusPeriods`, not stale legacy `UserEmploymentPeriods`.
+7. Employment-linked Leave/Terminated/PreHire/missing effective HR fail.
+8. Employment master termination/hire boundary overrides an Active HR period.
+9. A mid-transaction account revocation is rechecked on the next B3
+   gate invocation, never treating earlier success as a reusable token.
+
+Every account, date, source and decision is synthetic; database table
+names and application service methods are real, but simplified physical
+DDL is not the UAT/production master migration. No B3 ApproveAsync,
+server-side Admin role evaluation, Team effective membership approval,
+actual HR/IT Grant or production API is enabled or exercised. Independent
+`VAL-B1-002` attestation and approval transaction design remain blocked.
+
+All SQL changes are rolled back and the protected source, B3 OFF,
+Approve/Apply DENY ALL, 011/012 UAT migration HOLD, Business UAT
+0/22 and Production HARD HOLD remain unchanged.

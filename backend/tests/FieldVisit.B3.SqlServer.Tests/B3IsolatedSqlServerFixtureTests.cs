@@ -3592,4 +3592,209 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             });
     }
 
+
+    // Actual V180B3ActorEligibility gate, shared EF/SQL transaction, never
+    // approved Apply/Reject API or authoritative HR/IT Admin attestation.
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_valid_internal_and_legacy_profile_pass()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                await B312RealB3ActorSqlFixture.RequireAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.UserIdentityProfiles WHERE UserId=10");
+                // Real B3 legacy compatibility still requires active HR.
+                await B312RealB3ActorSqlFixture.RequireAsync(conn,tx);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_disabled_SQL_account_denied_even_if_HR_active()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                Assert.True(await B312V170LoginIntegrationFixture.IsAllowedAsync(
+                    conn,tx,accountEnabled:false));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Users SET IsActive=0 WHERE UserId=10");
+                var ex=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                Assert.Equal("B3_ACCOUNT_DISABLED",ex.Message);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Users SET IsActive=1 WHERE UserId=10");
+                await B312RealB3ActorSqlFixture.RequireAsync(conn,tx);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_missing_or_mismatched_organization_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                var missing=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx,
+                        B312RealB3ActorSqlFixture.Actor(org:null)));
+                Assert.Equal("B3_ORGANIZATION_REQUIRED",missing.Message);
+                var cross=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx,
+                        B312RealB3ActorSqlFixture.Actor(org:2)));
+                Assert.Equal("B3_ACCOUNT_INVALID",cross.Message);
+                var absent=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx,
+                        B312RealB3ActorSqlFixture.Actor(userId:999)));
+                Assert.Equal("B3_ACCOUNT_INVALID",absent.Message);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_external_unknown_empty_profile_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                foreach(var kind in new[]{"External","Unknown",""})
+                {
+                    await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                        "UPDATE dbo.UserIdentityProfiles SET UserType=@type WHERE UserId=10",
+                        ("@type",kind));
+                    var denied=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                        B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                    Assert.Equal("B3_INTERNAL_IDENTITY_REQUIRED",denied.Message);
+                }
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserIdentityProfiles SET UserType=N'Internal' WHERE UserId=10");
+                await B312RealB3ActorSqlFixture.RequireAsync(conn,tx);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_legacy_HR_leave_terminated_prehire_missing_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                foreach(var hr in new[]{"Leave","Terminated","PreHire"})
+                {
+                    await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                        "UPDATE dbo.UserEmploymentPeriods SET EmploymentStatus=@status WHERE UserId=10",
+                        ("@status",hr));
+                    var denied=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                        B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                    Assert.Equal("B3_HR_STATUS_DENIED",denied.Message);
+                }
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.UserEmploymentPeriods WHERE UserId=10");
+                var missing=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                Assert.Equal("B3_HR_STATUS_DENIED",missing.Message);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_HR_effective_period_expired_or_future_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserEmploymentPeriods SET EffectiveTo='2020-12-31'");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserEmploymentPeriods SET EffectiveFrom='2040-01-01',EffectiveTo=NULL");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_employment_linked_status_source_precedes_legacy()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                await B312RealB3ActorSqlFixture.EnableEmploymentLinkedHrAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.UserEmploymentPeriods SET EmploymentStatus=N'Leave' WHERE UserId=10");
+                // An HR-linked Internal profile uses EmploymentStatusPeriods
+                // rather than legacy UserEmploymentPeriods for login status.
+                await B312RealB3ActorSqlFixture.RequireAsync(conn,tx);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_employment_linked_leave_terminated_missing_denied()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                await B312RealB3ActorSqlFixture.EnableEmploymentLinkedHrAsync(conn,tx);
+                foreach(var hr in new[]{"Leave","Terminated","PreHire"})
+                {
+                    await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                        "UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=@status WHERE EmploymentId=600",
+                        ("@status",hr));
+                    var denied=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                        B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                    Assert.Equal("B3_HR_STATUS_DENIED",denied.Message);
+                }
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "DELETE FROM dbo.EmploymentStatusPeriods WHERE EmploymentId=600");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_employment_linked_hire_termination_date_overrides_active()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                await B312RealB3ActorSqlFixture.EnableEmploymentLinkedHrAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Employments SET TerminationDate='2020-12-31' WHERE EmploymentId=600");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Employments SET TerminationDate=NULL,HireDate='2040-01-01' WHERE EmploymentId=600");
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Employments SET HireDate='2020-01-01' WHERE EmploymentId=600");
+                await B312RealB3ActorSqlFixture.RequireAsync(conn,tx);
+            });
+    }
+
+    [Fact]
+    public async Task Hypothetical_012_real_B3_actor_revocation_is_reread_in_same_SQL_transaction()
+    {
+        await B312DisposableForwardOnlyRehearsal.RunRollbackOnlyAsync(_fixture,
+            async (conn,tx)=>
+            {
+                await B312RealB3ActorSqlFixture.CreateAsync(conn,tx);
+                await B312RealB3ActorSqlFixture.RequireAsync(conn,tx);
+                await B312DisposableForwardOnlyRehearsal.ExecuteAsync(conn,tx,
+                    "UPDATE dbo.Users SET IsActive=0 WHERE UserId=10");
+                var denied=await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>
+                    B312RealB3ActorSqlFixture.RequireAsync(conn,tx));
+                Assert.Equal("B3_ACCOUNT_DISABLED",denied.Message);
+                // No transient revocation or proof is committed to UAT.
+            });
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            V180B3SqlSafetyRules.CatalogCheckSql)));
+    }
+
 }
