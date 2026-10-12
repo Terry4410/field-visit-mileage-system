@@ -20,6 +20,28 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
                                 encoding="utf-8")
             else:
                 file.write_text("DRAFT / WORK ONLY / NO-GO\n", encoding="utf-8")
+        self.delta_file = self.root / ledger.DELTA_FILE
+        test_only = ledger.WORK_TEST_ONLY_GATES
+        self.delta = {
+            "kind": "PACKAGE_B3_IT_GATE_EVIDENCE_DELTA_NONEXECUTABLE",
+            "schema_version": 1,
+            "decision": "NO_GO",
+            "release_authorized": False,
+            "signoff_confirmed": False,
+            "scope": "SOURCE_ONLY_WORK_CANDIDATE_NOT_UAT_OR_PRODUCTION",
+            "gates": [{
+                "id": gid, "owner": owner,
+                "disposition": "BLOCKED_UNSIGNED",
+                "candidate_evidence_class": "WORK_TEST_ONLY"
+                    if gid in test_only else "DOCUMENTED_ONLY",
+                "reviewed_source_path": ledger.EVIDENCE_SOURCE_BY_GATE[gid],
+                "independent_external_evidence_required": required,
+                "independent_signoff_received": False,
+                "can_unlock_migration": False,
+            } for gid, owner, required in ledger.GATE_OWNERS]
+        }
+        self.delta_file.write_text(json.dumps(self.delta, ensure_ascii=False))
+
         config = self.root / "backend/src/FieldVisit.Api/appsettings.json"
         config.parent.mkdir(parents=True)
         config.write_text(json.dumps({"PackageB": {"B3": {"Enabled": False}}}))
@@ -48,6 +70,66 @@ class ItHandoffNonreleaseTests(unittest.TestCase):
         self.assertFalse(proof["uat_migration_011_authorized"])
         self.assertFalse(proof["uat_migration_012_authorized"])
         self.assertFalse(proof["uat_deployment_authorized"])
+
+    def test_gate_delta_keeps_all_14_external_signoffs_blocked(self):
+        record = self.collect()
+        self.assertEqual(14, record["gate_evidence_delta_count"])
+        delta = record["gate_evidence_delta"]
+        self.assertEqual(set(ledger.EVIDENCE_SOURCE_BY_GATE),
+                         {x["id"] for x in delta})
+        self.assertTrue(all(x["disposition"] == "BLOCKED_UNSIGNED"
+                            and x["independent_signoff_received"] is False
+                            and x["release_authorized"] is False for x in delta))
+        self.assertTrue(all(len(x["reviewed_source_sha256"]) == 64
+                            and x["independent_external_evidence_required"]
+                            for x in delta))
+
+    def test_gate_delta_forged_signoff_or_go_cannot_pass(self):
+        for mutated in (
+            {"signoff_confirmed": True},
+            {"release_authorized": True},
+            {"decision": "GO"},
+        ):
+            with self.subTest(mutated=mutated):
+                forged = dict(self.delta, **mutated)
+                self.delta_file.write_text(json.dumps(forged))
+                with self.assertRaisesRegex(ValueError, "HANDOFF_DELTA_RELEASE_SAFETY_INVALID"):
+                    self.collect()
+        self.delta_file.write_text(json.dumps(self.delta))
+        forged = json.loads(json.dumps(self.delta))
+        forged["gates"][0]["disposition"] = "APPROVED"
+        self.delta_file.write_text(json.dumps(forged))
+        with self.assertRaisesRegex(ValueError, "HANDOFF_DELTA_GATE_NOT_VERIFIABLE"):
+            self.collect()
+
+    def test_gate_delta_forged_missing_or_duplicate_evidence_fails(self):
+        for field, value in (
+            ("reviewed_source_path", "../../prod/UAT-grant.sql"),
+            ("independent_signoff_received", True),
+            ("can_unlock_migration", True),
+            ("owner", "Owner only"),
+            ("candidate_evidence_class", "PRODUCTION_SIGNED"),
+            ("independent_external_evidence_required", ""),
+        ):
+            forged = json.loads(json.dumps(self.delta))
+            forged["gates"][0][field] = value
+            self.delta_file.write_text(json.dumps(forged))
+            with self.subTest(field=field), self.assertRaisesRegex(
+                    ValueError, "HANDOFF_DELTA_GATE_NOT_VERIFIABLE"):
+                self.collect()
+        forged = json.loads(json.dumps(self.delta))
+        forged["gates"][1] = forged["gates"][0]
+        self.delta_file.write_text(json.dumps(forged))
+        with self.assertRaisesRegex(ValueError, "HANDOFF_DELTA_GATE_ID_INVALID"):
+            self.collect()
+
+    def test_gate_delta_missing_or_malformed_source_is_not_success(self):
+        self.delta_file.unlink()
+        with self.assertRaisesRegex(ValueError, "HANDOFF_REQUIRED_SOURCE_MISSING"):
+            self.collect()
+        self.delta_file.write_text('{"gates":[}')
+        with self.assertRaisesRegex(ValueError, "HANDOFF_DELTA_MISSING_OR_MALFORMED"):
+            self.collect()
 
     def test_handoff_file_hash_is_real_and_source_bound(self):
         proof = self.collect()

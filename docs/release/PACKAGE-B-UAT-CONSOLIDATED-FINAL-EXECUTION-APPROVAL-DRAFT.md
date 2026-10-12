@@ -373,3 +373,16 @@ and disguised deployment workflows. Negative Python gate tests and
 a .NET release-tripwire contract check ensure fail-closed behavior.
 Even a successful generated ledger only means handoff PREP passed;
 it must not be interpreted as an execution authorization.
+
+## 21. Machine-readable IT evidence DELTA（NO-GO）
+
+`PACKAGE-B3-IT-EVIDENCE-DELTA-MATRIX.json` 列出全部 14 個獨立簽認
+關卡、責任方、WORK 候選來源，以及**仍缺少的真正外部證據**。
+非部署 CI 中的 `package_b_it_handoff.py` 僅接受完全一致的 Gate
+ID／Owner／source path／HOLD 狀態，來源檔案 SHA256 會反映在
+`b3-it-handoff-ledger.json`，並附於 GitHub Actions 供 IT 審查。
+
+這不是改變 DDL 已否授權的程式：正式 011/012 Up/Verify、
+實際 UAT Schema、HR/IT 身分授權、22 項 Business UAT 與最終
+Owner 簽名都維持未完成；矩陣中的任何綠色 CI 不得當成獨立
+IT／HR／Owner 簽章。

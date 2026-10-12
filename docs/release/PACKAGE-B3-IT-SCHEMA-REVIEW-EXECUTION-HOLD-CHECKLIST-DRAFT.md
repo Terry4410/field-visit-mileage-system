@@ -84,3 +84,22 @@ IT/DBA/HR/資安/Owner Gate 一律標註
 並獨立重新設計其防護、完成驗收，才能改變此封鎖。
 本清單的完整工作底稿可供 IT 逐項填入附檔，但不接受
 只將 CI 轉成綠燈即自動發給 GO。
+
+## 七、IT 差異矩陣（來源檔固定、簽核仍然 HOLD）
+
+機器可讀版：`PACKAGE-B3-IT-EVIDENCE-DELTA-MATRIX.json`。每個 Gate 具備
+Owner（責任單位）、`reviewed_source_path`（**僅**既有 WORK 方案、測試或文件）、
+`candidate_evidence_class`（WORK_TEST_ONLY／DOCUMENTED_ONLY），以及
+`independent_external_evidence_required`（IT／DBA／HR 仍需自行補的正式證據）。
+
+既有 `package_b_it_handoff.py` 在非部署 CI 中將這 14 個 Gate 的 JSON
+資料與程式碼內**獨立固定的**來源路徑一對一核對，重新計算每份檔案的
+SHA256。少一個 Gate、責任人錯置、引用不在 repository 的正式 SQL、
+把 `BLOCKED_UNSIGNED` 改成 APPROVED、把測試假稱已具備正式簽章，
+或將 `can_unlock_migration` 改為 true，全部 FAIL CLOSED。
+
+注意：此矩陣由開發端紀錄「現階段的缺口」，**沒有** HR/DBA/Owner 的
+簽署機制，也不收集任何 UAT 帳密、HR 個資或 SQL 金鑰。機器驗證 PASS
+只證明所有必要差異仍被誠實標為 BLOCKED，不是可執行的 Migration
+核准、B3 Approve/Apply 解除或正式 B4 驗收。所有簽核必須在獨立受控
+流程完成，並另取 Owner 的具體授權。
