@@ -73,6 +73,11 @@ REQUIRED_SQL_TESTS=frozenset({
     "Sql_rolled_back_decision_key_is_reusable_without_phantom_event",
     "Serializable_rejection_transaction_rolls_back_request_and_audit_on_injected_failure",
     "Serializable_rejection_audit_insert_error_rolls_back_request_update",
+    "Hypothetical_atomic_probe_commits_two_updates_and_correlated_events",
+    "Hypothetical_atomic_probe_rolls_back_all_four_postwrite_fault_points",
+    "Hypothetical_atomic_probe_duplicate_decision_key_rolls_back_second_apply",
+    "Hypothetical_atomic_probe_stale_request_and_source_versions_fail_closed",
+    "Hypothetical_atomic_probe_concurrent_reviewers_commit_at_most_once",
 })
 
 def validate(path: Path, sha: str | None = None) -> dict:

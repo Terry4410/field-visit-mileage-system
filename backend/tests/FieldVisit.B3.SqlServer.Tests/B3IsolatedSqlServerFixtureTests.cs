@@ -2042,4 +2042,150 @@ public sealed class B3IsolatedSqlServerFixtureTests : IClassFixture<DisposableSq
             ("@id",id))));
     }
 
+    // Five real SQL tests on separate disposable B3Probe* objects. They are
+    // NOT an executable 1800_012 schema/migration or live B3 Approve endpoint.
+    [Fact]
+    public async Task Hypothetical_atomic_probe_commits_two_updates_and_correlated_events()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        await probe.ApplyProbeAsync(row,key);
+        Assert.Equal("Applied",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+            ("@id",row.RequestId)));
+        Assert.Equal("Applied in disposable probe",(string?)await _fixture.ScalarAsync(
+            "SELECT LocationName FROM dbo.B3ProbeSources WHERE SourceId=@id",
+            ("@id",row.SourceId)));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(DISTINCT CorrelationId) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id AND EventType=N'Approved' AND DecisionKey=@key",
+            ("@id",row.RequestId),("@key",key))));
+        Assert.Equal(1,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id AND EventType=N'Applied' AND DecisionKey IS NULL",
+            ("@id",row.RequestId))));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>
+            probe.ApplyProbeAsync(row,Guid.NewGuid()));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+    }
+
+    [Fact]
+    public async Task Hypothetical_atomic_probe_rolls_back_all_four_postwrite_fault_points()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        foreach(var fault in new[]{"after-source","after-request","after-approved","after-applied"})
+        {
+            var row=await probe.SeedPendingAsync();
+            var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                probe.ApplyProbeAsync(row,Guid.NewGuid(),fault));
+            Assert.Equal("B3_PROBE_INJECTED_FAILURE",error.Message);
+            Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+                "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)));
+            Assert.Equal("Original fixture location",(string?)await _fixture.ScalarAsync(
+                "SELECT LocationName FROM dbo.B3ProbeSources WHERE SourceId=@id",
+                ("@id",row.SourceId)));
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+                ("@id",row.RequestId))));
+            Assert.Equal(row.SourceRowVersion,(byte[])(await _fixture.ScalarAsync(
+                "SELECT RowVersion FROM dbo.B3ProbeSources WHERE SourceId=@id",
+                ("@id",row.SourceId)))!);
+            Assert.Equal(row.RequestRowVersion,(byte[])(await _fixture.ScalarAsync(
+                "SELECT RowVersion FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)))!);
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM dbo.B3ProbeRequests WHERE RequestId=@id AND (ReviewedByUserId IS NOT NULL OR AppliedAt IS NOT NULL)",
+                ("@id",row.RequestId))));
+        }
+    }
+
+    [Fact]
+    public async Task Hypothetical_atomic_probe_duplicate_decision_key_rolls_back_second_apply()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var first=await probe.SeedPendingAsync();
+        var second=await probe.SeedPendingAsync();
+        var key=Guid.NewGuid();
+        await probe.ApplyProbeAsync(first,key);
+        await Assert.ThrowsAsync<SqlException>(()=>
+            probe.ApplyProbeAsync(second,key));
+        Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+            ("@id",second.RequestId)));
+        Assert.Equal("Original fixture location",(string?)await _fixture.ScalarAsync(
+            "SELECT LocationName FROM dbo.B3ProbeSources WHERE SourceId=@id",
+            ("@id",second.SourceId)));
+        Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",second.RequestId))));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",first.RequestId))));
+    }
+
+    [Fact]
+    public async Task Hypothetical_atomic_probe_stale_request_and_source_versions_fail_closed()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var sourceChanged=await probe.SeedPendingAsync();
+        await _fixture.ExecuteAsync(
+            "UPDATE dbo.B3ProbeSources SET LocationName=N'Outside edit' WHERE SourceId=@id",
+            ("@id",sourceChanged.SourceId));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>
+            probe.ApplyProbeAsync(sourceChanged,Guid.NewGuid()));
+        Assert.Equal("Outside edit",(string?)await _fixture.ScalarAsync(
+            "SELECT LocationName FROM dbo.B3ProbeSources WHERE SourceId=@id",
+            ("@id",sourceChanged.SourceId)));
+        var requestChanged=await probe.SeedPendingAsync();
+        await _fixture.ExecuteAsync(
+            "UPDATE dbo.B3ProbeRequests SET RequestMemo=N'Outside edit' WHERE RequestId=@id",
+            ("@id",requestChanged.RequestId));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>
+            probe.ApplyProbeAsync(requestChanged,Guid.NewGuid()));
+        foreach(var row in new[]{sourceChanged,requestChanged})
+        {
+            Assert.Equal("Pending",(string?)await _fixture.ScalarAsync(
+                "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+                ("@id",row.RequestId)));
+            Assert.Equal(0,Convert.ToInt32(await _fixture.ScalarAsync(
+                "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+                ("@id",row.RequestId))));
+        }
+    }
+
+    [Fact]
+    public async Task Hypothetical_atomic_probe_concurrent_reviewers_commit_at_most_once()
+    {
+        var probe=new B3HypotheticalAtomicApplyProbe(_fixture);
+        await probe.CreateTestOnlySchemaAsync();
+        var row=await probe.SeedPendingAsync();
+        async Task<bool> Attempt(Guid key)
+        {
+            try { await probe.ApplyProbeAsync(row,key); return true; }
+            catch(InvalidOperationException ex) when(
+                ex.Message=="B3_PROBE_STALE_REQUEST") { return false; }
+        }
+        var outcomes=await Task.WhenAll(
+            Attempt(Guid.NewGuid()),Attempt(Guid.NewGuid()));
+        Assert.Equal(1,outcomes.Count(x=>x));
+        Assert.Equal("Applied",(string?)await _fixture.ScalarAsync(
+            "SELECT Status FROM dbo.B3ProbeRequests WHERE RequestId=@id",
+            ("@id",row.RequestId)));
+        Assert.Equal(2,Convert.ToInt32(await _fixture.ScalarAsync(
+            "SELECT COUNT(*) FROM dbo.B3ProbeEvents WHERE RequestId=@id",
+            ("@id",row.RequestId))));
+    }
+
 }

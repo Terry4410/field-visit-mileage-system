@@ -156,3 +156,27 @@ SHA, test-run URL and captured before/after assertions. Pure C# preflight,
 CI success and documentation do not count as isolated SQL runtime PASS or
 formal B4 UAT. Keep B3 OFF, ApproveAsync DENY ALL, 012 nonexecutable and
 Package B NO-GO pending independent approval.
+
+
+### 7. Disposable hypothetical atomic-write rehearsal (NOT 1800_012)
+
+A standalone test-only `B3ProbeSources` / `B3ProbeRequests` /
+`B3ProbeEvents` schema is created **only** inside a randomly named
+localhost SQL Server 2022 test database. It is not named `ChangeRequests`,
+`ChangeRequestEvents`, or `Locations`, and is **not** a migration,
+production executor, 012 CHECK definition or deployable schema change.
+
+Five isolated cases rehearse: successful two-UPDATE/two-event single commit,
+rollback after each of four write boundaries (including after Applied INSERT),
+duplicate DecisionKey rollback, stale source/request RowVersion rejection,
+and competing reviewers with at most one successful transaction. The helper
+exists exclusively in the SQL **test project** and is unreachable from
+`ApproveAsync` or any API. Every test remains linked to its exact-name
+CI evidence manifest; test additions do not count as business acceptance.
+
+This validates SQL transactional mechanics only, **not** the real Location
+shape, complete seven-field persistence, effective HR/role/team permissions,
+geocoding, duplicate/location-history requirements, reviewed 012 DDL,
+013+ adjustments, ambiguous commit reconciliation, or end-to-end UAT.
+Accordingly retain 012 **NONEXECUTABLE DRAFT**, B3 OFF, Approve/Apply
+DENY ALL, B4 formal 0/22, Business UAT HOLD and Production HARD HOLD.
