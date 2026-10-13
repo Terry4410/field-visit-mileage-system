@@ -74,7 +74,7 @@ jobs:
           grep -Fq 'branches: [ main ]' "$frontend"
           grep -Fq 'test "$GITHUB_REF" = "refs/heads/work/v180-visitor-only-uat010-security-fix"' "$backend"
           grep -Fq 'test "$GITHUB_REF" = "refs/heads/work/v180-visitor-only-uat010-security-fix"' "$frontend"
-          echo 'GOVERNANCE_CODE_GATE=PASS (live GitHub branch policy separately verified)' >> verification-status.txt
+          echo 'GOVERNANCE_CODE_GATE=PASS (live GitHub branch policy NOT verified by CI)' >> verification-status.txt
 
       - name: Validate manual deploy and pinned rollback workflow contracts
         shell: bash
