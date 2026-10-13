@@ -2,7 +2,7 @@ name: Visitor-only UAT 010 nondeploy verification
 
 on:
   push:
-    branches: [work/v180-visitor-only-uat010]
+    branches: [work/v180-visitor-only-uat010, work/v180-visitor-only-uat010-security-fix]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-visitor-only-uat010'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && (github.ref == 'refs/heads/work/v180-visitor-only-uat010' || github.ref == 'refs/heads/work/v180-visitor-only-uat010-security-fix')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     services:
@@ -44,6 +44,18 @@ jobs:
           git merge-base --is-ancestor "$PROTECTED_SHA" HEAD
           if git diff --name-only "$PROTECTED_SHA" HEAD | grep -q '^database/migrations/'; then
             echo '::error::Formal migration directory changed; Visitor-only branch must remain 010-compatible.'
+            exit 1
+          fi
+
+      - name: Guard Visitor current-access and concurrency invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'EnsureRequiredRowVersion(row.RowVersion, request.RowVersion)' backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs
+          grep -q 'EnsureCurrentAssignment(effectiveRole, status, effectiveTeams' backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs
+          sed -n '/private async Task<IReadOnlyList<int>> EnsureVisitorCurrentAsync/,/private void ValidateLocationRequest/p' backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs > /tmp/visitor-current.txt
+          if grep -Eq 'db[.]UserRoles|db[.]UserTeamScopes' /tmp/visitor-current.txt; then
+            echo '::error::Legacy grant fallback is forbidden for Visitor-only access.'
             exit 1
           fi
 
