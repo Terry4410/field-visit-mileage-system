@@ -112,56 +112,15 @@ public sealed class MasterService(
         return MapLocation(row);
     }
 
-    public async Task<BatchPublishLocationsResult> BatchPublishAsync(BatchPublishLocationsRequest request, CancellationToken ct)
+    // Option C security gate: legacy batch publish used to geocode, approve and
+    // activate locations directly for leader/admin. Until canonical independent
+    // review + atomic publication is implemented, this route MUST fail closed.
+    // The Leader Excel preview/confirm and single-record Pending draft routes
+    // are separate and remain available.
+    public Task<BatchPublishLocationsResult> BatchPublishAsync(BatchPublishLocationsRequest request, CancellationToken ct)
     {
-        var user = RequireAny("leader", "admin");
-        int success = 0, failed = 0;
-        var errors = new List<string>();
-
-        foreach (var id in request.LocationIds.Distinct())
-        {
-            var row = await masters.GetLocationAsync(id, true, ct);
-            if (row is null) { failed++; errors.Add($"{id}: 找不到地點"); continue; }
-            if (!HasRole(user, "admin") && HasRole(user, "leader") && (!row.TeamId.HasValue || !user.TeamIds.Contains(row.TeamId.Value))) { failed++; errors.Add($"{id}: 無權限"); continue; }
-            if (HasRole(user, "admin") && user.OrganizationId.HasValue && row.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId) { failed++; errors.Add($"{id}: 無權限"); continue; }
-
-            if (row.DuplicateOfLocationId.HasValue
-                || string.Equals(row.DuplicateReason, V170LocationDuplicateRules.SuspectedReason, StringComparison.Ordinal))
-            {
-                failed++;
-                errors.Add($"{id}: 疑似重複地點必須先完成管理者人工覆核");
-                continue;
-            }
-
-            var geo = await geocoding.ResolveAsync(row.Address, row.PlusCode, ct);
-            if (!geo.Success || geo.Latitude is null || geo.Longitude is null)
-            {
-                row.GeocodingStatus = "Failed";
-                failed++; errors.Add($"{id}: {geo.ErrorMessage}");
-                continue;
-            }
-
-            row.Latitude = geo.Latitude;
-            row.Longitude = geo.Longitude;
-            row.GeocodingStatus = "Completed";
-            row.GeocodedAt = DateTime.UtcNow;
-            row.ApprovalStatus = "Approved";
-            row.IsActive = true;
-            row.UpdatedAt = DateTime.UtcNow;
-            await workflow.AddLocationHistoryAsync(new LocationApprovalHistory
-            {
-                LocationId = row.LocationId,
-                Action = "Approved",
-                ReviewedByUserId = user.UserId,
-                Comments = "UAT batch publish",
-                ActionAt = DateTime.UtcNow
-            }, ct);
-            success++;
-        }
-
-        await workflow.AddAuditAsync(Audit(user.UserId, "Location", null, "LocationBatchPublish", new { success, failed }), ct);
-        await uow.SaveChangesAsync(ct);
-        return new BatchPublishLocationsResult(success, failed, errors);
+        _ = RequireAny("leader", "admin");
+        throw new InvalidOperationException("LOCATION_BATCH_PUBLISH_REQUIRES_UNIFIED_APPROVAL");
     }
 
     public async Task<List<ProjectDto>> ProjectsAsync(CancellationToken ct)
