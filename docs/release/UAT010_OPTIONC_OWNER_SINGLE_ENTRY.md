@@ -144,6 +144,16 @@
 - 014 runtime 已實際驗證 Preflight → Up → Verify、ambiguous source fail-closed、deterministic version-1 backfill、Pending/Inactive 排除、rerun denial、stable LocationId、current/version uniqueness、catalog index/FK/CHECK trusted contract 與跨表 rollback。CI 無 artifacts。
 - C5 的 014 runtime 子關卡 **PASS**；但完整 C5 仍為 **PARTIAL / HOLD**，因完整公開 API/E2E、unknown-commit fault injection、並行 live authorization 尚未完成。C1/C3/C6 仍不可標示完成。
 
+## 2Q. C1/C3 nondeploy integration correction（2026-10-13）
+
+- **已修正的實際缺口**：`V180OptionCUnknownCommitReconciler` 原先把成功發布誤限定為 published version number = 1；014 deterministic backfill 後首次發布會是 version 2，因此可能錯誤回報 `INDETERMINATE`。現在改以 fresh、non-pooled connection 的 request/current-row count、published stage 及 canonical audit evidence 判定，不依賴固定版本號。
+- **Exact-SHA 證據**：來源修正提交 `cb36e6b03afa6174fd76f75f991f660071defeda`；nondeploy GitHub Actions [Run 38363920542](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38363920542) = **SUCCESS**。Backend `701/701` PASS；014 runtime publication writer、rollback、replay 與授權負向測試 PASS；disposable SQL fixture `5/5` PASS；011/012 rehearsal PASS；Frontend npm/test/build steps SUCCESS；所有 source/NO-GO guards SUCCESS。
+- **Unknown Commit 證據**：成功出版後以 fresh connection 查證 version 2 情境，回傳 `COMMITTED_EVIDENCE_REQUIRES_REVIEW`；不盲目重試，也不向呼叫者宣稱已完成發布。
+- **C1**：**PARTIAL / HOLD**。隔離 executable publication writer、014 runtime、rollback、stable LocationId、version/replay evidence PASS；但 public API/DI 仍 disabled，完整 Visitor → Admin → Publication E2E 及 Trip/Snapshot history proof 尚未完成。
+- **C3**：**PARTIAL / HOLD**。隔離 harness 覆蓋 requester/reviewer separation、自審、跨組織／跨範圍拒絕；live HR/revocation transaction proof 及 public Admin approval route 仍 disabled/unverified。
+- **C5**：**PARTIAL / HOLD**。目前 isolated SQL/runtime subtests PASS；真實 concurrent approval、fault-injected commit acknowledgement 與完整 API/E2E 仍 HOLD。
+- **C6 Business UAT**：**BLOCKED / 0/22**。未執行 UAT migration/deployment、B3/B4、013 或 Production 操作。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
@@ -174,4 +184,5 @@
 3. **一份放行紀錄**：exact SHA、Migration schema、CI run、實際 UAT 測試證據、Owner 核准。
 
 原始設計與治理資料仍可在 `docs/release/UAT010_PACKAGEB_OPTIONC_CANONICAL_NONDEPLOY_CONTRACT.md`、`docs/release/UAT010_PACKAGEB_OPTIONC_MIGRATION_REGISTRY_NONEXECUTABLE.md` 與 `docs/release/optionc-canonical-sql-draft/` 追溯。
+
 
