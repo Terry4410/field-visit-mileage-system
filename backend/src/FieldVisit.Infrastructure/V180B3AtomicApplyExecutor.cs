@@ -54,6 +54,11 @@ internal static class V180B3AtomicApplyExecutor
         var proposed = JsonSerializer.Deserialize<V180B3LocationFields>(
             plan.ProposedJson) ?? throw new InvalidOperationException(
                 "B3_APPROVAL_PLAN_INVALID");
+        // Option C must never replace an active published address before
+        // a reviewed geocode/version-swap mechanism exists. No DML occurs
+        // on this path; request remains Pending and current location intact.
+        V180OptionCPublicationSafety.RequireNoPublishedIdentityOrGeocodeChange(
+            locked.LocationFields, proposed);
         var locationRows = await WriteAsync(connection, transaction, """
             UPDATE dbo.Locations SET
                 LocationName=@name,City=@city,District=@district,
