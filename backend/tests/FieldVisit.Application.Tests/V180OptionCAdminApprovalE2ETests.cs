@@ -120,6 +120,23 @@ public sealed class V180OptionCAdminApprovalE2ETests
                 "SELECT Status FROM dbo.ChangeRequests WHERE RequestPublicId=@id",
                 new SqlParameter("@id", selfRequest)));
 
+            var rejectRequest = await CreateRequestAsync(db, 12, 1, "Rejected change");
+            await using (var tx = (SqlTransaction)await db.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable))
+            {
+                await service.RejectAsync(db, tx, rejectRequest, 1, 2,
+                    Guid.NewGuid(), "Duplicate location", CancellationToken.None);
+                await tx.CommitAsync();
+            }
+            Assert.Equal("Rejected", await Scalar(db,
+                "SELECT Status FROM dbo.ChangeRequests WHERE RequestPublicId=@id",
+                new SqlParameter("@id", rejectRequest)));
+            Assert.Equal("Rejected", await Scalar(db, """
+                SELECT TOP(1) EventType FROM dbo.ChangeRequestEvents e
+                JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId
+                WHERE r.RequestPublicId=@id ORDER BY e.ChangeRequestEventId DESC;
+                """, new SqlParameter("@id", rejectRequest)));
+
             await Exec(db, "UPDATE dbo.OptionCLiveApprovalActors SET IsIndependentAdminEligible=0 WHERE UserId=2");
             await using (var tx = (SqlTransaction)await db.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable))
