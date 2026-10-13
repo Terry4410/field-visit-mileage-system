@@ -224,6 +224,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND VersionNumber=2 AND IsCurrent=1"));
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10"));
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
+        Assert.Equal("INDETERMINATE",await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
+            direct.ConnectionString,request,key,3,CancellationToken.None));
         Assert.Equal(1,proxy.CommitRequestsForwarded);
     }
 
@@ -242,7 +244,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("NO_COMMIT_EVIDENCE_REQUIRES_REVIEW",
             await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
                 h.Db.ConnectionString,request,key,2,CancellationToken.None));
-        Assert.Equal("INDETERMINATE",
+        Assert.Equal("NO_COMMIT_EVIDENCE_REQUIRES_REVIEW",
             await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
                 h.Db.ConnectionString,request,Guid.NewGuid(),2,CancellationToken.None));
     }
