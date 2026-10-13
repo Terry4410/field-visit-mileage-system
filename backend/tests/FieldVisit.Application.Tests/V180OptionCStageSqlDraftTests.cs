@@ -581,6 +581,13 @@ public sealed class V180OptionCStageSqlDraftTests
         await using var cmd=new SqlCommand(sql,db){CommandTimeout=60};
         await cmd.ExecuteNonQueryAsync();
     }
+    private static async Task Exec(SqlConnection db,string sql,
+        params SqlParameter[] parameters)
+    {
+        await using var cmd=new SqlCommand(sql,db){CommandTimeout=60};
+        cmd.Parameters.AddRange(parameters);
+        await cmd.ExecuteNonQueryAsync();
+    }
     private static async Task<string> Scalar(SqlConnection db,string sql)
     {
         await using var cmd=new SqlCommand(sql,db){CommandTimeout=60};
