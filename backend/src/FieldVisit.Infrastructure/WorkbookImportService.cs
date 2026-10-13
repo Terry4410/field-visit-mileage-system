@@ -359,6 +359,16 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                                 && existing.TeamId == teamId
                                     ? "NoChange"
                                     : "Update";
+                            // Preview must disclose the same Option C restriction
+                            // that Confirm enforces. Do not advertise a direct
+                            // update that would bypass independent review.
+                            if (action == "Update"
+                                && (existing.ApprovalStatus == "Approved" || existing.IsActive))
+                                error = "LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL";
+                            else if (action == "Update"
+                                && HasRole(user, "leader") && !HasRole(user, "admin")
+                                && existing.CreatedByUserId != user.UserId)
+                                error = "LOCATION_EXCEL_PENDING_OWNER_REQUIRED";
                         }
                     }
                 }
