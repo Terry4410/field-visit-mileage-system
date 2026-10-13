@@ -266,6 +266,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await Service().ApproveAsync(h.Db,tx,request,1,2,key,"Explicit rollback evidence",CancellationToken.None);
             await tx.RollbackAsync();
         }
+        Assert.Equal("Pending",await h.RequestStatus(request));
+        Assert.Equal("",await h.RequestValue(request,"ReviewedByUserId"));
+        Assert.Equal("0",await h.EventCount(request,"Approved"));
+        Assert.Equal("0",await h.EventCount(request,"Applied"));
+        Assert.Equal("ReadyForPublish",await h.StageStatus(request));
         Assert.Equal("NO_COMMIT_EVIDENCE_REQUIRES_REVIEW",
             await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
                 h.Db.ConnectionString,request,key,2,CancellationToken.None));
