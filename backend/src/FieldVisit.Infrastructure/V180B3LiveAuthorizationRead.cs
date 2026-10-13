@@ -62,4 +62,82 @@ public static class V180B3LiveAuthorizationRead
                &&x.EffectiveFrom<=today
                &&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today),ct);
     }
+
+    /// <summary>
+    /// Revalidate the original requester's CURRENT authority when an
+    /// independent Admin reviews the request. The requester JWT is no longer
+    /// available; the original submit operation already required token/live
+    /// intersection. This read never grants new submit or approve authority.
+    /// </summary>
+    public static async Task<bool> IsSubmitterTeamStillValidAsync(
+        AppDbContext db, int userId, int organizationId, int teamId,
+        DateOnly today, CancellationToken ct)
+    {
+        if (userId <= 0 || organizationId <= 0 || teamId <= 0) return false;
+        var account = await db.Users.AsNoTracking().SingleOrDefaultAsync(
+            x => x.UserId == userId && x.OrganizationId == organizationId, ct);
+        if (account is null || !account.IsActive) return false;
+        var profile = await db.UserIdentityProfiles.AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .Select(x => new { x.UserType, x.EmploymentId })
+            .SingleOrDefaultAsync(ct);
+        if (profile is null || profile.UserType != UserTypes.Internal
+            || !profile.EmploymentId.HasValue) return false;
+        if (!(await new V170AccessControl(db)
+            .EvaluateLoginAsync(userId, account.IsActive, ct)).IsAllowed)
+            return false;
+
+        var team = await db.Teams.AsNoTracking().SingleOrDefaultAsync(
+            x => x.TeamId == teamId, ct);
+        var teamEffective = team is not null
+            && V180B3LocationTeamRules.IsEffectiveForOrganization(
+                organizationId, team.OrganizationId, team.IsActive,
+                team.EffectiveFrom, team.EffectiveTo, today);
+        if (!teamEffective) return false;
+
+        var teamAssigned = await db.UserTeamScopes.AsNoTracking().AnyAsync(
+                x => x.UserId == userId && x.TeamId == teamId && x.IsActive, ct)
+            && await db.UserTeamAssignments.AsNoTracking().AnyAsync(
+                x => x.UserId == userId && x.TeamId == teamId
+                    && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
+        if (!teamAssigned) return false;
+
+        var assigned = await (from a in db.UserRoleAssignments.AsNoTracking()
+            join r in db.Roles.AsNoTracking() on a.RoleId equals r.RoleId
+            where a.UserId == userId && r.IsActive && a.EffectiveFrom <= today
+                && (!a.EffectiveTo.HasValue || a.EffectiveTo >= today)
+            select r.RoleCode).ToListAsync(ct);
+        var projected = await (from a in db.UserRoles.AsNoTracking()
+            join r in db.Roles.AsNoTracking() on a.RoleId equals r.RoleId
+            where a.UserId == userId && r.IsActive
+            select r.RoleCode).ToListAsync(ct);
+        var effectiveRoles = new HashSet<string>(
+            assigned, StringComparer.OrdinalIgnoreCase);
+        effectiveRoles.IntersectWith(projected);
+
+        var visitorMember = effectiveRoles.Contains("visitor")
+            && await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+                x.EmploymentId == profile.EmploymentId.Value
+                && x.TeamId == teamId && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
+        var directLeader = effectiveRoles.Contains("leader")
+            && await db.TeamLeaderAssignments.AsNoTracking().AnyAsync(x =>
+                x.EmploymentId == profile.EmploymentId.Value
+                && x.TeamId == teamId && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
+        var delegatedLeader = effectiveRoles.Contains("leader")
+            && await (from d in db.TeamLeaderDelegations.AsNoTracking()
+                join a in db.TeamLeaderAssignments.AsNoTracking()
+                    on d.TeamLeaderAssignmentId equals a.TeamLeaderAssignmentId
+                where d.DelegateEmploymentId == profile.EmploymentId.Value
+                    && a.TeamId == teamId && a.EffectiveFrom <= today
+                    && (!a.EffectiveTo.HasValue || a.EffectiveTo >= today)
+                    && d.EffectiveFrom <= today && d.EffectiveTo >= today
+                select d.TeamLeaderDelegationId).AnyAsync(ct);
+        return V180OptionCSubmitterReviewRules.IsEligible(
+            true, account.OrganizationId == organizationId, teamEffective,
+            teamAssigned, effectiveRoles.Contains("visitor"), visitorMember,
+            effectiveRoles.Contains("leader"), directLeader || delegatedLeader);
+    }
 }

@@ -251,9 +251,13 @@ public sealed class V180B3ChangeRequestService(
             V180B3ApprovalLockSql.LocationById(locationId, reviewer.OrganizationId.Value))
             .AsNoTracking().SingleOrDefaultAsync(ct)
             ?? throw new KeyNotFoundException("B3_LOCATION_NOT_FOUND");
+        // Recheck current HR, effective role, team and dated leader/
+        // visitor membership. Visitor-only membership would incorrectly
+        // reject valid Option C Leader submissions.
         var member = request.TeamId.HasValue
-            && await VisitorTeamAsync(request.RequestedByUserId,
-                request.OrganizationId, request.TeamId.Value, ct);
+            && await V180B3LiveAuthorizationRead.IsSubmitterTeamStillValidAsync(
+                db, request.RequestedByUserId, request.OrganizationId,
+                request.TeamId.Value, BusinessTime.Today, ct);
         var replay = await db.ChangeRequestEvents.AsNoTracking().AnyAsync(
             x => x.DecisionKey == input.DecisionKey, ct);
         var current = new V180B3LocationFields(
