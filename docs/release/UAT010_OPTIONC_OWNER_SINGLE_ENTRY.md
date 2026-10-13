@@ -12,6 +12,7 @@
 - Baseline: `6a07a8fb0053a1032aabe76a65aed37f40dd3c4a`，外訪員／小組長共用單筆介面，小組長保留 Excel
 - 已通過的 Batch 3 exact SHA: `b08da595a74285e0e6f27e61842f9013e9ec7a92`
 - Batch 3 CI: https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38349446343
+- 第五批工程測試通過 SHA：`4fe153c97a73aa2d24bf898bc209e7dc74ceb5aa`；CI Run `38351366538` SUCCESS（後續文件更新須另驗證）。
 - **任何新 commit 均需以新 SHA 的 CI 重新驗證，不得沿用上述 PASS 當作新 SHA 放行。**
 
 ## 2. 目前已實作與驗證（非部署）
@@ -32,6 +33,14 @@
 - **真實 SQL 併發**：兩條獨立 SQL 連線競爭同一 Pending slot 或 DecisionKey，唯一索引只能允許其中一筆；故意讓事件 FK 寫入失敗後必須完全 Rollback。
 - **驗證證據**：[SQL 併發與回滾 Run 38350261384](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38350261384) = SUCCESS；[送審與審核者資格 Run 38350447545](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38350447545) = SUCCESS；最新提交含 UserTeamScope 強化的 [Run 38350477618](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38350477618) 須以實際結論為準。
 - **仍未完成**：正式地點版本化發布／原子 swap、統一核准寫入服務與 API 啟用、完整 Visitor/Leader/Admin E2E；**不得以這批 CI PASS 宣稱 Business UAT PASS**。
+
+## 2B. 第五批增量：版本化發布安全閘門（2026-10-13）
+
+- **新增非部署安全閘門**：`V180OptionCVersionedPublicationGate`。僅接收未來在同一 Serializable transaction 中從資料庫重新鎖定的證據；不是 HTTP API、SQL writer、授權憑證或可用的發布功能。
+- **嚴格拒絕**：來源／申請 RowVersion 過期、stage 與 request／組織／小組／地點不符、自己審核、HR／角色撤權、DecisionKey 重複、重複地點覆核未完成、歷史快照不完整，以及地址變更但 geocode 未成功／對應舊地址。
+- **已新增正反向單元測試**；[Run 38351366538](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38351366538) = **SUCCESS**（exact SHA `4fe153c97a73aa2d24bf898bc209e7dc74ceb5aa`），包含 .NET、前端與隔離 SQL Server 既有測試。
+- **設計契約**：[版本化發布安全規格](./UAT010_OPTIONC_VERSIONED_PUBLICATION_NONDEPLOY.md)。既有已發布地點禁止直接覆寫，B3 `ApproveAsync` 仍 DENY ALL。
+- **尚未完成**：持久化 stage/version schema、正式原子 swap writer、地點歷史 FK／snapshot 完整稽核、geocode 與 duplicate evidence 的實際交易整合、Business E2E。C1 仍 **BLOCKED**。
 
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
