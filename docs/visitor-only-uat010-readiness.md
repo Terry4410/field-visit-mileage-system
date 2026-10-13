@@ -56,3 +56,14 @@ The required sequence for any future Package B execution is `010 → 011 → 012
 - Exact 010 catalog compatibility: `UNKNOWN/HOLD` until read-only UAT catalog evidence confirms the deployed schema.
 - B3 runtime flag: `UNKNOWN`; no activation attempted.
 - Formal B4: `0/22`, `NOT RUN`.
+
+## Predeployment security correction (separate branch, nondeploy)
+
+- Branch: `work/v180-visitor-only-uat010-security-fix`, forked from Visitor-only SHA `6e802dc59bf62029e8d5acbc4f7619c726d02d69`.
+- Visitor draft UPDATE requires a nonempty, valid and matching RowVersion. Missing, invalid and stale values fail with `ROWVERSION_CONFLICT` (HTTP 409 through the existing API exception handler). Admin and Leader update behavior is unchanged.
+- Current Visitor authorization requires active account, time-effective Visitor role, Active HR status, time-effective team assignment, active team and matching Organization. Legacy UserRoles and UserTeamScopes do not restore expired/revoked permissions.
+- Visitor-only list/search recheck current access and scope to effective teams in the same Organization. Organization-scoped global records with null TeamId remain readable, but cannot be edited without the separate write authorization.
+- The existing manual Backend and Frontend deployment workflows require `approved_sha`, restrict manual dispatch to the correction branch, explicitly checkout `github.sha`, and stamp the built artifacts with `source-sha.txt`. Main-branch automatic push behavior is unchanged. A deployment workflow is NOT executed by this correction.
+- Dedicated CI on the correction branch must pass, including disposable SQL fixture and migration immutability, before any Owner deployment decision. Verify the actual run's head SHA, event, artifact provenance, rollback artifact, and current UAT schema again before deployment.
+- Known previous UAT Backend SHA: `68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2`. Frontend SHA: `007b79dba12a1668b66164ac9f8440bbb8ac8e90`.
+- Explicit Owner authorization is still required for each Backend and Frontend deployment and for synthetic UAT data provisioning. No SQL DDL/DML, migration, Package B B3 activation, or production deployment is included.
