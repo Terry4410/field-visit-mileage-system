@@ -130,7 +130,9 @@
 - 新增 `V180OptionCPublicationCatalogRules`：Atomic Publication orchestrator 在任何 transaction/DML 前，必須以唯讀 system catalog 驗證 ChangeRequests、ChangeRequestEvents、Stage、Published Version 的必要欄位、唯一索引與 trusted CHECK constraints；僅資料庫名稱符合 `OptionCIsolated_*` 不再視為 schema 證據。
 - 新增 `1800_014` **NONEXECUTABLE DRAFT**：Stage／Published Version ledger、穩定 `LocationId`、歷史版本保留、Current／ChangeRequest 唯一性、Proposal／Address／Duplicate evidence hash binding、Preflight／Verify／Recovery。`013` 保留，正式 `database/migrations` 未變更。
 - 新增 014 provenance/安全邊界測試；本機 Python CI static tests：4 tests PASS。
-- 本批尚未完成正式 UAT schema backfill、公開 API、Admin E2E 或 Business UAT；.NET／SQL evidence 必須由本批新 SHA 的 GitHub CI 重新取得。C1/C3/C5/C6 仍不可標示完成。
+- GitHub connector 以原始 parent `d3a47b1ee2681f54a237bb2d5bc1d9eb0fd741ba` 與相同 Tree `5a10c9a458556e8b8fefd391c0b65a71e00d1a60` 重建並發布；遠端提交為 `a2cf11b0e8791cc38c422a0ca6ccc976d29eb513`（原本本機提交 `006a4764e2f34face6cf47f8433d067ee3acfa5b` 的來源內容與 Tree 相同，SHA 因 Git metadata 不同）。
+- Exact-SHA nondeploy CI [Run 38360812533](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38360812533) = **SUCCESS**；`provenance-and-build` job 及其 4 項 Python static、Frontend npm/test/build、Backend build/tests、disposable SQL、011/012 isolated rehearsal、NO-GO boundary steps 均 SUCCESS；Run 無 artifacts。
+- 本批尚未完成正式 UAT schema backfill、公開 API、Admin E2E 或 Business UAT；CI 證明 build/test 與隔離 rehearsal，不等於正式 Atomic Swap／Admin approval／Business UAT。C1/C3/C5/C6 仍不可標示完成。
 
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
