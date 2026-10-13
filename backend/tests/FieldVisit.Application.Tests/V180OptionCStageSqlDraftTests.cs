@@ -173,6 +173,45 @@ public sealed class V180OptionCStageSqlDraftTests
             Assert.Equal("1",await Scalar(db,
                 "SELECT CAST(IsActive AS nvarchar(1)) FROM dbo.Locations WHERE LocationId=10"));
 
+            // Stable LocationId published-version ledger: one current row and
+            // immutable version identity, not a replacement LocationId.
+            await Exec(db, """
+                INSERT dbo.LocationPublishedVersions(LocationId,VersionNumber,
+                    ChangeRequestId,IsCurrent,PublishedJson,PublishedSha256,
+                    PublishedAt,PublishedByUserId,SourceLocationRowVersion)
+                VALUES(10,1,NULL,1,N'{"Address":"Old"}',
+                    HASHBYTES('SHA2_256',CONVERT(varbinary(max),N'{"Address":"Old"}')),
+                    SYSUTCDATETIME(),1,0x0000000000000001);
+                """);
+            var twoCurrent=await Assert.ThrowsAsync<SqlException>(()=>Exec(db, """
+                INSERT dbo.LocationPublishedVersions(LocationId,VersionNumber,
+                    ChangeRequestId,IsCurrent,PublishedJson,PublishedSha256,
+                    PublishedAt,PublishedByUserId,SourceLocationRowVersion)
+                VALUES(10,2,1,1,N'{"Address":"New"}',
+                    HASHBYTES('SHA2_256',CONVERT(varbinary(max),N'{"Address":"New"}')),
+                    SYSUTCDATETIME(),2,0x0000000000000001);
+                """));
+            Assert.Contains(twoCurrent.Number,new[]{2601,2627});
+            // The historical version remains available once current advances.
+            await Exec(db, """
+                BEGIN TRANSACTION;
+                UPDATE dbo.LocationPublishedVersions
+                    SET IsCurrent=0 WHERE LocationId=10 AND VersionNumber=1;
+                INSERT dbo.LocationPublishedVersions(LocationId,VersionNumber,
+                    ChangeRequestId,IsCurrent,PublishedJson,PublishedSha256,
+                    PublishedAt,PublishedByUserId,SourceLocationRowVersion)
+                VALUES(10,2,1,1,N'{"Address":"New"}',
+                    HASHBYTES('SHA2_256',CONVERT(varbinary(max),N'{"Address":"New"}')),
+                    SYSUTCDATETIME(),2,0x0000000000000001);
+                COMMIT TRANSACTION;
+                """);
+            Assert.Equal("2",await Scalar(db,
+                "SELECT CAST(VersionNumber AS nvarchar(10)) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+            Assert.Equal("2",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(10)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
+            Assert.Equal("Approved",await Scalar(db,
+                "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=10"));
+
             // Exercise the actual unregistered stage writer under a
             // caller-owned SERIALIZABLE transaction, not just direct SQL.
             var requestPublicId=Guid.NewGuid();
