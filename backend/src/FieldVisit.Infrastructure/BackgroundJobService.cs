@@ -36,6 +36,8 @@ public sealed class BackgroundJobService(
     public async Task<BackgroundJobDto> EnqueueGeocodingAsync(CurrentUserDto user, CreateGeocodingJobRequest request, CancellationToken ct)
     {
         if (!HasRole(user, "leader") && !HasRole(user, "admin")) throw new UnauthorizedAccessException("目前角色無權建立地點解析工作。");
+        if (HasRole(user, "leader") && !HasRole(user, "admin") && user.TeamIds.Count == 0)
+            throw new UnauthorizedAccessException("小組長缺少有效小組授權，不得建立地點解析工作。");
         var mode = request.Mode?.Trim() ?? "Selected";
         if (!(mode.Equals("AllPending", StringComparison.OrdinalIgnoreCase)
               || mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase)
@@ -483,13 +485,20 @@ public sealed class BackgroundJobService(
             {
                 var result = await geocoding.ResolveAsync(location.Address, location.PlusCode, ct);
                 if (!result.Success || !result.Latitude.HasValue || !result.Longitude.HasValue) throw new InvalidOperationException(result.ErrorMessage ?? result.ErrorCode ?? "地址解析失敗。");
-                location.LocationCode ??= NewLocationCode(); location.Latitude = result.Latitude; location.Longitude = result.Longitude; location.GeocodingStatus = "Completed"; location.GeocodedAt = DateTime.UtcNow; location.ApprovalStatus = "Approved"; location.IsActive = true; location.UpdatedAt = DateTime.UtcNow;
-                db.LocationApprovalHistories.Add(new LocationApprovalHistory { LocationId = location.LocationId, Action = "Approved", ReviewedByUserId = job.RequestedByUserId, Comments = "Background geocoding/publish", ActionAt = DateTime.UtcNow });
+                // Option C: geocoding never approves, publishes or deactivates a Location.
+                // An independent, audited Admin publication step is required.
+                location.LocationCode ??= NewLocationCode();
+                location.Latitude = result.Latitude;
+                location.Longitude = result.Longitude;
+                location.GeocodingStatus = "Completed";
+                location.GeocodedAt = DateTime.UtcNow;
+                location.UpdatedAt = DateTime.UtcNow;
                 item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.Latitude, result.Longitude }, JsonOptions); job.SuccessCount++;
             }
             catch (Exception ex)
             {
-                location.GeocodingStatus = "Failed"; location.IsActive = false; item.Status = "Failed"; item.ErrorCode = "GEOCODING_JOB_FAILED"; item.ErrorMessage = ex.Message; job.FailedCount++;
+                // Preserve existing Approved/Active status on a failed re-geocode.
+                location.GeocodingStatus = "Failed"; item.Status = "Failed"; item.ErrorCode = "GEOCODING_JOB_FAILED"; item.ErrorMessage = ex.Message; job.FailedCount++;
             }
             item.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
