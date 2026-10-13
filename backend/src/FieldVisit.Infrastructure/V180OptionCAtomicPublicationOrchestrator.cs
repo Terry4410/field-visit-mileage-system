@@ -63,9 +63,13 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
 
             var sqlTx = tx.GetDbTransaction() as SqlTransaction
                 ?? throw new InvalidOperationException("OPTIONC_SQL_TRANSACTION_REQUIRED");
+            var evidence = new V180OptionCLiveApprovalEvidence(
+                requesterValid, admin,
+                request.OrganizationId == reviewer.OrganizationId.Value,
+                request.TeamId.HasValue);
             await V180OptionCAtomicPublicationWriter.ExecuteAsync(
                 connection, sqlTx, requestPublicId, request.OrganizationId,
-                reviewer.UserId, decisionKey, reason, requesterValid, admin, ct);
+                reviewer.UserId, decisionKey, reason, evidence, ct);
             // A failed/unknown commit acknowledgement is NEVER retried here.
             // Operator must reconcile on a NEW connection before any action.
             try

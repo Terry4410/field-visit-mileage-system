@@ -154,6 +154,13 @@
 - **C5**：**PARTIAL / HOLD**。目前 isolated SQL/runtime subtests PASS；真實 concurrent approval、fault-injected commit acknowledgement 與完整 API/E2E 仍 HOLD。
 - **C6 Business UAT**：**BLOCKED / 0/22**。未執行 UAT migration/deployment、B3/B4、013 或 Production 操作。
 
+## 2R. C1/C3/C5 executable integration harness（2026-10-13）
+
+- 新增未註冊 `V180OptionCAdminApprovalService` 與 SQL-backed isolated approval-evidence provider。服務先在同一 `Serializable` transaction 內鎖定 canonical `ChangeRequests`，重新讀取申請人資格、獨立 Admin 資格、組織及小組界線，再呼叫既有 Atomic Publication Writer；不再由呼叫端傳入 live authorization boolean。
+- 新增 disposable SQL E2E：Visitor canonical Submitted request → persistent Stage → matching geocode／duplicate evidence → independent Admin approval → Location／Stage／Ledger／Request／Approved+Applied audit atomic publication；核對 `LocationId` 不變、Current version 2、version 1 保留，以及 `VisitTripStop`／`VisitTripSnapshotStop` 參照數不變。
+- 同一 harness 覆蓋自審、reviewer 撤權、requester 撤權、跨組織／小組拒絕、DecisionKey replay、audit FK fault rollback；public UAT/Production route、DI registration 與 B3 flag 仍 disabled。
+- 此批需等新 SHA 的 exact-SHA CI 實際完成；在 CI 與所有 mandatory SQL/E2E 結果核實前，C1/C3/C5 仍 **HOLD**，不得宣稱 Business UAT PASS。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
@@ -184,5 +191,4 @@
 3. **一份放行紀錄**：exact SHA、Migration schema、CI run、實際 UAT 測試證據、Owner 核准。
 
 原始設計與治理資料仍可在 `docs/release/UAT010_PACKAGEB_OPTIONC_CANONICAL_NONDEPLOY_CONTRACT.md`、`docs/release/UAT010_PACKAGEB_OPTIONC_MIGRATION_REGISTRY_NONEXECUTABLE.md` 與 `docs/release/optionc-canonical-sql-draft/` 追溯。
-
 

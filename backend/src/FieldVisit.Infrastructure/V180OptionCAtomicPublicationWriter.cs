@@ -14,15 +14,19 @@ internal static class V180OptionCAtomicPublicationWriter
     internal static async Task ExecuteAsync(
         SqlConnection connection, SqlTransaction transaction,
         Guid requestPublicId, int organizationId, int liveReviewerUserId,
-        Guid decisionKey, string reason, bool liveRequesterAuthorized,
-        bool liveIndependentAdminAuthorized, CancellationToken ct)
+        Guid decisionKey, string reason,
+        V180OptionCLiveApprovalEvidence authorization, CancellationToken ct)
     {
         if (connection.State != ConnectionState.Open
             || transaction.Connection != connection
             || transaction.IsolationLevel != IsolationLevel.Serializable
             || requestPublicId == Guid.Empty || decisionKey == Guid.Empty
             || organizationId <= 0 || liveReviewerUserId <= 0
-            || !liveRequesterAuthorized || !liveIndependentAdminAuthorized
+            || authorization is null
+            || !authorization.RequesterEligible
+            || !authorization.IndependentAdminEligible
+            || !authorization.OrganizationMatches
+            || !authorization.TeamMatches
             || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim()
             || reason.Length > 1000)
             throw new InvalidOperationException("OPTIONC_ATOMIC_PUBLICATION_DENIED");

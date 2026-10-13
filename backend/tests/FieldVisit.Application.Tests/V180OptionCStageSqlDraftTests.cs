@@ -487,15 +487,15 @@ public sealed class V180OptionCStageSqlDraftTests
                 await Assert.ThrowsAsync<InvalidOperationException>(()=>
                     FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
                         .ExecuteAsync(db,denyTx,requestPublicId,1,2,Guid.NewGuid(),
-                            "Denied",false,true,CancellationToken.None));
+                            "Denied",new(false,true,true,true),CancellationToken.None));
                 await Assert.ThrowsAsync<InvalidOperationException>(()=>
                     FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
                         .ExecuteAsync(db,denyTx,requestPublicId,1,2,Guid.NewGuid(),
-                            "Denied",true,false,CancellationToken.None));
+                            "Denied",new(true,false,true,true),CancellationToken.None));
                 await Assert.ThrowsAsync<SqlException>(()=>
                     FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
                         .ExecuteAsync(db,denyTx,requestPublicId,1,1,Guid.NewGuid(),
-                            "Self review",true,true,CancellationToken.None));
+                            "Self review",new(true,true,true,true),CancellationToken.None));
                 await denyTx.RollbackAsync();
             }
             Assert.Equal("Pending",await Scalar(db,
@@ -510,7 +510,7 @@ public sealed class V180OptionCStageSqlDraftTests
                 await Assert.ThrowsAsync<SqlException>(()=>
                     FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
                         .ExecuteAsync(db,crossOrgTx,requestPublicId,999,2,Guid.NewGuid(),
-                            "Wrong organization",true,true,CancellationToken.None));
+                            "Wrong organization",new(true,true,false,false),CancellationToken.None));
                 await crossOrgTx.RollbackAsync();
             }
             Assert.Equal("Pending",await Scalar(db,
@@ -525,7 +525,7 @@ public sealed class V180OptionCStageSqlDraftTests
             {
                 await FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
                     .ExecuteAsync(db,publishTx,requestPublicId,1,2,decision,
-                        "Independently reviewed",true,true,CancellationToken.None);
+                        "Independently reviewed",new(true,true,true,true),CancellationToken.None);
                 await publishTx.CommitAsync();
             }
             Assert.Equal("Applied",await Scalar(db,
@@ -556,7 +556,7 @@ public sealed class V180OptionCStageSqlDraftTests
                 await Assert.ThrowsAsync<SqlException>(()=>
                     FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter.ExecuteAsync(
                         db,replayTx,requestPublicId,1,2,decision,
-                        "Independently reviewed",true,true,CancellationToken.None));
+                        "Independently reviewed",new(true,true,true,true),CancellationToken.None));
                 await replayTx.RollbackAsync();
             }
 
