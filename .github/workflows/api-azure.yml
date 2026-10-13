@@ -48,7 +48,7 @@ jobs:
         run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build -o ./publish
       - name: Stamp and verify backend artifact provenance
         run: |
-          printf '%s\\n' "$GITHUB_SHA" > ./publish/source-sha.txt
+          echo "$GITHUB_SHA" > ./publish/source-sha.txt
           test "$(cat ./publish/source-sha.txt)" = "$GITHUB_SHA"
       - name: Bundle Traditional Chinese PDF font
         run: |
