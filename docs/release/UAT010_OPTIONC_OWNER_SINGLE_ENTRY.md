@@ -140,7 +140,9 @@
 - Backfill 在任何寫入前拒絕缺少名稱／地址／建立者／RowVersion、組織／小組／使用者參照不存在、已部分回填或競態重跑；Pending/Inactive drafts 不進入 published ledger。
 - 新增隔離 SQL runtime test：Preflight → 014 Up → Verify、ambiguous-source rollback、deterministic backfill、rerun denial、current/version uniqueness、catalog guard、FK rollback 與 LocationId preservation。
 - 強化 `V180OptionCPublicationCatalogRules`：檢查 index unique/filter 定義、014 必要 FK trusted 狀態，以及必要 CHECK constraints trusted 狀態。
-- 本批程式／SQL runtime evidence 尚待新 exact-SHA GitHub CI；本機僅可執行 Python static tests（4 PASS），本環境沒有 dotnet/Docker。C1/C3/C5/C6 暫維持 HOLD。
+- Exact-SHA candidate `63f9b4aef4987837637c3ac6aa3e776a9bf1849f` 的 [Run 38362702475](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38362702475) = **SUCCESS**：Frontend 22 files / 99 tests PASS；Backend 701/701 PASS；014 runtime test `OptionC014_runtime_preflight_up_verify_backfill_and_catalog_guard_are_fail_closed` PASS；disposable SQL fixture 5/5 PASS；canonical 011/012 rehearsal 1/1 PASS；所有 nondeploy/NO-GO guards PASS。
+- 014 runtime 已實際驗證 Preflight → Up → Verify、ambiguous source fail-closed、deterministic version-1 backfill、Pending/Inactive 排除、rerun denial、stable LocationId、current/version uniqueness、catalog index/FK/CHECK trusted contract 與跨表 rollback。CI 無 artifacts。
+- C5 的 014 runtime 子關卡 **PASS**；但完整 C5 仍為 **PARTIAL / HOLD**，因完整公開 API/E2E、unknown-commit fault injection、並行 live authorization 尚未完成。C1/C3/C6 仍不可標示完成。
 
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
