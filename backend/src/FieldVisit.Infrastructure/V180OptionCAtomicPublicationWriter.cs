@@ -80,6 +80,15 @@ internal static class V180OptionCAtomicPublicationWriter
               AND Latitude IS NOT NULL AND Longitude IS NOT NULL;
             IF @stageVersion IS NULL
                 THROW 51352,N'OPTIONC_STAGE_NOT_READY',1;
+            -- A staged SHA must be the exact request payload. The canonical
+            -- request and staged version cannot be independently repointed.
+            IF @stageHash IS NULL OR @stageHash <>
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),@proposed))
+                THROW 51359,N'OPTIONC_PROPOSAL_HASH_DRIFT',1;
+            IF ISJSON(@proposed)<>1
+                OR NULLIF(LTRIM(RTRIM(JSON_VALUE(@proposed,N'$.LocationName'))),N'') IS NULL
+                OR NULLIF(LTRIM(RTRIM(JSON_VALUE(@proposed,N'$.Address'))),N'') IS NULL
+                THROW 51360,N'OPTIONC_PUBLISHED_IDENTITY_INVALID',1;
 
             IF EXISTS(SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
                 WHERE DecisionKey=@decision)
