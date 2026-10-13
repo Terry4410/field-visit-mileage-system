@@ -20,8 +20,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """);
         var tripBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10");
         var snapshotBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10");
-        var tripRefsBefore = await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH");
-        var snapshotRefsBefore = await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH");
+        var tripRefsBefore = await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY VisitTripStopId FOR JSON PATH");
+        var snapshotRefsBefore = await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY VisitTripSnapshotStopId FOR JSON PATH");
         var versionBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10");
         var currentBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1");
         var request = await h.CreateRequest(10); await h.PrepareStage(request);
@@ -62,8 +62,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """));
         Assert.Equal(tripBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10"));
         Assert.Equal(snapshotBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
-        Assert.Equal(tripRefsBefore, await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH"));
-        Assert.Equal(snapshotRefsBefore, await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH"));
+        Assert.Equal(tripRefsBefore, await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY VisitTripStopId FOR JSON PATH"));
+        Assert.Equal(snapshotRefsBefore, await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY VisitTripSnapshotStopId FOR JSON PATH"));
         Assert.Equal(versionBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
         Assert.Equal(currentBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
 
@@ -116,10 +116,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await h.ResetActors();
             var request=await h.CreateRequest(location); await h.PrepareStage(request);
             var gate=new GateProvider();
-            var first=Task.Run(()=>h.Decide(Service(gate),request,firstDecision,Guid.NewGuid(),null));
-            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var first=h.Decide(Service(gate),request,firstDecision,Guid.NewGuid(),null);
+            var gateOrFirst=await Task.WhenAny(gate.Entered.Task,first);
+            if(gateOrFirst==first){var ended=await first;throw new InvalidOperationException($"FIRST_DECISION_ENDED_BEFORE_GATE committed={ended.Committed} denied={ended.Denied}");}
+            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
             var ready=new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var second=Task.Run(()=>h.Decide(Service(),request,secondDecision,Guid.NewGuid(),ready));
+            var second=h.Decide(Service(),request,secondDecision,Guid.NewGuid(),ready);
             var secondSpid=await ready.Task.WaitAsync(TimeSpan.FromSeconds(10));
             await h.WaitForLockWait(secondSpid);
             gate.Release.TrySetResult();
@@ -163,8 +165,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await h.ResetActors();
             var request=await h.CreateRequest(location++); await h.PrepareStage(request);
             var gate=new GateProvider(); var service=Service(gate);
-            var running=Task.Run(()=>h.Decide(service,request,"reject",Guid.NewGuid(),null));
-            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var running=h.Decide(service,request,"reject",Guid.NewGuid(),null);
+            var gateOrRunning=await Task.WhenAny(gate.Entered.Task,running);
+            if(gateOrRunning==running){var ended=await running;throw new InvalidOperationException($"REVOCATION_DECISION_ENDED_BEFORE_GATE committed={ended.Committed} denied={ended.Denied}");}
+            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
             await h.Exec(mutation); // committed on a separate SQL session before live evidence is read
             gate.Release.TrySetResult();
             var outcome=await running;
@@ -287,7 +291,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         internal CommitAckLossProxy(string target)
         {
             var comma=target.LastIndexOf(',');
-            targetHost=target[..comma];targetPort=int.Parse(target[(comma+1)..]);
+            targetHost="127.0.0.1";targetPort=int.Parse(target[(comma+1)..]);
             listener=new(System.Net.IPAddress.Loopback,0);listener.Start();
             loop=RunAsync();
         }
