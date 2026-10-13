@@ -1,0 +1,52 @@
+name: UAT010 location role UI nondeploy verification
+
+on:
+  push:
+    branches: [work/v180-uat010-location-role-ui-r1]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uat010-location-role-ui-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frontend-verify:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-uat010-location-role-ui-r1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Guard source and frontend-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 0899f3996618c4b2bd02ecd659c76fdd07cc91ed HEAD
+          git diff --name-only 0899f3996618c4b2bd02ecd659c76fdd07cc91ed HEAD > /tmp/uat010-delta.txt
+          if grep -Ev '^(frontend/src/(pages/(LeaderPage|ScopedLocationPage)[.]tsx|location-ownership-ui[.]ts|location-role-ui[.]test[.]ts)|[.]github/workflows/uat010-location-role-ui-verify[.]yml)$' /tmp/uat010-delta.txt; then
+            echo '::error::Unexpected path outside the authorized frontend-only change set.'
+            exit 1
+          fi
+          grep -Fq 'leaderScopedTeamOptions' frontend/src/pages/ScopedLocationPage.tsx
+          grep -Fq 'mayEditVisitorDraft' frontend/src/pages/ScopedLocationPage.tsx
+          grep -Fq 'ScopedLocationPage role="leader"' frontend/src/pages/LeaderPage.tsx
+          grep -Fq 'Excel／既有批次維護' frontend/src/pages/LeaderPage.tsx
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Restore dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Build frontend (NONDEPLOY)
+        working-directory: frontend
+        run: npm run build
