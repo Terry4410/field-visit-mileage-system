@@ -1,4 +1,5 @@
 using System.Data;
+using System.IO;
 using FieldVisit.Application;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -63,7 +64,22 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                 reviewer.UserId, decisionKey, reason, requesterValid, admin, ct);
             // A failed/unknown commit acknowledgement is NEVER retried here.
             // Operator must reconcile on a NEW connection before any action.
-            await tx.CommitAsync(ct);
+            try
+            {
+                await tx.CommitAsync(ct);
+            }
+            catch (Exception commitError) when (commitError is SqlException
+                or TimeoutException or OperationCanceledException or IOException)
+            {
+                // Unknown terminal outcome is never a safe reason to retry.
+                // Observe on a fresh connection; even complete evidence is
+                // reported as UNKNOWN to the caller for operator reconciliation.
+                var status = await V180OptionCUnknownCommitReconciler.ObserveAsync(
+                    connection.ConnectionString, requestPublicId, decisionKey,
+                    reviewer.UserId, ct);
+                throw new InvalidOperationException(
+                    "OPTIONC_UNKNOWN_COMMIT_" + status, commitError);
+            }
         }
         catch
         {
