@@ -224,14 +224,18 @@ public sealed class V180OptionCStageSqlDraftTests
                     await using var mutation=new SqlCommand("""
                         UPDATE dbo.LocationPublishedVersions
                         SET IsCurrent=0 WHERE LocationId=10 AND VersionNumber=2;
-                        INSERT dbo.LocationPublishedVersions(
-                            LocationId,VersionNumber,ChangeRequestId,IsCurrent,
-                            PublishedJson,PublishedSha256,PublishedAt,
-                            PublishedByUserId,SourceLocationRowVersion)
-                        VALUES(10,3,1,1,N'{"Address":"Third"}',
-                            HASHBYTES('SHA2_256',
-                                CONVERT(varbinary(max),N'{"Address":"Third"}')),
-                            SYSUTCDATETIME(),2,0x0000000000000001);
+                        UPDATE dbo.LocationPublishedVersions
+                        SET IsCurrent=1 WHERE LocationId=10 AND VersionNumber=1;
+                        UPDATE dbo.LocationPublicationStages
+                        SET StageStatus=N'Published' WHERE ChangeRequestId=1;
+                        UPDATE dbo.Locations SET ApprovalStatus=N'Pending'
+                        WHERE LocationId=10;
+                        UPDATE dbo.ChangeRequests SET Status=N'Applied',
+                            ReviewedByUserId=2,
+                            ReviewedAt=DATEADD(SECOND,1,SubmittedAt),
+                            AppliedAt=DATEADD(SECOND,1,SubmittedAt),
+                            ReviewReason=N'Atomic rollback rehearsal'
+                        WHERE ChangeRequestId=1;
                         """,db,rollbackTx);
                     await mutation.ExecuteNonQueryAsync();
                     await using var brokenAudit=new SqlCommand("""
@@ -257,6 +261,12 @@ public sealed class V180OptionCStageSqlDraftTests
                 "SELECT CAST(COUNT(*) AS nvarchar(10)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
             Assert.Equal("Pending",await Scalar(db,
                 "SELECT Status FROM dbo.ChangeRequests WHERE ChangeRequestId=1"));
+            Assert.Equal("ReadyForPublish",await Scalar(db,
+                "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE ChangeRequestId=1"));
+            Assert.Equal("Approved",await Scalar(db,
+                "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=10"));
+            Assert.Equal("0",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(10)) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=1"));
 
             // Exercise the actual unregistered stage writer under a
             // caller-owned SERIALIZABLE transaction, not just direct SQL.
