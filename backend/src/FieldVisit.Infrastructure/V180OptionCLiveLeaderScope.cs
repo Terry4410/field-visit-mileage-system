@@ -44,10 +44,12 @@ public static class V180OptionCLiveLeaderScope
             && x.IsActive
             && (!x.EffectiveFrom.HasValue || x.EffectiveFrom <= today)
             && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
-        var assignmentValid = await db.UserTeamAssignments.AsNoTracking().AnyAsync(x =>
-            x.UserId == actor.UserId && x.TeamId == teamId.Value
-            && x.EffectiveFrom <= today
-            && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
+        var assignmentValid = await db.UserTeamScopes.AsNoTracking().AnyAsync(x =>
+                x.UserId == actor.UserId && x.TeamId == teamId.Value && x.IsActive, ct)
+            && await db.UserTeamAssignments.AsNoTracking().AnyAsync(x =>
+                x.UserId == actor.UserId && x.TeamId == teamId.Value
+                && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
         var employmentId = await db.UserIdentityProfiles.AsNoTracking()
             .Where(x => x.UserId == actor.UserId)
             .Select(x => x.EmploymentId).FirstOrDefaultAsync(ct);
