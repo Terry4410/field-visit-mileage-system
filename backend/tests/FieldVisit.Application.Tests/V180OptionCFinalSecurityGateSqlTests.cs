@@ -252,8 +252,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private readonly System.Net.Sockets.TcpListener listener;
         private readonly CancellationTokenSource stop=new();
         private readonly Task loop;
+        private System.Net.Sockets.TcpClient? activeClient;
         private int commitRequests;
         private int responseDropped;
+        private int dropNext;
         internal int Port=>((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         internal int CommitRequestsForwarded=>Volatile.Read(ref commitRequests);
         internal bool CommitResponseDropped=>Volatile.Read(ref responseDropped)==1;
@@ -270,7 +272,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         {
             try
             {
-                using var client=await listener.AcceptTcpClientAsync(stop.Token);
+                using var client=await listener.AcceptTcpClientAsync(stop.Token);activeClient=client;
                 using var server=new System.Net.Sockets.TcpClient();
                 await server.ConnectAsync(targetHost,targetPort,stop.Token);
                 var toServer=PumpAsync(client.GetStream(),server.GetStream(),true);
@@ -283,43 +285,50 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         }
         private async Task PumpAsync(System.Net.Sockets.NetworkStream input,System.Net.Sockets.NetworkStream output,bool clientToServer)
         {
-            var buffer=new byte[8192];var packet=new List<byte>();var message=new List<byte>();bool armed=false,dropNext=false;
+            var buffer=new byte[8192];var packet=new List<byte>();var message=new List<byte>();
             while(!stop.IsCancellationRequested)
             {
                 int n;try{n=await input.ReadAsync(buffer,stop.Token);}catch{return;} if(n==0)return;
-                for(int i=0;i<n;i++) packet.Add(buffer[i]);
+                for(int i=0;i<n;i++)packet.Add(buffer[i]);
                 while(packet.Count>=8)
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
-                    byte type=packet[0],status=packet[1];var payload=packet.GetRange(8,length-8).ToArray();
-                    packet.RemoveRange(0,length);
-                    if(clientToServer)
+                    byte type=packet[0],status=packet[1];var payload=packet.GetRange(8,length-8).ToArray();packet.RemoveRange(0,length);
+                    if(clientToServer&&type==0x01)
                     {
-                        if(type==0x01) { message.AddRange(payload); if((status&0x01)!=0) {
+                        message.AddRange(payload);
+                        if((status&0x01)!=0)
+                        {
                             var sql=System.Text.Encoding.Unicode.GetString(message.ToArray());
                             if(sql.Contains("INSERT dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)
-                               ||sql.Contains("INSERT INTO dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)) armed=true;
+                               ||sql.Contains("INSERT INTO dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)) Volatile.Write(ref dropNext,0); // arm commit recognition below
+                            if(sql.Contains("INSERT dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)
+                               ||sql.Contains("INSERT INTO dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase))
+                                Interlocked.Exchange(ref commitRequests,-1);
                             message.Clear();
-                        }}
-                        if(armed&&type==0x0e){dropNext=true;armed=false;Interlocked.Increment(ref commitRequests);}
-                        await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
-                    }
-                    else
-                    {
-                        if(dropNext)
-                        {
-                            Interlocked.Exchange(ref responseDropped,1);
-                            clientSocketClose();
-                            return;
                         }
-                        await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
+                    }
+                    if(clientToServer&&type==0x0e&&Volatile.Read(ref commitRequests)==-1)
+                    {
+                        Interlocked.Exchange(ref commitRequests,1);
+                        Interlocked.Exchange(ref dropNext,1);
                     }
                 }
-                if(clientToServer&&packet.Count==0) { /* complete framed input forwarded above */ }
+                if(clientToServer)
+                {
+                    await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
+                }
+                else if(Interlocked.Exchange(ref dropNext,0)==1)
+                {
+                    Interlocked.Exchange(ref responseDropped,1);activeClient?.Close();return;
+                }
+                else
+                {
+                    await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
+                }
             }
-            void clientSocketClose(){listener.Stop();}
         }
-        public async ValueTask DisposeAsync(){stop.Cancel();listener.Stop();try{await loop.WaitAsync(TimeSpan.FromSeconds(2));}catch{}stop.Dispose();}
+        public async ValueTask DisposeAsync(){stop.Cancel();listener.Stop();activeClient?.Close();try{await loop.WaitAsync(TimeSpan.FromSeconds(2));}catch{}stop.Dispose();}
     }
 
     private static FieldVisit.Infrastructure.V180OptionCAdminApprovalService Service(
