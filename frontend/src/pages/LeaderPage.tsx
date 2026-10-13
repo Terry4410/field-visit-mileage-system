@@ -2,13 +2,24 @@ import{useEffect,useState}from"react";
 import{api,apiDownload}from"../api";
 import{correctionChangeText}from"../correction-ui";
 import{formatTripTime,hasLeaderTimeOverlap,leaderOverlapConfirmMessage,leaderOverlapWarningText}from"../leader-overlap";
+import ScopedLocationPage from "./ScopedLocationPage";
 import type{BackgroundJob,CorrectionRequest,DashboardSummary,ImportPreview,ManagedLocation,Team,Trip}from"../types";
 import{km,money,monthStart,todayTaipei}from"../v160";
 import{tripRouteSummary}from"../components/TripRouteDisplay";
 import{hasMinimumVisitStops}from"../trip-submit-rules";
 
 type Props={section:'dashboard'|'review'|'locations'};
-export default function LeaderPage({section}:Props){const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);if(section==='dashboard')return <Dashboard setMsg={setMsg} msg={msg}/>;if(section==='locations')return <Locations setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>;return <Review setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>}
+export default function LeaderPage({section}:Props){const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);if(section==='dashboard')return <Dashboard setMsg={setMsg} msg={msg}/>;if(section==='locations')return <LeaderLocationTabs setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>;return <Review setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>}
+function LeaderLocationTabs({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;busy:boolean;setBusy:(v:boolean)=>void}){
+ const [tab,setTab]=useState<"single"|"excel">("single");
+ return <>
+  <div className="actions" role="group" aria-label="地點管理模式">
+   <button type="button" className={tab==="single"?"btn":"btn secondary"} aria-pressed={tab==="single"} onClick={()=>setTab("single")}>單筆地點管理</button>
+   <button type="button" className={tab==="excel"?"btn":"btn secondary"} aria-pressed={tab==="excel"} onClick={()=>setTab("excel")}>Excel／既有批次維護</button>
+  </div>
+  {tab==="single"?<ScopedLocationPage role="leader"/>:<Locations setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>}
+ </>;
+}
 function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}){return <div className="card stat"><div className="label">{label}</div><div className="value">{value}</div>{hint&&<div className="hint">{hint}</div>}</div>}
 function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){const[d,setD]=useState<DashboardSummary|null>(null);useEffect(()=>{api<DashboardSummary>('/dashboard').then(setD).catch(e=>setMsg(e.message))},[]);return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待審更正" value={d?.pendingCorrections??'—'}/></div>{msg&&<div className="note">{msg}</div>}</>}
 
