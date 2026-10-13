@@ -9,6 +9,10 @@
 - 014 is the reserved Option C candidate for staged location versions and the
   published-version ledger. It is still NONEXECUTABLE and only hard-stops into
   an `OptionCIsolated_*` disposable database.
+- 014 `Backfill.sql` is a deterministic version-1 rehearsal only: it projects
+  explicit Approved+Active Location masters, preserves LocationId and source
+  RowVersion, rejects ambiguous authority/data, and refuses rerun after any
+  ledger row exists. Pending/Inactive drafts are not published.
 - 011 must not run against UAT without exact-schema read-only preflight and explicit Owner migration authorization.
 - No SQL from this directory is automatically executed by CI; only static provenance checks are permitted.
 - The current executor rejects published identity/geocode-sensitive changes until a versioned swap is reviewed. The candidate 011/012 schema **does not yet** supply that versioned swap.

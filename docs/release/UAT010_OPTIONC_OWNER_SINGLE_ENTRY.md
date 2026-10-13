@@ -134,6 +134,14 @@
 - Exact-SHA nondeploy CI [Run 38360812533](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38360812533) = **SUCCESS**；`provenance-and-build` job 及其 4 項 Python static、Frontend npm/test/build、Backend build/tests、disposable SQL、011/012 isolated rehearsal、NO-GO boundary steps 均 SUCCESS；Run 無 artifacts。
 - 本批尚未完成正式 UAT schema backfill、公開 API、Admin E2E 或 Business UAT；CI 證明 build/test 與隔離 rehearsal，不等於正式 Atomic Swap／Admin approval／Business UAT。C1/C3/C5/C6 仍不可標示完成。
 
+## 2P. Option C P0 runtime completion batch（2026-10-13）
+
+- 新增 `1800_014/Backfill.sql` 非執行草稿：只在 `OptionCIsolated_*`、最新 `1.8.0-014` 的 disposable DB 執行；只將 `Approved+Active` Location 以明確欄位順序回填 version 1，保留穩定 `LocationId` 與 source RowVersion。
+- Backfill 在任何寫入前拒絕缺少名稱／地址／建立者／RowVersion、組織／小組／使用者參照不存在、已部分回填或競態重跑；Pending/Inactive drafts 不進入 published ledger。
+- 新增隔離 SQL runtime test：Preflight → 014 Up → Verify、ambiguous-source rollback、deterministic backfill、rerun denial、current/version uniqueness、catalog guard、FK rollback 與 LocationId preservation。
+- 強化 `V180OptionCPublicationCatalogRules`：檢查 index unique/filter 定義、014 必要 FK trusted 狀態，以及必要 CHECK constraints trusted 狀態。
+- 本批程式／SQL runtime evidence 尚待新 exact-SHA GitHub CI；本機僅可執行 Python static tests（4 PASS），本環境沒有 dotnet/Docker。C1/C3/C5/C6 暫維持 HOLD。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |

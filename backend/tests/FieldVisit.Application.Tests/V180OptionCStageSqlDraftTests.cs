@@ -10,6 +10,147 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCStageSqlDraftTests
 {
     [Fact]
+    public async Task OptionC014_runtime_preflight_up_verify_backfill_and_catalog_guard_are_fail_closed()
+    {
+        var raw = Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            if (Environment.GetEnvironmentVariable("E1_R1_REQUIRED") == "1")
+                throw new InvalidOperationException("OPTIONC_014_ISOLATED_SQL_REQUIRED");
+            return;
+        }
+        var root = new SqlConnectionStringBuilder(raw) { Pooling=false, ConnectTimeout=5 };
+        if (root.DataSource is not ("localhost,1433" or "127.0.0.1,1433")
+            || !root.InitialCatalog.Equals("master", StringComparison.OrdinalIgnoreCase)
+            || !root.UserID.Equals("sa", StringComparison.OrdinalIgnoreCase)
+            || root.IntegratedSecurity)
+            throw new InvalidOperationException("OPTIONC_014_NONLOCAL_TARGET_DENIED");
+        var name = "OptionCIsolated_" + Guid.NewGuid().ToString("N");
+        var repo = FindRepoRoot();
+        await using (var admin = new SqlConnection(root.ConnectionString))
+        {
+            await admin.OpenAsync();
+            await Exec(admin, $"CREATE DATABASE [{name}]");
+        }
+        try
+        {
+            var local = new SqlConnectionStringBuilder(root.ConnectionString)
+            { InitialCatalog=name, Pooling=false };
+            await using var db = new SqlConnection(local.ConnectionString);
+            await db.OpenAsync();
+            await Exec(db, """
+                CREATE TABLE dbo.SchemaVersions(
+                    VersionNumber nvarchar(40) NOT NULL PRIMARY KEY,
+                    Description nvarchar(500) NULL,AppliedAt datetime2(3) NOT NULL,
+                    AppliedBy nvarchar(200) NULL);
+                CREATE TABLE dbo.Organizations(OrganizationId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Teams(TeamId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Users(UserId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Locations(
+                    LocationId int NOT NULL PRIMARY KEY,
+                    OrganizationId int NOT NULL,TeamId int NOT NULL,
+                    CreatedByUserId int NOT NULL,LocationType nvarchar(20) NOT NULL,
+                    ApprovalStatus nvarchar(20) NOT NULL,IsActive bit NOT NULL,
+                    LocationName nvarchar(200) NULL,City nvarchar(100) NULL,
+                    District nvarchar(100) NULL,Address nvarchar(500) NULL,
+                    PlusCode nvarchar(100) NULL,TaxId nvarchar(50) NULL,
+                    MasterNote nvarchar(1000) NULL,
+                    RowVersion rowversion NOT NULL);
+                INSERT dbo.Organizations VALUES(1);
+                INSERT dbo.Teams VALUES(1);
+                INSERT dbo.Users VALUES(1),(2);
+                INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,
+                    LocationType,ApprovalStatus,IsActive,LocationName,Address)
+                    VALUES(10,1,1,1,N'Customer',N'Approved',1,N'Legacy A',N'Address A'),
+                          (11,1,1,1,N'Customer',N'Pending',0,N'Draft',N'Draft address'),
+                          (12,1,1,1,N'Customer',N'Approved',1,N'Ambiguous',NULL);
+                INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy)
+                    VALUES(N'1.8.0-010',N'isolated',SYSUTCDATETIME(),N'isolated');
+                """);
+            await Exec(db, Read(repo,"1800_011/Up.sql"));
+            await Exec(db, Read(repo,"1800_012/Up.sql"));
+            await Exec(db, Read(repo,"1800_014/Preflight.sql"));
+            await Exec(db, Read(repo,"1800_014/Up.sql"));
+            Assert.Equal("1.8.0-014", await Scalar(db,
+                "SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC"));
+            await Exec(db, Read(repo,"1800_014/Verify.sql"));
+
+            await Assert.ThrowsAsync<SqlException>(()=>Exec(db,
+                Read(repo,"1800_014/Backfill.sql")));
+            Assert.Equal("0",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.LocationPublishedVersions"));
+
+            await Exec(db, "UPDATE dbo.Locations SET Address=N'Address C' WHERE LocationId=12");
+            await Exec(db, Read(repo,"1800_014/Backfill.sql"));
+            await FieldVisit.Infrastructure.V180OptionCPublicationCatalogRules
+                .RequireAsync(db, CancellationToken.None);
+            Assert.Equal("1",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND VersionNumber=1 AND IsCurrent=1"));
+            Assert.Equal("0",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.LocationPublishedVersions WHERE LocationId=11"));
+            Assert.Equal("1",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.LocationPublishedVersions WHERE LocationId=12"));
+            Assert.Equal("1",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.Locations l JOIN dbo.LocationPublishedVersions v ON v.LocationId=l.LocationId WHERE l.LocationId=v.LocationId"));
+            await Assert.ThrowsAsync<SqlException>(()=>Exec(db,
+                Read(repo,"1800_014/Backfill.sql")));
+
+            var requestId = Guid.NewGuid();
+            await Exec(db, """
+                INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                    EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                    BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+                SELECT @requestId,1,1,N'Location',N'10',N'UpdatePublishedLocation',N'High',
+                    l.RowVersion,N'{}',N'{}',1,SYSUTCDATETIME(),N'Pending'
+                FROM dbo.Locations l WHERE l.LocationId=10;
+                """,new SqlParameter("@requestId",requestId));
+            await Assert.ThrowsAsync<SqlException>(()=>Exec(db,"""
+                INSERT dbo.LocationPublishedVersions(LocationId,VersionNumber,
+                    ChangeRequestId,IsCurrent,PublishedJson,PublishedSha256,
+                    PublishedAt,PublishedByUserId,SourceLocationRowVersion)
+                SELECT 10,2,ChangeRequestId,1,N'{""x"":1}',
+                    HASHBYTES('SHA2_256',CONVERT(varbinary(max),N'{""x"":1}')),
+                    SYSUTCDATETIME(),2,ExpectedEntityRowVersion
+                FROM dbo.ChangeRequests WHERE RequestPublicId=@requestId;
+                """,new SqlParameter("@requestId",requestId)));
+
+            var oldName = await Scalar(db,
+                "SELECT LocationName FROM dbo.Locations WHERE LocationId=10");
+            await using (var tx=(SqlTransaction)await db.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable))
+            {
+                try
+                {
+                    await using var mutate=new SqlCommand("""
+                        UPDATE dbo.LocationPublishedVersions SET IsCurrent=0
+                        WHERE LocationId=10 AND VersionNumber=1;
+                        UPDATE dbo.Locations SET LocationName=N'Rollback probe'
+                        WHERE LocationId=10;
+                        INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                            ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+                        VALUES(999999,N'Applied',2,SYSUTCDATETIME(),NEWID(),NEWID());
+                        """,db,tx);
+                    await mutate.ExecuteNonQueryAsync();
+                }
+                catch(SqlException)
+                {
+                    await tx.RollbackAsync();
+                }
+            }
+            Assert.Equal(oldName,await Scalar(db,
+                "SELECT LocationName FROM dbo.Locations WHERE LocationId=10"));
+            Assert.Equal("1",await Scalar(db,
+                "SELECT CAST(IsCurrent AS nvarchar(1)) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND VersionNumber=1"));
+        }
+        finally
+        {
+            await using var admin = new SqlConnection(root.ConnectionString);
+            await admin.OpenAsync();
+            await Exec(admin,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");
+        }
+    }
+
+    [Fact]
     public async Task Stage_is_persisted_separately_from_published_location_and_cannot_bypass_constraints()
     {
         var raw = Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
