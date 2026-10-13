@@ -99,7 +99,7 @@ public sealed class V180OptionCAdminApprovalE2ETests
             await using (var replay = (SqlTransaction)await db.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable))
             {
-                await Assert.ThrowsAsync<SqlException>(() => service.ApproveAsync(
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ApproveAsync(
                     db, replay, request, 1, 2, decision,
                     "Replay", CancellationToken.None));
                 await replay.RollbackAsync();
