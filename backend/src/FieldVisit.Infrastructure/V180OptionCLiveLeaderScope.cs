@@ -51,12 +51,26 @@ public static class V180OptionCLiveLeaderScope
         var employmentId = await db.UserIdentityProfiles.AsNoTracking()
             .Where(x => x.UserId == actor.UserId)
             .Select(x => x.EmploymentId).FirstOrDefaultAsync(ct);
-        var leaderAppointment = employmentId.HasValue
+        var directAppointment = employmentId.HasValue
             && await db.TeamLeaderAssignments.AsNoTracking().AnyAsync(x =>
                 x.EmploymentId == employmentId.Value && x.TeamId == teamId.Value
                 && x.EffectiveFrom <= today
                 && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
-        if (!teamValid || !assignmentValid || !leaderAppointment)
+        // A delegated leader must still satisfy the same live HR, role,
+        // explicit token scope, active team and effective team assignment
+        // gates. A delegation alone never expands team authorization.
+        var delegatedAppointment = employmentId.HasValue
+            && await (from d in db.TeamLeaderDelegations.AsNoTracking()
+                      join a in db.TeamLeaderAssignments.AsNoTracking()
+                        on d.TeamLeaderAssignmentId equals a.TeamLeaderAssignmentId
+                      where d.DelegateEmploymentId == employmentId.Value
+                        && a.TeamId == teamId.Value
+                        && a.EffectiveFrom <= today
+                        && (!a.EffectiveTo.HasValue || a.EffectiveTo >= today)
+                        && d.EffectiveFrom <= today && d.EffectiveTo >= today
+                      select d.TeamLeaderDelegationId).AnyAsync(ct);
+        if (!teamValid || !assignmentValid
+            || (!directAppointment && !delegatedAppointment))
             throw new UnauthorizedAccessException("OPTIONC_LEADER_APPOINTMENT_NOT_CURRENT");
     }
 }
