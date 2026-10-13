@@ -793,6 +793,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
+            string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
         if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
         {
             var teams = await EnsureVisitorCurrentAsync(user, ct);
@@ -820,11 +822,10 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         ValidateLocationRequest(user, request);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
-        // Option C: every role, including Admin, must stage published/high-risk
-        // edits through the canonical independent-review workflow.
-        // This direct endpoint is restricted to unpublished drafts.
-        if (row.ApprovalStatus == "Approved" || row.IsActive)
-            throw new InvalidOperationException("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
+        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
+            row, user, request.TeamId,
+            string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType,
+            request.IsActive);
         if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
         {
             var teams = await EnsureVisitorCurrentAsync(user, ct);
@@ -854,6 +855,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
+            row, user, row.TeamId, row.LocationType, false);
         row.IsActive = false;
         row.UpdatedAt = DateTime.UtcNow;
         AddAudit(user.UserId, "Location", locationId.ToString(), "LocationDeactivate", new { locationId });
@@ -898,6 +901,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        V180OptionCLocationWriteRules.EnsureUnpublishedDraft(row);
 
         var impact = await GetManagedLocationDeleteImpactAsync(user, locationId, ct);
         if (!impact.CanDelete)
