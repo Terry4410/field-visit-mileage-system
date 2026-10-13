@@ -110,6 +110,14 @@
 - 此為未註冊 nondeploy 候選，尚缺實際 Commit 故障注入及證據完整性（包含跨版本、來源欄位和 correlation）驗證，不可作為 UAT 發布放行依據。
 - 仍未實作正式 Migration、Admin API/E2E、並行撤權交易測試，B3、UAT、Production 維持 HOLD。
 
+## 2M. Exact-SHA CI 確認與 WORK 交接紀錄（2026-10-13）
+
+- 已確認 **遠端候選 SHA `c9d2149f1b0bed52ec326af5fbec6a9039ae65c2` 的 nondeploy GitHub Actions Run `38355122734` = SUCCESS**。該 Run 驗證的是這一個 SHA，而不是後續新 commit。
+- WORK 曾於本機產生僅變更本文件的 commit `82920c46609f53c8cad8ce9f7d18b61bd2089818`（parent 為 `c9d2149...`），因 HTTPS 認證無法 push；其本機 commit / tree SHA 不能冒充為遠端同步結果。原始 bundle `UAT010-OptionC-82920c4.bundle` 留存於原 WORK 環境。
+- Control Tower 使用具備 GitHub 寫入權限的連線，於本候選分支直接補入本節作為等效狀態紀錄，**這不是匯入原 bundle，也不是原 `82920c4` commit**。
+- 截至 WORK 回報：既有 Run 涵蓋 Build、Backend tests、Frontend tests/build、disposable SQL、011/012 isolated rehearsal；不能據此聲稱 Admin API、正式 Atomic Swap/E2E 已完成。
+- **NO-GO**：C1、C3、C6 仍 BLOCKED；正式 Migration delta=0；011/012 尚未授權 UAT 執行；保留 `013`；B3 OFF、B4 HOLD、UAT/Production 未部署；本文件更新產生的新遠端 SHA 必須另外以 exact-SHA CI 驗證。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
