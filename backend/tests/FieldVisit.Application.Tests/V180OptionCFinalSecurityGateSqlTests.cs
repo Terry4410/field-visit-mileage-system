@@ -36,7 +36,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 """,h.Db,tx);
             update.Parameters.AddWithValue("@id",request);
             Assert.Equal(-1,await update.ExecuteNonQueryAsync());
-            Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),@@ROWCOUNT)"));
+            await using var rowCount=new SqlCommand("SELECT CONVERT(nvarchar(20),@@ROWCOUNT)",h.Db,tx);
+            Assert.Equal("1",Convert.ToString(await rowCount.ExecuteScalarAsync()));
             await tx.RollbackAsync();
         }
         Assert.Equal("Pending",await h.RequestStatus(request));
@@ -123,8 +124,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
             var ready=new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             var second=h.Decide(Service(),request,secondDecision,Guid.NewGuid(),ready);
-            var secondSpid=await ready.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            await h.WaitForLockWait(secondSpid);
+            var secondStart=await Task.WhenAny(ready.Task,second);
+            if(secondStart==second){var ended=await second;throw new InvalidOperationException($"SECOND_DECISION_ENDED_BEFORE_SESSION committed={ended.Committed} denied={ended.Denied}");}
+            var secondSpid=await ready.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await h.WaitForLockWait(secondSpid,second);
             gate.Release.TrySetResult();
             var outcomes=await Task.WhenAll(first,second);
             Assert.Single(outcomes.Where(x=>x.Committed));
@@ -286,6 +289,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private readonly CancellationTokenSource stop=new();
         private readonly Task loop;
         private System.Net.Sockets.TcpClient? activeClient;
+        private int auditBatchSent;
+        private int commitArmed;
         private int commitRequests;
         private int responseDropped;
         private int dropNext;
@@ -323,6 +328,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             {
                 int n;try{n=await input.ReadAsync(buffer,stop.Token);}catch{return;} if(n==0)return;
                 for(int i=0;i<n;i++)packet.Add(buffer[i]);
+                var sawAuditReply=false;
                 while(packet.Count>=8)
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
@@ -334,19 +340,27 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                         {
                             var sql=System.Text.Encoding.Unicode.GetString(message.ToArray());
                             if(sql.Contains("INSERT dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)
-                               ||sql.Contains("INSERT INTO dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)) Volatile.Write(ref dropNext,0); // arm commit recognition below
-                            if(sql.Contains("INSERT dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)
                                ||sql.Contains("INSERT INTO dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase))
-                                Interlocked.Exchange(ref commitRequests,-1);
+                                Interlocked.Exchange(ref auditBatchSent,1);
+                            if(Volatile.Read(ref commitArmed)==1&&sql.Contains("COMMIT",StringComparison.OrdinalIgnoreCase))
+                            {
+                                Interlocked.Exchange(ref commitRequests,1);
+                                Interlocked.Exchange(ref commitArmed,0);
+                                Interlocked.Exchange(ref dropNext,1);
+                            }
                             message.Clear();
                         }
                     }
-                    if(clientToServer&&type==0x0e&&Volatile.Read(ref commitRequests)==-1)
+                    if(clientToServer&&type==0x0e&&Interlocked.Exchange(ref commitArmed,0)==1)
                     {
                         Interlocked.Exchange(ref commitRequests,1);
                         Interlocked.Exchange(ref dropNext,1);
                     }
+                    if(!clientToServer&&Interlocked.Exchange(ref auditBatchSent,0)==1)
+                        sawAuditReply=true;
                 }
+                if(!clientToServer&&sawAuditReply)
+                    Interlocked.Exchange(ref commitArmed,1);
                 if(clientToServer)
                 {
                     await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
@@ -459,14 +473,16 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             }
             catch(UnauthorizedAccessException){await tx.RollbackAsync(CancellationToken.None);return new(false,true);}
         }
-        internal async Task WaitForLockWait(int spid)
+        internal async Task WaitForLockWait(int spid,Task<Outcome> second)
         {
-            for(var i=0;i<100;i++)
+            for(var i=0;i<300;i++)
             {
                 if(await Scalar("SELECT CONVERT(nvarchar(2),CASE WHEN EXISTS(SELECT 1 FROM sys.dm_exec_requests WHERE session_id=@id AND blocking_session_id<>0) THEN 1 ELSE 0 END)",P("@id",spid))=="1")return;
+                if(second.IsCompleted){var ended=await second;throw new InvalidOperationException($"SECOND_DECISION_FINISHED_WITHOUT_LOCK_WAIT committed={ended.Committed} denied={ended.Denied}");}
                 await Task.Delay(50);
             }
-            throw new TimeoutException("OPTIONC_CONCURRENT_DECISION_NEVER_BLOCKED");
+            var detail=await Scalar("SELECT COALESCE((SELECT CONCAT(status,N'|',COALESCE(wait_type,N''),N'|',blocking_session_id) FROM sys.dm_exec_requests WHERE session_id=@id),N'NO_ACTIVE_REQUEST')",P("@id",spid));
+            throw new TimeoutException($"OPTIONC_CONCURRENT_DECISION_NEVER_BLOCKED spid={spid} detail={detail}");
         }
         public async ValueTask DisposeAsync(){await Db.DisposeAsync();await ExecOn(root,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");await root.DisposeAsync();}
 
