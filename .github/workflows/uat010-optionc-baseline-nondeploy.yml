@@ -93,6 +93,8 @@ jobs:
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger "console;verbosity=normal"
       - name: Existing disposable SQL Server runtime invariant fixture
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180SqlServerRuntimeInvariantProofTests' --logger "console;verbosity=normal"
+      - name: Canonical 011/012 disposable SQL Server Up/Verify/replay rehearsal (NEVER UAT)
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCSqlDraftRehearsalTests' --logger "console;verbosity=normal"
       - name: Explicit release NO-GO
         if: always()
         run: |
