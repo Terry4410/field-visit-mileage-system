@@ -213,7 +213,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var locationIdBefore=await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.Locations WHERE LocationId=10");
         var request=await h.CreateRequest(10); await h.PrepareStage(request);
         var key=Guid.NewGuid();
-        var direct=new SqlConnectionStringBuilder(h.ConnectionString){Pooling=false};
+        var direct=new SqlConnectionStringBuilder(h.ConnectionString){Pooling=false,Encrypt=false};
         await using var proxy=new CommitAckLossProxy(direct.DataSource);
         var throughProxy=new SqlConnectionStringBuilder(direct.ConnectionString)
         { DataSource=$"127.0.0.1,{proxy.Port}",Pooling=false,ConnectTimeout=5 };
