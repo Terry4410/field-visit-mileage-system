@@ -23,6 +23,20 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var versionBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10");
         var currentBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1");
         var request = await h.CreateRequest(10); await h.PrepareStage(request);
+        // Reproduce the historical bug: ExecuteNonQuery loses row-count tokens
+        // under NOCOUNT although SQL Server changed exactly one canonical row.
+        await using (var tx=await h.Begin())
+        {
+            await using var update=new SqlCommand("""
+                UPDATE dbo.ChangeRequests SET Status=N'Rejected'
+                WHERE RequestPublicId=@id AND Status=N'Pending';
+                """,h.Db,tx);
+            update.Parameters.AddWithValue("@id",request);
+            Assert.Equal(-1,await update.ExecuteNonQueryAsync());
+            Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),@@ROWCOUNT)"));
+            await tx.RollbackAsync();
+        }
+        Assert.Equal("Pending",await h.RequestStatus(request));
         var decision = Guid.NewGuid();
         await using (var tx = await h.Begin())
         {
