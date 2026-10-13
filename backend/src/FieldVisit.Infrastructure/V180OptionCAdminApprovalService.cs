@@ -108,18 +108,55 @@ internal sealed class V180OptionCAdminApprovalService(
             request.TeamId, ct);
         RequireEvidence(request, reviewerUserId, evidence);
 
+        // Reserve DecisionKey globally in this SERIALIZABLE transaction.
+        // The filtered unique index remains the final concurrency guard.
+        await using (var replay = new SqlCommand("""
+            SELECT COUNT_BIG(1)
+            FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
+            WHERE DecisionKey=@decision;
+            """, connection, transaction))
+        {
+            replay.Parameters.AddWithValue("@decision", decisionKey);
+            if (Convert.ToInt64(await replay.ExecuteScalarAsync(ct)) != 0)
+                throw new UnauthorizedAccessException("OPTIONC_DECISION_REPLAY");
+        }
+
         var now = DateTime.UtcNow;
-        await using var update = new SqlCommand("""
+        await using (var update = new SqlCommand("""
             UPDATE dbo.ChangeRequests SET Status=N'Rejected',
               ReviewedByUserId=@reviewer, ReviewedAt=@now, ReviewReason=@reason
-            WHERE RequestPublicId=@publicId;
-            """, connection, transaction);
-        update.Parameters.AddWithValue("@reviewer", reviewerUserId);
-        update.Parameters.AddWithValue("@now", now);
-        update.Parameters.AddWithValue("@reason", reason);
-        update.Parameters.AddWithValue("@publicId", requestPublicId);
-        if (await update.ExecuteNonQueryAsync(ct) != 1)
-            throw new InvalidOperationException("OPTIONC_REJECT_UPDATE_CONFLICT");
+            WHERE ChangeRequestId=@id AND RequestPublicId=@publicId
+              AND RowVersion=@rowVersion AND Status=N'Pending'
+              AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL
+              AND AppliedAt IS NULL AND RequestedByUserId<>@reviewer;
+            SELECT CONVERT(int,@@ROWCOUNT);
+            """, connection, transaction))
+        {
+            update.Parameters.AddWithValue("@id", request.Id);
+            update.Parameters.AddWithValue("@publicId", requestPublicId);
+            update.Parameters.AddWithValue("@rowVersion", request.RowVersion);
+            update.Parameters.AddWithValue("@reviewer", reviewerUserId);
+            update.Parameters.AddWithValue("@now", now);
+            update.Parameters.AddWithValue("@reason", reason);
+            if (Convert.ToInt32(await update.ExecuteScalarAsync(ct)) != 1)
+                throw new InvalidOperationException("OPTIONC_REJECT_UPDATE_CONFLICT");
+        }
+
+        // Reject and close any persisted, still-open Stage atomically with
+        // the Request and canonical decision audit.
+        await using (var stage = new SqlCommand("""
+            UPDATE dbo.LocationPublicationStages SET
+              StageStatus=N'Abandoned',UpdatedAt=@now
+            WHERE ChangeRequestId=@id
+              AND StageStatus IN(N'PendingGeocode',N'PendingDuplicateReview',N'ReadyForPublish');
+            SELECT CONVERT(int,@@ROWCOUNT);
+            """, connection, transaction))
+        {
+            stage.Parameters.AddWithValue("@id", request.Id);
+            stage.Parameters.AddWithValue("@now", now);
+            if (Convert.ToInt32(await stage.ExecuteScalarAsync(ct)) != 1)
+                throw new InvalidOperationException("OPTIONC_REJECT_STAGE_CONFLICT");
+        }
 
         await using var audit = new SqlCommand("""
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,
