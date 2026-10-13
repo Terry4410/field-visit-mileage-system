@@ -361,6 +361,23 @@ public sealed class V180OptionCStageSqlDraftTests
                 "SELECT Status FROM dbo.ChangeRequests WHERE EntityId=N'11'"));
             Assert.Equal("ReadyForPublish",await Scalar(db,
                 "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE LocationId=11"));
+            // Organization boundary is checked against the canonical request,
+            // not a client-supplied LocationId or team claim.
+            await using(var crossOrgTx=(SqlTransaction)await db.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable))
+            {
+                await Assert.ThrowsAsync<SqlException>(()=>
+                    FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
+                        .ExecuteAsync(db,crossOrgTx,requestPublicId,999,2,Guid.NewGuid(),
+                            "Wrong organization",true,true,CancellationToken.None));
+                await crossOrgTx.RollbackAsync();
+            }
+            Assert.Equal("Pending",await Scalar(db,
+                "SELECT Status FROM dbo.ChangeRequests WHERE EntityId=N'11'"));
+            Assert.Equal("ReadyForPublish",await Scalar(db,
+                "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE LocationId=11"));
+            Assert.Equal("1",await Scalar(db,
+                "SELECT CAST(VersionNumber AS nvarchar(10)) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND IsCurrent=1"));
             var decision=Guid.NewGuid();
             await using(var publishTx=(SqlTransaction)await db.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable))
