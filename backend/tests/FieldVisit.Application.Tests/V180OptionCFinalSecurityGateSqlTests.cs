@@ -294,6 +294,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private int commitRequests;
         private int responseDropped;
         private int dropNext;
+        private int closeScheduled;
         private readonly System.Collections.Concurrent.ConcurrentQueue<string> trace=new();
         private readonly TaskCompletionSource requestForwarded=new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal string Trace=>string.Join(";",trace);
@@ -360,11 +361,16 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 if(clientToServer)
                 {
                     await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
-                    if(Volatile.Read(ref commitRequests)>0)
+                    if(Volatile.Read(ref commitArmed)==1 && Interlocked.Exchange(ref closeScheduled,1)==0)
                     {
                         requestForwarded.TrySetResult();
-                        Interlocked.Exchange(ref responseDropped,1);trace.Enqueue("DROP:client-ack-socket-closed-after-forward");
-                        activeClient?.Close();return;
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(250);
+                            Interlocked.Exchange(ref responseDropped,1);
+                            trace.Enqueue("DROP:client-ack-socket-closed-after-forward");
+                            activeClient?.Close();
+                        });
                     }
                 }
                 else
