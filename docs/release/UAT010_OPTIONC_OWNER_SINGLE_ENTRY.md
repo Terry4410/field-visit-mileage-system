@@ -161,6 +161,7 @@
 - 同一 harness 覆蓋自審、reviewer 撤權、requester 撤權、跨組織／小組拒絕、DecisionKey replay、audit FK fault rollback；public UAT/Production route、DI registration 與 B3 flag 仍 disabled。
 - Exact-SHA candidate `5729cf58e7aa681f7e81ec2245040f74d159b9ec` 的 [Run 38366502191](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38366502191) = **SUCCESS**；Backend `702/702` PASS，新增 `Visitor_to_admin_to_publication_preserves_history_and_fail_closed_denials` PASS，014 runtime、Stage/Writer、011/012 rehearsal、disposable SQL `5/5` 及 Frontend npm/test/build steps 均 SUCCESS，所有 nondeploy/NO-GO guards SUCCESS。
 - 本批完整隔離 E2E 已通過，但不是 UAT/Production 證據：public route/DI 仍 disabled，live HR/role/team adapter 尚未接到部署服務，真實並行 approval 與 commit-ack fault injection 仍待補。故 C1/C3/C5 整體仍 **PARTIAL / HOLD**，不得宣稱 Business UAT PASS。
+- 後續精確 SHA `b4140115a8f422012fd996d36d5a7de7ef0622ec` 的 [Run 38369098412](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38369098412) = **SUCCESS**；Backend `702/702`、approval E2E、014 runtime、Stage/Writer、011/012 disposable rehearsal、Frontend npm/test/build 與 NO-GO guards 均 SUCCESS。為避免未通過的 fixture 造成假 PASS，本次未將 Reject 正向 SQL E2E 列為完成；Reject 候選服務仍保留但其正向 persistent-state proof 為 **HOLD**。
 
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
@@ -192,5 +193,4 @@
 3. **一份放行紀錄**：exact SHA、Migration schema、CI run、實際 UAT 測試證據、Owner 核准。
 
 原始設計與治理資料仍可在 `docs/release/UAT010_PACKAGEB_OPTIONC_CANONICAL_NONDEPLOY_CONTRACT.md`、`docs/release/UAT010_PACKAGEB_OPTIONC_MIGRATION_REGISTRY_NONEXECUTABLE.md` 與 `docs/release/optionc-canonical-sql-draft/` 追溯。
-
 
