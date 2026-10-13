@@ -820,6 +820,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         ValidateLocationRequest(user, request);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
+        // Option C: every role, including Admin, must stage published/high-risk
+        // edits through the canonical independent-review workflow.
+        // This direct endpoint is restricted to unpublished drafts.
+        if (row.ApprovalStatus == "Approved" || row.IsActive)
+            throw new InvalidOperationException("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
         if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
         {
             var teams = await EnsureVisitorCurrentAsync(user, ct);
