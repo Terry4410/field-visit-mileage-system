@@ -47,6 +47,9 @@ jobs:
           test "$(jq -r '.PackageB.B3.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
           test "$(jq -r '.OptionC.Approval.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
           test ! -f backend/src/FieldVisit.Api/Controllers/V180B3ChangeRequestsController.cs
+          grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED: boolean = false' frontend/src/optionc-approval-flags.ts
+          grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED&&<Route path="/admin/locations/approvals"' frontend/src/App.tsx
+          grep -Fq 'V180OptionCPublicationSafety.RequireNoPublishedIdentityOrGeocodeChange' backend/src/FieldVisit.Infrastructure/V180B3AtomicApplyExecutor.cs
           grep -Fq 'B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED' backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs
           grep -Fq '&& x.ApprovalStatus == "Pending" && !x.IsActive' backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs
           grep -Fq 'LOCATION_BATCH_PUBLISH_REQUIRES_UNIFIED_APPROVAL' backend/src/FieldVisit.Application/MasterAndReportServices.cs
