@@ -9,6 +9,14 @@ on:
         description: "Owner-approved exact 40-character commit SHA"
         required: true
         type: string
+      operation:
+        description: "deploy_candidate or rollback to pinned prior UAT source"
+        required: true
+        type: choice
+        default: deploy_candidate
+        options:
+          - deploy_candidate
+          - rollback
 permissions:
   contents: read
 jobs:
@@ -22,13 +30,21 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/work/v180-visitor-only-uat010-security-fix"
-          test "${#APPROVED_SHA}" -eq 40
-          test "$APPROVED_SHA" = "$GITHUB_SHA"
+          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          case "${{ inputs.operation }}" in
+            deploy_candidate) test "$APPROVED_SHA" = "$GITHUB_SHA" ;;
+            rollback) test "$APPROVED_SHA" = "68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2" ;;
+            *) echo "::error::Unsupported deployment operation"; exit 1 ;;
+          esac
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_sha || github.sha }}
       - name: Verify checkout source SHA
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -48,8 +64,8 @@ jobs:
         run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build -o ./publish
       - name: Stamp and verify backend artifact provenance
         run: |
-          echo "$GITHUB_SHA" > ./publish/source-sha.txt
-          test "$(cat ./publish/source-sha.txt)" = "$GITHUB_SHA"
+          git rev-parse HEAD > ./publish/source-sha.txt
+          test "$(cat ./publish/source-sha.txt)" = "$(git rev-parse HEAD)"
       - name: Bundle Traditional Chinese PDF font
         run: |
           mkdir -p ./publish/fonts
