@@ -22,7 +22,7 @@ class OptionCCanonicalSqlDraftTests(unittest.TestCase):
     def test_canonical_source_files_are_byte_identical(self):
         for path, expected in EXPECTED.items():
             data = (ROOT / path).read_bytes()
-            blob = b"blob " + str(len(data)).encode() + b"\\x00" + data
+            blob = b"blob " + str(len(data)).encode() + bytes([0]) + data
             self.assertEqual(hashlib.sha1(blob).hexdigest(), expected, path)
 
     def test_drafts_are_outside_executable_migration_roots(self):
