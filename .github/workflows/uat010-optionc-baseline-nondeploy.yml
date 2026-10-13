@@ -1,0 +1,79 @@
+name: UAT010 Package B Option C baseline nondeploy CI
+
+on:
+  push:
+    branches: [work/v180-uat010-packageb-optionc-integration-r1]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optionc-baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  provenance-and-build:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-uat010-packageb-optionc-integration-r1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "FieldVisit_Visitor010!Sql"
+        ports:
+          - 1433:1433
+    env:
+      BASE_SHA: 6a07a8fb0053a1032aabe76a65aed37f40dd3c4a
+      E1_R1_REQUIRED: "1"
+      E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Visitor010!Sql;Encrypt=False;TrustServerCertificate=True;Connect Timeout=2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Guard exact source and nondeploy boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          git diff --name-only "$BASE_SHA" HEAD > /tmp/optionc-changes.txt
+          if grep -E '^database/migrations/|^database/candidates/|^\.github/workflows/(api-azure|frontend-pages)\.yml$' /tmp/optionc-changes.txt; then
+            echo "::error::Migration or deployment workflow mutation is not authorized"
+            exit 1
+          fi
+          grep -Fq 'LOCATION_BATCH_PUBLISH_REQUIRES_UNIFIED_APPROVAL' backend/src/FieldVisit.Application/MasterAndReportServices.cs
+          grep -Fq 'branches: [ main ]' .github/workflows/api-azure.yml
+          grep -Fq 'branches: [ main ]' .github/workflows/frontend-pages.yml
+          test "$(jq -r '.App.DbSchemaVersion' backend/src/FieldVisit.Api/appsettings.json)" = '1.8.0-010'
+          echo "Option C BASELINE only; unified 011/012 schema and atomic apply NOT verified" >> "$GITHUB_STEP_SUMMARY"
+          echo "source_sha=$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Frontend npm ci
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Frontend production build (no deployment)
+        working-directory: frontend
+        run: npm run build
+      - name: Backend build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Backend tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger "console;verbosity=normal"
+      - name: Existing disposable SQL Server runtime invariant fixture
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180SqlServerRuntimeInvariantProofTests' --logger "console;verbosity=normal"
+      - name: Explicit release NO-GO
+        if: always()
+        run: |
+          echo "BASELINE CI ONLY: Option C W1-W6, unified migration 011/012, atomic approval and concurrent SQL verification remain HOLD." >> "$GITHUB_STEP_SUMMARY"
