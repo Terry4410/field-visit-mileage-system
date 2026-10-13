@@ -411,8 +411,12 @@ public sealed class BackgroundJobService(
         // Never trust the job's original JWT/team snapshot as authorization.
         // This also denies previously queued jobs after role, HR or team revocation.
         var (admin, teamIds) = await ResolveLiveGeocodingScopeAsync(job, ct);
-        var q = db.Locations.Where(x => x.OrganizationId == job.OrganizationId &&
-            (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
+        // Until a reviewed draft-version/swap policy exists, the worker may
+        // resolve only unpublished Pending drafts. Published coordinates are
+        // authoritative and must never be changed by a queued job.
+        var q = db.Locations.Where(x => x.OrganizationId == job.OrganizationId
+            && x.ApprovalStatus == "Pending" && !x.IsActive
+            && (x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
         if (!admin)
             q = q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
