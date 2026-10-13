@@ -416,7 +416,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,OccurredAt,CorrelationId)
                 SELECT ChangeRequestId,N'Submitted',1,SYSUTCDATETIME(),NEWID() FROM dbo.ChangeRequests WHERE RequestPublicId=@id;
                 """,P("@id",id),P("@location",location),
-                P("@json",$"""{"LocationName":"Changed {{location}}","City":"Taipei","District":"Xinyi","Address":"New address {{location}}","PlusCode":null,"TaxId":null,"MasterNote":null}"""));
+                P("@json",System.Text.Json.JsonSerializer.Serialize(new { LocationName=$"Changed {location}", City="Taipei", District="Xinyi", Address=$"New address {location}", PlusCode=(string?)null, TaxId=(string?)null, MasterNote=(string?)null })));
             return id;
         }
         internal async Task PrepareStage(Guid id)
