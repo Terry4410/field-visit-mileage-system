@@ -140,6 +140,22 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         if (batch.ImportType == "projects" && !HasRole(user, "admin")) throw new UnauthorizedAccessException("只有管理者可以確認專案匯入。");
 
         var items = await db.ImportBatchItems.Where(x => x.ImportBatchId == importBatchId && x.Status == "Valid").OrderBy(x => x.EntityType == "ProjectLocation" ? 2 : 1).ThenBy(x => x.RowNumber).ToListAsync(ct);
+        // Fail the whole batch before applying any row when a published
+        // Location would be changed outside the canonical approval queue.
+        // The in-loop check below also guards against a preview/confirm race.
+        if (batch.ImportType == "locations")
+        {
+            foreach (var item in items.Where(x => x.EntityType == "Location" && x.Action != "Create" && x.Action != "NoChange"))
+            {
+                var data = JsonSerializer.Deserialize<LocationImportRow>(item.DataJson, JsonOptions)!;
+                if (HasRole(user, "leader") && !HasRole(user, "admin") && string.IsNullOrWhiteSpace(data.TeamCode))
+                    throw new UnauthorizedAccessException("LOCATION_EXCEL_LEADER_TEAM_REQUIRED");
+                var existing = await db.Locations.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
+                if (existing is null || existing.ApprovalStatus == "Approved" || existing.IsActive)
+                    throw new InvalidOperationException("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
+            }
+        }
         int created = 0, updated = 0, unchanged = 0, failed = 0;
         var errors = new List<string>();
         foreach (var item in items)
@@ -170,6 +186,10 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     {
                         var row = await db.Locations.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
                         EnsureLeaderTeam(user, row.TeamId);
+                        if (row.ApprovalStatus == "Approved" || row.IsActive)
+                            throw new InvalidOperationException("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
+                        if (HasRole(user, "leader") && !HasRole(user, "admin") && row.CreatedByUserId != user.UserId)
+                            throw new UnauthorizedAccessException("LOCATION_EXCEL_PENDING_OWNER_REQUIRED");
                         // Any imported master-data change reopens geocoding /
                         // approval before the Location can be used again.
                         row.TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
@@ -746,6 +766,8 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
 
     private async Task<string?> ValidateLocationAsync(CurrentUserDto user, LocationImportRow row, CancellationToken ct)
     {
+        if (HasRole(user, "leader") && !HasRole(user, "admin") && string.IsNullOrWhiteSpace(row.TeamCode))
+            return "小組長 Excel 地點匯入必須指定有效 TeamCode。";
         if (string.IsNullOrWhiteSpace(row.LocationName)) return "LocationName 為必填。";
         if (string.IsNullOrWhiteSpace(row.Address) && string.IsNullOrWhiteSpace(row.PlusCode)) return "Address 與 PlusCode 至少需要一項。";
         try { _ = ParseActive(row.Status); }
