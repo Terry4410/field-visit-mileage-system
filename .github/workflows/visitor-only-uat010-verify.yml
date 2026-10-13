@@ -59,6 +59,21 @@ jobs:
             exit 1
           fi
 
+      - name: Validate manual deploy and pinned rollback workflow contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in .github/workflows/api-azure.yml .github/workflows/frontend-pages.yml; do
+            grep -Fq 'approved_sha:' "$f"
+            grep -Fq 'operation:' "$f"
+            grep -Fq 'deploy_candidate)' "$f"
+            grep -Fq 'rollback)' "$f"
+            grep -Fq 'refs/heads/work/v180-visitor-only-uat010-security-fix' "$f"
+            grep -Fq 'git rev-parse HEAD' "$f"
+          done
+          grep -Fq '68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2' .github/workflows/api-azure.yml
+          grep -Fq '007b79dba12a1668b66164ac9f8440bbb8ac8e90' .github/workflows/frontend-pages.yml
+
       - name: Assert Visitor path has no Package B schema dependency
         shell: bash
         run: |
@@ -139,4 +154,68 @@ jobs:
           path: |
             verification/
             frontend/dist/
+          retention-days: 30
+
+  rollback-backend-rebuild:
+    name: Rebuild prior Backend UAT artifact (NONDEPLOY)
+    if: github.ref == 'refs/heads/work/v180-visitor-only-uat010-security-fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2
+      - name: Verify prior Backend SHA
+        run: test "$(git rev-parse HEAD)" = '68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build prior Backend source
+        run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -o ./rollback-backend
+      - name: Bundle original CJK font and record provenance
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          mkdir -p rollback-backend/fonts
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc rollback-backend/fonts/NotoSansCJK-Regular.ttc
+          git rev-parse HEAD > rollback-backend/source-sha.txt
+          test -s rollback-backend/FieldVisit.Api.dll
+          test -s rollback-backend/fonts/NotoSansCJK-Regular.ttc
+          test "$(cat rollback-backend/source-sha.txt)" = '68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uat010-prior-backend-rebuild-${{ github.sha }}
+          path: rollback-backend/
+          retention-days: 30
+
+  rollback-frontend-rebuild:
+    name: Rebuild prior Frontend UAT artifact (NONDEPLOY)
+    if: github.ref == 'refs/heads/work/v180-visitor-only-uat010-security-fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 007b79dba12a1668b66164ac9f8440bbb8ac8e90
+      - name: Verify prior Frontend SHA
+        run: test "$(git rev-parse HEAD)" = '007b79dba12a1668b66164ac9f8440bbb8ac8e90'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build prior Frontend source
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Record Frontend provenance
+        run: |
+          git rev-parse HEAD > dist/source-sha.txt
+          test -s dist/index.html
+          test "$(cat dist/source-sha.txt)" = '007b79dba12a1668b66164ac9f8440bbb8ac8e90'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uat010-prior-frontend-rebuild-${{ github.sha }}
+          path: frontend/dist/
           retention-days: 30
