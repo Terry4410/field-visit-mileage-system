@@ -119,7 +119,8 @@ internal sealed class V180OptionCAdminApprovalService(
         update.Parameters.AddWithValue("@now", now);
         update.Parameters.AddWithValue("@reason", reason);
         update.Parameters.AddWithValue("@id", request.Id);
-        update.Parameters.AddWithValue("@version", request.RowVersion);
+        var versionParameter = update.Parameters.Add("@version", System.Data.SqlDbType.Binary, 8);
+        versionParameter.Value = request.RowVersion;
         if (await update.ExecuteNonQueryAsync(ct) != 1)
             throw new InvalidOperationException("OPTIONC_REJECT_ROWVERSION_CONFLICT");
 
