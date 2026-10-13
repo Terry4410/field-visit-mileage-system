@@ -1,0 +1,97 @@
+name: Option C Recovery Nondeploy CI
+
+on:
+  push:
+    branches:
+      - work/v180-optionc-final-gates-recovery-r1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optionc-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  recovery-nondeploy:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-optionc-final-gates-recovery-r1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "FieldVisit_Recovery!Sql2022"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Recovery!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      BASE_SHA: 4e187abd5726f6cdcb2f8fb20055cf6c4d081552
+      E1_R1_REQUIRED: "1"
+      E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Guard exact source, branch isolation, and nondeploy boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = "refs/heads/work/v180-optionc-final-gates-recovery-r1"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          git diff --name-only "$BASE_SHA" HEAD > /tmp/recovery-changes.txt
+          if grep -E '^database/migrations/|^database/candidates/|^\.github/workflows/(api-azure|frontend-pages|azure-sql-uat-migration-)' /tmp/recovery-changes.txt; then
+            echo "::error::Migration or deployment workflow mutation is not authorized"
+            exit 1
+          fi
+          if grep -E '(^|/)(013|1800_013)(/|\.|$)' /tmp/recovery-changes.txt; then
+            echo "::error::Reserved 013 mutation is not authorized"
+            exit 1
+          fi
+          git diff --exit-code "$BASE_SHA" HEAD -- .github/workflows/uat010-optionc-baseline-nondeploy.yml
+          test "$(jq -r '.PackageB.B3.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
+          test "$(jq -r '.OptionC.Approval.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
+          test ! -f backend/src/FieldVisit.Api/Controllers/V180B3ChangeRequestsController.cs
+          grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED: boolean = false' frontend/src/optionc-approval-flags.ts
+          grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED&&<Route path="/admin/locations/approvals"' frontend/src/App.tsx
+          test "$E1_R1_SQL_CONNECTION" = "Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          echo "RECOVERY NONDEPLOY ONLY; database target is the local disposable SQL Server service." >> "$GITHUB_STEP_SUMMARY"
+          echo "source_sha=$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Frontend npm ci
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Frontend production build (no deployment)
+        working-directory: frontend
+        run: npm run build
+      - name: Backend Release build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Backend tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger "console;verbosity=normal"
+      - name: Option C SQL Server E2E
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCAdminApprovalE2ETests' --logger "console;verbosity=normal"
+      - name: Canonical 011/012/014 disposable SQL Server rehearsal
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCSqlDraftRehearsalTests' --logger "console;verbosity=normal"
+      - name: Explicit release NO-GO
+        if: always()
+        run: |
+          echo "Recovery CI is nondeploy-only. UAT, Production, B3/B4, and Business UAT remain HOLD." >> "$GITHUB_STEP_SUMMARY"
