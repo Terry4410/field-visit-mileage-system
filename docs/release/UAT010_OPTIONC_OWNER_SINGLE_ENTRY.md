@@ -103,6 +103,13 @@
 - 測試於實際 disposable SQL Server 執行；新 exact-SHA CI 未回報成功前不得宣稱 PASS。
 - 仍未完成並行撤權、Unknown Commit 新連線驗證與完整 Admin/Visitor/Leader E2E；所有 UAT Migration／部署／B3 feature flag 均 HOLD。
 
+## 2L. Unknown Commit 唯讀查證候選（2026-10-13）
+
+- 新增 `V180OptionCUnknownCommitReconciler`：僅隔離 SQL，可於 Commit acknowledgement 遺失時以 **全新、不共用 pool** 的 SQL connection 唯讀檢查 canonical Request、DecisionKey Approved Event、Applied Event、Current Version、Stage Published。
+- Orchestrator 捕捉可能的 unknown Commit 時回傳帶有證據分類的例外：`COMMITTED_EVIDENCE_REQUIRES_REVIEW`、`NO_COMMIT_EVIDENCE_REQUIRES_REVIEW` 或 `INDETERMINATE`；**三者均不得自行重試或向使用者宣稱發布成功**。即使原請求已取消，也以獨立 CancellationToken 查證。
+- 此為未註冊 nondeploy 候選，尚缺實際 Commit 故障注入及證據完整性（包含跨版本、來源欄位和 correlation）驗證，不可作為 UAT 發布放行依據。
+- 仍未實作正式 Migration、Admin API/E2E、並行撤權交易測試，B3、UAT、Production 維持 HOLD。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
