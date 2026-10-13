@@ -32,6 +32,8 @@ public static class V180VisitorLocationRules
         IReadOnlyCollection<int> effectiveTeams)
     {
         if (!IsVisitor(user)) throw new UnauthorizedAccessException("VISITOR_ROLE_REQUIRED");
+        if (row.OrganizationId != user.OrganizationId)
+            throw new UnauthorizedAccessException("VISITOR_LOCATION_ORGANIZATION_REQUIRED");
         if (row.CreatedByUserId != user.UserId)
             throw new UnauthorizedAccessException("VISITOR_LOCATION_OWNER_REQUIRED");
         if (row.ApprovalStatus != "Pending" || row.IsActive)
