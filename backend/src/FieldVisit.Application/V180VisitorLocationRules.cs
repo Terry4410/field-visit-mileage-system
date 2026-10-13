@@ -44,6 +44,26 @@ public static class V180VisitorLocationRules
         if (isActive) throw new UnauthorizedAccessException("VISITOR_DRAFT_MUST_BE_INACTIVE");
     }
 
+    public static void EnsureCurrentAssignment(bool currentRole, string? employmentStatus, IReadOnlyCollection<int> teams, int? organizationId)
+    {
+        if (!currentRole) throw new UnauthorizedAccessException("VISITOR_ROLE_NOT_CURRENT");
+        if (!string.Equals(employmentStatus, "Active", StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("VISITOR_HR_STATUS_NOT_ACTIVE");
+        if (organizationId is null) throw new UnauthorizedAccessException("VISITOR_ORGANIZATION_REQUIRED");
+        if (teams.Count == 0) throw new UnauthorizedAccessException("VISITOR_TEAM_ASSIGNMENT_NOT_CURRENT");
+    }
+
+    public static void EnsureRequiredRowVersion(byte[] currentValue, string? expectedBase64)
+    {
+        if (string.IsNullOrWhiteSpace(expectedBase64))
+            throw new InvalidOperationException("ROWVERSION_CONFLICT: Missing RowVersion.");
+        byte[] expected;
+        try { expected = Convert.FromBase64String(expectedBase64); }
+        catch (FormatException) { throw new InvalidOperationException("ROWVERSION_CONFLICT: Invalid RowVersion."); }
+        if (expected.Length == 0 || !currentValue.SequenceEqual(expected))
+            throw new InvalidOperationException("ROWVERSION_CONFLICT: Stale RowVersion.");
+    }
+
     public static bool IsVisitor(CurrentUserDto user) =>
         user.Roles.Any(x => x.Equals("visitor", StringComparison.OrdinalIgnoreCase));
 }
