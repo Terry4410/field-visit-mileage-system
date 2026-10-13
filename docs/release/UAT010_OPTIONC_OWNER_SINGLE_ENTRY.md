@@ -24,15 +24,24 @@
 - Package B canonical `011/012` SQL 草稿來源指紋檢查及獨立 SQL Server 2022 Up/Verify/unique Pending/DecisionKey/self-review 驗證
 - 前後端建置與單元測試、既有 SQL fixture PASS；**不代表完整 E2E 或 Business UAT PASS**
 
+## 2A. 第四批增量：共用申請資格與真實併發（2026-10-13）
+
+- **共用送審**：Visitor 與 Leader 均可在未啟用的 B3 候選服務中，為本人同組的 Approved/Active Customer Location 建立單一 `ChangeRequests` 申請；不允許替其他人、其他小組或其他組織送審。
+- **Leader 即時資格**：HR 登入狀態、有效角色雙來源、有效小組／UserTeamScope／UserTeamAssignment、正式或有效代理小組長任命全部須成立。僅有 JWT claim 不足以取得權限。
+- **管理員審核前重新檢查申請者**：當前 HR、Visitor／Leader 角色、小組及任命均重新驗證；撤權後的 Pending 申請不能因舊快照直接放行。
+- **真實 SQL 併發**：兩條獨立 SQL 連線競爭同一 Pending slot 或 DecisionKey，唯一索引只能允許其中一筆；故意讓事件 FK 寫入失敗後必須完全 Rollback。
+- **驗證證據**：[SQL 併發與回滾 Run 38350261384](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38350261384) = SUCCESS；[送審與審核者資格 Run 38350447545](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38350447545) = SUCCESS；最新提交含 UserTeamScope 強化的 [Run 38350477618](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38350477618) 須以實際結論為準。
+- **仍未完成**：正式地點版本化發布／原子 swap、統一核准寫入服務與 API 啟用、完整 Visitor/Leader/Admin E2E；**不得以這批 CI PASS 宣稱 Business UAT PASS**。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
 | --- | --- | --- |
 | C1 發布版本 | staged version → geocode → duplicate review → 原子 publish/swap；保留歷史 snapshot | BLOCKED |
-| C2 申請授權 | Visitor 與 Leader 均須 live HR/role/team/ownership；禁止代送及跨組 | BLOCKED |
+| C2 申請授權 | Visitor 與 Leader 均須 live HR/role/team/ownership；禁止代送及跨組 | PARTIAL：候選服務／單元測試，尚無可用 API |
 | C3 獨立核准 | Admin 不得自審；決策 key 防重送；失敗／unknown commit 不盲目重試 | BLOCKED |
 | C4 DB 唯一性 | 統一 `ChangeRequests` / `ChangeRequestEvents`，011/012 單一路徑；013 保留 | PARTIAL |
-| C5 隔離 SQL | 真實並發、取消、交易回滾、失敗注入、歷史與 geocode/publish E2E | BLOCKED |
+| C5 隔離 SQL | 真實並發、取消、交易回滾、失敗注入、歷史與 geocode/publish E2E | PARTIAL：真實 Pending／DecisionKey 競爭及回滾 PASS；其他 HOLD |
 | C6 Business UAT | 外訪員、小組長 Excel、管理員、權限負向測試；Owner 簽核 | BLOCKED |
 
 ## 4. 絕對禁止
