@@ -507,7 +507,7 @@ public sealed class V180OptionCStageSqlDraftTests
             await using(var crossOrgTx=(SqlTransaction)await db.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable))
             {
-                await Assert.ThrowsAsync<SqlException>(()=>
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
                     FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
                         .ExecuteAsync(db,crossOrgTx,requestPublicId,999,2,Guid.NewGuid(),
                             "Wrong organization",new(true,true,false,false),CancellationToken.None));

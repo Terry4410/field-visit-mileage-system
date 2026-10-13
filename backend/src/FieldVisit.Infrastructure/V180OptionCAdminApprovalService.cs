@@ -59,7 +59,7 @@ internal sealed class V180OptionCIsolatedApprovalEvidenceProvider
         command.Parameters.AddWithValue("@organization", organizationId);
         command.Parameters.AddWithValue("@team", (object?)teamId ?? DBNull.Value);
         await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct) || await reader.ReadAsync(ct))
+        if (!await reader.ReadAsync(ct))
             throw new UnauthorizedAccessException("OPTIONC_LIVE_AUTH_EVIDENCE_UNAVAILABLE");
         return new(
             reader.GetBoolean(0), reader.GetBoolean(1),
@@ -180,7 +180,7 @@ internal sealed class V180OptionCAdminApprovalService(
         command.Parameters.AddWithValue("@publicId", requestPublicId);
         command.Parameters.AddWithValue("@organization", organizationId);
         await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct) || await reader.ReadAsync(ct))
+        if (!await reader.ReadAsync(ct))
             throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND_OR_AMBIGUOUS");
         return new(reader.GetInt64(0), reader.GetInt32(1), reader.GetInt32(2),
             reader.IsDBNull(3) ? null : reader.GetInt32(3), reader.GetString(4),
