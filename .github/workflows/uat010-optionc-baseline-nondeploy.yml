@@ -45,6 +45,16 @@ jobs:
             exit 1
           fi
           grep -Fq 'LOCATION_BATCH_PUBLISH_REQUIRES_UNIFIED_APPROVAL' backend/src/FieldVisit.Application/MasterAndReportServices.cs
+          grep -Fq 'ResolveLiveGeocodingScopeAsync(job, ct)' backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs
+          grep -Fq 'LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL' backend/src/FieldVisit.Infrastructure/WorkbookImportService.cs
+          if grep -Fq 'location.ApprovalStatus = "Approved"' backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs; then
+            echo "::error::Geocoding must not auto-approve a Location"
+            exit 1
+          fi
+          if grep -Fq 'location.IsActive = false' backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs; then
+            echo "::error::Geocoding must not deactivate an existing Location"
+            exit 1
+          fi
           grep -Fq 'branches: [ main ]' .github/workflows/api-azure.yml
           grep -Fq 'branches: [ main ]' .github/workflows/frontend-pages.yml
           test "$(jq -r '.App.DbSchemaVersion' backend/src/FieldVisit.Api/appsettings.json)" = '1.8.0-010'
