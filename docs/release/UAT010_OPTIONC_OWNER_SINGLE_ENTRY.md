@@ -84,6 +84,12 @@
 - 此批測試只驗證 writer 的拒絕分支；傳入的 live-auth 旗標並非真正的 DB HR／role 查詢，不能用以放行正式 Admin Approval。真正的權限 orchestrator、unknown commit reconciliation、完整 E2E 仍為 BLOCKED。
 - 須以最新 exact-SHA 的 GitHub Actions CI 結論核實，先前成功的 SHA 不能作為本批放行依據。
 
+## 2I. Atomic Writer 鎖內資料一致性加強（2026-10-13）
+
+- 於 request-first／source／stage 鎖定後增加發布前資料驗證：Stage 的 `ProposedSha256` 必須完全等於 canonical `ChangeRequests.ProposedJson` 的 SHA-256，且正式發布必需有非空白 `LocationName` 與 `Address`。防止缺失身分資料或跨版本 stage 被寫到 `Locations`。
+- 僅修改 unregistered、isolated-only Writer；不新增 API、不打開 B3 功能、沒有 UAT Migration／部署。
+- 注意：仍缺少 transaction-bound live HR/role/team orchestrator 及 authoritative geocode reviewer 整合，B3 與 Business UAT 繼續 HOLD。新 exact-SHA CI 結論須另行確認。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
