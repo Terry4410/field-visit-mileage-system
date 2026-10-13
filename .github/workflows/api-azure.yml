@@ -22,6 +22,10 @@ permissions:
 jobs:
   build-test-deploy:
     runs-on: ubuntu-latest
+    # Fail closed until the exact candidate branch is explicitly allowed by
+    # the existing UAT environment deployment branch protection policy.
+    # Environment reviewers and admin-bypass settings are NOT changed here.
+    environment: uat
     steps:
       - name: Gate manual deployment to exact Owner-approved candidate SHA
         if: github.event_name == 'workflow_dispatch'
