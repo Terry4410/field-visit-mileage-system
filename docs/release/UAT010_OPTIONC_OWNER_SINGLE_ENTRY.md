@@ -78,6 +78,12 @@
 - 新增隔離 SQL Server success-path 測試與 replay-denial 測試；**須以 exact-SHA CI 實際結果為準**，目前不可推論 PASS。
 - **未完成的安全關卡**：外部即時 HR/角色/Leader 任命驗證仍須由未來 orchestrator 在鎖定交易中取得，而非接受 client boolean；immutable stage mutation 和 ledger 回填、歷史 Snapshot invariants、實際 geocoding callback 與 duplicate reviewer 的授權整合、unknown commit 查證及 Admin E2E 尚未完成。此 Writer 不是可上線的 B3 API，C1/C3/C6 仍 HOLD。
 
+## 2H. Atomic Writer 負向授權測試（2026-10-13）
+
+- 新增獨立隔離 SQL 測試：申請人即時權限失效、管理員即時權限失效、審核者與申請者同一人，均必須拒絕，不得提前修改 Request／Stage。
+- 此批測試只驗證 writer 的拒絕分支；傳入的 live-auth 旗標並非真正的 DB HR／role 查詢，不能用以放行正式 Admin Approval。真正的權限 orchestrator、unknown commit reconciliation、完整 E2E 仍為 BLOCKED。
+- 須以最新 exact-SHA 的 GitHub Actions CI 結論核實，先前成功的 SHA 不能作為本批放行依據。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
