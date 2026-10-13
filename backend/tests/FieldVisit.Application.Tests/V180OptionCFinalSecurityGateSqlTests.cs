@@ -337,24 +337,29 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
                     byte type=packet[0],status=packet[1];var payload=packet.GetRange(8,length-8).ToArray();packet.RemoveRange(0,length);
-                    if(clientToServer&&Interlocked.Exchange(ref commitArmed,0)==1)
+                    if(clientToServer&&Volatile.Read(ref commitArmed)==1)
                     {
-                        var isTransactionManagerCommit=type==0x0e;
-                        var isSqlBatchCommit=false;
-                        if(type==0x01)
+                        if(type==0x0e&&Interlocked.Exchange(ref commitArmed,0)==1)
+                        {
+                            Interlocked.Increment(ref commitRequests);
+                            Interlocked.Exchange(ref dropNext,1);
+                        }
+                        else if(type==0x01)
                         {
                             message.AddRange(payload);
                             if((status&0x01)!=0)
                             {
                                 var sql=System.Text.Encoding.Unicode.GetString(message.ToArray());
-                                isSqlBatchCommit=sql.Contains("COMMIT",StringComparison.OrdinalIgnoreCase);
+                                if(sql.Contains("COMMIT",StringComparison.OrdinalIgnoreCase)
+                                   &&Interlocked.Exchange(ref commitArmed,0)==1)
+                                {
+                                    Interlocked.Increment(ref commitRequests);
+                                    Interlocked.Exchange(ref dropNext,1);
+                                }
+                                else
+                                    Interlocked.Exchange(ref commitArmed,0);
                                 message.Clear();
                             }
-                        }
-                        if(isTransactionManagerCommit||isSqlBatchCommit)
-                        {
-                            Interlocked.Increment(ref commitRequests);
-                            Interlocked.Exchange(ref dropNext,1);
                         }
                         else
                         {
