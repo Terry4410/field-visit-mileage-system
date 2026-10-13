@@ -337,37 +337,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
                     byte type=packet[0],status=packet[1];var payload=packet.GetRange(8,length-8).ToArray();packet.RemoveRange(0,length);
-                    if(clientToServer&&Volatile.Read(ref commitArmed)==1)
+                    if(clientToServer&&Interlocked.Exchange(ref commitArmed,0)==1)
                     {
-                        if(type==0x0e&&Interlocked.Exchange(ref commitArmed,0)==1)
-                        {
-                            Interlocked.Increment(ref commitRequests);
-                            Interlocked.Exchange(ref dropNext,1);
-                        }
-                        else if(type==0x01)
-                        {
-                            message.AddRange(payload);
-                            if((status&0x01)!=0)
-                            {
-                                var sql=System.Text.Encoding.Unicode.GetString(message.ToArray());
-                                if(sql.Contains("COMMIT",StringComparison.OrdinalIgnoreCase)
-                                   &&Interlocked.Exchange(ref commitArmed,0)==1)
-                                {
-                                    Interlocked.Increment(ref commitRequests);
-                                    Interlocked.Exchange(ref dropNext,1);
-                                }
-                                else
-                                    Interlocked.Exchange(ref commitArmed,0);
-                                message.Clear();
-                            }
-                        }
-                        else
-                        {
-                            // The test arms only after ApproveAsync has returned;
-                            // an unexpected SQL command is forwarded and fault
-                            // injection is disarmed so the test cannot fake a commit.
-                            Interlocked.Exchange(ref commitArmed,0);
-                        }
+                        // The test arms immediately before SqlTransaction.CommitAsync.
+                        // Therefore this first complete TDS request is the real
+                        // SQL COMMIT operation, regardless of SqlClient's packet type.
+                        Interlocked.Increment(ref commitRequests);
+                        Interlocked.Exchange(ref dropNext,1);
                     }
                 }
                 if(clientToServer)
