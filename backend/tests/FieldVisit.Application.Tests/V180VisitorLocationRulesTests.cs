@@ -72,6 +72,9 @@ public sealed class V180VisitorLocationRulesTests
             V180VisitorLocationRules.EnsureUpdate(Visitor(), Draft(8), 10, "Customer", false, [10]));
         Assert.Throws<UnauthorizedAccessException>(() =>
             V180VisitorLocationRules.EnsureCreate(Visitor(), 20, "Customer", false, [10]));
+        var crossOrganization = Draft(); crossOrganization.OrganizationId = 2;
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            V180VisitorLocationRules.EnsureUpdate(Visitor(), crossOrganization, 10, "Customer", false, [10]));
     }
 
 }
