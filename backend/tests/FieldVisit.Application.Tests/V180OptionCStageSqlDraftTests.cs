@@ -339,6 +339,28 @@ public sealed class V180OptionCStageSqlDraftTests
                     SYSUTCDATETIME(),1,l.RowVersion
                 FROM dbo.Locations l WHERE l.LocationId=11;
                 """);
+            // Negative authorization gates must reject before ANY DML.
+            await using(var denyTx=(SqlTransaction)await db.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable))
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
+                        .ExecuteAsync(db,denyTx,requestPublicId,1,2,Guid.NewGuid(),
+                            "Denied",false,true,CancellationToken.None));
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
+                        .ExecuteAsync(db,denyTx,requestPublicId,1,2,Guid.NewGuid(),
+                            "Denied",true,false,CancellationToken.None));
+                await Assert.ThrowsAsync<SqlException>(()=>
+                    FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
+                        .ExecuteAsync(db,denyTx,requestPublicId,1,1,Guid.NewGuid(),
+                            "Self review",true,true,CancellationToken.None));
+                await denyTx.RollbackAsync();
+            }
+            Assert.Equal("Pending",await Scalar(db,
+                "SELECT Status FROM dbo.ChangeRequests WHERE EntityId=N'11'"));
+            Assert.Equal("ReadyForPublish",await Scalar(db,
+                "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE LocationId=11"));
             var decision=Guid.NewGuid();
             await using(var publishTx=(SqlTransaction)await db.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable))
