@@ -542,6 +542,13 @@ public sealed class V180OptionCStageSqlDraftTests
                 "SELECT CAST(COUNT(*) AS nvarchar(10)) FROM dbo.ChangeRequestEvents e JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId WHERE r.EntityId=N'11'"));
             Assert.Equal("Approved",await Scalar(db,
                 "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=11"));
+            // A fresh-connection reconciliation must recognise the first
+            // publication after version-1 backfill as current version 2;
+            // assuming current version == 1 would falsely report UNKNOWN.
+            Assert.Equal("COMMITTED_EVIDENCE_REQUIRES_REVIEW",
+                await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler
+                    .ObserveAsync(local.ConnectionString, requestPublicId, decision,
+                        2, CancellationToken.None));
             // Replaying the same already-applied request must fail closed.
             await using(var replayTx=(SqlTransaction)await db.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable))

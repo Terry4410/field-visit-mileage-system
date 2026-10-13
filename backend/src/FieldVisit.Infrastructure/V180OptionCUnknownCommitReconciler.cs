@@ -34,6 +34,9 @@ internal static class V180OptionCUnknownCommitReconciler
                        AND e.ActorUserId=@reviewer),
                     (SELECT COUNT(*) FROM dbo.LocationPublishedVersions v
                      WHERE v.ChangeRequestId=r.ChangeRequestId AND v.IsCurrent=1),
+                    (SELECT COUNT(*) FROM dbo.LocationPublishedVersions v
+                     WHERE v.LocationId=TRY_CONVERT(int,r.EntityId) AND v.IsCurrent=1
+                       AND v.VersionNumber>1),
                     (SELECT COUNT(*) FROM dbo.LocationPublicationStages s
                      WHERE s.ChangeRequestId=r.ChangeRequestId
                        AND s.StageStatus=N'Published')
@@ -49,14 +52,17 @@ internal static class V180OptionCUnknownCommitReconciler
             var reviewer = reader.IsDBNull(1) ? -1 : reader.GetInt32(1);
             var approved = reader.GetInt32(2);
             var applied = reader.GetInt32(3);
-            var version = reader.GetInt32(4);
-            var stage = reader.GetInt32(5);
+            var requestVersion = reader.GetInt32(4);
+            var currentVersion = reader.GetInt32(5);
+            var stage = reader.GetInt32(6);
             if (await reader.ReadAsync(ct)) return "INDETERMINATE";
             if (status == "Applied" && reviewer == reviewerUserId
-                && approved == 1 && applied == 1 && version == 1 && stage == 1)
+                && approved == 1 && applied == 1 && requestVersion == 1
+                && currentVersion == 1 && stage == 1)
                 return "COMMITTED_EVIDENCE_REQUIRES_REVIEW";
             if (status == "Pending" && reviewer == -1
-                && approved == 0 && applied == 0 && version == 0 && stage == 0)
+                && approved == 0 && applied == 0
+                && requestVersion == 0 && currentVersion == 0 && stage == 0)
                 return "NO_COMMIT_EVIDENCE_REQUIRES_REVIEW";
             return "INDETERMINATE";
         }
