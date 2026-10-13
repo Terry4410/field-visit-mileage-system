@@ -46,7 +46,7 @@ jobs:
       - run: npm run build
       - name: Stamp and verify frontend artifact provenance
         run: |
-          printf '%s\\n' "$GITHUB_SHA" > dist/source-sha.txt
+          echo "$GITHUB_SHA" > dist/source-sha.txt
           test "$(cat dist/source-sha.txt)" = "$GITHUB_SHA"
       - uses: actions/upload-pages-artifact@v3
         with:
