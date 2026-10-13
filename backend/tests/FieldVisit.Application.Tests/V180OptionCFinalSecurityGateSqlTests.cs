@@ -335,7 +335,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             while(!stop.IsCancellationRequested)
             {
                 int n;try{n=await input.ReadAsync(buffer,stop.Token);}catch{return;} if(n==0)return;
-                if(!clientToServer&&Volatile.Read(ref dropNext)==1)
+                if(!clientToServer&&(Volatile.Read(ref dropNext)==1||Volatile.Read(ref commitArmed)==1))
                 {
                     await requestForwarded.Task.WaitAsync(stop.Token);
                     Interlocked.Exchange(ref dropNext,0);
