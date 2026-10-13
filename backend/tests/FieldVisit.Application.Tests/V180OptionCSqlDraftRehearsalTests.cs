@@ -75,6 +75,23 @@ public sealed class V180OptionCSqlDraftRehearsalTests
                 () => ExecuteAsync(db, insertPending));
             Assert.Contains(duplicate.Number, new[] { 2601, 2627 });
 
+            // Two physically independent SQL connections race for the same
+            // Organization/Entity Pending slot. A serial precheck is NOT
+            // sufficient; the database filtered unique index is authoritative.
+            await ExecuteAsync(db, "INSERT dbo.Locations VALUES(11),(12)");
+            var raceInsert = insertPending.Replace(
+                "N'10',N'UpdatePublishedLocation'",
+                "N'11',N'UpdatePublishedLocation'", StringComparison.Ordinal);
+            var pendingRace = await Task.WhenAll(
+                TryInsertFromIndependentConnectionAsync(isolated.ConnectionString, raceInsert),
+                TryInsertFromIndependentConnectionAsync(isolated.ConnectionString, raceInsert));
+            Assert.Equal(1, pendingRace.Count(x => x == 0));
+            Assert.Equal(1, pendingRace.Count(x => x is 2601 or 2627));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.ChangeRequests " +
+                "WHERE OrganizationId=1 AND EntityKind=N'Location' " +
+                "AND EntityId=N'11' AND Status=N'Pending'"));
+
             await ExecuteAsync(db, up012);
             Assert.Equal("1.8.0-012", await ScalarAsync(db,
                 ReadDraft(rootDir, "1800_012", "Verify.sql")));
@@ -93,6 +110,49 @@ public sealed class V180OptionCSqlDraftRehearsalTests
                 () => ExecuteAsync(db, insertDecision, new SqlParameter("@decision", decisionKey)));
             Assert.Contains(replay.Number, new[] { 2601, 2627 });
 
+            // The same decision key must remain unique across concurrent
+            // independent reviewers, not merely on sequential retries.
+            var racingDecision = Guid.NewGuid();
+            var decisionSql = insertDecision.Replace(
+                "@decision", "'" + racingDecision.ToString("D") + "'", StringComparison.Ordinal);
+            var decisionRace = await Task.WhenAll(
+                TryInsertFromIndependentConnectionAsync(isolated.ConnectionString, decisionSql),
+                TryInsertFromIndependentConnectionAsync(isolated.ConnectionString, decisionSql));
+            Assert.Equal(1, decisionRace.Count(x => x == 0));
+            Assert.Equal(1, decisionRace.Count(x => x is 2601 or 2627));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.ChangeRequestEvents " +
+                $"WHERE DecisionKey='{racingDecision:D}'"));
+
+            // Inject an invalid audit FK AFTER a request insert, then roll
+            // back the entire transaction: neither Pending nor event may leak.
+            await using (var failureTx = (SqlTransaction)await db.BeginTransactionAsync())
+            {
+                await using (var insert = new SqlCommand(
+                    insertPending.Replace(
+                        "N'10',N'UpdatePublishedLocation'",
+                        "N'12',N'UpdatePublishedLocation'", StringComparison.Ordinal),
+                    db, failureTx))
+                    await insert.ExecuteNonQueryAsync();
+                var auditError = await Assert.ThrowsAsync<SqlException>(async () =>
+                {
+                    await using var brokenAudit = new SqlCommand("""
+                        INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,
+                            OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+                        VALUES(999999,N'Submitted',1,SYSUTCDATETIME(),NEWID(),NULL,NULL);
+                        """, db, failureTx);
+                    await brokenAudit.ExecuteNonQueryAsync();
+                });
+                Assert.Equal(547, auditError.Number);
+                await failureTx.RollbackAsync();
+            }
+            Assert.Equal("0", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.ChangeRequests " +
+                "WHERE OrganizationId=1 AND EntityKind=N'Location' AND EntityId=N'12'"));
+            Assert.Equal("0", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.ChangeRequestEvents " +
+                "WHERE ChangeRequestId=999999"));
+
             var selfReview = """
                 UPDATE dbo.ChangeRequests SET Status=N'Rejected',
                     ReviewedByUserId=RequestedByUserId,
@@ -109,6 +169,22 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             await admin.OpenAsync();
             await ExecuteAsync(admin,
                 $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}];");
+        }
+    }
+
+    private static async Task<int> TryInsertFromIndependentConnectionAsync(
+        string connectionString, string sql)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, sql);
+            return 0;
+        }
+        catch (SqlException ex) when (ex.Number is 2601 or 2627)
+        {
+            return ex.Number;
         }
     }
 
