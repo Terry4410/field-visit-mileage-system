@@ -408,14 +408,13 @@ public sealed class BackgroundJobService(
     private async Task ProcessGeocodingAsync(BackgroundJob job, CancellationToken ct)
     {
         var request = JsonSerializer.Deserialize<CreateGeocodingJobRequest>(job.PayloadJson ?? "{}", JsonOptions) ?? new CreateGeocodingJobRequest();
-        var teamIds = ParseTeamIds(job.TeamScopeJson);
-        var q = db.Locations.Where(x => (x.OrganizationId == job.OrganizationId || x.OrganizationId == null) &&
+        // Never trust the job's original JWT/team snapshot as authorization.
+        // This also denies previously queued jobs after role, HR or team revocation.
+        var (admin, teamIds) = await ResolveLiveGeocodingScopeAsync(job, ct);
+        var q = db.Locations.Where(x => x.OrganizationId == job.OrganizationId &&
             (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
-        if (teamIds.Count > 0)
-            q = q.Where(
-                x => x.TeamId == null
-                     || (x.TeamId.HasValue
-                         && teamIds.Contains(x.TeamId.Value)));
+        if (!admin)
+            q = q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
             q = q.Where(x => request.LocationIds.Contains(x.LocationId));
 
@@ -503,6 +502,78 @@ public sealed class BackgroundJobService(
             item.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
+    }
+
+    private async Task<(bool Admin, List<int> Teams)> ResolveLiveGeocodingScopeAsync(
+        BackgroundJob job, CancellationToken ct)
+    {
+        if (!job.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_ORGANIZATION_REQUIRED");
+        var today = BusinessTime.Today;
+        var account = await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == job.RequestedByUserId, ct);
+        if (account is null || !account.IsActive || account.OrganizationId != job.OrganizationId)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_ACCOUNT_NOT_CURRENT");
+
+        var roles = await (from assignment in db.UserRoleAssignments.AsNoTracking()
+                           join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
+                           where assignment.UserId == account.UserId && role.IsActive
+                               && assignment.EffectiveFrom <= today
+                               && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                               && (role.RoleCode.ToUpper() == "ADMIN" || role.RoleCode.ToUpper() == "LEADER")
+                           select role.RoleCode).ToListAsync(ct);
+        var admin = roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase));
+        var leader = roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase));
+        if (!admin && !leader)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_ROLE_REVOKED");
+
+        var identity = await db.UserIdentityProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == account.UserId, ct);
+        string? employmentStatus;
+        if (identity?.EmploymentId is long employmentId)
+        {
+            employmentStatus = await db.EmploymentStatusPeriods.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId
+                    && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.EmploymentStatusPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+            var terminationDate = await db.Employments.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId)
+                .Select(x => x.TerminationDate).FirstOrDefaultAsync(ct);
+            if (terminationDate.HasValue && terminationDate.Value <= today)
+                employmentStatus = EmploymentStatuses.Terminated;
+        }
+        else
+        {
+            employmentStatus = await db.UserEmploymentPeriods.AsNoTracking()
+                .Where(x => x.UserId == account.UserId
+                    && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.UserEmploymentPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+        }
+        if (!string.Equals(employmentStatus, EmploymentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("GEOCODING_JOB_HR_STATUS_NOT_ACTIVE");
+
+        if (admin) return (true, []);
+        var snapshot = ParseTeamIds(job.TeamScopeJson);
+        if (snapshot.Count == 0)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_TEAM_SCOPE_REQUIRED");
+        var currentAssignments = await db.UserTeamAssignments.AsNoTracking()
+            .Where(x => x.UserId == account.UserId
+                && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+            .Select(x => x.TeamId).Distinct().ToListAsync(ct);
+        var currentTeams = await db.Teams.AsNoTracking()
+            .Where(x => x.OrganizationId == job.OrganizationId && x.IsActive
+                && currentAssignments.Contains(x.TeamId))
+            .Select(x => x.TeamId).ToListAsync(ct);
+        if (snapshot.Any(id => id <= 0 || !currentTeams.Contains(id)))
+            throw new UnauthorizedAccessException("GEOCODING_JOB_TEAM_SCOPE_REVOKED");
+        return (false, snapshot.Distinct().ToList());
     }
 
     private BackgroundJob NewJob(string type, string mode, CurrentUserDto user, string payload) => new()
