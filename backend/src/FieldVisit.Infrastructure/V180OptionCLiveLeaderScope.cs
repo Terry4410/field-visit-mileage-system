@@ -69,8 +69,12 @@ public static class V180OptionCLiveLeaderScope
                         && (!a.EffectiveTo.HasValue || a.EffectiveTo >= today)
                         && d.EffectiveFrom <= today && d.EffectiveTo >= today
                       select d.TeamLeaderDelegationId).AnyAsync(ct);
-        if (!teamValid || !assignmentValid
-            || (!directAppointment && !delegatedAppointment))
+        if (!V180OptionCLeaderDelegationRules.IsAuthorized(
+                currentLeaderRole && projectedLeaderRole,
+                actor.TeamIds.Contains(teamId.Value),
+                teamValid, assignmentValid,
+                directAppointment || delegatedAppointment,
+                actor.OrganizationId.HasValue))
             throw new UnauthorizedAccessException("OPTIONC_LEADER_APPOINTMENT_NOT_CURRENT");
     }
 }
