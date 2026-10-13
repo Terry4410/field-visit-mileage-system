@@ -237,7 +237,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Published",await h.StageStatus(request));
         Assert.Equal(locationIdBefore,await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("Changed 10",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=10"));
-        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
         Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
         Assert.Equal("1",await h.Scalar("""
             SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequestEvents e
