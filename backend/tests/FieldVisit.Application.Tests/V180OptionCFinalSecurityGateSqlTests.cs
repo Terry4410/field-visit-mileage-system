@@ -334,6 +334,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             while(!stop.IsCancellationRequested)
             {
                 int n;try{n=await input.ReadAsync(buffer,stop.Token);}catch{return;} if(n==0)return;
+                if(!clientToServer&&Interlocked.Exchange(ref dropNext,0)==1)
+                {
+                    Interlocked.Exchange(ref responseDropped,1);trace.Enqueue("DROP:commit-ack-bytes");activeClient?.Close();return;
+                }
                 for(int i=0;i<n;i++)packet.Add(buffer[i]);
                 while(packet.Count>=8)
                 {
@@ -353,10 +357,6 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 if(clientToServer)
                 {
                     await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
-                }
-                else if(Interlocked.Exchange(ref dropNext,0)==1)
-                {
-                    Interlocked.Exchange(ref responseDropped,1);activeClient?.Close();return;
                 }
                 else
                 {
