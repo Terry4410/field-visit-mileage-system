@@ -20,6 +20,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """);
         var tripBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10");
         var snapshotBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10");
+        var tripRefsBefore = await h.Scalar("SELECT TripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH");
+        var snapshotRefsBefore = await h.Scalar("SELECT SnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH");
         var versionBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10");
         var currentBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1");
         var request = await h.CreateRequest(10); await h.PrepareStage(request);
@@ -60,6 +62,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """));
         Assert.Equal(tripBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10"));
         Assert.Equal(snapshotBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
+        Assert.Equal(tripRefsBefore, await h.Scalar("SELECT TripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH"));
+        Assert.Equal(snapshotRefsBefore, await h.Scalar("SELECT SnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH"));
         Assert.Equal(versionBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
         Assert.Equal(currentBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
 
@@ -198,6 +202,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     {
         await using var h=await Harness.TryCreateAsync();
         if(h is null)return;
+        var locationIdBefore=await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.Locations WHERE LocationId=10");
         var request=await h.CreateRequest(10); await h.PrepareStage(request);
         var key=Guid.NewGuid();
         var direct=new SqlConnectionStringBuilder(h.Db.ConnectionString){Pooling=false};
@@ -221,6 +226,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Applied",await h.RequestStatus(request));
         Assert.Equal("2",await h.RequestValue(request,"ReviewedByUserId"));
         Assert.Equal("Published",await h.StageStatus(request));
+        Assert.Equal(locationIdBefore,await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("Changed 10",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
         Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
         Assert.Equal("1",await h.Scalar("""
