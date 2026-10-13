@@ -84,4 +84,49 @@ CREATE UNIQUE INDEX UX_OptionC_Stage_Org_Location_Open
 CREATE INDEX IX_OptionC_Stage_Status
     ON dbo.LocationPublicationStages(OrganizationId,StageStatus,UpdatedAt);
 
+/*
+ * Published-version ledger (isolated-contract rehearsal only).
+ * LocationId remains stable for VisitTripStop, Snapshot, merge aliases and
+ * reports. Every applied publication creates one NEW ledger row; older
+ * versions are retained. No delete cascade and no backfill guesses.
+ * The eventual atomic writer must acquire Request -> Location -> Stage locks
+ * and update the current marker plus original Locations in one transaction.
+ */
+CREATE TABLE dbo.LocationPublishedVersions
+(
+    LocationPublishedVersionId bigint IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_OptionC_LocationPublishedVersions PRIMARY KEY,
+    LocationId int NOT NULL,
+    VersionNumber int NOT NULL,
+    ChangeRequestId bigint NULL,
+    IsCurrent bit NOT NULL,
+    PublishedJson nvarchar(max) NOT NULL,
+    PublishedSha256 binary(32) NOT NULL,
+    PublishedAt datetime2(3) NOT NULL,
+    PublishedByUserId int NOT NULL,
+    SourceLocationRowVersion binary(8) NOT NULL,
+    CONSTRAINT FK_OptionC_Version_Location FOREIGN KEY(LocationId)
+        REFERENCES dbo.Locations(LocationId) ON DELETE NO ACTION,
+    CONSTRAINT FK_OptionC_Version_Request FOREIGN KEY(ChangeRequestId)
+        REFERENCES dbo.ChangeRequests(ChangeRequestId) ON DELETE NO ACTION,
+    CONSTRAINT CK_OptionC_Version_Number CHECK (VersionNumber > 0),
+    CONSTRAINT CK_OptionC_Version_Actor CHECK (PublishedByUserId > 0),
+    CONSTRAINT CK_OptionC_Version_Json CHECK (ISJSON(PublishedJson)=1),
+    CONSTRAINT CK_OptionC_Version_Hash CHECK
+        (PublishedSha256=HASHBYTES('SHA2_256',
+            CONVERT(varbinary(max),PublishedJson))),
+    CONSTRAINT CK_OptionC_Version_Origin CHECK
+        ((VersionNumber=1 AND ChangeRequestId IS NULL)
+          OR (VersionNumber>1 AND ChangeRequestId IS NOT NULL))
+);
+CREATE UNIQUE INDEX UX_OptionC_Version_Location_Number
+    ON dbo.LocationPublishedVersions(LocationId,VersionNumber);
+CREATE UNIQUE INDEX UX_OptionC_Version_Current
+    ON dbo.LocationPublishedVersions(LocationId) WHERE IsCurrent=1;
+CREATE UNIQUE INDEX UX_OptionC_Version_ApprovedRequest
+    ON dbo.LocationPublishedVersions(ChangeRequestId) WHERE ChangeRequestId IS NOT NULL;
+/* Ledger immutability must be additionally enforced by the future migration's
+ * SQL permission boundaries. Only IsCurrent may transition 1 -> 0 during an
+ * authorized serializable publication; no public update/delete route exists. */
+
 /* Never alter SchemaVersions: this is not a migration. */
