@@ -63,6 +63,13 @@
 - 此為 **ledger + failed audit 的真實 SQL rollback 測試**，**不是**完整包含 `dbo.Locations`、stage、live admin authorization 與正式核准狀態的原子發布測試。切勿推論完整 Atomic Swap 已完成。
 - 新 SHA 的完整 nondeploy CI 尚待 GitHub Actions 實際結論；未驗證前 C1/C3/C6 持續 HOLD。
 
+## 2F. 回滾測試修正：避免唯一索引假陽性（2026-10-13）
+
+- 已修正前一版故障注入測試：原本同一 `ChangeRequestId` 直接插入第三版可能先觸發已核准申請唯一索引，無法證實 Audit FK 失敗回滾。
+- 新測試在同一 Serializable transaction 實際修改 ledger 的 current 標記、stage 狀態、source Location 狀態和 Request 決議欄位，**再**使用不存在的 request FK 插入 audit，預期 SQL 失敗後全部 rollback。
+- 交易結束後驗證 ledger Current/版本筆數、Stage Ready、Location Approved、Request Pending、Audit 0 筆。這是正確的跨表回滾隔離測試，仍非可用的核准／發布 API。
+- 新 exact-SHA CI 結果尚待確認，未通過前維持 C1/C3/C6 HOLD。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
