@@ -112,15 +112,14 @@ internal sealed class V180OptionCAdminApprovalService(
         await using var update = new SqlCommand("""
             UPDATE dbo.ChangeRequests SET Status=N'Rejected',
               ReviewedByUserId=@reviewer, ReviewedAt=@now, ReviewReason=@reason
-            WHERE ChangeRequestId=@id
-              AND Status=N'Pending' AND RequestedByUserId<>@reviewer;
+            WHERE ChangeRequestId=@id;
             """, connection, transaction);
         update.Parameters.AddWithValue("@reviewer", reviewerUserId);
         update.Parameters.AddWithValue("@now", now);
         update.Parameters.AddWithValue("@reason", reason);
         update.Parameters.AddWithValue("@id", request.Id);
         if (await update.ExecuteNonQueryAsync(ct) != 1)
-            throw new InvalidOperationException("OPTIONC_REJECT_ROWVERSION_CONFLICT");
+            throw new InvalidOperationException("OPTIONC_REJECT_UPDATE_CONFLICT");
 
         await using var audit = new SqlCommand("""
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,ActorUserId,
