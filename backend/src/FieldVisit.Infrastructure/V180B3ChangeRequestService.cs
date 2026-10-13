@@ -112,19 +112,29 @@ public sealed class V180B3ChangeRequestService(
         // DB filtered unique index remains mandatory for concurrent requests.
         await using var tx=await db.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable,ct);
-        var(user,_,visitor)=await LiveActorAsync(ct);
+        var(user,admin,visitor)=await LiveActorAsync(ct);
         var loc=await db.Locations.AsNoTracking().SingleOrDefaultAsync(x=>
             x.LocationId==input.LocationId,ct)
             ??throw new KeyNotFoundException("B3_LOCATION_NOT_FOUND");
-        // B1C provenance blocked: Leader cannot submit on behalf of team,
-        // but a dual-role Visitor may propose a change to their OWN record.
-        if(!visitor||!user.OrganizationId.HasValue||!loc.OrganizationId.HasValue
-           ||loc.OrganizationId!=user.OrganizationId||!loc.TeamId.HasValue
-           ||loc.CreatedByUserId!=user.UserId||loc.LocationType!="Customer"
-           ||loc.ApprovalStatus!="Approved"||!loc.IsActive
-           ||!user.TeamIds.Contains(loc.TeamId.Value)
-           ||!await VisitorTeamAsync(user.UserId,user.OrganizationId.Value,loc.TeamId.Value,ct))
-            throw new UnauthorizedAccessException("B3_NO_VERIFIED_LOCATION_WRITE_SCOPE");
+        // Option C: Visitor and Leader submit into ONE canonical store.
+        // Token claims are never sufficient: live Visitor membership or
+        // live Leader role + dated team/appointment are required.
+        var visitorTeamValid = visitor && loc.TeamId.HasValue
+            && user.OrganizationId.HasValue
+            && await VisitorTeamAsync(user.UserId,
+                user.OrganizationId.Value, loc.TeamId.Value, ct);
+        var leaderCandidate = user.Roles.Any(r =>
+            r.Equals("leader", StringComparison.OrdinalIgnoreCase))
+            && !admin && !user.Roles.Any(r =>
+                r.Equals("admin", StringComparison.OrdinalIgnoreCase));
+        var liveLeader = false;
+        if (!visitorTeamValid && leaderCandidate)
+        {
+            await V180OptionCLiveLeaderScope.RequireAsync(db, user, loc.TeamId, ct);
+            liveLeader = true;
+        }
+        V180OptionCSubmissionScope.RequireOwnPublishedCustomer(
+            user, loc, visitor, visitorTeamValid, liveLeader);
         if(loc.RowVersion is null || loc.RowVersion.Length!=8
             ||!loc.RowVersion.SequenceEqual(expectedVersion))
             throw new InvalidOperationException("ROWVERSION_CONFLICT");
