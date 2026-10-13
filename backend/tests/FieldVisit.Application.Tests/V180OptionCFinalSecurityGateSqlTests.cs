@@ -360,7 +360,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 if(clientToServer)
                 {
                     await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
-                    if(Volatile.Read(ref commitRequests)>0)requestForwarded.TrySetResult();
+                    if(Volatile.Read(ref commitRequests)>0)
+                    {
+                        requestForwarded.TrySetResult();
+                        Interlocked.Exchange(ref responseDropped,1);trace.Enqueue("DROP:client-ack-socket-closed-after-forward");
+                        activeClient?.Close();return;
+                    }
                 }
                 else
                 {
