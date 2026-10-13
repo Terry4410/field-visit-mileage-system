@@ -97,6 +97,12 @@
 - **未達正式安全驗收**：仍需確認實際 SQL fixture、正確的 SQL 鎖序、並行撤權、unknown-COMMIT 新連線查證、完整 migration backfill、Location Snapshot 與 end-to-end API。未註冊到 DI／controller；B3 DENY ALL；UAT／Production HOLD。
 - Exact-SHA CI 尚待實際結論；不可將新增檔案等同成功驗證。
 
+## 2K. Atomic Writer 跨組織 SQL 負向案例（2026-10-13）
+
+- 隔離 SQL fixture 新增使用錯誤 OrganizationId 核准同一 canonical Request 的拒絕案例；交易 rollback 後核對 Request Pending、Stage ReadyForPublish、PublishedVersion 保持 version 1。
+- 測試於實際 disposable SQL Server 執行；新 exact-SHA CI 未回報成功前不得宣稱 PASS。
+- 仍未完成並行撤權、Unknown Commit 新連線驗證與完整 Admin/Visitor/Leader E2E；所有 UAT Migration／部署／B3 feature flag 均 HOLD。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
