@@ -91,7 +91,7 @@ public sealed class V180OptionCStageSqlDraftTests
             Assert.Equal("1",await Scalar(db,
                 "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.LocationPublishedVersions WHERE LocationId=12"));
             Assert.Equal("1",await Scalar(db,
-                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.Locations l JOIN dbo.LocationPublishedVersions v ON v.LocationId=l.LocationId WHERE l.LocationId=v.LocationId"));
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM dbo.Locations l JOIN dbo.LocationPublishedVersions v ON v.LocationId=l.LocationId WHERE l.LocationId=10"));
             await Assert.ThrowsAsync<SqlException>(()=>Exec(db,
                 Read(repo,"1800_014/Backfill.sql")));
 
