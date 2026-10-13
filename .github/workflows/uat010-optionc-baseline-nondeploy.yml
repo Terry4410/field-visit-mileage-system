@@ -44,6 +44,11 @@ jobs:
             echo "::error::Migration or deployment workflow mutation is not authorized"
             exit 1
           fi
+          test "$(jq -r '.PackageB.B3.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
+          test "$(jq -r '.OptionC.Approval.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
+          test ! -f backend/src/FieldVisit.Api/Controllers/V180B3ChangeRequestsController.cs
+          grep -Fq 'B3_APPROVAL_EXECUTOR_NOT_AUTHORIZED' backend/src/FieldVisit.Infrastructure/V180B3ChangeRequestService.cs
+          grep -Fq '&& x.ApprovalStatus == "Pending" && !x.IsActive' backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs
           grep -Fq 'LOCATION_BATCH_PUBLISH_REQUIRES_UNIFIED_APPROVAL' backend/src/FieldVisit.Application/MasterAndReportServices.cs
           grep -Fq 'ResolveLiveGeocodingScopeAsync(job, ct)' backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs
           grep -Fq 'LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL' backend/src/FieldVisit.Infrastructure/WorkbookImportService.cs
