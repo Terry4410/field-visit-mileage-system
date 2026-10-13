@@ -194,3 +194,10 @@
 
 原始設計與治理資料仍可在 `docs/release/UAT010_PACKAGEB_OPTIONC_CANONICAL_NONDEPLOY_CONTRACT.md`、`docs/release/UAT010_PACKAGEB_OPTIONC_MIGRATION_REGISTRY_NONEXECUTABLE.md` 與 `docs/release/optionc-canonical-sql-draft/` 追溯。
 
+
+## Recovery branch status (2026-10-13)
+
+- Recovery branch: `work/v180-optionc-final-gates-recovery-r1`, created from verified baseline `4e187abd5726f6cdcb2f8fb20055cf6c4d081552`; the original integration branch was not modified.
+- Added recovery-only workflow `.github/workflows/optionc-final-gates-recovery-nondeploy.yml`. It pins checkout to the triggering SHA, uses .NET 8 and a disposable SQL Server 2022 service, sets only a local SQL connection, preserves B3/B4 OFF and explicit NO-GO, and refuses migration/deployment workflow changes. The existing integration-branch workflow remains unchanged.
+- Initial workflow commit: `dc656f00c3abd88de52b342936db9f116c3816c6`. GitHub Actions has not reported a run or check status for this commit. No engineering gate is marked PASS based on this workflow file alone.
+- **P0 Reject, P1 concurrent decisions/revocation, and P2 Unknown Commit fault injection remain BLOCKED / NOT VERIFIED.** No Business UAT GO; no UAT or Production operation is authorized.
