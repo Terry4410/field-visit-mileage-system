@@ -90,6 +90,13 @@
 - 僅修改 unregistered、isolated-only Writer；不新增 API、不打開 B3 功能、沒有 UAT Migration／部署。
 - 注意：仍缺少 transaction-bound live HR/role/team orchestrator 及 authoritative geocode reviewer 整合，B3 與 Business UAT 繼續 HOLD。新 exact-SHA CI 結論須另行確認。
 
+## 2J. 隔離即時授權 Orchestrator 候選（2026-10-13）
+
+- 新增內部未註冊 `V180OptionCAtomicPublicationOrchestrator`，僅允許 `OptionCIsolated_*` 資料庫；透過既有 `V180B3LiveAuthorizationRead.EvaluateActorAsync` 驗證審核管理員 live HR / role，並以 `IsSubmitterTeamStillValidAsync` 重新驗證原申請者之 HR、角色、小組及任命。
+- 所有判定在同一個 Serializable EF/SQL transaction 內執行，先鎖 canonical request，再呼叫隔離原子發布 Writer。審核不得由外部任意輸入 `liveRequesterAuthorized`／`liveIndependentAdminAuthorized`。
+- **未達正式安全驗收**：仍需確認實際 SQL fixture、正確的 SQL 鎖序、並行撤權、unknown-COMMIT 新連線查證、完整 migration backfill、Location Snapshot 與 end-to-end API。未註冊到 DI／controller；B3 DENY ALL；UAT／Production HOLD。
+- Exact-SHA CI 尚待實際結論；不可將新增檔案等同成功驗證。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
