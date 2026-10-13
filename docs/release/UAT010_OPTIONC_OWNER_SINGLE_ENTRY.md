@@ -50,6 +50,13 @@
 - **此增量的 exact-SHA CI 結論尚須以 GitHub Actions 實際執行為準；不以原有 PASS 代替。**
 - **仍未完成**：真正 immutable published-version history、atomic swap、同一交易內綁定 live authorization 與 request/Location/stage locks、API/E2E 及 UAT 部署。`1800_013` 仍保留；此 Stage SQL 僅允許名稱 `OptionCIsolated_*` 的一次性資料庫，不可當作 UAT Migration 執行。
 
+## 2D. 第六批：Published-version ledger 隔離實作（2026-10-13）
+
+- 增加 `LocationPublishedVersions` 到**一次性隔離 SQL 草稿**；`LocationId` 穩定，版本號以 `(LocationId,VersionNumber)` 唯一、同一地點同時最多一筆 `IsCurrent=1`，每次核准 `ChangeRequestId` 不可重複消耗。
+- 保留原 JSON、SHA-256、發布者及來源 RowVersion，FK 採 `NO ACTION`，避免刪除 cascade 損壞歷史參照。新增 SQL 測試：雙 Current 拒絕、單次版本前進、舊版本保留及正式地點 Approved 不受單純 ledger 操作影響。
+- **非部署限制**：尚無正式 backfill、SQL ledger immutability 權限政策與跨表完整 Atomic Swap；此測試中的版本前進只操作 ledger，不能誤稱完整發布。真正 C1 仍 **BLOCKED**；`013` 保留。
+- 本批新 commit 的 exact-SHA CI 必須取得實際 SUCCESS 才可標示測試 PASS；不得沿用上一版結果。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
