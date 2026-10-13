@@ -57,6 +57,12 @@
 - **非部署限制**：尚無正式 backfill、SQL ledger immutability 權限政策與跨表完整 Atomic Swap；此測試中的版本前進只操作 ledger，不能誤稱完整發布。真正 C1 仍 **BLOCKED**；`013` 保留。
 - 本批新 commit 的 exact-SHA CI 必須取得實際 SUCCESS 才可標示測試 PASS；不得沿用上一版結果。
 
+## 2E. 最新交易回滾負向測試增量（2026-10-13）
+
+- 已加入隔離 SQL Server 實際交易故障注入案例：先將版本 ledger 暫時切換，再刻意使用不存在的 `ChangeRequestId` 寫入 `ChangeRequestEvents` 觸發 FK 失敗，驗證整筆 transaction rollback、先前 Current 版本及 Pending Request 保留。
+- 此為 **ledger + failed audit 的真實 SQL rollback 測試**，**不是**完整包含 `dbo.Locations`、stage、live admin authorization 與正式核准狀態的原子發布測試。切勿推論完整 Atomic Swap 已完成。
+- 新 SHA 的完整 nondeploy CI 尚待 GitHub Actions 實際結論；未驗證前 C1/C3/C6 持續 HOLD。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
