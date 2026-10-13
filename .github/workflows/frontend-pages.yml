@@ -9,6 +9,14 @@ on:
         description: "Owner-approved exact 40-character commit SHA"
         required: true
         type: string
+      operation:
+        description: "deploy_candidate or rollback to pinned prior UAT source"
+        required: true
+        type: choice
+        default: deploy_candidate
+        options:
+          - deploy_candidate
+          - rollback
 permissions:
   contents: read
   pages: write
@@ -30,13 +38,21 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/work/v180-visitor-only-uat010-security-fix"
-          test "${#APPROVED_SHA}" -eq 40
-          test "$APPROVED_SHA" = "$GITHUB_SHA"
+          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          case "${{ inputs.operation }}" in
+            deploy_candidate) test "$APPROVED_SHA" = "$GITHUB_SHA" ;;
+            rollback) test "$APPROVED_SHA" = "007b79dba12a1668b66164ac9f8440bbb8ac8e90" ;;
+            *) echo "::error::Unsupported deployment operation"; exit 1 ;;
+          esac
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_sha || github.sha }}
       - name: Verify checkout source SHA
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -46,8 +62,8 @@ jobs:
       - run: npm run build
       - name: Stamp and verify frontend artifact provenance
         run: |
-          echo "$GITHUB_SHA" > dist/source-sha.txt
-          test "$(cat dist/source-sha.txt)" = "$GITHUB_SHA"
+          git rev-parse HEAD > dist/source-sha.txt
+          test "$(cat dist/source-sha.txt)" = "$(git rev-parse HEAD)"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
