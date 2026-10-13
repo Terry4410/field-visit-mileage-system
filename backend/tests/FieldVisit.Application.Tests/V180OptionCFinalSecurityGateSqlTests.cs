@@ -228,7 +228,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             catch(Exception ex) when(ex is SqlException or IOException or InvalidOperationException)
             { acknowledgementLost=proxy.CommitResponseDropped; }
         }
-        Assert.True(acknowledgementLost,"The proxy must forward the real SQL COMMIT then drop its acknowledgement.");
+        Assert.True(acknowledgementLost,$"The proxy must forward the real SQL COMMIT then drop its acknowledgement. {proxy.Trace}");
         var observed=await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
             direct.ConnectionString,request,key,2,CancellationToken.None);
         Assert.Equal("COMMITTED_EVIDENCE_REQUIRES_REVIEW",observed);
@@ -294,6 +294,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private int commitRequests;
         private int responseDropped;
         private int dropNext;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> trace=new();
+        internal string Trace=>string.Join(";",trace);
         internal int Port=>((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         internal int CommitRequestsForwarded=>Volatile.Read(ref commitRequests);
         internal bool CommitResponseDropped=>Volatile.Read(ref responseDropped)==1;
@@ -336,7 +338,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 while(packet.Count>=8)
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
-                    packet.RemoveRange(0,length);
+                    var current=packet.Take(length).ToArray();packet.RemoveRange(0,length);
+                    if(clientToServer)trace.Enqueue($"C:{current[0]:X2}:{Convert.ToHexString(current.Skip(8).Take(24).ToArray())}");
+                    else trace.Enqueue($"S:{current[0]:X2}:{Convert.ToHexString(current.Skip(8).Take(24).ToArray())}");
                     if(clientToServer&&Interlocked.Exchange(ref commitArmed,0)==1)
                     {
                         // The test arms immediately before SqlTransaction.CommitAsync.
