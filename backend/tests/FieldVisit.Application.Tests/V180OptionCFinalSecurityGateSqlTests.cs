@@ -328,7 +328,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         }
         private async Task PumpAsync(System.Net.Sockets.NetworkStream input,System.Net.Sockets.NetworkStream output,bool clientToServer)
         {
-            var buffer=new byte[8192];var packet=new List<byte>();var message=new List<byte>();
+            var buffer=new byte[8192];var packet=new List<byte>();
             while(!stop.IsCancellationRequested)
             {
                 int n;try{n=await input.ReadAsync(buffer,stop.Token);}catch{return;} if(n==0)return;
@@ -336,7 +336,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 while(packet.Count>=8)
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
-                    byte type=packet[0],status=packet[1];var payload=packet.GetRange(8,length-8).ToArray();packet.RemoveRange(0,length);
+                    packet.RemoveRange(0,length);
                     if(clientToServer&&Interlocked.Exchange(ref commitArmed,0)==1)
                     {
                         // The test arms immediately before SqlTransaction.CommitAsync.
