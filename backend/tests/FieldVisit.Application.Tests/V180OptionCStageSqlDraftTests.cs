@@ -135,6 +135,44 @@ public sealed class V180OptionCStageSqlDraftTests
             Assert.Equal("PendingGeocode",await Scalar(db,
                 "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE ChangeRequestId=1"));
 
+            // Stale geocoder callbacks must not mark a new staged address as ready.
+            await Assert.ThrowsAsync<SqlException>(()=>Exec(db, """
+                UPDATE dbo.LocationPublicationStages SET
+                    GeocodeStatus=N'Succeeded',
+                    GeocodeAddressSha256=HASHBYTES('SHA2_256',
+                        CONVERT(varbinary(max),N'Old address')),
+                    Latitude=25.03, Longitude=121.56
+                WHERE ChangeRequestId=1;
+                """));
+            // A duplicate review for a different version is likewise rejected.
+            await Assert.ThrowsAsync<SqlException>(()=>Exec(db, """
+                UPDATE dbo.LocationPublicationStages SET
+                    DuplicateReviewStatus=N'Cleared',
+                    DuplicateEvidenceSha256=HASHBYTES('SHA2_256',
+                        CONVERT(varbinary(max),N'Wrong proposal'))
+                WHERE ChangeRequestId=1;
+                """));
+            // Exact-version evidence can advance a persistent stage while the
+            // published source remains Approved/Active and untouched.
+            await Exec(db, """
+                UPDATE dbo.LocationPublicationStages SET
+                    GeocodeStatus=N'Succeeded',
+                    GeocodeAddressSha256=HASHBYTES('SHA2_256',
+                        CONVERT(varbinary(max),N'New')),
+                    Latitude=25.03, Longitude=121.56,
+                    DuplicateReviewStatus=N'Cleared',
+                    DuplicateEvidenceSha256=ProposedSha256,
+                    StageStatus=N'ReadyForPublish',
+                    UpdatedAt=SYSUTCDATETIME()
+                WHERE ChangeRequestId=1;
+                """);
+            Assert.Equal("ReadyForPublish",await Scalar(db,
+                "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE ChangeRequestId=1"));
+            Assert.Equal("Approved",await Scalar(db,
+                "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=10"));
+            Assert.Equal("1",await Scalar(db,
+                "SELECT CAST(IsActive AS nvarchar(1)) FROM dbo.Locations WHERE LocationId=10"));
+
             // Exercise the actual unregistered stage writer under a
             // caller-owned SERIALIZABLE transaction, not just direct SQL.
             var requestPublicId=Guid.NewGuid();
