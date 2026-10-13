@@ -223,6 +223,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await c.OpenAsync();
             await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable);
             await Service().ApproveAsync(c,tx,request,1,2,key,"Unknown commit fault injection",CancellationToken.None);
+            proxy.ArmCommitAcknowledgementLoss();
             try { await tx.CommitAsync(); }
             catch(Exception ex) when(ex is SqlException or IOException or InvalidOperationException)
             { acknowledgementLost=proxy.CommitResponseDropped; }
@@ -289,7 +290,6 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private readonly CancellationTokenSource stop=new();
         private readonly Task loop;
         private System.Net.Sockets.TcpClient? activeClient;
-        private int auditBatchSent;
         private int commitArmed;
         private int commitRequests;
         private int responseDropped;
@@ -305,6 +305,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             targetHost="127.0.0.1";targetPort=int.Parse(target[(comma+1)..]);
             listener=new(System.Net.IPAddress.Loopback,0);listener.Start();
             loop=RunAsync();
+        }
+        internal void ArmCommitAcknowledgementLoss()
+        {
+            if(Interlocked.Exchange(ref commitArmed,1)!=0)
+                throw new InvalidOperationException("OPTIONC_COMMIT_ACK_FAULT_ALREADY_ARMED");
         }
         private async Task RunAsync()
         {
@@ -328,39 +333,38 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             {
                 int n;try{n=await input.ReadAsync(buffer,stop.Token);}catch{return;} if(n==0)return;
                 for(int i=0;i<n;i++)packet.Add(buffer[i]);
-                var sawAuditReply=false;
                 while(packet.Count>=8)
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
                     byte type=packet[0],status=packet[1];var payload=packet.GetRange(8,length-8).ToArray();packet.RemoveRange(0,length);
-                    if(clientToServer&&type==0x01)
+                    if(clientToServer&&Interlocked.Exchange(ref commitArmed,0)==1)
                     {
-                        message.AddRange(payload);
-                        if((status&0x01)!=0)
+                        var isTransactionManagerCommit=type==0x0e;
+                        var isSqlBatchCommit=false;
+                        if(type==0x01)
                         {
-                            var sql=System.Text.Encoding.Unicode.GetString(message.ToArray());
-                            if(sql.Contains("INSERT dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)
-                               ||sql.Contains("INSERT INTO dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase))
-                                Interlocked.Exchange(ref auditBatchSent,1);
-                            if(Volatile.Read(ref commitArmed)==1&&sql.Contains("COMMIT",StringComparison.OrdinalIgnoreCase))
+                            message.AddRange(payload);
+                            if((status&0x01)!=0)
                             {
-                                Interlocked.Exchange(ref commitRequests,1);
-                                Interlocked.Exchange(ref commitArmed,0);
-                                Interlocked.Exchange(ref dropNext,1);
+                                var sql=System.Text.Encoding.Unicode.GetString(message.ToArray());
+                                isSqlBatchCommit=sql.Contains("COMMIT",StringComparison.OrdinalIgnoreCase);
+                                message.Clear();
                             }
-                            message.Clear();
+                        }
+                        if(isTransactionManagerCommit||isSqlBatchCommit)
+                        {
+                            Interlocked.Increment(ref commitRequests);
+                            Interlocked.Exchange(ref dropNext,1);
+                        }
+                        else
+                        {
+                            // The test arms only after ApproveAsync has returned;
+                            // an unexpected SQL command is forwarded and fault
+                            // injection is disarmed so the test cannot fake a commit.
+                            Interlocked.Exchange(ref commitArmed,0);
                         }
                     }
-                    if(clientToServer&&type==0x0e&&Interlocked.Exchange(ref commitArmed,0)==1)
-                    {
-                        Interlocked.Exchange(ref commitRequests,1);
-                        Interlocked.Exchange(ref dropNext,1);
-                    }
-                    if(!clientToServer&&Interlocked.Exchange(ref auditBatchSent,0)==1)
-                        sawAuditReply=true;
                 }
-                if(!clientToServer&&sawAuditReply)
-                    Interlocked.Exchange(ref commitArmed,1);
                 if(clientToServer)
                 {
                     await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
@@ -464,7 +468,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             var b=new SqlConnectionStringBuilder(ConnectionString){Pooling=false};
             await using var c=new SqlConnection(b.ConnectionString);await c.OpenAsync();
             await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable);
-            if(sessionReady is not null)sessionReady.TrySetResult(int.Parse(await ScalarOn(c,"SELECT @@SPID")));
+            if(sessionReady is not null)
+            {
+                await using var spid=new SqlCommand("SELECT @@SPID",c,tx);
+                sessionReady.TrySetResult(Convert.ToInt32(await spid.ExecuteScalarAsync()));
+            }
             try
             {
                 if(kind=="approve")await service.ApproveAsync(c,tx,request,1,2,key,"Concurrent decision",CancellationToken.None);
