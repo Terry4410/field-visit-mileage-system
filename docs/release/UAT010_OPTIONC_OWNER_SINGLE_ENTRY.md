@@ -42,6 +42,14 @@
 - **設計契約**：[版本化發布安全規格](./UAT010_OPTIONC_VERSIONED_PUBLICATION_NONDEPLOY.md)。既有已發布地點禁止直接覆寫，B3 `ApproveAsync` 仍 DENY ALL。
 - **尚未完成**：持久化 stage/version schema、正式原子 swap writer、地點歷史 FK／snapshot 完整稽核、geocode 與 duplicate evidence 的實際交易整合、Business E2E。C1 仍 **BLOCKED**。
 
+## 2C. 最新增量：持久化 Stage 及證據版本綁定（2026-10-13）
+
+- 本分支在原交接 SHA `2fddad733a88f50e567c66536d74a9bf007e3237` 之後已有 3 個快轉 commit，至 `c7c36e75cf86a6e336b36254f7d136be2d990088`：新增 disposable SQL Server `LocationPublicationStages`、未註冊的 `V180OptionCStageDraftWriter` 與隔離測試。僅為 nondeploy 持久化 Stage，不是正式版本切換。
+- 新增 Stage 表 CHECK：成功 geocode 的地址雜湊必須等於 Stage `ProposedJson.Address`；已清除的 duplicate evidence 版本雜湊必須等於 `ProposedSha256`。這避免舊地址 geocoder callback 與其他版本的 duplicate clearance 被誤用。
+- 延伸隔離 SQL 測試：舊地址／舊版本證據被拒絕；正確證據才允許 `ReadyForPublish`；原 `Locations` 仍保持 `Approved/Active`。
+- **此增量的 exact-SHA CI 結論尚須以 GitHub Actions 實際執行為準；不以原有 PASS 代替。**
+- **仍未完成**：真正 immutable published-version history、atomic swap、同一交易內綁定 live authorization 與 request/Location/stage locks、API/E2E 及 UAT 部署。`1800_013` 仍保留；此 Stage SQL 僅允許名稱 `OptionCIsolated_*` 的一次性資料庫，不可當作 UAT Migration 執行。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
