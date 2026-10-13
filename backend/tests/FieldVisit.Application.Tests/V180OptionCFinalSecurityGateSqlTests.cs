@@ -20,8 +20,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """);
         var tripBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10");
         var snapshotBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10");
-        var tripRefsBefore = await h.Scalar("SELECT TripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH");
-        var snapshotRefsBefore = await h.Scalar("SELECT SnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH");
+        var tripRefsBefore = await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH");
+        var snapshotRefsBefore = await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH");
         var versionBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10");
         var currentBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1");
         var request = await h.CreateRequest(10); await h.PrepareStage(request);
@@ -62,8 +62,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """));
         Assert.Equal(tripBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10"));
         Assert.Equal(snapshotBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
-        Assert.Equal(tripRefsBefore, await h.Scalar("SELECT TripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH"));
-        Assert.Equal(snapshotRefsBefore, await h.Scalar("SELECT SnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH"));
+        Assert.Equal(tripRefsBefore, await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY TripStopId FOR JSON PATH"));
+        Assert.Equal(snapshotRefsBefore, await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY SnapshotStopId FOR JSON PATH"));
         Assert.Equal(versionBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
         Assert.Equal(currentBefore, await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
 
