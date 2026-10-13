@@ -391,7 +391,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             if(rb.DataSource is not("localhost,1433" or "127.0.0.1,1433")||rb.InitialCatalog!="master"||rb.UserID!="sa"||rb.IntegratedSecurity)
                 throw new InvalidOperationException("OPTIONC_FINAL_GATES_NONLOCAL_TARGET_DENIED");
             var root=new SqlConnection(rb.ConnectionString);await root.OpenAsync();
-            var name="OptionCIsolated_"+Guid.NewGuid().ToString("N");await Exec(root,$"CREATE DATABASE [{name}]");
+            var name="OptionCIsolated_"+Guid.NewGuid().ToString("N");await V180OptionCFinalSecurityGateSqlTests.Exec(root,$"CREATE DATABASE [{name}]");
             var dbb=new SqlConnectionStringBuilder(rb.ConnectionString){InitialCatalog=name,Pooling=false};
             var db=new SqlConnection(dbb.ConnectionString);
             try
@@ -399,10 +399,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 await db.OpenAsync();await CreateBase(db);
                 var repo=FindRoot();
                 foreach(var p in new[]{"1800_011/Up.sql","1800_012/Up.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql"})
-                    await Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft",p.Replace('/',Path.DirectorySeparatorChar))));
+                    await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft",p.Replace('/',Path.DirectorySeparatorChar))));
                 return new Harness(root,db,name);
             }
-            catch{await db.DisposeAsync();await Exec(root,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");await root.DisposeAsync();throw;}
+            catch{await db.DisposeAsync();await V180OptionCFinalSecurityGateSqlTests.Exec(root,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");await root.DisposeAsync();throw;}
         }
 
         internal async Task<SqlTransaction> Begin()=> (SqlTransaction)await Db.BeginTransactionAsync(IsolationLevel.Serializable);
