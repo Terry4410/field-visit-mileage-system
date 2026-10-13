@@ -99,12 +99,16 @@ public sealed class V180OptionCStageSqlDraftTests
 
             var duplicate=await Assert.ThrowsAsync<SqlException>(()=>Exec(db,insert));
             Assert.Contains(duplicate.Number,new[]{2601,2627});
-            var badHash=insert.Replace(
-                "HASHBYTES('SHA2_256',CONVERT(varbinary(max),N'{\"Address\":\"New\"'))",
-                "0x0000000000000000000000000000000000000000000000000000000000000000",
-                StringComparison.Ordinal).Replace("VALUES(1,10,","VALUES(999,10,",StringComparison.Ordinal);
-            // FK is also fail-closed: no orphan stage even if the hash is wrong.
-            var orphan=await Assert.ThrowsAsync<SqlException>(()=>Exec(db,badHash));
+            // Hash and orphan constraints are tested separately; SQL may
+            // reject a duplicate PK before evaluating any FK/CHECK.
+            var invalidHash=await Assert.ThrowsAsync<SqlException>(()=>Exec(db, """
+                UPDATE dbo.LocationPublicationStages SET
+                    ProposedSha256=0x0000000000000000000000000000000000000000000000000000000000000000
+                WHERE ChangeRequestId=1;
+                """));
+            Assert.Equal(547,invalidHash.Number);
+            var orphan=await Assert.ThrowsAsync<SqlException>(()=>Exec(db,
+                insert.Replace("VALUES(1,10,","VALUES(999,11,",StringComparison.Ordinal)));
             Assert.Equal(547,orphan.Number);
 
             await Assert.ThrowsAsync<SqlException>(()=>Exec(db, """
@@ -130,6 +134,39 @@ public sealed class V180OptionCStageSqlDraftTests
                 """));
             Assert.Equal("PendingGeocode",await Scalar(db,
                 "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE ChangeRequestId=1"));
+
+            // Exercise the actual unregistered stage writer under a
+            // caller-owned SERIALIZABLE transaction, not just direct SQL.
+            var requestPublicId=Guid.NewGuid();
+            await using(var requestCmd=new SqlCommand("""
+                INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                    EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                    BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+                SELECT @id,1,1,N'Location',N'11',N'UpdatePublishedLocation',
+                    N'High',l.RowVersion,N'{}',N'{"Address":"Second"}',
+                    1,SYSUTCDATETIME(),N'Pending'
+                FROM dbo.Locations l WHERE l.LocationId=11;
+                """,db))
+            {
+                requestCmd.Parameters.AddWithValue("@id",requestPublicId);
+                await requestCmd.ExecuteNonQueryAsync();
+            }
+            await using(var tx=(SqlTransaction)await db.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable))
+            {
+                var created=await FieldVisit.Infrastructure.V180OptionCStageDraftWriter
+                    .CreateFromLockedRequestAsync(db,tx,requestPublicId,1,CancellationToken.None);
+                Assert.True(created>0);
+                await tx.CommitAsync();
+            }
+            Assert.Equal("PendingGeocode",await Scalar(db, """
+                SELECT s.StageStatus FROM dbo.LocationPublicationStages s
+                JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+                WHERE r.RequestPublicId=(SELECT TOP(1) RequestPublicId
+                    FROM dbo.ChangeRequests WHERE EntityId=N'11');
+                """));
+            Assert.Equal("Approved",await Scalar(db,
+                "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=11"));
         }
         finally
         {
