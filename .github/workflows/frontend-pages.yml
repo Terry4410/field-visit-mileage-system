@@ -4,6 +4,11 @@ on:
     branches: [ main ]
     paths: [ "frontend/**", ".github/workflows/frontend-pages.yml" ]
   workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: "Owner-approved exact 40-character commit SHA"
+        required: true
+        type: string
 permissions:
   contents: read
   pages: write
@@ -18,7 +23,20 @@ jobs:
       run:
         working-directory: frontend
     steps:
+      - name: Gate manual deployment to exact Owner-approved candidate SHA
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/work/v180-visitor-only-uat010-security-fix"
+          test "${#APPROVED_SHA}" -eq 40
+          test "$APPROVED_SHA" = "$GITHUB_SHA"
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify checkout source SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -26,6 +44,10 @@ jobs:
         run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - run: npm run test
       - run: npm run build
+      - name: Stamp and verify frontend artifact provenance
+        run: |
+          printf '%s\\n' "$GITHUB_SHA" > dist/source-sha.txt
+          test "$(cat dist/source-sha.txt)" = "$GITHUB_SHA"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
