@@ -179,6 +179,149 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         }
     }
 
+    [Fact]
+    public async Task Lost_commit_ack_is_reconciled_on_fresh_nonpooled_connection_without_retry()
+    {
+        await using var h=await Harness.TryCreateAsync();
+        if(h is null)return;
+        var request=await h.CreateRequest(10); await h.PrepareStage(request);
+        var key=Guid.NewGuid();
+        var direct=new SqlConnectionStringBuilder(h.Db.ConnectionString){Pooling=false};
+        await using var proxy=new CommitAckLossProxy(direct.DataSource);
+        var throughProxy=new SqlConnectionStringBuilder(direct.ConnectionString)
+        { DataSource=$"127.0.0.1,{proxy.Port}",Pooling=false,ConnectTimeout=5 };
+        var acknowledgementLost=false;
+        await using(var c=new SqlConnection(throughProxy.ConnectionString))
+        {
+            await c.OpenAsync();
+            await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable);
+            await Service().ApproveAsync(c,tx,request,1,2,key,"Unknown commit fault injection",CancellationToken.None);
+            try { await tx.CommitAsync(); }
+            catch(Exception ex) when(ex is SqlException or IOException or InvalidOperationException)
+            { acknowledgementLost=proxy.CommitResponseDropped; }
+        }
+        Assert.True(acknowledgementLost,"The proxy must forward the real SQL COMMIT then drop its acknowledgement.");
+        var observed=await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
+            direct.ConnectionString,request,key,2,CancellationToken.None);
+        Assert.Equal("COMMITTED_EVIDENCE_REQUIRES_REVIEW",observed);
+        Assert.Equal("Applied",await h.RequestStatus(request));
+        Assert.Equal("2",await h.RequestValue(request,"ReviewedByUserId"));
+        Assert.Equal("Published",await h.StageStatus(request));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequestEvents e
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId
+            WHERE r.RequestPublicId=@id AND e.EventType=N'Approved'
+              AND e.DecisionKey=@key AND e.ActorUserId=2;
+            """,P("@id",request),P("@key",key)));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequestEvents e
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId
+            WHERE r.RequestPublicId=@id AND e.EventType=N'Applied' AND e.ActorUserId=2;
+            """,P("@id",request)));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND VersionNumber=1"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND VersionNumber=2 AND IsCurrent=1"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripStops WHERE LocationId=10"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
+        Assert.Equal(1,proxy.CommitRequestsForwarded);
+    }
+
+    [Fact]
+    public async Task Reconciler_distinguishes_confirmed_rollback_from_indeterminate_evidence()
+    {
+        await using var h=await Harness.TryCreateAsync();
+        if(h is null)return;
+        var request=await h.CreateRequest(10); await h.PrepareStage(request);
+        var key=Guid.NewGuid();
+        await using(var tx=await h.Begin())
+        {
+            await Service().ApproveAsync(h.Db,tx,request,1,2,key,"Explicit rollback evidence",CancellationToken.None);
+            await tx.RollbackAsync();
+        }
+        Assert.Equal("NO_COMMIT_EVIDENCE_REQUIRES_REVIEW",
+            await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
+                h.Db.ConnectionString,request,key,2,CancellationToken.None));
+        Assert.Equal("INDETERMINATE",
+            await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
+                h.Db.ConnectionString,request,Guid.NewGuid(),2,CancellationToken.None));
+    }
+
+    private sealed class CommitAckLossProxy : IAsyncDisposable
+    {
+        private readonly System.Net.Sockets.TcpListener listener;
+        private readonly CancellationTokenSource stop=new();
+        private readonly Task loop;
+        private int commitRequests;
+        private int responseDropped;
+        internal int Port=>((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        internal int CommitRequestsForwarded=>Volatile.Read(ref commitRequests);
+        internal bool CommitResponseDropped=>Volatile.Read(ref responseDropped)==1;
+        private readonly string targetHost;
+        private readonly int targetPort;
+        internal CommitAckLossProxy(string target)
+        {
+            var comma=target.LastIndexOf(',');
+            targetHost=target[..comma];targetPort=int.Parse(target[(comma+1)..]);
+            listener=new(System.Net.IPAddress.Loopback,0);listener.Start();
+            loop=RunAsync();
+        }
+        private async Task RunAsync()
+        {
+            try
+            {
+                using var client=await listener.AcceptTcpClientAsync(stop.Token);
+                using var server=new System.Net.Sockets.TcpClient();
+                await server.ConnectAsync(targetHost,targetPort,stop.Token);
+                var toServer=PumpAsync(client.GetStream(),server.GetStream(),true);
+                var toClient=PumpAsync(server.GetStream(),client.GetStream(),false);
+                await Task.WhenAny(toServer,toClient);
+                client.Close();server.Close();
+            }
+            catch(OperationCanceledException) { }
+            catch(System.Net.Sockets.SocketException) when(stop.IsCancellationRequested) { }
+        }
+        private async Task PumpAsync(System.Net.Sockets.NetworkStream input,System.Net.Sockets.NetworkStream output,bool clientToServer)
+        {
+            var buffer=new byte[8192];var packet=new List<byte>();var message=new List<byte>();bool armed=false,dropNext=false;
+            while(!stop.IsCancellationRequested)
+            {
+                int n;try{n=await input.ReadAsync(buffer,stop.Token);}catch{return;} if(n==0)return;
+                for(int i=0;i<n;i++) packet.Add(buffer[i]);
+                while(packet.Count>=8)
+                {
+                    int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
+                    byte type=packet[0],status=packet[1];var payload=packet.GetRange(8,length-8).ToArray();
+                    packet.RemoveRange(0,length);
+                    if(clientToServer)
+                    {
+                        if(type==0x01) { message.AddRange(payload); if((status&0x01)!=0) {
+                            var sql=System.Text.Encoding.Unicode.GetString(message.ToArray());
+                            if(sql.Contains("INSERT dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)
+                               ||sql.Contains("INSERT INTO dbo.ChangeRequestEvents",StringComparison.OrdinalIgnoreCase)) armed=true;
+                            message.Clear();
+                        }}
+                        if(armed&&type==0x0e){dropNext=true;armed=false;Interlocked.Increment(ref commitRequests);}
+                        await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
+                    }
+                    else
+                    {
+                        if(dropNext)
+                        {
+                            Interlocked.Exchange(ref responseDropped,1);
+                            clientSocketClose();
+                            return;
+                        }
+                        await output.WriteAsync(buffer.AsMemory(0,n),stop.Token);await output.FlushAsync(stop.Token);
+                    }
+                }
+                if(clientToServer&&packet.Count==0) { /* complete framed input forwarded above */ }
+            }
+            void clientSocketClose(){listener.Stop();}
+        }
+        public async ValueTask DisposeAsync(){stop.Cancel();listener.Stop();try{await loop.WaitAsync(TimeSpan.FromSeconds(2));}catch{}stop.Dispose();}
+    }
+
     private static FieldVisit.Infrastructure.V180OptionCAdminApprovalService Service(
         FieldVisit.Infrastructure.IV180OptionCLiveApprovalEvidenceProvider? provider=null) =>
         new(provider??new FieldVisit.Infrastructure.V180OptionCIsolatedApprovalEvidenceProvider());
