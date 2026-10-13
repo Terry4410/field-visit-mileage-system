@@ -91,3 +91,40 @@ The required sequence for any future Package B execution is `010 → 011 → 012
 2. Confirm Azure target settings and B3 runtime OFF without disclosing secrets.
 3. Verify the new nondeploy CI and prior-source rebuild artifacts at the exact final correction SHA.
 4. Explicit Owner approval for Backend and Frontend UAT deployment. Package B remains HOLD.
+
+## Deployment governance correction — Owner-authorized, NONDEPLOY (2026-10-13)
+
+Owner authorization: `AUTHORIZE_VISITOR_ONLY_UAT010_DEPLOYMENT_GOVERNANCE_CORRECTION_ONLY`. This does not authorize deployment, workflow dispatch, database changes, migration, B3 activation, Production changes, required-reviewer changes or admin-bypass changes.
+
+### Code correction and verified intent
+- Backend `.github/workflows/api-azure.yml` job `build-test-deploy` now declares `environment: uat`, making GitHub's actual `uat` deployment-branch restriction apply to the job, rather than merely existing as an unused setting. This is a **fail-closed** change: candidate dispatch will be blocked until the exact branch is explicitly allowed.
+- Frontend `.github/workflows/frontend-pages.yml` already declares `environment: github-pages` on its deploy job. No Frontend workflow change was required for this governance issue.
+- Dedicated nondeploy verification now asserts both environment bindings, unchanged main-only push triggers, and exact manual dispatch branch guards.
+- Candidate branch `work/v180-visitor-only-uat010-security-fix` only; protected `post-uat/v1.8.0`, Package B and `main` remain untouched.
+
+### Required GitHub environment configuration (LIVE CHANGE NOT YET VERIFIED)
+**Never delete existing allowed branches. Never use `*`, `work/*`, all branches, or a main-branch merge as a shortcut.**
+
+1. GitHub repository → Settings → Environments → `uat` → Deployment branches and tags. Preserve existing allowed `post-uat/v1.8.0`; add only exact branch `work/v180-visitor-only-uat010-security-fix`. Verify the final complete allowlist and capture a screenshot or read-only configuration proof. If the setting is a mode that cannot safely express both exact branches, STOP and request Owner review.
+2. Settings → Environments → `github-pages` → Deployment branches and tags. Preserve every existing allowed entry; add only exact branch `work/v180-visitor-only-uat010-security-fix`. Verify and record the complete allowlist.
+3. Review, but do not change, `uat` Required reviewers and admin bypass. Previously observed: Required reviewers OFF, admin bypass ON. These remain governance risks. Record who can dispatch, environment approval controls, and any impact on other workflows before proposing a separate change.
+4. Check whether `uat` environment-level secrets/variables shadow repository-level `AZURE_WEBAPP_PUBLISH_PROFILE` or `AZURE_WEBAPP_NAME`. Confirm correct UAT target without displaying secret values. The new environment binding may change effective secret/variable resolution.
+5. The candidate branch is **not** the default branch. Verify manual workflow inputs `approved_sha` and `operation` are supplied to the candidate's guarded workflow. A default-branch legacy workflow must never be substituted. No dispatch is authorized for this verification.
+
+### Scope and regression impact
+- The existing `main` push trigger is unchanged in the candidate workflow. If these changes are ever merged into `main`, the new `uat` restriction could block automatic main-branch Backend deployments and even the combined job's build/test steps. Such promotion is **NOT authorized** and requires separate impact analysis.
+- The `uat` environment gate applies to the combined Backend build/test/deploy job; it blocks the entire job before its steps, including build/test, if the branch is not allowed. Dedicated Visitor-only verification is independent and unaffected.
+- The `github-pages` environment gate applies to the Frontend deploy job; the build job can finish but deploy must be denied until branch allowance is explicitly configured.
+- The approved `deploy_candidate` operation requires exact run SHA. Any new commit changes the candidate SHA and invalidates a prior approval.
+- Rollback still uses the candidate dispatch branch and its environment allowance, while checkout is pinned to the historical Backend/Frontend rollback SHA. This is not a tested cloud restore.
+
+### Acceptance gates and status
+- `CODE_ENV_BINDINGS`: pending CI confirmation for this new SHA.
+- `LIVE_UAT_EXACT_BRANCH_ALLOWLIST`: UNKNOWN / HOLD until read-back after change.
+- `LIVE_PAGES_EXACT_BRANCH_ALLOWLIST`: UNKNOWN / HOLD until read-back after change.
+- `LIVE_BACKEND_SHA`: UNKNOWN / HOLD.
+- `B3_EFFECTIVE_RUNTIME`: UNKNOWN / HOLD. Note: Visitor-only source excludes B3 controller/service; that alone does not prove current Azure runtime.
+- `BACKEND/FRONTEND_DEPLOY_AUTHORIZATION`: NOT GRANTED.
+- `PRODUCTION`, `SQL`, `MIGRATIONS`, `B3/B4`: HARD HOLD.
+
+Only after all gates are evidenced should the Owner receive separate Backend and Frontend deployment authorization requests.
