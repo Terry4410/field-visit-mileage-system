@@ -17,11 +17,10 @@ internal static class V180OptionCUnknownCommitReconciler
         {
             var builder = new SqlConnectionStringBuilder(connectionString)
             { Pooling = false, ConnectTimeout = 5 };
-            if (!builder.InitialCatalog.StartsWith("OptionCIsolated_",
-                    StringComparison.Ordinal))
-                return "INDETERMINATE";
             await using var connection = new SqlConnection(builder.ConnectionString);
             await connection.OpenAsync(ct);
+            try { V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection); }
+            catch (InvalidOperationException) { return "INDETERMINATE"; }
             await using var cmd = new SqlCommand("""
                 SELECT r.Status,r.ReviewedByUserId,
                     (SELECT COUNT(*) FROM dbo.ChangeRequestEvents e

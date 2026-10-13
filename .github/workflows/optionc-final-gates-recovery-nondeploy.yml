@@ -33,6 +33,7 @@ jobs:
     env:
       BASE_SHA: 4e187abd5726f6cdcb2f8fb20055cf6c4d081552
       E1_R1_REQUIRED: "1"
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
       E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +63,7 @@ jobs:
           grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED: boolean = false' frontend/src/optionc-approval-flags.ts
           grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED&&<Route path="/admin/locations/approvals"' frontend/src/App.tsx
           test "$E1_R1_SQL_CONNECTION" = "Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5"
+          test "$OPTIONC_EXECUTION_MODE" = "IsolatedSqlTest"
           test -z "${UAT_SQL_CONNECTION:-}"
           test -z "${PRODUCTION_SQL_CONNECTION:-}"
           echo "RECOVERY NONDEPLOY ONLY; database target is the local disposable SQL Server service." >> "$GITHUB_STEP_SUMMARY"

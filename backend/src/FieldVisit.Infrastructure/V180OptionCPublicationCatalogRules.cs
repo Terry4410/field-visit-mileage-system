@@ -16,9 +16,9 @@ internal static class V180OptionCPublicationCatalogRules
     {
         if (connection.State != System.Data.ConnectionState.Open)
             await connection.OpenAsync(ct);
-        if (!connection.Database.StartsWith("OptionCIsolated_",
-                StringComparison.Ordinal))
-            throw new InvalidOperationException(CatalogNotVerified);
+        try { V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection); }
+        catch (InvalidOperationException ex)
+        { throw new InvalidOperationException(CatalogNotVerified, ex); }
 
         await using var command = new SqlCommand("""
             SELECT CAST(CASE WHEN

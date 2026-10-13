@@ -1,4 +1,6 @@
 using System.Data;
+using FieldVisit.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using Xunit;
 
@@ -7,6 +9,163 @@ namespace FieldVisit.Application.Tests;
 /// <summary>Real SQL Server 2022 final decision gates on disposable OptionCIsolated databases.</summary>
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
+    [Fact]
+    public async Task Live_authorization_adapter_reads_authoritative_hr_roles_and_team_inside_serializable_transaction()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlServer(h.ConnectionString).Options;
+        await using var db = new AppDbContext(options);
+        var adapter = new V180OptionCLiveAuthorizationAdapter(db);
+        var today = FieldVisit.Application.BusinessTime.Today;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.AuthorizeDecisionAsync(
+            1, 2, 1, 1, today, CancellationToken.None));
+
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            var evidence = await adapter.AuthorizeDecisionAsync(1, 2, 1, 1, today, CancellationToken.None);
+            Assert.True(evidence.RequesterEligible);
+            Assert.True(evidence.IndependentAdminEligible);
+            Assert.True(evidence.OrganizationMatches);
+            Assert.True(evidence.TeamMatches);
+            await tx.RollbackAsync();
+        }
+
+        // A leave status is authoritative even though the SQL fixture's old
+        // test-only actor row remains eligible.
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Leave' WHERE EmploymentId=101");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Active' WHERE EmploymentId=101");
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Leave' WHERE EmploymentId=102");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Active' WHERE EmploymentId=102");
+        await h.Exec("UPDATE dbo.Employments SET TerminationDate=CONVERT(date,GETDATE()) WHERE EmploymentId=101");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.Employments SET TerminationDate=NULL WHERE EmploymentId=101");
+
+        // A live Leader with a current role projection and dated appointment
+        // is eligible on the same team, even with no Visitor role.
+        await h.Exec("DELETE dbo.UserRoles WHERE UserId=1; INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(1,2,SYSUTCDATETIME()); UPDATE dbo.UserRoleAssignments SET RoleId=2 WHERE UserId=1; INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt) VALUES(1,101,'2000-01-01',SYSUTCDATETIME())");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            var evidence = await adapter.AuthorizeDecisionAsync(1, 2, 1, 1, today, CancellationToken.None);
+            Assert.True(evidence.RequesterEligible);
+            await tx.RollbackAsync();
+        }
+        await h.Exec("DELETE dbo.TeamLeaderAssignments WHERE EmploymentId=101; DELETE dbo.UserRoles WHERE UserId=1; INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(1,1,SYSUTCDATETIME()); UPDATE dbo.UserRoleAssignments SET RoleId=1 WHERE UserId=1");
+
+        // Organization and team reassignment are checked from current tables,
+        // not claims or OptionCLiveApprovalActors.
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                3, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.UserTeamAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,GETDATE())) WHERE UserId=1");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.UserTeamAssignments SET EffectiveTo=NULL WHERE UserId=1");
+        await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,GETDATE())) WHERE UserId=1");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo=NULL WHERE UserId=1");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 3, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.UserTeamScopes SET TeamId=2 WHERE UserId=2; UPDATE dbo.UserTeamAssignments SET TeamId=2 WHERE UserId=2");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("UPDATE dbo.UserTeamScopes SET TeamId=1 WHERE UserId=2; UPDATE dbo.UserTeamAssignments SET TeamId=1 WHERE UserId=2");
+        await h.Exec("DELETE dbo.UserIdentityProfiles WHERE UserId=1");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+        await h.Exec("INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt) VALUES(1,101,N'Internal',N'U1',N'Test',SYSUTCDATETIME())");
+
+        // Serializable authorization reads retain locks through commit. A
+        // concurrent HR revocation cannot commit between authorization and
+        // publication on this connection.
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            _ = await adapter.AuthorizeDecisionAsync(1, 2, 1, 1, today, CancellationToken.None);
+            var cs = new SqlConnectionStringBuilder(h.ConnectionString) { Pooling = false };
+            await using var mutator = new SqlConnection(cs.ConnectionString);
+            await mutator.OpenAsync();
+            var spid = Convert.ToInt32(await new SqlCommand("SELECT @@SPID", mutator).ExecuteScalarAsync());
+            var revoke = new SqlCommand("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Leave' WHERE EmploymentId=101", mutator);
+            var revokeTask = revoke.ExecuteNonQueryAsync();
+            await h.WaitForLockWait(spid, revokeTask);
+            await tx.CommitAsync();
+            Assert.Equal(1, await revokeTask.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+
+        // Role revocation in the live effective assignment is fail-closed,
+        // independently of stale JWT role claims or test-only actor flags.
+        await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,GETDATE())) WHERE UserId=2");
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => adapter.AuthorizeDecisionAsync(
+                1, 2, 1, 1, today, CancellationToken.None));
+            await tx.RollbackAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Execution_policy_requires_explicit_recovery_mode_local_host_and_isolated_database()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(h.Db);
+        Assert.Throws<InvalidOperationException>(() =>
+            V180OptionCExecutionPolicy.RequireIsolatedSqlTest(h.Db, "FutureUat"));
+        var masterBuilder = new SqlConnectionStringBuilder(h.ConnectionString)
+        { InitialCatalog = "master", Pooling = false };
+        await using (var master = new SqlConnection(masterBuilder.ConnectionString))
+        {
+            await master.OpenAsync();
+            Assert.Throws<InvalidOperationException>(() =>
+                V180OptionCExecutionPolicy.RequireIsolatedSqlTest(master));
+        }
+        Assert.Throws<InvalidOperationException>(() =>
+            V180OptionCExecutionPolicy.RequireFutureUat(true, true, true));
+        Assert.Throws<InvalidOperationException>(V180OptionCExecutionPolicy.RequireProduction);
+    }
+
     [Fact]
     public async Task Reject_persists_terminal_request_stage_and_audit_without_publication_and_rolls_back_audit_failure()
     {
@@ -485,12 +644,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             }
             catch(UnauthorizedAccessException){await tx.RollbackAsync(CancellationToken.None);return new(false,true);}
         }
-        internal async Task WaitForLockWait(int spid,Task<Outcome> second)
+        internal async Task WaitForLockWait(int spid,Task second)
         {
             for(var i=0;i<300;i++)
             {
                 if(await Scalar("SELECT CONVERT(nvarchar(2),CASE WHEN EXISTS(SELECT 1 FROM sys.dm_exec_requests WHERE session_id=@id AND blocking_session_id<>0) THEN 1 ELSE 0 END)",P("@id",spid))=="1")return;
-                if(second.IsCompleted){var ended=await second;throw new InvalidOperationException($"SECOND_DECISION_FINISHED_WITHOUT_LOCK_WAIT committed={ended.Committed} denied={ended.Denied}");}
+                if(second.IsCompleted)throw new InvalidOperationException("OPTIONC_AUTHORIZATION_CHANGE_FINISHED_WITHOUT_LOCK_WAIT");
                 await Task.Delay(50);
             }
             var detail=await Scalar("SELECT COALESCE((SELECT CONCAT(status,N'|',COALESCE(wait_type,N''),N'|',blocking_session_id) FROM sys.dm_exec_requests WHERE session_id=@id),N'NO_ACTIVE_REQUEST')",P("@id",spid));
@@ -503,12 +662,38 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             var locations=string.Join(",",Enumerable.Range(10,10).Select(i=>$"({i},1,1,1,N'Customer',N'Approved',1,N'Original {i}',N'Original address {i}')"));
             await ExecOn(c,$"""
                 CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(40) NOT NULL PRIMARY KEY,Description nvarchar(500) NULL,AppliedAt datetime2(3) NOT NULL,AppliedBy nvarchar(200) NULL);
-                CREATE TABLE dbo.Organizations(OrganizationId int NOT NULL PRIMARY KEY); CREATE TABLE dbo.Teams(TeamId int NOT NULL PRIMARY KEY); CREATE TABLE dbo.Users(UserId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Organizations(OrganizationId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Teams(TeamId int NOT NULL PRIMARY KEY,OrganizationId int NOT NULL,TeamCode nvarchar(50) NOT NULL,TeamName nvarchar(200) NOT NULL,IsActive bit NOT NULL,EffectiveFrom date NULL,EffectiveTo date NULL,CreatedAt datetime2 NOT NULL,UpdatedAt datetime2 NULL);
+                CREATE TABLE dbo.Users(UserId int NOT NULL PRIMARY KEY,OrganizationId int NULL,TeamId int NULL,EmployeeNo nvarchar(50) NULL,DisplayName nvarchar(200) NOT NULL,Email nvarchar(320) NULL,EntraObjectId uniqueidentifier NULL,IsActive bit NOT NULL,CreatedAt datetime2 NOT NULL,UpdatedAt datetime2 NULL);
+                CREATE TABLE dbo.Roles(RoleId int NOT NULL PRIMARY KEY,RoleCode nvarchar(50) NOT NULL,RoleName nvarchar(100) NOT NULL,Description nvarchar(500) NULL,IsActive bit NOT NULL,CreatedAt datetime2 NOT NULL);
+                CREATE TABLE dbo.UserRoles(UserRoleId int IDENTITY PRIMARY KEY,UserId int NOT NULL,RoleId int NOT NULL,AssignedAt datetime2 NOT NULL);
+                CREATE TABLE dbo.UserIdentityProfiles(UserId int NOT NULL PRIMARY KEY,EmploymentId bigint NULL,UserType nvarchar(20) NOT NULL,UserCode nvarchar(100) NOT NULL,IdentityProvider nvarchar(30) NOT NULL,EntraTenantId uniqueidentifier NULL,EntraObjectId uniqueidentifier NULL,ExternalOrganization nvarchar(200) NULL,ExternalTitle nvarchar(200) NULL,AuthorizationFrom date NULL,AuthorizationTo date NULL,CreatedAt datetime2 NOT NULL,UpdatedAt datetime2 NULL);
+                CREATE TABLE dbo.Employments(EmploymentId bigint NOT NULL PRIMARY KEY,PersonId bigint NOT NULL,OrganizationId int NOT NULL,EmployeeNo nvarchar(50) NULL,Email nvarchar(320) NULL,HireDate date NULL,TerminationDate date NULL,LegacyUserId int NULL,SourceType nvarchar(30) NOT NULL,SourceReference nvarchar(200) NULL,CreatedAt datetime2 NOT NULL,CreatedByUserId int NULL,UpdatedAt datetime2 NULL,UpdatedByUserId int NULL,RowVersion rowversion NOT NULL);
+                CREATE TABLE dbo.EmploymentStatusPeriods(EmploymentStatusPeriodId bigint IDENTITY PRIMARY KEY,EmploymentId bigint NOT NULL,EmploymentStatus nvarchar(30) NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,SourceType nvarchar(30) NOT NULL,SourceReference nvarchar(200) NULL,CreatedAt datetime2 NOT NULL,CreatedByUserId int NULL,RowVersion rowversion NOT NULL);
+                CREATE TABLE dbo.UserEmploymentPeriods(UserEmploymentPeriodId bigint IDENTITY PRIMARY KEY,UserId int NOT NULL,EmploymentStatus nvarchar(30) NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,SourceType nvarchar(30) NOT NULL,SourceReference nvarchar(200) NULL,CreatedAt datetime2 NOT NULL,UpdatedAt datetime2 NULL);
+                CREATE TABLE dbo.UserRoleAssignments(UserRoleAssignmentId bigint IDENTITY PRIMARY KEY,UserId int NOT NULL,RoleId int NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,AssignedByUserId int NULL,CreatedAt datetime2 NOT NULL);
+                CREATE TABLE dbo.UserTeamScopes(UserTeamScopeId int IDENTITY PRIMARY KEY,UserId int NOT NULL,TeamId int NOT NULL,IsPrimary bit NOT NULL,IsActive bit NOT NULL,AssignedAt datetime2 NOT NULL,AssignedByUserId int NULL,EndedAt datetime2 NULL);
+                CREATE TABLE dbo.UserTeamAssignments(UserTeamAssignmentId bigint IDENTITY PRIMARY KEY,UserId int NOT NULL,TeamId int NOT NULL,IsPrimary bit NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,AssignedByUserId int NULL,CreatedAt datetime2 NOT NULL);
+                CREATE TABLE dbo.TeamMemberships(TeamMembershipId bigint IDENTITY PRIMARY KEY,EmploymentId bigint NOT NULL,TeamId int NOT NULL,IsPrimary bit NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,ChangeReason nvarchar(500) NULL,AssignedByUserId int NULL,CreatedAt datetime2 NOT NULL,RowVersion rowversion NOT NULL);
+                CREATE TABLE dbo.TeamLeaderAssignments(TeamLeaderAssignmentId bigint IDENTITY PRIMARY KEY,TeamId int NOT NULL,EmploymentId bigint NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,AssignedByUserId int NULL,CreatedAt datetime2 NOT NULL,RowVersion rowversion NOT NULL);
+                CREATE TABLE dbo.TeamLeaderDelegations(TeamLeaderDelegationId bigint IDENTITY PRIMARY KEY,TeamLeaderAssignmentId bigint NOT NULL,DelegateEmploymentId bigint NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NOT NULL,Reason nvarchar(500) NULL,CreatedAt datetime2 NOT NULL,CreatedByUserId int NULL,RowVersion rowversion NOT NULL);
                 CREATE TABLE dbo.Locations(LocationId int NOT NULL PRIMARY KEY,OrganizationId int NOT NULL,TeamId int NOT NULL,CreatedByUserId int NOT NULL,LocationType nvarchar(20) NOT NULL,ApprovalStatus nvarchar(20) NOT NULL,IsActive bit NOT NULL,LocationName nvarchar(200) NULL,City nvarchar(100) NULL,District nvarchar(100) NULL,Address nvarchar(500) NULL,PlusCode nvarchar(100) NULL,TaxId nvarchar(50) NULL,MasterNote nvarchar(1000) NULL,RowVersion rowversion NOT NULL);
                 CREATE TABLE dbo.OptionCLiveApprovalActors(UserId int NOT NULL PRIMARY KEY,OrganizationId int NOT NULL,TeamId int NULL,IsActive bit NOT NULL,IsRequesterEligible bit NOT NULL,IsIndependentAdminEligible bit NOT NULL);
                 CREATE TABLE dbo.VisitTripStops(VisitTripStopId bigint NOT NULL PRIMARY KEY,LocationId int NOT NULL FOREIGN KEY REFERENCES dbo.Locations(LocationId));
                 CREATE TABLE dbo.VisitTripSnapshotStops(VisitTripSnapshotStopId bigint NOT NULL PRIMARY KEY,LocationId int NOT NULL FOREIGN KEY REFERENCES dbo.Locations(LocationId));
-                INSERT dbo.Organizations VALUES(1),(2);INSERT dbo.Teams VALUES(1),(2);INSERT dbo.Users VALUES(1),(2),(3);INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,LocationType,ApprovalStatus,IsActive,LocationName,Address) VALUES {locations};
+                INSERT dbo.Organizations VALUES(1),(2);
+                INSERT dbo.Teams(TeamId,OrganizationId,TeamCode,TeamName,IsActive,CreatedAt) VALUES(1,1,N'T1',N'Team 1',1,SYSUTCDATETIME()),(2,2,N'T2',N'Team 2',1,SYSUTCDATETIME());
+                INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt) VALUES(1,1,1,N'E1',N'Visitor',1,SYSUTCDATETIME()),(2,1,1,N'E2',N'Admin',1,SYSUTCDATETIME()),(3,2,2,N'E3',N'Other',1,SYSUTCDATETIME());
+                INSERT dbo.Roles VALUES(1,N'visitor',N'Visitor',NULL,1,SYSUTCDATETIME()),(2,N'leader',N'Leader',NULL,1,SYSUTCDATETIME()),(3,N'admin',N'Admin',NULL,1,SYSUTCDATETIME());
+                INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,CreatedAt) VALUES(101,101,1,N'E1','2000-01-01',1,N'Test',SYSUTCDATETIME()),(102,102,1,N'E2','2000-01-01',2,N'Test',SYSUTCDATETIME()),(103,103,2,N'E3','2000-01-01',3,N'Test',SYSUTCDATETIME());
+                INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt) VALUES(1,101,N'Internal',N'U1',N'Test',SYSUTCDATETIME()),(2,102,N'Internal',N'U2',N'Test',SYSUTCDATETIME()),(3,103,N'Internal',N'U3',N'Test',SYSUTCDATETIME());
+                INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt) VALUES(101,N'Active','2000-01-01',N'Test',SYSUTCDATETIME()),(102,N'Active','2000-01-01',N'Test',SYSUTCDATETIME()),(103,N'Active','2000-01-01',N'Test',SYSUTCDATETIME());
+                INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt) VALUES(1,1,'2000-01-01',SYSUTCDATETIME()),(2,3,'2000-01-01',SYSUTCDATETIME()),(3,3,'2000-01-01',SYSUTCDATETIME());
+                INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(1,1,SYSUTCDATETIME()),(2,3,SYSUTCDATETIME()),(3,3,SYSUTCDATETIME());
+                INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt) VALUES(1,1,1,1,SYSUTCDATETIME()),(2,1,1,1,SYSUTCDATETIME());
+                INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt) VALUES(1,1,1,'2000-01-01',SYSUTCDATETIME()),(2,1,1,'2000-01-01',SYSUTCDATETIME());
+                INSERT dbo.TeamMemberships(EmploymentId,TeamId,IsPrimary,EffectiveFrom,CreatedAt) VALUES(101,1,1,'2000-01-01',SYSUTCDATETIME());
+                INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,LocationType,ApprovalStatus,IsActive,LocationName,Address) VALUES {locations};
                 INSERT dbo.OptionCLiveApprovalActors VALUES(1,1,1,1,1,0),(2,1,1,1,0,1),(3,2,2,1,0,1);
                 INSERT dbo.VisitTripStops SELECT LocationId+1000,LocationId FROM dbo.Locations;INSERT dbo.VisitTripSnapshotStops SELECT LocationId+2000,LocationId FROM dbo.Locations;
                 INSERT dbo.SchemaVersions VALUES(N'1.8.0-010',N'isolated',SYSUTCDATETIME(),N'isolated');

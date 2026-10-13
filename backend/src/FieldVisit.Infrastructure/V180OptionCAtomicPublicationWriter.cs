@@ -33,8 +33,7 @@ internal static class V180OptionCAtomicPublicationWriter
 
         // Deliberately limited to isolated disposable SQL Server. It is NOT a
         // production query and cannot be invoked against a UAT database.
-        if (!connection.Database.StartsWith("OptionCIsolated_", StringComparison.Ordinal))
-            throw new InvalidOperationException("OPTIONC_ATOMIC_ISOLATION_REQUIRED");
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
 
         const string sql = """
             SET XACT_ABORT ON;

@@ -21,8 +21,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
     {
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
-        if (!connection.Database.StartsWith("OptionCIsolated_", StringComparison.Ordinal))
-            throw new InvalidOperationException("OPTIONC_ISOLATED_ONLY");
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
         // Database naming is not schema evidence. Verify every required
         // Stage/Ledger object, column, unique index and trusted constraint
         // before opening the write transaction.
@@ -32,44 +31,40 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
             IsolationLevel.Serializable, ct);
         try
         {
-            var (reviewer, admin, _) =
-                await V180B3LiveAuthorizationRead.EvaluateActorAsync(
-                    db, current.GetRequired(), BusinessTime.Today, ct);
-            if (!admin || reviewer.OrganizationId is null or <= 0)
-                throw new UnauthorizedAccessException("OPTIONC_ADMIN_REVOKED");
+            var actorId = current.GetRequired().UserId;
+            var authorization = new V180OptionCLiveAuthorizationAdapter(db);
+            var organizationId = await authorization.ResolveLiveOrganizationAsync(actorId, ct);
 
             // Canonical request FIRST. Do not trust a team or requester
             // supplied by the caller. Revalidate requester HR + live role,
             // dated team appointment and active membership within this tx.
             var request = await db.ChangeRequests.FromSqlInterpolated(
                 V180B3ApprovalLockSql.RequestByPublicId(
-                    requestPublicId, reviewer.OrganizationId.Value))
+                    requestPublicId, organizationId))
                 .AsNoTracking().SingleOrDefaultAsync(ct)
                 ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
             if (request.Status != "Pending" || request.TeamId is null or <= 0
-                || request.RequestedByUserId == reviewer.UserId
+                || request.RequestedByUserId == actorId
                 || request.EntityKind != "Location"
                 || request.OperationCode != "UpdatePublishedLocation"
                 || request.RiskCode != "High"
-                || request.OrganizationId != reviewer.OrganizationId.Value)
+                || request.OrganizationId != organizationId)
                 throw new UnauthorizedAccessException("OPTIONC_REQUEST_SCOPE_DENIED");
 
-            var requesterValid =
-                await V180B3LiveAuthorizationRead.IsSubmitterTeamStillValidAsync(
-                    db, request.RequestedByUserId, request.OrganizationId,
-                    request.TeamId.Value, BusinessTime.Today, ct);
-            if (!requesterValid)
-                throw new UnauthorizedAccessException("OPTIONC_REQUESTER_REVOKED");
+            var liveEvidence = await authorization.AuthorizeDecisionAsync(
+                request.RequestedByUserId, actorId, request.OrganizationId,
+                request.TeamId.Value, BusinessTime.Today, ct);
 
             var sqlTx = tx.GetDbTransaction() as SqlTransaction
                 ?? throw new InvalidOperationException("OPTIONC_SQL_TRANSACTION_REQUIRED");
             var evidence = new V180OptionCLiveApprovalEvidence(
-                requesterValid, admin,
-                request.OrganizationId == reviewer.OrganizationId.Value,
-                request.TeamId.HasValue);
+                liveEvidence.RequesterEligible,
+                liveEvidence.IndependentAdminEligible,
+                liveEvidence.OrganizationMatches,
+                liveEvidence.TeamMatches);
             await V180OptionCAtomicPublicationWriter.ExecuteAsync(
                 connection, sqlTx, requestPublicId, request.OrganizationId,
-                reviewer.UserId, decisionKey, reason, evidence, ct);
+                actorId, decisionKey, reason, evidence, ct);
             // A failed/unknown commit acknowledgement is NEVER retried here.
             // Operator must reconcile on a NEW connection before any action.
             try
@@ -84,7 +79,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                 // reported as UNKNOWN to the caller for operator reconciliation.
                 var status = await V180OptionCUnknownCommitReconciler.ObserveAsync(
                     connection.ConnectionString, requestPublicId, decisionKey,
-                    reviewer.UserId, CancellationToken.None);
+                    actorId, CancellationToken.None);
                 throw new InvalidOperationException(
                     "OPTIONC_UNKNOWN_COMMIT_" + status, commitError);
             }

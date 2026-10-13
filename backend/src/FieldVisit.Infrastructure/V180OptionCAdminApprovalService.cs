@@ -180,12 +180,11 @@ internal sealed class V180OptionCAdminApprovalService(
         if (connection.State != ConnectionState.Open
             || transaction.Connection != connection
             || transaction.IsolationLevel != IsolationLevel.Serializable
-            || !connection.Database.StartsWith("OptionCIsolated_",
-                StringComparison.Ordinal)
             || requestPublicId == Guid.Empty || organizationId <= 0
             || reviewerUserId <= 0 || decisionKey == Guid.Empty
             || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim())
             throw new InvalidOperationException("OPTIONC_ADMIN_TRANSACTION_REQUIRED");
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
     }
 
     private static void RequireEvidence(LockedRequest request, int reviewer,
