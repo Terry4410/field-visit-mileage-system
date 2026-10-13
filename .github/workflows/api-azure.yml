@@ -4,13 +4,31 @@ on:
     branches: [ main ]
     paths: [ "backend/**", ".github/workflows/api-azure.yml" ]
   workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: "Owner-approved exact 40-character commit SHA"
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
   build-test-deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Gate manual deployment to exact Owner-approved candidate SHA
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/work/v180-visitor-only-uat010-security-fix"
+          test "${#APPROVED_SHA}" -eq 40
+          test "$APPROVED_SHA" = "$GITHUB_SHA"
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify checkout source SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -28,6 +46,10 @@ jobs:
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-restore
       - name: Publish
         run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build -o ./publish
+      - name: Stamp and verify backend artifact provenance
+        run: |
+          printf '%s\\n' "$GITHUB_SHA" > ./publish/source-sha.txt
+          test "$(cat ./publish/source-sha.txt)" = "$GITHUB_SHA"
       - name: Bundle Traditional Chinese PDF font
         run: |
           mkdir -p ./publish/fonts
