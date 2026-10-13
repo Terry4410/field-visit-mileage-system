@@ -118,6 +118,13 @@
 - 截至 WORK 回報：既有 Run 涵蓋 Build、Backend tests、Frontend tests/build、disposable SQL、011/012 isolated rehearsal；不能據此聲稱 Admin API、正式 Atomic Swap/E2E 已完成。
 - **NO-GO**：C1、C3、C6 仍 BLOCKED；正式 Migration delta=0；011/012 尚未授權 UAT 執行；保留 `013`；B3 OFF、B4 HOLD、UAT/Production 未部署；本文件更新產生的新遠端 SHA 必須另外以 exact-SHA CI 驗證。
 
+## 2N. `8878aa5` exact-SHA CI 結果（2026-10-13）
+
+- 遠端候選 HEAD：`8878aa5298dd950fc7602cd7130ce95f1b357e45`；parent：`c9d2149f1b0bed52ec326af5fbec6a9039ae65c2`。
+- Exact-SHA nondeploy CI：[Run 38356043677](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/38356043677) = **SUCCESS**；`provenance-and-build` 單一工作及其所有 mandatory steps 均 SUCCESS。
+- 驗證內容包含：exact-source/nondeploy guard、011/012 static provenance、Frontend npm/test/build、Backend Release build/tests、disposable SQL runtime fixture、011/012 isolated Up/Verify/replay rehearsal。
+- Run 無 artifacts，且 workflow 明確維持 Release NO-GO；此結果不代表正式 Atomic Publication、Admin API/E2E、UAT Migration 或 Business UAT 已完成。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
@@ -148,3 +155,4 @@
 3. **一份放行紀錄**：exact SHA、Migration schema、CI run、實際 UAT 測試證據、Owner 核准。
 
 原始設計與治理資料仍可在 `docs/release/UAT010_PACKAGEB_OPTIONC_CANONICAL_NONDEPLOY_CONTRACT.md`、`docs/release/UAT010_PACKAGEB_OPTIONC_MIGRATION_REGISTRY_NONEXECUTABLE.md` 與 `docs/release/optionc-canonical-sql-draft/` 追溯。
+
