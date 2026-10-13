@@ -693,7 +693,13 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
         var q = db.Locations.AsNoTracking().AsQueryable();
-        q = ApplyLocationScope(q, user);
+        if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
+        {
+            var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
+            q = q.Where(x => x.OrganizationId == user.OrganizationId
+                && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
+        }
+        else q = ApplyLocationScope(q, user);
         if (!includeInactive) q = q.Where(x => x.IsActive);
         var rows = await q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
         var ids = rows.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
@@ -722,7 +728,14 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var page = Math.Max(1, request.Page);
         var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
-        var q = ApplyLocationScope(db.Locations.AsNoTracking(), user);
+        IQueryable<Location> q;
+        if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
+        {
+            var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
+            q = db.Locations.AsNoTracking().Where(x => x.OrganizationId == user.OrganizationId
+                && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
+        }
+        else q = ApplyLocationScope(db.Locations.AsNoTracking(), user);
 
         if (!string.IsNullOrWhiteSpace(request.Q))
         {
@@ -814,7 +827,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         }
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         EnsureLocationWriteScope(row, user);
-        EnsureRowVersion(row.RowVersion, request.RowVersion);
+        if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
+            V180VisitorLocationRules.EnsureRequiredRowVersion(row.RowVersion, request.RowVersion);
+        else EnsureRowVersion(row.RowVersion, request.RowVersion);
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;
         row.LocationName = request.LocationName.Trim();
@@ -1091,14 +1106,6 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                                       && assignment.EffectiveFrom <= today
                                       && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
                                    select assignment.UserRoleAssignmentId).AnyAsync(ct);
-        if (!effectiveRole)
-        {
-            effectiveRole = await (from assignment in db.UserRoles.AsNoTracking()
-                                   join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
-                                   where assignment.UserId == user.UserId && role.IsActive && role.RoleCode.ToUpper() == "VISITOR"
-                                   select assignment.UserRoleId).AnyAsync(ct);
-        }
-        if (!effectiveRole) throw new UnauthorizedAccessException("VISITOR_ROLE_NOT_CURRENT");
 
         var identity = await db.UserIdentityProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.UserId, ct);
         string? status;
@@ -1121,17 +1128,14 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         if (!string.Equals(status, EmploymentStatuses.Active, StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("VISITOR_HR_STATUS_NOT_ACTIVE");
 
-        var effectiveTeams = await db.UserTeamAssignments.AsNoTracking()
+        var orgId = RequireOrganization(user);
+        var assignedTeams = await db.UserTeamAssignments.AsNoTracking()
             .Where(x => x.UserId == user.UserId && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
             .Select(x => x.TeamId).Distinct().ToListAsync(ct);
-        if (effectiveTeams.Count == 0)
-        {
-            effectiveTeams = await db.UserTeamScopes.AsNoTracking()
-                .Where(x => x.UserId == user.UserId && x.IsActive && x.EndedAt == null)
-                .Select(x => x.TeamId).Distinct().ToListAsync(ct);
-        }
-        if (effectiveTeams.Count == 0) throw new UnauthorizedAccessException("VISITOR_TEAM_ASSIGNMENT_NOT_CURRENT");
-        if (user.OrganizationId is null) throw new UnauthorizedAccessException("VISITOR_ORGANIZATION_REQUIRED");
+        var effectiveTeams = await db.Teams.AsNoTracking()
+            .Where(x => x.OrganizationId == orgId && x.IsActive && assignedTeams.Contains(x.TeamId))
+            .Select(x => x.TeamId).ToListAsync(ct);
+        V180VisitorLocationRules.EnsureCurrentAssignment(effectiveRole, status, effectiveTeams, user.OrganizationId);
         return effectiveTeams;
     }
 
