@@ -51,6 +51,10 @@ public sealed class V180OptionCStageSqlDraftTests
                     OrganizationId int NOT NULL,TeamId int NOT NULL,
                     CreatedByUserId int NOT NULL,LocationType nvarchar(20) NOT NULL,
                     ApprovalStatus nvarchar(20) NOT NULL,IsActive bit NOT NULL,
+                    LocationName nvarchar(200) NULL,City nvarchar(100) NULL,
+                    District nvarchar(100) NULL,Address nvarchar(500) NULL,
+                    PlusCode nvarchar(100) NULL,TaxId nvarchar(50) NULL,
+                    MasterNote nvarchar(1000) NULL,
                     RowVersion rowversion NOT NULL);
                 INSERT dbo.Organizations VALUES(1);
                 INSERT dbo.Teams VALUES(1);
@@ -300,6 +304,75 @@ public sealed class V180OptionCStageSqlDraftTests
                 """));
             Assert.Equal("Approved",await Scalar(db,
                 "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=11"));
+            // Rehearse the REAL unregistered writer: request-first locking,
+            // source/current-version swap and two canonical audit events in
+            // ONE externally owned transaction. No UAT/production execution.
+            await Exec(db, """
+                UPDATE dbo.ChangeRequests SET ProposedJson=
+                    N'{"LocationName":"Reviewed","City":"Taipei","District":"Xinyi","Address":"Second","PlusCode":null,"TaxId":null,"MasterNote":null}'
+                WHERE RequestPublicId=(SELECT TOP(1) RequestPublicId
+                    FROM dbo.ChangeRequests WHERE EntityId=N'11');
+                """);
+            // Recreate staging from the newly altered request JSON, keeping
+            // the stage/request immutable pair consistent for this fixture.
+            await Exec(db, """
+                UPDATE s SET ProposedJson=r.ProposedJson,
+                    ProposedSha256=HASHBYTES('SHA2_256',
+                        CONVERT(varbinary(max),r.ProposedJson)),
+                    GeocodeStatus=N'Succeeded',
+                    GeocodeAddressSha256=HASHBYTES('SHA2_256',
+                        CONVERT(varbinary(max),N'Second')),
+                    Latitude=25.03,Longitude=121.56,
+                    DuplicateReviewStatus=N'Cleared',
+                    DuplicateEvidenceSha256=HASHBYTES('SHA2_256',
+                        CONVERT(varbinary(max),r.ProposedJson)),
+                    StageStatus=N'ReadyForPublish'
+                FROM dbo.LocationPublicationStages s
+                JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+                WHERE r.EntityId=N'11';
+                INSERT dbo.LocationPublishedVersions(LocationId,VersionNumber,
+                    ChangeRequestId,IsCurrent,PublishedJson,PublishedSha256,
+                    PublishedAt,PublishedByUserId,SourceLocationRowVersion)
+                SELECT 11,1,NULL,1,N'{"Address":"Original"}',
+                    HASHBYTES('SHA2_256',
+                        CONVERT(varbinary(max),N'{"Address":"Original"}')),
+                    SYSUTCDATETIME(),1,l.RowVersion
+                FROM dbo.Locations l WHERE l.LocationId=11;
+                """);
+            var decision=Guid.NewGuid();
+            await using(var publishTx=(SqlTransaction)await db.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable))
+            {
+                await FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter
+                    .ExecuteAsync(db,publishTx,requestPublicId,1,2,decision,
+                        "Independently reviewed",true,true,CancellationToken.None);
+                await publishTx.CommitAsync();
+            }
+            Assert.Equal("Applied",await Scalar(db,
+                "SELECT Status FROM dbo.ChangeRequests WHERE RequestPublicId='"+requestPublicId+"'"));
+            Assert.Equal("Published",await Scalar(db,
+                "SELECT StageStatus FROM dbo.LocationPublicationStages WHERE LocationId=11"));
+            Assert.Equal("Reviewed",await Scalar(db,
+                "SELECT LocationName FROM dbo.Locations WHERE LocationId=11"));
+            Assert.Equal("2",await Scalar(db,
+                "SELECT CAST(VersionNumber AS nvarchar(10)) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND IsCurrent=1"));
+            Assert.Equal("2",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(10)) FROM dbo.LocationPublishedVersions WHERE LocationId=11"));
+            Assert.Equal("2",await Scalar(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(10)) FROM dbo.ChangeRequestEvents e JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId WHERE r.EntityId=N'11'"));
+            Assert.Equal("Approved",await Scalar(db,
+                "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=11"));
+            // Replaying the same already-applied request must fail closed.
+            await using(var replayTx=(SqlTransaction)await db.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable))
+            {
+                await Assert.ThrowsAsync<SqlException>(()=>
+                    FieldVisit.Infrastructure.V180OptionCAtomicPublicationWriter.ExecuteAsync(
+                        db,replayTx,requestPublicId,1,2,decision,
+                        "Independently reviewed",true,true,CancellationToken.None));
+                await replayTx.RollbackAsync();
+            }
+
         }
         finally
         {
