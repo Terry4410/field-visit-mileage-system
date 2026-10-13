@@ -6,6 +6,9 @@
 - 011 creates `dbo.ChangeRequests` and `dbo.ChangeRequestEvents`, never `dbo.LocationChangeRequests`.
 - 012 permits audited Approved/Applied atomic transitions.
 - 013 remains RESERVED for leader grant; do not repurpose.
+- 014 is the reserved Option C candidate for staged location versions and the
+  published-version ledger. It is still NONEXECUTABLE and only hard-stops into
+  an `OptionCIsolated_*` disposable database.
 - 011 must not run against UAT without exact-schema read-only preflight and explicit Owner migration authorization.
 - No SQL from this directory is automatically executed by CI; only static provenance checks are permitted.
 - The current executor rejects published identity/geocode-sensitive changes until a versioned swap is reviewed. The candidate 011/012 schema **does not yet** supply that versioned swap.

@@ -23,6 +23,10 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
         if (!connection.Database.StartsWith("OptionCIsolated_", StringComparison.Ordinal))
             throw new InvalidOperationException("OPTIONC_ISOLATED_ONLY");
+        // Database naming is not schema evidence. Verify every required
+        // Stage/Ledger object, column, unique index and trusted constraint
+        // before opening the write transaction.
+        await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
 
         await using var tx = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable, ct);

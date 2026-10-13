@@ -125,6 +125,13 @@
 - 驗證內容包含：exact-source/nondeploy guard、011/012 static provenance、Frontend npm/test/build、Backend Release build/tests、disposable SQL runtime fixture、011/012 isolated Up/Verify/replay rehearsal。
 - Run 無 artifacts，且 workflow 明確維持 Release NO-GO；此結果不代表正式 Atomic Publication、Admin API/E2E、UAT Migration 或 Business UAT 已完成。
 
+## 2O. Option C blocker-resolution batch（2026-10-13）
+
+- 新增 `V180OptionCPublicationCatalogRules`：Atomic Publication orchestrator 在任何 transaction/DML 前，必須以唯讀 system catalog 驗證 ChangeRequests、ChangeRequestEvents、Stage、Published Version 的必要欄位、唯一索引與 trusted CHECK constraints；僅資料庫名稱符合 `OptionCIsolated_*` 不再視為 schema 證據。
+- 新增 `1800_014` **NONEXECUTABLE DRAFT**：Stage／Published Version ledger、穩定 `LocationId`、歷史版本保留、Current／ChangeRequest 唯一性、Proposal／Address／Duplicate evidence hash binding、Preflight／Verify／Recovery。`013` 保留，正式 `database/migrations` 未變更。
+- 新增 014 provenance/安全邊界測試；本機 Python CI static tests：4 tests PASS。
+- 本批尚未完成正式 UAT schema backfill、公開 API、Admin E2E 或 Business UAT；.NET／SQL evidence 必須由本批新 SHA 的 GitHub CI 重新取得。C1/C3/C5/C6 仍不可標示完成。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |

@@ -46,5 +46,22 @@ class OptionCCanonicalSqlDraftTests(unittest.TestCase):
         self.assertIn("BEGIN TRANSACTION", b)
         self.assertNotIn("DROP TABLE", b.upper())
 
+    def test_optionc_014_stage_and_ledger_are_nonexecutable_and_preserve_013(self):
+        root = DRAFT / "1800_014"
+        up = (root / "Up.sql").read_text()
+        preflight = (root / "Preflight.sql").read_text()
+        verify = (root / "Verify.sql").read_text()
+        recovery = (root / "RECOVERY.md").read_text()
+        for text in (up, preflight, verify):
+            self.assertIn("OptionCIsolated[_]%", text)
+        self.assertIn("LocationPublicationStages", up)
+        self.assertIn("LocationPublishedVersions", up)
+        self.assertIn("UX_OptionC_Published_Current", up)
+        self.assertIn("UX_OptionC_Published_Request", up)
+        self.assertIn("1.8.0-012", preflight + up)
+        self.assertIn("013", recovery)
+        self.assertNotIn("LocationChangeRequests", up + preflight + verify)
+        self.assertFalse((ROOT / "database/migrations/1800_014").exists())
+
 if __name__ == "__main__":
     unittest.main()
