@@ -821,6 +821,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         if (string.IsNullOrWhiteSpace(teamCode)) return null;
         var team = await db.Teams.AsNoTracking().FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.TeamCode == teamCode && x.IsActive, ct) ?? throw new InvalidOperationException($"找不到小組代碼 {teamCode}。");
         if (HasRole(user, "leader") && !user.TeamIds.Contains(team.TeamId)) throw new UnauthorizedAccessException($"無權匯入小組 {team.TeamName} 的資料。");
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, team.TeamId, ct);
         return team.TeamId;
     }
 

@@ -793,6 +793,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
         V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
             string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
         if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
@@ -821,6 +822,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
             row, user, request.TeamId,
@@ -855,6 +857,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, row.TeamId, ct);
         V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
             row, user, row.TeamId, row.LocationType, false);
         row.IsActive = false;
