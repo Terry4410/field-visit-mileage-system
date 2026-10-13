@@ -76,7 +76,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                 // reported as UNKNOWN to the caller for operator reconciliation.
                 var status = await V180OptionCUnknownCommitReconciler.ObserveAsync(
                     connection.ConnectionString, requestPublicId, decisionKey,
-                    reviewer.UserId, ct);
+                    reviewer.UserId, CancellationToken.None);
                 throw new InvalidOperationException(
                     "OPTIONC_UNKNOWN_COMMIT_" + status, commitError);
             }
