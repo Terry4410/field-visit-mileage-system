@@ -30,7 +30,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         await using (var tx=await h.Begin())
         {
             await using var update=new SqlCommand("""
-                UPDATE dbo.ChangeRequests SET Status=N'Rejected'
+                UPDATE dbo.ChangeRequests SET Status=N'Rejected',
+                  ReviewedByUserId=2,ReviewedAt=SYSUTCDATETIME(),ReviewReason=N'Rowcount reproduction'
                 WHERE RequestPublicId=@id AND Status=N'Pending';
                 """,h.Db,tx);
             update.Parameters.AddWithValue("@id",request);
@@ -209,7 +210,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var locationIdBefore=await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.Locations WHERE LocationId=10");
         var request=await h.CreateRequest(10); await h.PrepareStage(request);
         var key=Guid.NewGuid();
-        var direct=new SqlConnectionStringBuilder(h.Db.ConnectionString){Pooling=false};
+        var direct=new SqlConnectionStringBuilder(h.ConnectionString){Pooling=false};
         await using var proxy=new CommitAckLossProxy(direct.DataSource);
         var throughProxy=new SqlConnectionStringBuilder(direct.ConnectionString)
         { DataSource=$"127.0.0.1,{proxy.Port}",Pooling=false,ConnectTimeout=5 };
@@ -273,10 +274,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("ReadyForPublish",await h.StageStatus(request));
         Assert.Equal("NO_COMMIT_EVIDENCE_REQUIRES_REVIEW",
             await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
-                h.Db.ConnectionString,request,key,2,CancellationToken.None));
+                h.ConnectionString,request,key,2,CancellationToken.None));
         Assert.Equal("NO_COMMIT_EVIDENCE_REQUIRES_REVIEW",
             await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
-                h.Db.ConnectionString,request,Guid.NewGuid(),2,CancellationToken.None));
+                h.ConnectionString,request,Guid.NewGuid(),2,CancellationToken.None));
     }
 
     private sealed class CommitAckLossProxy : IAsyncDisposable
@@ -385,7 +386,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     {
         private readonly SqlConnection root; private readonly string name;
         internal SqlConnection Db{get;}
-        private Harness(SqlConnection root,SqlConnection db,string name){this.root=root;Db=db;this.name=name;}
+        internal string ConnectionString{get;}
+        private Harness(SqlConnection root,SqlConnection db,string name,string connectionString){this.root=root;Db=db;this.name=name;ConnectionString=connectionString;}
 
         internal static async Task<Harness?> TryCreateAsync()
         {
@@ -409,7 +411,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 var repo=FindRoot();
                 foreach(var p in new[]{"1800_011/Up.sql","1800_012/Up.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql"})
                     await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft",p.Replace('/',Path.DirectorySeparatorChar))));
-                return new Harness(root,db,name);
+                return new Harness(root,db,name,dbb.ConnectionString);
             }
             catch{await db.DisposeAsync();await V180OptionCFinalSecurityGateSqlTests.Exec(root,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");await root.DisposeAsync();throw;}
         }
@@ -445,7 +447,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
 
         internal async Task<Outcome> Decide(FieldVisit.Infrastructure.V180OptionCAdminApprovalService service,Guid request,string kind,Guid key,TaskCompletionSource<int>? sessionReady)
         {
-            var b=new SqlConnectionStringBuilder(Db.ConnectionString){Pooling=false};
+            var b=new SqlConnectionStringBuilder(ConnectionString){Pooling=false};
             await using var c=new SqlConnection(b.ConnectionString);await c.OpenAsync();
             await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable);
             if(sessionReady is not null)sessionReady.TrySetResult(int.Parse(await ScalarOn(c,"SELECT @@SPID")));
