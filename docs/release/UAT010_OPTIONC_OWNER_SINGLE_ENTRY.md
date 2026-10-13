@@ -70,6 +70,14 @@
 - 交易結束後驗證 ledger Current/版本筆數、Stage Ready、Location Approved、Request Pending、Audit 0 筆。這是正確的跨表回滾隔離測試，仍非可用的核准／發布 API。
 - 新 exact-SHA CI 結果尚待確認，未通過前維持 C1/C3/C6 HOLD。
 
+## 2G. 第七批：隔離 Atomic Publication Writer 候選（2026-10-13）
+
+- 新增 `V180OptionCAtomicPublicationWriter`：**internal、未註冊、無 HTTP route、只允許 `OptionCIsolated_*` 一次性 SQL 資料庫**；由呼叫者提供 Serializable transaction，不自行提交或盲目重試。
+- 單一 SQL batch 遵循 Request → Location → Stage → Ledger 鎖序，驗證 Pending、高風險、組織／小組／建立者、來源 RowVersion、staged JSON 與 geocode/duplicate 版本證據、admin 與 requester 不同、DecisionKey 唯一。
+- 同一交易內切換 ledger Current，更新同一 `LocationId` 的正式欄位，插入新版、標記 Stage Published、Request Applied，產生 Approved/Applied 兩筆 canonical audit。
+- 新增隔離 SQL Server success-path 測試與 replay-denial 測試；**須以 exact-SHA CI 實際結果為準**，目前不可推論 PASS。
+- **未完成的安全關卡**：外部即時 HR/角色/Leader 任命驗證仍須由未來 orchestrator 在鎖定交易中取得，而非接受 client boolean；immutable stage mutation 和 ledger 回填、歷史 Snapshot invariants、實際 geocoding callback 與 duplicate reviewer 的授權整合、unknown commit 查證及 Admin E2E 尚未完成。此 Writer 不是可上線的 B3 API，C1/C3/C6 仍 HOLD。
+
 ## 3. 未完成：下一批工程工作與解除 HOLD 關卡
 
 | 關卡 | 完成條件 | 狀態 |
