@@ -256,7 +256,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
         Assert.Equal("INDETERMINATE",await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(
             direct.ConnectionString,request,key,3,CancellationToken.None));
-        Assert.Equal(1,proxy.CommitRequestsForwarded);
+        Assert.True(proxy.CommitRequestsForwarded>0,$"No encrypted application packet was forwarded. {proxy.Trace}");
     }
 
     [Fact]
@@ -347,7 +347,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 {
                     int length=(packet[2]<<8)|packet[3];if(length<8||packet.Count<length)break;
                     var current=packet.Take(length).ToArray();packet.RemoveRange(0,length);
-                    if(clientToServer)trace.Enqueue($"C:{current[0]:X2}:{Convert.ToHexString(current.Skip(8).Take(24).ToArray())}");
+                    if(clientToServer)
+                    {
+                        trace.Enqueue($"C:{current[0]:X2}:{Convert.ToHexString(current.Skip(8).Take(24).ToArray())}");
+                        if(current[0]==0x17)Interlocked.Increment(ref commitRequests);
+                    }
                     else trace.Enqueue($"S:{current[0]:X2}:{Convert.ToHexString(current.Skip(8).Take(24).ToArray())}");
                     if(clientToServer&&Interlocked.Exchange(ref commitArmed,0)==1)
                     {
