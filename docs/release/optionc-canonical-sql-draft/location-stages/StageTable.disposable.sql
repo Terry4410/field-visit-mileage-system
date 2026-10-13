@@ -61,6 +61,17 @@ CREATE TABLE dbo.LocationPublicationStages
         (GeocodeStatus<>N'Succeeded'
           OR (GeocodeAddressSha256 IS NOT NULL
               AND Latitude IS NOT NULL AND Longitude IS NOT NULL)),
+    -- A successful geocode is valid ONLY for the exact staged address.
+    -- Prevent stale callbacks for a previous address from satisfying publish.
+    CONSTRAINT CK_OptionC_Stage_GeocodeAddressBinding CHECK
+        (GeocodeStatus<>N'Succeeded'
+          OR (JSON_VALUE(ProposedJson,N'$.Address') IS NOT NULL
+              AND GeocodeAddressSha256=HASHBYTES('SHA2_256',
+                  CONVERT(varbinary(max),JSON_VALUE(ProposedJson,N'$.Address'))))),
+    -- Duplicate-review evidence is version-scoped, not arbitrary proof bytes.
+    CONSTRAINT CK_OptionC_Stage_DuplicateVersionBinding CHECK
+        (DuplicateReviewStatus<>N'Cleared'
+          OR DuplicateEvidenceSha256=ProposedSha256),
     CONSTRAINT CK_OptionC_Stage_Ready CHECK
         (StageStatus<>N'ReadyForPublish'
           OR (DuplicateReviewStatus=N'Cleared'
