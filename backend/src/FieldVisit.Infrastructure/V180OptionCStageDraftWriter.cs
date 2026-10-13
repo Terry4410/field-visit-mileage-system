@@ -79,6 +79,7 @@ internal static class V180OptionCStageDraftWriter
                 ChangeRequestId,LocationId,OrganizationId,TeamId,
                 ExpectedLocationRowVersion,ProposedJson,ProposedSha256,
                 StageStatus,GeocodeStatus,DuplicateReviewStatus,CreatedAt,UpdatedAt)
+            OUTPUT INSERTED.ChangeRequestId
             VALUES(@request,@location,@org,@team,@expected,@proposed,
                 HASHBYTES('SHA2_256',CONVERT(varbinary(max),@proposed)),
                 N'PendingGeocode',N'Pending',N'Pending',SYSUTCDATETIME(),SYSUTCDATETIME());
@@ -89,8 +90,11 @@ internal static class V180OptionCStageDraftWriter
         insert.Parameters.AddWithValue("@team", teamId);
         insert.Parameters.AddWithValue("@expected", expected);
         insert.Parameters.AddWithValue("@proposed", proposed);
-        if (await insert.ExecuteNonQueryAsync(ct) != 1)
+        // Up.sql sets NOCOUNT ON on the same connection, so affected-row
+        // counts are not reliable. OUTPUT the inserted canonical FK instead.
+        var inserted = await insert.ExecuteScalarAsync(ct);
+        if (inserted is not long createdId || createdId != requestId)
             throw new InvalidOperationException("OPTIONC_STAGE_INSERT_CONFLICT");
-        return requestId;
+        return createdId;
     }
 }
