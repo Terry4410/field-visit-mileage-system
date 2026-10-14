@@ -103,7 +103,8 @@ public sealed class V180OptionCCandidateService(
         var org = await new V180OptionCLiveAuthorizationAdapter(db).ResolveLiveOrganizationAsync(actorId, ct);
         var rows = await db.ChangeRequests.AsNoTracking().Where(x => x.OrganizationId == org
             && x.RequestedByUserId == actorId && x.EntityKind == "Location"
-            && x.OperationCode == "UpdatePublishedLocation" && (x.RiskCode == "High" || x.RiskCode == "Low")
+            && (x.OperationCode == "UpdatePublishedLocation" || x.OperationCode == "CreateLocation")
+            && (x.RiskCode == "High" || (x.OperationCode == "UpdatePublishedLocation" && x.RiskCode == "Low"))
             && (x.Status == "Pending" || x.Status == "Rejected" || x.Status == "Applied"))
             .OrderByDescending(x => x.SubmittedAt).Take(100).ToListAsync(ct);
         await tx.CommitAsync(ct);
@@ -121,8 +122,8 @@ public sealed class V180OptionCCandidateService(
             x.RequestPublicId == id && x.OrganizationId == org
             && x.RequestedByUserId == actorId
             && x.EntityKind == "Location"
-            && x.OperationCode == "UpdatePublishedLocation"
-            && (x.RiskCode == "High" || x.RiskCode == "Low"), ct)
+            && (x.OperationCode == "UpdatePublishedLocation" || x.OperationCode == "CreateLocation")
+            && (x.RiskCode == "High" || (x.OperationCode == "UpdatePublishedLocation" && x.RiskCode == "Low")), ct)
             ?? throw new UnauthorizedAccessException("OPTIONC_REQUEST_SCOPE_DENIED");
         await tx.CommitAsync(ct);
         return ToView(row);
