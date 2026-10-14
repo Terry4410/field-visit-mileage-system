@@ -839,8 +839,27 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             (
                 VisitTripId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 UserId int NOT NULL,
+                OrganizationId int NOT NULL,
+                TeamId int NULL,
                 Status nvarchar(30) NOT NULL,
                 VisitDate date NOT NULL
+            );
+            CREATE TABLE dbo.CorrectionRequests
+            (
+                CorrectionRequestId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                VisitTripId bigint NOT NULL,
+                Status nvarchar(30) NOT NULL,
+                RequestedByUserId int NOT NULL
+            );
+            CREATE TABLE dbo.MileageRateRules
+            (
+                MileageRateRuleId int IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                OrganizationId int NULL,
+                IsActive bit NOT NULL,
+                VehicleType nvarchar(40) NOT NULL,
+                EffectiveFrom date NOT NULL,
+                EffectiveTo date NULL,
+                RatePerKm decimal(10,2) NOT NULL
             );
             """);
         using var dashboardBeforeResponse = await visitor.GetAsync("api/v1/dashboard");
