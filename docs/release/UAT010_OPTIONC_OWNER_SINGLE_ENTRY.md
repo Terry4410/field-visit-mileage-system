@@ -32,6 +32,14 @@
 - MergeFields 仍保留原獨立 Admin 駁回契約；以 `LocationMergeDetails` 辨識，不可藉 Merge 名義繞過正常 Create/Update 核准。加入低風險 Admin bypass 拒絕及高風險 Leader-before-Admin 拒絕 HTTP 測試。
 - **本批 Exact-SHA CI 尚待完成，不宣告工程 PASS。** CreateLocation 真實 HTTP 送審、Pending Location 全查詢隔離、Excel／legacy／background canonical routing 仍為阻礙；UAT/Production 全面 **HOLD／NO-GO**。
 
+## 2026-10-14 — 第六批：低風險 Legacy MasterNote 直接寫入封鎖（Recovery only）
+
+- Read-only path audit found `V170LocationRepository.UpdateMaintenanceAsync` still permitted published `MasterNote` direct update, bypassing Scheme A LowRisk independent Leader review and versioned publication.
+- Recovery-only security correction: published identity/address HighRisk remains blocked; published note-only LowRisk now also fails closed with `LOCATION_LOW_RISK_CHANGE_REQUIRES_OPTIONC_LEADER_REVIEW` before any Location mutation. Non-published draft maintenance and separate team-specific note contract are unchanged.
+- Added policy and source-order tests to prevent silent reintroduction of the direct published MasterNote bypass.
+- Previous CI `38527806267` **FAIL** because a newly extended HTTP rejection test omitted isolated Leader Review schema; test setup corrected by installing the disposable Leader schema and live-appointed reviewer.
+- **Newest exact-SHA CI still pending; do not mark PASS.** CreateLocation HTTP workflow, Excel/legacy/background full routing, UI, UAT target preflight and Business UAT remain **HOLD / NO-GO**.
+
 ## 1. 單一程式來源
 
 - Repository: `Terry4410/field-visit-mileage-system`
