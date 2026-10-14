@@ -35,6 +35,23 @@ internal static class V180OptionCAtomicPublicationWriter
         // production query and cannot be invoked against a UAT database.
         V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
 
+        // MergeFields uses the additive detail row for the second Location identity.
+        // It remains on the same canonical request, Stage and Serializable transaction.
+        await using (var mergeProbe = new SqlCommand(
+            "SELECT COUNT_BIG(1) FROM dbo.LocationMergeDetails d JOIN dbo.ChangeRequests r ON r.ChangeRequestId=d.ChangeRequestId WHERE r.RequestPublicId=@publicId AND r.OrganizationId=@org AND r.Status=N'Pending';",
+            connection, transaction))
+        {
+            mergeProbe.Parameters.AddWithValue("@publicId", requestPublicId);
+            mergeProbe.Parameters.AddWithValue("@org", organizationId);
+            if (Convert.ToInt64(await mergeProbe.ExecuteScalarAsync(ct)) == 1)
+            {
+                await V180OptionCMergePublicationWriter.ExecuteAsync(
+                    connection, transaction, requestPublicId, organizationId,
+                    liveReviewerUserId, decisionKey, reason, authorization, ct);
+                return;
+            }
+        }
+
         const string sql = """
             SET XACT_ABORT ON;
             DECLARE @requestId bigint, @locationId int, @team int,

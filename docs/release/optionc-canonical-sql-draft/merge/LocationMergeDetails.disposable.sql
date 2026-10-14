@@ -25,9 +25,11 @@ BEGIN
         ProposedJson nvarchar(max) NOT NULL,
         EvidenceJson nvarchar(max) NULL,
         CONSTRAINT FK_OptionC_MergeDetails_Request FOREIGN KEY(ChangeRequestId)
-            REFERENCES dbo.ChangeRequests(ChangeRequestId),
+            REFERENCES dbo.ChangeRequests(ChangeRequestId) ON DELETE NO ACTION,
         CONSTRAINT CK_OptionC_MergeDetails_Different CHECK(SourceLocationId<>SurvivorLocationId),
         CONSTRAINT CK_OptionC_MergeDetails_SameOrg CHECK(SourceOrganizationId=SurvivorOrganizationId),
-        CONSTRAINT CK_OptionC_MergeDetails_Json CHECK(ISJSON(BeforeJson)=1 AND ISJSON(ProposedJson)=1)
+        CONSTRAINT CK_OptionC_MergeDetails_Teams CHECK(SourceTeamId=SurvivorTeamId AND SourceTeamId>0),
+        CONSTRAINT CK_OptionC_MergeDetails_RowVersions CHECK(DATALENGTH(SourceLocationRowVersion)=8 AND DATALENGTH(SurvivorLocationRowVersion)=8),
+        CONSTRAINT CK_OptionC_MergeDetails_Json CHECK(ISJSON(BeforeJson)=1 AND ISJSON(ProposedJson)=1 AND (EvidenceJson IS NULL OR ISJSON(EvidenceJson)=1))
     );
 END;

@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IV160FinalRepository,V160FinalRepository>();services.AddScoped<IV170AccessControl,V170AccessControl>();services.AddScoped<IV170LocationRepository,V170LocationRepository>();services.AddScoped<IV170ProjectLocationAdminRepository,V170ProjectLocationAdminRepository>();services.AddScoped<IV170PeopleAdminRepository,V170PeopleAdminRepository>();services.AddScoped<IV170PeopleAdminWriter,V170PeopleAdminWriter>();services.AddScoped<IV170PeopleBulkWorkbookService,V170PeopleBulkWorkbookService>();services.AddScoped<IReportDocumentService,ReportDocumentService>();services.AddScoped<IWorkbookImportService,WorkbookImportService>();services.AddScoped<IBackgroundJobService,BackgroundJobService>();
         services.AddScoped<IV180MasterDataAdminRepository,V180MasterDataAdminRepository>();
         services.AddScoped<V180OptionCCandidateService>();
+        services.AddScoped<V180OptionCMergeService>();
         services.AddScoped<IV180MasterDataBulkWorkbookService,V180MasterDataBulkWorkbookService>();
         services.AddScoped<IV180PersonnelBulkService,V180PersonnelBulkService>();
         services.AddScoped<IV180PeopleManagementBulkService,V180TeamMembershipBulkService>();
