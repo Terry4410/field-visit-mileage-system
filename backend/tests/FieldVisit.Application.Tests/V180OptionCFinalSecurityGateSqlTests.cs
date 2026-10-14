@@ -565,8 +565,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 "Excel Update duplicate review cleared",Guid.NewGuid()));
         Assert.True(duplicateUpdate.IsSuccessStatusCode,
             await duplicateUpdate.Content.ReadAsStringAsync());
+        // HighRisk published Update uses the existing canonical Option C
+        // Admin approve endpoint; publish-reviewed is Create/LowRisk only.
         using var publishUpdate=await admin.PostAsJsonAsync(
-            $"api/v1/optionc-candidate/requests/{updateId}/publish-reviewed",
+            $"api/v1/optionc-candidate/requests/{updateId}/approve",
             new V180B3Review(updateRequestVersion,Guid.NewGuid(),
                 "Independent Admin final Excel Update publication"));
         Assert.True(publishUpdate.IsSuccessStatusCode,
