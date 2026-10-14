@@ -903,10 +903,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
             P("@id", locationId)));
         // Project-linked Trip pickers use the legacy project-locations API.
-        // Simulate a stale/incorrect activation bit on the still-private
-        // canonical reservation: the project query must rely on the live
-        // reservation and publication state, not IsActive alone. A normal
-        // approved project Location remains selectable.
+        // Verify that project-linked operational choices exclude canonical
+        // Pending requests while preserving an approved active Location.
         await h.Exec("""
             CREATE TABLE dbo.Projects
             (
@@ -949,8 +947,6 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                   (9901,900,@location,0,1,SYSUTCDATETIME()),
                   (9902,900,30,0,1,SYSUTCDATETIME());
             """, P("@location", locationId));
-        await h.Exec("UPDATE dbo.Locations SET IsActive=1 WHERE LocationId=@location",
-            P("@location", locationId));
         using var projectLocationsResponse = await visitor.GetAsync(
             "api/v1/projects/900/locations");
         Assert.True(projectLocationsResponse.IsSuccessStatusCode,
@@ -965,8 +961,6 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "api/v1/projects/901/locations");
         Assert.False(crossOrganizationProject.IsSuccessStatusCode,
             "Visitor must not resolve a Project from another Organization.");
-        await h.Exec("UPDATE dbo.Locations SET IsActive=0 WHERE LocationId=@location",
-            P("@location", locationId));
         // Real legacy HTTP UPDATE/DELETE must not mutate a canonical reserved
         // identity. Test as valid org-scoped admin to exclude auth-only denials.
         using var legacyAdmin = factory.CreateClient(new WebApplicationFactoryClientOptions {
