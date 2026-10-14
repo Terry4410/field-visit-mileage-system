@@ -29,14 +29,16 @@ internal static class V180OptionCStageDraftWriter
         byte[] expected;
         string proposed;
         string risk;
+        string operation;
         await using (var req = new SqlCommand("""
             SELECT ChangeRequestId,EntityId,TeamId,RequestedByUserId,
-                ExpectedEntityRowVersion,ProposedJson,RiskCode
+                ExpectedEntityRowVersion,ProposedJson,RiskCode,OperationCode
             FROM dbo.ChangeRequests WITH(UPDLOCK,HOLDLOCK)
             WHERE RequestPublicId=@publicId AND OrganizationId=@org
               AND EntityKind=N'Location'
-              AND OperationCode=N'UpdatePublishedLocation'
-              AND RiskCode IN(N'High',N'Low') AND Status=N'Pending'
+              AND ((OperationCode=N'UpdatePublishedLocation' AND RiskCode IN(N'High',N'Low'))
+                OR (OperationCode=N'CreateLocation' AND RiskCode=N'High'))
+              AND Status=N'Pending'
             """, db, tx))
         {
             req.Parameters.AddWithValue("@publicId", requestPublicId);
@@ -53,18 +55,32 @@ internal static class V180OptionCStageDraftWriter
             expected = (byte[])reader.GetValue(4);
             proposed = reader.GetString(5);
             risk = reader.GetString(6);
+            operation = reader.GetString(7);
         }
         if (teamId <= 0 || requester <= 0 || expected.Length != 8
             || proposed.Length is 0 or > 10000)
             throw new InvalidOperationException("OPTIONC_STAGE_REQUEST_INVALID");
 
-        await using (var loc = new SqlCommand("""
+        var locationSql = operation == "CreateLocation" ? """
+            SELECT l.RowVersion FROM dbo.Locations l WITH(UPDLOCK,HOLDLOCK)
+            JOIN dbo.LocationCreateReservations cr WITH(UPDLOCK,HOLDLOCK)
+              ON cr.LocationId=l.LocationId
+            WHERE l.LocationId=@id AND l.OrganizationId=@org AND l.TeamId=@team
+              AND l.CreatedByUserId=@requester AND l.LocationType=N'Customer'
+              AND l.ApprovalStatus=N'Pending' AND l.IsActive=0
+              AND cr.ChangeRequestId=@requestId AND cr.OrganizationId=@org
+              AND cr.TeamId=@team AND cr.ReservationStatus=N'Pending'
+              AND cr.ReservedLocationRowVersion=l.RowVersion
+            """ : """
             SELECT RowVersion FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
             WHERE LocationId=@id AND OrganizationId=@org AND TeamId=@team
               AND CreatedByUserId=@requester AND LocationType=N'Customer'
               AND ApprovalStatus=N'Approved' AND IsActive=1
-            """, db, tx))
+            """;
+        await using (var loc = new SqlCommand(locationSql, db, tx))
         {
+            if (operation == "CreateLocation")
+                loc.Parameters.AddWithValue("@requestId", requestId);
             loc.Parameters.AddWithValue("@id", locationId);
             loc.Parameters.AddWithValue("@org", organizationId);
             loc.Parameters.AddWithValue("@team", teamId);
@@ -74,7 +90,7 @@ internal static class V180OptionCStageDraftWriter
                 throw new InvalidOperationException("OPTIONC_STAGE_SOURCE_DRIFT");
         }
 
-        if (risk == "Low")
+        if (risk == "Low" || operation == "CreateLocation")
         {
             await using var gate = new SqlCommand("""
                 SELECT COUNT(*) FROM dbo.SchemaVersions

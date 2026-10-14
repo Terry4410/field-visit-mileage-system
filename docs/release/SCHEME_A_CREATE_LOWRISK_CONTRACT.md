@@ -123,6 +123,24 @@ HTTP. In particular, this is **not** the complete CreateLocation submission
 workflow and is not evidence of pending-location exclusion in legacy queries.
 No deployed flags are enabled.
 
+## Candidate CreateLocation HTTP reservation delta — 2026-10-14
+
+The isolated candidate POST `api/v1/optionc-candidate/locations` now
+implements a server-owned LocationId (never supplied by the client),
+live HR/role/team submission check, inactive Pending Location, canonical
+CreateLocation/High Request, Submitted event, Pending reservation and
+private PendingGeocode Stage inside one Serializable transaction. Matching
+pending submissions are serialized with a transaction-owned application
+lock; SQL insertion supports both IDENTITY application tables and the
+disposable fixture's explicit key table without making either client-owned.
+Rejected/rolled-back inserts leave no committed reservation or Stage.
+
+A new disposable real HTTP/SQL test verifies Pending state, Source RowVersion
+binding, audit, absence from the published-version ledger, duplicate denial
+and cross-organization denial. It is not a test of every legacy Picker, trip,
+mileage or report read path; public pending-location exclusion and complete
+Visitor/Leader/Admin UI remain HOLD. No deployed flags enabled.
+
 ## Release blockers
 
 - LowRisk published-update candidate now has an HTTP submission-to-publication

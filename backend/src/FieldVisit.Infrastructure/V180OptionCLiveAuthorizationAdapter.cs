@@ -67,6 +67,31 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
         return new(actorUserId, organizationId, teamId, visitor, leader);
     }
 
+    /// <summary>
+    /// Candidate-only CreateLocation submission: no existing published Location
+    /// can supply identity or ownership. Derive organization and effective
+    /// Visitor/Leader/Admin team scope from live HR in the SERIALIZABLE tx.
+    /// </summary>
+    public async Task<V180OptionCLiveSubmissionEvidence> AuthorizeCreateSubmissionAsync(
+        int actorUserId, int teamId, DateOnly today, CancellationToken ct)
+    {
+        RequireSerializableTransaction();
+        if (teamId <= 0)
+            throw new UnauthorizedAccessException("OPTIONC_CREATE_TEAM_REQUIRED");
+        var actor = await ReadInternalActorAsync(actorUserId, 0, today, ct,
+            allowOrganizationLookup: true);
+        var team = await db.Teams.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.TeamId == teamId && x.OrganizationId == actor.OrganizationId
+            && x.IsActive && (!x.EffectiveFrom.HasValue || x.EffectiveFrom <= today)
+            && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct)
+            ?? throw new UnauthorizedAccessException("OPTIONC_CREATE_TEAM_SCOPE_DENIED");
+        if (!await IsRequesterEligibleAsync(actor, actor.OrganizationId, teamId, today, ct))
+            throw new UnauthorizedAccessException("OPTIONC_CREATE_ACTOR_SCOPE_DENIED");
+        var roles = await EffectiveRolesAsync(actorUserId, today, ct);
+        return new(actorUserId, team.OrganizationId, teamId,
+            roles.Contains("visitor"), roles.Contains("leader"));
+    }
+
     public async Task<V180OptionCLiveDecisionEvidence> AuthorizeDecisionAsync(
         int requesterUserId, int reviewerUserId, int organizationId, int teamId,
         DateOnly today, CancellationToken ct)
@@ -233,7 +258,11 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
             && await db.UserTeamAssignments.AsNoTracking().AnyAsync(x =>
                 x.UserId == requester.UserId && x.TeamId == teamId
                 && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
-        return requester.OrganizationId == organizationId && scoped && (member || leader);
+        // An Admin may originate a scoped CreateLocation, but may never self-review.
+        // Existing update submission remains separately restricted to owner
+        // Visitor/Leader actors by AuthorizeSubmissionAsync.
+        return requester.OrganizationId == organizationId && scoped
+            && (member || leader || roles.Contains("admin"));
     }
 
     private async Task<HashSet<string>> EffectiveRolesAsync(

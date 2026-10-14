@@ -19,6 +19,81 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
+    public async Task CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var root = FindRoot();
+        foreach (var relative in new[] {
+            "leader-review/LeaderReviewDetails.disposable.sql",
+            "create-lowrisk/CreateLowRiskContract.disposable.sql" })
+            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                "optionc-canonical-sql-draft",
+                relative.Replace('/', Path.DirectorySeparatorChar))));
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
+            builder.UseSetting("Auth:Mode", "Demo");
+            builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+        });
+        using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
+        var payload = new V180OptionCCreateLocation(1, "New customer candidate",
+            new V180B3LocationFields("Candidate HTTP identity", "Taipei", "Xinyi",
+                "New pending candidate address", null, null, "Pending only"));
+        using var response = await visitor.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations", payload);
+        Assert.True(response.IsSuccessStatusCode,
+            await response.Content.ReadAsStringAsync());
+        var created = await response.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_HTTP_VIEW_MISSING");
+        Assert.Equal("High", created.RiskCode);
+        Assert.Equal("Pending", created.Status);
+        var locationId = int.Parse(created.EntityId);
+        Assert.True(locationId > 19);
+        Assert.Equal("0", await h.Scalar(
+            "SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=@id",
+            P("@id", locationId)));
+        Assert.Equal("Pending", await h.Scalar(
+            "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
+            P("@id", locationId)));
+        Assert.Equal("PendingGeocode", await h.StageStatus(created.RequestPublicId));
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequests r
+            JOIN dbo.LocationCreateReservations cr ON cr.ChangeRequestId=r.ChangeRequestId
+            JOIN dbo.LocationPublicationStages s ON s.ChangeRequestId=r.ChangeRequestId
+            WHERE r.RequestPublicId=@id AND r.OperationCode=N'CreateLocation'
+              AND r.RiskCode=N'High' AND r.BeforeJson IS NULL
+              AND r.Status=N'Pending' AND cr.ReservationStatus=N'Pending'
+              AND s.StageStatus=N'PendingGeocode'
+              AND cr.LocationId=s.LocationId AND r.EntityId=CONVERT(nvarchar(80),cr.LocationId)
+              AND cr.ReservedLocationRowVersion=s.ExpectedLocationRowVersion
+            """, P("@id", created.RequestPublicId)));
+        Assert.Equal("1", await h.EventCount(created.RequestPublicId, "Submitted"));
+        Assert.Equal("0", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id",
+            P("@id", locationId)));
+        using var again = await visitor.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations", payload);
+        Assert.False(again.IsSuccessStatusCode);
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations
+            WHERE OrganizationId=1 AND TeamId=1 AND ApprovalStatus=N'Pending'
+              AND LocationName=N'Candidate HTTP identity'
+              AND Address=N'New pending candidate address'
+            """));
+        using var outside = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        outside.DefaultRequestHeaders.Authorization = new("Bearer", Token(3, "E3", "admin"));
+        using var denied = await outside.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations", payload);
+        Assert.False(denied.IsSuccessStatusCode);
+    }
+
+    [Fact]
     public async Task Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history()
     {
         await using var h = await Harness.TryCreateAsync();

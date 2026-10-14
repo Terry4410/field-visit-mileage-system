@@ -16,6 +16,11 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
         return service.SubmitAsync(input, ct);
     }
 
+    [HttpPost("locations")]
+    public Task<V180B3RequestView> CreateLocation(
+        V180OptionCCreateLocation input, CancellationToken ct)
+        => service.CreateAsync(input, ct);
+
     [HttpPost("locations/merge-fields")]
     public Task<V180B3RequestView> SubmitMerge(V180OptionCMergeSubmit input, CancellationToken ct)
         => mergeService.SubmitAsync(input, ct);
