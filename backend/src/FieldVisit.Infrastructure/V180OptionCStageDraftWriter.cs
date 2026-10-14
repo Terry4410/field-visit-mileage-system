@@ -28,14 +28,15 @@ internal static class V180OptionCStageDraftWriter
         int requester;
         byte[] expected;
         string proposed;
+        string risk;
         await using (var req = new SqlCommand("""
             SELECT ChangeRequestId,EntityId,TeamId,RequestedByUserId,
-                ExpectedEntityRowVersion,ProposedJson
+                ExpectedEntityRowVersion,ProposedJson,RiskCode
             FROM dbo.ChangeRequests WITH(UPDLOCK,HOLDLOCK)
             WHERE RequestPublicId=@publicId AND OrganizationId=@org
               AND EntityKind=N'Location'
               AND OperationCode=N'UpdatePublishedLocation'
-              AND RiskCode=N'High' AND Status=N'Pending'
+              AND RiskCode IN(N'High',N'Low') AND Status=N'Pending'
             """, db, tx))
         {
             req.Parameters.AddWithValue("@publicId", requestPublicId);
@@ -51,6 +52,7 @@ internal static class V180OptionCStageDraftWriter
             requester = reader.GetInt32(3);
             expected = (byte[])reader.GetValue(4);
             proposed = reader.GetString(5);
+            risk = reader.GetString(6);
         }
         if (teamId <= 0 || requester <= 0 || expected.Length != 8
             || proposed.Length is 0 or > 10000)
@@ -72,6 +74,16 @@ internal static class V180OptionCStageDraftWriter
                 throw new InvalidOperationException("OPTIONC_STAGE_SOURCE_DRIFT");
         }
 
+        if (risk == "Low")
+        {
+            await using var gate = new SqlCommand("""
+                SELECT COUNT(*) FROM dbo.SchemaVersions
+                WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK'
+                """, db, tx);
+            if (Convert.ToInt32(await gate.ExecuteScalarAsync(ct)) != 1)
+                throw new InvalidOperationException("OPTIONC_LOW_SCHEMA_NOT_READY");
+        }
+
         // No published-location DML. DB FK, hash CHECK and filtered unique
         // index remain authoritative for replay/races.
         await using var insert = new SqlCommand("""
@@ -82,7 +94,9 @@ internal static class V180OptionCStageDraftWriter
             OUTPUT INSERTED.ChangeRequestId
             VALUES(@request,@location,@org,@team,@expected,@proposed,
                 HASHBYTES('SHA2_256',CONVERT(varbinary(max),@proposed)),
-                N'PendingGeocode',N'Pending',N'Pending',SYSUTCDATETIME(),SYSUTCDATETIME());
+                CASE WHEN @risk=N'Low' THEN N'PendingDuplicateReview' ELSE N'PendingGeocode' END,
+                CASE WHEN @risk=N'Low' THEN N'NotRequired' ELSE N'Pending' END,
+                N'Pending',SYSUTCDATETIME(),SYSUTCDATETIME());
             """, db, tx);
         insert.Parameters.AddWithValue("@request", requestId);
         insert.Parameters.AddWithValue("@location", locationId);
@@ -90,6 +104,7 @@ internal static class V180OptionCStageDraftWriter
         insert.Parameters.AddWithValue("@team", teamId);
         insert.Parameters.AddWithValue("@expected", expected);
         insert.Parameters.AddWithValue("@proposed", proposed);
+        insert.Parameters.AddWithValue("@risk", risk);
         // Up.sql sets NOCOUNT ON on the same connection, so affected-row
         // counts are not reliable. OUTPUT the inserted canonical FK instead.
         var inserted = await insert.ExecuteScalarAsync(ct);
