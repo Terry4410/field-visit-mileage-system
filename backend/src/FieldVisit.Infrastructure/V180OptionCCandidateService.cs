@@ -20,6 +20,9 @@ public sealed record V180OptionCCreateLocation(
 public sealed record V180OptionCExcelCreateResult(
     Guid ImportBatchId, int Submitted, int AlreadySubmitted, string Status,
     IReadOnlyList<Guid> RequestPublicIds);
+public sealed record V180OptionCExcelRowLink(
+    int RowNumber,long ImportBatchItemId,Guid RequestPublicId,
+    string OperationCode,string RiskCode,string RequestStatus);
 
 internal sealed record V180OptionCExcelRowSource(Guid ImportBatchId, long ImportBatchItemId);
 internal sealed record V180OptionCExcelLocationRow(
@@ -528,6 +531,53 @@ public sealed class V180OptionCCandidateService(
         finished.ConfirmedAt=DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         return new(importBatchId,submitted,already,"SubmittedForReview",ids);
+    }
+
+    /// <summary>Read-only, owner-scoped row-to-canonical Request linkage.</summary>
+    public async Task<IReadOnlyList<V180OptionCExcelRowLink>> ExcelRequestLinksAsync(
+        Guid importBatchId, CancellationToken ct)
+    {
+        if (importBatchId == Guid.Empty)
+            throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_REQUIRED");
+        var connection=await RequireTargetAsync(ct);
+        var actorId=current.GetRequired().UserId;
+        await using var tx=await db.Database.BeginTransactionAsync(IsolationLevel.Serializable,ct);
+        var org=await new V180OptionCLiveAuthorizationAdapter(db)
+            .ResolveLiveOrganizationAsync(actorId,ct);
+        if (!await db.ImportBatches.AsNoTracking().AnyAsync(x =>
+            x.ImportBatchId==importBatchId && x.ImportType=="locations"
+            && x.RequestedByUserId==actorId && x.OrganizationId==org,ct))
+            throw new UnauthorizedAccessException("OPTIONC_EXCEL_BATCH_SCOPE_DENIED");
+        var links=new List<V180OptionCExcelRowLink>();
+        await using(var cmd=new SqlCommand("""
+            SELECT i.RowNumber,i.ImportBatchItemId,r.RequestPublicId,
+                   r.OperationCode,r.RiskCode,r.Status
+            FROM dbo.ImportBatchItems i
+            JOIN dbo.ChangeRequestEvents e ON e.EventType=N'Submitted'
+              AND JSON_VALUE(e.DetailsJson,N'$.Source')=N'Excel'
+              AND TRY_CONVERT(uniqueidentifier,
+                  JSON_VALUE(e.DetailsJson,N'$.ImportBatchId'))=i.ImportBatchId
+              AND TRY_CONVERT(bigint,
+                  JSON_VALUE(e.DetailsJson,N'$.ImportBatchItemId'))=i.ImportBatchItemId
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId
+            WHERE i.ImportBatchId=@batch AND r.RequestedByUserId=@actor
+              AND r.OrganizationId=@org AND r.EntityKind=N'Location'
+            ORDER BY i.RowNumber,i.ImportBatchItemId
+            """,connection,(SqlTransaction)tx.GetDbTransaction()))
+        {
+            cmd.Parameters.AddWithValue("@batch",importBatchId);
+            cmd.Parameters.AddWithValue("@actor",actorId);
+            cmd.Parameters.AddWithValue("@org",org);
+            await using var reader=await cmd.ExecuteReaderAsync(ct);
+            while(await reader.ReadAsync(ct))
+                links.Add(new(reader.GetInt32(0),reader.GetInt64(1),
+                    reader.GetGuid(2),reader.GetString(3),reader.GetString(4),
+                    reader.GetString(5)));
+        }
+        await tx.CommitAsync(ct);
+        if (links.GroupBy(x=>x.ImportBatchItemId).Any(x=>x.Count()!=1))
+            throw new InvalidOperationException("OPTIONC_EXCEL_ROW_AUDIT_DUPLICATE");
+        return links;
     }
 
     private static async Task<Guid> FindExcelSubmissionAsync(
