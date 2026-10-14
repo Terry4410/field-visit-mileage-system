@@ -342,6 +342,32 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("3", await h.Scalar(
             "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        var rejectLocationRv = (byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_REJECT_LOW_VERSION_MISSING"));
+        var rejectSubmit = await visitor.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations/10/changes",
+            new V180B3SubmitLocation(10, Convert.ToBase64String(rejectLocationRv),
+                "Visitor note to be rejected",
+                new V180B3LocationFields("Original 10", null, null,
+                    "Original address 10", null, null, "Must never publish")));
+        Assert.True(rejectSubmit.IsSuccessStatusCode,
+            await rejectSubmit.Content.ReadAsStringAsync());
+        var rejectedLow = await rejectSubmit.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_REJECT_LOW_REQUEST_MISSING");
+        Assert.Equal("Low", rejectedLow.RiskCode);
+        var rejectReview = await leaderClient.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{rejectedLow.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(rejectedLow.RowVersion,
+                Guid.NewGuid(), "Independent Leader rejects note", false));
+        Assert.True(rejectReview.IsSuccessStatusCode,
+            await rejectReview.Content.ReadAsStringAsync());
+        Assert.Equal("Rejected", await h.RequestStatus(rejectedLow.RequestPublicId));
+        Assert.Equal("Abandoned", await h.StageStatus(rejectedLow.RequestPublicId));
+        Assert.Equal("Second reviewed note", await h.Scalar(
+            "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("3", await h.Scalar(
+            "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
         Assert.Equal(historicalTrip, await h.Scalar(
             "SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 FOR JSON PATH"));
         Assert.Equal(historicalSnapshot, await h.Scalar(
