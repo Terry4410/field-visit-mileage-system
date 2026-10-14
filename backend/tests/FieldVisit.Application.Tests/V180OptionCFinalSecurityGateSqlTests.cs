@@ -277,6 +277,75 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(historicalSnapshot, await h.Scalar(
             "SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 FOR JSON PATH"));
         Assert.Equal("Applied", await h.RequestStatus(lowId));
+
+        // Full LOW-risk candidate path: Visitor HTTP submission -> server
+        // classification -> pending private stage -> independent live Leader
+        // review and duplicate evidence -> Leader HTTP atomic publication.
+        using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
+        var latestLocationRv = (byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_LOW_SOURCE_VERSION_MISSING"));
+        var submitLow = await visitor.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations/10/changes",
+            new V180B3SubmitLocation(10, Convert.ToBase64String(latestLocationRv),
+                "Visitor updates note only",
+                new V180B3LocationFields("Original 10", null, null,
+                    "Original address 10", null, null, "Second reviewed note")));
+        Assert.True(submitLow.IsSuccessStatusCode,
+            await submitLow.Content.ReadAsStringAsync());
+        var submittedLow = await submitLow.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_LOW_SUBMISSION_MISSING");
+        Assert.Equal("Low", submittedLow.RiskCode);
+        Assert.Equal("Pending", submittedLow.Status);
+        Assert.Equal("PendingDuplicateReview", await h.StageStatus(submittedLow.RequestPublicId));
+        Assert.Equal("Reviewed low risk note", await h.Scalar(
+            "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
+
+        var reviewed = await leaderClient.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(submittedLow.RowVersion,
+                Guid.NewGuid(), "Independent Leader accepts low-risk note", true));
+        Assert.True(reviewed.IsSuccessStatusCode,
+            await reviewed.Content.ReadAsStringAsync());
+        var stageRv = (byte[])(await new SqlCommand("""
+            SELECT s.RowVersion FROM dbo.LocationPublicationStages s
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+            WHERE r.RequestPublicId=@id
+            """, h.Db) { Parameters = { new SqlParameter("@id", submittedLow.RequestPublicId) } }
+            .ExecuteScalarAsync() ?? throw new InvalidOperationException("OPTIONC_LOW_STAGE_VERSION_MISSING"));
+        var deniedEvidence = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(Convert.ToBase64String(stageRv), true,
+                "Admin cannot impersonate independent Leader", Guid.NewGuid()));
+        Assert.False(deniedEvidence.IsSuccessStatusCode);
+        var duplicateLow = await leaderClient.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(Convert.ToBase64String(stageRv), true,
+                "No duplicate in reviewed low-risk note", Guid.NewGuid()));
+        Assert.True(duplicateLow.IsSuccessStatusCode,
+            await duplicateLow.Content.ReadAsStringAsync());
+        var duplicateView = await duplicateLow.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_LOW_EVIDENCE_MISSING");
+        Assert.Equal("ReadyForPublish", duplicateView.StageStatus);
+        Assert.Equal("NotRequired", duplicateView.GeocodeStatus);
+
+        var publishLow = await leaderClient.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/publish-reviewed",
+            new V180B3Review(submittedLow.RowVersion, Guid.NewGuid(),
+                "Independent Leader publishes note only"));
+        Assert.True(publishLow.IsSuccessStatusCode,
+            await publishLow.Content.ReadAsStringAsync());
+        Assert.Equal("Applied", await h.RequestStatus(submittedLow.RequestPublicId));
+        Assert.Equal("Second reviewed note", await h.Scalar(
+            "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("3", await h.Scalar(
+            "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        Assert.Equal(historicalTrip, await h.Scalar(
+            "SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 FOR JSON PATH"));
+        Assert.Equal(historicalSnapshot, await h.Scalar(
+            "SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 FOR JSON PATH"));
     }
 
     [Fact]
