@@ -26,3 +26,10 @@ Real MergeFields HTTP/SQL execution remains a HOLD until the Recovery workflow's
 Authoritative Recovery candidate: `eb31fda053d8564a0d8aaa0dff2966966c41cb91`; exact-SHA CI `38507636467` SUCCESS. Backend 733/733, frontend 23/23 plus production build, disposable SQL/HTTP Option C E2E and canonical rehearsal passed. Merge lost-ack reconciliation now verifies dual-location publication evidence and returns `COMMITTED_EVIDENCE_REQUIRES_REVIEW` only after complete evidence; incomplete evidence remains `INDETERMINATE`.
 
 Engineering PASS is limited to disposable isolated SQL. UAT target preflight and Business UAT are NOT RUN. Application-owned geocode/duplicate Stage transition remains HOLD because the candidate boundary still has no live-authorized service endpoint for callback evidence; direct fixture mutation is not accepted as proof. Background publication remains disabled.
+
+
+## Evidence service update — 2026-10-14
+
+Authoritative Recovery SHA: `05ebca0748da49ae88a4403b5365ab3e1a1427c4`; exact-SHA CI `38509844660` SUCCESS. Candidate HTTP/DI geocode and duplicate-review transitions now run inside Serializable transactions, lock Request then Stage, validate live HR/role/org/team authority, bind evidence to Stage RowVersion and the proposed address hash, reject stale/replay/revoked callbacks, and never publish Locations. Evidence-flow E2E passed; Location remained unchanged.
+
+Remaining engineering HOLD: canonical migration 012 ChangeRequestEvents CHECK currently permits only Submitted/Rejected/Approved/Applied, so application-owned evidence transitions do not yet have an immutable canonical event type. No unsafe event bypass was added. UAT target preflight and Business UAT remain NOT RUN; flags and UAT/Production execution policies remain OFF.

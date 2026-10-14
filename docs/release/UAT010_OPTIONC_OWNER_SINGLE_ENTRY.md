@@ -214,3 +214,8 @@ Engineering verification is complete through Recovery CI. Merge lost-ack evidenc
 ## Final Engineering Closure — 2026-10-14
 
 Current authoritative Recovery SHA: `eb31fda053d8564a0d8aaa0dff2966966c41cb91`; exact-SHA CI `38507636467` SUCCESS. Engineering PASS: 733/733 backend, frontend 23/23 and build, HTTP/DI + disposable SQL, merge atomicity/history/lost-ack reconciliation, and canonical 011/012/014 rehearsal. UAT target schema preflight NOT RUN; Business UAT NOT RUN; no GO declaration. Flags and execution policies remain OFF.
+
+
+## Final evidence-service closure — 2026-10-14
+
+Current authoritative Recovery branch: `work/v180-optionc-final-gates-recovery-r1`; SHA `05ebca0748da49ae88a4403b5365ab3e1a1427c4`; exact-SHA CI `38509844660` SUCCESS. Backend 734/734, frontend 23/23 plus production build, disposable SQL/HTTP evidence-flow E2E and canonical rehearsal passed. Geocode success/failure and duplicate-review transitions are live-authorized, RowVersion-bound and fail closed on stale or revoked actors; background publication remains disabled. Canonical immutable evidence audit-event schema is still blocked as described above. UAT target preflight NOT RUN; Business UAT NOT RUN; no GO declaration.
