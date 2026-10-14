@@ -156,6 +156,14 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     throw new InvalidOperationException("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
             }
         }
+        // Scheme A: the legacy Excel import does not create a canonical
+        // ChangeRequest, independent Leader/Admin reviews or publication audit.
+        // Refuse new Location identities before processing ANY batch row; an
+        // inactive Location row alone must not be treated as a reviewed create.
+        if (batch.ImportType == "locations" && items.Any(x =>
+            x.EntityType == "Location" && x.Action == "Create"))
+            throw new InvalidOperationException("LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW");
+
         int created = 0, updated = 0, unchanged = 0, failed = 0;
         var errors = new List<string>();
         foreach (var item in items)
