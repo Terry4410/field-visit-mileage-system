@@ -208,6 +208,50 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Original 13", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=13"));
     }
 
+    [Fact]
+    public async Task MergeFields_http_submission_then_lost_commit_ack_reconciles_complete_publication_evidence()
+    {
+        await using var h=await Harness.TryCreateAsync();
+        if(h is null)return;
+        await h.Exec("""
+            INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(2,901,10,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserFavoriteLocations(UserFavoriteLocationId,UserId,LocationId) VALUES(2,1,10);
+            INSERT dbo.GovernmentLocationMasters(GovernmentLocationMasterId,MatchedLocationId,UpdatedAt) VALUES(2,10,SYSUTCDATETIME());
+            """);
+        var sourceVersion=(byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=10",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException());
+        var survivorVersion=(byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=11",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException());
+        await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>
+        {
+            builder.UseSetting("OptionC:Candidate:Enabled","true");builder.UseSetting("ConnectionStrings:DefaultConnection",h.ConnectionString);builder.UseSetting("Auth:Mode","Demo");builder.UseSetting("Auth:JwtKey","test-key-that-is-at-least-32-characters-long");builder.UseSetting("BackgroundJobs:WorkerEnabled","false");builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");
+        });
+        using var visitor=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});visitor.DefaultRequestHeaders.Authorization=new("Bearer",Token(1,"E1","visitor"));
+        var submit=await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/merge-fields",new V180OptionCMergeSubmit(10,11,Convert.ToBase64String(sourceVersion),Convert.ToBase64String(survivorVersion),"Merge lost ack",new V180B3LocationFields("Ack survivor","Taipei","Xinyi","Ack address",null,null,"Ack note")));
+        Assert.Equal(System.Net.HttpStatusCode.OK,submit.StatusCode);var pending=await submit.Content.ReadFromJsonAsync<V180B3RequestView>()??throw new InvalidOperationException();
+        await h.Exec("UPDATE s SET GeocodeStatus=N'Succeeded',GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME() FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id",P("@id",pending.RequestPublicId));
+        var direct=new SqlConnectionStringBuilder(h.ConnectionString){Pooling=false,Encrypt=false};await using var proxy=new CommitAckLossProxy(direct.DataSource);var proxied=new SqlConnectionStringBuilder(direct.ConnectionString){DataSource=$"127.0.0.1,{proxy.Port}",Pooling=false,ConnectTimeout=5};var key=Guid.NewGuid();var lost=false;
+        await using(var c=new SqlConnection(proxied.ConnectionString))
+        {
+            await c.OpenAsync();await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable);await Service().ApproveAsync(c,tx,pending.RequestPublicId,1,2,key,"Merge lost acknowledgement",CancellationToken.None);proxy.ArmCommitAcknowledgementLoss();
+            try{await tx.CommitAsync();}catch(Exception ex) when(ex is SqlException or IOException or InvalidOperationException){lost=proxy.CommitResponseDropped;}
+        }
+        Assert.True(lost,$"The merge proxy must forward COMMIT and drop only the acknowledgement. {proxy.Trace}");var observed=await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(h.ConnectionString,pending.RequestPublicId,key,2,CancellationToken.None);Assert.Equal("COMMITTED_EVIDENCE_REQUIRES_REVIEW",observed);
+        Assert.Equal("Applied",await h.RequestStatus(pending.RequestPublicId));Assert.Equal("2",await h.RequestValue(pending.RequestPublicId,"ReviewedByUserId"));Assert.Equal("0",await h.Scalar("SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=10"));Assert.Equal("Ack survivor",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=11"));Assert.Equal("11",await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.ProjectLocations WHERE ProjectLocationId=2"));Assert.Equal("11",await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.UserFavoriteLocations WHERE UserFavoriteLocationId=2"));Assert.Equal("11",await h.Scalar("SELECT CONVERT(nvarchar(20),MatchedLocationId) FROM dbo.GovernmentLocationMasters WHERE GovernmentLocationMasterId=2"));Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND IsCurrent=1"));Assert.Equal("1",await h.Scalar("SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND VersionNumber=1"));Assert.Equal("1",await h.EventCount(pending.RequestPublicId,"Approved"));Assert.Equal("1",await h.EventCount(pending.RequestPublicId,"Applied"));Assert.True(proxy.CommitRequestsForwarded>0,$"No commit packet was forwarded. {proxy.Trace}");
+    }
+
+    [Fact]
+    public async Task MergeFields_stale_source_or_survivor_rowversion_fails_closed_without_partial_publication()
+    {
+        await using var h=await Harness.TryCreateAsync();if(h is null)return;await h.Exec("INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(3,902,10,1,1,SYSUTCDATETIME());
+");
+        async Task<Guid> Submit(int source,int survivor)
+        {
+            var sv=(byte[])(await new SqlCommand($"SELECT RowVersion FROM dbo.Locations WHERE LocationId={source}",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException());var uv=(byte[])(await new SqlCommand($"SELECT RowVersion FROM dbo.Locations WHERE LocationId={survivor}",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException());
+            await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>{builder.UseSetting("OptionC:Candidate:Enabled","true");builder.UseSetting("ConnectionStrings:DefaultConnection",h.ConnectionString);builder.UseSetting("Auth:Mode","Demo");builder.UseSetting("Auth:JwtKey","test-key-that-is-at-least-32-characters-long");builder.UseSetting("BackgroundJobs:WorkerEnabled","false");builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");});using var visitor=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});visitor.DefaultRequestHeaders.Authorization=new("Bearer",Token(1,"E1","visitor"));var response=await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/merge-fields",new V180OptionCMergeSubmit(source,survivor,Convert.ToBase64String(sv),Convert.ToBase64String(uv),"Stale merge",new V180B3LocationFields($"Survivor {survivor}","Taipei","Xinyi",$"Address {survivor}",null,null,"Stale note")));Assert.Equal(System.Net.HttpStatusCode.OK,response.StatusCode);var view=await response.Content.ReadFromJsonAsync<V180B3RequestView>()??throw new InvalidOperationException();await h.Exec("UPDATE s SET GeocodeStatus=N'Succeeded',GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish' FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id",P("@id",view.RequestPublicId));return view.RequestPublicId;
+        }
+        var first=await Submit(10,11);await h.Exec("UPDATE dbo.Locations SET LocationName=N'Concurrent source touch' WHERE LocationId=10");await using(var tx=await h.Begin()){await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Service().ApproveAsync(h.Db,tx,first,1,2,Guid.NewGuid(),"Stale source",CancellationToken.None));await tx.RollbackAsync();}Assert.Equal("Pending",await h.RequestStatus(first));Assert.Equal("Original 11",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=11"));Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.ProjectLocations WHERE ProjectLocationId=3"));
+        var second=await Submit(12,13);await h.Exec("UPDATE dbo.Locations SET LocationName=N'Concurrent survivor touch' WHERE LocationId=13");await using(var tx=await h.Begin()){await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Service().ApproveAsync(h.Db,tx,second,1,2,Guid.NewGuid(),"Stale survivor",CancellationToken.None));await tx.RollbackAsync();}Assert.Equal("Pending",await h.RequestStatus(second));Assert.Equal("Original 12",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=12"));Assert.Equal("Concurrent survivor touch",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=13"));
+    }
+
     private static string Token(int userId, string employeeNo, string role)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));

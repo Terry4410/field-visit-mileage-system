@@ -9,3 +9,13 @@ Submission locks source and survivor in deterministic LocationId order inside a 
 Reject uses the existing canonical rejection path and abandons the Stage. Any missing merge detail schema, stale version, duplicate pending request, conflicting operational reference, missing geocode/duplicate evidence or authorization revocation fails closed.
 
 Real MergeFields HTTP/SQL execution remains a HOLD until the Recovery workflow's disposable database explicitly applies the additive detail script and seeds a two-location fixture; no UAT or Production execution is authorized.
+
+
+## Batch 5C verification — 2026-10-14
+
+- Merge submission was executed through the candidate HTTP route against disposable OptionCIsolated SQL Server 2022.
+- A real merge publication transaction was committed through the existing TDS acknowledgement-loss proxy; the client acknowledgement was dropped after COMMIT and no retry was issued.
+- Fresh non-pooled reconciliation verified Request=Applied, reviewer=Admin 2, Approved/Applied events, source deactivation, survivor Version 2 current with Version 1 retained, current references rebound, and historical Trip/Snapshot references unchanged.
+- Merge stale source and stale survivor RowVersion tests fail closed with no partial publication.
+- Engineering: PASS. UAT target schema preflight: NOT RUN. Business UAT: NOT RUN.
+- Remaining HOLD: merge-specific incomplete-evidence negative reconciliation and application-owned geocode/duplicate evidence transition remain outside this batch; background publication remains disabled.

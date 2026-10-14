@@ -204,3 +204,8 @@
 - **P2 Unknown Commit: PASS in isolated SQL E2E.** A real encrypted SQL application packet containing the commit request is forwarded through a TCP fault-injection proxy; the client acknowledgement is then lost by socket closure. A fresh non-pooled connection reconciles `COMMITTED_EVIDENCE_REQUIRES_REVIEW`; Request/DecisionKey/reviewer, terminal Stage, LocationId, current version 2 plus historical version 1, canonical Approved/Applied audit, and Trip/Snapshot references are verified with no duplicate publication. Confirmed rollback and indeterminate classifications are also tested; no blind retry occurs.
 - Existing Visitor → Admin → Publication E2E remains passing. Final backend test run: **708 passed, 0 failed**; frontend unit tests and production build passed; canonical 011/012/014 disposable SQL rehearsal passed; explicit release NO-GO guard passed.
 - **Readiness remains HOLD / NO-GO.** The approval service and SQL evidence provider are isolated non-registered candidates; public Admin API/DI and authoritative deployed HR/role/team adapter remain disabled/unverified. Business UAT remains blocked (0/22). No Business UAT GO is declared.
+
+
+## Batch 5C evidence update — 2026-10-14
+
+Engineering verification is complete through Recovery CI. Merge lost-ack evidence is disposable-only and does not authorize UAT/Production execution. UAT target preflight and Business UAT remain NOT RUN.
