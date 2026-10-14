@@ -69,6 +69,20 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(snapshotRefsBefore, await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY VisitTripSnapshotStopId FOR JSON PATH"));
         Assert.Equal("1", versionBefore);
 
+        var reconcile = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/reconcile?decisionKey={approveKey}");
+        Assert.Equal(System.Net.HttpStatusCode.OK, reconcile.StatusCode);
+        Assert.Contains("COMMITTED_EVIDENCE_REQUIRES_REVIEW",
+            await reconcile.Content.ReadAsStringAsync());
+        using var outsider = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
+        outsider.DefaultRequestHeaders.Authorization = new("Bearer", Token(3, "E3", "admin"));
+        var crossOrgReconcile = await outsider.GetAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/reconcile?decisionKey={approveKey}");
+        Assert.NotEqual(System.Net.HttpStatusCode.OK, crossOrgReconcile.StatusCode);
+
         var secondVersion = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=11", h.Db).ExecuteScalarAsync()
             ?? throw new InvalidOperationException("ROWVERSION_TEST_FIXTURE_MISSING"));
         var submitReject = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/11/changes", new V180B3SubmitLocation(
