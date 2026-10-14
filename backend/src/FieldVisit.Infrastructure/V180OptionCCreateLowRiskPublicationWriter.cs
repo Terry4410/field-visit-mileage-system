@@ -33,9 +33,11 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
                 @requester int, @expected binary(8), @requestVersion binary(8),
                 @locationVersion binary(8), @proposed nvarchar(max),
                 @operation nvarchar(80), @risk nvarchar(20),
+                @before nvarchar(max), @actualBefore nvarchar(max),
                 @status nvarchar(20), @active bit, @sourceOwner int,
                 @stageHash binary(32), @stageVersion binary(8),
                 @geocode nvarchar(20), @duplicate nvarchar(20),
+                @geocodeAddressHash binary(32),
                 @latitude decimal(10,7), @longitude decimal(10,7),
                 @leader int, @leaderKey uniqueidentifier,
                 @currentVersion int, @reservationVersion binary(8),
@@ -48,7 +50,8 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
             SELECT @requestId=ChangeRequestId,@locationId=TRY_CONVERT(int,EntityId),
                 @team=TeamId,@requester=RequestedByUserId,
                 @expected=ExpectedEntityRowVersion,@requestVersion=RowVersion,
-                @proposed=ProposedJson,@operation=OperationCode,@risk=RiskCode
+                @proposed=ProposedJson,@operation=OperationCode,@risk=RiskCode,
+                @before=BeforeJson
             FROM dbo.ChangeRequests WITH(UPDLOCK,HOLDLOCK)
             WHERE RequestPublicId=@publicId AND OrganizationId=@org
               AND EntityKind=N'Location' AND Status=N'Pending'
@@ -103,6 +106,23 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
                  OR ISNULL(TaxId,N'')<>ISNULL(JSON_VALUE(@proposed,N'$.TaxId'),N'')))
                 THROW 51618,N'OPTIONC_LOW_RISK_IDENTITY_CHANGE_DENIED',1;
 
+            IF @operation=N'UpdatePublishedLocation'
+            BEGIN
+                -- Bind the before-image to the locked authoritative source.
+                -- A fabricated before-image must never authorize LowRisk.
+                SELECT @actualBefore=(
+                    SELECT LocationName,City,District,Address,PlusCode,TaxId,MasterNote
+                    FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
+                    WHERE LocationId=@locationId FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+                IF ISJSON(@before)<>1 OR @actualBefore IS NULL OR EXISTS(
+                    SELECT 1 FROM (VALUES
+                        (N'LocationName'),(N'City'),(N'District'),
+                        (N'Address'),(N'PlusCode'),(N'TaxId'),(N'MasterNote')
+                    ) fields(k)
+                    WHERE ISNULL(JSON_VALUE(@before,N'$.'+fields.k),N'')
+                      <>ISNULL(JSON_VALUE(@actualBefore,N'$.'+fields.k),N''))
+                    THROW 51621,N'OPTIONC_LOW_BEFORE_IMAGE_DRIFT',1;
+            END
             IF @operation=N'CreateLocation'
             BEGIN
                 SELECT @reservationVersion=ReservedLocationRowVersion
@@ -116,6 +136,7 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
 
             SELECT @stageHash=ProposedSha256,@stageVersion=RowVersion,
                 @geocode=GeocodeStatus,@duplicate=DuplicateReviewStatus,
+                @geocodeAddressHash=GeocodeAddressSha256,
                 @latitude=Latitude,@longitude=Longitude
             FROM dbo.LocationPublicationStages WITH(UPDLOCK,HOLDLOCK)
             WHERE ChangeRequestId=@requestId AND LocationId=@locationId
@@ -134,16 +155,25 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
                OR NULLIF(LTRIM(RTRIM(JSON_VALUE(@proposed,N'$.Address'))),N'') IS NULL
                 THROW 51608,N'OPTIONC_CREATE_LOW_STAGE_INVALID',1;
             IF @operation=N'CreateLocation' AND
-               (@geocode<>N'Succeeded' OR @latitude IS NULL OR @longitude IS NULL)
+               (@geocode<>N'Succeeded' OR @latitude IS NULL OR @longitude IS NULL
+                OR @geocodeAddressHash IS NULL OR @geocodeAddressHash<>
+                    HASHBYTES('SHA2_256',CONVERT(varbinary(max),
+                        JSON_VALUE(@proposed,N'$.Address'))))
                 THROW 51609,N'OPTIONC_CREATE_GEOCODE_REQUIRED',1;
             IF NOT EXISTS(SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
                 WHERE ChangeRequestId=@requestId
-                  AND EventType=N'DuplicateReviewEvidenceRecorded')
+                  AND EventType=N'DuplicateReviewEvidenceRecorded'
+                  AND JSON_VALUE(DetailsJson,N'$.decision')=N'Cleared'
+                  AND JSON_VALUE(DetailsJson,N'$.proposedEvidenceSha256')
+                      =CONVERT(varchar(64),@stageHash,2))
                 THROW 51619,N'OPTIONC_DUPLICATE_AUDIT_REQUIRED',1;
             IF @operation=N'CreateLocation' AND NOT EXISTS(
                 SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
                 WHERE ChangeRequestId=@requestId
-                  AND EventType=N'GeocodeEvidenceRecorded')
+                  AND EventType=N'GeocodeEvidenceRecorded'
+                  AND JSON_VALUE(DetailsJson,N'$.decision')=N'Succeeded'
+                  AND JSON_VALUE(DetailsJson,N'$.proposedEvidenceSha256')
+                      =CONVERT(varchar(64),@stageHash,2))
                 THROW 51620,N'OPTIONC_GEOCODE_AUDIT_REQUIRED',1;
 
             IF EXISTS(SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
