@@ -74,7 +74,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/reconcile?decisionKey={approveKey}");
         Assert.Equal(System.Net.HttpStatusCode.OK, reconcile.StatusCode);
         var reconcileBody = await reconcile.Content.ReadAsStringAsync();
-        Assert.Contains("COMMITTED_EVIDENCE_REQUIRES_REVIEW", reconcileBody);
+        Assert.True(reconcileBody.Contains("COMMITTED_EVIDENCE_REQUIRES_REVIEW"), $"reconcileBody={reconcileBody}");
         using var outsider = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost")
