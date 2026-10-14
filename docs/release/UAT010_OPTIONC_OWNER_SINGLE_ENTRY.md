@@ -4,6 +4,17 @@
 >
 > **Owner 不必管理逐批 Markdown 報告。** 以 GitHub commit + exact-SHA Actions CI 為驗證證據；工作過程的 Batch 1/2/3 報告可保留作參考，不需逐份轉交 IT。最終僅交付一份 UAT 測試手冊、一份 IT 維護／部署／復原手冊、一份正式驗收紀錄。
 
+## 2026-10-14 — Scheme A CreateLocation／LowRisk 原子發布增量（Recovery only）
+
+- 第一批 Create/LowRisk 契約與 SQL rehearsal 的 exact-SHA `b15158b3923b1e843230e1e7d8178f4a5ee0622b`／CI `38523928698` **SUCCESS**。
+- 第二批 isolated-only atomic writer、獨立 Leader/HighRisk Admin 核准、版本化帳本與 Trip/Snapshot 歷史不變性，exact-SHA `184eafd268602861d3b1eee2b01edc9e6eaa5fa2`／CI `38524764115` **SUCCESS**。
+- 第三批新增 candidate-only `publish-reviewed` HTTP route 與同一 Serializable transaction 的 live HR／角色／組織／小組／任命／代理資格重驗。CreateLocation High 需獨立 Leader + Admin；UpdatePublishedLocation Low 由獨立 Leader 最終發布；來源 RowVersion、BeforeJson、Stage evidence hash、DecisionKey 與 audit event 均受檢核。
+- Disposable SQL E2E 增加 HTTP/DI 正向 Create/LowRisk 發布及 Leader 撤權、Admin 不得繞過 LowRisk Leader、BeforeJson 偽造等負向測試。**本批最新 exact-SHA CI 尚須以 Actions 結論確認；未經 PASS 不得宣告完成。**
+- 本批 HTTP 測試的 canonical request 與 stage 仍由隔離 SQL fixture 建立；**完整 Create/LowRisk HTTP 提交、地點保留、證據服務與 UI 串接未完成**。Excel／legacy direct mutation／background publication 的 canonical routing 未完成。
+- **整體 Scheme A = HOLD／NO-GO**；未授權／未執行 UAT target preflight、migration、deployment、flag activation、Business UAT、promotion／merge；migration 013 保留。
+
+詳細契約：`docs/release/SCHEME_A_CREATE_LOWRISK_CONTRACT.md`。
+
 ## 1. 單一程式來源
 
 - Repository: `Terry4410/field-visit-mileage-system`
