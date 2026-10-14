@@ -193,3 +193,66 @@ business UAT. Flag remains OFF. Last verified before this patch:
 `9d43b89cefae0042b37f6b709e10e8d861ec6933`,
 Exact-SHA CI `38553823661 — SUCCESS`; the new delta must pass its
 own Exact-SHA CI before acceptance. UAT/Production not touched.
+
+
+## Scheme A controlled engineering checkpoint — 2026-10-14 / Legacy HTTP and Create revocation
+
+**Last exact engineering SHA:** `8e0c30ab78bb4fcffd9d2a9df1b946be2b4df866`
+on the **only** authorized Recovery branch
+`work/v180-optionc-final-gates-recovery-r1`.
+**Exact-SHA GitHub Actions Run:** `38560339144 — SUCCESS`.
+Nondeploy CI log: backend **753 PASS**, separate Option C Admin SQL
+E2E **1 PASS**, canonical 011/012/014 disposable rehearsal **2 PASS**,
+frontend **24 test files PASS**, frontend build PASS, explicit NO-GO gate PASS.
+
+### New verified safety delta
+
+- Under the *verified additive* `1.8.0-CREATE-LOWRISK` contract,
+  `POST /api/v1/managed-locations` can no longer directly create an
+  unreviewed Customer Location. Expected error:
+  `LOCATION_LEGACY_CREATE_REQUIRES_CANONICAL_REVIEW` (422).
+  Old databases **without** this additive contract retain the existing
+  legacy draft behavior; this is not an assertion of UAT/Production
+  readiness or current deployment.
+- A valid org/team-scoped HTTP actor is used for the Legacy create denial,
+  and an org/team-scoped Admin for Update / delete-impact / permanent
+  delete denial against a canonical reserved LocationId.
+  SQL assertions confirm no unauthorized Location or Request insertion,
+  no source RowVersion drift and no reservation mutation.
+- CreateLocation HTTP test revalidates *live* Leader appointment,
+  requester HR status and Admin role following successful independent
+  Leader approval. Revoked actors cannot obtain a privileged Stage
+  read; Stage remains Pending and no GeocodeEvidenceRecorded is emitted.
+- Leader-originated CreateLocation is allowed to enter Pending, but
+  a sole appointed Leader cannot self-review and Admin cannot bypass
+  the missing independent Leader review, publish or reject through
+  the generic Admin endpoint. No published Version is created.
+- Canonical Create/LowRisk/HighRisk/MergeFields coverage and historical
+  preservation from earlier verified E2E remain regression-tested.
+  Pending Picker exclusion, Excel Preview/Confirm reservation guard,
+  Background geocoder reservation exclusion and old draft write guards
+  remain on the Recovery branch.
+- New negative cases use disposable `OptionCIsolated_*` SQL Server
+  databases, not UAT or Production. Status = engineering validation,
+  **not** authorized Business UAT.
+
+### Remaining HOLD — do not infer GO
+
+1. Excel true canonical Request+review batch routing (current Customer
+   Create must fail closed).
+2. Exhaustive Legacy/Background HTTP job-route audit including update
+   races and all location categories.
+3. Pending-location exclusion throughout Trip, mileage calculation,
+   exports, report queries and reconciliation (Picker alone insufficient).
+4. Create-specific lost-commit replay/rollback and all concurrent
+   reviewer/revocation permutations.
+5. Browser-tested Visitor/Leader/Admin UI and cross-team role
+   matrix; frontend candidate approval flags still OFF.
+6. DBA-reviewed UAT schema/dependency/migration sequence, exact UAT
+   target, backup/restore and separate Owner execution authorization.
+
+**Restrictions unchanged:** migration 013 untouched; no UAT/Production
+SQL writes, migration, deployment, promotion, feature enablement,
+target preflight or Business UAT GO. **SCHEME A HOLD / NO-GO.**
+Earlier checkpoint paragraphs remain historical and are superseded
+by this verified Exact-SHA checkpoint.
