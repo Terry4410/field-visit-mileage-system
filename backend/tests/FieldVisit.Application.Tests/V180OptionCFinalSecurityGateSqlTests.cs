@@ -224,10 +224,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // invented before-image for the locked published Location.
         await using (var tx = await h.Begin())
         {
-            await h.Exec("""
+            await using (var forge = new SqlCommand("""
                 UPDATE dbo.ChangeRequests SET BeforeJson=N'{"LocationName":"forged"}'
                 WHERE RequestPublicId=@id;
-                """, P("@id", lowId));
+                """, h.Db, tx))
+            {
+                forge.Parameters.AddWithValue("@id", lowId);
+                await forge.ExecuteNonQueryAsync();
+            }
             var forged = await Assert.ThrowsAsync<SqlException>(() =>
                 V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
                     h.Db, tx, lowId, 1, 4, Guid.NewGuid(),
