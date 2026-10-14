@@ -113,3 +113,51 @@ available, so UAT preflight is NOT RUN and the package remains HOLD; Business UA
 - Existing real disposable HTTP/DI/SQL Leader flow and negative security/concurrency/revocation tests remain retained; no UAT/Production SQL write, migration, deployment, promotion, merge, or Business UAT GO occurred.
 - Scheme A blocker remains precise: canonical CreateLocation/LowRisk application publication is not implemented because the verified atomic writer only supports existing high-risk published Location updates/merges. Excel/legacy/background writers therefore remain fail-closed for published changes; implementing a new writer without an additive schema and identity/reference contract would be unsafe.
 - UAT target preflight and Business UAT remain NOT RUN.
+
+
+## Scheme A authoritative nondeploy checkpoint — 2026-10-14
+
+- Verified Recovery implementation SHA: `5ca1060423e9ef326b82b6cd6c1025250a0d578a`.
+- Exact-SHA CI: `38534680973 — SUCCESS`; backend **753 PASS**, additional
+  SQL Admin E2E **1 PASS**, SQL 011/012/014 rehearsal **2 PASS**,
+  frontend **24 test files PASS** and production build PASS.
+- Real disposable SQL Server 2022 HTTP/DI CreateLocation E2E now passes:
+  Visitor submission → server-owned identity and inactive Pending reservation →
+  private Stage → independent live-appointed Leader review →
+  application-owned geocode and duplicate evidence → independent Admin approval →
+  atomic V1 publication. A second request is independently Leader-rejected
+  and its Stage/reservation are Abandoned without published history.
+- Negative evidence: self-review denied; cross-org submission denied;
+  duplicate Pending create denied; premature publication denied; canonical
+  Submitted/LeaderApproved/GeocodeEvidenceRecorded/
+  DuplicateReviewEvidenceRecorded/Approved/Applied events and historical
+  Trip/Snapshot reference preservation verified.
+- The next candidate extends the same test to prove actual HTTP Picker
+  exclusion before publication and inclusion after it; **do not count that
+  extension PASS until its own Exact-SHA CI succeeds**.
+- Excel Location Create remains fail-closed in Preview and Confirm;
+  legacy published mutation/direct-note routes are guarded. Full Excel routing,
+  broad Legacy/Background audit, all UI roles and all operational read-path
+  proofs remain incomplete.
+- No UAT/Production SQL writes, migration, deployment, promotion, merge,
+  flag activation, UAT-target preflight or Business UAT was performed.
+  **Scheme A HOLD / NO-GO; NOT READY for UAT execution authorization review.**
+  This current checkpoint supersedes older 2026-10-14 engineering status
+  paragraphs where the CreateLocation HTTP flow is described as absent.
+
+### Security / Business UAT case expansion (preparation only)
+
+| Case | Role | Test | Engineering evidence / UAT result |
+|---|---|---|---|
+| SA-CR-01 | Visitor | CreateLocation HTTP pending request and private Stage | Isolated PASS / UAT NOT RUN |
+| SA-CR-02 | Visitor | Same identity submitted twice | Isolated PASS (duplicate denied) / UAT NOT RUN |
+| SA-CR-03 | Cross-org | Submit without team/org scope | Isolated PASS (denied) / UAT NOT RUN |
+| SA-CR-04 | Visitor | Self-review of CreateLocation | Isolated PASS (denied) / UAT NOT RUN |
+| SA-CR-05 | Leader/Admin | Independent first and final review, evidence and V1 publication | Isolated PASS / UAT NOT RUN |
+| SA-CR-06 | Leader | Reject CreateLocation, abandon Stage/reservation | Isolated PASS / UAT NOT RUN |
+| SA-CR-07 | Visitor | Pending invisible in Picker/favorite/trip/mileage/reports | Picker candidate CI PENDING; others HOLD / UAT NOT RUN |
+| SA-CR-08 | Visitor/Admin | Live HR/team revocation, replay and concurrent duplicate requests | Existing partial tests; expanded Create-specific matrix HOLD |
+| SA-EX-01 | Excel | No direct unreviewed Location Create | Fail-closed PASS / canonical import not implemented |
+| SA-LG-01 | Legacy | No published direct note/identity write | Fail-closed candidate / complete matrix HOLD |
+| SA-BG-01 | Background | No unpublished direct publication | Preliminary guard / complete matrix HOLD |
+

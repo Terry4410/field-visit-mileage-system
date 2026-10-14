@@ -96,6 +96,18 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("0", await h.Scalar(
             "SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id",
             P("@id", locationId)));
+        // The actual Visitor Picker/search API must not list the reserved
+        // inactive Location before independent publication.
+        using var pendingPicker = await visitor.GetAsync(
+            "api/v1/locations/search?pageSize=100");
+        Assert.True(pendingPicker.IsSuccessStatusCode,
+            await pendingPicker.Content.ReadAsStringAsync());
+        var pendingResults = await pendingPicker.Content.ReadFromJsonAsync<V170LocationSearchResult>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_PICKER_VIEW_MISSING");
+        Assert.DoesNotContain(pendingResults.Items, x => x.LocationId == locationId);
+        using var pendingFavorite = await visitor.PostAsync(
+            $"api/v1/locations/{locationId}/favorite", null);
+        Assert.False(pendingFavorite.IsSuccessStatusCode);
         using var again = await visitor.PostAsJsonAsync(
             "api/v1/optionc-candidate/locations", payload);
         Assert.False(again.IsSuccessStatusCode);
@@ -180,6 +192,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             SELECT COUNT(*) FROM dbo.LocationPublishedVersions
             WHERE LocationId=@id AND VersionNumber=1 AND IsCurrent=1
             """, P("@id", locationId)));
+        using var publishedPicker = await visitor.GetAsync(
+            "api/v1/locations/search?pageSize=100");
+        Assert.True(publishedPicker.IsSuccessStatusCode,
+            await publishedPicker.Content.ReadAsStringAsync());
+        var publishedResults = await publishedPicker.Content.ReadFromJsonAsync<V170LocationSearchResult>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_PUBLISHED_PICKER_VIEW_MISSING");
+        Assert.Contains(publishedResults.Items, x => x.LocationId == locationId);
+
         Assert.Equal("Published", await h.Scalar("""
             SELECT cr.ReservationStatus FROM dbo.LocationCreateReservations cr
             JOIN dbo.ChangeRequests r ON r.ChangeRequestId=cr.ChangeRequestId

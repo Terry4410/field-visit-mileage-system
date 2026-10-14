@@ -31,3 +31,20 @@ maintenance response therefore reports that approval is required and does not
 claim the edit was saved. A future batch must provide the reviewed UAT schema,
 live evidence adapter and transaction-owned submission service before enabling
 that route.
+
+
+## Superseding Scheme A Create/Excel write-path delta — 2026-10-14
+
+- `V180OptionCCandidateService.CreateAsync` and the candidate POST
+  `/api/v1/optionc-candidate/locations` implement an **isolated-only**
+  transaction-owned Pending Location + canonical Request + Reservation +
+  private Stage. It does not publish until independent Leader/Admin decisions.
+  Exact-SHA `5ca1060423e9ef326b82b6cd6c1025250a0d578a`, CI
+  `38534680973 — SUCCESS`.
+- `WorkbookImportService`: the older row in this matrix described raw
+  Pending Location creation as permitted. Under Scheme A, Excel `Create`
+  must **not** do that. Preview now marks Create as
+  `LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW`, and Confirm refuses
+  it before processing a batch. Canonical Excel submission is a remaining
+  implementation blocker.
+- This delta does not authorize UAT/Production execution or feature flags.

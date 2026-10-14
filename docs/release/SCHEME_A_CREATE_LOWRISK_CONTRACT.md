@@ -74,10 +74,14 @@ isolated SQL/HTTP/DI test also covers premature evidence, unauthorized Admin
 substitution, Leader revocation, Leader rejection and stage abandonment,
 versioned publication and immutable Trip/Snapshot references.
 
-**CreateLocation** requests and stages are still seeded directly in
-disposable SQL for the positive atomic publication test. Full user-facing
-CreateLocation reservation/submission, pending Location query exclusion,
-geocode/duplicate evidence and UI remain incomplete.
+**Earlier CreateLocation tests** seeded Requests and Stages directly in
+disposable SQL. As of exact SHA `5ca1060423e9ef326b82b6cd6c1025250a0d578a`
+(CI `38534680973 — SUCCESS`), a real isolated-only HTTP CreateLocation
+submission now reserves the LocationId and persists Request, Submitted audit,
+Reservation and private Stage atomically. It is exercised with independent
+Leader review, Admin geocode/duplicate evidence and V1 publication. Full
+published-query exclusion coverage, Create-specific revocation/concurrency
+and Business User UI remain incomplete.
 It does **not** constitute a deployable production migration or UI.
 
 The isolated SQL rehearsal tests creation of the reservation without
@@ -156,3 +160,35 @@ Visitor/Leader/Admin UI remain HOLD. No deployed flags enabled.
 
 **NO-GO** until each blocker is independently closed and Owner separately
 authorizes UAT execution.
+
+
+## Scheme A authoritative nondeploy checkpoint — 2026-10-14
+
+- Verified Recovery implementation SHA: `5ca1060423e9ef326b82b6cd6c1025250a0d578a`.
+- Exact-SHA CI: `38534680973 — SUCCESS`; backend **753 PASS**, additional
+  SQL Admin E2E **1 PASS**, SQL 011/012/014 rehearsal **2 PASS**,
+  frontend **24 test files PASS** and production build PASS.
+- Real disposable SQL Server 2022 HTTP/DI CreateLocation E2E now passes:
+  Visitor submission → server-owned identity and inactive Pending reservation →
+  private Stage → independent live-appointed Leader review →
+  application-owned geocode and duplicate evidence → independent Admin approval →
+  atomic V1 publication. A second request is independently Leader-rejected
+  and its Stage/reservation are Abandoned without published history.
+- Negative evidence: self-review denied; cross-org submission denied;
+  duplicate Pending create denied; premature publication denied; canonical
+  Submitted/LeaderApproved/GeocodeEvidenceRecorded/
+  DuplicateReviewEvidenceRecorded/Approved/Applied events and historical
+  Trip/Snapshot reference preservation verified.
+- The next candidate extends the same test to prove actual HTTP Picker
+  exclusion before publication and inclusion after it; **do not count that
+  extension PASS until its own Exact-SHA CI succeeds**.
+- Excel Location Create remains fail-closed in Preview and Confirm;
+  legacy published mutation/direct-note routes are guarded. Full Excel routing,
+  broad Legacy/Background audit, all UI roles and all operational read-path
+  proofs remain incomplete.
+- No UAT/Production SQL writes, migration, deployment, promotion, merge,
+  flag activation, UAT-target preflight or Business UAT was performed.
+  **Scheme A HOLD / NO-GO; NOT READY for UAT execution authorization review.**
+  This current checkpoint supersedes older 2026-10-14 engineering status
+  paragraphs where the CreateLocation HTTP flow is described as absent.
+
