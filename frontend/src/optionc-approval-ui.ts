@@ -12,6 +12,12 @@ export function differences(row:OptionCRequest){
  const before=safeFields(row.beforeJson),after=safeFields(row.proposedJson);
  return fields.filter(k=>before[k]!==after[k]).map(k=>({field:k,before:before[k],after:after[k]}));
 }
+export function mayLeaderReview(row:{
+ requestedByUserId:number;requestStatus:string;leaderStatus:string;rowVersion:string;
+},actorId:number):boolean{
+ return actorId>0&&actorId!==row.requestedByUserId&&row.requestStatus==="Pending"
+  &&row.leaderStatus==="Pending"&&!!row.rowVersion;
+}
 export function mayReview(row:OptionCRequest,actorId:number){
  return actorId>0&&actorId!==row.requestedByUserId&&row.status==="Pending"&&row.riskCode==="High"&&!!row.rowVersion;
 }

@@ -476,3 +476,18 @@ Prior verified CI: `38537883997 — SUCCESS` (SHA
 `9c32eca3c876755d3f8f660ec8f81f1ad6bdf359`).
 This new Excel code is not PASS until its own Exact-SHA CI completes.
 No UAT/Production changes or migrations.
+
+
+## Recovery-only frontend candidate delta — 2026-10-14
+
+The visitor/leader scoped location page gained an **OFF-by-default**
+isolated CreateLocation submission / My Requests UI branch. The existing
+legacy draft path is unchanged while the flag is OFF. The Leader review
+page now uses the authenticated configured API client (rather than
+bare unauthenticated fetch), with explicit self-review and terminal
+state controls and one-time decision keys. Client guards do **not**
+replace server live HR/Leader assignment and independent reviewer checks.
+`OPTIONC_APPROVAL_UI_ENABLED`,
+`OPTIONC_LEADER_REVIEW_UI_ENABLED` and the new
+`OPTIONC_CREATE_LOCATION_UI_ENABLED` all remain **false**.
+This is not a UAT/Production enablement or Business UAT approval.
