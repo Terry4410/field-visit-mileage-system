@@ -62,6 +62,14 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                 liveEvidence.IndependentAdminEligible,
                 liveEvidence.OrganizationMatches,
                 liveEvidence.TeamMatches);
+            // When the additive first-level review table is present, high-risk
+            // publication is impossible without an approved independent Leader
+            // decision in this same Serializable transaction.
+            if (await V180OptionCLeaderReviewService.Schema.ExistsAsync(
+                    connection, sqlTx, ct))
+                await V180OptionCLeaderReviewService.Schema.RequireApprovedAsync(
+                    connection, sqlTx, request.ChangeRequestId,
+                    request.RequestedByUserId, ct);
             await V180OptionCAtomicPublicationWriter.ExecuteAsync(
                 connection, sqlTx, requestPublicId, request.OrganizationId,
                 actorId, decisionKey, reason, evidence, ct);

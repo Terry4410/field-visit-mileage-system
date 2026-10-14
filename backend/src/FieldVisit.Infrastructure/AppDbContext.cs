@@ -15,6 +15,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<LocationApprovalHistory> LocationApprovalHistories => Set<LocationApprovalHistory>();
     public DbSet<V180B3ChangeRequest> ChangeRequests => Set<V180B3ChangeRequest>();
     public DbSet<V180B3ChangeEvent> ChangeRequestEvents => Set<V180B3ChangeEvent>();
+    public DbSet<V180OptionCLeaderReview> LeaderReviews => Set<V180OptionCLeaderReview>();
     public DbSet<TeamLocationNote> TeamLocationNotes => Set<TeamLocationNote>();
     public DbSet<TeamLocationNoteHistory> TeamLocationNoteHistories => Set<TeamLocationNoteHistory>();
     public DbSet<Project> Projects => Set<Project>();
@@ -136,6 +137,28 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => new {x.RequestedByUserId,x.SubmittedAt})
                 .HasDatabaseName("IX_B3_ChangeRequests_Requester_SubmittedAt");
         });
+        b.Entity<V180OptionCLeaderReview>(e =>
+        {
+            e.ToTable("ChangeRequestLeaderReviews", table => table.UseSqlOutputClause(false));
+            e.HasKey(x => x.ChangeRequestLeaderReviewId);
+            e.Property(x => x.ChangeRequestLeaderReviewId).ValueGeneratedOnAdd();
+            e.Property(x => x.ReviewStage).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(1000);
+            e.Property(x => x.EvidenceJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.ReviewedAt).HasPrecision(3);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.ChangeRequestId, x.ReviewStage }).IsUnique()
+                .HasDatabaseName("UX_OptionC_LeaderReview_Request_Stage");
+            e.HasIndex(x => x.DecisionKey).IsUnique()
+                .HasFilter("[DecisionKey] IS NOT NULL")
+                .HasDatabaseName("UX_OptionC_LeaderReview_DecisionKey");
+            e.HasOne<V180B3ChangeRequest>().WithMany().HasForeignKey(x => x.ChangeRequestId)
+                .OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ReviewerUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
         b.Entity<V180B3ChangeEvent>(e =>
         {
             e.ToTable("ChangeRequestEvents",table =>

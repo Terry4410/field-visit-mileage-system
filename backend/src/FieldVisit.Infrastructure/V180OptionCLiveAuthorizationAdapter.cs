@@ -111,6 +111,48 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
             TeamMatches: team.TeamId == teamId);
     }
 
+    public async Task<V180OptionCLiveLeaderReviewEvidence> AuthorizeLeaderReviewAsync(
+        int requesterUserId, int reviewerUserId, int organizationId, int teamId,
+        DateOnly today, CancellationToken ct)
+    {
+        RequireSerializableTransaction();
+        if (requesterUserId <= 0 || reviewerUserId <= 0 || organizationId <= 0
+            || teamId <= 0 || requesterUserId == reviewerUserId)
+            throw new UnauthorizedAccessException("OPTIONC_LEADER_SELF_REVIEW_DENIED");
+        var reviewer = await ReadInternalActorAsync(reviewerUserId, organizationId, today, ct);
+        var requester = await ReadInternalActorAsync(requesterUserId, organizationId, today, ct);
+        var team = await db.Teams.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.TeamId == teamId && x.OrganizationId == organizationId && x.IsActive
+            && (!x.EffectiveFrom.HasValue || x.EffectiveFrom <= today)
+            && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct)
+            ?? throw new UnauthorizedAccessException("OPTIONC_TEAM_NOT_CURRENT");
+        if (!await IsRequesterEligibleAsync(requester, organizationId, teamId, today, ct))
+            throw new UnauthorizedAccessException("OPTIONC_REQUESTER_NOT_ELIGIBLE");
+        var roles = await EffectiveRolesAsync(reviewerUserId, today, ct);
+        if (!roles.Contains("leader"))
+            throw new UnauthorizedAccessException("OPTIONC_LEADER_ROLE_REVOKED");
+        var scoped = await HasCurrentTeamScopeAsync(reviewerUserId, teamId, today, ct);
+        var appointed = await db.TeamLeaderAssignments.AsNoTracking().AnyAsync(x =>
+                x.EmploymentId == reviewer.EmploymentId && x.TeamId == teamId
+                && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct)
+            || await (from delegation in db.TeamLeaderDelegations.AsNoTracking()
+                      join assignment in db.TeamLeaderAssignments.AsNoTracking()
+                        on delegation.TeamLeaderAssignmentId equals assignment.TeamLeaderAssignmentId
+                      where delegation.DelegateEmploymentId == reviewer.EmploymentId
+                        && assignment.TeamId == teamId
+                        && assignment.EffectiveFrom <= today
+                        && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                        && delegation.EffectiveFrom <= today && delegation.EffectiveTo >= today
+                      select delegation.TeamLeaderDelegationId).AnyAsync(ct);
+        if (!scoped || !appointed)
+            throw new UnauthorizedAccessException("OPTIONC_LEADER_APPOINTMENT_REQUIRED");
+        return new(requesterUserId, reviewerUserId, organizationId, teamId,
+            RequesterEligible: true, ReviewerLeaderEligible: true,
+            OrganizationMatches: requester.OrganizationId == organizationId
+                && reviewer.OrganizationId == organizationId,
+            TeamMatches: team.TeamId == teamId);
+    }
+
     public async Task<int> ResolveLiveOrganizationAsync(int actorUserId, CancellationToken ct)
     {
         RequireSerializableTransaction();
@@ -232,3 +274,8 @@ public sealed record V180OptionCLiveDecisionEvidence(
 public sealed record V180OptionCLiveSubmissionEvidence(
     int ActorUserId, int OrganizationId, int TeamId, bool VisitorEligible,
     bool LeaderEligible);
+
+public sealed record V180OptionCLiveLeaderReviewEvidence(
+    int RequesterUserId, int ReviewerUserId, int OrganizationId, int TeamId,
+    bool RequesterEligible, bool ReviewerLeaderEligible,
+    bool OrganizationMatches, bool TeamMatches);

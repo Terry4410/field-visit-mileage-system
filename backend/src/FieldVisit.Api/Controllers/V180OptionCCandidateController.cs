@@ -7,7 +7,7 @@ namespace FieldVisit.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/optionc-candidate")]
-public sealed class V180OptionCCandidateController(V180OptionCCandidateService service, V180OptionCMergeService mergeService, V180OptionCStageEvidenceService evidenceService) : ControllerBase
+public sealed class V180OptionCCandidateController(V180OptionCCandidateService service, V180OptionCMergeService mergeService, V180OptionCStageEvidenceService evidenceService, V180OptionCLeaderReviewService leaderReviewService) : ControllerBase
 {
     [HttpPost("locations/{locationId:int}/changes")]
     public Task<V180B3RequestView> Submit(int locationId, V180B3SubmitLocation input, CancellationToken ct)
@@ -27,6 +27,18 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
     [HttpPost("requests/{id:guid}/duplicate-evidence")]
     public Task<V180OptionCStageEvidenceView> DuplicateEvidence(Guid id, V180OptionCDuplicateEvidence input, CancellationToken ct)
         => evidenceService.RecordDuplicateReviewAsync(id, input, ct);
+
+    [HttpGet("leader/review-queue")]
+    public Task<IReadOnlyList<V180OptionCLeaderReviewView>> LeaderQueue(CancellationToken ct)
+        => leaderReviewService.QueueAsync(ct);
+
+    [HttpGet("leader/requests/mine")]
+    public Task<IReadOnlyList<V180OptionCLeaderReviewView>> LeaderMine(CancellationToken ct)
+        => leaderReviewService.MineAsync(ct);
+
+    [HttpPost("requests/{id:guid}/leader-review")]
+    public Task<V180OptionCLeaderReviewView> LeaderReview(Guid id, V180OptionCLeaderReviewDecision input, CancellationToken ct)
+        => leaderReviewService.DecideAsync(id, input, ct);
 
     [HttpGet("requests/mine")]
     public Task<IReadOnlyList<V180B3RequestView>> Mine(CancellationToken ct) => service.OwnAsync(ct);

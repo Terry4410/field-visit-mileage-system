@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<IV180MasterDataAdminRepository,V180MasterDataAdminRepository>();
         services.AddScoped<V180OptionCCandidateService>();
         services.AddScoped<V180OptionCMergeService>();
+        services.AddScoped<V180OptionCLeaderReviewService>();
         services.AddScoped<IV180MasterDataBulkWorkbookService,V180MasterDataBulkWorkbookService>();
         services.AddScoped<IV180PersonnelBulkService,V180PersonnelBulkService>();
         services.AddScoped<IV180PeopleManagementBulkService,V180TeamMembershipBulkService>();
