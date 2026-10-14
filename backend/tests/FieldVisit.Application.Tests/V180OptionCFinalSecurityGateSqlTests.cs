@@ -19,6 +19,173 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
+    public async Task Excel_create_submission_http_binds_preview_rows_to_canonical_pending_requests_atomically()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var root = FindRoot();
+        foreach (var relative in new[] {
+            "leader-review/LeaderReviewDetails.disposable.sql",
+            "create-lowrisk/CreateLowRiskContract.disposable.sql" })
+            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
+        // The isolated Base fixture is intentionally limited. Create only
+        // these existing legacy ImportBatch schema objects in the disposable
+        // database (never a UAT/Production migration).
+        await h.Exec("""
+            CREATE TABLE dbo.ImportBatches(
+                ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,
+                ImportType nvarchar(30) NOT NULL,
+                OrganizationId int NOT NULL,
+                RequestedByUserId int NOT NULL,
+                Status nvarchar(40) NOT NULL,
+                TotalCount int NOT NULL,ValidCount int NOT NULL,
+                ErrorCount int NOT NULL,
+                CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,
+                ConfirmedAt datetime2 NULL);
+            CREATE TABLE dbo.ImportBatchItems(
+                ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                ImportBatchId uniqueidentifier NOT NULL,
+                RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,
+                Action nvarchar(30) NOT NULL,Status nvarchar(40) NOT NULL,
+                DisplayKey nvarchar(250) NOT NULL,
+                DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,
+                CreatedAt datetime2 NOT NULL);
+            """);
+        var batch = Guid.NewGuid();
+        var staged = System.Text.Json.JsonSerializer.Serialize(new {
+            locationCode=(string?)null,teamCode="T1",
+            locationName="Excel canonical first",city="Taipei",district="Xinyi",
+            address="Excel canonical first address",plusCode=(string?)null,
+            status="Active"
+        });
+        await h.Exec("""
+            INSERT dbo.ImportBatches(ImportBatchId,ImportType,OrganizationId,
+                RequestedByUserId,Status,TotalCount,ValidCount,ErrorCount,
+                CreatedAt,ExpiresAt)
+            VALUES(@batch,N'locations',1,2,N'Previewed',1,0,1,
+                SYSUTCDATETIME(),DATEADD(hour,4,SYSUTCDATETIME()));
+            INSERT dbo.ImportBatchItems(ImportBatchId,RowNumber,EntityType,Action,
+                Status,DisplayKey,DataJson,ErrorMessage,CreatedAt)
+            VALUES(@batch,2,N'Location',N'Create',N'Error',
+                N'Excel canonical first',@json,
+                N'LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW',SYSUTCDATETIME());
+            """,P("@batch",batch),P("@json",staged));
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection",h.ConnectionString);
+            builder.UseSetting("Auth:Mode","Demo");
+            builder.UseSetting("Auth:JwtKey","test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled","false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");
+        });
+        using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress=new Uri("https://localhost") });
+        admin.DefaultRequestHeaders.Authorization = new("Bearer",Token(2,"E2","admin",1,1));
+        // Legacy Confirm is not a back door: a Create row is still an Error
+        // until converted into a reviewed canonical submission.
+        using var legacy = await admin.PostAsync(
+            $"api/v1/imports/{batch}/confirm",null);
+        Assert.False(legacy.IsSuccessStatusCode);
+        var url=$"api/v1/optionc-candidate/imports/{batch}/submit-creates-for-review";
+        using var submitted = await admin.PostAsync(url,null);
+        Assert.True(submitted.IsSuccessStatusCode,
+            await submitted.Content.ReadAsStringAsync());
+        var value = await submitted.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_RESPONSE_MISSING");
+        Assert.Equal(1,value.Submitted);
+        Assert.Equal(0,value.AlreadySubmitted);
+        Assert.Equal("SubmittedForReview",value.Status);
+        var id=Assert.Single(value.RequestPublicIds);
+        Assert.Equal("Pending",await h.RequestStatus(id));
+        Assert.Equal("PendingGeocode",await h.StageStatus(id));
+        Assert.Equal("1",await h.EventCount(id,"Submitted"));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents e
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId
+            WHERE r.RequestPublicId=@id
+              AND e.EventType=N'Submitted'
+              AND JSON_VALUE(e.DetailsJson,N'$.Source')=N'Excel'
+              AND JSON_VALUE(e.DetailsJson,N'$.ImportBatchId')=@batch
+            """,P("@id",id),P("@batch",batch.ToString())));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ImportBatchItems
+            WHERE ImportBatchId=@batch AND Status=N'SubmittedForReview'
+              AND ErrorMessage IS NULL
+            """,P("@batch",batch)));
+        Assert.Equal("SubmittedForReview",await h.Scalar("""
+            SELECT Status FROM dbo.ImportBatches WHERE ImportBatchId=@batch
+            """,P("@batch",batch)));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations l
+            JOIN dbo.ChangeRequests r
+                ON r.EntityId=CONVERT(nvarchar(80),l.LocationId)
+            JOIN dbo.LocationCreateReservations cr ON cr.ChangeRequestId=r.ChangeRequestId
+            JOIN dbo.LocationPublicationStages st ON st.ChangeRequestId=r.ChangeRequestId
+            WHERE r.RequestPublicId=@id AND l.IsActive=0
+              AND l.ApprovalStatus=N'Pending' AND r.Status=N'Pending'
+              AND cr.ReservationStatus=N'Pending'
+              AND st.StageStatus=N'PendingGeocode'
+            """,P("@id",id)));
+        Assert.Equal("0",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.LocationPublishedVersions pv
+            JOIN dbo.ChangeRequests r ON r.EntityId=CONVERT(nvarchar(80),pv.LocationId)
+            WHERE r.RequestPublicId=@id
+            """,P("@id",id)));
+
+        // Retrying the same completed preview is audit-backed and exactly-once.
+        using var replay=await admin.PostAsync(url,null);
+        Assert.True(replay.IsSuccessStatusCode,
+            await replay.Content.ReadAsStringAsync());
+        var replayValue = await replay.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_REPLAY_RESPONSE_MISSING");
+        Assert.Equal(0,replayValue.Submitted);
+        Assert.Equal(1,replayValue.AlreadySubmitted);
+        Assert.Equal(id,Assert.Single(replayValue.RequestPublicIds));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE JSON_VALUE(DetailsJson,N'$.ImportBatchId')=@batch
+              AND EventType=N'Submitted'
+            """,P("@batch",batch.ToString())));
+
+        // Another authenticated admin cannot claim someone else's preview.
+        using var outsider=factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress=new Uri("https://localhost") });
+        outsider.DefaultRequestHeaders.Authorization=new("Bearer",Token(3,"E3","admin",2,2));
+        using var forbidden=await outsider.PostAsync(url,null);
+        Assert.False(forbidden.IsSuccessStatusCode);
+
+        // Mixed canonical Create and legacy Update rows must be entirely
+        // refused before any of the new Create rows receive a reservation.
+        var mixedBatch=Guid.NewGuid();
+        var mixedStaged=System.Text.Json.JsonSerializer.Serialize(new {
+            locationCode=(string?)null,teamCode="T1",locationName="Excel mixed denied",
+            city="Taipei",district="Xinyi",address="Excel mixed address",
+            plusCode=(string?)null,status="Active"
+        });
+        await h.Exec("""
+            INSERT dbo.ImportBatches(ImportBatchId,ImportType,OrganizationId,
+                RequestedByUserId,Status,TotalCount,ValidCount,ErrorCount,
+                CreatedAt,ExpiresAt)
+            VALUES(@batch,N'locations',1,2,N'Previewed',2,1,1,
+                SYSUTCDATETIME(),DATEADD(hour,4,SYSUTCDATETIME()));
+            INSERT dbo.ImportBatchItems(ImportBatchId,RowNumber,EntityType,Action,
+                Status,DisplayKey,DataJson,ErrorMessage,CreatedAt)
+            VALUES(@batch,2,N'Location',N'Create',N'Error',N'Excel mixed denied',
+                @json,N'LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW',SYSUTCDATETIME()),
+                  (@batch,3,N'Location',N'Update',N'Valid',N'Existing edit',
+                   N'{}',NULL,SYSUTCDATETIME());
+            """,P("@batch",mixedBatch),P("@json",mixedStaged));
+        using var mixed=await admin.PostAsync(
+            $"api/v1/optionc-candidate/imports/{mixedBatch}/submit-creates-for-review",null);
+        Assert.False(mixed.IsSuccessStatusCode);
+        Assert.Equal("0",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations
+            WHERE LocationName=N'Excel mixed denied'
+            """));
+    }
+
+    [Fact]
     public async Task CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate()
     {
         await using var h = await Harness.TryCreateAsync();
