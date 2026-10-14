@@ -492,6 +492,31 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(System.Net.HttpStatusCode.OK, submitReject.StatusCode);
         var rejectedRequest = await submitReject.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_REJECT_SUBMIT_RESPONSE_MISSING");
+        // The legacy high-risk HTTP publish fixture above intentionally uses
+        // the pre-Leader baseline. Add the isolated Leader schema and a live
+        // appointed reviewer for the NEW Scheme A final-rejection contract.
+        await h.Exec(File.ReadAllText(Path.Combine(FindRoot(), "docs", "release",
+            "optionc-canonical-sql-draft", "leader-review",
+            "LeaderReviewDetails.disposable.sql")));
+        await h.Exec("""
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+                VALUES(4,1,1,N'E4',N'Independent Leader',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt,UpdatedAt)
+                VALUES(4,104,N'Internal',N'E4',N'Demo',SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,LegacyUserId,HireDate,SourceType,CreatedAt)
+                VALUES(104,104,1,N'E4',4,'2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+                VALUES(104,N'Active','2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(4,2,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+                VALUES(4,2,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+                VALUES(4,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+                VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+                VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
+            """);
         // Admin cannot reject a regular high-risk change before the
         // independent Leader-first review, even though rejection is safe.
         var prematureAdminReject = await admin.PostAsJsonAsync(
