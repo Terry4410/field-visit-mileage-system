@@ -60,31 +60,55 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
         {
             var actorId = current.GetRequired().UserId;
             var auth = new V180OptionCLiveAuthorizationAdapter(db);
-            var org = await auth.RequireIndependentAdminAsync(actorId, BusinessTime.Today, ct);
-            long requestId; int teamId; int requesterId; string requestStatus; byte[] stageVersion; string stageStatus, geocodeStatus, proposedSha;
+            var org = await auth.ResolveLiveOrganizationAsync(actorId, ct);
+            long requestId; int teamId; int requesterId; string requestStatus, risk; byte[] stageVersion; string stageStatus, geocodeStatus, proposedSha;
             await using (var cmd = new SqlCommand("""
                 SELECT r.ChangeRequestId,r.TeamId,r.RequestedByUserId,r.Status,
-                       s.RowVersion,s.StageStatus,s.GeocodeStatus,s.DuplicateReviewStatus,s.ProposedSha256
+                       s.RowVersion,s.StageStatus,s.GeocodeStatus,s.DuplicateReviewStatus,s.ProposedSha256,r.RiskCode
                 FROM dbo.ChangeRequests r WITH(UPDLOCK,HOLDLOCK)
                 JOIN dbo.LocationPublicationStages s WITH(UPDLOCK,HOLDLOCK) ON s.ChangeRequestId=r.ChangeRequestId
                 WHERE r.RequestPublicId=@id AND r.OrganizationId=@org
                   AND r.EntityKind=N'Location' AND r.OperationCode=N'UpdatePublishedLocation'
-                  AND r.RiskCode=N'High';
+                  AND r.RiskCode IN(N'High',N'Low');
                 """, connection, (SqlTransaction)tx.GetDbTransaction()))
             {
                 cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@org", org);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 if (!await reader.ReadAsync(ct)) throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
                 requestId=reader.GetInt64(0); teamId=reader.GetInt32(1); requesterId=reader.GetInt32(2); requestStatus=reader.GetString(3);
-                stageVersion=reader.GetFieldValue<byte[]>(4); stageStatus=reader.GetString(5); geocodeStatus=reader.GetString(6); proposedSha=Convert.ToHexString(reader.GetFieldValue<byte[]>(8));
+                stageVersion=reader.GetFieldValue<byte[]>(4); stageStatus=reader.GetString(5); geocodeStatus=reader.GetString(6); proposedSha=Convert.ToHexString(reader.GetFieldValue<byte[]>(8)); risk=reader.GetString(9);
             }
             if (requestStatus != "Pending" || stageStatus is "Published" or "Abandoned")
                 throw new InvalidOperationException("OPTIONC_STAGE_TERMINAL");
             if (!stageVersion.SequenceEqual(expected))
                 throw new InvalidOperationException("OPTIONC_STAGE_ROWVERSION_CONFLICT");
-            var evidence = await auth.AuthorizeDecisionAsync(requesterId, actorId, org, teamId, BusinessTime.Today, ct);
-            if (!evidence.RequesterEligible || !evidence.IndependentAdminEligible || !evidence.OrganizationMatches || !evidence.TeamMatches)
-                throw new UnauthorizedAccessException("OPTIONC_STAGE_REVIEW_SCOPE_DENIED");
+            if (risk == "Low")
+            {
+                // No geocoder evidence is needed when all address/identity
+                // fields are unchanged. Duplicate clearance belongs to a
+                // distinct live-appointed Leader, never the requester.
+                if (!duplicateCleared.HasValue || geocodeStatus != "NotRequired")
+                    throw new UnauthorizedAccessException("OPTIONC_LOW_GEOCODE_NOT_ALLOWED");
+                await using var schema = new SqlCommand("""
+                    SELECT COUNT(*) FROM dbo.SchemaVersions
+                    WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK'
+                    """, connection, (SqlTransaction)tx.GetDbTransaction());
+                if (Convert.ToInt32(await schema.ExecuteScalarAsync(ct)) != 1)
+                    throw new InvalidOperationException("OPTIONC_LOW_SCHEMA_NOT_READY");
+                var leader = await auth.AuthorizeLeaderReviewAsync(
+                    requesterId, actorId, org, teamId, BusinessTime.Today, ct);
+                if (!leader.RequesterEligible || !leader.ReviewerLeaderEligible
+                    || !leader.OrganizationMatches || !leader.TeamMatches)
+                    throw new UnauthorizedAccessException("OPTIONC_STAGE_REVIEW_SCOPE_DENIED");
+            }
+            else
+            {
+                var evidence = await auth.AuthorizeDecisionAsync(
+                    requesterId, actorId, org, teamId, BusinessTime.Today, ct);
+                if (!evidence.RequesterEligible || !evidence.IndependentAdminEligible
+                    || !evidence.OrganizationMatches || !evidence.TeamMatches)
+                    throw new UnauthorizedAccessException("OPTIONC_STAGE_REVIEW_SCOPE_DENIED");
+            }
 
             var sqlTx=(SqlTransaction)tx.GetDbTransaction();
             int changed;
@@ -139,7 +163,7 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
             {
                 requestPublicId = id,
                 actorUserId = actorId,
-                actorRole = "Admin",
+                actorRole = risk == "Low" ? "Leader" : "Admin",
                 eventType,
                 stageRowVersionBefore = Convert.ToBase64String(expected),
                 stageRowVersionAfter = Convert.ToBase64String(postStageVersion),
