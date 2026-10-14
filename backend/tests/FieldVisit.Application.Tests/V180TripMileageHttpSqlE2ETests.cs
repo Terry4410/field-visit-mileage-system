@@ -216,14 +216,17 @@ public sealed class V180TripMileageHttpSqlE2ETests
         {
             new Claim(ClaimTypes.NameIdentifier, id.ToString()),
             new Claim(ClaimTypes.Name, employeeNo),
+            new Claim("employee_no", employeeNo),
             new Claim(ClaimTypes.Role, role),
             new Claim("organization_id", "1"),
             new Claim("team_id", teamId.ToString()),
-            new Claim("team_name", "E2E Team")
+            new Claim("team_name", "E2E Team"),
+            new Claim("team_scopes", System.Text.Json.JsonSerializer.Serialize(
+                new[] { new TeamScopeDto(teamId, "E2E Team", true) }))
         };
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));
         return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
-            claims: claims, expires: DateTime.UtcNow.AddMinutes(10),
+            "FieldVisit.UAT", "FieldVisit.UAT.Users", claims, expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256)));
     }
 }
