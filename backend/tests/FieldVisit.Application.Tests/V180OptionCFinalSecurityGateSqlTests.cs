@@ -1,7 +1,9 @@
 using System.Data;
+using FieldVisit.Application;
 using FieldVisit.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -9,6 +11,33 @@ namespace FieldVisit.Application.Tests;
 /// <summary>Real SQL Server 2022 final decision gates on disposable OptionCIsolated databases.</summary>
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
+    [Fact]
+    public async Task Candidate_submission_persists_request_and_stage_without_publishing_location()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(h.ConnectionString).Options;
+        await using var db = new AppDbContext(options);
+        var rowVersionHex = await h.Scalar(
+            "SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10");
+        var rowVersion = Convert.FromHexString(rowVersionHex[2..]);
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["OptionC:Candidate:Enabled"] = "true"
+        }).Build();
+        var service = new V180OptionCCandidateService(db,
+            new StubCurrentUser(new CurrentUserDto(1, "E1", "Visitor", null, 99, 99, null,
+                new[] { "admin" }, new[] { new TeamScopeDto(99, "untrusted", true) })), config);
+        var result = await service.SubmitAsync(new V180B3SubmitLocation(
+            10, Convert.ToBase64String(rowVersion), "Address correction",
+            new V180B3LocationFields("Original 10", "Taipei", "Xinyi",
+                "New submitted address", null, null, "Low risk note")), CancellationToken.None);
+        Assert.Equal("Pending", result.Status);
+        Assert.Equal("PendingGeocode", await h.StageStatus(result.RequestPublicId));
+        Assert.Equal("Original address 10", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("1", await h.EventCount(result.RequestPublicId, "Submitted"));
+    }
+
     [Fact]
     public async Task Live_authorization_adapter_reads_authoritative_hr_roles_and_team_inside_serializable_transaction()
     {
@@ -707,4 +736,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     private static async Task Exec(SqlConnection c,string sql,params SqlParameter[] ps)=>await ExecOn(c,sql,ps);
     private static SqlParameter P(string key,object value)=>new(key,value);
     private sealed record Outcome(bool Committed,bool Denied);
+
+    private sealed class StubCurrentUser(CurrentUserDto user) : ICurrentUserService
+    {
+        public CurrentUserDto GetRequired() => user;
+    }
 }
