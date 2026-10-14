@@ -84,7 +84,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
                 visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Visitor.UserId, fixture.Visitor.EmployeeNo!, "visitor", fixture.Team.TeamId));
 
-                var request = Draft(fixture.Approved.LocationId);
+                var request = Draft(fixture.Approved.LocationId, fixture.Approved2.LocationId);
                 using var createdResponse = await visitor.PostAsJsonAsync("api/v1/trips", request);
                 Assert.True(createdResponse.IsSuccessStatusCode, await createdResponse.Content.ReadAsStringAsync());
                 var created = await createdResponse.Content.ReadFromJsonAsync<TripDto>()
@@ -125,7 +125,19 @@ public sealed class V180TripMileageHttpSqlE2ETests
 
                 using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
                 leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Leader.UserId, fixture.Leader.EmployeeNo!, "leader", fixture.Team.TeamId));
+                using var calculated = await leader.PostAsJsonAsync(
+                    "api/v1/leader/trips/calculate",
+                    new MileageBatchRequest("Selected", null, null, [created.VisitTripId]));
+                Assert.True(calculated.IsSuccessStatusCode, await calculated.Content.ReadAsStringAsync());
+                var calculation = await calculated.Content.ReadFromJsonAsync<MileageBatchResult>()
+                    ?? throw new InvalidOperationException("OPTIONC_TRIP_CALCULATION_RESPONSE_MISSING");
+                Assert.Equal(1, calculation.Success);
+
+                var pendingApproval = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
+                    ?? throw new InvalidOperationException("OPTIONC_TRIP_PENDING_APPROVAL_RESPONSE_MISSING");
+                Assert.Equal("PendingApproval", pendingApproval.Status);
                 var approve = new ApproveTripRequest(8.5m, submittedTrip.RowVersion, "manual fallback", "ManualFallback");
+                approve = approve with { RowVersion = pendingApproval.RowVersion };
                 using var approved = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve);
                 Assert.True(approved.IsSuccessStatusCode, await approved.Content.ReadAsStringAsync());
                 var approvedTrip = await approved.Content.ReadFromJsonAsync<TripDto>()
@@ -147,13 +159,14 @@ public sealed class V180TripMileageHttpSqlE2ETests
         }
     }
 
-    private static SaveTripRequest Draft(int locationId) => new(
+    private static SaveTripRequest Draft(int locationId, int? secondLocationId = null) => new(
         new DateOnly(2026, 10, 15), new TimeOnly(9, 0), new TimeOnly(10, 0),
         8.5m, "HTTP trip", "isolated", false,
-        [new TripStopInput(locationId, null, null, "Location", "fixture", "address", "visit", null)],
+        [new TripStopInput(locationId, null, null, "Location", "fixture", "address", "visit", null),
+         new TripStopInput(secondLocationId ?? locationId, null, null, "Location", "fixture-2", "address-2", "visit", null)],
         1, 1, 1, "Motorcycle");
 
-    private static async Task<(User Visitor, User Leader, Team Team, Location Approved, Location Pending)> SeedAsync(AppDbContext db)
+    private static async Task<(User Visitor, User Leader, Team Team, Location Approved, Location Approved2, Location Pending)> SeedAsync(AppDbContext db)
     {
         var now = DateTime.UtcNow;
         var org = new Organization { OrganizationCode = "E2E", OrganizationName = "E2E", IsActive = true, CreatedAt = now };
@@ -181,6 +194,10 @@ public sealed class V180TripMileageHttpSqlE2ETests
             new EmploymentStatusPeriod { EmploymentId = leaderEmployment.EmploymentId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E" },
             new TeamMembership { EmploymentId = employment.EmploymentId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1) },
             new TeamMembership { EmploymentId = leaderEmployment.EmploymentId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1) },
+            new UserEmploymentPeriod { UserId = visitor.UserId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E", CreatedAt = now },
+            new UserEmploymentPeriod { UserId = leader.UserId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E", CreatedAt = now },
+            new UserTeamAssignment { UserId = visitor.UserId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
+            new UserTeamAssignment { UserId = leader.UserId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new TeamLeaderAssignment { TeamId = team.TeamId, EmploymentId = leaderEmployment.EmploymentId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new UserRole { UserId = visitor.UserId, RoleId = visitorRole.RoleId, AssignedAt = now },
             new UserRole { UserId = leader.UserId, RoleId = leaderRole.RoleId, AssignedAt = now },
@@ -199,15 +216,17 @@ public sealed class V180TripMileageHttpSqlE2ETests
             new EmploymentDeploymentSiteAssignment { EmploymentId = employment.EmploymentId, DeploymentSiteId = site.DeploymentSiteId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now });
 
         var approved = new Location { OrganizationId = org.OrganizationId, TeamId = team.TeamId, LocationName = "Approved", LocationType = "Customer", ApprovalStatus = "Approved", GeocodingStatus = "Succeeded", IsActive = true, CreatedByUserId = visitor.UserId, CreatedAt = now };
+        var approved2 = new Location { OrganizationId = org.OrganizationId, TeamId = team.TeamId, LocationName = "Approved 2", LocationType = "Customer", ApprovalStatus = "Approved", GeocodingStatus = "Succeeded", IsActive = true, CreatedByUserId = visitor.UserId, CreatedAt = now };
         var pending = new Location { OrganizationId = org.OrganizationId, TeamId = team.TeamId, LocationName = "Pending", LocationType = "Customer", ApprovalStatus = "Pending", GeocodingStatus = "Pending", IsActive = false, CreatedByUserId = visitor.UserId, CreatedAt = now };
-        db.AddRange(approved, pending);
+        db.AddRange(approved, approved2, pending);
         await db.SaveChangesAsync();
         db.AddRange(
             new DeploymentSiteLocationAssignment { DeploymentSiteId = site.DeploymentSiteId, LocationId = approved.LocationId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
+            new DeploymentSiteLocationAssignment { DeploymentSiteId = site.DeploymentSiteId, LocationId = approved2.LocationId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new VisitType { VisitTypeCode = "E2E", VisitTypeName = "E2E Visit", IsActive = true, CreatedAt = now },
             new MileageRateRule { OrganizationId = org.OrganizationId, RuleName = "E2E rate", VehicleType = "Motorcycle", RatePerKm = 3m, EffectiveFrom = new DateOnly(2020, 1, 1), IsActive = true, CreatedAt = now });
         await db.SaveChangesAsync();
-        return (visitor, leader, team, approved, pending);
+        return (visitor, leader, team, approved, approved2, pending);
     }
 
     private static string Token(int id, string employeeNo, string role, int teamId)

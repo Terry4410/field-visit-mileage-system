@@ -56,6 +56,11 @@ public sealed class TripsController(TripService trips, LeaderService leader, V18
     [Authorize(Roles = "leader")]
     public async Task<ActionResult<List<TripDto>>> Queue(CancellationToken ct) => Ok(await leader.ReviewQueueAsync(ct));
 
+    [HttpPost("leader/trips/calculate")]
+    [Authorize(Roles = "leader")]
+    public async Task<ActionResult<MileageBatchResult>> CalculateMileage(MileageBatchRequest request, CancellationToken ct) =>
+        Ok(await leader.CalculateBatchAsync(request, ct));
+
     [HttpPost("trips/{tripId:long}/approve")]
     [Authorize(Roles = "leader")]
     public async Task<ActionResult<TripDto>> Approve(long tripId, ApproveTripRequest request, CancellationToken ct) => Ok(await leader.ApproveAsync(tripId, request, ct));
