@@ -42,6 +42,28 @@ internal static class V180OptionCCreateReservationGuard
     /// creation must instead use the canonical isolated submission flow.
     /// Historic schemas without this additive contract remain unchanged.
     /// </summary>
+    /// <summary>
+    /// Prevent unreleased Scheme A Create reservations (including abandoned
+    /// requests) from leaking into legacy maintenance lists/search. Published
+    /// canonical Locations remain visible after independent final review.
+    /// Legacy schemas without the additive reservation table keep their
+    /// ordinary draft query behavior.
+    /// </summary>
+    internal static async Task<IQueryable<Location>> LegacyVisibleLocationsAsync(
+        AppDbContext db, CancellationToken ct)
+    {
+        if (!await HasValidatedSchemaAsync(db, ct))
+            return db.Locations;
+        return db.Locations.FromSqlRaw("""
+            SELECT l.* FROM dbo.Locations AS l
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dbo.LocationCreateReservations AS cr
+                WHERE cr.LocationId=l.LocationId
+                  AND (cr.ReservationStatus<>N'Published'
+                    OR l.ApprovalStatus<>N'Approved'))
+            """);
+    }
+
     internal static async Task RequireCanonicalCreateAsync(
         AppDbContext db, string? locationType, CancellationToken ct)
     {

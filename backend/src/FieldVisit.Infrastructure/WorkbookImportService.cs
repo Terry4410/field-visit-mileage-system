@@ -34,12 +34,12 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 AddSheet(wb, sheets, 2, "說明", new[]
                 {
                     new[] { "項目", "規則" },
-                    new[] { "LocationCode", "新增地點請留空；更新既有地點時必須填寫現有 LocationCode。" },
+                    new[] { "LocationCode", "更新既有地點時請填寫現有 LocationCode。新增地點請改走 canonical 新增地點申請，Excel 新增目前禁止。" },
                     new[] { "TeamCode", "選填；若填寫必須是目前啟用且有權限的小組代碼。" },
                     new[] { "LocationName", "必填。" },
                     new[] { "Address / PlusCode", "至少需填一項。" },
-                    new[] { "新增地點", "Excel 匯入後一律為正式地點資料，但 ApprovalStatus=Pending、GeocodingStatus=Pending、IsActive=false；完成解析與核准後才可使用。" },
-                    new[] { "更新既有地點", "只要主檔內容有變更，匯入後會重新進入 Pending / Pending / 未啟用，需重新解析與核准。" },
+                    new[] { "新增地點", "Scheme A：Excel 新增地點尚未串接獨立 Leader/Admin 審查，預覽會標記錯誤、Confirm 會拒絕，不能直接寫入 Pending 地點。請走受控新增申請入口。" },
+                    new[] { "更新既有地點", "已核准／已啟用地點及 Scheme A 保留中的 Pending 地點禁止直接改寫；只有合法的未保留舊草稿可更新。已發布地點請走 canonical 維護審查。" },
                     new[] { "重複資料", "同一 Excel 不可重複使用相同 LocationCode；新增資料不可在同一小組重複相同地點名稱＋地址／PlusCode。" },
                     new[] { "Status", "新版範本已移除。舊版檔案若仍有 Status 欄可相容讀取，但不會直接控制啟用或核准狀態。" }
                 });

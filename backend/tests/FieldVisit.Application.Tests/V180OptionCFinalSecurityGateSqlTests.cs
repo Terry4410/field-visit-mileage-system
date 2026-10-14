@@ -138,6 +138,24 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT ReservationStatus FROM dbo.LocationCreateReservations WHERE LocationId=@id",
             P("@id", locationId)));
         Assert.Equal("PendingGeocode", await h.StageStatus(created.RequestPublicId));
+        // Maintenance lists are not an authorization escape hatch: pending
+        // canonical CreateLocation must stay private even when same-team
+        // actor has valid scoped JWT. Existing unreserved legacy drafts
+        // remain visible in maintenance lists where allowed.
+        using var pendingManaged = await visitor.GetAsync(
+            "api/v1/managed-locations?includeInactive=true");
+        Assert.True(pendingManaged.IsSuccessStatusCode,
+            await pendingManaged.Content.ReadAsStringAsync());
+        var pendingManagedRows = await pendingManaged.Content.ReadFromJsonAsync<List<ManagedLocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_MANAGED_LIST_MISSING");
+        Assert.DoesNotContain(pendingManagedRows, x => x.LocationId == locationId);
+        using var pendingSearch = await visitor.GetAsync(
+            "api/v1/managed-locations/search?includeInactive=true&pageSize=100");
+        Assert.True(pendingSearch.IsSuccessStatusCode,
+            await pendingSearch.Content.ReadAsStringAsync());
+        var pendingManagedPage = await pendingSearch.Content.ReadFromJsonAsync<PagedResult<ManagedLocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_MANAGED_SEARCH_MISSING");
+        Assert.DoesNotContain(pendingManagedPage.Items, x => x.LocationId == locationId);
         // Actual EF query path shared with BackgroundJobService must exclude
         // reserved CreateLocation even though it looks Pending and inactive.
         // Unreserved legacy drafts remain eligible; the candidate table must
@@ -357,6 +375,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var publishedResults = await publishedPicker.Content.ReadFromJsonAsync<V170LocationSearchResult>()
             ?? throw new InvalidOperationException("OPTIONC_CREATE_PUBLISHED_PICKER_VIEW_MISSING");
         Assert.Contains(publishedResults.Items, x => x.LocationId == locationId);
+        using var publishedManaged = await visitor.GetAsync(
+            "api/v1/managed-locations/search?includeInactive=true&pageSize=100");
+        Assert.True(publishedManaged.IsSuccessStatusCode,
+            await publishedManaged.Content.ReadAsStringAsync());
+        var publishedManagedPage = await publishedManaged.Content.ReadFromJsonAsync<PagedResult<ManagedLocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_MANAGED_PUBLISHED_MISSING");
+        Assert.Contains(publishedManagedPage.Items, x => x.LocationId == locationId);
 
         Assert.Equal("Published", await h.Scalar("""
             SELECT cr.ReservationStatus FROM dbo.LocationCreateReservations cr
@@ -391,6 +416,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await rejectReview.Content.ReadAsStringAsync());
         Assert.Equal("Rejected", await h.RequestStatus(rejectRequest.RequestPublicId));
         Assert.Equal("Abandoned", await h.StageStatus(rejectRequest.RequestPublicId));
+        using var rejectedManaged = await visitor.GetAsync(
+            "api/v1/managed-locations/search?includeInactive=true&pageSize=100");
+        Assert.True(rejectedManaged.IsSuccessStatusCode);
+        var rejectedManagedPage = await rejectedManaged.Content.ReadFromJsonAsync<PagedResult<ManagedLocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_MANAGED_REJECTED_MISSING");
+        Assert.DoesNotContain(rejectedManagedPage.Items,
+            x => x.LocationId == int.Parse(rejectRequest.EntityId));
         Assert.Equal("Abandoned", await h.Scalar("""
             SELECT cr.ReservationStatus FROM dbo.LocationCreateReservations cr
             JOIN dbo.ChangeRequests r ON r.ChangeRequestId=cr.ChangeRequestId

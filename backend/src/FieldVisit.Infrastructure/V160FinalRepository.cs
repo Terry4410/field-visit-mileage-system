@@ -692,7 +692,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
-        var q = db.Locations.AsNoTracking().AsQueryable();
+        var q = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
         if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
         {
             var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
@@ -728,14 +729,16 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var page = Math.Max(1, request.Page);
         var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
+        var visible = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
         IQueryable<Location> q;
         if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
         {
             var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
-            q = db.Locations.AsNoTracking().Where(x => x.OrganizationId == user.OrganizationId
+            q = visible.Where(x => x.OrganizationId == user.OrganizationId
                 && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
         }
-        else q = ApplyLocationScope(db.Locations.AsNoTracking(), user);
+        else q = ApplyLocationScope(visible, user);
 
         if (!string.IsNullOrWhiteSpace(request.Q))
         {

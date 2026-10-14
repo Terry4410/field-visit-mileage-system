@@ -636,3 +636,27 @@ SQL writes, migration, deployment, promotion, feature enablement,
 target preflight or Business UAT GO. **SCHEME A HOLD / NO-GO.**
 Earlier checkpoint paragraphs remain historical and are superseded
 by this verified Exact-SHA checkpoint.
+
+
+## Legacy maintenance read privacy & Excel template delta — 2026-10-14
+
+- Identified a read-path gap: `GET /api/v1/managed-locations` and
+  `/managed-locations/search` could expose server-owned Pending
+  `CreateLocation` Reservations to ordinary same-team maintenance users
+  before approval. The optional-contract guard now filters all
+  Create reservations that are not Published with an Approved Location.
+  Pending and Abandoned reservation identities remain hidden; successfully
+  Published identities return through authorized legacy maintenance searches.
+  When the additive reservation contract is absent, the historical
+  legacy draft query remains unchanged.
+- Added real disposable SQL HTTP/DI negative coverage for both management
+  list/search before publication, successful published inclusion, and
+  rejected/Abandoned exclusion. The normal operational Picker and favorite
+  checks remain in the same CreateLocation E2E.
+- Corrected the Excel Locations template instructions: unreviewed Excel
+  Create is blocked in Preview/Confirm; published or reserved Pending
+  Update must use canonical review. The sample may show a blocked Create
+  case, but the template no longer describes it as a valid import.
+- No feature flags enabled. This is an engineering candidate requiring
+  its own Exact-SHA CI before PASS; UAT/Production Migration, SQL writes,
+  deployment, promotion, target preflight and Business UAT remain forbidden.
