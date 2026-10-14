@@ -36,9 +36,9 @@ SELECT TOP (20) * FROM dbo.SchemaVersions ORDER BY 1 DESC;
 
 DECLARE @Latest nvarchar(32) =
 (
-  SELECT TOP (1) CONVERT(nvarchar(32),Version)
+  SELECT TOP (1) CONVERT(nvarchar(32),VersionNumber)
   FROM dbo.SchemaVersions
-  ORDER BY AppliedAtUtc DESC, Version DESC
+  ORDER BY AppliedAt DESC, VersionNumber DESC
 );
 IF @Latest IS NULL OR @Latest NOT IN (N'1.8.0-010',N'1.8.0-011',N'1.8.0-012',N'1.8.0-014')
   THROW 51006, 'STOP: unsupported SchemaVersions head.', 1;
@@ -46,6 +46,9 @@ IF @Latest IS NULL OR @Latest NOT IN (N'1.8.0-010',N'1.8.0-011',N'1.8.0-012',N'1
 DECLARE @cr bit=CASE WHEN OBJECT_ID(N'dbo.ChangeRequests',N'U') IS NULL THEN 0 ELSE 1 END;
 DECLARE @ev bit=CASE WHEN OBJECT_ID(N'dbo.ChangeRequestEvents',N'U') IS NULL THEN 0 ELSE 1 END;
 IF @cr<>@ev THROW 51007, 'STOP: partial canonical 011 object set.', 1;
+IF (@Latest=N'1.8.0-010' AND (@cr<>0 OR @ev<>0))
+   OR (@Latest IN (N'1.8.0-011',N'1.8.0-012',N'1.8.0-014') AND (@cr<>1 OR @ev<>1))
+  THROW 51015, 'STOP: canonical object set does not match SchemaVersions.', 1;
 IF @cr=1 AND @ev=1
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.ChangeRequests') AND name=N'RequestPublicId')
@@ -61,20 +64,57 @@ DECLARE @pv bit=CASE WHEN OBJECT_ID(N'dbo.LocationPublishedVersions',N'U') IS NU
 IF @st<>@pv THROW 51010, 'STOP: partial 014 Stage/PublishedVersions object set.', 1;
 IF @st=1 AND (@cr=0 OR @ev=0)
   THROW 51011, 'STOP: 014 objects exist without canonical 011.', 1;
+IF (@Latest=N'1.8.0-014' AND (@st<>1 OR @pv<>1))
+   OR (@Latest<>N'1.8.0-014' AND (@st<>0 OR @pv<>0))
+  THROW 51016, 'STOP: Stage/PublishedVersions do not match SchemaVersions.', 1;
 
 DECLARE @md bit=CASE WHEN OBJECT_ID(N'dbo.LocationMergeDetails',N'U') IS NULL THEN 0 ELSE 1 END;
 IF @md=1 AND (@cr=0 OR @ev=0 OR @st=0)
   THROW 51012, 'STOP: MergeDetails exists without canonical dependencies.', 1;
 
-DECLARE @ae bit=CASE WHEN OBJECT_ID(N'dbo.StageEvidenceAuditEvents',N'U') IS NULL THEN 0 ELSE 1 END;
-IF @ae=1 AND @st=0 THROW 51013, 'STOP: evidence audit exists without Stage.', 1;
+-- Evidence audit is an additive CHECK extension on ChangeRequestEvents, not a table.
+IF OBJECT_ID(N'dbo.StageEvidenceAuditEvents',N'U') IS NOT NULL
+  THROW 51013, 'STOP: unexpected parallel evidence audit table.', 1;
+DECLARE @auditTypeDefinition nvarchar(max), @auditStateDefinition nvarchar(max);
+DECLARE @oldDecisionState bit=0, @newDecisionState bit=0, @auditExtended bit=0;
+IF @ev=1
+BEGIN
+  SELECT @auditTypeDefinition=definition
+  FROM sys.check_constraints
+  WHERE parent_object_id=OBJECT_ID(N'dbo.ChangeRequestEvents')
+    AND name=N'CK_B3_ChangeRequestEvents_EventType' AND is_disabled=0 AND is_not_trusted=0;
+  IF @auditTypeDefinition IS NULL OR @auditTypeDefinition NOT LIKE N'%Submitted%'
+      OR @auditTypeDefinition NOT LIKE N'%Rejected%'
+    THROW 51017, 'STOP: canonical event type constraint missing or untrusted.', 1;
+  IF @Latest=N'1.8.0-011'
+  BEGIN
+    IF @auditTypeDefinition LIKE N'%Approved%' OR @auditTypeDefinition LIKE N'%Applied%'
+      THROW 51018, 'STOP: 011 event type constraint has unexpected later types.', 1;
+  END
+  ELSE IF @auditTypeDefinition NOT LIKE N'%Approved%' OR @auditTypeDefinition NOT LIKE N'%Applied%'
+    THROW 51019, 'STOP: 012 event types missing.', 1;
+  SET @auditExtended=CASE WHEN @auditTypeDefinition LIKE N'%GeocodeEvidenceRecorded%'
+                             AND @auditTypeDefinition LIKE N'%DuplicateReviewEvidenceRecorded%' THEN 1 ELSE 0 END;
+  IF (@auditTypeDefinition LIKE N'%GeocodeEvidenceRecorded%' AND @auditTypeDefinition NOT LIKE N'%DuplicateReviewEvidenceRecorded%')
+     OR (@auditTypeDefinition NOT LIKE N'%GeocodeEvidenceRecorded%' AND @auditTypeDefinition LIKE N'%DuplicateReviewEvidenceRecorded%')
+    THROW 51020, 'STOP: partial evidence event type extension.', 1;
+  SELECT @oldDecisionState=1 FROM sys.check_constraints
+  WHERE parent_object_id=OBJECT_ID(N'dbo.ChangeRequestEvents')
+    AND name=N'CK_B3_ChangeRequestEvents_DecisionState' AND is_disabled=0 AND is_not_trusted=0;
+  SELECT @newDecisionState=1 FROM sys.check_constraints
+  WHERE parent_object_id=OBJECT_ID(N'dbo.ChangeRequestEvents')
+    AND name=N'CK_B3_ChangeRequestEvents_StageEvidenceEventType' AND is_disabled=0 AND is_not_trusted=0;
+  IF (@auditExtended=1 AND (@newDecisionState<>1 OR @oldDecisionState<>0 OR @Latest<>N'1.8.0-014'))
+     OR (@auditExtended=0 AND (@oldDecisionState<>1 OR @newDecisionState<>0))
+    THROW 51021, 'STOP: evidence decision-state constraint drift.', 1;
+END;
 
 SELECT t.name AS TableName, SUM(p.rows) AS RowCount
 FROM sys.tables t
 JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1)
 WHERE t.name IN (N'SchemaVersions',N'ChangeRequests',N'ChangeRequestEvents',
                  N'LocationPublicationStages',N'LocationPublishedVersions',
-                 N'LocationMergeDetails',N'StageEvidenceAuditEvents')
+                 N'LocationMergeDetails')
 GROUP BY t.name ORDER BY t.name;
 
 SELECT fk.name AS ForeignKeyName, OBJECT_SCHEMA_NAME(fk.parent_object_id) AS ParentSchema,
@@ -84,13 +124,13 @@ SELECT fk.name AS ForeignKeyName, OBJECT_SCHEMA_NAME(fk.parent_object_id) AS Par
 FROM sys.foreign_keys fk
 WHERE OBJECT_NAME(fk.parent_object_id) IN
  (N'ChangeRequests',N'ChangeRequestEvents',N'LocationPublicationStages',
-  N'LocationPublishedVersions',N'LocationMergeDetails',N'StageEvidenceAuditEvents');
+  N'LocationPublishedVersions',N'LocationMergeDetails');
 
 IF EXISTS (
   SELECT 1 FROM sys.foreign_keys
   WHERE is_not_trusted=1 AND OBJECT_NAME(parent_object_id) IN
    (N'ChangeRequests',N'ChangeRequestEvents',N'LocationPublicationStages',
-    N'LocationPublishedVersions',N'LocationMergeDetails',N'StageEvidenceAuditEvents')
+    N'LocationPublishedVersions',N'LocationMergeDetails')
 ) THROW 51014, 'STOP: untrusted canonical/additive FK.', 1;
 
 SELECT cc.name AS ConstraintName, OBJECT_NAME(cc.parent_object_id) AS TableName,
@@ -110,21 +150,22 @@ WHERE OBJECT_NAME(i.object_id) IN
   N'LocationPublishedVersions',N'LocationMergeDetails',N'StageEvidenceAuditEvents')
   AND i.index_id>0;
 
-SELECT N'ProjectLocationsWithoutLocation' AS CheckName, COUNT(*) AS Violations
-FROM dbo.ProjectLocations pl LEFT JOIN dbo.Locations l ON l.LocationId=pl.LocationId
-WHERE l.LocationId IS NULL
-UNION ALL
-SELECT N'FavoriteLocationsWithoutLocation', COUNT(*)
-FROM dbo.UserFavoriteLocations f LEFT JOIN dbo.Locations l ON l.LocationId=f.LocationId
-WHERE l.LocationId IS NULL
-UNION ALL
-SELECT N'CurrentPublishedVersionDuplicates', COUNT(*)
-FROM (SELECT LocationId FROM dbo.LocationPublishedVersions WHERE IsCurrent=1
-      GROUP BY LocationId HAVING COUNT(*)>1) d
-UNION ALL
-SELECT N'PendingDuplicateRequestSlots', COUNT(*)
-FROM (SELECT OrganizationId,EntityId FROM dbo.ChangeRequests WHERE Status=N'Pending'
-      GROUP BY OrganizationId,EntityId HAVING COUNT(*)>1) d;
+-- Optional catalog queries use dynamic SQL so baseline 010/011/012 does not
+-- compile references to tables that are created only by later migrations.
+IF OBJECT_ID(N'dbo.ProjectLocations',N'U') IS NOT NULL
+  EXEC sys.sp_executesql N'SELECT N''ProjectLocationsWithoutLocation'' AS CheckName, COUNT(*) AS Violations FROM dbo.ProjectLocations pl LEFT JOIN dbo.Locations l ON l.LocationId=pl.LocationId WHERE l.LocationId IS NULL';
+IF OBJECT_ID(N'dbo.UserFavoriteLocations',N'U') IS NOT NULL
+  EXEC sys.sp_executesql N'SELECT N''FavoriteLocationsWithoutLocation'' AS CheckName, COUNT(*) AS Violations FROM dbo.UserFavoriteLocations f LEFT JOIN dbo.Locations l ON l.LocationId=f.LocationId WHERE l.LocationId IS NULL';
+IF @pv=1
+  EXEC sys.sp_executesql N'SELECT N''CurrentPublishedVersionDuplicates'' AS CheckName, COUNT(*) AS Violations FROM (SELECT LocationId FROM dbo.LocationPublishedVersions WHERE IsCurrent=1 GROUP BY LocationId HAVING COUNT(*)>1) d';
+IF @cr=1
+  EXEC sys.sp_executesql N'SELECT N''PendingDuplicateRequestSlots'' AS CheckName, COUNT(*) AS Violations FROM (SELECT OrganizationId,EntityId FROM dbo.ChangeRequests WHERE Status=N''Pending'' GROUP BY OrganizationId,EntityId HAVING COUNT(*)>1) d';
+
+SELECT @Latest AS MigrationPhase,
+       @cr AS CanonicalRequestTablesPresent,
+       @st AS StageAndPublishedVersionsPresent,
+       @md AS MergeDetailsPresent,
+       @auditExtended AS CanonicalEvidenceAuditExtended;
 
 SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',
   COALESCE((
