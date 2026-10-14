@@ -285,7 +285,19 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             Assert.Equal("1", await ScalarAsync(db,
                 "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.check_constraints " +
                 "WHERE name=N'CK_B3_ChangeRequestEvents_EventType' " +
-                "AND definition LIKE N'%LeaderApproved%'"));
+                "AND definition LIKE N'%LeaderApproved%' " +
+                "AND definition LIKE N'%GeocodeEvidenceRecorded%' " +
+                "AND definition LIKE N'%DuplicateReviewEvidenceRecorded%'"));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.check_constraints " +
+                "WHERE name=N'CK_B3_ChangeRequestEvents_DecisionState' " +
+                "AND definition LIKE N'%LeaderRejected%' " +
+                "AND definition LIKE N'%DuplicateReviewEvidenceRecorded%'"));
+            var rerun = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteAsync(db, File.ReadAllText(leaderReviewPath)));
+            Assert.Equal(51083, rerun.Number);
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-LEADER-REVIEW'"));
         }
         finally
         {
