@@ -407,6 +407,76 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
               AND JSON_VALUE(DetailsJson,N'$.ImportBatchId')=@id
             """,P("@id",partialBatch.ToString())));
 
+        // Published UPDATE: real CSV HTTP Preview -> canonical pending request.
+        // This is the same live-authorized submit and stage path as HTTP Update.
+        await h.Exec("UPDATE dbo.Locations SET LocationCode=N'EX-10' WHERE LocationId=10");
+        var oldRv=await h.Scalar(
+            "SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=10");
+        var oldTrips=await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10");
+        var oldSnapshots=await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10");
+        var csv=Encoding.UTF8.GetBytes(
+            "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
+            "EX-10,T1,Original 10,Taipei,Xinyi,Excel reviewed address,,Active\n");
+        using var form=new MultipartFormDataContent();
+        using var file=new ByteArrayContent(csv);
+        file.Headers.ContentType=
+            new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        form.Add(file,"file","published-update.csv");
+        using var previewHttp=await admin.PostAsync(
+            "api/v1/imports/locations/preview",form);
+        Assert.True(previewHttp.IsSuccessStatusCode,
+            await previewHttp.Content.ReadAsStringAsync());
+        var previewUpdate=await previewHttp.Content.ReadFromJsonAsync<ImportPreviewDto>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_PREVIEW_MISSING");
+        var previewRow=Assert.Single(previewUpdate.Items);
+        Assert.Equal("Update",previewRow.Action);
+        Assert.Equal("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL",
+            previewRow.ErrorMessage);
+        var urlUpdate=$"api/v1/optionc-candidate/imports/{previewUpdate.ImportBatchId}/submit-updates-for-review";
+        using var legacyUpdate=await admin.PostAsync(
+            $"api/v1/imports/{previewUpdate.ImportBatchId}/confirm",null);
+        Assert.False(legacyUpdate.IsSuccessStatusCode);
+        using var submittedUpdate=await admin.PostAsync(urlUpdate,null);
+        Assert.True(submittedUpdate.IsSuccessStatusCode,
+            await submittedUpdate.Content.ReadAsStringAsync());
+        var updateValue=await submittedUpdate.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_RESPONSE_MISSING");
+        Assert.Equal(1,updateValue.Submitted);
+        var updateId=Assert.Single(updateValue.RequestPublicIds);
+        Assert.Equal("Pending",await h.RequestStatus(updateId));
+        Assert.Equal("PendingGeocode",await h.StageStatus(updateId));
+        Assert.Equal("1",await h.EventCount(updateId,"Submitted"));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents e
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId
+            WHERE r.RequestPublicId=@id AND r.OperationCode=N'UpdatePublishedLocation'
+              AND r.RiskCode=N'High' AND e.EventType=N'Submitted'
+              AND JSON_VALUE(e.DetailsJson,N'$.Source')=N'Excel'
+              AND TRY_CONVERT(uniqueidentifier,
+                JSON_VALUE(e.DetailsJson,N'$.ImportBatchId'))=@batch
+            """,P("@id",updateId),P("@batch",previewUpdate.ImportBatchId)));
+        Assert.Equal(oldRv,await h.Scalar(
+            "SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=10"));
+        using var replayUpdateHttp=await admin.PostAsync(urlUpdate,null);
+        Assert.True(replayUpdateHttp.IsSuccessStatusCode,
+            await replayUpdateHttp.Content.ReadAsStringAsync());
+        var replayUpdate=await replayUpdateHttp.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_REPLAY_MISSING");
+        Assert.Equal(0,replayUpdate.Submitted);
+        Assert.Equal(1,replayUpdate.AlreadySubmitted);
+        Assert.Equal(updateId,Assert.Single(replayUpdate.RequestPublicIds));
+        Assert.Equal(oldTrips,await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10"));
+        Assert.Equal(oldSnapshots,await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
+        // A mixed Create+Update batch cannot silently use either
+        // operation-specific endpoint to bypass the other's controls.
+        using var mixedUpdate=await admin.PostAsync(
+            $"api/v1/optionc-candidate/imports/{mixedBatch}/submit-updates-for-review",null);
+        Assert.False(mixedUpdate.IsSuccessStatusCode);
+
     }
 
     [Fact]
