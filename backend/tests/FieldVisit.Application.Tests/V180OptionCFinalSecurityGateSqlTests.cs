@@ -18,9 +18,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         if (h is null) return;
         var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(h.ConnectionString).Options;
         await using var db = new AppDbContext(options);
-        var rowVersionHex = await h.Scalar(
-            "SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10");
-        var rowVersion = Convert.FromHexString(rowVersionHex[2..]);
+        await using var rowVersionCommand = new SqlCommand(
+            "SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db);
+        var rowVersion = (byte[])(await rowVersionCommand.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("ROWVERSION_TEST_FIXTURE_MISSING"));
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["OptionC:Candidate:Enabled"] = "true"
