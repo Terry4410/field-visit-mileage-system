@@ -116,7 +116,7 @@ internal static class V180OptionCUnknownCommitReconciler
                 merge.Parameters.AddWithValue("@request", requestId);
                 await using var mergeReader = await merge.ExecuteReaderAsync(ct);
                 if (!await mergeReader.ReadAsync(ct)) return "INDETERMINATE";
-                var mergeEvidence = Enumerable.Range(2, 7).All(i => mergeReader.GetInt32(i) == 1);
+                var mergeEvidence = Enumerable.Range(2, 6).All(i => mergeReader.GetInt32(i) == 1);
                 if (await mergeReader.ReadAsync(ct) || !mergeEvidence)
                     return "INDETERMINATE";
             }
