@@ -47,7 +47,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var submitted = await submit.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_SUBMIT_RESPONSE_MISSING");
         Assert.Equal("Pending", submitted.Status);
-        await h.PrepareStage(submitted.RequestPublicId);
+        await h.Exec("""
+            UPDATE s SET GeocodeStatus=N'Succeeded',GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME()
+            FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id;
+            """, P("@id", submitted.RequestPublicId));
         var requestVersion = await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.ChangeRequests WHERE RequestPublicId=@id", P("@id", submitted.RequestPublicId));
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
