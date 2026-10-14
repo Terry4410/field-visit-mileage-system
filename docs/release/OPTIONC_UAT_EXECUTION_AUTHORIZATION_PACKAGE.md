@@ -10,6 +10,26 @@
 
 This package is an approval package, not an execution authorization.
 
+## Scheme A engineering delta — still NO-GO (2026-10-14)
+
+The Recovery branch includes a **disposable-only** CreateLocation/LowRisk
+canonical SQL contract, atomic publication writer, live-authorized
+Serializable orchestrator, and an isolated-candidate
+`POST /api/v1/optionc-candidate/requests/{id}/publish-reviewed` route.
+
+These do not authorize UAT SQL, UAT deployment, feature activation or
+Business UAT. Positive publication tests use disposable SQL-seeded requests;
+end-to-end HTTP submission, Pending Location exclusion from all operational
+queries, Excel/legacy/background canonical routing, rejection/rollback
+matrices and actual UAT target read-only preflight remain HOLD.
+
+The older SHA/CI in the Status section above is historical and **must not**
+be interpreted as verification of this delta. Refer to the current
+Recovery exact-SHA CI for engineering verification; until it passes,
+this delta is unverified.
+
+**Owner decision: NOT READY FOR UAT EXECUTION AUTHORIZATION REVIEW.**
+
 ## Target identification gate
 
 A preflight may run only after Owner/IT supplies all of the following:
