@@ -19,3 +19,10 @@ Real MergeFields HTTP/SQL execution remains a HOLD until the Recovery workflow's
 - Merge stale source and stale survivor RowVersion tests fail closed with no partial publication.
 - Engineering: PASS. UAT target schema preflight: NOT RUN. Business UAT: NOT RUN.
 - Remaining HOLD: merge-specific incomplete-evidence negative reconciliation and application-owned geocode/duplicate evidence transition remain outside this batch; background publication remains disabled.
+
+
+## Final Engineering Closure — 2026-10-14
+
+Authoritative Recovery candidate: `eb31fda053d8564a0d8aaa0dff2966966c41cb91`; exact-SHA CI `38507636467` SUCCESS. Backend 733/733, frontend 23/23 plus production build, disposable SQL/HTTP Option C E2E and canonical rehearsal passed. Merge lost-ack reconciliation now verifies dual-location publication evidence and returns `COMMITTED_EVIDENCE_REQUIRES_REVIEW` only after complete evidence; incomplete evidence remains `INDETERMINATE`.
+
+Engineering PASS is limited to disposable isolated SQL. UAT target preflight and Business UAT are NOT RUN. Application-owned geocode/duplicate Stage transition remains HOLD because the candidate boundary still has no live-authorized service endpoint for callback evidence; direct fixture mutation is not accepted as proof. Background publication remains disabled.

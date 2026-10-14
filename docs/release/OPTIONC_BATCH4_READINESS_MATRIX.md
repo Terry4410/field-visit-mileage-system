@@ -9,3 +9,8 @@
 ## Batch 5C evidence update — 2026-10-14
 
 Engineering verification is complete through Recovery CI. Merge lost-ack evidence is disposable-only and does not authorize UAT/Production execution. UAT target preflight and Business UAT remain NOT RUN.
+
+
+## Final Engineering Closure — 2026-10-14
+
+Authoritative Recovery SHA `eb31fda053d8564a0d8aaa0dff2966966c41cb91`; exact-SHA CI `38507636467` SUCCESS. Engineering gates PASS in isolated disposable SQL/HTTP. Remaining HOLD: application-owned geocode/duplicate evidence transition and UAT target preflight. Business UAT remains NOT RUN; feature flags remain OFF.
