@@ -92,7 +92,9 @@ inactive Pending Location on Excel `Create` without writing a canonical
 ChangeRequest, reservation or independent Leader/Admin review. This was
 **not** a complete Scheme A CreateLocation transaction. The Recovery branch
 now refuses location-create import batches before processing any row with
-`LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW`. The existing published
+`LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW`. Location Preview also
+marks actionable Create rows with this blocking error, while existing
+NoChange rows remain unaffected. The existing published
 update guard remains in place. Project imports and location previews are
 not intentionally disabled. Do not re-enable Excel location creation until
 it is transactionally routed through the canonical CreateLocation service
