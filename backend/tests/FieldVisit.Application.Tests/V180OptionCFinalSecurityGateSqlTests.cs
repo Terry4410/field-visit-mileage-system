@@ -117,7 +117,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """, P("@id", locationId));
         var editLegacy = direct with {
             LocationName = "Illegal reserved update",
-            RowVersion = Convert.ToBase64String(Convert.FromHexString(sourceVersion))
+            RowVersion = "AAAAAAAAAAA=" // guard must precede RowVersion validation
         };
         using var blockedUpdate = await legacyAdmin.PutAsJsonAsync(
             $"api/v1/managed-locations/{locationId}", editLegacy);
