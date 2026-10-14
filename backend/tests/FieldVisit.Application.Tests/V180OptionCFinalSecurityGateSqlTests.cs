@@ -84,13 +84,18 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         }
         await h.Exec("""
             DECLARE @rid bigint=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id);
+            DECLARE @leaderKey uniqueidentifier=NEWID();
             INSERT dbo.ChangeRequestLeaderReviews(ChangeRequestId,ReviewStage,
                 Status,ReviewerUserId,ReviewedAt,Reason,DecisionKey)
             VALUES(@rid,N'LeaderFirstLevel',N'Approved',4,SYSUTCDATETIME(),
-                N'Independent leader reviewed',NEWID());
+                N'Independent leader reviewed',@leaderKey);
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
                 ActorUserId,OccurredAt,CorrelationId,DecisionKey)
-            VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),NEWID());
+            VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),@leaderKey);
+            INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@rid,N'GeocodeEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID()),
+                  (@rid,N'DuplicateReviewEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID());
             """, P("@id", createId));
         await using (var tx = await h.Begin())
         {
@@ -149,13 +154,17 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 N'ReadyForPublish',N'NotRequired',N'Cleared',
                 HASHBYTES('SHA2_256',CONVERT(varbinary(max),@json)),
                 SYSUTCDATETIME(),SYSUTCDATETIME());
+            DECLARE @leaderKey uniqueidentifier=NEWID();
             INSERT dbo.ChangeRequestLeaderReviews(ChangeRequestId,ReviewStage,
                 Status,ReviewerUserId,ReviewedAt,Reason,DecisionKey)
             VALUES(@rid,N'LeaderFirstLevel',N'Approved',4,SYSUTCDATETIME(),
-                N'Independent low-risk review',NEWID());
+                N'Independent low-risk review',@leaderKey);
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
                 ActorUserId,OccurredAt,CorrelationId,DecisionKey)
-            VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),NEWID());
+            VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),@leaderKey);
+            INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@rid,N'DuplicateReviewEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID());
             """, P("@id", lowId), P("@json", lowJson));
         await using (var tx = await h.Begin())
         {
