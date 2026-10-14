@@ -623,6 +623,61 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(oldTrips,await h.Scalar(
             "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10"));
 
+        // SQL-seeded duplicate rows simulate a race/corrupt legacy preview.
+        // Row 1 commits a canonical Request; Row 2 cannot create a second
+        // pending Request for the same published Location. Retrying must
+        // recover row 1 via immutable audit without duplicating identity.
+        var partialUpdateBatch=Guid.NewGuid();
+        var currentUpdateRv=Convert.ToBase64String(Convert.FromHexString(
+            await h.Scalar("""
+                SELECT CONVERT(varchar(16),RowVersion,2)
+                FROM dbo.Locations WHERE LocationId=10
+                """)));
+        var partialUpdateJson=System.Text.Json.JsonSerializer.Serialize(new {
+            locationCode="EX-10",teamCode="T1",locationName="Original 10",
+            city="Taipei",district="Xinyi",address="Excel partial update",
+            plusCode=(string?)null,status="Active",
+            expectedEntityRowVersion=currentUpdateRv
+        });
+        await h.Exec("""
+            INSERT dbo.ImportBatches(ImportBatchId,ImportType,OrganizationId,
+                RequestedByUserId,Status,TotalCount,ValidCount,ErrorCount,
+                CreatedAt,ExpiresAt)
+            VALUES(@batch,N'locations',1,4,N'Previewed',2,0,2,
+                SYSUTCDATETIME(),DATEADD(hour,4,SYSUTCDATETIME()));
+            INSERT dbo.ImportBatchItems(ImportBatchId,RowNumber,EntityType,Action,
+                Status,DisplayKey,DataJson,ErrorMessage,CreatedAt)
+            VALUES(@batch,2,N'Location',N'Update',N'Error',N'EX-10',@json,
+                N'LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL',SYSUTCDATETIME()),
+                  (@batch,3,N'Location',N'Update',N'Error',N'EX-10',@json,
+                N'LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL',SYSUTCDATETIME());
+            """,P("@batch",partialUpdateBatch),P("@json",partialUpdateJson));
+        var partialUpdateUrl=
+            $"api/v1/optionc-candidate/imports/{partialUpdateBatch}/submit-updates-for-review";
+        using var partialUpdateFail=await importer.PostAsync(partialUpdateUrl,null);
+        Assert.False(partialUpdateFail.IsSuccessStatusCode);
+        Assert.Equal("PartiallySubmittedForReview",await h.Scalar("""
+            SELECT Status FROM dbo.ImportBatches WHERE ImportBatchId=@batch
+            """,P("@batch",partialUpdateBatch)));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND TRY_CONVERT(uniqueidentifier,
+                JSON_VALUE(DetailsJson,N'$.ImportBatchId'))=@batch
+            """,P("@batch",partialUpdateBatch)));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ImportBatchItems
+            WHERE ImportBatchId=@batch AND Status=N'SubmittedForReview'
+            """,P("@batch",partialUpdateBatch)));
+        using var partialUpdateReplay=await importer.PostAsync(partialUpdateUrl,null);
+        Assert.False(partialUpdateReplay.IsSuccessStatusCode);
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND TRY_CONVERT(uniqueidentifier,
+                JSON_VALUE(DetailsJson,N'$.ImportBatchId'))=@batch
+            """,P("@batch",partialUpdateBatch)));
+
         // A mixed Create+Update batch cannot silently use either
         // operation-specific endpoint to bypass the other's controls.
         using var mixedUpdate=await admin.PostAsync(
