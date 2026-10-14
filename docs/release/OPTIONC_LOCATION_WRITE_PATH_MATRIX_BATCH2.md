@@ -306,9 +306,9 @@ no Promotion/Merge, no Business UAT GO. **SCHEME A HOLD / NO-GO.**
 
 ## Scheme A authoritative Excel canonical Create review checkpoint — 2026-10-14
 
-**Verified exact source** \`708cdc5c81ab0d143724fcb42cf1e6b8a3911ccf\`
-on \`work/v180-optionc-final-gates-recovery-r1\`.
-**Exact-SHA CI** \`38586022534 — SUCCESS\`; backend **754 PASS**,
+**Verified exact source** `708cdc5c81ab0d143724fcb42cf1e6b8a3911ccf`
+on `work/v180-optionc-final-gates-recovery-r1`.
+**Exact-SHA CI** `38586022534 — SUCCESS`; backend **754 PASS**,
 additional isolated Admin SQL E2E **1 PASS**, canonical 011/012/014
 disposable SQL rehearsal **2 PASS**, frontend **25 test files PASS**
 and build PASS. Recovery release gate remains explicit **NO-GO**.
@@ -316,7 +316,7 @@ and build PASS. Recovery release gate remains explicit **NO-GO**.
 ### Completed in disposable OptionCIsolated SQL only
 
 - A separate candidate-only HTTP command
-  \`POST /api/v1/optionc-candidate/imports/{importBatchId}/submit-creates-for-review\`
+  `POST /api/v1/optionc-candidate/imports/{importBatchId}/submit-creates-for-review`
   consumes validated legacy Excel/CSV preview Create rows; it does not
   invoke unreviewed legacy Confirm or enable any UAT endpoint.
 - Each row commits server-owned LocationId, **inactive Pending** Location,
@@ -333,25 +333,24 @@ and build PASS. Recovery release gate remains explicit **NO-GO**.
   The first row stays traceable as PartiallySubmittedForReview; failed
   second row creates no Request/Reservation/Stage. Retrying does not
   duplicate the first row.
-- A real \`.csv\` HTTP upload is normalized to \`.xlsx\`, previewed, and
+- A real `.csv` HTTP upload is normalized to `.xlsx`, previewed, and
   submitted into the candidate workflow. Preview never treats a private
   pending reservation as NoChange; Create rows without team/address are
   blocked before submission. Abandoned historical identities do not
   falsely count as active unchanged Locations.
 - Gated frontend AdminImportPanel displays the canonical reviewed-create
   action, counts and Request IDs. Flag
-  \`OPTIONC_EXCEL_CREATE_UI_ENABLED=false\`, along with all other
+  `OPTIONC_EXCEL_CREATE_UI_ENABLED=false`, along with all other
   Option C approval/Create/Leader UI flags. Candidate backend flag remains
   OFF by default.
 
 ### Mandatory migration/authorization boundary
 
 The canonical Excel flow requires the **additive status CHECK constraint
-contract** \`1.8.0-EXCEL-CANONICAL-STATUS\` (not deployed). The current
-\`docs/release/optionc-canonical-sql-draft/excel-import/
-ExcelImportStatusContract.disposable.sql\` is a NONEXECUTABLE
+contract** `1.8.0-EXCEL-CANONICAL-STATUS` (not deployed). The current
+`docs/release/optionc-canonical-sql-draft/excel-import/ExcelImportStatusContract.disposable.sql` is a NONEXECUTABLE
 UAT/Production draft explicitly restricted to disposable
-\`OptionCIsolated_*\` databases. The backend fails closed if the marker
+`OptionCIsolated_*` databases. The backend fails closed if the marker
 and enabled ImportBatches/ImportBatchItems status constraints are missing.
 This prerequisite must be included in a future DBA-reviewed migration
 dependency plan with exact target/schema proof, backups, rollback and
