@@ -67,9 +67,15 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var direct = new SaveManagedLocationRequest(1, "Legacy HTTP bypass denied",
             "Customer", "Taipei", "Xinyi", "Never commit direct creation",
             null, false, null);
+        // The legacy controller needs normal JWT team/org scope; absence of
+        // a JWT claim alone would be an invalid proof of the canonical guard.
+        visitor.DefaultRequestHeaders.Authorization =
+            new("Bearer", Token(1, "E1", "visitor", 1, 1));
         using var blocked = await visitor.PostAsJsonAsync(
             "api/v1/managed-locations", direct);
-        Assert.False(blocked.IsSuccessStatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, blocked.StatusCode);
+        Assert.Contains("LOCATION_LEGACY_CREATE_REQUIRES_CANONICAL_REVIEW",
+            await blocked.Content.ReadAsStringAsync());
         Assert.Equal("0", await h.Scalar("""
             SELECT COUNT(*) FROM dbo.Locations
             WHERE LocationName=N'Legacy HTTP bypass denied'
@@ -97,6 +103,38 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             P("@id", locationId)));
         Assert.Equal("Pending", await h.Scalar(
             "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
+            P("@id", locationId)));
+        // Real legacy HTTP UPDATE/DELETE must not mutate a canonical reserved
+        // identity. Test as valid org-scoped admin to exclude auth-only denials.
+        using var legacyAdmin = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        legacyAdmin.DefaultRequestHeaders.Authorization =
+            new("Bearer", Token(2, "E2", "admin", 1, 1));
+        var sourceVersion = await h.Scalar("""
+            SELECT CONVERT(varchar(32), RowVersion, 2)
+            FROM dbo.Locations WHERE LocationId=@id
+            """, P("@id", locationId));
+        var editLegacy = direct with {
+            LocationName = "Illegal reserved update",
+            RowVersion = Convert.ToBase64String(Convert.FromHexString(sourceVersion))
+        };
+        using var blockedUpdate = await legacyAdmin.PutAsJsonAsync(
+            $"api/v1/managed-locations/{locationId}", editLegacy);
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, blockedUpdate.StatusCode);
+        Assert.Contains("LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW",
+            await blockedUpdate.Content.ReadAsStringAsync());
+        using var blockedImpact = await legacyAdmin.GetAsync(
+            $"api/v1/managed-locations/{locationId}/delete-impact");
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, blockedImpact.StatusCode);
+        using var blockedDelete = await legacyAdmin.DeleteAsync(
+            $"api/v1/managed-locations/{locationId}/permanent");
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, blockedDelete.StatusCode);
+        Assert.Equal(sourceVersion, await h.Scalar("""
+            SELECT CONVERT(varchar(32), RowVersion, 2)
+            FROM dbo.Locations WHERE LocationId=@id
+            """, P("@id", locationId)));
+        Assert.Equal("Pending", await h.Scalar(
+            "SELECT ReservationStatus FROM dbo.LocationCreateReservations WHERE LocationId=@id",
             P("@id", locationId)));
         Assert.Equal("PendingGeocode", await h.StageStatus(created.RequestPublicId));
         // Actual EF query path shared with BackgroundJobService must exclude
