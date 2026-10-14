@@ -214,6 +214,24 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT RowVersion FROM dbo.ChangeRequests WHERE RequestPublicId=@id", h.Db)
             { Parameters = { new SqlParameter("@id", lowId) } }.ExecuteScalarAsync()
             ?? throw new InvalidOperationException("OPTIONC_LOW_ROWVERSION_MISSING"));
+        // The historical LeaderApproved row is not sufficient authority:
+        // revocation immediately before publication must fail closed.
+        await h.Exec("UPDATE dbo.Users SET IsActive=0 WHERE UserId=4");
+        var revokedHttp = await leaderClient.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{lowId}/publish-reviewed",
+            new V180B3Review(Convert.ToBase64String(lowRv), Guid.NewGuid(),
+                "Revoked leader must be denied"));
+        Assert.False(revokedHttp.IsSuccessStatusCode);
+        Assert.Equal("Pending", await h.RequestStatus(lowId));
+        Assert.Equal("1", await h.Scalar(
+            "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        await h.Exec("UPDATE dbo.Users SET IsActive=1 WHERE UserId=4");
+        var adminLowHttp = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{lowId}/publish-reviewed",
+            new V180B3Review(Convert.ToBase64String(lowRv), Guid.NewGuid(),
+                "Admin cannot bypass low-risk leader"));
+        Assert.False(adminLowHttp.IsSuccessStatusCode);
+        Assert.Equal("Pending", await h.RequestStatus(lowId));
         var lowHttp = await leaderClient.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{lowId}/publish-reviewed",
             new V180B3Review(Convert.ToBase64String(lowRv), Guid.NewGuid(),
