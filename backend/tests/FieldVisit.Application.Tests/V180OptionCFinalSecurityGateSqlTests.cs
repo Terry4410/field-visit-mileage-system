@@ -922,6 +922,16 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 UpdatedAt datetime2 NULL
             );
             """);
+        await h.Exec("""
+            IF OBJECT_ID(N'dbo.AuditLogs',N'U') IS NULL
+                CREATE TABLE dbo.AuditLogs(
+                    AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,
+                    EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
+                    OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
+                    IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
+                    CreatedAt datetime2 NOT NULL);
+            """);
         // Keep the conditional DDL in a separate batch. SQL Server binds the
         // following INSERT against the pre-ALTER table shape when both are in
         // one batch, even though the ALTER branch executes first.
