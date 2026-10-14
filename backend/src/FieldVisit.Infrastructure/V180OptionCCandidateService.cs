@@ -137,7 +137,8 @@ public sealed class V180OptionCCandidateService(
         var org = await new V180OptionCLiveAuthorizationAdapter(db)
             .RequireIndependentAdminAsync(actorId, BusinessTime.Today, ct);
         var rows = await db.ChangeRequests.AsNoTracking().Where(x => x.OrganizationId == org
-            && x.EntityKind == "Location" && x.OperationCode == "UpdatePublishedLocation"
+            && x.EntityKind == "Location"
+            && (x.OperationCode == "UpdatePublishedLocation" || x.OperationCode == "CreateLocation")
             && x.RiskCode == "High" && x.Status == "Pending")
             .OrderBy(x => x.SubmittedAt).Take(100).ToListAsync(ct);
         var visible = new List<V180B3ChangeRequest>();
