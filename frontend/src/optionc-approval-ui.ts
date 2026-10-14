@@ -1,4 +1,4 @@
-export type OptionCRequest={requestPublicId:string;entityId:string;teamId:number|null;riskCode:string;status:string;requestedByUserId:number;submittedAt:string;beforeJson:string|null;proposedJson:string;rowVersion:string};
+export type OptionCRequest={operationCode?:string;requestPublicId:string;entityId:string;teamId:number|null;riskCode:string;status:string;requestedByUserId:number;submittedAt:string;beforeJson:string|null;proposedJson:string;rowVersion:string};
 export const fields=["LocationName","City","District","Address","PlusCode","TaxId","MasterNote"] as const;
 type Field=typeof fields[number];
 export function safeFields(json:string|null):Record<Field,string>{
@@ -37,4 +37,11 @@ export function statusLabel(status:string):string{
 }
 export function isTerminalStatus(status:string):boolean{
  return status==="Rejected"||status==="Applied";
+}
+
+export function adminDecisionPath(row:OptionCRequest,action:"approve"|"reject"):string{
+ if(row.status!=="Pending")throw new Error("非待審案件不可提交決策。");
+ if(row.operationCode!=="CreateLocation"&&row.operationCode!=="UpdatePublishedLocation")
+  throw new Error("未知地點作業類型，不可核准。");
+ return action==="reject"?"reject":row.operationCode==="CreateLocation"?"publish-reviewed":"approve";
 }

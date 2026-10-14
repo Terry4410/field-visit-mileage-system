@@ -1,6 +1,6 @@
 import{describe,it,expect}from"vitest";
 import{OPTIONC_APPROVAL_UI_ENABLED}from"./optionc-approval-flags";
-import{differences,isTerminalStatus,mayLeaderReview,mayReview,reviewPayload,safeFields,statusLabel,type OptionCRequest}from"./optionc-approval-ui";
+import{adminDecisionPath,differences,isTerminalStatus,mayLeaderReview,mayReview,reviewPayload,safeFields,statusLabel,type OptionCRequest}from"./optionc-approval-ui";
 const row:OptionCRequest={requestPublicId:"id",entityId:"2",teamId:3,riskCode:"High",status:"Pending",requestedByUserId:7,submittedAt:"",beforeJson:'{"LocationName":"A"}',proposedJson:'{"LocationName":"B"}',rowVersion:"AAAAAAAAAAA="};
 describe("Option C review UI fail-closed candidate",()=>{
  it("is OFF",()=>expect(OPTIONC_APPROVAL_UI_ENABLED).toBe(false));
@@ -20,6 +20,13 @@ describe("Option C review UI fail-closed candidate",()=>{
   expect(statusLabel("Applied")).toBe("已套用");
   expect(isTerminalStatus("Pending")).toBe(false);
   expect(isTerminalStatus("Applied")).toBe(true);
+ });
+ it("routes Create only to reviewed publication, never generic approve",()=>{
+  expect(adminDecisionPath({...row,operationCode:"CreateLocation"},"approve")).toBe("publish-reviewed");
+  expect(adminDecisionPath({...row,operationCode:"UpdatePublishedLocation"},"approve")).toBe("approve");
+  expect(adminDecisionPath({...row,operationCode:"CreateLocation"},"reject")).toBe("reject");
+  expect(()=>adminDecisionPath(row,"approve")).toThrow();
+  expect(()=>adminDecisionPath({...row,operationCode:"CreateLocation",status:"Applied"},"approve")).toThrow();
  });
  it("requires reason and one-time decision key",()=>{expect(reviewPayload(row," OK ","uuid").reason).toBe("OK");expect(()=>reviewPayload(row,"","uuid")).toThrow();expect(()=>reviewPayload(row,"OK","")).toThrow();});
 });

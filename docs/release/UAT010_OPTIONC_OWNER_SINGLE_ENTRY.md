@@ -491,3 +491,17 @@ replace server live HR/Leader assignment and independent reviewer checks.
 `OPTIONC_LEADER_REVIEW_UI_ENABLED` and the new
 `OPTIONC_CREATE_LOCATION_UI_ENABLED` all remain **false**.
 This is not a UAT/Production enablement or Business UAT approval.
+
+
+## Admin candidate Stage / final publication routing — 2026-10-14
+
+The isolated Admin review UI now distinguishes server-returned
+`OperationCode=CreateLocation` from `UpdatePublishedLocation`.
+CreateLocation uses `publish-reviewed`, never the generic `approve`
+route. A new independent Admin-only Stage GET supplies a current
+version-bound evidence contract. UI requires Stage `ReadyForPublish`
+before enabling Create publication; live HR, Leader-first evidence and
+Admin authorization remain server-enforced. Geocode and duplicate evidence
+are explicit separate decisions with unique evidence keys and replay-safe
+error messaging. This does NOT authorize or turn on any frontend flags.
+All Scheme A UI features are OFF by default; Business UAT remains HOLD.
