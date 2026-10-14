@@ -59,7 +59,10 @@ jobs:
           git diff --exit-code "$BASE_SHA" HEAD -- .github/workflows/uat010-optionc-baseline-nondeploy.yml
           test "$(jq -r '.PackageB.B3.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
           test "$(jq -r '.OptionC.Approval.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
+          test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
           test ! -f backend/src/FieldVisit.Api/Controllers/V180B3ChangeRequestsController.cs
+          grep -Fq '[Authorize]' backend/src/FieldVisit.Api/Controllers/V180OptionCCandidateController.cs
+          grep -Fq 'OPTIONC_CANDIDATE_DISABLED' backend/src/FieldVisit.Infrastructure/V180OptionCCandidateService.cs
           grep -Fq 'RequireApprovalForPublishedHighRiskChange' backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs
           grep -Fq 'LOCATION_HIGH_RISK_CHANGE_REQUIRES_OPTIONC_APPROVAL' backend/src/FieldVisit.Infrastructure/V180OptionCLocationMaintenanceRisk.cs
           grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED: boolean = false' frontend/src/optionc-approval-flags.ts

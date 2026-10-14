@@ -14,6 +14,59 @@ namespace FieldVisit.Infrastructure;
 /// </summary>
 public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
 {
+    public async Task<int> RequireIndependentAdminAsync(
+        int actorUserId, DateOnly today, CancellationToken ct)
+    {
+        RequireSerializableTransaction();
+        var actor = await ReadInternalActorAsync(actorUserId, 0, today, ct,
+            allowOrganizationLookup: true);
+        var roles = await EffectiveRolesAsync(actorUserId, today, ct);
+        if (!roles.Contains("admin"))
+            throw new UnauthorizedAccessException("OPTIONC_REVIEWER_ADMIN_REVOKED");
+        return actor.OrganizationId;
+    }
+
+    public async Task<V180OptionCLiveSubmissionEvidence> AuthorizeSubmissionAsync(
+        int actorUserId, int locationId, DateOnly today, CancellationToken ct)
+    {
+        RequireSerializableTransaction();
+        var actor = await ReadInternalActorAsync(actorUserId, 0, today, ct,
+            allowOrganizationLookup: true);
+        var location = await db.Locations.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.LocationId == locationId, ct)
+            ?? throw new KeyNotFoundException("OPTIONC_LOCATION_NOT_FOUND");
+        if (location.OrganizationId is not int organizationId || organizationId <= 0
+            || location.CreatedByUserId != actorUserId
+            || location.TeamId is not int teamId || teamId <= 0
+            || !string.Equals(location.LocationType, "Customer", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(location.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase)
+            || !location.IsActive || actor.OrganizationId != organizationId)
+            throw new UnauthorizedAccessException("OPTIONC_SUBMISSION_SCOPE_DENIED");
+        var team = await db.Teams.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.TeamId == teamId && x.OrganizationId == organizationId && x.IsActive
+            && (!x.EffectiveFrom.HasValue || x.EffectiveFrom <= today)
+            && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
+        if (team is null) throw new UnauthorizedAccessException("OPTIONC_TEAM_NOT_CURRENT");
+        var roles = await EffectiveRolesAsync(actorUserId, today, ct);
+        var scoped = await HasCurrentTeamScopeAsync(actorUserId, teamId, today, ct);
+        var visitor = roles.Contains("visitor") && await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+            x.EmploymentId == actor.EmploymentId && x.TeamId == teamId
+            && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
+        var leader = roles.Contains("leader") && (await db.TeamLeaderAssignments.AsNoTracking().AnyAsync(x =>
+            x.EmploymentId == actor.EmploymentId && x.TeamId == teamId
+            && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct)
+            || await (from d in db.TeamLeaderDelegations.AsNoTracking()
+                      join a in db.TeamLeaderAssignments.AsNoTracking()
+                        on d.TeamLeaderAssignmentId equals a.TeamLeaderAssignmentId
+                      where d.DelegateEmploymentId == actor.EmploymentId && a.TeamId == teamId
+                        && a.EffectiveFrom <= today && (!a.EffectiveTo.HasValue || a.EffectiveTo >= today)
+                        && d.EffectiveFrom <= today && d.EffectiveTo >= today
+                      select d.TeamLeaderDelegationId).AnyAsync(ct));
+        if (!scoped || (!visitor && !leader))
+            throw new UnauthorizedAccessException("OPTIONC_SUBMISSION_ACTOR_NOT_ELIGIBLE");
+        return new(actorUserId, organizationId, teamId, visitor, leader);
+    }
+
     public async Task<V180OptionCLiveDecisionEvidence> AuthorizeDecisionAsync(
         int requesterUserId, int reviewerUserId, int organizationId, int teamId,
         DateOnly today, CancellationToken ct)
@@ -71,17 +124,22 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
     }
 
     private async Task<LiveActor> ReadInternalActorAsync(
-        int userId, int organizationId, DateOnly today, CancellationToken ct)
+        int userId, int organizationId, DateOnly today, CancellationToken ct,
+        bool allowOrganizationLookup = false)
     {
         var account = await db.Users.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.UserId == userId && x.OrganizationId == organizationId && x.IsActive, ct);
+            x.UserId == userId && x.IsActive
+            && (allowOrganizationLookup || x.OrganizationId == organizationId), ct);
         var profile = await db.UserIdentityProfiles.AsNoTracking().SingleOrDefaultAsync(
             x => x.UserId == userId, ct);
         // Unlike legacy login compatibility, approval requires complete HR
         // linkage. Missing profile/employment evidence is never grandfathered.
         if (account is null || profile is null || profile.UserType != UserTypes.Internal
-            || profile.EmploymentId is null)
+            || profile.EmploymentId is null || account.OrganizationId is null)
             throw new UnauthorizedAccessException("OPTIONC_HR_EVIDENCE_MISSING");
+        if (!allowOrganizationLookup && account.OrganizationId != organizationId)
+            throw new UnauthorizedAccessException("OPTIONC_HR_EVIDENCE_MISSING");
+        organizationId = account.OrganizationId.Value;
 
         var access = await new V170AccessControl(db).EvaluateLoginAsync(
             userId, account.IsActive, ct);
@@ -97,6 +155,14 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
             throw new UnauthorizedAccessException("OPTIONC_EMPLOYMENT_EVIDENCE_INCONSISTENT");
         return new(userId, organizationId, profile.EmploymentId.Value);
     }
+
+    private async Task<bool> HasCurrentTeamScopeAsync(int userId, int teamId,
+        DateOnly today, CancellationToken ct) =>
+        await db.UserTeamScopes.AsNoTracking().AnyAsync(x =>
+            x.UserId == userId && x.TeamId == teamId && x.IsActive, ct)
+        && await db.UserTeamAssignments.AsNoTracking().AnyAsync(x =>
+            x.UserId == userId && x.TeamId == teamId
+            && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
 
     private async Task<bool> IsRequesterEligibleAsync(
         LiveActor requester, int organizationId, int teamId, DateOnly today,
@@ -162,3 +228,7 @@ public sealed record V180OptionCLiveDecisionEvidence(
     int RequesterUserId, int ReviewerUserId, int OrganizationId, int TeamId,
     bool RequesterEligible, bool IndependentAdminEligible,
     bool OrganizationMatches, bool TeamMatches);
+
+public sealed record V180OptionCLiveSubmissionEvidence(
+    int ActorUserId, int OrganizationId, int TeamId, bool VisitorEligible,
+    bool LeaderEligible);

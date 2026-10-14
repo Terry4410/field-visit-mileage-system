@@ -100,3 +100,5 @@ app.MapGet("/health",()=>Results.Ok(new{status="ok",version,schema,utc=DateTime.
 app.MapGet("/health/live",()=>Results.Ok(new{status="ok",version,utc=DateTime.UtcNow}));
 app.MapGet("/health/ready",async(AppDbContext db)=>await db.Database.CanConnectAsync()?Results.Ok(new{status="ready",version,schema,utc=DateTime.UtcNow}):Results.Json(new{status="unavailable",version,utc=DateTime.UtcNow},statusCode:503));
 app.Run();
+
+public partial class Program { }
