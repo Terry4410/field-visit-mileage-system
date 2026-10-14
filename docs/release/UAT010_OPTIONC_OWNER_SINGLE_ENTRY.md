@@ -15,6 +15,14 @@
 
 詳細契約：`docs/release/SCHEME_A_CREATE_LOWRISK_CONTRACT.md`。
 
+## 2026-10-14 — Scheme A 第四批：LowRisk Visitor → Leader 非部署流程
+
+- Recovery 分支增量：Server-owned published-location risk classification；LowRisk pending request + Stage (`NotRequired` geocode, pending duplicate evidence)；Leader live HR/appointment first review；同一獨立 Leader 的 duplicate evidence；候選 HTTP `publish-reviewed` 原子發布。
+- Leader Reject 於同一 Serializable transaction 將 Stage 改為 Abandoned；若為 CreateLocation 同步將 reservation 改為 Abandoned，避免被拒絕申請留下可發布 Stage。
+- 隔離 SQL Server 2022 HTTP/DI 測試：Visitor 真正送審 → Leader 初審 → evidence → LowRisk 發布；拒絕 premature evidence／Admin 替代／Leader 撤權；歷史 Trip/Snapshot 不變。
+- **本批 exact-SHA CI 需獨立確認，先前 PASS 不可套用。**
+- **尚未完成**：CreateLocation 真正 HTTP reservation/submit/evidence、Pending Location 全查詢排除、Leader/Visitor 正式 UI 串接、Excel/legacy/background bypass 清理。UAT migration、deployment、flag activation、Business UAT、promotion 全部未授權／未執行；**HOLD / NO-GO**。
+
 ## 1. 單一程式來源
 
 - Repository: `Terry4410/field-visit-mileage-system`
