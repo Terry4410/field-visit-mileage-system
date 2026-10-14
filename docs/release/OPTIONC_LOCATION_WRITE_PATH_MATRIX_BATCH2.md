@@ -87,3 +87,22 @@ Verified prior Background fence exact SHA
 CI `38536671419 — SUCCESS` (753 backend + 1 Admin E2E +
 2 SQL rehearsal; frontend 24 files). This new legacy-guard change must
 obtain its own Exact-SHA CI before a PASS claim. UAT/Production HOLD.
+
+## Excel reserved-Pending update path — 2026-10-14
+
+Source review identified a pending CreateLocation RowVersion bypass in the
+legacy `WorkbookImportService`: Excel Update could target an inactive
+Pending LocationCode already bound to `LocationCreateReservations`.
+The Recovery-only patch invokes the same additive-schema-aware reservation
+guard during **Preview**, during whole-batch **Confirm preflight** and
+immediately before applying each Location Update. Preview displays
+`LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW` for affected
+rows; Confirm fails before batch writes or before a raced row mutation.
+The existing fail-closed Excel Create policy and published Update denial
+remain unchanged; unreserved legacy drafts remain eligible. The guard
+does not replace full canonical Excel review routing; concurrency and real
+Excel HTTP E2E are still HOLD until demonstrated.
+Prior verified CI: `38537883997 — SUCCESS` (SHA
+`9c32eca3c876755d3f8f660ec8f81f1ad6bdf359`).
+This new Excel code is not PASS until its own Exact-SHA CI completes.
+No UAT/Production changes or migrations.

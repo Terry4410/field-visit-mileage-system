@@ -154,6 +154,10 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     .FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
                 if (existing is null || existing.ApprovalStatus == "Approved" || existing.IsActive)
                     throw new InvalidOperationException("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
+                // Even an inactive Pending Location may be a canonical
+                // CreateLocation reservation. Refuse before the batch writes.
+                await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                    db, existing.LocationId, ct);
             }
         }
         // Scheme A: the legacy Excel import does not create a canonical
@@ -193,6 +197,10 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     else
                     {
                         var row = await db.Locations.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
+                        // Repeat at mutation time: do not trust a preview or
+                        // preflight that predates a concurrent reservation.
+                        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                            db, row.LocationId, ct);
                         EnsureLeaderTeam(user, row.TeamId);
                         if (row.ApprovalStatus == "Approved" || row.IsActive)
                             throw new InvalidOperationException("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
@@ -377,6 +385,19 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                                 && HasRole(user, "leader") && !HasRole(user, "admin")
                                 && existing.CreatedByUserId != user.UserId)
                                 error = "LOCATION_EXCEL_PENDING_OWNER_REQUIRED";
+                            if (error is null && action == "Update")
+                            {
+                                try
+                                {
+                                    await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                                        db, existing.LocationId, ct);
+                                }
+                                catch (InvalidOperationException ex) when
+                                    (ex.Message == "LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW")
+                                {
+                                    error = ex.Message;
+                                }
+                            }
                         }
                     }
                 }
