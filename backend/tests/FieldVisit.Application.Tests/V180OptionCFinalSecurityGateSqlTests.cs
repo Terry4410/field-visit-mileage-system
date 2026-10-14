@@ -115,6 +115,122 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     }
 
     [Fact]
+    public async Task Leader_first_level_review_real_http_stage_evidence_and_admin_publication_preserve_history()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+
+        // Add a distinct, live-appointed Leader reviewer. This is fixture setup,
+        // not authorization evidence; all decisions still use the live adapter.
+        await h.Exec("""
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+                VALUES(4,1,1,N'E4',N'Leader reviewer',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt,UpdatedAt)
+                VALUES(4,104,N'Internal',N'E4',N'Demo',SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,LegacyUserId,HireDate,SourceType,CreatedAt)
+                VALUES(104,104,1,N'E4',4,'2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+                VALUES(104,N'Active','2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(4,2,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+                VALUES(4,2,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+                VALUES(4,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+                VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+                VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
+            """);
+
+        var root = FindRoot();
+        await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+            "optionc-canonical-sql-draft", "leader-review",
+            "LeaderReviewDetails.disposable.sql")));
+
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
+            builder.UseSetting("Auth:Mode", "Demo");
+            builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+        });
+        using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
+        var rowVersion = (byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("ROWVERSION_TEST_FIXTURE_MISSING"));
+        var submit = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/10/changes",
+            new V180B3SubmitLocation(10, Convert.ToBase64String(rowVersion),
+                "Leader first-level review",
+                new V180B3LocationFields("Original 10", "Taipei", "Xinyi",
+                    "Leader-reviewed address", null, null, "Leader note")));
+        Assert.Equal(System.Net.HttpStatusCode.OK, submit.StatusCode);
+        var submitted = await submit.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_LEADER_SUBMIT_RESPONSE_MISSING");
+
+        using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
+        var leaderReview = await leader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(submitted.RowVersion, Guid.NewGuid(),
+                "Team-scope Leader first-level approval", true));
+        Assert.Equal(System.Net.HttpStatusCode.OK, leaderReview.StatusCode);
+        var leaderView = await leaderReview.Content.ReadFromJsonAsync<V180OptionCLeaderReviewView>()
+            ?? throw new InvalidOperationException("OPTIONC_LEADER_REVIEW_RESPONSE_MISSING");
+        Assert.Equal("Approved", leaderView.LeaderStatus);
+        Assert.Equal("Pending", leaderView.RequestStatus);
+
+        using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        var stageVersion = (byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.LocationPublicationStages WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id)",
+            h.Db) { Parameters = { new SqlParameter("@id", submitted.RequestPublicId) } }.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_STAGE_FIXTURE_MISSING"));
+        var geocode = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(Convert.ToBase64String(stageVersion), true,
+                25.03m, 121.56m, "Application-owned disposable geocode")
+            { EvidenceKey = Guid.NewGuid() });
+        Assert.Equal(System.Net.HttpStatusCode.OK, geocode.StatusCode);
+        var geocodeView = await geocode.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_GEOCODE_RESPONSE_MISSING");
+        Assert.Equal("PendingDuplicateReview", geocodeView.StageStatus);
+
+        var duplicate = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(geocodeView.StageRowVersion, true,
+                "No duplicate in application-owned review", Guid.NewGuid()));
+        Assert.Equal(System.Net.HttpStatusCode.OK, duplicate.StatusCode);
+        var duplicateView = await duplicate.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_DUPLICATE_RESPONSE_MISSING");
+        Assert.Equal("ReadyForPublish", duplicateView.StageStatus);
+
+        var approve = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/approve",
+            new V180B3Review(submitted.RowVersion, Guid.NewGuid(),
+                "Independent Admin final approval"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
+        var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_LEADER_APPROVE_RESPONSE_MISSING");
+        Assert.Equal("Applied", applied.Status);
+        Assert.Equal("Leader-reviewed address", await h.Scalar(
+            "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("2", await h.Scalar(
+            "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        Assert.Equal("1", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id) AND EventType=N'LeaderApproved'",
+            P("@id", submitted.RequestPublicId)));
+        Assert.Equal("1", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id) AND EventType=N'GeocodeEvidenceRecorded'",
+            P("@id", submitted.RequestPublicId)));
+        Assert.Equal("1", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id) AND EventType=N'DuplicateReviewEvidenceRecorded'",
+            P("@id", submitted.RequestPublicId)));
+    }
+
+    [Fact]
     public async Task MergeFields_real_http_submission_approval_reject_and_history_are_atomic()
     {
         await using var h = await Harness.TryCreateAsync();
