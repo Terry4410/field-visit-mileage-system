@@ -137,6 +137,19 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Pending", await h.Scalar(
             "SELECT ReservationStatus FROM dbo.LocationCreateReservations WHERE LocationId=@id",
             P("@id", locationId)));
+        // This disposable 011/012/014 fixture intentionally omits the
+        // wider v1.6 Trip schema. Old Master pending uses a correlated
+        // cancelled-trip filter; add only the minimal read-side columns in
+        // this test database so HTTP privacy is exercised rather than a
+        // missing-VisitTrips 500.
+        await h.Exec("""
+            IF OBJECT_ID(N'dbo.VisitTrips',N'U') IS NULL
+                CREATE TABLE dbo.VisitTrips (
+                    VisitTripId bigint NOT NULL PRIMARY KEY,
+                    Status nvarchar(30) NOT NULL);
+            IF COL_LENGTH(N'dbo.VisitTripStops',N'VisitTripId') IS NULL
+                ALTER TABLE dbo.VisitTripStops ADD VisitTripId bigint NULL;
+            """);
         using var legacyPending = await legacyAdmin.GetAsync("api/v1/locations/pending");
         Assert.True(legacyPending.IsSuccessStatusCode,
             await legacyPending.Content.ReadAsStringAsync());
