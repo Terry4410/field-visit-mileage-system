@@ -347,6 +347,24 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("0", await h.Scalar("""
             SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id
             """, P("@id", int.Parse(rejectRequest.EntityId))));
+        // Terminal rejection/Abandoned reservation releases the identity
+        // for a fresh, independently reviewable CreateLocation; the former
+        // LocationId and audit trail remain historical and never get reused.
+        using var resubmitRejected = await visitor.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations", rejectedPayload);
+        Assert.True(resubmitRejected.IsSuccessStatusCode,
+            await resubmitRejected.Content.ReadAsStringAsync());
+        var resubmitted = await resubmitRejected.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_RESUBMIT_MISSING");
+        Assert.NotEqual(rejectRequest.RequestPublicId, resubmitted.RequestPublicId);
+        Assert.NotEqual(rejectRequest.EntityId, resubmitted.EntityId);
+        Assert.Equal("Pending", resubmitted.Status);
+        Assert.Equal("PendingGeocode", await h.StageStatus(resubmitted.RequestPublicId));
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.LocationCreateReservations cr
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=cr.ChangeRequestId
+            WHERE r.RequestPublicId=@id AND cr.ReservationStatus=N'Pending'
+            """, P("@id", resubmitted.RequestPublicId)));
     }
 
     [Fact]
