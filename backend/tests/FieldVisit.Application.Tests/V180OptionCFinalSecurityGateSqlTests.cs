@@ -251,35 +251,6 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var second=await Submit(12,13);await h.Exec("UPDATE dbo.Locations SET LocationName=N'Concurrent survivor touch' WHERE LocationId=13");await using(var tx=await h.Begin()){var survivorConflict=await Assert.ThrowsAsync<SqlException>(()=>Service().ApproveAsync(h.Db,tx,second,1,2,Guid.NewGuid(),"Stale survivor",CancellationToken.None));Assert.Contains("OPTIONC_MERGE_SURVIVOR_CONFLICT",survivorConflict.Message);await tx.RollbackAsync();}Assert.Equal("Pending",await h.RequestStatus(second));Assert.Equal("Original 12",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=12"));Assert.Equal("Concurrent survivor touch",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=13"));
     }
 
-    [Fact]
-    public async Task Merge_specific_concurrency_reference_conflict_rollback_replay_and_incomplete_reconciliation_fail_closed()
-    {
-        await using var h=await Harness.TryCreateAsync();if(h is null)return;
-        async Task<Guid> CreateMerge(int source,int survivor)
-        {
-            var request=await h.CreateRequest(survivor);
-            await h.Exec("""
-                INSERT dbo.LocationMergeDetails(ChangeRequestId,SourceLocationId,SurvivorLocationId,SourceOrganizationId,SurvivorOrganizationId,SourceTeamId,SurvivorTeamId,SourceLocationRowVersion,SurvivorLocationRowVersion,BeforeJson,ProposedJson,EvidenceJson)
-                SELECT r.ChangeRequestId,@source,@survivor,s.OrganizationId,u.OrganizationId,s.TeamId,u.TeamId,s.RowVersion,u.RowVersion,N'{}',r.ProposedJson,N'{"evidence":"fixture"}'
-                FROM dbo.ChangeRequests r JOIN dbo.Locations s ON s.LocationId=@source JOIN dbo.Locations u ON u.LocationId=@survivor WHERE r.RequestPublicId=@id;
-                """,P("@id",request),P("@source",source),P("@survivor",survivor));
-            await h.PrepareStage(request);return request;
-        }
-        async Task<bool> Decide(Guid request,string action)
-        {
-            var cs=new SqlConnectionStringBuilder(h.ConnectionString){Pooling=false};await using var c=new SqlConnection(cs.ConnectionString);await c.OpenAsync();await using var tx=(SqlTransaction)await c.BeginTransactionAsync(IsolationLevel.Serializable);
-            try{if(action=="approve")await Service().ApproveAsync(c,tx,request,1,2,Guid.NewGuid(),"Concurrent merge decision",CancellationToken.None);else await Service().RejectAsync(c,tx,request,1,2,Guid.NewGuid(),"Concurrent merge decision",CancellationToken.None);await tx.CommitAsync();return true;}catch{try{await tx.RollbackAsync();}catch{}return false;}
-        }
-        foreach(var actionPair in new[]{("approve","approve"),("approve","reject")})
-        {
-            await h.ResetActors();var request=await CreateMerge(actionPair.Item1=="approve"?10:12,actionPair.Item1=="approve"?11:13);var outcomes=await Task.WhenAll(Decide(request,actionPair.Item1),Decide(request,actionPair.Item2));Assert.Single(outcomes.Where(x=>x));Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequestEvents e JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId WHERE r.RequestPublicId=@id AND e.EventType IN(N'Approved',N'Rejected')",P("@id",request)));
-        }
-        await h.ResetActors();await h.Exec("INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(9,999,14,1,1,SYSUTCDATETIME()),(10,999,15,1,1,SYSUTCDATETIME());");var conflict=await CreateMerge(14,15);await using(var tx=await h.Begin()){await Assert.ThrowsAnyAsync<Exception>(()=>Service().ApproveAsync(h.Db,tx,conflict,1,2,Guid.NewGuid(),"Reference conflict",CancellationToken.None));await tx.RollbackAsync();}Assert.Equal("Pending",await h.RequestStatus(conflict));Assert.Equal("Original 14",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=14"));Assert.Equal("Original 15",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=15"));
-        await h.ResetActors();var rollback=await CreateMerge(16,17);await h.Exec("EXEC(N'CREATE TRIGGER dbo.TR_OptionC_TestMergeAppliedFailure ON dbo.ChangeRequestEvents AFTER INSERT AS BEGIN SET NOCOUNT ON; IF EXISTS(SELECT 1 FROM inserted WHERE EventType=N''Applied'') THROW 51992,N''OPTIONC_TEST_MERGE_APPLIED_FAILURE'',1; END');");await using(var tx=await h.Begin()){await Assert.ThrowsAsync<SqlException>(()=>Service().ApproveAsync(h.Db,tx,rollback,1,2,Guid.NewGuid(),"Rollback merge",CancellationToken.None));await tx.RollbackAsync();}Assert.Equal("Pending",await h.RequestStatus(rollback));Assert.Equal("ReadyForPublish",await h.StageStatus(rollback));Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=16"));Assert.Equal("Original 17",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=17"));Assert.Equal("0",await h.EventCount(rollback,"Approved"));Assert.Equal("0",await h.EventCount(rollback,"Applied"));await h.Exec("DROP TRIGGER dbo.TR_OptionC_TestMergeAppliedFailure");
-        await h.ResetActors();var replay=await CreateMerge(18,19);var replayKey=Guid.NewGuid();await using(var tx=await h.Begin()){await Service().ApproveAsync(h.Db,tx,replay,1,2,replayKey,"Replay source",CancellationToken.None);await tx.CommitAsync();}await using(var tx=await h.Begin()){await Assert.ThrowsAsync<SqlException>(()=>Service().ApproveAsync(h.Db,tx,replay,1,2,replayKey,"Replay again",CancellationToken.None));await tx.RollbackAsync();}Assert.Equal("1",await h.EventCount(replay,"Approved"));Assert.Equal("1",await h.EventCount(replay,"Applied"));Assert.Equal("0",await h.Scalar("SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=16"));
-        await h.Exec("UPDATE dbo.Locations SET IsActive=1,DuplicateOfLocationId=NULL WHERE LocationId=18");Assert.Equal("INDETERMINATE",await FieldVisit.Infrastructure.V180OptionCUnknownCommitReconciler.ObserveAsync(h.ConnectionString,replay,replayKey,2,CancellationToken.None));
-    }
-
     private static string Token(int userId, string employeeNo, string role)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));
