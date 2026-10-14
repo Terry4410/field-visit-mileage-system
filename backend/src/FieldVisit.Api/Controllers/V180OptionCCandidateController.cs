@@ -7,7 +7,7 @@ namespace FieldVisit.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/optionc-candidate")]
-public sealed class V180OptionCCandidateController(V180OptionCCandidateService service, V180OptionCMergeService mergeService) : ControllerBase
+public sealed class V180OptionCCandidateController(V180OptionCCandidateService service, V180OptionCMergeService mergeService, V180OptionCStageEvidenceService evidenceService) : ControllerBase
 {
     [HttpPost("locations/{locationId:int}/changes")]
     public Task<V180B3RequestView> Submit(int locationId, V180B3SubmitLocation input, CancellationToken ct)
@@ -19,6 +19,14 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
     [HttpPost("locations/merge-fields")]
     public Task<V180B3RequestView> SubmitMerge(V180OptionCMergeSubmit input, CancellationToken ct)
         => mergeService.SubmitAsync(input, ct);
+
+    [HttpPost("requests/{id:guid}/geocode-evidence")]
+    public Task<V180OptionCStageEvidenceView> GeocodeEvidence(Guid id, V180OptionCGeocodeEvidence input, CancellationToken ct)
+        => evidenceService.RecordGeocodeAsync(id, input, ct);
+
+    [HttpPost("requests/{id:guid}/duplicate-evidence")]
+    public Task<V180OptionCStageEvidenceView> DuplicateEvidence(Guid id, V180OptionCDuplicateEvidence input, CancellationToken ct)
+        => evidenceService.RecordDuplicateReviewAsync(id, input, ct);
 
     [HttpGet("requests/mine")]
     public Task<IReadOnlyList<V180B3RequestView>> Mine(CancellationToken ct) => service.OwnAsync(ct);

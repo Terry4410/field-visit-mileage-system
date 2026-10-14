@@ -251,6 +251,33 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var second=await Submit(12,13);await h.Exec("UPDATE dbo.Locations SET LocationName=N'Concurrent survivor touch' WHERE LocationId=13");await using(var tx=await h.Begin()){var survivorConflict=await Assert.ThrowsAsync<SqlException>(()=>Service().ApproveAsync(h.Db,tx,second,1,2,Guid.NewGuid(),"Stale survivor",CancellationToken.None));Assert.Contains("OPTIONC_MERGE_SURVIVOR_CONFLICT",survivorConflict.Message);await tx.RollbackAsync();}Assert.Equal("Pending",await h.RequestStatus(second));Assert.Equal("Original 12",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=12"));Assert.Equal("Concurrent survivor touch",await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=13"));
     }
 
+
+    [Fact]
+    public async Task Candidate_http_stage_evidence_is_live_authorized_version_bound_and_fail_closed_on_revocation()
+    {
+        await using var h=await Harness.TryCreateAsync();if(h is null)return;
+        await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>{
+            builder.UseSetting("OptionC:Candidate:Enabled","true");builder.UseSetting("ConnectionStrings:DefaultConnection",h.ConnectionString);
+            builder.UseSetting("Auth:Mode","Demo");builder.UseSetting("Auth:JwtKey","test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled","false");builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");
+        });
+        using var visitor=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
+        visitor.DefaultRequestHeaders.Authorization=new("Bearer",Token(1,"E1","visitor"));
+        var rv=Convert.ToBase64String((byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=10",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException()));
+        var submit=await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/10/changes",new V180B3SubmitLocation(10,rv,"Evidence flow",new V180B3LocationFields("Original 10","Taipei","Xinyi","Evidence address",null,null,"Evidence note")));
+        Assert.Equal(System.Net.HttpStatusCode.OK,submit.StatusCode);var request=await submit.Content.ReadFromJsonAsync<V180B3RequestView>()??throw new InvalidOperationException();
+        using var admin=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});admin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin"));
+        var stageRv=Convert.ToBase64String((byte[])(await new SqlCommand("SELECT s.RowVersion FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id",h.Db){Parameters={new SqlParameter("@id",request.RequestPublicId)}}).ExecuteScalarAsync()??throw new InvalidOperationException()));
+        var geo=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/geocode-evidence",new V180OptionCGeocodeEvidence(stageRv,true,25.03m,121.56m,"Provider evidence"));
+        Assert.Equal(System.Net.HttpStatusCode.OK,geo.StatusCode);var geov=await geo.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()??throw new InvalidOperationException();Assert.Equal("PendingDuplicateReview",geov.StageStatus);
+        var dup=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/duplicate-evidence",new V180OptionCDuplicateEvidence(geov.StageRowVersion,true,"Independent duplicate review",Guid.NewGuid()));
+        Assert.Equal(System.Net.HttpStatusCode.OK,dup.StatusCode);var dupv=await dup.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()??throw new InvalidOperationException();Assert.Equal("ReadyForPublish",dupv.StageStatus);Assert.Equal("Cleared",dupv.DuplicateReviewStatus);
+        Assert.Equal("Original address 10",await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        var stale=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/duplicate-evidence",new V180OptionCDuplicateEvidence(geov.StageRowVersion,true,"Replay",Guid.NewGuid()));Assert.NotEqual(System.Net.HttpStatusCode.OK,stale.StatusCode);
+        await h.Exec("UPDATE dbo.OptionCLiveApprovalActors SET IsIndependentAdminEligible=0 WHERE UserId=2");
+        var revoked=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/geocode-evidence",new V180OptionCGeocodeEvidence(dupv.StageRowVersion,true,25.03m,121.56m,"Revoked"));Assert.NotEqual(System.Net.HttpStatusCode.OK,revoked.StatusCode);
+    }
+
     private static string Token(int userId, string employeeNo, string role)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));
