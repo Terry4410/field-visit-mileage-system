@@ -30,6 +30,26 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
                 "optionc-canonical-sql-draft",
                 relative.Replace('/', Path.DirectorySeparatorChar))));
+        // Independent live-appointed Leader for the complete CREATE HTTP flow.
+        await h.Exec("""
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+                VALUES(4,1,1,N'E4',N'Independent Leader',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt,UpdatedAt)
+                VALUES(4,104,N'Internal',N'E4',N'Demo',SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,LegacyUserId,HireDate,SourceType,CreatedAt)
+                VALUES(104,104,1,N'E4',4,'2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+                VALUES(104,N'Active','2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(4,2,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+                VALUES(4,2,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+                VALUES(4,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+                VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+                VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
+            """);
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
             builder.UseSetting("OptionC:Candidate:Enabled", "true");
             builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
@@ -91,6 +111,120 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var denied = await outside.PostAsJsonAsync(
             "api/v1/optionc-candidate/locations", payload);
         Assert.False(denied.IsSuccessStatusCode);
+
+        // A real requester cannot self-review. An independently appointed
+        // Leader must approve before the independently scoped Admin acts.
+        using var illegalSelf = await visitor.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(created.RowVersion, Guid.NewGuid(),
+                "Requester must not self-review", true));
+        Assert.False(illegalSelf.IsSuccessStatusCode);
+        using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
+        using var reviewed = await leader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(created.RowVersion, Guid.NewGuid(),
+                "Independent Leader approves new Location", true));
+        Assert.True(reviewed.IsSuccessStatusCode,
+            await reviewed.Content.ReadAsStringAsync());
+        Assert.Equal("1", await h.EventCount(created.RequestPublicId, "LeaderApproved"));
+
+        using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        using var prematurePublish = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/publish-reviewed",
+            new V180B3Review(created.RowVersion, Guid.NewGuid(),
+                "No evidence must prevent publication"));
+        Assert.False(prematurePublish.IsSuccessStatusCode);
+        Assert.Equal("Pending", await h.RequestStatus(created.RequestPublicId));
+
+        var stageVersion = (byte[])(await new SqlCommand("""
+            SELECT s.RowVersion FROM dbo.LocationPublicationStages s
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+            WHERE r.RequestPublicId=@id
+            """, h.Db) { Parameters = { new SqlParameter("@id", created.RequestPublicId) } }
+            .ExecuteScalarAsync() ?? throw new InvalidOperationException("OPTIONC_CREATE_STAGE_VERSION_MISSING"));
+        using var geocode = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(Convert.ToBase64String(stageVersion),
+                true, 25.03m, 121.56m, "Independent geocode verified") { EvidenceKey=Guid.NewGuid() });
+        Assert.True(geocode.IsSuccessStatusCode,
+            await geocode.Content.ReadAsStringAsync());
+        var geoView = await geocode.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_GEOCODE_VIEW_MISSING");
+        using var duplicate = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(geoView.StageRowVersion, true,
+                "Reviewed duplicate evidence cleared", Guid.NewGuid()));
+        Assert.True(duplicate.IsSuccessStatusCode,
+            await duplicate.Content.ReadAsStringAsync());
+        var duplicateView = await duplicate.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_DUPLICATE_VIEW_MISSING");
+        Assert.Equal("ReadyForPublish", duplicateView.StageStatus);
+        using var published = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/publish-reviewed",
+            new V180B3Review(created.RowVersion, Guid.NewGuid(),
+                "Independent Admin final CreateLocation approval"));
+        Assert.True(published.IsSuccessStatusCode,
+            await published.Content.ReadAsStringAsync());
+        Assert.Equal("Applied", await h.RequestStatus(created.RequestPublicId));
+        Assert.Equal("1", await h.Scalar(
+            "SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=@id",
+            P("@id", locationId)));
+        Assert.Equal("Approved", await h.Scalar(
+            "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
+            P("@id", locationId)));
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.LocationPublishedVersions
+            WHERE LocationId=@id AND VersionNumber=1 AND IsCurrent=1
+            """, P("@id", locationId)));
+        Assert.Equal("Published", await h.Scalar("""
+            SELECT cr.ReservationStatus FROM dbo.LocationCreateReservations cr
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=cr.ChangeRequestId
+            WHERE r.RequestPublicId=@id
+            """, P("@id", created.RequestPublicId)));
+        foreach (var evt in new[] { "Submitted", "LeaderApproved",
+            "GeocodeEvidenceRecorded", "DuplicateReviewEvidenceRecorded",
+            "Approved", "Applied" })
+            Assert.Equal("1", await h.EventCount(created.RequestPublicId, evt));
+        // Earlier Trips / Snapshots must retain their original LocationIds.
+        Assert.Equal("10", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId BETWEEN 10 AND 19"));
+        Assert.Equal("10", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId BETWEEN 10 AND 19"));
+
+        var rejectedPayload = new V180OptionCCreateLocation(1,
+            "Second CreateLocation needs independent review",
+            new V180B3LocationFields("Candidate rejected identity", "Taipei", "Xinyi",
+                "Pending rejected candidate address", null, null, null));
+        using var rejectionSubmit = await visitor.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations", rejectedPayload);
+        Assert.True(rejectionSubmit.IsSuccessStatusCode,
+            await rejectionSubmit.Content.ReadAsStringAsync());
+        var rejectRequest = await rejectionSubmit.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_REJECT_VIEW_MISSING");
+        using var rejectReview = await leader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{rejectRequest.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(rejectRequest.RowVersion,
+                Guid.NewGuid(), "Independent Leader rejects new Location", false));
+        Assert.True(rejectReview.IsSuccessStatusCode,
+            await rejectReview.Content.ReadAsStringAsync());
+        Assert.Equal("Rejected", await h.RequestStatus(rejectRequest.RequestPublicId));
+        Assert.Equal("Abandoned", await h.StageStatus(rejectRequest.RequestPublicId));
+        Assert.Equal("Abandoned", await h.Scalar("""
+            SELECT cr.ReservationStatus FROM dbo.LocationCreateReservations cr
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=cr.ChangeRequestId
+            WHERE r.RequestPublicId=@id
+            """, P("@id", rejectRequest.RequestPublicId)));
+        Assert.Equal("0", await h.Scalar("""
+            SELECT CONVERT(nvarchar(1),IsActive)
+            FROM dbo.Locations WHERE LocationId=@id
+            """, P("@id", int.Parse(rejectRequest.EntityId))));
+        Assert.Equal("0", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id
+            """, P("@id", int.Parse(rejectRequest.EntityId))));
     }
 
     [Fact]
