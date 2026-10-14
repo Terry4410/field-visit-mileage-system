@@ -99,7 +99,7 @@ public sealed class V180OptionCCandidateService(
                     excelItem.ErrorMessage != "LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW")
                     throw new InvalidOperationException("OPTIONC_EXCEL_ROW_NOT_ELIGIBLE");
                 var staged = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
-                    excelItem.DataJson) ?? throw new InvalidOperationException("OPTIONC_EXCEL_ROW_INVALID");
+                    excelItem.DataJson,new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidOperationException("OPTIONC_EXCEL_ROW_INVALID");
                 if (!string.IsNullOrWhiteSpace(staged.LocationCode) ||
                     !string.Equals(staged.LocationName.Trim(), proposed.LocationName,
                         StringComparison.Ordinal) ||
@@ -351,7 +351,7 @@ public sealed class V180OptionCCandidateService(
                    item.ErrorMessage == "LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW")))
                 throw new InvalidOperationException("OPTIONC_EXCEL_MIXED_OR_INVALID_ROW_DENIED");
             var row = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
-                item.DataJson) ?? throw new InvalidOperationException("OPTIONC_EXCEL_ROW_INVALID");
+                item.DataJson,new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? throw new InvalidOperationException("OPTIONC_EXCEL_ROW_INVALID");
             if (!string.IsNullOrWhiteSpace(row.LocationCode) ||
                 string.IsNullOrWhiteSpace(row.TeamCode) ||
                 string.IsNullOrWhiteSpace(row.LocationName) ||
