@@ -87,12 +87,34 @@ public sealed class V180OptionCCandidateService(
                 if (Convert.ToInt32(await claim.ExecuteScalarAsync(ct)) < 0)
                     throw new InvalidOperationException("OPTIONC_CREATE_LOCK_DENIED");
             }
-            if (await db.Locations.AsNoTracking().AnyAsync(x =>
-                x.OrganizationId == scope.OrganizationId && x.TeamId == input.TeamId
-                && x.ApprovalStatus == "Pending" && !x.IsActive
-                && x.LocationName == proposed.LocationName
-                && x.Address == proposed.Address, ct))
-                throw new InvalidOperationException("OPTIONC_CREATE_PENDING_DUPLICATE");
+            // An abandoned/rejected canonical reservation is historical, not
+            // an active submission. It must not permanently block an amended
+            // new application for the same identity. Unreserved legacy drafts
+            // and still-Pending reservations continue to block duplicates.
+            await using (var duplicates = new SqlCommand("""
+                SELECT COUNT(*) FROM dbo.Locations l WITH(HOLDLOCK)
+                WHERE l.OrganizationId=@org AND l.TeamId=@team
+                  AND l.ApprovalStatus=N'Pending' AND l.IsActive=0
+                  AND l.LocationName=@name AND l.Address=@address
+                  AND NOT EXISTS (
+                    SELECT 1 FROM dbo.LocationCreateReservations cr WITH(HOLDLOCK)
+                    JOIN dbo.ChangeRequests r WITH(HOLDLOCK)
+                      ON r.ChangeRequestId=cr.ChangeRequestId
+                    WHERE cr.LocationId=l.LocationId
+                      AND cr.OrganizationId=l.OrganizationId AND cr.TeamId=l.TeamId
+                      AND cr.ReservationStatus=N'Abandoned'
+                      AND r.EntityKind=N'Location'
+                      AND r.OperationCode=N'CreateLocation'
+                      AND r.Status=N'Rejected')
+                """, connection, sqlTx))
+            {
+                duplicates.Parameters.AddWithValue("@org", scope.OrganizationId);
+                duplicates.Parameters.AddWithValue("@team", input.TeamId);
+                duplicates.Parameters.AddWithValue("@name", proposed.LocationName);
+                duplicates.Parameters.AddWithValue("@address", proposed.Address);
+                if (Convert.ToInt32(await duplicates.ExecuteScalarAsync(ct)) != 0)
+                    throw new InvalidOperationException("OPTIONC_CREATE_PENDING_DUPLICATE");
+            }
 
             var requestId = Guid.NewGuid();
             var code = "OC-" + requestId.ToString("N");
