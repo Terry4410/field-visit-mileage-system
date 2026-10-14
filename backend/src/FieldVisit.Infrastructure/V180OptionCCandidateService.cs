@@ -493,7 +493,7 @@ public sealed class V180OptionCCandidateService(
                 var staged = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
                     excelItem.DataJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))
                     ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_ROW_INVALID");
-                if (staged.ExpectedEntityRowVersion != input.ExpectedEntityRowVersion
+                if (staged.ExpectedEntityRowVersion != input.ExpectedRowVersion
                     || string.IsNullOrWhiteSpace(staged.LocationCode)
                     || !string.Equals(staged.LocationName.Trim(),input.Proposed.LocationName,StringComparison.Ordinal)
                     || !string.Equals(staged.City?.Trim(),input.Proposed.City,StringComparison.Ordinal)
