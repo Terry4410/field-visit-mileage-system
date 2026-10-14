@@ -595,10 +595,6 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // publication and duplicate evidence; Admin must not replace Leader.
         var lowCsvBytes=Encoding.UTF8.GetBytes(
             "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
-            "EX-10,Excel low-risk name,Taipei,Xinyi,Excel reviewed address,,Active\n");
-        // Correct column alignment: LocationCode and TeamCode remain EX-10/T1.
-        lowCsvBytes=Encoding.UTF8.GetBytes(
-            "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
             "EX-10,T1,Excel low-risk name,Taipei,Xinyi,Excel reviewed address,,Active\n");
         using var lowForm=new MultipartFormDataContent();
         using var lowFile=new ByteArrayContent(lowCsvBytes);
