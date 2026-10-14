@@ -202,6 +202,8 @@ public sealed class V180TripMileageHttpSqlE2ETests
             new UserEmploymentPeriod { UserId = leader.UserId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E", CreatedAt = now },
             new UserTeamAssignment { UserId = visitor.UserId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new UserTeamAssignment { UserId = leader.UserId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
+            new UserTeamScope { UserId = visitor.UserId, TeamId = team.TeamId, IsPrimary = true, IsActive = true, AssignedAt = now },
+            new UserTeamScope { UserId = leader.UserId, TeamId = team.TeamId, IsPrimary = true, IsActive = true, AssignedAt = now },
             new TeamLeaderAssignment { TeamId = team.TeamId, EmploymentId = leaderEmployment.EmploymentId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new UserRole { UserId = visitor.UserId, RoleId = visitorRole.RoleId, AssignedAt = now },
             new UserRole { UserId = leader.UserId, RoleId = leaderRole.RoleId, AssignedAt = now },
