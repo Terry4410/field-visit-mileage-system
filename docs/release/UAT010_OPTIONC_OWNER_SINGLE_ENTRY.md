@@ -19,7 +19,8 @@
 
 - Recovery 分支增量：Server-owned published-location risk classification；LowRisk pending request + Stage (`NotRequired` geocode, pending duplicate evidence)；Leader live HR/appointment first review；同一獨立 Leader 的 duplicate evidence；候選 HTTP `publish-reviewed` 原子發布。
 - Leader Reject 於同一 Serializable transaction 將 Stage 改為 Abandoned；若為 CreateLocation 同步將 reservation 改為 Abandoned，避免被拒絕申請留下可發布 Stage。
-- 隔離 SQL Server 2022 HTTP/DI 測試：Visitor 真正送審 → Leader 初審 → evidence → LowRisk 發布；拒絕 premature evidence／Admin 替代／Leader 撤權；歷史 Trip/Snapshot 不變。
+- 隔離 SQL Server 2022 HTTP/DI 測試：Visitor 真正送審 → Leader 初審 → evidence → LowRisk 發布；拒絕 premature evidence／Admin 替代／Leader 撤權；Leader 拒絕時 Stage 原子 Abandoned；歷史 Trip/Snapshot 不變。
+- LowRisk Unknown Commit 觀測改由原獨立且即時有效的小組長查詢；Admin 不得冒充 LowRisk 決策者；觀測僅回傳證據狀態，絕不自動重試 COMMIT。
 - **本批 exact-SHA CI 需獨立確認，先前 PASS 不可套用。**
 - **尚未完成**：CreateLocation 真正 HTTP reservation/submit/evidence、Pending Location 全查詢排除、Leader/Visitor 正式 UI 串接、Excel/legacy/background bypass 清理。UAT migration、deployment、flag activation、Business UAT、promotion 全部未授權／未執行；**HOLD / NO-GO**。
 
