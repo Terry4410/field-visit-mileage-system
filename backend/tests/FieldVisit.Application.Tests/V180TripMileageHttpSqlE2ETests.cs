@@ -150,7 +150,10 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
 
                 Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
-                Assert.Equal(2, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
+                // Submitted and Approved snapshots each retain both stop
+                // identities; publication appends the approved snapshot and
+                // never rewrites the historical Submitted snapshot.
+                Assert.Equal(4, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
                 Assert.Equal(0, await db.VisitTripStops.CountAsync(x => x.LocationId == fixture.Pending.LocationId));
             }
         }
