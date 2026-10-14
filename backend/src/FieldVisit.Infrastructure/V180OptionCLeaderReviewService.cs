@@ -39,6 +39,8 @@ public sealed class V180OptionCLeaderReviewService(
             throw new InvalidOperationException("OPTIONC_CANDIDATE_DISABLED");
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync(ct);
         V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
         await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
         try
