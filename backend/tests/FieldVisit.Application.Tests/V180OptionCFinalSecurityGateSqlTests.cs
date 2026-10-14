@@ -51,11 +51,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             UPDATE s SET GeocodeStatus=N'Succeeded',GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME()
             FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id;
             """, P("@id", submitted.RequestPublicId));
-        var requestVersion = await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.ChangeRequests WHERE RequestPublicId=@id", P("@id", submitted.RequestPublicId));
+        var requestVersion = submitted.RowVersion;
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
         var approve = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/approve", new V180B3Review(
-            Convert.ToBase64String(Convert.FromHexString(requestVersion[2..])), Guid.NewGuid(), "HTTP independent approval"));
+            requestVersion, Guid.NewGuid(), "HTTP independent approval"));
         Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
         var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_APPROVE_RESPONSE_MISSING");
@@ -77,9 +77,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(System.Net.HttpStatusCode.OK, submitReject.StatusCode);
         var rejectedRequest = await submitReject.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_REJECT_SUBMIT_RESPONSE_MISSING");
-        var rejectVersion = Convert.FromHexString(rejectedRequest.RowVersion[2..]);
         var reject = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{rejectedRequest.RequestPublicId}/reject", new V180B3Review(
-            Convert.ToBase64String(rejectVersion), Guid.NewGuid(), "HTTP independent rejection"));
+            rejectedRequest.RowVersion, Guid.NewGuid(), "HTTP independent rejection"));
         Assert.Equal(System.Net.HttpStatusCode.OK, reject.StatusCode);
         var rejected = await reject.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_REJECT_RESPONSE_MISSING");
