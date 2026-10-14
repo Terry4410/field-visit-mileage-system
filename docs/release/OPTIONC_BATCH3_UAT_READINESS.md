@@ -66,3 +66,12 @@ MergeFields canonical approval, production/UAT route activation, UAT migration, 
 ## UAT execution preflight authorization — 2026-10-14
 
 Preparation-only authorization is recorded. The consolidated Owner execution package is `OPTIONC_UAT_EXECUTION_AUTHORIZATION_PACKAGE.md`. UAT target identification and read-only schema/backup preflight remain NOT RUN because no exact UAT server/database target was supplied. This does not block review of the future execution authorization package, but it blocks actual UAT execution.
+
+
+## UAT release-readiness finalization — 2026-10-14
+
+Actual repository inspection confirms formal executable migrations stop at 1800_010;
+Option C 011/012/014 and additive schemas are candidate-only. The Recovery branch now
+contains a read-only preflight candidate and static SHA-256 fingerprint script. The
+existing post-uat/v1.8.0 guard is preserved. No exact UAT target or backup evidence is
+available, so UAT preflight is NOT RUN and the package remains HOLD; Business UAT is NOT RUN.

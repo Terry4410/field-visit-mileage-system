@@ -69,5 +69,17 @@ class OptionCCanonicalSqlDraftTests(unittest.TestCase):
         self.assertNotIn("LocationChangeRequests", up + preflight + verify)
         self.assertFalse((ROOT / "database/migrations/1800_014").exists())
 
+    def test_read_only_uat_preflight_and_hash_manifest_are_present(self):
+        preflight = (DRAFT / "preflight/UAT_ReadOnly_Preflight.sql").read_text()
+        self.assertIn("ApplicationIntent=ReadOnly", (DRAFT / "preflight/README.md").read_text())
+        self.assertIn("THROW 51000", preflight)
+        self.assertIn("PREFLIGHT_COMPLETE_READ_ONLY", preflight)
+        self.assertNotIn("CREATE TABLE", preflight.upper())
+        self.assertNotIn("INSERT ", preflight.upper())
+        self.assertNotIn("UPDATE ", preflight.upper())
+        self.assertNotIn("DELETE ", preflight.upper())
+        self.assertTrue((ROOT / "scripts/optionc-uat-artifact-hashes.sh").exists())
+        self.assertIn("1800_013", (ROOT / "scripts/optionc-uat-artifact-hashes.sh").read_text())
+
 if __name__ == "__main__":
     unittest.main()

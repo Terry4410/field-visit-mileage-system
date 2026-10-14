@@ -229,3 +229,16 @@ Authoritative Recovery branch: `work/v180-optionc-final-gates-recovery-r1`; SHA 
 ## UAT execution preflight authorization — 2026-10-14
 
 Owner authorized preparation and read-only preflight only. No UAT target was supplied in the authorization message, so target connectivity and schema preflight remain NOT RUN. The consolidated package is `docs/release/OPTIONC_UAT_EXECUTION_AUTHORIZATION_PACKAGE.md`. Recovery engineering remains authoritative at SHA `c75cd4b3c7fd2fea012634ced246edc28c7ab21e`, exact-SHA CI `38511402016` SUCCESS. No migration, deployment, flag activation, promotion, merge or Business UAT GO is authorized by this entry.
+
+
+## UAT release-readiness finalization — 2026-10-14
+
+The executable migration register ends at 1800_010; candidate 011/012/014 plus
+LocationMergeDetails and StageEvidenceAuditEvents remain nondeploy review artifacts.
+The exact order is target/backup gate -> 011 -> Verify -> 012 -> Verify ->
+014/backfill -> Verify -> additive details -> additive audit -> backend/frontend deployment.
+Reserved 1800_013 is untouched. A read-only SQL preflight candidate and SHA-256 artifact
+script were added; the existing post-uat/v1.8.0 branch guard is unchanged.
+Exact UAT target, allow-list, Entra read-only identity and backup/restore evidence are
+not available from authorized repository configuration, so preflight is NOT RUN and status
+remains HOLD. Business UAT remains NOT RUN.

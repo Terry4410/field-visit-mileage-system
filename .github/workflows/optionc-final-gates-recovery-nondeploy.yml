@@ -73,6 +73,11 @@ jobs:
           test -z "${PRODUCTION_SQL_CONNECTION:-}"
           echo "RECOVERY NONDEPLOY ONLY; database target is the local disposable SQL Server service." >> "$GITHUB_STEP_SUMMARY"
           echo "source_sha=$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Option C UAT candidate hash and preflight contract
+        run: |
+          bash scripts/optionc-uat-artifact-hashes.sh
+          python3 -m unittest scripts/ci/test_optionc_sql_draft.py
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
