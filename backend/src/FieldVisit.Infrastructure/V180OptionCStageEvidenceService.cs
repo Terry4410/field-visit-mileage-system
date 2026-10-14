@@ -36,7 +36,7 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
         => TransitionAsync(id, input.StageRowVersion, input.Reason, input.Succeeded, input.Latitude, input.Longitude, null, Guid.Empty, ct);
 
     public Task<V180OptionCStageEvidenceView> RecordDuplicateReviewAsync(Guid id, V180OptionCDuplicateEvidence input, CancellationToken ct)
-        => TransitionAsync(id, input.StageRowVersion, input.Reason, true, null, null, input.Cleared, input.EvidenceKey, ct);
+        => TransitionAsync(id, input.StageRowVersion, input.Reason, false, null, null, input.Cleared, input.EvidenceKey, ct);
 
     private async Task<V180OptionCStageEvidenceView> TransitionAsync(Guid id, string expectedStageVersion,
         string reason, bool geocodeSucceeded, decimal? latitude, decimal? longitude, bool? duplicateCleared,
