@@ -100,6 +100,18 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                 if (!leader.RequesterEligible || !leader.ReviewerLeaderEligible
                     || !leader.OrganizationMatches || !leader.TeamMatches)
                     throw new UnauthorizedAccessException("OPTIONC_STAGE_REVIEW_SCOPE_DENIED");
+                var firstLevel = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(
+                    x => x.ChangeRequestId == requestId
+                      && x.ReviewStage == "LeaderFirstLevel", ct);
+                if (firstLevel?.Status != "Approved"
+                    || firstLevel.ReviewerUserId != actorId
+                    || firstLevel.DecisionKey is not Guid approvedKey
+                    || !await db.ChangeRequestEvents.AsNoTracking().AnyAsync(
+                        x => x.ChangeRequestId == requestId
+                          && x.EventType == "LeaderApproved"
+                          && x.ActorUserId == actorId
+                          && x.DecisionKey == approvedKey, ct))
+                    throw new UnauthorizedAccessException("OPTIONC_LOW_LEADER_REVIEW_REQUIRED");
             }
             else
             {
