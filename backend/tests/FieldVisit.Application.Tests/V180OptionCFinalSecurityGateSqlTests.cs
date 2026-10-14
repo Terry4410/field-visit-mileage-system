@@ -61,6 +61,23 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions {
             BaseAddress = new Uri("https://localhost") });
         visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
+        // Legacy HTTP Create cannot bypass canonical reservation on
+        // an OptionCIsolated database with the additive Create contract.
+        // It must not leave a new inactive Location, request or audit.
+        var direct = new SaveManagedLocationRequest(1, "Legacy HTTP bypass denied",
+            "Customer", "Taipei", "Xinyi", "Never commit direct creation",
+            null, false, null);
+        using var blocked = await visitor.PostAsJsonAsync(
+            "api/v1/managed-locations", direct);
+        Assert.False(blocked.IsSuccessStatusCode);
+        Assert.Equal("0", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations
+            WHERE LocationName=N'Legacy HTTP bypass denied'
+            """));
+        Assert.Equal("0", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequests
+            WHERE ProposedJson LIKE N'%Legacy HTTP bypass denied%'
+            """));
         var payload = new V180OptionCCreateLocation(1, "New customer candidate",
             new V180B3LocationFields("Candidate HTTP identity", "Taipei", "Xinyi",
                 "New pending candidate address", null, null, "Pending only"));

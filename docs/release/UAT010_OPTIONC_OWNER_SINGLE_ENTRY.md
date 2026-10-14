@@ -555,3 +555,21 @@ No UAT/Production migration or SQL write, no UAT target preflight, no deploy,
 feature activation, promotion/merge or Business UAT GO was performed in this
 Recovery batch. Migration 013 remained untouched. Earlier checkpoints in this
 document are retained for history but superseded by this verified SHA.
+
+## Scheme A legacy HTTP Create fail-closed delta — 2026-10-14
+
+The old `POST /api/v1/managed-locations` path made inactive Pending
+Customer Locations without canonical ChangeRequest, Reservation or
+independent Leader/Admin review. On database schemas with the verified
+`1.8.0-CREATE-LOWRISK` additive contract it is now **fail-closed**
+(`LOCATION_LEGACY_CREATE_REQUIRES_CANONICAL_REVIEW`), rather than
+claiming an unreviewed Pending row is a canonical submission.
+No-change legacy database schemas without the additive contract keep
+the prior draft path; non-Customer location categories are out of this
+Customer Create scope. An isolated real HTTP/SQL negative test confirms
+that legacy Create is rejected without a committed Location or Request.
+This does NOT implement the full Legacy canonical routing or user-facing
+business UAT. Flag remains OFF. Last verified before this patch:
+`9d43b89cefae0042b37f6b709e10e8d861ec6933`,
+Exact-SHA CI `38553823661 — SUCCESS`; the new delta must pass its
+own Exact-SHA CI before acceptance. UAT/Production not touched.

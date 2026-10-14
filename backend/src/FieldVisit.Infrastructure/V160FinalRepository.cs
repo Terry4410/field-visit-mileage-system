@@ -793,6 +793,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        // Do not permit old direct Create to bypass canonical Request,
+        // independent Leader/Admin review and Location reservation once
+        // Scheme A's additive Create contract is present.
+        await V180OptionCCreateReservationGuard.RequireCanonicalCreateAsync(
+            db, request.LocationType, ct);
         await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
         V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
             string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);

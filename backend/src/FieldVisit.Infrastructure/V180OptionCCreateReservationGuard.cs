@@ -36,6 +36,24 @@ internal static class V180OptionCCreateReservationGuard
         return schemaState == 1;
     }
 
+    /// <summary>
+    /// Old managed-locations Create only makes an unreviewed Pending row.
+    /// When the Scheme A CreateLowRisk contract is installed, Customer
+    /// creation must instead use the canonical isolated submission flow.
+    /// Historic schemas without this additive contract remain unchanged.
+    /// </summary>
+    internal static async Task RequireCanonicalCreateAsync(
+        AppDbContext db, string? locationType, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(locationType)
+            && !string.Equals(locationType.Trim(), "Customer",
+                StringComparison.OrdinalIgnoreCase))
+            return;
+        if (await HasValidatedSchemaAsync(db, ct))
+            throw new InvalidOperationException(
+                "LOCATION_LEGACY_CREATE_REQUIRES_CANONICAL_REVIEW");
+    }
+
     internal static async Task RequireUnreservedDraftAsync(
         AppDbContext db, int locationId, CancellationToken ct)
     {
