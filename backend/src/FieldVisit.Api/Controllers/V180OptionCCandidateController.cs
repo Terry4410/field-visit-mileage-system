@@ -54,6 +54,13 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
     public Task<V180B3RequestView> Approve(Guid id, V180B3Review input, CancellationToken ct)
         => service.ApproveAsync(id, input, ct);
 
+    // Explicitly isolated candidate only: service checks candidate flag,
+    // loopback SQL and live HR/Leader/Admin authority before publication.
+    [HttpPost("requests/{id:guid}/publish-reviewed")]
+    public Task<V180B3RequestView> PublishReviewed(
+        Guid id, V180B3Review input, CancellationToken ct)
+        => service.PublishReviewedAsync(id, input, ct);
+
     [HttpPost("requests/{id:guid}/reject")]
     public Task<V180B3RequestView> Reject(Guid id, V180B3Review input, CancellationToken ct)
         => service.RejectAsync(id, input, ct);
