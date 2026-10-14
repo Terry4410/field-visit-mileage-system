@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using System.Data;
@@ -159,6 +160,38 @@ public sealed class V180OptionCLeaderReviewService(
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException ex) {
             V180B3SqlSafetyRules.RethrowRecognizedUniqueConflict(ex); throw;
+        }
+        if (!input.Approve)
+        {
+            // A Leader rejection is terminal. Abandon the private stage in
+            // the SAME transaction; never leave a ReadyForPublish stage
+            // attached to a rejected request.
+            var sqlConnection = db.Database.GetDbConnection() as SqlConnection
+                ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
+            var sqlTransaction = tx.GetDbTransaction() as SqlTransaction
+                ?? throw new InvalidOperationException("OPTIONC_SQL_TRANSACTION_REQUIRED");
+            await using (var stage = new SqlCommand("""
+                UPDATE dbo.LocationPublicationStages
+                SET StageStatus=N'Abandoned',UpdatedAt=SYSUTCDATETIME()
+                WHERE ChangeRequestId=@request
+                  AND StageStatus IN(N'PendingGeocode',N'PendingDuplicateReview',N'ReadyForPublish');
+                SELECT CONVERT(int,@@ROWCOUNT);
+                """, sqlConnection, sqlTransaction))
+            {
+                stage.Parameters.AddWithValue("@request", row.ChangeRequestId);
+                if (Convert.ToInt32(await stage.ExecuteScalarAsync(ct)) != 1)
+                    throw new InvalidOperationException("OPTIONC_LEADER_REJECT_STAGE_CONFLICT");
+            }
+            await using (var reservation = new SqlCommand("""
+                IF OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NOT NULL
+                    UPDATE dbo.LocationCreateReservations
+                    SET ReservationStatus=N'Abandoned',UpdatedAt=SYSUTCDATETIME()
+                    WHERE ChangeRequestId=@request AND ReservationStatus=N'Pending';
+                """, sqlConnection, sqlTransaction))
+            {
+                reservation.Parameters.AddWithValue("@request", row.ChangeRequestId);
+                await reservation.ExecuteNonQueryAsync(ct);
+            }
         }
         await tx.CommitAsync(ct);
         return ToView(row, detail);
