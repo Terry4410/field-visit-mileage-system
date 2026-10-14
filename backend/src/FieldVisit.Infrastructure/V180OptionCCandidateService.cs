@@ -182,6 +182,8 @@ public sealed class V180OptionCCandidateService(
         if (decisionKey == Guid.Empty)
             throw new InvalidOperationException("OPTIONC_DECISION_KEY_REQUIRED");
         var connection = await RequireTargetAsync(ct);
+        var freshConnectionString = config.GetConnectionString("DefaultConnection")
+            ?? connection.ConnectionString;
         var actorId = current.GetRequired().UserId;
         await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct))
         {
@@ -202,7 +204,7 @@ public sealed class V180OptionCCandidateService(
         // Observe using a fresh non-pooled connection after authorization so the
         // read cannot inherit stale transaction state or retry across COMMIT.
         return await V180OptionCUnknownCommitReconciler.ObserveAsync(
-            connection.ConnectionString, id, decisionKey, actorId, ct);
+            freshConnectionString, id, decisionKey, actorId, ct);
     }
 
     private async Task<V180B3RequestView> FindAsync(Guid id, CancellationToken ct)

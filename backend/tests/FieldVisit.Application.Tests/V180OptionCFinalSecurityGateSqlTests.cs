@@ -74,16 +74,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/reconcile?decisionKey={approveKey}");
         Assert.Equal(System.Net.HttpStatusCode.OK, reconcile.StatusCode);
         var reconcileBody = await reconcile.Content.ReadAsStringAsync();
-        var evidence = await h.Scalar("""
-            SELECT CONCAT(r.Status,N'|',COALESCE(CONVERT(nvarchar(20),r.ReviewedByUserId),N'NULL'),N'|',
-                (SELECT COUNT(*) FROM dbo.ChangeRequestEvents e WHERE e.ChangeRequestId=r.ChangeRequestId AND e.EventType=N'Approved' AND e.DecisionKey=@key AND e.ActorUserId=2),N'|',
-                (SELECT COUNT(*) FROM dbo.ChangeRequestEvents e WHERE e.ChangeRequestId=r.ChangeRequestId AND e.EventType=N'Applied' AND e.DecisionKey IS NULL AND e.ActorUserId=2),N'|',
-                (SELECT COUNT(*) FROM dbo.LocationPublishedVersions v WHERE v.ChangeRequestId=r.ChangeRequestId AND v.IsCurrent=1),N'|',
-                (SELECT COUNT(*) FROM dbo.LocationPublishedVersions v WHERE v.LocationId=TRY_CONVERT(int,r.EntityId) AND v.IsCurrent=1 AND v.VersionNumber>1),N'|',
-                (SELECT COUNT(*) FROM dbo.LocationPublicationStages s WHERE s.ChangeRequestId=r.ChangeRequestId AND s.StageStatus=N'Published'))
-            FROM dbo.ChangeRequests r WHERE r.RequestPublicId=@id;
-            """, P("@id", submitted.RequestPublicId), P("@key", approveKey));
-        Assert.True(reconcileBody.Contains("COMMITTED_EVIDENCE_REQUIRES_REVIEW"), $"reconcileBody={reconcileBody}; evidence={evidence}");
+        Assert.Contains("COMMITTED_EVIDENCE_REQUIRES_REVIEW", reconcileBody);
         using var outsider = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost")
