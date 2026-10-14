@@ -119,7 +119,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal("Submitted", submittedTrip.Status);
 
                 var snapshotLocation = await db.VisitTripSnapshotStops
-                    .Where(x => x.VisitTripSnapshot.VisitTripId == created.VisitTripId)
+                    .Where(x => x.Snapshot.VisitTripId == created.VisitTripId)
                     .Select(x => x.LocationId).SingleAsync();
                 Assert.Equal(fixture.Approved.LocationId, snapshotLocation);
 
@@ -134,7 +134,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
 
                 Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
-                Assert.Equal(1, await db.VisitTripSnapshotStops.CountAsync(x => x.VisitTripSnapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
+                Assert.Equal(1, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
                 Assert.Equal(0, await db.VisitTripStops.CountAsync(x => x.LocationId == fixture.Pending.LocationId));
             }
         }
@@ -170,17 +170,17 @@ public sealed class V180TripMileageHttpSqlE2ETests
         db.AddRange(visitor, leader);
         await db.SaveChangesAsync();
 
-        var employment = new Employment { PersonId = visitor.UserId, OrganizationId = org.OrganizationId, EmployeeNo = visitor.EmployeeNo, LegacyUserId = visitor.UserId, HireDate = new DateOnly(2020, 1, 1), SourceType = "E2E", CreatedAt = now };
-        var leaderEmployment = new Employment { PersonId = leader.UserId, OrganizationId = org.OrganizationId, EmployeeNo = leader.EmployeeNo, LegacyUserId = leader.UserId, HireDate = new DateOnly(2020, 1, 1), SourceType = "E2E", CreatedAt = now };
+        var employment = new Employment { PersonId = visitor.UserId, OrganizationId = org.OrganizationId, EmployeeNo = visitor.EmployeeNo, LegacyUserId = visitor.UserId, HireDate = new DateOnly(2020, 1, 1), SourceType = "E2E" };
+        var leaderEmployment = new Employment { PersonId = leader.UserId, OrganizationId = org.OrganizationId, EmployeeNo = leader.EmployeeNo, LegacyUserId = leader.UserId, HireDate = new DateOnly(2020, 1, 1), SourceType = "E2E" };
         db.AddRange(employment, leaderEmployment);
         await db.SaveChangesAsync();
         db.AddRange(
             new UserIdentityProfile { UserId = visitor.UserId, EmploymentId = employment.EmploymentId, UserType = UserTypes.Internal, UserCode = visitor.EmployeeNo!, IdentityProvider = "Demo", CreatedAt = now },
             new UserIdentityProfile { UserId = leader.UserId, EmploymentId = leaderEmployment.EmploymentId, UserType = UserTypes.Internal, UserCode = leader.EmployeeNo!, IdentityProvider = "Demo", CreatedAt = now },
-            new EmploymentStatusPeriod { EmploymentId = employment.EmploymentId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E", CreatedAt = now },
-            new EmploymentStatusPeriod { EmploymentId = leaderEmployment.EmploymentId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E", CreatedAt = now },
-            new TeamMembership { EmploymentId = employment.EmploymentId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
-            new TeamMembership { EmploymentId = leaderEmployment.EmploymentId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
+            new EmploymentStatusPeriod { EmploymentId = employment.EmploymentId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E" },
+            new EmploymentStatusPeriod { EmploymentId = leaderEmployment.EmploymentId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = new DateOnly(2020, 1, 1), SourceType = "E2E" },
+            new TeamMembership { EmploymentId = employment.EmploymentId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1) },
+            new TeamMembership { EmploymentId = leaderEmployment.EmploymentId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1) },
             new TeamLeaderAssignment { TeamId = team.TeamId, EmploymentId = leaderEmployment.EmploymentId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new UserRole { UserId = visitor.UserId, RoleId = visitorRole.RoleId, AssignedAt = now },
             new UserRole { UserId = leader.UserId, RoleId = leaderRole.RoleId, AssignedAt = now },
