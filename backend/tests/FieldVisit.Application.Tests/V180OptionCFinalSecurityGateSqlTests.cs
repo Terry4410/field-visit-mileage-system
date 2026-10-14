@@ -957,6 +957,28 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Contains(projectLocations, x => x.LocationId == 10);
         Assert.DoesNotContain(projectLocations, x => x.LocationId == locationId);
         Assert.DoesNotContain(projectLocations, x => x.LocationId == 30);
+        using var projectAdmin = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        projectAdmin.DefaultRequestHeaders.Authorization =
+            new("Bearer", Token(2, "E2", "admin", 1, 1));
+        using var reservedAssignment = await projectAdmin.PutAsJsonAsync(
+            "api/v1/admin/projects/900/locations",
+            new V170SaveProjectLocationsRequest(new[] { 10, locationId }));
+        Assert.False(reservedAssignment.IsSuccessStatusCode,
+            "Canonical Create reservations cannot be attached to a Project.");
+        Assert.Equal("1", await h.Scalar("""
+            SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.ProjectLocations
+            WHERE ProjectId=900 AND LocationId=@id
+            """, P("@id", locationId)));
+        using var safeAssignment = await projectAdmin.PutAsJsonAsync(
+            "api/v1/admin/projects/900/locations",
+            new V170SaveProjectLocationsRequest(new[] { 10 }));
+        Assert.True(safeAssignment.IsSuccessStatusCode,
+            await safeAssignment.Content.ReadAsStringAsync());
+        Assert.Equal("0", await h.Scalar("""
+            SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.ProjectLocations
+            WHERE ProjectId=900 AND LocationId=@id
+            """, P("@id", locationId)));
         using var crossOrganizationProject = await visitor.GetAsync(
             "api/v1/projects/901/locations");
         Assert.False(crossOrganizationProject.IsSuccessStatusCode,

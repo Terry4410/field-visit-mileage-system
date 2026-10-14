@@ -89,6 +89,8 @@ public interface IV170ProjectLocationAdminRepository
     Task<IReadOnlyList<V170ProjectLocationItemDto>>
         GetAssignedLocationsAsync(
             int projectId,
+            int organizationId,
+            int? projectTeamId,
             CancellationToken ct);
 
     Task<V170ProjectLocationCandidateResult>
@@ -139,7 +141,7 @@ public sealed class V170ProjectLocationAdminService(
             CancellationToken ct)
     {
         var user = RequireAdmin();
-        await RequireProjectAsync(
+        var project = await RequireProjectAsync(
             user,
             projectId,
             ct);
@@ -147,6 +149,8 @@ public sealed class V170ProjectLocationAdminService(
         return await repository
             .GetAssignedLocationsAsync(
                 projectId,
+                user.OrganizationId!.Value,
+                project.TeamId,
                 ct);
     }
 
@@ -304,6 +308,8 @@ public sealed class V170ProjectLocationAdminService(
         return await repository
             .GetAssignedLocationsAsync(
                 projectId,
+                user.OrganizationId!.Value,
+                project.TeamId,
                 ct);
     }
 
