@@ -421,6 +421,51 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             JOIN dbo.ChangeRequests r ON r.ChangeRequestId=cr.ChangeRequestId
             WHERE r.RequestPublicId=@id AND cr.ReservationStatus=N'Pending'
             """, P("@id", resubmitted.RequestPublicId)));
+
+        // Create-specific live HR / Team appointment / Admin role revocation
+        // AFTER successful independent first-level review. Stage and events
+        // must remain unchanged across denied reads/evidence attempts.
+        using var nextLeader = await leader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{resubmitted.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(resubmitted.RowVersion,
+                Guid.NewGuid(), "New Create independently reviewed", true));
+        Assert.True(nextLeader.IsSuccessStatusCode,
+            await nextLeader.Content.ReadAsStringAsync());
+        using var beforeRevoke = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{resubmitted.RequestPublicId}/stage");
+        Assert.True(beforeRevoke.IsSuccessStatusCode,
+            await beforeRevoke.Content.ReadAsStringAsync());
+        var authorizedStage = await beforeRevoke.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_REVOCATION_STAGE_MISSING");
+        await h.Exec("UPDATE dbo.TeamLeaderAssignments SET EffectiveTo='2001-01-01' WHERE EmploymentId=104");
+        using var noLeader = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{resubmitted.RequestPublicId}/stage");
+        Assert.False(noLeader.IsSuccessStatusCode);
+        await h.Exec("UPDATE dbo.TeamLeaderAssignments SET EffectiveTo=NULL WHERE EmploymentId=104");
+
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Leave' WHERE EmploymentId=101");
+        using var noRequester = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{resubmitted.RequestPublicId}/stage");
+        Assert.False(noRequester.IsSuccessStatusCode);
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Active' WHERE EmploymentId=101");
+
+        await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo='2001-01-01' WHERE UserId=2");
+        using var noAdmin = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{resubmitted.RequestPublicId}/stage");
+        Assert.False(noAdmin.IsSuccessStatusCode);
+        await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo=NULL WHERE UserId=2");
+
+        Assert.Equal("Pending", await h.RequestStatus(resubmitted.RequestPublicId));
+        Assert.Equal("PendingGeocode", await h.StageStatus(resubmitted.RequestPublicId));
+        Assert.Equal("0", await h.EventCount(
+            resubmitted.RequestPublicId, "GeocodeEvidenceRecorded"));
+        using var restored = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{resubmitted.RequestPublicId}/stage");
+        Assert.True(restored.IsSuccessStatusCode,
+            await restored.Content.ReadAsStringAsync());
+        var restoredStage = await restored.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_REVOCATION_RESTORE_MISSING");
+        Assert.Equal(authorizedStage.StageRowVersion, restoredStage.StageRowVersion);
     }
 
     [Fact]
