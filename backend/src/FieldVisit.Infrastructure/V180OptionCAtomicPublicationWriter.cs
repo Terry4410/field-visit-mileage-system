@@ -35,20 +35,27 @@ internal static class V180OptionCAtomicPublicationWriter
         // production query and cannot be invoked against a UAT database.
         V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
 
-        // MergeFields uses the additive detail row for the second Location identity.
-        // It remains on the same canonical request, Stage and Serializable transaction.
-        await using (var mergeProbe = new SqlCommand(
-            "SELECT COUNT_BIG(1) FROM dbo.LocationMergeDetails d JOIN dbo.ChangeRequests r ON r.ChangeRequestId=d.ChangeRequestId WHERE r.RequestPublicId=@publicId AND r.OrganizationId=@org AND r.Status=N'Pending';",
+        // MergeFields is probed only when the additive disposable table exists.
+        // Ordinary 011/012/014 fixtures remain valid and never require it.
+        await using (var mergeSchemaProbe = new SqlCommand(
+            "SELECT OBJECT_ID(N'dbo.LocationMergeDetails',N'U')",
             connection, transaction))
         {
-            mergeProbe.Parameters.AddWithValue("@publicId", requestPublicId);
-            mergeProbe.Parameters.AddWithValue("@org", organizationId);
-            if (Convert.ToInt64(await mergeProbe.ExecuteScalarAsync(ct)) == 1)
+            var mergeObject = await mergeSchemaProbe.ExecuteScalarAsync(ct);
+            if (mergeObject is not null && mergeObject != DBNull.Value)
             {
-                await V180OptionCMergePublicationWriter.ExecuteAsync(
-                    connection, transaction, requestPublicId, organizationId,
-                    liveReviewerUserId, decisionKey, reason, authorization, ct);
-                return;
+                await using var mergeProbe = new SqlCommand(
+                    "SELECT COUNT_BIG(1) FROM dbo.LocationMergeDetails d JOIN dbo.ChangeRequests r ON r.ChangeRequestId=d.ChangeRequestId WHERE r.RequestPublicId=@publicId AND r.OrganizationId=@org AND r.Status=N'Pending';",
+                    connection, transaction);
+                mergeProbe.Parameters.AddWithValue("@publicId", requestPublicId);
+                mergeProbe.Parameters.AddWithValue("@org", organizationId);
+                if (Convert.ToInt64(await mergeProbe.ExecuteScalarAsync(ct)) == 1)
+                {
+                    await V180OptionCMergePublicationWriter.ExecuteAsync(
+                        connection, transaction, requestPublicId, organizationId,
+                        liveReviewerUserId, decisionKey, reason, authorization, ct);
+                    return;
+                }
             }
         }
 
