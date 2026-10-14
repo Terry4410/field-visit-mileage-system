@@ -10,8 +10,12 @@ internal static class V180OptionCMergePublicationWriter
         int reviewer, Guid decisionKey, string reason,
         V180OptionCLiveApprovalEvidence auth, CancellationToken ct)
     {
-        if (tx.IsolationLevel != IsolationLevel.Serializable)
-            throw new InvalidOperationException("OPTIONC_MERGE_SERIALIZABLE_REQUIRED");
+        if (tx.IsolationLevel != IsolationLevel.Serializable
+            || !auth.RequesterEligible || !auth.IndependentAdminEligible
+            || !auth.OrganizationMatches || !auth.TeamMatches
+            || reviewer <= 0 || decisionKey == Guid.Empty
+            || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim())
+            throw new InvalidOperationException("OPTIONC_MERGE_AUTHORIZATION_REQUIRED");
         V180OptionCExecutionPolicy.RequireIsolatedSqlTest(db);
         const string sql = """
         SET XACT_ABORT ON;
@@ -59,7 +63,11 @@ internal static class V180OptionCMergePublicationWriter
         SELECT @stageVersion=RowVersion FROM dbo.LocationPublicationStages WITH(UPDLOCK,HOLDLOCK)
          WHERE ChangeRequestId=@request AND LocationId=@survivor AND ExpectedLocationRowVersion=@survivorVersion
            AND StageStatus=N'ReadyForPublish' AND DuplicateReviewStatus=N'Cleared'
-           AND DuplicateEvidenceSha256=ProposedSha256 AND GeocodeStatus IN(N'Succeeded',N'NotRequired');
+           AND DuplicateEvidenceSha256=ProposedSha256
+           AND ProposedSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),@proposed))
+           AND (GeocodeStatus=N'NotRequired' OR
+                (GeocodeStatus=N'Succeeded' AND GeocodeAddressSha256=
+                  HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(ProposedJson,N'$.Address')))));
         IF @stageVersion IS NULL THROW 51475,N'OPTIONC_MERGE_STAGE_NOT_READY',1;
         IF (SELECT COUNT(*) FROM dbo.ProjectLocations WHERE LocationId=@source AND IsActive=1
             AND EXISTS(SELECT 1 FROM dbo.ProjectLocations p2 WHERE p2.ProjectId=ProjectLocations.ProjectId AND p2.LocationId=@survivor AND p2.IsActive=1))>0
