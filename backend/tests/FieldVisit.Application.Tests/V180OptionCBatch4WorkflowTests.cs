@@ -21,7 +21,7 @@ public sealed class V180OptionCBatch4WorkflowTests
         var source = Read("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
         Assert.Contains("x.ApprovalStatus == \"Pending\" && !x.IsActive", source);
         Assert.Contains("PUBLISHED_LOCATION_REQUIRES_OPTIONC_APPROVAL", source);
-        Assert.Contains("Geocoding never approves, publishes or deactivates", source);
+        Assert.Contains("geocoding never approves, publishes or deactivates", source);
         Assert.Contains("ResolveLiveGeocodingScopeAsync", source);
     }
 
