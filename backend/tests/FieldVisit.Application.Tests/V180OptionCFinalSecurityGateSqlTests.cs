@@ -30,6 +30,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
                 "optionc-canonical-sql-draft", relative.Replace('/', Path.DirectorySeparatorChar))));
 
+        await h.Exec("""
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+            VALUES(4,1,1,N'E4',N'Independent Leader',1,SYSUTCDATETIME());
+            """);
         const string createJson = """{"LocationName":"New customer","Address":"New customer address","City":"Taipei","MasterNote":"New note"}""";
         const string lowJson = """{"LocationName":"Original 10","Address":"Original address 10","MasterNote":"Reviewed low risk note"}""";
         var createId = Guid.NewGuid();
