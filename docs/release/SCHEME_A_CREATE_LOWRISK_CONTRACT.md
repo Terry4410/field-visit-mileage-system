@@ -111,6 +111,18 @@ organization/team, independence and requester authorization checks are retained.
 These read/queue adjustments do not implement HTTP creation, reservation,
 evidence, approval or public Location visibility. They do not enable UAT flags.
 
+## CreateLocation evidence endpoint gate — 2026-10-14
+
+The isolated candidate Stage evidence endpoint now recognizes High-risk
+`CreateLocation` only when a matching **Pending** canonical
+`LocationCreateReservations` row links the same Request, LocationId,
+OrganizationId and TeamId. Its existing Serializable transaction, request/Stage
+RowVersion, live independent Admin authorization and event audit remain in
+force. It still does not construct the reservation, request or Stage through
+HTTP. In particular, this is **not** the complete CreateLocation submission
+workflow and is not evidence of pending-location exclusion in legacy queries.
+No deployed flags are enabled.
+
 ## Release blockers
 
 - LowRisk published-update candidate now has an HTTP submission-to-publication
