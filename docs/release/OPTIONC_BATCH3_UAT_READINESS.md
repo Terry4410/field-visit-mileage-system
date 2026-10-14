@@ -86,3 +86,11 @@ available, so UAT preflight is NOT RUN and the package remains HOLD; Business UA
 - Backup/restore evidence: NOT VERIFIED.
 - Flags remain OFF; no UAT/Production SQL write, migration, deployment, promotion, merge, or Business UAT GO occurred.
 - Decision: HOLD pending the IT action checklist and separate Owner execution authorization.
+
+
+## Leader first-level review delta
+
+- Canonical request remains the only ledger; `ChangeRequestLeaderReviews` is an additive detail table with unique `(ChangeRequestId, ReviewStage)` and replay-protected DecisionKey.
+- Disposable order is `011 -> 012 -> 014 -> LeaderReviewDetails.disposable.sql`; the additive script is isolated to `OptionCIsolated_*` and never modifies migration 013.
+- Leader decision rechecks requester/reviewer live HR, effective role projection, organization/team scope, appointment or delegation, independence, and current Request RowVersion in a Serializable transaction.
+- Recovery evidence: `2ce6108f9e091c32ea3a6099a9040196bb0a1e6c`, CI `38518256406` SUCCESS. UAT target preflight and Business UAT remain NOT RUN.

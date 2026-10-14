@@ -7,7 +7,7 @@
 ## 1. 單一程式來源
 
 - Repository: `Terry4410/field-visit-mileage-system`
-- Candidate branch: `work/v180-uat010-packageb-optionc-integration-r1`
+- Candidate branch: `work/v180-optionc-final-gates-recovery-r1`
 - CI workflow: `.github/workflows/uat010-optionc-baseline-nondeploy.yml`（**nondeploy only**）
 - Baseline: `6a07a8fb0053a1032aabe76a65aed37f40dd3c4a`，外訪員／小組長共用單筆介面，小組長保留 Excel
 - 已通過的 Batch 3 exact SHA: `b08da595a74285e0e6f27e61842f9013e9ec7a92`
@@ -24,6 +24,12 @@
 - 正式地點 identity/address 直接覆寫防護：無版本化 swap 前禁止變更
 - Package B canonical `011/012` SQL 草稿來源指紋檢查及獨立 SQL Server 2022 Up/Verify/unique Pending/DecisionKey/self-review 驗證
 - 前後端建置與單元測試、既有 SQL fixture PASS；**不代表完整 E2E 或 Business UAT PASS**
+
+## 2B. Leader first-level review增量（Recovery `2ce6108f9e091c32ea3a6099a9040196bb0a1e6c`；CI `38518256406` SUCCESS）
+
+- Visitor 的地點變更由 server-owned LeaderReview service 建立 `LeaderFirstLevel` 詳情；Leader reviewer 必須 live HR、有效 leader role、UserTeamScope/Assignment 及正式/代理任命均有效，且同組織/小組、不得自審。
+- 高風險案件在 Admin atomic publication 的同一 Serializable transaction 內要求已核准的獨立 Leader review；沒有 review、撤權、RowVersion 不一致或 DecisionKey replay 均 fail closed。
+- additive `ChangeRequestLeaderReviews` 僅為 disposable candidate，依 011 → 012 → 014 → leader-review 順序；migration 013 未修改，所有 flags 仍 OFF。
 
 ## 2A. 第四批增量：共用申請資格與真實併發（2026-10-13）
 
@@ -253,3 +259,11 @@ remains HOLD. Business UAT remains NOT RUN.
 - Backup/restore evidence: NOT VERIFIED.
 - Flags remain OFF; no UAT/Production SQL write, migration, deployment, promotion, merge, or Business UAT GO occurred.
 - Decision: HOLD pending the IT action checklist and separate Owner execution authorization.
+
+
+## 2026-10-14 authoritative Recovery evidence
+
+- HEAD: `2ce6108f9e091c32ea3a6099a9040196bb0a1e6c`
+- Exact-SHA CI: `38518256406 — SUCCESS`
+- Backend Release build/tests, frontend tests/build, Option C SQL E2E, canonical SQL rehearsal（含 Leader review additive table/constraint catalog assertions）均 PASS。
+- UAT/Production migration、deployment、promotion、feature activation、Business UAT：未執行，維持 HOLD。

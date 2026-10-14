@@ -3,8 +3,8 @@
 ## Status
 
 - Recovery branch: `work/v180-optionc-final-gates-recovery-r1`
-- Engineering candidate SHA before this document: `c75cd4b3c7fd2fea012634ced246edc28c7ab21e`
-- Last exact-SHA CI: `38511402016 — SUCCESS`
+- Engineering candidate SHA: `2ce6108f9e091c32ea3a6099a9040196bb0a1e6c`
+- Last exact-SHA CI: `38518256406 — SUCCESS`
 - Scope: preparation and read-only preflight only
 - UAT/Production migration, deployment and flag activation: NOT EXECUTED
 
@@ -213,3 +213,12 @@ Current status: **HOLD — NOT READY FOR OWNER EXECUTION REVIEW until target and
 - Backup/restore evidence: NOT VERIFIED.
 - Flags remain OFF; no UAT/Production SQL write, migration, deployment, promotion, merge, or Business UAT GO occurred.
 - Decision: HOLD pending the IT action checklist and separate Owner execution authorization.
+
+
+## Leader first-level review readiness
+
+- Visitor Location requests require an independent Leader first-level review before any high-risk Admin publication; low-risk direct application remains disabled until a controlled application workflow is separately verified.
+- Evidence is persisted in the additive `ChangeRequestLeaderReviews` table and canonical `ChangeRequestEvents` (`LeaderApproved`/`LeaderRejected`); no second approval ledger is introduced.
+- Dependency candidate: canonical `011 -> 012 -> 014 -> LeaderReviewDetails.disposable.sql`; additive script is disposable-only and requires `OptionCIsolated_*`. Migration 013 is reserved and unchanged.
+- Exact Recovery evidence: `2ce6108f9e091c32ea3a6099a9040196bb0a1e6c` / CI `38518256406 SUCCESS`.
+- UAT target/read-only preflight: NOT RUN; Business UAT: NOT RUN; all production/UAT flags remain OFF.
