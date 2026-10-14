@@ -409,7 +409,32 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
 
         // Published UPDATE: real CSV HTTP Preview -> canonical pending request.
         // This is the same live-authorized submit and stage path as HTTP Update.
-        await h.Exec("UPDATE dbo.Locations SET LocationCode=N'EX-10' WHERE LocationId=10");
+        // Excel Update requires a live owner with the effective Leader
+        // import role. An Admin may not impersonate a Visitor-owned row.
+        await h.Exec("""
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+                VALUES(4,1,1,N'E4',N'Excel Import Leader',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt,UpdatedAt)
+                VALUES(4,104,N'Internal',N'E4',N'Demo',SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,LegacyUserId,HireDate,SourceType,CreatedAt)
+                VALUES(104,104,1,N'E4',4,'2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+                VALUES(104,N'Active','2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(4,2,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+                VALUES(4,2,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+                VALUES(4,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+                VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+                VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
+            UPDATE dbo.Locations SET LocationCode=N'EX-10',CreatedByUserId=4
+            WHERE LocationId=10;
+            """);
+        using var importer=factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress=new Uri("https://localhost") });
+        importer.DefaultRequestHeaders.Authorization=new("Bearer",Token(4,"E4","leader",1,1));
         var oldRv=await h.Scalar(
             "SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=10");
         var oldTrips=await h.Scalar(
@@ -424,7 +449,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         file.Headers.ContentType=
             new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
         form.Add(file,"file","published-update.csv");
-        using var previewHttp=await admin.PostAsync(
+        using var previewHttp=await importer.PostAsync(
             "api/v1/imports/locations/preview",form);
         Assert.True(previewHttp.IsSuccessStatusCode,
             await previewHttp.Content.ReadAsStringAsync());
@@ -435,10 +460,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL",
             previewRow.ErrorMessage);
         var urlUpdate=$"api/v1/optionc-candidate/imports/{previewUpdate.ImportBatchId}/submit-updates-for-review";
-        using var legacyUpdate=await admin.PostAsync(
+        using var legacyUpdate=await importer.PostAsync(
             $"api/v1/imports/{previewUpdate.ImportBatchId}/confirm",null);
         Assert.False(legacyUpdate.IsSuccessStatusCode);
-        using var submittedUpdate=await admin.PostAsync(urlUpdate,null);
+        using var submittedUpdate=await importer.PostAsync(urlUpdate,null);
         Assert.True(submittedUpdate.IsSuccessStatusCode,
             await submittedUpdate.Content.ReadAsStringAsync());
         var updateValue=await submittedUpdate.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
@@ -459,7 +484,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             """,P("@id",updateId),P("@batch",previewUpdate.ImportBatchId)));
         Assert.Equal(oldRv,await h.Scalar(
             "SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=10"));
-        using var replayUpdateHttp=await admin.PostAsync(urlUpdate,null);
+        using var replayUpdateHttp=await importer.PostAsync(urlUpdate,null);
         Assert.True(replayUpdateHttp.IsSuccessStatusCode,
             await replayUpdateHttp.Content.ReadAsStringAsync());
         var replayUpdate=await replayUpdateHttp.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
