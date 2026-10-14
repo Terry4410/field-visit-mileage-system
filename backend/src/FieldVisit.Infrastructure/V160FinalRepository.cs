@@ -953,11 +953,16 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var thisMonth = await trips.CountAsync(ct);
         var pending = await trips.CountAsync(x => x.Status == TripStatuses.PendingApproval, ct);
         var approved = await trips.CountAsync(x => x.Status == TripStatuses.Approved, ct);
+        // Canonical CreateLocation reservations are private, not legacy
+        // pending worklist items. Do not leak their existence via the
+        // dashboard pending-location counter; retain unreserved drafts.
+        var visiblePendingLocations = await V180OptionCCreateReservationGuard
+            .LegacyVisibleLocationsAsync(db, ct);
         var pendingLocations =
             HasRole(user, "supervisor")
                 ? 0
                 : await ApplyLocationScope(
-                    db.Locations.AsNoTracking(),
+                    visiblePendingLocations.AsNoTracking(),
                     user)
                     .CountAsync(
                         x =>
