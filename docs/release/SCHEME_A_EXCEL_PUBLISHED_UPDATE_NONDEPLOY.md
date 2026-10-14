@@ -1,5 +1,14 @@
 # Scheme A — Excel published Location Update (Recovery-only, NONDEPLOY)
 
+
+## Verified isolated E2E checkpoint — 2026-10-14
+
+Recovery SHA `7fb9399cc8a4950a7694a0d13195a8afccdbf24f`, exact-SHA CI `38601741807` SUCCESS: actual ASP.NET HTTP/DI plus disposable SQL passed. Backend was `754/754`; `Excel_create_submission_http_binds_preview_rows_to_canonical_pending_requests_atomically` passed, as did the canonical 011/012/014 SQL rehearsal.
+
+Tests verify per-row request/audit linkage and replay, Update-only high-risk submission through Leader then Admin review, low-risk Update through independent Leader evidence/publication, stale preview protection, cross-owner denial, duplicate-row partial failure/retry, and historical invariants. Deployed flags remain OFF.
+
+**Remaining HOLD:** mixed Create/Update batches deliberately fail closed; cross-owner Admin impersonation is unsupported; exhaustive concurrent external legacy mutation/revocation, reports/exports/Trip/mileage/project assignment and role-based Browser execution are not claimed complete. Additive `1.8.0-EXCEL-CANONICAL-STATUS` remains a DBA-reviewed migration prerequisite, not deployed.
+
 Status: **ENGINEERING CANDIDATE / HOLD / NO-GO**. The latest exact-SHA
 CI must pass before this increment is accepted. No UAT/Production writes,
 migrations, deployments, flags, promotions or Business UAT are authorized.
@@ -87,9 +96,5 @@ cannot impersonate a Visitor owner. Cross-owner bulk maintenance needs
 a separate explicit delegated-operation authorization contract, not a
 silent relaxation of `AuthorizeSubmissionAsync`.
 
-Mandatory remaining engineering evidence: full Update-only multi-row
-partial-failure/retry matrix, stale preview, concurrent legacy mutation,
-revocation, low-risk Excel Update, and report/export/Trip/mileage
-write-path sweep. Existing HTTP tests verify positive canonical high-risk
-publication and history only when the corresponding exact-SHA CI succeeds.
+Remaining engineering evidence: exhaustive concurrency against external legacy mutations and all revocation interleavings, plus the report/export/Trip/mileage write-path sweep. Update-only multi-row duplicate partial-failure/retry, stale preview, cross-owner denial, low-risk Update and positive high-risk publication/history have isolated test coverage in the passing Recovery CI.
 No Business UAT GO.

@@ -1,5 +1,14 @@
 # Batch 4 readiness matrix delta
 
+
+## 2026-10-14 — Authoritative Scheme A Recovery checkpoint
+
+- Verified implementation SHA: `7fb9399cc8a4950a7694a0d13195a8afccdbf24f`; exact-SHA Recovery CI `38601741807` — **SUCCESS**. This checkpoint supersedes older status notes below for the current candidate state.
+- Disposable SQL Server 2022 Recovery CI: Backend Release build PASS; backend `754/754`; frontend `110/110` and production build PASS; Option C HTTP/DI/SQL E2E `1/1`; canonical 011/012/014 rehearsal `2/2`.
+- Excel Create and published Update candidate paths remain on the canonical ChangeRequest/Stage/audit pipeline. Isolated HTTP/SQL regression covers Excel/CSV preview, per-row canonical requests, pending status, Update review and publication paths, RowVersion/replay/partial-failure behavior, and historical reference checks. Create submission means Pending review; it is not represented as Published before the canonical review completes.
+- Dashboard privacy regression uses the real Visitor HTTP response before/after: one deliberately added unreserved legacy draft remains counted, while the pending canonical reservation adds no count. Legacy managed search/pending and background-geocoding candidate checks also exclude the reserved identity.
+- **Still HOLD:** mixed Create/Update import batches fail closed; no cross-owner Admin impersonation; no exhaustive Trip create/edit/mileage/report/export/project-assignment route-level E2E; no isolated Browser role-based UAT; no exact UAT target preflight or backup/restore evidence. Candidate UI/API flags remain OFF; no UAT/Production SQL execution, migration, deployment, promotion, merge, or Business UAT was performed. Migration 013 is untouched. **Scheme A remains HOLD / NO-GO.**
+
 - OC-01 to OC-22 remain ready for Business User execution; technical candidate checks are PASS, Business execution is NOT RUN.
 - MergeFields cases require the additive detail schema and merge-specific writer before any UAT approval.
 - Geocoding failure/retry/duplicate evidence remain isolated Stage tests only.

@@ -7,7 +7,7 @@ inventory, not exhaustive Browser/HTTP/SQL E2E or UAT execution evidence.
 |---|---|---|
 | Location Picker/search/nearby | `V170LocationRepository.AccessibleLocations` filters IsActive + Approved and organization/team; both Search and Nearby use it | Full HTTP org/team negative matrix and Project filter |
 | Managed Location list/search | `V160FinalRepository` uses `V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync` | HTTP privacy and pagination across all roles |
-| Dashboard pending Location count | Previously counted reserved pending identities; now uses `LegacyVisibleLocationsAsync` to hide private canonical reservations while retaining unreserved drafts | Dedicated SQL HTTP dashboard count regression |
+| Dashboard pending Location count | `V160FinalRepository.DashboardAsync` uses `LegacyVisibleLocationsAsync`; Recovery HTTP/SQL E2E proves a private pending reservation adds no count while one deliberately inserted legitimate legacy draft remains counted | PASS in exact-SHA CI `38601741807`; other dashboard role scopes still need broader matrix |
 | Trip Context/One-stop | `V180TripContextReader` rejects inactive or non-Approved Location when resolving project/official assignment | Real Trip/One-stop submission and mileage negative matrix |
 | Background geocoding | `BackgroundJobService.PendingDraftGeocodingCandidates` excludes canonical reservations where installed | Concurrent job/legacy mutation E2E |
 | Historical Trip/Snapshot | `V160FinalRepository` retains stored stop/snapshot fields, with LocationId references | Historical name/address rendering after v2/v3 publication |
@@ -31,6 +31,6 @@ inventory, not exhaustive Browser/HTTP/SQL E2E or UAT execution evidence.
   publish canonical protected changes.
 - Missing additive catalog/schema never silently relaxes authorization.
 
-**Blocking evidence:** no exhaustive Trip create/edit/mileage/fallback,
+**Blocking evidence:** Dashboard reservation privacy now has real HTTP/SQL coverage. No exhaustive Trip create/edit/mileage/fallback,
 Project assignment, report/export or cross-org/team Browser/SQL E2E has
 been completed in this increment. Retain HOLD / NO-GO until proven.
