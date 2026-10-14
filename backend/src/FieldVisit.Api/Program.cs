@@ -12,7 +12,14 @@ var builder=WebApplication.CreateBuilder(args);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService,CurrentUserService>();
 builder.Services.AddScoped<ITokenService,TokenService>();
-builder.Services.AddScoped<AuthService>();builder.Services.AddScoped<TripService>();builder.Services.AddScoped<LeaderService>();builder.Services.AddScoped<MasterService>();builder.Services.AddScoped<V160FinalService>();builder.Services.AddScoped<V170PeopleAdminService>();builder.Services.AddScoped<V170LocationService>();builder.Services.AddScoped<V170ProjectLocationAdminService>();builder.Services.AddScoped<V180MasterDataAdminService>();builder.Services.AddScoped<V180OptionCStageEvidenceService>();
+builder.Services.AddScoped<AuthService>();builder.Services.AddScoped<TripService>();builder.Services.AddScoped<LeaderService>();builder.Services.AddScoped<MasterService>();builder.Services.AddScoped<V160FinalService>();builder.Services.AddScoped<V170PeopleAdminService>();builder.Services.AddScoped<V170LocationService>();builder.Services.AddScoped<V170ProjectLocationAdminService>();builder.Services.AddScoped<V180MasterDataAdminService>();
+// Candidate Option C composition is registered for isolated HTTP/DI tests only.
+// Every candidate service independently enforces OptionC:Candidate:Enabled,
+// the isolated SQL target and catalog proof; deployed flags remain false.
+builder.Services.AddScoped<V180OptionCCandidateService>();
+builder.Services.AddScoped<V180OptionCMergeService>();
+builder.Services.AddScoped<V180OptionCLeaderReviewService>();
+builder.Services.AddScoped<V180OptionCStageEvidenceService>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IBackgroundJobSignal,BackgroundJobSignal>();
 builder.Services.AddHostedService<BackgroundJobHostedService>();
