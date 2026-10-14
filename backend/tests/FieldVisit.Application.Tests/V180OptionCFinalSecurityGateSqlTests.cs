@@ -55,6 +55,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 DisplayKey nvarchar(250) NOT NULL,
                 DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,
                 CreatedAt datetime2 NOT NULL);
+            CREATE TABLE dbo.AuditLogs(
+                AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                UserId int NULL,EntityType nvarchar(100) NOT NULL,
+                EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
+                OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
+                IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
+                CreatedAt datetime2 NOT NULL);
             """);
         var batch = Guid.NewGuid();
         var staged = System.Text.Json.JsonSerializer.Serialize(new {
@@ -201,6 +208,49 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             SELECT COUNT(*) FROM dbo.Locations
             WHERE LocationName=N'Excel mixed denied'
             """));
+
+        // The actual admin-facing HTTP upload/Preview path can stage a CSV
+        // normalized to XLSX (the same OpenXML preview and canonical-submit
+        // pipeline used by .xlsx). Its intentionally blocked Create row is
+        // eligible ONLY through the explicit canonical review endpoint.
+        var csv = Encoding.UTF8.GetBytes(
+            "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n" +
+            ",T1,Excel real preview customer,Taipei,Xinyi,Excel real preview address,,Active\n");
+        using var form=new MultipartFormDataContent();
+        using var csvFile=new ByteArrayContent(csv);
+        csvFile.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        form.Add(csvFile,"file","locations.csv");
+        using var httpPreview=await admin.PostAsync(
+            "api/v1/imports/locations/preview",form);
+        Assert.True(httpPreview.IsSuccessStatusCode,
+            await httpPreview.Content.ReadAsStringAsync());
+        var preview = await httpPreview.Content.ReadFromJsonAsync<ImportPreviewDto>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_REAL_PREVIEW_MISSING");
+        Assert.Equal(1,preview.TotalCount);
+        Assert.Equal(0,preview.ValidCount);
+        Assert.Equal(1,preview.ErrorCount);
+        var previewCreate=Assert.Single(preview.Items);
+        Assert.Equal("Create",previewCreate.Action);
+        Assert.Equal("Error",previewCreate.Status);
+        Assert.Equal("LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW",
+            previewCreate.ErrorMessage);
+        using var previewSubmit=await admin.PostAsync(
+            $"api/v1/optionc-candidate/imports/{preview.ImportBatchId}/submit-creates-for-review",
+            null);
+        Assert.True(previewSubmit.IsSuccessStatusCode,
+            await previewSubmit.Content.ReadAsStringAsync());
+        var previewResult=await previewSubmit.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_REAL_SUBMISSION_MISSING");
+        Assert.Equal(1,previewResult.Submitted);
+        var newRequest=Assert.Single(previewResult.RequestPublicIds);
+        Assert.Equal("Pending",await h.RequestStatus(newRequest));
+        Assert.Equal("PendingGeocode",await h.StageStatus(newRequest));
+        Assert.Equal("0",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.LocationPublishedVersions pv
+            JOIN dbo.ChangeRequests r ON r.EntityId=CONVERT(nvarchar(80),pv.LocationId)
+            WHERE r.RequestPublicId=@id
+            """,P("@id",newRequest)));
     }
 
     [Fact]
