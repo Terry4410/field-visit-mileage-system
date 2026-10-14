@@ -3117,7 +3117,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 CREATE TABLE dbo.OptionCLiveApprovalActors(UserId int NOT NULL PRIMARY KEY,OrganizationId int NOT NULL,TeamId int NULL,IsActive bit NOT NULL,IsRequesterEligible bit NOT NULL,IsIndependentAdminEligible bit NOT NULL);
                 CREATE TABLE dbo.VisitTripStops(VisitTripStopId bigint NOT NULL PRIMARY KEY,LocationId int NOT NULL FOREIGN KEY REFERENCES dbo.Locations(LocationId));
                 CREATE TABLE dbo.VisitTripSnapshotStops(VisitTripSnapshotStopId bigint NOT NULL PRIMARY KEY,LocationId int NOT NULL FOREIGN KEY REFERENCES dbo.Locations(LocationId));
-                CREATE TABLE dbo.ProjectLocations(ProjectLocationId bigint NOT NULL PRIMARY KEY,ProjectId int NOT NULL,LocationId int NOT NULL,IsActive bit NOT NULL,IsPrimary bit NOT NULL,UpdatedAt datetime2 NULL);
+                CREATE TABLE dbo.ProjectLocations(ProjectLocationId int NOT NULL PRIMARY KEY,ProjectId int NOT NULL,LocationId int NOT NULL,IsActive bit NOT NULL,IsPrimary bit NOT NULL,UpdatedAt datetime2 NULL);
                 CREATE TABLE dbo.UserFavoriteLocations(UserFavoriteLocationId bigint NOT NULL PRIMARY KEY,UserId int NOT NULL,LocationId int NOT NULL);
                 CREATE TABLE dbo.GovernmentLocationMasters(GovernmentLocationMasterId bigint NOT NULL PRIMARY KEY,MatchedLocationId int NULL,UpdatedAt datetime2 NULL);
                 INSERT dbo.Organizations VALUES(1),(2);
