@@ -71,6 +71,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var created = await response.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_CREATE_HTTP_VIEW_MISSING");
         Assert.Equal("High", created.RiskCode);
+        Assert.Equal("CreateLocation", created.OperationCode);
         Assert.Equal("Pending", created.Status);
         var locationId = int.Parse(created.EntityId);
         Assert.True(locationId > 19);
@@ -199,6 +200,27 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             new V180OptionCLeaderReviewDecision(created.RowVersion, Guid.NewGuid(),
                 "Requester must not self-review", true));
         Assert.False(illegalSelf.IsSuccessStatusCode);
+        // Admin cannot read Stage RowVersion or inject geocode evidence
+        // before the canonical independent Leader first-level review.
+        using var earlyAdmin = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        earlyAdmin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        using var earlyStageGet = await earlyAdmin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/stage");
+        Assert.False(earlyStageGet.IsSuccessStatusCode);
+        var earlyVersion = (byte[])(await new SqlCommand("""
+            SELECT s.RowVersion FROM dbo.LocationPublicationStages s
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+            WHERE r.RequestPublicId=@id
+            """,h.Db){Parameters={new SqlParameter("@id",created.RequestPublicId)}}
+            .ExecuteScalarAsync() ?? throw new InvalidOperationException("OPTIONC_EARLY_STAGE_MISSING"));
+        using var earlyGeocode = await earlyAdmin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(Convert.ToBase64String(earlyVersion),true,
+                25.03m,121.56m,"Evidence cannot precede Leader")
+                {EvidenceKey=Guid.NewGuid()});
+        Assert.False(earlyGeocode.IsSuccessStatusCode);
+        Assert.Equal("PendingGeocode", await h.StageStatus(created.RequestPublicId));
         using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions {
             BaseAddress = new Uri("https://localhost") });
         leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
@@ -213,6 +235,17 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions {
             BaseAddress = new Uri("https://localhost") });
         admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        using var deniedStage = await visitor.GetAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/stage");
+        Assert.False(deniedStage.IsSuccessStatusCode);
+        using var readStage = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/stage");
+        Assert.True(readStage.IsSuccessStatusCode,
+            await readStage.Content.ReadAsStringAsync());
+        var stageForAdmin = await readStage.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_ADMIN_STAGE_READ_FAILED");
+        Assert.Equal("PendingGeocode", stageForAdmin.StageStatus);
+
         using var prematurePublish = await admin.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/publish-reviewed",
             new V180B3Review(created.RowVersion, Guid.NewGuid(),
@@ -226,9 +259,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             WHERE r.RequestPublicId=@id
             """, h.Db) { Parameters = { new SqlParameter("@id", created.RequestPublicId) } }
             .ExecuteScalarAsync() ?? throw new InvalidOperationException("OPTIONC_CREATE_STAGE_VERSION_MISSING"));
+        Assert.Equal(Convert.ToBase64String(stageVersion), stageForAdmin.StageRowVersion);
         using var geocode = await admin.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{created.RequestPublicId}/geocode-evidence",
-            new V180OptionCGeocodeEvidence(Convert.ToBase64String(stageVersion),
+            new V180OptionCGeocodeEvidence(stageForAdmin.StageRowVersion,
                 true, 25.03m, 121.56m, "Independent geocode verified") { EvidenceKey=Guid.NewGuid() });
         Assert.True(geocode.IsSuccessStatusCode,
             await geocode.Content.ReadAsStringAsync());
