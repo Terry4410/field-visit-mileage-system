@@ -320,6 +320,11 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var workbookNewLocationKeys =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Pending/Abandoned canonical CreateLocation reservations are private.
+        // A rejected historical identity must not be mistaken for an
+        // unchanged active location on a second Excel preview.
+        var visible = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
 
         var rowNo = 1;
         foreach (var raw in rows.Skip(1))
@@ -357,8 +362,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     }
                     else
                     {
-                        var existing = await db.Locations
-                            .AsNoTracking()
+                        var existing = await visible
                             .FirstOrDefaultAsync(
                                 x => x.OrganizationId == user.OrganizationId
                                      && x.LocationCode == code,
@@ -416,8 +420,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     }
                     else
                     {
-                        var same = await db.Locations
-                            .AsNoTracking()
+                        var same = await visible
                             .FirstOrDefaultAsync(
                                 x => x.OrganizationId == user.OrganizationId
                                      && x.TeamId == teamId
@@ -432,8 +435,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                             // idempotent and must not create a duplicate.
                             action = "NoChange";
                         }
-                        else if (await db.Locations
-                                     .AsNoTracking()
+                        else if (await visible
                                      .AnyAsync(
                                          x => x.OrganizationId == user.OrganizationId
                                               && x.TeamId == teamId
@@ -447,6 +449,16 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 }
             }
 
+            // Canonical Create requires an explicit live-authorized team and
+            // a real address, not a nullable legacy team/PlusCode-only draft.
+            // Reject at Preview rather than advertise an importable row that
+            // the canonical submission would inevitably refuse.
+            if (error is null && action == "Create"
+                && string.IsNullOrWhiteSpace(data.TeamCode))
+                error = "OPTIONC_EXCEL_TEAM_REQUIRED";
+            if (error is null && action == "Create"
+                && string.IsNullOrWhiteSpace(data.Address))
+                error = "OPTIONC_EXCEL_ADDRESS_REQUIRED";
             // Match Confirm's fail-closed CreateLocation gate in preview.
             // Do not present an unreviewed Excel create as a Valid row.
             if (error is null && action == "Create")
