@@ -30,9 +30,26 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
                 "optionc-canonical-sql-draft", relative.Replace('/', Path.DirectorySeparatorChar))));
 
+        // Live authorization is resolved by the real HTTP/DI pipeline, not
+        // by the fixture's audit rows or a caller-supplied approval boolean.
         await h.Exec("""
             INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
-            VALUES(4,1,1,N'E4',N'Independent Leader',1,SYSUTCDATETIME());
+                VALUES(4,1,1,N'E4',N'Independent Leader',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt,UpdatedAt)
+                VALUES(4,104,N'Internal',N'E4',N'Demo',SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,LegacyUserId,HireDate,SourceType,CreatedAt)
+                VALUES(104,104,1,N'E4',4,'2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+                VALUES(104,N'Active','2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(4,2,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+                VALUES(4,2,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+                VALUES(4,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+                VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+                VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
             """);
         const string createJson = """{"LocationName":"New customer","Address":"New customer address","City":"Taipei","MasterNote":"New note"}""";
         const string lowJson = """{"LocationName":"Original 10","Address":"Original address 10","MasterNote":"Reviewed low risk note"}""";
@@ -115,13 +132,31 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             Assert.Equal(51603, noAdmin.Number);
             await tx.RollbackAsync();
         }
-        await using (var tx = await h.Begin())
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
-            await V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
-                h.Db, tx, createId, 1, 2, Guid.NewGuid(),
-                "Independent admin create", true, true, CancellationToken.None);
-            await tx.CommitAsync();
-        }
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
+            builder.UseSetting("Auth:Mode", "Demo");
+            builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+        });
+        using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        using var leaderClient = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        leaderClient.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
+        var createRv = (byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.ChangeRequests WHERE RequestPublicId=@id", h.Db)
+            { Parameters = { new SqlParameter("@id", createId) } }.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_ROWVERSION_MISSING"));
+        var createHttp = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{createId}/publish-reviewed",
+            new V180B3Review(Convert.ToBase64String(createRv), Guid.NewGuid(),
+                "Independent Admin create publication"));
+        Assert.True(createHttp.IsSuccessStatusCode,
+            await createHttp.Content.ReadAsStringAsync());
         Assert.Equal("1", await h.Scalar(
             "SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=40"));
         Assert.Equal("1", await h.Scalar(
@@ -175,13 +210,16 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             Assert.Equal(51604, wrongReviewer.Number);
             await tx.RollbackAsync();
         }
-        await using (var tx = await h.Begin())
-        {
-            await V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
-                h.Db, tx, lowId, 1, 4, Guid.NewGuid(),
-                "Leader approved low risk", true, false, CancellationToken.None);
-            await tx.CommitAsync();
-        }
+        var lowRv = (byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.ChangeRequests WHERE RequestPublicId=@id", h.Db)
+            { Parameters = { new SqlParameter("@id", lowId) } }.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_LOW_ROWVERSION_MISSING"));
+        var lowHttp = await leaderClient.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{lowId}/publish-reviewed",
+            new V180B3Review(Convert.ToBase64String(lowRv), Guid.NewGuid(),
+                "Independent Leader low-risk publication"));
+        Assert.True(lowHttp.IsSuccessStatusCode,
+            await lowHttp.Content.ReadAsStringAsync());
         Assert.Equal("Reviewed low risk note", await h.Scalar(
             "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("2", await h.Scalar(
