@@ -33,6 +33,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
             builder.UseSetting("Auth:Mode", "Demo");
             builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
         });
         using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));

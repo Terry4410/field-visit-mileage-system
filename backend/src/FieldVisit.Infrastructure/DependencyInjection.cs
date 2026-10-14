@@ -10,7 +10,15 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services,IConfiguration configuration)
     {
         var cs=configuration.GetConnectionString("DefaultConnection")??throw new InvalidOperationException("DefaultConnection 尚未設定。");
-        services.AddDbContext<AppDbContext>(o=>o.UseSqlServer(cs,sql=>sql.EnableRetryOnFailure(5,TimeSpan.FromSeconds(10),null)));
+        services.AddDbContext<AppDbContext>(o=>
+        {
+            // The candidate surface owns explicit Serializable transactions in
+            // an isolated SQL host. Keep the normal retry strategy for every
+            // deployed/default composition, but do not combine it with manual
+            // candidate transactions (EF Core rejects that combination).
+            if(configuration.GetValue<bool>("OptionC:Candidate:Enabled")) o.UseSqlServer(cs);
+            else o.UseSqlServer(cs,sql=>sql.EnableRetryOnFailure(5,TimeSpan.FromSeconds(10),null));
+        });
         services.AddScoped<IUserRepository,UserRepository>();services.AddScoped<ITripRepository,TripRepository>();services.AddScoped<IMasterRepository,MasterRepository>();services.AddScoped<IMileageRepository,MileageRepository>();services.AddScoped<IWorkflowRepository,WorkflowRepository>();services.AddScoped<ITripSnapshotRepository,TripSnapshotRepository>();services.AddScoped<IUnitOfWork>(sp=>sp.GetRequiredService<AppDbContext>());services.AddScoped<IV180TripContextReader,V180TripContextReader>();services.AddScoped<IV180GoogleMileageGovernanceRepository,V180GoogleMileageGovernanceRepository>();
         services.AddScoped<IV160FinalRepository,V160FinalRepository>();services.AddScoped<IV170AccessControl,V170AccessControl>();services.AddScoped<IV170LocationRepository,V170LocationRepository>();services.AddScoped<IV170ProjectLocationAdminRepository,V170ProjectLocationAdminRepository>();services.AddScoped<IV170PeopleAdminRepository,V170PeopleAdminRepository>();services.AddScoped<IV170PeopleAdminWriter,V170PeopleAdminWriter>();services.AddScoped<IV170PeopleBulkWorkbookService,V170PeopleBulkWorkbookService>();services.AddScoped<IReportDocumentService,ReportDocumentService>();services.AddScoped<IWorkbookImportService,WorkbookImportService>();services.AddScoped<IBackgroundJobService,BackgroundJobService>();
         services.AddScoped<IV180MasterDataAdminRepository,V180MasterDataAdminRepository>();
