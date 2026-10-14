@@ -148,6 +148,23 @@ public sealed class V180OptionCCandidateService(
         return await FindAsync(id, ct);
     }
 
+    /// <summary>
+    /// Candidate-only CreateLocation/High and UpdatePublishedLocation/Low
+    /// publication. No deployed feature flag or production DB can enable it:
+    /// RequireTargetAsync enforces explicit candidate setting and disposable
+    /// local SQL Server, while the orchestrator revalidates live authority.
+    /// </summary>
+    public async Task<V180B3RequestView> PublishReviewedAsync(
+        Guid id, V180B3Review input, CancellationToken ct)
+    {
+        V180B3RequestInputRules.RequireReviewTarget(id, input);
+        await RequireTargetAsync(ct);
+        await new V180OptionCCreateLowRiskPublicationOrchestrator(db, current)
+            .ExecuteAsync(id, input.DecisionKey, input.Reason,
+                input.RequestRowVersion, ct);
+        return await FindAsync(id, ct);
+    }
+
     public async Task<V180B3RequestView> RejectAsync(Guid id, V180B3Review input, CancellationToken ct)
     {
         V180B3RequestInputRules.RequireReviewTarget(id, input);
