@@ -150,7 +150,7 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
     {
         var tx = db.Database.CurrentTransaction
             ?? throw new InvalidOperationException("OPTIONC_SERIALIZABLE_TRANSACTION_REQUIRED");
-        if (tx.IsolationLevel != System.Data.IsolationLevel.Serializable
+        if (tx.GetDbTransaction().IsolationLevel != System.Data.IsolationLevel.Serializable
             || tx.GetDbTransaction().Connection != db.Database.GetDbConnection())
             throw new InvalidOperationException("OPTIONC_SERIALIZABLE_TRANSACTION_REQUIRED");
     }
