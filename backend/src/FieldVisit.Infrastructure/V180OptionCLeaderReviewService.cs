@@ -147,7 +147,16 @@ public sealed class V180OptionCLeaderReviewService(
         detail.DecisionKey = input.DecisionKey;
         detail.EvidenceJson = JsonSerializer.Serialize(evidence);
         if (detail.ChangeRequestLeaderReviewId == 0) db.LeaderReviews.Add(detail);
-        if (!input.Approve) row.Status = "Rejected";
+        if (!input.Approve)
+        {
+            // Canonical CK_B3_ChangeRequests_ReviewState requires a terminal
+            // rejection's independent reviewer, timestamp and reason.
+            // First-level approval leaves the request Pending for final review.
+            row.Status = "Rejected";
+            row.ReviewedByUserId = actor.UserId;
+            row.ReviewedAt = detail.ReviewedAt;
+            row.ReviewReason = input.Reason;
+        }
         db.ChangeRequestEvents.Add(new V180B3ChangeEvent {
             ChangeRequestId = row.ChangeRequestId,
             EventType = input.Approve ? "LeaderApproved" : "LeaderRejected",
