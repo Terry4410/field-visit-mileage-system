@@ -38,7 +38,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 ImportType nvarchar(30) NOT NULL,
                 OrganizationId int NOT NULL,
                 RequestedByUserId int NOT NULL,
-                Status nvarchar(40) NOT NULL,
+                Status nvarchar(30) NOT NULL
+                    CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(
+                        N'Previewed',N'Confirmed',N'PartiallyFailed')),
                 TotalCount int NOT NULL,ValidCount int NOT NULL,
                 ErrorCount int NOT NULL,
                 CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,
@@ -47,7 +49,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 ImportBatchId uniqueidentifier NOT NULL,
                 RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,
-                Action nvarchar(30) NOT NULL,Status nvarchar(40) NOT NULL,
+                Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL
+                    CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(
+                        N'Valid',N'Error',N'Applied',N'Failed')),
                 DisplayKey nvarchar(250) NOT NULL,
                 DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,
                 CreatedAt datetime2 NOT NULL);
@@ -88,6 +92,20 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             $"api/v1/imports/{batch}/confirm",null);
         Assert.False(legacy.IsSuccessStatusCode);
         var url=$"api/v1/optionc-candidate/imports/{batch}/submit-creates-for-review";
+        using var absentContract = await admin.PostAsync(url,null);
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
+            absentContract.StatusCode);
+        Assert.Contains("OPTIONC_EXCEL_STATUS_CONTRACT_NOT_READY",
+            await absentContract.Content.ReadAsStringAsync());
+        Assert.Equal("0",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations
+            WHERE LocationName=N'Excel canonical first'
+            """));
+        // Only the disposable SQL fixture installs the NONEXECUTABLE
+        // additive status draft. No UAT/Production schema is touched.
+        await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
+            "optionc-canonical-sql-draft","excel-import",
+            "ExcelImportStatusContract.disposable.sql")));
         using var submitted = await admin.PostAsync(url,null);
         Assert.True(submitted.IsSuccessStatusCode,
             await submitted.Content.ReadAsStringAsync());
