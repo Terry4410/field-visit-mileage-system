@@ -479,6 +479,20 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(1,updateValue.Submitted);
         var updateId=Assert.Single(updateValue.RequestPublicIds);
         Assert.Equal("Pending",await h.RequestStatus(updateId));
+        using var deniedLinks=await admin.GetAsync(
+            $"api/v1/optionc-candidate/imports/{previewUpdate.ImportBatchId}/request-links");
+        Assert.False(deniedLinks.IsSuccessStatusCode);
+        using var rowLinksHttp=await importer.GetAsync(
+            $"api/v1/optionc-candidate/imports/{previewUpdate.ImportBatchId}/request-links");
+        Assert.True(rowLinksHttp.IsSuccessStatusCode,
+            await rowLinksHttp.Content.ReadAsStringAsync());
+        var rowLinks=await rowLinksHttp.Content.ReadFromJsonAsync<List<V180OptionCExcelRowLink>>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_ROW_LINKS_MISSING");
+        var link=Assert.Single(rowLinks);
+        Assert.Equal(2,link.RowNumber);
+        Assert.Equal(updateId,link.RequestPublicId);
+        Assert.Equal("UpdatePublishedLocation",link.OperationCode);
+        Assert.Equal("Pending",link.RequestStatus);
         Assert.Equal("PendingGeocode",await h.StageStatus(updateId));
         Assert.Equal("1",await h.EventCount(updateId,"Submitted"));
         Assert.Equal("1",await h.Scalar("""
@@ -574,6 +588,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.True(publishUpdate.IsSuccessStatusCode,
             await publishUpdate.Content.ReadAsStringAsync());
         Assert.Equal("Applied",await h.RequestStatus(updateId));
+        using var appliedLinksHttp=await importer.GetAsync(
+            $"api/v1/optionc-candidate/imports/{previewUpdate.ImportBatchId}/request-links");
+        Assert.True(appliedLinksHttp.IsSuccessStatusCode,
+            await appliedLinksHttp.Content.ReadAsStringAsync());
+        var appliedLinks=await appliedLinksHttp.Content.ReadFromJsonAsync<List<V180OptionCExcelRowLink>>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_APPLIED_LINK_MISSING");
+        Assert.Equal("Applied",Assert.Single(appliedLinks).RequestStatus);
         Assert.Equal("Excel reviewed address",await h.Scalar(
             "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal(oldTrips,await h.Scalar(
