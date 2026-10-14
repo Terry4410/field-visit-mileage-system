@@ -57,7 +57,7 @@ BEGIN TRY
                                 N'GeocodeEvidenceRecorded',
                                 N'DuplicateReviewEvidenceRecorded')
                  AND [DecisionKey] IS NOT NULL
-                 AND [DecisionKey] <> N'00000000-0000-0000-0000-000000000000)
+                 AND [DecisionKey] <> N'00000000-0000-0000-0000-000000000000')
             )
         );
     ALTER TABLE dbo.ChangeRequestEvents CHECK CONSTRAINT CK_B3_ChangeRequestEvents_StageEvidenceEventType;
