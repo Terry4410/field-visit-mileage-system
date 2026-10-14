@@ -1090,6 +1090,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             .ReadFromJsonAsync<List<V170LocationNearbyDto>>()
             ?? throw new InvalidOperationException("OPTIONC_CREATE_NEARBY_VIEW_MISSING");
         Assert.DoesNotContain(nearbyResults, x => x.LocationId == locationId);
+        using var crossTeamSearch = await visitor.GetAsync(
+            "api/v1/locations/search?teamId=999&pageSize=100");
+        Assert.False(crossTeamSearch.IsSuccessStatusCode,
+            "Visitor must not choose an unassigned TeamId in Location search.");
+        using var crossTeamNearby = await visitor.GetAsync(
+            "api/v1/locations/nearby?latitude=25.033&longitude=121.565&teamId=999&limit=100");
+        Assert.False(crossTeamNearby.IsSuccessStatusCode,
+            "Visitor must not query Nearby Locations outside assigned teams.");
         using var pendingFavorite = await visitor.PostAsync(
             $"api/v1/locations/{locationId}/favorite", null);
         Assert.False(pendingFavorite.IsSuccessStatusCode);
