@@ -830,6 +830,19 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // a JWT claim alone would be an invalid proof of the canonical guard.
         visitor.DefaultRequestHeaders.Authorization =
             new("Bearer", Token(1, "E1", "visitor", 1, 1));
+        // Dashboard aggregation reads VisitTrips even when this isolated
+        // reservation test has no trip fixtures. Create only the three
+        // columns used by the real count query; keep the table empty so
+        // this test proves the pending reservation does not enter trip counts.
+        await h.Exec("""
+            CREATE TABLE dbo.VisitTrips
+            (
+                VisitTripId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                UserId int NOT NULL,
+                Status nvarchar(30) NOT NULL,
+                VisitDate date NOT NULL
+            );
+            """);
         using var dashboardBeforeResponse = await visitor.GetAsync("api/v1/dashboard");
         Assert.True(dashboardBeforeResponse.IsSuccessStatusCode,
             await dashboardBeforeResponse.Content.ReadAsStringAsync());
