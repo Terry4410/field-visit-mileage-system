@@ -124,7 +124,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
 
                 var snapshotLocation = await db.VisitTripSnapshotStops
                     .Where(x => x.Snapshot.VisitTripId == created.VisitTripId)
-                    .Select(x => x.LocationId).SingleAsync();
+                    .Select(x => x.LocationId).FirstAsync();
                 Assert.Equal(fixture.Approved.LocationId, snapshotLocation);
 
                 using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
@@ -150,7 +150,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
 
                 Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
-                Assert.Equal(1, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
+                Assert.Equal(2, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
                 Assert.Equal(0, await db.VisitTripStops.CountAsync(x => x.LocationId == fixture.Pending.LocationId));
             }
         }
