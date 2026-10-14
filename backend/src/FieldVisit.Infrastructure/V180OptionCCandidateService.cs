@@ -4,6 +4,7 @@ using FieldVisit.Application;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Configuration;
 
 namespace FieldVisit.Infrastructure;
 
