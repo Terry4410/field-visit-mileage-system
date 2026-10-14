@@ -69,6 +69,10 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
               AND ReviewerUserId IS NOT NULL AND DecisionKey IS NOT NULL;
             IF @leader IS NULL OR @leaderKey IS NULL
                 THROW 51602,N'OPTIONC_CREATE_LOW_LEADER_REQUIRED',1;
+            IF NOT EXISTS(SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
+                WHERE ChangeRequestId=@requestId AND EventType=N'LeaderApproved'
+                  AND ActorUserId=@leader AND DecisionKey=@leaderKey)
+                THROW 51617,N'OPTIONC_LEADER_AUDIT_REQUIRED',1;
             IF @operation=N'CreateLocation'
                AND (@adminEligible<>1 OR @reviewer=@leader)
                 THROW 51603,N'OPTIONC_CREATE_INDEPENDENT_ADMIN_REQUIRED',1;
@@ -87,6 +91,17 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
                OR (@operation=N'UpdatePublishedLocation'
                    AND (@active<>1 OR @status<>N'Approved'))
                 THROW 51606,N'OPTIONC_CREATE_LOW_SOURCE_STATE_INVALID',1;
+            -- Recompute risk from the authoritative locked Location; a
+            -- caller-provided Low label can never change address or identity.
+            IF @operation=N'UpdatePublishedLocation' AND EXISTS(
+                SELECT 1 FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
+                WHERE LocationId=@locationId AND (
+                    ISNULL(City,N'')<>ISNULL(JSON_VALUE(@proposed,N'$.City'),N'')
+                 OR ISNULL(District,N'')<>ISNULL(JSON_VALUE(@proposed,N'$.District'),N'')
+                 OR ISNULL(Address,N'')<>ISNULL(JSON_VALUE(@proposed,N'$.Address'),N'')
+                 OR ISNULL(PlusCode,N'')<>ISNULL(JSON_VALUE(@proposed,N'$.PlusCode'),N'')
+                 OR ISNULL(TaxId,N'')<>ISNULL(JSON_VALUE(@proposed,N'$.TaxId'),N'')))
+                THROW 51618,N'OPTIONC_LOW_RISK_IDENTITY_CHANGE_DENIED',1;
 
             IF @operation=N'CreateLocation'
             BEGIN
@@ -121,6 +136,15 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
             IF @operation=N'CreateLocation' AND
                (@geocode<>N'Succeeded' OR @latitude IS NULL OR @longitude IS NULL)
                 THROW 51609,N'OPTIONC_CREATE_GEOCODE_REQUIRED',1;
+            IF NOT EXISTS(SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
+                WHERE ChangeRequestId=@requestId
+                  AND EventType=N'DuplicateReviewEvidenceRecorded')
+                THROW 51619,N'OPTIONC_DUPLICATE_AUDIT_REQUIRED',1;
+            IF @operation=N'CreateLocation' AND NOT EXISTS(
+                SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
+                WHERE ChangeRequestId=@requestId
+                  AND EventType=N'GeocodeEvidenceRecorded')
+                THROW 51620,N'OPTIONC_GEOCODE_AUDIT_REQUIRED',1;
 
             IF EXISTS(SELECT 1 FROM dbo.ChangeRequestEvents WITH(UPDLOCK,HOLDLOCK)
                       WHERE DecisionKey=@decision)
