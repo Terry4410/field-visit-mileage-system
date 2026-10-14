@@ -409,3 +409,51 @@ Verified prior Background fence exact SHA
 CI `38536671419 — SUCCESS` (753 backend + 1 Admin E2E +
 2 SQL rehearsal; frontend 24 files). This new legacy-guard change must
 obtain its own Exact-SHA CI before a PASS claim. UAT/Production HOLD.
+
+
+## Authoritative Scheme A recovery checkpoint — 2026-10-14 / Verified 0dfb975
+
+**Recovery only**: `work/v180-optionc-final-gates-recovery-r1`
+
+- Exact engineering SHA: `0dfb9757650d5276e9ee7c078c89ec227b60f8a5`
+- GitHub Actions Exact-SHA: `38537429814 — SUCCESS`
+- Backend main suite: **753 PASS**. Additional isolated Admin E2E: **1 PASS**.
+  Canonical 011/012/014 disposable SQL rehearsal: **2 PASS**.
+  Frontend: **24 test files PASS**, production build **PASS (no deploy)**.
+- Real disposable SQL/DI/HTTP CreateLocation transaction exercised:
+  Visitor submit with server-owned stable LocationId + Pending reservation /
+  private Stage; independent live-appointed Leader review; Admin geocode /
+  duplicate evidence; independent Admin final atomic V1 publication.
+  The same test includes duplicate pending denial, self-review and cross-org
+  denial, premature publication denial, independent Leader rejection to
+  Abandoned Stage / reservation, canonical event audit and historical
+  Trip/Snapshot reference preservation.
+- Picker/search HTTP now tested: Pending reserved identity is not selectable;
+  after approved publication it becomes visible; adding pending favorite is
+  denied. CI `38535811600` confirmed this test after correction of its
+  old JWT test fixture.
+- **Bypass guards**: Excel Location Create Preview/Confirm is fail-closed;
+  legacy published direct updates/notes fail-closed; background geocoding
+  excludes all canonical reserved LocationIds; legacy draft update,
+  deactivation, delete impact and permanent delete call the same
+  additive-schema-aware reservation guard, including abandoned reservations.
+  Ordinary unreserved legacy Pending drafts remain eligible.
+- **Scope of evidence**: reservation guard is covered by isolated SQL/EF
+  negative tests plus successful API build. A complete direct HTTP test for
+  every legacy mutation endpoint, concurrent Create-vs-legacy request,
+  all background job modes, and all operational trip/mileage/report queries
+  is **not** yet claimed.
+- **Remaining HOLD blockers**: comprehensive Create-specific concurrent
+  submission / replay / revocation / rollback HTTP matrix; comprehensive
+  Pending inclusion/exclusion audit in every trip, mileage, export and report;
+  Excel canonical import workflow; legacy/background canonical routing (beyond
+  present fail-closed safety); Visitor/Leader/Admin approval UI; exact UAT target
+  identification, read-only target preflight, backup/restore evidence, DBA
+  migration/dependency plan sign-off, authorized UAT deployment and Business UAT.
+- **Authorization boundary**: no UAT/Production SQL writes or migrations, no
+  UAT target preflight, no deployment, flag activation, promotion, merge, or
+  Business UAT GO; migration 013 untouched. This is nondeploy engineering
+  evidence, **not** UAT execution authorization or Business UAT success.
+- **Owner decision**: **SCHEME A HOLD / NO-GO**. Older status fragments in
+  these evolving release documents are historical and superseded by this
+  Exact-SHA checkpoint.
