@@ -33,3 +33,10 @@ Engineering PASS is limited to disposable isolated SQL. UAT target preflight and
 Authoritative Recovery SHA: `05ebca0748da49ae88a4403b5365ab3e1a1427c4`; exact-SHA CI `38509844660` SUCCESS. Candidate HTTP/DI geocode and duplicate-review transitions now run inside Serializable transactions, lock Request then Stage, validate live HR/role/org/team authority, bind evidence to Stage RowVersion and the proposed address hash, reject stale/replay/revoked callbacks, and never publish Locations. Evidence-flow E2E passed; Location remained unchanged.
 
 Remaining engineering HOLD: canonical migration 012 ChangeRequestEvents CHECK currently permits only Submitted/Rejected/Approved/Applied, so application-owned evidence transitions do not yet have an immutable canonical event type. No unsafe event bypass was added. UAT target preflight and Business UAT remain NOT RUN; flags and UAT/Production execution policies remain OFF.
+
+
+## Canonical audit contract closure — 2026-10-14
+
+Recovery SHA `2084e6d470264826ac359fa91ce1c633bc30e475`; exact-SHA CI `38511099449` SUCCESS. Disposable candidate `audit/StageEvidenceAuditEvents.disposable.sql` first verifies the canonical 012 EventType CHECK and then additively permits `GeocodeEvidenceRecorded` and `DuplicateReviewEvidenceRecorded`; migration 013 and existing records are untouched. Stage Evidence Service appends immutable canonical events in the same Serializable transaction as Stage updates, with actor, role, Request identity, before/after Stage RowVersion, proposed evidence hash, EvidenceKey, source, decision and reason. EvidenceKey collision E2E proves Stage and audit rollback atomically. Engineering audit contract PASS is limited to OptionCIsolated_* SQL.
+
+UAT target preflight remains NOT RUN. This package is now technically ready for Owner review of a future UAT execution authorization; no UAT execution or Business UAT GO is implied.
