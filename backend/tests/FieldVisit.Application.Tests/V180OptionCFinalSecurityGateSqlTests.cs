@@ -71,11 +71,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // a JWT claim alone would be an invalid proof of the canonical guard.
         visitor.DefaultRequestHeaders.Authorization =
             new("Bearer", Token(1, "E1", "visitor", 1, 1));
-        using var blocked = await visitor.PostAsJsonAsync(
+        using var blockedLegacyCreate = await visitor.PostAsJsonAsync(
             "api/v1/managed-locations", direct);
-        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, blocked.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
+            blockedLegacyCreate.StatusCode);
         Assert.Contains("LOCATION_LEGACY_CREATE_REQUIRES_CANONICAL_REVIEW",
-            await blocked.Content.ReadAsStringAsync());
+            await blockedLegacyCreate.Content.ReadAsStringAsync());
         Assert.Equal("0", await h.Scalar("""
             SELECT COUNT(*) FROM dbo.Locations
             WHERE LocationName=N'Legacy HTTP bypass denied'
