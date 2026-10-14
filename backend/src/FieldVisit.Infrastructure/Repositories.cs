@@ -538,7 +538,7 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     public async Task<List<Location>> GetProjectLocationsAsync(int projectId, CurrentUserDto user, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(x => x.ProjectId == projectId, ct) ?? throw new KeyNotFoundException("找不到專案。");
-        if ((user.Roles.Contains("admin") || user.Roles.Contains("supervisor")) && user.OrganizationId.HasValue && project.OrganizationId != user.OrganizationId.Value)
+        if (!user.OrganizationId.HasValue || project.OrganizationId != user.OrganizationId.Value)
             throw new UnauthorizedAccessException("無權使用其他 Organization 專案。");
         if (user.Roles.Contains("leader") && project.TeamId.HasValue && !user.TeamIds.Contains(project.TeamId.Value))
             throw new UnauthorizedAccessException("無權使用未授權小組專案。");
@@ -546,9 +546,28 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
             && project.TeamId.HasValue
             && !user.TeamIds.Contains(project.TeamId.Value))
             throw new UnauthorizedAccessException("無權使用未授權小組專案。");
+        // Project-linked Trips consume this list as operational Location
+        // choices. Apply the same private Create reservation boundary used
+        // by legacy maintenance, then require a currently published,
+        // active Location inside the Project's organization/team scope.
+        // Historical Trip/Snapshot reads use their frozen records and do
+        // not call this operational lookup.
+        var visibleLocations = await V180OptionCCreateReservationGuard
+            .LegacyVisibleLocationsAsync(db, ct);
+        var teamScopedRole = user.Roles.Contains("visitor", StringComparer.OrdinalIgnoreCase)
+            || user.Roles.Contains("leader", StringComparer.OrdinalIgnoreCase);
+        var authorizedTeamIds = user.TeamIds.ToArray();
         return await (from pl in db.ProjectLocations.AsNoTracking()
-                      join l in db.Locations.AsNoTracking() on pl.LocationId equals l.LocationId
-                      where pl.ProjectId == projectId && pl.IsActive && l.IsActive
+                      join l in visibleLocations on pl.LocationId equals l.LocationId
+                      where pl.ProjectId == projectId && pl.IsActive
+                          && l.IsActive
+                          && !l.IsTemporary
+                          && l.ApprovalStatus == "Approved"
+                          && (!l.OrganizationId.HasValue || l.OrganizationId == project.OrganizationId)
+                          && (!l.TeamId.HasValue
+                              || (project.TeamId.HasValue
+                                  ? l.TeamId == project.TeamId.Value
+                                  : !teamScopedRole || authorizedTeamIds.Contains(l.TeamId.Value)))
                       orderby pl.IsPrimary descending, l.LocationName
                       select l).ToListAsync(ct);
     }

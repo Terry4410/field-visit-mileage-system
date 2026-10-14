@@ -902,6 +902,63 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Pending", await h.Scalar(
             "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
             P("@id", locationId)));
+        // Project-linked Trip pickers use the legacy project-locations API.
+        // Simulate a stale/incorrect activation bit on the still-private
+        // canonical reservation: the project query must rely on the live
+        // reservation and publication state, not IsActive alone. A normal
+        // approved project Location remains selectable.
+        await h.Exec("""
+            CREATE TABLE dbo.Projects
+            (
+                ProjectId int NOT NULL PRIMARY KEY,
+                OrganizationId int NOT NULL,
+                TeamId int NULL,
+                ProjectCode nvarchar(100) NOT NULL,
+                ProjectName nvarchar(200) NOT NULL,
+                Description nvarchar(1000) NULL,
+                LocationMode nvarchar(20) NOT NULL,
+                StartDate date NULL,
+                EndDate date NULL,
+                IsActive bit NOT NULL,
+                CreatedAt datetime2 NOT NULL,
+                UpdatedAt datetime2 NULL
+            );
+            IF COL_LENGTH(N'dbo.ProjectLocations',N'CreatedAt') IS NULL
+                ALTER TABLE dbo.ProjectLocations ADD CreatedAt datetime2 NOT NULL
+                    CONSTRAINT DF_TestProjectLocations_CreatedAt DEFAULT(SYSUTCDATETIME());
+            INSERT dbo.Projects(ProjectId,OrganizationId,TeamId,ProjectCode,ProjectName,
+                Description,LocationMode,StartDate,EndDate,IsActive,CreatedAt)
+            VALUES(900,1,1,N'RESERVED-E2E',N'Reserved project',NULL,N'List',
+                '2026-01-01',NULL,1,SYSUTCDATETIME()),
+                  (901,2,2,N'CROSS-ORG-E2E',N'Other organization project',NULL,N'List',
+                '2026-01-01',NULL,1,SYSUTCDATETIME());
+            INSERT dbo.Teams(TeamId,OrganizationId,TeamCode,TeamName,IsActive,CreatedAt)
+                VALUES(3,1,N'T3',N'Unassigned same-org team',1,SYSUTCDATETIME());
+            INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,
+                LocationType,ApprovalStatus,IsActive,LocationName,Address)
+                VALUES(30,1,3,1,N'Customer',N'Approved',1,N'Other team published',N'Other team address');
+            INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsPrimary,IsActive,CreatedAt)
+            VALUES(9900,900,10,1,1,SYSUTCDATETIME()),
+                  (9901,900,@location,0,1,SYSUTCDATETIME()),
+                  (9902,900,30,0,1,SYSUTCDATETIME());
+            UPDATE dbo.Locations SET IsActive=1 WHERE LocationId=@location;
+            """, P("@location", locationId));
+        using var projectLocationsResponse = await visitor.GetAsync(
+            "api/v1/projects/900/locations");
+        Assert.True(projectLocationsResponse.IsSuccessStatusCode,
+            await projectLocationsResponse.Content.ReadAsStringAsync());
+        var projectLocations = await projectLocationsResponse.Content
+            .ReadFromJsonAsync<List<LocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_PROJECT_LOCATIONS_VIEW_MISSING");
+        Assert.Contains(projectLocations, x => x.LocationId == 10);
+        Assert.DoesNotContain(projectLocations, x => x.LocationId == locationId);
+        Assert.DoesNotContain(projectLocations, x => x.LocationId == 30);
+        using var crossOrganizationProject = await visitor.GetAsync(
+            "api/v1/projects/901/locations");
+        Assert.False(crossOrganizationProject.IsSuccessStatusCode,
+            "Visitor must not resolve a Project from another Organization.");
+        await h.Exec("UPDATE dbo.Locations SET IsActive=0 WHERE LocationId=@location",
+            P("@location", locationId));
         // Real legacy HTTP UPDATE/DELETE must not mutate a canonical reserved
         // identity. Test as valid org-scoped admin to exclude auth-only denials.
         using var legacyAdmin = factory.CreateClient(new WebApplicationFactoryClientOptions {
