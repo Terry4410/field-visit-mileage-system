@@ -50,6 +50,22 @@ public sealed class V180OptionCCandidateService(
             var before = new V180B3LocationFields(location.LocationName, location.City,
                 location.District, location.Address, location.PlusCode, location.TaxId, location.MasterNote);
             var proposal = V180B3ProposalSafetyRules.Validate(input.Proposed, before, input.Reason);
+            // The server, not the caller, owns risk classification. A Low
+            // request is allowed only with the additive isolated SQL contract.
+            var risk = V180OptionCCreateLowRiskPolicy.ClassifyPublishedUpdate(
+                before.City, before.District, before.Address, before.PlusCode, before.TaxId,
+                proposal.Proposed.City, proposal.Proposed.District, proposal.Proposed.Address,
+                proposal.Proposed.PlusCode, proposal.Proposed.TaxId,
+                published: true, changedAnyField: true);
+            if (risk == V180OptionCCreateLowRiskPolicy.Low)
+            {
+                await using var gate = new SqlCommand("""
+                    SELECT COUNT(*) FROM dbo.SchemaVersions
+                    WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK'
+                    """, connection, (SqlTransaction)tx.GetDbTransaction());
+                if (Convert.ToInt32(await gate.ExecuteScalarAsync(ct)) != 1)
+                    throw new InvalidOperationException("OPTIONC_LOW_SCHEMA_NOT_READY");
+            }
             if (await db.ChangeRequests.AnyAsync(x => x.OrganizationId == scope.OrganizationId
                 && x.EntityKind == "Location" && x.EntityId == input.LocationId.ToString()
                 && x.Status == "Pending", ct))
@@ -57,7 +73,7 @@ public sealed class V180OptionCCandidateService(
             var row = new V180B3ChangeRequest {
                 RequestPublicId = Guid.NewGuid(), OrganizationId = scope.OrganizationId,
                 TeamId = scope.TeamId, EntityKind = "Location", EntityId = input.LocationId.ToString(),
-                OperationCode = "UpdatePublishedLocation", RiskCode = "High",
+                OperationCode = "UpdatePublishedLocation", RiskCode = risk,
                 ExpectedEntityRowVersion = location.RowVersion.ToArray(),
                 BeforeJson = JsonSerializer.Serialize(before), ProposedJson = JsonSerializer.Serialize(proposal.Proposed),
                 EvidenceJson = JsonSerializer.Serialize(new { Source = "LiveHR", scope.VisitorEligible, scope.LeaderEligible }),
@@ -87,7 +103,7 @@ public sealed class V180OptionCCandidateService(
         var org = await new V180OptionCLiveAuthorizationAdapter(db).ResolveLiveOrganizationAsync(actorId, ct);
         var rows = await db.ChangeRequests.AsNoTracking().Where(x => x.OrganizationId == org
             && x.RequestedByUserId == actorId && x.EntityKind == "Location"
-            && x.OperationCode == "UpdatePublishedLocation" && x.RiskCode == "High"
+            && x.OperationCode == "UpdatePublishedLocation" && (x.RiskCode == "High" || x.RiskCode == "Low")
             && (x.Status == "Pending" || x.Status == "Rejected" || x.Status == "Applied"))
             .OrderByDescending(x => x.SubmittedAt).Take(100).ToListAsync(ct);
         await tx.CommitAsync(ct);
@@ -106,7 +122,7 @@ public sealed class V180OptionCCandidateService(
             && x.RequestedByUserId == actorId
             && x.EntityKind == "Location"
             && x.OperationCode == "UpdatePublishedLocation"
-            && x.RiskCode == "High", ct)
+            && (x.RiskCode == "High" || x.RiskCode == "Low"), ct)
             ?? throw new UnauthorizedAccessException("OPTIONC_REQUEST_SCOPE_DENIED");
         await tx.CommitAsync(ct);
         return ToView(row);
