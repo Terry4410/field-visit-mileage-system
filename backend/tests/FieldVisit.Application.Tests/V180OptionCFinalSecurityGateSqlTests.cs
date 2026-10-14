@@ -200,6 +200,31 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             VALUES(900,1,1,1,N'Customer',N'Pending',N'Pending',0,
                 N'Legitimate legacy draft',N'Legacy address');
             """);
+        // Distinguish canonical reserved Pending identities from legitimate
+        // unreserved legacy Pending drafts: the latter stay accessible to
+        // authorized maintenance and legacy Pending worklists.
+        using var unreservedMaintenance = await visitor.GetAsync(
+            "api/v1/managed-locations/search?includeInactive=true&pageSize=100");
+        Assert.True(unreservedMaintenance.IsSuccessStatusCode,
+            await unreservedMaintenance.Content.ReadAsStringAsync());
+        var unreservedPage = await unreservedMaintenance.Content.ReadFromJsonAsync<PagedResult<ManagedLocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_LEGACY_DRAFT_SEARCH_MISSING");
+        Assert.Contains(unreservedPage.Items, x => x.LocationId == 900);
+        Assert.DoesNotContain(unreservedPage.Items, x => x.LocationId == locationId);
+        using var unreservedPending = await legacyAdmin.GetAsync("api/v1/locations/pending");
+        Assert.True(unreservedPending.IsSuccessStatusCode,
+            await unreservedPending.Content.ReadAsStringAsync());
+        var unreservedPendingRows = await unreservedPending.Content.ReadFromJsonAsync<List<LocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_LEGACY_DRAFT_PENDING_MISSING");
+        Assert.Contains(unreservedPendingRows, x => x.LocationId == 900);
+        Assert.DoesNotContain(unreservedPendingRows, x => x.LocationId == locationId);
+        // An unapproved canonical identity has no Trip/Snapshot references.
+        // Operational trip creation rejects non-Active/non-Approved locations;
+        // this row-reference assertion is not a substitute for all report E2E.
+        Assert.Equal("0", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=@id", P("@id",locationId)));
+        Assert.Equal("0", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId=@id", P("@id",locationId)));
         await using (var geocodeDb = new AppDbContext(
             new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlServer(h.ConnectionString).Options))

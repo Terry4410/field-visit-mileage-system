@@ -256,3 +256,49 @@ SQL writes, migration, deployment, promotion, feature enablement,
 target preflight or Business UAT GO. **SCHEME A HOLD / NO-GO.**
 Earlier checkpoint paragraphs remain historical and are superseded
 by this verified Exact-SHA checkpoint.
+
+
+## Authoritative new read/write bypass checkpoint — 2026-10-14
+
+**Verified code SHA:** `27b084d016eda41fbd2dda5555aa99da392c7377`,
+**Exact-SHA CI:** `38564555552 — SUCCESS`.
+Recovery branch only: `work/v180-optionc-final-gates-recovery-r1`.
+
+New protections established and SQL/HTTP tested:
+
+- `GET /api/v1/managed-locations` and
+  `/managed-locations/search`: no private Pending/Abandoned
+  canonical CreateLocation reservation rows; successful Published rows
+  reappear after independent review.
+- `GET /api/v1/locations/pending`: excludes canonical private
+  reservation rows. Inactive ordinary non-reserved drafts remain
+  eligible. The dedicated SQL fixture adds minimal old Trip columns
+  only within `OptionCIsolated_*` to exercise this legacy route.
+- `PUT /api/v1/locations/{id}` and
+  `POST /api/v1/locations/{id}/promote`: canonical reserved
+  LocationIds fail closed. Already Approved non-reserved locations
+  also fail closed via `EnsureUnpublishedDraft` before source mutation.
+  RowVersion stays unchanged in the negative HTTP cases.
+- Excel Locations template now states that Create is blocked until
+  canonical Excel routing and that published/reserved updates cannot
+  bypass review.
+- Isolated CreateLocation HTTP/SQL already proves private Pending
+  Picker exclusion and approved publication inclusion; normal Trip
+  save requires Active + Approved and Trip Context requires the same.
+  Complete runtime report, mileage, import and all Trip request
+  combinations are **not yet** claimed.
+
+Additional positive compatibility test in next SHA confirms unreserved
+legacy Pending drafts continue to appear to authorized users in
+maintenance and Pending worklists, while canonical reserved items do
+not. Do not count this new positive assertion as PASS until its own
+Exact-SHA CI succeeds.
+
+**HOLD blockers:** Excel canonical batch submission; exhaustive
+Legacy/Background API and concurrency matrix; complete Trip/mileage/
+report/export Pending reference E2E; Create lost-commit replay and
+revocation permutations; browser role UAT; UAT schema + DBA migration
+dependency review and explicit Owner deployment authorization.
+All flags OFF, no main/post-uat writes, no migration 013 changes,
+no UAT/Production SQL writes or deployments, no UAT-target preflight,
+no Promotion/Merge, no Business UAT GO. **SCHEME A HOLD / NO-GO.**
