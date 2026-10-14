@@ -202,3 +202,14 @@ Read-only UAT preflight: NOT RUN.
 Backup/restore gate: NOT VERIFIED.
 Business UAT: NOT RUN by design.
 Current status: **HOLD — NOT READY FOR OWNER EXECUTION REVIEW until target and backup evidence are supplied.**
+
+## Authoritative Recovery evidence — 2026-10-14
+
+- Recovery branch: work/v180-optionc-final-gates-recovery-r1
+- Authoritative preparation SHA: 3012835e728d0e3882a061d920cd93916811c8f9
+- Exact-SHA Recovery CI: 38513216745 — SUCCESS
+- Hash/preflight contract, backend/frontend regression, disposable SQL Server 2022 Option C E2E, and canonical 011/012/014 rehearsal completed on this SHA.
+- UAT target identification and read-only UAT preflight: NOT RUN; no exact authorized target or secrets were available.
+- Backup/restore evidence: NOT VERIFIED.
+- Flags remain OFF; no UAT/Production SQL write, migration, deployment, promotion, merge, or Business UAT GO occurred.
+- Decision: HOLD pending the IT action checklist and separate Owner execution authorization.

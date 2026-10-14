@@ -242,3 +242,14 @@ script were added; the existing post-uat/v1.8.0 branch guard is unchanged.
 Exact UAT target, allow-list, Entra read-only identity and backup/restore evidence are
 not available from authorized repository configuration, so preflight is NOT RUN and status
 remains HOLD. Business UAT remains NOT RUN.
+
+## Authoritative Recovery evidence — 2026-10-14
+
+- Recovery branch: work/v180-optionc-final-gates-recovery-r1
+- Authoritative preparation SHA: 3012835e728d0e3882a061d920cd93916811c8f9
+- Exact-SHA Recovery CI: 38513216745 — SUCCESS
+- Hash/preflight contract, backend/frontend regression, disposable SQL Server 2022 Option C E2E, and canonical 011/012/014 rehearsal completed on this SHA.
+- UAT target identification and read-only UAT preflight: NOT RUN; no exact authorized target or secrets were available.
+- Backup/restore evidence: NOT VERIFIED.
+- Flags remain OFF; no UAT/Production SQL write, migration, deployment, promotion, merge, or Business UAT GO occurred.
+- Decision: HOLD pending the IT action checklist and separate Owner execution authorization.

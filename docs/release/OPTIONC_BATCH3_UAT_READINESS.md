@@ -75,3 +75,14 @@ Option C 011/012/014 and additive schemas are candidate-only. The Recovery branc
 contains a read-only preflight candidate and static SHA-256 fingerprint script. The
 existing post-uat/v1.8.0 guard is preserved. No exact UAT target or backup evidence is
 available, so UAT preflight is NOT RUN and the package remains HOLD; Business UAT is NOT RUN.
+
+## Authoritative Recovery evidence — 2026-10-14
+
+- Recovery branch: work/v180-optionc-final-gates-recovery-r1
+- Authoritative preparation SHA: 3012835e728d0e3882a061d920cd93916811c8f9
+- Exact-SHA Recovery CI: 38513216745 — SUCCESS
+- Hash/preflight contract, backend/frontend regression, disposable SQL Server 2022 Option C E2E, and canonical 011/012/014 rehearsal completed on this SHA.
+- UAT target identification and read-only UAT preflight: NOT RUN; no exact authorized target or secrets were available.
+- Backup/restore evidence: NOT VERIFIED.
+- Flags remain OFF; no UAT/Production SQL write, migration, deployment, promotion, merge, or Business UAT GO occurred.
+- Decision: HOLD pending the IT action checklist and separate Owner execution authorization.
