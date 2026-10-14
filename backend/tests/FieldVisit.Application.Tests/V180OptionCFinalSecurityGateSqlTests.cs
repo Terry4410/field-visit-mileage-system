@@ -441,16 +441,16 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10");
         var oldSnapshots=await h.Scalar(
             "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10");
-        var csv=Encoding.UTF8.GetBytes(
+        var updateCsvBytes=Encoding.UTF8.GetBytes(
             "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
             "EX-10,T1,Original 10,Taipei,Xinyi,Excel reviewed address,,Active\n");
-        using var form=new MultipartFormDataContent();
-        using var file=new ByteArrayContent(csv);
+        using var updateFormData=new MultipartFormDataContent();
+        using var file=new ByteArrayContent(updateCsvBytes);
         file.Headers.ContentType=
             new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
-        form.Add(file,"file","published-update.csv");
+        updateFormData.Add(file,"file","published-update.csv");
         using var previewHttp=await importer.PostAsync(
-            "api/v1/imports/locations/preview",form);
+            "api/v1/imports/locations/preview",updateFormData);
         Assert.True(previewHttp.IsSuccessStatusCode,
             await previewHttp.Content.ReadAsStringAsync());
         var previewUpdate=await previewHttp.Content.ReadFromJsonAsync<ImportPreviewDto>()
