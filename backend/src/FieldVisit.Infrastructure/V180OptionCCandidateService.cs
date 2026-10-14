@@ -195,11 +195,13 @@ public sealed class V180OptionCCandidateService(
         if (request.TeamId is not int team || request.RequestedByUserId == reviewer
             || request.EntityKind != "Location" || request.Status != "Pending"
             || request.RiskCode != "High"
-            || request.OperationCode is not ("UpdatePublishedLocation" or "CreateLocation"))
+            || request.OperationCode is not ("UpdatePublishedLocation" or "CreateLocation" or "MergeLocationFields"))
             throw new UnauthorizedAccessException("OPTIONC_REVIEW_SCOPE_DENIED");
         // Admin is the final reviewer of HIGH-risk requests only. Low-risk
         // rejection belongs to an independent live Leader; the Admin route
         // must never bypass the Leader-first review contract.
+        if (request.OperationCode is "UpdatePublishedLocation" or "CreateLocation")
+        {
         var leader = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(
             x => x.ChangeRequestId == request.ChangeRequestId
               && x.ReviewStage == "LeaderFirstLevel", ct);
@@ -217,6 +219,7 @@ public sealed class V180OptionCCandidateService(
         if (!liveLeader.RequesterEligible || !liveLeader.ReviewerLeaderEligible
             || !liveLeader.OrganizationMatches || !liveLeader.TeamMatches)
             throw new UnauthorizedAccessException("OPTIONC_ADMIN_REJECT_LEADER_REVOKED");
+        }
         var evidence = await auth.AuthorizeDecisionAsync(request.RequestedByUserId, reviewer,
             request.OrganizationId, team, BusinessTime.Today, ct);
         if (!evidence.OrganizationMatches || !evidence.TeamMatches)
