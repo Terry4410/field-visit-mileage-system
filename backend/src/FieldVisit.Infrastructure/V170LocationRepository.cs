@@ -723,15 +723,20 @@ public sealed class V170LocationRepository(
         if(nextTax is {Length:>20})throw new InvalidOperationException("統一編號不可超過 20 個字元。");
         if(nextMasterNote is {Length:>1000})throw new InvalidOperationException("主檔備註不可超過 1000 個字元。");
 
-        // This maintenance endpoint has no canonical ChangeRequests submission
-        // contract yet. Never write high-risk publication fields directly;
-        // return an explicit actionable failure and leave the tracked row clean.
-        // MasterNote remains a low-risk direct edit and retains RowVersion checks.
+        // Legacy direct maintenance is not a canonical ChangeRequests
+        // publication writer. Both identity/address (HighRisk) and note-only
+        // (LowRisk) published changes must fail closed, without modifying the
+        // tracked entity or invalidating a pending review's RowVersion.
+        var published = !row.IsTemporary && row.ApprovalStatus == "Approved";
         V180OptionCLocationMaintenanceRisk.RequireApprovalForPublishedHighRiskChange(
-            isPublished: !row.IsTemporary && row.ApprovalStatus == "Approved",
+            isPublished: published,
             hasHighRiskChange: V180OptionCLocationMaintenanceRisk.HasHighRiskChange(
                 row.City,row.District,row.Address,row.PlusCode,row.TaxId,
                 nextCity,nextDistrict,nextAddress,nextPlus,nextTax));
+        V180OptionCLocationMaintenanceRisk.RequireCanonicalForPublishedLowRiskChange(
+            isPublished: published,
+            hasLowRiskChange: !string.Equals(
+                row.MasterNote, nextMasterNote, StringComparison.Ordinal));
 
         var addressChanged=!string.Equals(row.Address,nextAddress,StringComparison.Ordinal)
             ||!string.Equals(row.PlusCode,nextPlus,StringComparison.Ordinal);
