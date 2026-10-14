@@ -192,8 +192,31 @@ public sealed class V180OptionCCandidateService(
         var request = await db.ChangeRequests.FromSqlInterpolated(
             V180B3ApprovalLockSql.RequestByPublicId(id, org)).SingleOrDefaultAsync(ct)
             ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
-        if (request.TeamId is not int team || request.RequestedByUserId == reviewer)
+        if (request.TeamId is not int team || request.RequestedByUserId == reviewer
+            || request.EntityKind != "Location" || request.Status != "Pending"
+            || request.RiskCode != "High"
+            || request.OperationCode is not ("UpdatePublishedLocation" or "CreateLocation"))
             throw new UnauthorizedAccessException("OPTIONC_REVIEW_SCOPE_DENIED");
+        // Admin is the final reviewer of HIGH-risk requests only. Low-risk
+        // rejection belongs to an independent live Leader; the Admin route
+        // must never bypass the Leader-first review contract.
+        var leader = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(
+            x => x.ChangeRequestId == request.ChangeRequestId
+              && x.ReviewStage == "LeaderFirstLevel", ct);
+        if (leader?.Status != "Approved" || leader.ReviewerUserId is not int leaderId
+            || leaderId == reviewer || leaderId == request.RequestedByUserId
+            || leader.DecisionKey is not Guid leaderKey
+            || !await db.ChangeRequestEvents.AsNoTracking().AnyAsync(
+                x => x.ChangeRequestId == request.ChangeRequestId
+                  && x.EventType == "LeaderApproved"
+                  && x.ActorUserId == leaderId && x.DecisionKey == leaderKey, ct))
+            throw new UnauthorizedAccessException("OPTIONC_ADMIN_REJECT_REQUIRES_LEADER_APPROVAL");
+        var liveLeader = await auth.AuthorizeLeaderReviewAsync(
+            request.RequestedByUserId, leaderId, request.OrganizationId,
+            team, BusinessTime.Today, ct);
+        if (!liveLeader.RequesterEligible || !liveLeader.ReviewerLeaderEligible
+            || !liveLeader.OrganizationMatches || !liveLeader.TeamMatches)
+            throw new UnauthorizedAccessException("OPTIONC_ADMIN_REJECT_LEADER_REVOKED");
         var evidence = await auth.AuthorizeDecisionAsync(request.RequestedByUserId, reviewer,
             request.OrganizationId, team, BusinessTime.Today, ct);
         if (!evidence.OrganizationMatches || !evidence.TeamMatches)
@@ -222,6 +245,18 @@ public sealed class V180OptionCCandidateService(
             stage.Parameters.AddWithValue("@id", request.ChangeRequestId);
             if (Convert.ToInt32(await stage.ExecuteScalarAsync(ct)) != 1)
                 throw new InvalidOperationException("OPTIONC_REJECT_STAGE_CONFLICT");
+        }
+        if (request.OperationCode == "CreateLocation")
+        {
+            await using var reservation = new SqlCommand("""
+                UPDATE dbo.LocationCreateReservations
+                SET ReservationStatus=N'Abandoned',UpdatedAt=SYSUTCDATETIME()
+                WHERE ChangeRequestId=@request AND ReservationStatus=N'Pending';
+                SELECT CONVERT(int,@@ROWCOUNT);
+                """, connection, sqlTx);
+            reservation.Parameters.AddWithValue("@request", request.ChangeRequestId);
+            if (Convert.ToInt32(await reservation.ExecuteScalarAsync(ct)) != 1)
+                throw new InvalidOperationException("OPTIONC_ADMIN_REJECT_RESERVATION_CONFLICT");
         }
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
