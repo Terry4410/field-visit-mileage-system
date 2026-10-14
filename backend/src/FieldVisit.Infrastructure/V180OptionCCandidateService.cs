@@ -200,7 +200,18 @@ public sealed class V180OptionCCandidateService(
         // Admin is the final reviewer of HIGH-risk requests only. Low-risk
         // rejection belongs to an independent live Leader; the Admin route
         // must never bypass the Leader-first review contract.
-        if (request.OperationCode is "UpdatePublishedLocation" or "CreateLocation")
+        // MergeFields uses the existing distinct merge approval workflow.
+        // Keep its Admin rejection path intact; it does not publish anything.
+        // Non-merge Create/Update requests require independent Leader-first
+        // approval even for a final Admin rejection.
+        await using var mergeCheck = new SqlCommand("""
+            SELECT CASE WHEN EXISTS(
+                SELECT 1 FROM dbo.LocationMergeDetails
+                WHERE ChangeRequestId=@id) THEN 1 ELSE 0 END
+            """, connection, (SqlTransaction)tx.GetDbTransaction());
+        mergeCheck.Parameters.AddWithValue("@id", request.ChangeRequestId);
+        var isMerge = Convert.ToInt32(await mergeCheck.ExecuteScalarAsync(ct)) == 1;
+        if (!isMerge)
         {
         var leader = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(
             x => x.ChangeRequestId == request.ChangeRequestId
