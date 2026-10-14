@@ -1,5 +1,16 @@
 # UAT010 × Package B Option C — Owner 單一入口（持續更新）
 
+## 2026-10-14 — Excel published Location Update candidate (Recovery-only)
+
+- Verified starting baseline: `01e9403afa7e01dce67f62a556f800d3dc0e1b6e`, exact-SHA CI `38587007376` SUCCESS. **This is not a claim that the new Excel Update increment passed CI.**
+- New candidate-only `POST /api/v1/optionc-candidate/imports/{id}/submit-updates-for-review` consumes actual Excel/CSV preview **published Update** rows with preview-bound RowVersion. Existing Excel **Create** review flow is preserved.
+- Reuses the **same** Serializable canonical submission, server-owned risk classification, private Stage, Submitted audit and independent Leader / HighRisk Admin publication. The ImportBatchItem and canonical audit link are committed together; audit-backed replay recovers RequestPublicIds. Legacy Confirm stays fail-closed.
+- Mixed Create/Update batches **explicitly fail closed**. A Leader-owned Location may be updated by its authorized owner; a non-owner Admin cannot silently impersonate an owner. Cross-owner Excel bulk Update is not implemented.
+- New UI action is separately gated by `OPTIONC_EXCEL_UPDATE_UI_ENABLED=false`. The additive `1.8.0-EXCEL-CANONICAL-STATUS` constraint is required **before** candidate Excel submission; draft SQL only, no UAT/Production migration. Migration 013 untouched.
+- Remaining tests: full Update multi-row/partial-failure matrix, stale preview/revocation, Trip/mileage/report/export route audit, and final exact-SHA SQL E2E. **HOLD / NO-GO**; no UAT target preflight, deploy, flags or Business UAT.
+- Detailed contract: `docs/release/SCHEME_A_EXCEL_PUBLISHED_UPDATE_NONDEPLOY.md`.
+
+
 > **目前：HOLD / NO-GO。** 本文件是閱讀索引，不是 UAT Migration、部署、正式合併或 Package B B3/B4 放行授權。
 >
 > **Owner 不必管理逐批 Markdown 報告。** 以 GitHub commit + exact-SHA Actions CI 為驗證證據；工作過程的 Batch 1/2/3 報告可保留作參考，不需逐份轉交 IT。最終僅交付一份 UAT 測試手冊、一份 IT 維護／部署／復原手冊、一份正式驗收紀錄。
