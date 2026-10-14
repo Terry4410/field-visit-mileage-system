@@ -1063,7 +1063,25 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var dashboardAfter = await dashboardAfterResponse.Content
             .ReadFromJsonAsync<DashboardSummaryDto>()
             ?? throw new InvalidOperationException("OPTIONC_DASHBOARD_AFTER_MISSING");
-        Assert.Equal(dashboardBefore.PendingLocations, dashboardAfter.PendingLocations);
+        var countedPendingLocations = await h.Scalar("""
+            SELECT COALESCE(STRING_AGG(CONVERT(nvarchar(20), l.LocationId), N','), N'<none>')
+            FROM dbo.Locations AS l
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dbo.LocationCreateReservations AS cr
+                WHERE cr.LocationId=l.LocationId
+                  AND (cr.ReservationStatus<>N'Published'
+                    OR l.ApprovalStatus<>N'Approved'))
+              AND (l.OrganizationId=1 OR l.OrganizationId IS NULL)
+              AND (l.TeamId=1 OR l.TeamId IS NULL)
+              AND (l.ApprovalStatus=N'Pending' OR l.GeocodingStatus=N'Pending'
+                OR (l.DuplicateOfLocationId IS NULL
+                  AND l.DuplicateReason=N'疑似重複，待管理者人工覆核'))
+            """);
+        Assert.True(dashboardBefore.PendingLocations == dashboardAfter.PendingLocations,
+            $"Dashboard pending count changed from {dashboardBefore.PendingLocations} to {dashboardAfter.PendingLocations}; " +
+            $"visible pending Location IDs after submission: {countedPendingLocations}; reserved LocationId={locationId}; " +
+            $"reservation={await h.Scalar("SELECT ReservationStatus FROM dbo.LocationCreateReservations WHERE LocationId=@id", P("@id",locationId))}; " +
+            $"row approval={await h.Scalar("SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id", P("@id",locationId))}.");
         // Legacy Picker endpoints require the normal org/team JWT claims.
         // The isolated Option C write path above intentionally ignores claims
         // and instead authorizes directly against live HR/role/team tables.
