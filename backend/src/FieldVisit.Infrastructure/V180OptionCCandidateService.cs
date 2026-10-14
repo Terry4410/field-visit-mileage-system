@@ -239,17 +239,34 @@ public sealed class V180OptionCCandidateService(
         await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct))
         {
             var auth = new V180OptionCLiveAuthorizationAdapter(db);
-            var org = await auth.RequireIndependentAdminAsync(actorId, BusinessTime.Today, ct);
+            var org = await auth.ResolveLiveOrganizationAsync(actorId, ct);
             var request = await db.ChangeRequests.FromSqlInterpolated(
                 V180B3ApprovalLockSql.RequestByPublicId(id, org)).AsNoTracking()
                 .SingleOrDefaultAsync(ct)
                 ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
             if (request.TeamId is not int team || request.RequestedByUserId == actorId)
                 throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
-            var evidence = await auth.AuthorizeDecisionAsync(request.RequestedByUserId, actorId,
-                request.OrganizationId, team, BusinessTime.Today, ct);
-            if (!evidence.OrganizationMatches || !evidence.TeamMatches)
-                throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
+            if (request.OperationCode == "UpdatePublishedLocation" && request.RiskCode == "Low")
+            {
+                var leader = await auth.AuthorizeLeaderReviewAsync(
+                    request.RequestedByUserId, actorId, org, team, BusinessTime.Today, ct);
+                var review = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(
+                    x => x.ChangeRequestId == request.ChangeRequestId
+                      && x.ReviewStage == "LeaderFirstLevel", ct);
+                if (!leader.RequesterEligible || !leader.ReviewerLeaderEligible
+                    || !leader.OrganizationMatches || !leader.TeamMatches
+                    || review?.Status != "Approved" || review.ReviewerUserId != actorId)
+                    throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
+            }
+            else
+            {
+                var evidence = await auth.AuthorizeDecisionAsync(
+                    request.RequestedByUserId, actorId,
+                    request.OrganizationId, team, BusinessTime.Today, ct);
+                if (!evidence.RequesterEligible || !evidence.IndependentAdminEligible
+                    || !evidence.OrganizationMatches || !evidence.TeamMatches)
+                    throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
+            }
             await tx.CommitAsync(ct);
         }
         // Observe using a fresh non-pooled connection after authorization so the
