@@ -96,6 +96,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("0", await h.Scalar(
             "SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id",
             P("@id", locationId)));
+        // Legacy Picker endpoints require the normal org/team JWT claims.
+        // The isolated Option C write path above intentionally ignores claims
+        // and instead authorizes directly against live HR/role/team tables.
+        visitor.DefaultRequestHeaders.Authorization =
+            new("Bearer", Token(1, "E1", "visitor", 1, 1));
         // The actual Visitor Picker/search API must not list the reserved
         // inactive Location before independent publication.
         using var pendingPicker = await visitor.GetAsync(
@@ -1108,14 +1113,25 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("0",await h.EventCount(second.RequestPublicId,"GeocodeEvidenceRecorded"));
     }
 
-    private static string Token(int userId, string employeeNo, string role)
+    private static string Token(int userId, string employeeNo, string role,
+        int? organizationId = null, int? teamId = null)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));
-        var token = new JwtSecurityToken("FieldVisit.UAT", "FieldVisit.UAT.Users", new[]
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Name, employeeNo),
-            new Claim("employee_no", employeeNo), new Claim(ClaimTypes.Role, role)
-        }, expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+            new(ClaimTypes.NameIdentifier, userId.ToString()), new(ClaimTypes.Name, employeeNo),
+            new("employee_no", employeeNo), new(ClaimTypes.Role, role)
+        };
+        if (organizationId.HasValue)
+            claims.Add(new Claim("organization_id", organizationId.Value.ToString()));
+        if (teamId.HasValue)
+        {
+            claims.Add(new Claim("team_id", teamId.Value.ToString()));
+            claims.Add(new Claim("team_scopes", System.Text.Json.JsonSerializer.Serialize(
+                new[] { new TeamScopeDto(teamId.Value, "Team 1", true) })));
+        }
+        var token = new JwtSecurityToken("FieldVisit.UAT", "FieldVisit.UAT.Users", claims,
+            expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
