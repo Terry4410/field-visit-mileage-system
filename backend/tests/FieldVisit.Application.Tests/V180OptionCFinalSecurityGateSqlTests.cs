@@ -496,6 +496,91 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10"));
         Assert.Equal(oldSnapshots,await h.Scalar(
             "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
+        // Full independent high-risk review and publication of Excel Update.
+        await h.Exec("""
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+                VALUES(5,1,1,N'E5',N'Independent Excel Leader',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt,UpdatedAt)
+                VALUES(5,105,N'Internal',N'E5',N'Demo',SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,LegacyUserId,HireDate,SourceType,CreatedAt)
+                VALUES(105,105,1,N'E5',5,'2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+                VALUES(105,N'Active','2000-01-01',N'fixture',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(5,2,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+                VALUES(5,2,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+                VALUES(5,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+                VALUES(5,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+                VALUES(1,105,'2000-01-01',SYSUTCDATETIME());
+            """);
+        var updateRequestVersion=Convert.ToBase64String(Convert.FromHexString(
+            await h.Scalar("""
+                SELECT CONVERT(varchar(16),RowVersion,2)
+                FROM dbo.ChangeRequests WHERE RequestPublicId=@id
+                """,P("@id",updateId))));
+        using var independentLeader=factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress=new Uri("https://localhost") });
+        independentLeader.DefaultRequestHeaders.Authorization=
+            new("Bearer",Token(5,"E5","leader",1,1));
+        using var selfReview=await importer.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{updateId}/leader-review",
+            new V180OptionCLeaderReviewDecision(updateRequestVersion,
+                Guid.NewGuid(),"Excel owner cannot self approve",true));
+        Assert.False(selfReview.IsSuccessStatusCode);
+        using var reviewedUpdate=await independentLeader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{updateId}/leader-review",
+            new V180OptionCLeaderReviewDecision(updateRequestVersion,
+                Guid.NewGuid(),"Independent Excel Update first review",true));
+        Assert.True(reviewedUpdate.IsSuccessStatusCode,
+            await reviewedUpdate.Content.ReadAsStringAsync());
+        using var readUpdateStage=await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{updateId}/stage");
+        Assert.True(readUpdateStage.IsSuccessStatusCode,
+            await readUpdateStage.Content.ReadAsStringAsync());
+        var updateStage=await readUpdateStage.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_STAGE_VIEW_MISSING");
+        using var geoUpdate=await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{updateId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(updateStage.StageRowVersion,true,
+                25.03m,121.56m,"Excel Update independent geocode")
+                {EvidenceKey=Guid.NewGuid()});
+        Assert.True(geoUpdate.IsSuccessStatusCode,
+            await geoUpdate.Content.ReadAsStringAsync());
+        var geoUpdateView=await geoUpdate.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_GEO_VIEW_MISSING");
+        using var duplicateUpdate=await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{updateId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(geoUpdateView.StageRowVersion,true,
+                "Excel Update duplicate review cleared",Guid.NewGuid()));
+        Assert.True(duplicateUpdate.IsSuccessStatusCode,
+            await duplicateUpdate.Content.ReadAsStringAsync());
+        using var publishUpdate=await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{updateId}/publish-reviewed",
+            new V180B3Review(updateRequestVersion,Guid.NewGuid(),
+                "Independent Admin final Excel Update publication"));
+        Assert.True(publishUpdate.IsSuccessStatusCode,
+            await publishUpdate.Content.ReadAsStringAsync());
+        Assert.Equal("Applied",await h.RequestStatus(updateId));
+        Assert.Equal("Excel reviewed address",await h.Scalar(
+            "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal(oldTrips,await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10"));
+        Assert.Equal(oldSnapshots,await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId=10"));
+        foreach(var evt in new[]{"Submitted","LeaderApproved",
+            "GeocodeEvidenceRecorded","DuplicateReviewEvidenceRecorded","Approved","Applied"})
+            Assert.Equal("1",await h.EventCount(updateId,evt));
+        using var replayAfterPublish=await importer.PostAsync(urlUpdate,null);
+        Assert.True(replayAfterPublish.IsSuccessStatusCode,
+            await replayAfterPublish.Content.ReadAsStringAsync());
+        var replayApplied=await replayAfterPublish.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_APPLIED_REPLAY_MISSING");
+        Assert.Equal(0,replayApplied.Submitted);
+        Assert.Equal(updateId,Assert.Single(replayApplied.RequestPublicIds));
+
         // A mixed Create+Update batch cannot silently use either
         // operation-specific endpoint to bypass the other's controls.
         using var mixedUpdate=await admin.PostAsync(
