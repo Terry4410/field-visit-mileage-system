@@ -524,11 +524,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
                 VALUES(1,105,'2000-01-01',SYSUTCDATETIME());
             """);
-        var updateRequestVersion=Convert.ToBase64String(Convert.FromHexString(
-            await h.Scalar("""
-                SELECT CONVERT(varchar(16),RowVersion,2)
-                FROM dbo.ChangeRequests WHERE RequestPublicId=@id
-                """,P("@id",updateId))));
+        var updateRequestVersion=Convert.ToBase64String((byte[])(
+            await new SqlCommand(
+                "SELECT RowVersion FROM dbo.ChangeRequests WHERE RequestPublicId=@id",h.Db)
+                {Parameters={new SqlParameter("@id",updateId)}}.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_REQUEST_VERSION_MISSING")));
         using var independentLeader=factory.CreateClient(new WebApplicationFactoryClientOptions {
             BaseAddress=new Uri("https://localhost") });
         independentLeader.DefaultRequestHeaders.Authorization=
@@ -628,11 +628,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // pending Request for the same published Location. Retrying must
         // recover row 1 via immutable audit without duplicating identity.
         var partialUpdateBatch=Guid.NewGuid();
-        var currentUpdateRv=Convert.ToBase64String(Convert.FromHexString(
-            await h.Scalar("""
-                SELECT CONVERT(varchar(16),RowVersion,2)
-                FROM dbo.Locations WHERE LocationId=10
-                """)));
+        var currentUpdateRv=Convert.ToBase64String((byte[])(
+            await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=10",h.Db)
+                .ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_PARTIAL_SOURCE_VERSION_MISSING")));
         var partialUpdateJson=System.Text.Json.JsonSerializer.Serialize(new {
             locationCode="EX-10",teamCode="T1",locationName="Original 10",
             city="Taipei",district="Xinyi",address="Excel partial update",
