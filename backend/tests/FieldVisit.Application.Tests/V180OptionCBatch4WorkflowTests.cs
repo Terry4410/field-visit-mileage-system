@@ -8,7 +8,7 @@ public sealed class V180OptionCBatch4WorkflowTests
     public void MergeFields_published_path_is_fail_closed_until_canonical_merge_writer_exists()
     {
         var source = Read("backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs");
-        Assert.Contains("if(request.Mode=="MergeFields")", source);
+        Assert.Contains("if(request.Mode==\"MergeFields\")", source);
         Assert.Contains("RequireApprovalForPublishedHighRiskChange", source);
         Assert.Contains("Current operational references follow the survivor.", source);
         Assert.Contains("Historical VisitTripStop / Snapshot references intentionally remain on source.", source);
@@ -19,7 +19,7 @@ public sealed class V180OptionCBatch4WorkflowTests
     public void Background_geocoding_is_limited_to_pending_inactive_drafts()
     {
         var source = Read("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
-        Assert.Contains("x.ApprovalStatus == "Pending" && !x.IsActive", source);
+        Assert.Contains("x.ApprovalStatus == \"Pending\" && !x.IsActive", source);
         Assert.Contains("PUBLISHED_LOCATION_REQUIRES_OPTIONC_APPROVAL", source);
         Assert.Contains("Geocoding never approves, publishes or deactivates", source);
         Assert.Contains("ResolveLiveGeocodingScopeAsync", source);
