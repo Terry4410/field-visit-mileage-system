@@ -463,6 +463,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var legacyUpdate=await importer.PostAsync(
             $"api/v1/imports/{previewUpdate.ImportBatchId}/confirm",null);
         Assert.False(legacyUpdate.IsSuccessStatusCode);
+        using var unauthorizedUpdate=await admin.PostAsync(urlUpdate,null);
+        Assert.False(unauthorizedUpdate.IsSuccessStatusCode);
+        Assert.Equal("0",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND TRY_CONVERT(uniqueidentifier,
+                JSON_VALUE(DetailsJson,N'$.ImportBatchId'))=@batch
+            """,P("@batch",previewUpdate.ImportBatchId)));
         using var submittedUpdate=await importer.PostAsync(urlUpdate,null);
         Assert.True(submittedUpdate.IsSuccessStatusCode,
             await submittedUpdate.Content.ReadAsStringAsync());
