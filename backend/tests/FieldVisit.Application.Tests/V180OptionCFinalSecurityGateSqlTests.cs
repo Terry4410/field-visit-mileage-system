@@ -109,10 +109,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
                 ActorUserId,OccurredAt,CorrelationId,DecisionKey)
             VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),@leaderKey);
+            DECLARE @hash varchar(64)=CONVERT(varchar(64),
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),@json)),2);
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
-                ActorUserId,OccurredAt,CorrelationId,DecisionKey)
-            VALUES(@rid,N'GeocodeEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID()),
-                  (@rid,N'DuplicateReviewEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID());
+                ActorUserId,OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+            VALUES(@rid,N'GeocodeEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID(),
+                    CONCAT(N'{"decision":"Succeeded","proposedEvidenceSha256":"',@hash,N'"}')),
+                  (@rid,N'DuplicateReviewEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID(),
+                    CONCAT(N'{"decision":"Cleared","proposedEvidenceSha256":"',@hash,N'"}'));
             """, P("@id", createId));
         await using (var tx = await h.Begin())
         {
@@ -171,11 +175,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 FOR JSON PATH");
         await h.Exec("""
             DECLARE @rv binary(8)=(SELECT RowVersion FROM dbo.Locations WHERE LocationId=10);
+            DECLARE @beforeJson nvarchar(max)=(
+                SELECT LocationName,City,District,Address,PlusCode,TaxId,MasterNote
+                FROM dbo.Locations WHERE LocationId=10 FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
             INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
                 EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
                 BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
             VALUES(@id,1,1,N'Location',N'10',N'UpdatePublishedLocation',N'Low',
-                @rv,N'{}',@json,1,SYSUTCDATETIME(),N'Pending');
+                @rv,@beforeJson,@json,1,SYSUTCDATETIME(),N'Pending');
             DECLARE @rid bigint=SCOPE_IDENTITY();
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
                 ActorUserId,OccurredAt,CorrelationId)
@@ -197,9 +204,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
                 ActorUserId,OccurredAt,CorrelationId,DecisionKey)
             VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),@leaderKey);
+            DECLARE @hash varchar(64)=CONVERT(varchar(64),
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),@json)),2);
             INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
-                ActorUserId,OccurredAt,CorrelationId,DecisionKey)
-            VALUES(@rid,N'DuplicateReviewEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID());
+                ActorUserId,OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+            VALUES(@rid,N'DuplicateReviewEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID(),
+                CONCAT(N'{"decision":"Cleared","proposedEvidenceSha256":"',@hash,N'"}'));
             """, P("@id", lowId), P("@json", lowJson));
         await using (var tx = await h.Begin())
         {
