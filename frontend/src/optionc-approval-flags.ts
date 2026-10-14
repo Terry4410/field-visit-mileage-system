@@ -9,3 +9,6 @@ export const OPTIONC_CREATE_LOCATION_UI_ENABLED: boolean = false;
 
 // Excel Create -> canonical reviewed Request requires separate Owner UAT gates.
 export const OPTIONC_EXCEL_CREATE_UI_ENABLED: boolean = false;
+
+// Excel published Update -> canonical review remains disabled pending Owner UAT gates.
+export const OPTIONC_EXCEL_UPDATE_UI_ENABLED: boolean = false;
