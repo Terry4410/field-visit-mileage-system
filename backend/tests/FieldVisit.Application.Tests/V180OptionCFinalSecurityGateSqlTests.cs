@@ -137,6 +137,27 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Pending", await h.Scalar(
             "SELECT ReservationStatus FROM dbo.LocationCreateReservations WHERE LocationId=@id",
             P("@id", locationId)));
+        using var legacyPending = await legacyAdmin.GetAsync("api/v1/locations/pending");
+        Assert.True(legacyPending.IsSuccessStatusCode,
+            await legacyPending.Content.ReadAsStringAsync());
+        var legacyPendingRows = await legacyPending.Content.ReadFromJsonAsync<List<LocationDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_OLD_PENDING_VIEW_MISSING");
+        Assert.DoesNotContain(legacyPendingRows, x => x.LocationId == locationId);
+        using var oldMasterUpdate = await legacyAdmin.PutAsJsonAsync(
+            $"api/v1/locations/{locationId}",
+            new UpdateLocationRequest("Bypass Master blocked", "Taipei", "Xinyi",
+                "Never direct update canonical reserved", null, "AAAAAAAAAAA="));
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,oldMasterUpdate.StatusCode);
+        Assert.Contains("LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW",
+            await oldMasterUpdate.Content.ReadAsStringAsync());
+        using var oldMasterPromote = await legacyAdmin.PostAsJsonAsync(
+            $"api/v1/locations/{locationId}/promote",
+            new PromoteLocationRequest("AAAAAAAAAAA="));
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,oldMasterPromote.StatusCode);
+        Assert.Equal(sourceVersion, await h.Scalar("""
+            SELECT CONVERT(varchar(32), RowVersion, 2)
+            FROM dbo.Locations WHERE LocationId=@id
+            """, P("@id", locationId)));
         Assert.Equal("PendingGeocode", await h.StageStatus(created.RequestPublicId));
         // Maintenance lists are not an authorization escape hatch: pending
         // canonical CreateLocation must stay private even when same-team
@@ -364,6 +385,15 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Approved", await h.Scalar(
             "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
             P("@id", locationId)));
+        // Even a published CreateLocation cannot be changed via the old
+        // PUT Master route after publication; it needs a fresh review.
+        using var oldPublishedUpdate = await legacyAdmin.PutAsJsonAsync(
+            $"api/v1/locations/{locationId}",
+            new UpdateLocationRequest("Illegal published change", "Taipei", "Xinyi",
+                "No direct edits after publication", null, "AAAAAAAAAAA="));
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,oldPublishedUpdate.StatusCode);
+        Assert.Contains("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL",
+            await oldPublishedUpdate.Content.ReadAsStringAsync());
         Assert.Equal("1", await h.Scalar("""
             SELECT COUNT(*) FROM dbo.LocationPublishedVersions
             WHERE LocationId=@id AND VersionNumber=1 AND IsCurrent=1

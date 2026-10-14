@@ -449,9 +449,12 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
         return q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
     }
 
-    public Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct)
+    public async Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct)
     {
-        var q = db.Locations.AsNoTracking().Where(x =>
+        // The legacy pending/geocode worklist must never become a back door
+        // into a private canonical CreateLocation reservation.
+        var visible = await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(db, ct);
+        var q = visible.AsNoTracking().Where(x =>
             (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending") &&
             !db.VisitTripStops.Any(s => s.LocationId == x.LocationId && s.VisitTrip.Status == TripStatuses.Cancelled));
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value || x.OrganizationId == null);
@@ -462,11 +465,20 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
         }
         if (start.HasValue) q = q.Where(x => x.CreatedAt >= start.Value);
         if (end.HasValue) q = q.Where(x => x.CreatedAt <= end.Value);
-        return q.OrderBy(x => x.CreatedAt).ToListAsync(ct);
+        return await q.OrderBy(x => x.CreatedAt).ToListAsync(ct);
     }
 
-    public Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct) =>
-        (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking()).FirstOrDefaultAsync(x => x.LocationId == id, ct);
+    public async Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct)
+    {
+        // All old Master endpoints that request tracking (Update and Promote)
+        // must be unable to modify an unreleased canonical Create reservation.
+        // Nontracking reads, including historical trip/snapshot resolution,
+        // are intentionally unchanged.
+        if (tracking)
+            await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(db, id, ct);
+        return await (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking())
+            .FirstOrDefaultAsync(x => x.LocationId == id, ct);
+    }
     public async Task AddLocationAsync(Location location, CancellationToken ct)
     {
         var candidates = await V180LocationDuplicateGovernance.FindCandidatesAsync(

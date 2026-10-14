@@ -453,3 +453,22 @@ by this verified Exact-SHA checkpoint.
 - No feature flags enabled. This is an engineering candidate requiring
   its own Exact-SHA CI before PASS; UAT/Production Migration, SQL writes,
   deployment, promotion, target preflight and Business UAT remain forbidden.
+
+
+## Legacy Master API fail-closed & worklist privacy delta — 2026-10-14
+
+Source audit found legacy `GET /api/v1/locations/pending`,
+`PUT /api/v1/locations/{id}` and `POST /api/v1/locations/{id}/promote`
+outside the modern managed-locations API. The legacy pending worklist
+now uses the same optional-schema-aware query exclusion as other private
+CreateLocation reservation lists; tracking reads for legacy Master
+writes are refused for any reserved Create LocationId (including
+Abandoned). The old Master PUT additionally rejects **all** Approved
+locations before touching RowVersion or mutable fields, requiring a
+canonical published-location change request instead.
+
+Added real disposable SQL/HTTP regression for pending worklist privacy,
+reserved Master PUT/promote denial, no source RowVersion change, and
+published Master PUT rejection. The historical nontracking Location
+lookup used for Trip/Snapshot reporting remains unchanged. Candidate
+requires its own Exact-SHA SUCCESS; no UAT or Production execution.

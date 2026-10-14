@@ -36,6 +36,9 @@ public sealed class MasterService(
     {
         var user = RequireAny("leader", "admin");
         var row = await masters.GetLocationAsync(id, true, ct) ?? throw new KeyNotFoundException("找不到地點。");
+        // A published Location must never be updated through the legacy
+        // Master endpoint, even when the requester is a valid Admin.
+        V180OptionCLocationWriteRules.EnsureUnpublishedDraft(row);
         if (!HasRole(user, "admin") && HasRole(user, "leader") && (!row.TeamId.HasValue || !user.TeamIds.Contains(row.TeamId.Value))) throw new UnauthorizedAccessException("無權維護未授權小組地點。");
         if (HasRole(user, "admin") && user.OrganizationId.HasValue && row.OrganizationId.HasValue && row.OrganizationId != user.OrganizationId) throw new UnauthorizedAccessException("無權維護其他 Organization 地點。");
         EnsureRowVersion(row.RowVersion, request.RowVersion);
