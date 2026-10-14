@@ -101,6 +101,16 @@ it is transactionally routed through the canonical CreateLocation service
 with server-owned identity, reservation, live authorization and evidence.
 This is a safety closure, **not** functional Excel-import completion.
 
+## Candidate CreateLocation read / Admin queue visibility — 2026-10-14
+
+The isolated candidate `requests/mine` and `requests/{id}` read paths now allow
+requester-owned High-risk `CreateLocation` requests (not Low-risk creates).
+The independent Admin high-risk `requests/queue` now includes pending
+`CreateLocation` alongside `UpdatePublishedLocation`. Existing live Admin,
+organization/team, independence and requester authorization checks are retained.
+These read/queue adjustments do not implement HTTP creation, reservation,
+evidence, approval or public Location visibility. They do not enable UAT flags.
+
 ## Release blockers
 
 - LowRisk published-update candidate now has an HTTP submission-to-publication
