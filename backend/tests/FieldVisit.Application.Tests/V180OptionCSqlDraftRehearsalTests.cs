@@ -235,11 +235,12 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             var serverName = await ScalarAsync(db,
                 "SELECT CONVERT(nvarchar(256),SERVERPROPERTY('ServerName'))");
             Assert.False(string.IsNullOrWhiteSpace(serverName));
-            script = script.Replace("REPLACE_WITH_APPROVED_FQDN",
+            script = script.Replace("$(EXPECTED_SERVER)",
                     serverName.Replace("'", "''", StringComparison.Ordinal),
                     StringComparison.Ordinal)
-                .Replace("REPLACE_WITH_APPROVED_DATABASE", databaseName,
+                .Replace("$(EXPECTED_DATABASE)", databaseName,
                     StringComparison.Ordinal);
+            Assert.DoesNotContain("$(EXPECTED_", script);
 
             await ExecuteAsync(db, script); // 010: canonical tables absent
             await ExecuteAsync(db, ReadDraft(rootDir, "1800_011", "Up.sql"));
