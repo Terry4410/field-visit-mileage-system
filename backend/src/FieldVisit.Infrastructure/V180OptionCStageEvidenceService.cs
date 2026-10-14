@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using FieldVisit.Application;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -7,7 +8,10 @@ using Microsoft.Extensions.Configuration;
 
 namespace FieldVisit.Infrastructure;
 
-public sealed record V180OptionCGeocodeEvidence(string StageRowVersion, bool Succeeded, decimal? Latitude, decimal? Longitude, string Reason);
+public sealed record V180OptionCGeocodeEvidence(string StageRowVersion, bool Succeeded, decimal? Latitude, decimal? Longitude, string Reason)
+{
+    public Guid EvidenceKey { get; init; }
+}
 public sealed record V180OptionCDuplicateEvidence(string StageRowVersion, bool Cleared, string Reason, Guid EvidenceKey);
 public sealed record V180OptionCStageEvidenceView(Guid RequestPublicId, string StageStatus, string GeocodeStatus, string DuplicateReviewStatus, string StageRowVersion);
 
@@ -33,7 +37,7 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
     }
 
     public Task<V180OptionCStageEvidenceView> RecordGeocodeAsync(Guid id, V180OptionCGeocodeEvidence input, CancellationToken ct)
-        => TransitionAsync(id, input.StageRowVersion, input.Reason, input.Succeeded, input.Latitude, input.Longitude, null, Guid.Empty, ct);
+        => TransitionAsync(id, input.StageRowVersion, input.Reason, input.Succeeded, input.Latitude, input.Longitude, null, input.EvidenceKey, ct);
 
     public Task<V180OptionCStageEvidenceView> RecordDuplicateReviewAsync(Guid id, V180OptionCDuplicateEvidence input, CancellationToken ct)
         => TransitionAsync(id, input.StageRowVersion, input.Reason, false, null, null, input.Cleared, input.EvidenceKey, ct);
@@ -45,7 +49,7 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
         if (id == Guid.Empty || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim() || reason.Length > 1000)
             throw new InvalidOperationException("OPTIONC_STAGE_EVIDENCE_INPUT_INVALID");
         var expected = V180B3RowVersionRules.Parse(expectedStageVersion);
-        if (duplicateCleared.HasValue && evidenceKey == Guid.Empty)
+        if (evidenceKey == Guid.Empty)
             throw new InvalidOperationException("OPTIONC_EVIDENCE_KEY_REQUIRED");
         if (geocodeSucceeded && (latitude is null || longitude is null || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180))
             throw new InvalidOperationException("OPTIONC_GEOCODE_COORDINATES_INVALID");
@@ -57,10 +61,10 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
             var actorId = current.GetRequired().UserId;
             var auth = new V180OptionCLiveAuthorizationAdapter(db);
             var org = await auth.RequireIndependentAdminAsync(actorId, BusinessTime.Today, ct);
-            long requestId; int teamId; int requesterId; string requestStatus; byte[] stageVersion; string stageStatus, geocodeStatus;
+            long requestId; int teamId; int requesterId; string requestStatus; byte[] stageVersion; string stageStatus, geocodeStatus, proposedSha;
             await using (var cmd = new SqlCommand("""
                 SELECT r.ChangeRequestId,r.TeamId,r.RequestedByUserId,r.Status,
-                       s.RowVersion,s.StageStatus,s.GeocodeStatus,s.DuplicateReviewStatus
+                       s.RowVersion,s.StageStatus,s.GeocodeStatus,s.DuplicateReviewStatus,s.ProposedSha256
                 FROM dbo.ChangeRequests r WITH(UPDLOCK,HOLDLOCK)
                 JOIN dbo.LocationPublicationStages s WITH(UPDLOCK,HOLDLOCK) ON s.ChangeRequestId=r.ChangeRequestId
                 WHERE r.RequestPublicId=@id AND r.OrganizationId=@org
@@ -72,7 +76,7 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 if (!await reader.ReadAsync(ct)) throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
                 requestId=reader.GetInt64(0); teamId=reader.GetInt32(1); requesterId=reader.GetInt32(2); requestStatus=reader.GetString(3);
-                stageVersion=reader.GetFieldValue<byte[]>(4); stageStatus=reader.GetString(5); geocodeStatus=reader.GetString(6);
+                stageVersion=reader.GetFieldValue<byte[]>(4); stageStatus=reader.GetString(5); geocodeStatus=reader.GetString(6); proposedSha=Convert.ToHexString(reader.GetFieldValue<byte[]>(8));
             }
             if (requestStatus != "Pending" || stageStatus is "Published" or "Abandoned")
                 throw new InvalidOperationException("OPTIONC_STAGE_TERMINAL");
@@ -120,10 +124,60 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                 changed=Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
             }
             if (changed != 1) throw new InvalidOperationException("OPTIONC_STAGE_TRANSITION_CONFLICT");
+
+            var postStageVersion = await ReadStageVersionAsync(connection, sqlTx, requestId, ct);
+            var eventType = duplicateCleared.HasValue
+                ? "DuplicateReviewEvidenceRecorded"
+                : "GeocodeEvidenceRecorded";
+            var evidenceSource = duplicateCleared.HasValue
+                ? "application-owned-duplicate-review"
+                : "application-owned-geocoder";
+            var decision = duplicateCleared.HasValue
+                ? (duplicateCleared.Value ? "Cleared" : "Blocked")
+                : (geocodeSucceeded ? "Succeeded" : "Failed");
+            var details = JsonSerializer.Serialize(new
+            {
+                requestPublicId = id,
+                actorUserId = actorId,
+                actorRole = "Admin",
+                eventType,
+                stageRowVersionBefore = Convert.ToBase64String(expected),
+                stageRowVersionAfter = Convert.ToBase64String(postStageVersion),
+                proposedEvidenceSha256 = proposedSha,
+                evidenceKey,
+                evidenceSource,
+                decision,
+                reason
+            });
+            await using (var eventCmd = new SqlCommand("""
+                INSERT dbo.ChangeRequestEvents
+                    (ChangeRequestId,EventType,ActorUserId,OccurredAt,CorrelationId,DecisionKey,DetailsJson)
+                VALUES
+                    (@request,@event,@actor,SYSUTCDATETIME(),NEWID(),@decisionKey,@details);
+                """, connection, sqlTx))
+            {
+                eventCmd.Parameters.AddWithValue("@request", requestId);
+                eventCmd.Parameters.AddWithValue("@event", eventType);
+                eventCmd.Parameters.AddWithValue("@actor", actorId);
+                eventCmd.Parameters.AddWithValue("@decisionKey", evidenceKey);
+                eventCmd.Parameters.AddWithValue("@details", details);
+                await eventCmd.ExecuteNonQueryAsync(ct);
+            }
+
             await tx.CommitAsync(ct);
             return await ReadViewAsync(connection,id,ct);
         }
         catch { try { await tx.RollbackAsync(CancellationToken.None); } catch { } throw; }
+    }
+
+    private static async Task<byte[]> ReadStageVersionAsync(SqlConnection c, SqlTransaction tx, long requestId, CancellationToken ct)
+    {
+        await using var cmd = new SqlCommand(
+            "SELECT RowVersion FROM dbo.LocationPublicationStages WITH (HOLDLOCK) WHERE ChangeRequestId=@request",
+            c, tx);
+        cmd.Parameters.AddWithValue("@request", requestId);
+        return (byte[])(await cmd.ExecuteScalarAsync(ct)
+            ?? throw new InvalidOperationException("OPTIONC_STAGE_VERSION_MISSING"));
     }
 
     private static async Task<V180OptionCStageEvidenceView> ReadViewAsync(SqlConnection c, Guid id, CancellationToken ct)

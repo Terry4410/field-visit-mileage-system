@@ -268,10 +268,15 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(System.Net.HttpStatusCode.OK,submit.StatusCode);var request=await submit.Content.ReadFromJsonAsync<V180B3RequestView>()??throw new InvalidOperationException();
         using var admin=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});admin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin"));
         await using var stageCmd=new SqlCommand("SELECT s.RowVersion FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id",h.Db);stageCmd.Parameters.AddWithValue("@id",request.RequestPublicId);var stageRv=Convert.ToBase64String((byte[])(await stageCmd.ExecuteScalarAsync()??throw new InvalidOperationException()));
-        var geo=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/geocode-evidence",new V180OptionCGeocodeEvidence(stageRv,true,25.03m,121.56m,"Provider evidence"));
+        var geo=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/geocode-evidence",new V180OptionCGeocodeEvidence(stageRv,true,25.03m,121.56m,"Provider evidence") { EvidenceKey = Guid.NewGuid() });
         Assert.Equal(System.Net.HttpStatusCode.OK,geo.StatusCode);var geov=await geo.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()??throw new InvalidOperationException();Assert.Equal("PendingDuplicateReview",geov.StageStatus);
         var dup=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/duplicate-evidence",new V180OptionCDuplicateEvidence(geov.StageRowVersion,true,"Independent duplicate review",Guid.NewGuid()));
         Assert.Equal(System.Net.HttpStatusCode.OK,dup.StatusCode);var dupv=await dup.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()??throw new InvalidOperationException();Assert.Equal("ReadyForPublish",dupv.StageStatus);Assert.Equal("Cleared",dupv.DuplicateReviewStatus);
+        Assert.Equal("1",await h.EventCount(request.RequestPublicId,"GeocodeEvidenceRecorded"));
+        Assert.Equal("1",await h.EventCount(request.RequestPublicId,"DuplicateReviewEvidenceRecorded"));
+        var auditDetails=await h.Scalar("SELECT TOP(1) e.DetailsJson FROM dbo.ChangeRequestEvents e JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId WHERE r.RequestPublicId=@id AND e.EventType=N'DuplicateReviewEvidenceRecorded' ORDER BY e.ChangeRequestEventId DESC",P("@id",request.RequestPublicId));
+        Assert.Contains("application-owned-duplicate-review",auditDetails);
+        Assert.Contains(request.RequestPublicId.ToString(),auditDetails);
         Assert.Equal("Original address 10",await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=10"));
         var stale=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/duplicate-evidence",new V180OptionCDuplicateEvidence(geov.StageRowVersion,true,"Replay",Guid.NewGuid()));Assert.NotEqual(System.Net.HttpStatusCode.OK,stale.StatusCode);
         await h.Exec("UPDATE dbo.OptionCLiveApprovalActors SET IsIndependentAdminEligible=0 WHERE UserId=2");
@@ -898,7 +903,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             {
                 await db.OpenAsync();await CreateBase(db);
                 var repo=FindRoot();
-                foreach(var p in new[]{"1800_011/Up.sql","1800_012/Up.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql"})
+                foreach(var p in new[]{"1800_011/Up.sql","1800_012/Up.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql","audit/StageEvidenceAuditEvents.disposable.sql"})
                     await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft",p.Replace('/',Path.DirectorySeparatorChar))));
                 await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","merge","LocationMergeDetails.disposable.sql")));
                 return new Harness(root,db,name,dbb.ConnectionString);
