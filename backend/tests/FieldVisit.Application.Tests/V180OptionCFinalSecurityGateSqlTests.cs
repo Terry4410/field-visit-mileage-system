@@ -47,6 +47,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var submitted = await submit.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_SUBMIT_RESPONSE_MISSING");
         Assert.Equal("Pending", submitted.Status);
+        var pendingStatus = await visitor.GetAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}");
+        Assert.Equal(System.Net.HttpStatusCode.OK, pendingStatus.StatusCode);
+        var pendingView = await pendingStatus.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_HTTP_STATUS_RESPONSE_MISSING");
+        Assert.Equal("Pending", pendingView.Status);
         await h.Exec("""
             UPDATE s SET GeocodeStatus=N'Succeeded',GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME()
             FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id;
@@ -61,6 +67,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_APPROVE_RESPONSE_MISSING");
         Assert.Equal("Applied", applied.Status);
+        var appliedStatus = await visitor.GetAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}");
+        Assert.Equal(System.Net.HttpStatusCode.OK, appliedStatus.StatusCode);
+        var appliedView = await appliedStatus.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_HTTP_STATUS_RESPONSE_MISSING");
+        Assert.Equal("Applied", appliedView.Status);
         Assert.Equal("HTTP approved address", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("10", await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("2", await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));

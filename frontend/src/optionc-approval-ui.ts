@@ -20,3 +20,15 @@ export function reviewPayload(row:OptionCRequest,reason:string,decisionKey:strin
  if(!trimmed||trimmed.length>1000||!decisionKey||!row.rowVersion)throw new Error("請提供審核理由與有效決策識別碼。");
  return {requestRowVersion:row.rowVersion,decisionKey,reason:trimmed};
 }
+
+export function statusLabel(status:string):string{
+ switch(status){
+  case "Pending": return "待管理員審核";
+  case "Rejected": return "已退回";
+  case "Applied": return "已套用";
+  default: return "狀態待查核";
+ }
+}
+export function isTerminalStatus(status:string):boolean{
+ return status==="Rejected"||status==="Applied";
+}

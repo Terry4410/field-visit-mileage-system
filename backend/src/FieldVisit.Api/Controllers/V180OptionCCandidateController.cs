@@ -19,6 +19,10 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
     [HttpGet("requests/mine")]
     public Task<IReadOnlyList<V180B3RequestView>> Mine(CancellationToken ct) => service.OwnAsync(ct);
 
+    [HttpGet("requests/{id:guid}")]
+    public Task<V180B3RequestView> Status(Guid id, CancellationToken ct)
+        => service.StatusAsync(id, ct);
+
     [HttpGet("requests/queue")]
     public Task<IReadOnlyList<V180B3RequestView>> Queue(CancellationToken ct) => service.QueueAsync(ct);
 
