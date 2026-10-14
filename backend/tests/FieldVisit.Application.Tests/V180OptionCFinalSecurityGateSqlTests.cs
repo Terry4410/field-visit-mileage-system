@@ -344,13 +344,23 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("ReadyForPublish", duplicateView.StageStatus);
         Assert.Equal("NotRequired", duplicateView.GeocodeStatus);
 
+        var lowDecisionKey = Guid.NewGuid();
         var publishLow = await leaderClient.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/publish-reviewed",
-            new V180B3Review(submittedLow.RowVersion, Guid.NewGuid(),
+            new V180B3Review(submittedLow.RowVersion, lowDecisionKey,
                 "Independent Leader publishes note only"));
         Assert.True(publishLow.IsSuccessStatusCode,
             await publishLow.Content.ReadAsStringAsync());
         Assert.Equal("Applied", await h.RequestStatus(submittedLow.RequestPublicId));
+        var reconcileLow = await leaderClient.GetAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/reconcile?decisionKey={lowDecisionKey}");
+        Assert.True(reconcileLow.IsSuccessStatusCode,
+            await reconcileLow.Content.ReadAsStringAsync());
+        Assert.Contains("COMMITTED_EVIDENCE_REQUIRES_REVIEW",
+            await reconcileLow.Content.ReadAsStringAsync());
+        var adminReconcileLow = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/reconcile?decisionKey={lowDecisionKey}");
+        Assert.False(adminReconcileLow.IsSuccessStatusCode);
         Assert.Equal("Second reviewed note", await h.Scalar(
             "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("3", await h.Scalar(
