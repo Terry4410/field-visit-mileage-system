@@ -66,9 +66,18 @@ inside the same Serializable transaction before calling the writer.
 A guarded candidate endpoint `POST /api/v1/optionc-candidate/requests/{id}/publish-reviewed`
 is available only when the isolated candidate setting is enabled on a
 local disposable SQL Server. No UAT/Production activation is authorized.
-The current HTTP/DI/SQL tests seed canonical requests and stages directly
-in disposable SQL; this is **not** proof of the missing user-facing
-CreateLocation/LowRisk submission, staging and evidence workflow.
+The **LowRisk published-update** candidate now supports a real Visitor
+HTTP submission, server-owned risk classification, pending private stage
+without unnecessary geocoding, independent live Leader first-level approval,
+Leader-bound duplicate evidence and Leader final atomic publication. The
+isolated SQL/HTTP/DI test also covers premature evidence, unauthorized Admin
+substitution, Leader revocation, Leader rejection and stage abandonment,
+versioned publication and immutable Trip/Snapshot references.
+
+**CreateLocation** requests and stages are still seeded directly in
+disposable SQL for the positive atomic publication test. Full user-facing
+CreateLocation reservation/submission, pending Location query exclusion,
+geocode/duplicate evidence and UI remain incomplete.
 It does **not** constitute a deployable production migration or UI.
 
 The isolated SQL rehearsal tests creation of the reservation without
@@ -78,10 +87,10 @@ Unit tests cover server-owned risk classification and source shape.
 
 ## Release blockers
 
-- Isolated-only writer, live-authorized orchestrator and candidate
-  publish-reviewed endpoint are present. Positive and negative HTTP/DI/SQL
-  tests use SQL-seeded requests and stages; no full CreateLocation/LowRisk
-  HTTP submission, automatic staging/evidence or Business User journey yet.
+- LowRisk published-update candidate now has an HTTP submission-to-publication
+  path, but it is not a deployable Business User UI or UAT feature.
+  CreateLocation still has SQL-seeded reservation and Stage only; no real
+  CreateLocation HTTP submission or complete UI workflow yet.
 - No complete positive and negative Leader review matrix for these operations.
 - No complete Pending Location picker/search/trip exclusion proof.
 - Excel, legacy direct mutation and background publication not canonically
