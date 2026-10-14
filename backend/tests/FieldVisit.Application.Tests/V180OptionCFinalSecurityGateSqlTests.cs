@@ -591,7 +591,80 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(0,replayApplied.Submitted);
         Assert.Equal(updateId,Assert.Single(replayApplied.RequestPublicIds));
 
-        // Preview RowVersion is authoritative: a concurrent source change
+        // Excel Update LowRisk: name-only change, independent Leader final
+        // publication and duplicate evidence; Admin must not replace Leader.
+        var lowCsvBytes=Encoding.UTF8.GetBytes(
+            "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
+            "EX-10,Excel low-risk name,Taipei,Xinyi,Excel reviewed address,,Active\n");
+        // Correct column alignment: LocationCode and TeamCode remain EX-10/T1.
+        lowCsvBytes=Encoding.UTF8.GetBytes(
+            "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
+            "EX-10,T1,Excel low-risk name,Taipei,Xinyi,Excel reviewed address,,Active\n");
+        using var lowForm=new MultipartFormDataContent();
+        using var lowFile=new ByteArrayContent(lowCsvBytes);
+        lowFile.Headers.ContentType=
+            new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        lowForm.Add(lowFile,"file","lowrisk-update.csv");
+        using var lowPreviewHttp=await importer.PostAsync(
+            "api/v1/imports/locations/preview",lowForm);
+        Assert.True(lowPreviewHttp.IsSuccessStatusCode,
+            await lowPreviewHttp.Content.ReadAsStringAsync());
+        var lowPreview=await lowPreviewHttp.Content.ReadFromJsonAsync<ImportPreviewDto>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_LOW_PREVIEW_MISSING");
+        Assert.Equal("Update",Assert.Single(lowPreview.Items).Action);
+        using var lowSubmitHttp=await importer.PostAsync(
+            $"api/v1/optionc-candidate/imports/{lowPreview.ImportBatchId}/submit-updates-for-review",null);
+        Assert.True(lowSubmitHttp.IsSuccessStatusCode,
+            await lowSubmitHttp.Content.ReadAsStringAsync());
+        var lowSubmitted=await lowSubmitHttp.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_LOW_REQUEST_MISSING");
+        var lowId=Assert.Single(lowSubmitted.RequestPublicIds);
+        Assert.Equal("PendingDuplicateReview",await h.StageStatus(lowId));
+        Assert.Equal("Low",await h.Scalar("""
+            SELECT RiskCode FROM dbo.ChangeRequests WHERE RequestPublicId=@id
+            """,P("@id",lowId)));
+        var lowRequestRv=Convert.ToBase64String((byte[])(
+            await new SqlCommand(
+                "SELECT RowVersion FROM dbo.ChangeRequests WHERE RequestPublicId=@id",h.Db)
+                {Parameters={new SqlParameter("@id",lowId)}}.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_LOW_VERSION_MISSING")));
+        using var lowLeaderReview=await independentLeader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{lowId}/leader-review",
+            new V180OptionCLeaderReviewDecision(lowRequestRv,Guid.NewGuid(),
+                "Independent low-risk Excel Leader approval",true));
+        Assert.True(lowLeaderReview.IsSuccessStatusCode,
+            await lowLeaderReview.Content.ReadAsStringAsync());
+        var lowStageRv=Convert.ToBase64String((byte[])(
+            await new SqlCommand("""
+                SELECT s.RowVersion FROM dbo.LocationPublicationStages s
+                JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+                WHERE r.RequestPublicId=@id
+                """,h.Db){Parameters={new SqlParameter("@id",lowId)}}.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_LOW_STAGE_VERSION_MISSING")));
+        using var lowEvidence=await independentLeader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{lowId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(lowStageRv,true,
+                "Independent Leader duplicate clearance",Guid.NewGuid()));
+        Assert.True(lowEvidence.IsSuccessStatusCode,
+            await lowEvidence.Content.ReadAsStringAsync());
+        using var lowPublished=await independentLeader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{lowId}/publish-reviewed",
+            new V180B3Review(lowRequestRv,Guid.NewGuid(),
+                "Independent Leader publishes low-risk Excel update"));
+        Assert.True(lowPublished.IsSuccessStatusCode,
+            await lowPublished.Content.ReadAsStringAsync());
+        Assert.Equal("Applied",await h.RequestStatus(lowId));
+        Assert.Equal("Excel low-risk name",await h.Scalar(
+            "SELECT LocationName FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("Excel reviewed address",await h.Scalar(
+            "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal(oldTrips,await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10"));
+        foreach(var evt in new[]{"Submitted","LeaderApproved",
+            "DuplicateReviewEvidenceRecorded","Approved","Applied"})
+            Assert.Equal("1",await h.EventCount(lowId,evt));
+
+
         // after Preview must refuse canonical Update with no orphan request.
         var staleCsvBytes=Encoding.UTF8.GetBytes(
             "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
