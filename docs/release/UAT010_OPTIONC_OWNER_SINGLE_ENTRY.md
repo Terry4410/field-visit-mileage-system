@@ -24,6 +24,14 @@
 - **本批 exact-SHA CI 需獨立確認，先前 PASS 不可套用。**
 - **尚未完成**：CreateLocation 真正 HTTP reservation/submit/evidence、Pending Location 全查詢排除、Leader/Visitor 正式 UI 串接、Excel/legacy/background bypass 清理。UAT migration、deployment、flag activation、Business UAT、promotion 全部未授權／未執行；**HOLD / NO-GO**。
 
+## 2026-10-14 — 第五批：高風險最終駁回與 Merge 相容性（Recovery only）
+
+- 前一批修正 `cc6342c5cdfaaf734c5ec72b07f052e5feea56b2` 的 exact-SHA CI `38527277591` 已 **SUCCESS**。
+- 新增候選拒絕流程安全控制：LowRisk 不得經 Admin 通用 reject API 繞過獨立 Leader；一般 HighRisk Create/Update 需有同一申請的 LeaderApproved 決定明細與 Audit Event，且於同一 Serializable transaction 重驗 Leader HR/角色/小組任命及獨立 Admin 資格。
+- CreateLocation 高風險最終駁回：同交易將 `LocationPublicationStages` 與 `LocationCreateReservations` 標為 `Abandoned`，不可保留可發布的 pending reservation。
+- MergeFields 仍保留原獨立 Admin 駁回契約；以 `LocationMergeDetails` 辨識，不可藉 Merge 名義繞過正常 Create/Update 核准。加入低風險 Admin bypass 拒絕及高風險 Leader-before-Admin 拒絕 HTTP 測試。
+- **本批 Exact-SHA CI 尚待完成，不宣告工程 PASS。** CreateLocation 真實 HTTP 送審、Pending Location 全查詢隔離、Excel／legacy／background canonical routing 仍為阻礙；UAT/Production 全面 **HOLD／NO-GO**。
+
 ## 1. 單一程式來源
 
 - Repository: `Terry4410/field-visit-mileage-system`
