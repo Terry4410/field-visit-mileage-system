@@ -117,7 +117,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                     CONCAT(N'{"decision":"Succeeded","proposedEvidenceSha256":"',@hash,N'"}')),
                   (@rid,N'DuplicateReviewEvidenceRecorded',4,SYSUTCDATETIME(),NEWID(),NEWID(),
                     CONCAT(N'{"decision":"Cleared","proposedEvidenceSha256":"',@hash,N'"}'));
-            """, P("@id", createId));
+            """, P("@id", createId), P("@json", createJson));
         await using (var tx = await h.Begin())
         {
             var sameLeader = await Assert.ThrowsAsync<SqlException>(() =>
