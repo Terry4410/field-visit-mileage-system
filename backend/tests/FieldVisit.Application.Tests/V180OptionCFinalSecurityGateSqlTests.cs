@@ -52,10 +52,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id;
             """, P("@id", submitted.RequestPublicId));
         var requestVersion = submitted.RowVersion;
+        var approveKey = Guid.NewGuid();
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
         var approve = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/approve", new V180B3Review(
-            requestVersion, Guid.NewGuid(), "HTTP independent approval"));
+            requestVersion, approveKey, "HTTP independent approval"));
         Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
         var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_APPROVE_RESPONSE_MISSING");
