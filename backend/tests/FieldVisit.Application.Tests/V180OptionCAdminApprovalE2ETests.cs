@@ -47,6 +47,27 @@ public sealed class V180OptionCAdminApprovalE2ETests
             await Exec(db, Read(repo, "1800_014/Up.sql"));
             await Exec(db, Read(repo, "1800_014/Backfill.sql"));
 
+            // Regression for the published maintenance direct-write bypass:
+            // the production repository invokes this same policy before its
+            // tracked Location assignments. On SQL Server, prove a rejected
+            // risk classification leaves both the address and RowVersion
+            // unchanged. Low-risk MasterNote is deliberately outside the
+            // classifier and remains eligible for the normal maintenance save.
+            var addressBefore = await Scalar(db,
+                "SELECT Address FROM dbo.Locations WHERE LocationId=10");
+            var rowVersionBefore = await Scalar(db,
+                "SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10");
+            Assert.Throws<InvalidOperationException>(() =>
+                FieldVisit.Infrastructure.V180OptionCLocationMaintenanceRisk
+                    .RequireApprovalForPublishedHighRiskChange(true,
+                        FieldVisit.Infrastructure.V180OptionCLocationMaintenanceRisk.HasHighRiskChange(
+                            "Taipei", "Xinyi", addressBefore, null, null,
+                            "Taipei", "Xinyi", "Unapproved address", null, null)));
+            Assert.Equal(addressBefore, await Scalar(db,
+                "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+            Assert.Equal(rowVersionBefore, await Scalar(db,
+                "SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10"));
+
             var request = await CreateRequestAsync(db, 10, 1, "Reviewed address");
             await PrepareStageAsync(db, request, 10, 1, 1);
             var refsBefore = await Scalar(db, """

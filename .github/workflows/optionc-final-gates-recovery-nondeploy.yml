@@ -60,6 +60,8 @@ jobs:
           test "$(jq -r '.PackageB.B3.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
           test "$(jq -r '.OptionC.Approval.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = 'false'
           test ! -f backend/src/FieldVisit.Api/Controllers/V180B3ChangeRequestsController.cs
+          grep -Fq 'RequireApprovalForPublishedHighRiskChange' backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs
+          grep -Fq 'LOCATION_HIGH_RISK_CHANGE_REQUIRES_OPTIONC_APPROVAL' backend/src/FieldVisit.Infrastructure/V180OptionCLocationMaintenanceRisk.cs
           grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED: boolean = false' frontend/src/optionc-approval-flags.ts
           grep -Fq 'OPTIONC_APPROVAL_UI_ENABLED&&<Route path="/admin/locations/approvals"' frontend/src/App.tsx
           test "$E1_R1_SQL_CONNECTION" = "Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5"

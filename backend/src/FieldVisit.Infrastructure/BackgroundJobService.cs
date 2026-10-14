@@ -484,6 +484,17 @@ public sealed class BackgroundJobService(
                 continue;
             }
 
+            if (!location.IsTemporary && location.ApprovalStatus == "Approved")
+            {
+                item.Status = "Skipped";
+                item.ErrorCode = "PUBLISHED_LOCATION_REQUIRES_OPTIONC_APPROVAL";
+                item.ErrorMessage = "已核准地點的座標更新須經 Option C 核准。";
+                item.CompletedAt = DateTime.UtcNow;
+                job.SkippedCount++;
+                await db.SaveChangesAsync(ct);
+                continue;
+            }
+
             try
             {
                 var result = await geocoding.ResolveAsync(location.Address, location.PlusCode, ct);

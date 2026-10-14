@@ -723,6 +723,16 @@ public sealed class V170LocationRepository(
         if(nextTax is {Length:>20})throw new InvalidOperationException("統一編號不可超過 20 個字元。");
         if(nextMasterNote is {Length:>1000})throw new InvalidOperationException("主檔備註不可超過 1000 個字元。");
 
+        // This maintenance endpoint has no canonical ChangeRequests submission
+        // contract yet. Never write high-risk publication fields directly;
+        // return an explicit actionable failure and leave the tracked row clean.
+        // MasterNote remains a low-risk direct edit and retains RowVersion checks.
+        V180OptionCLocationMaintenanceRisk.RequireApprovalForPublishedHighRiskChange(
+            isPublished: !row.IsTemporary && row.ApprovalStatus == "Approved",
+            hasHighRiskChange: V180OptionCLocationMaintenanceRisk.HasHighRiskChange(
+                row.City,row.District,row.Address,row.PlusCode,row.TaxId,
+                nextCity,nextDistrict,nextAddress,nextPlus,nextTax));
+
         var addressChanged=!string.Equals(row.Address,nextAddress,StringComparison.Ordinal)
             ||!string.Equals(row.PlusCode,nextPlus,StringComparison.Ordinal);
 
@@ -1062,6 +1072,15 @@ public sealed class V170LocationRepository(
     {
         var preview=await PreviewMergeAsync(admin,sourceLocationId,request.SurvivorLocationId,ct);
         if(!preview.CanMerge)throw new InvalidOperationException(preview.BlockingReason??"此地點目前不可合併。");
+
+        if(request.Mode=="MergeFields")
+        {
+            var published=await db.Locations.AsNoTracking().AnyAsync(x=>
+                (x.LocationId==sourceLocationId||x.LocationId==request.SurvivorLocationId)
+                &&!x.IsTemporary&&x.ApprovalStatus=="Approved",ct);
+            V180OptionCLocationMaintenanceRisk.RequireApprovalForPublishedHighRiskChange(
+                published,hasHighRiskChange:true);
+        }
 
         await using var tx=await db.Database.BeginTransactionAsync(ct);
         var source=await db.Locations.SingleAsync(x=>x.LocationId==sourceLocationId,ct);
