@@ -405,8 +405,28 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             new UpdateLocationRequest("Illegal published change", "Taipei", "Xinyi",
                 "No direct edits after publication", null, "AAAAAAAAAAA="));
         Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,oldPublishedUpdate.StatusCode);
-        Assert.Contains("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL",
+        Assert.Contains("LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW",
             await oldPublishedUpdate.Content.ReadAsStringAsync());
+
+        // Separately prove that a historically published Location without
+        // any CreateReservation is blocked by the Master published-write
+        // guard, not merely by the new reservation protection.
+        var oldPublishedVersion = await h.Scalar("""
+            SELECT CONVERT(varchar(32), RowVersion, 2)
+            FROM dbo.Locations WHERE LocationId=10
+            """);
+        using var legacyPublished = await legacyAdmin.PutAsJsonAsync(
+            "api/v1/locations/10",
+            new UpdateLocationRequest("Old published direct write prohibited",
+                "Taipei", "Xinyi", "No review", null, "AAAAAAAAAAA="));
+        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
+            legacyPublished.StatusCode);
+        Assert.Contains("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL",
+            await legacyPublished.Content.ReadAsStringAsync());
+        Assert.Equal(oldPublishedVersion, await h.Scalar("""
+            SELECT CONVERT(varchar(32), RowVersion, 2)
+            FROM dbo.Locations WHERE LocationId=10
+            """));
         Assert.Equal("1", await h.Scalar("""
             SELECT COUNT(*) FROM dbo.LocationPublishedVersions
             WHERE LocationId=@id AND VersionNumber=1 AND IsCurrent=1
