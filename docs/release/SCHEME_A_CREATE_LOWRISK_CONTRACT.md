@@ -55,8 +55,15 @@ LeaderReviewDetails -> CreateLowRiskContract.
 
 The candidate adds a constrained reservation detail table, tightens the
 canonical request operation/risk/before-image constraints and extends
-published v1 origin to support an approved CreateLocation. It does **not**
-contain a production migration, API, UI or executable publication writer.
+published v1 origin to support an approved CreateLocation. An **unregistered,
+isolated-only** application writer now performs Create/LowRisk atomic DML
+inside a caller-owned Serializable transaction. It checks the independent
+Leader decision and matching audit, canonical evidence events, source
+RowVersion, reservation, risk-sensitive identity fields and version ledger.
+It does **not** constitute a deployable orchestrator, API, UI or migration.
+A future orchestrator must obtain **live** HR/role/team/appointment evidence
+within the same transaction; a caller-supplied eligibility value alone is
+not sufficient production authorization.
 
 The isolated SQL rehearsal tests creation of the reservation without
 publishing, LowRisk request acceptance, CreateLocation/Low denial, missing
@@ -65,7 +72,9 @@ Unit tests cover server-owned risk classification and source shape.
 
 ## Release blockers
 
-- No CreateLocation/LowRisk HTTP/DI/SQL publication writer yet.
+- Isolated-only atomic writer candidate exists; no fully integrated
+  CreateLocation/LowRisk submission, live-authorized orchestration or
+  positive HTTP/DI/SQL E2E yet. The direct SQL test uses disposable fixtures.
 - No complete positive and negative Leader review matrix for these operations.
 - No complete Pending Location picker/search/trip exclusion proof.
 - Excel, legacy direct mutation and background publication not canonically
