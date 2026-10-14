@@ -78,6 +78,7 @@ public sealed class V180OptionCCandidateService(
             FieldVisit.Domain.Entities.ImportBatch? excelBatch = null;
             if (excel is not null)
             {
+                await RequireExcelStateContractAsync(connection,sqlTx,ct);
                 // Lock the preview row and its batch inside the SAME serializable
                 // transaction that will commit Request/Reservation/Stage/audit.
                 // A concurrent/replayed submission cannot claim the same row.
@@ -303,6 +304,32 @@ public sealed class V180OptionCCandidateService(
         }
     }
 
+    private static async Task RequireExcelStateContractAsync(
+        SqlConnection connection, SqlTransaction? transaction, CancellationToken ct)
+    {
+        // No silent upgrade of 1.6 ImportBatch CHECK constraints: the
+        // isolated additive status-contract marker and BOTH enabled
+        // constraints must exist before any Excel submission transaction.
+        await using var cmd = new SqlCommand("""
+            SELECT CASE WHEN
+              EXISTS(SELECT 1 FROM dbo.SchemaVersions
+                WHERE VersionNumber=N'1.8.0-EXCEL-CANONICAL-STATUS')
+              AND OBJECT_ID(N'dbo.ImportBatches',N'U') IS NOT NULL
+              AND OBJECT_ID(N'dbo.ImportBatchItems',N'U') IS NOT NULL
+              AND EXISTS(SELECT 1 FROM sys.check_constraints
+                WHERE parent_object_id=OBJECT_ID(N'dbo.ImportBatches')
+                  AND name=N'CK_ImportBatches_Status' AND is_disabled=0
+                  AND definition LIKE N'%SubmittedForReview%')
+              AND EXISTS(SELECT 1 FROM sys.check_constraints
+                WHERE parent_object_id=OBJECT_ID(N'dbo.ImportBatchItems')
+                  AND name=N'CK_ImportBatchItems_Status' AND is_disabled=0
+                  AND definition LIKE N'%SubmittedForReview%')
+              THEN 1 ELSE 0 END
+            """,connection,transaction);
+        if (Convert.ToInt32(await cmd.ExecuteScalarAsync(ct)) != 1)
+            throw new InvalidOperationException("OPTIONC_EXCEL_STATUS_CONTRACT_NOT_READY");
+    }
+
     /// <summary>
     /// Submit staged Excel Create rows as distinct canonical HighRisk
     /// requests. Each row is atomic and retry-safe; mixed Update/create
@@ -316,6 +343,7 @@ public sealed class V180OptionCCandidateService(
         if (importBatchId == Guid.Empty)
             throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_REQUIRED");
         var connection = await RequireTargetAsync(ct);
+        await RequireExcelStateContractAsync(connection,null,ct);
         var user = current.GetRequired();
         if (!user.Roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase)
             || x.Equals("leader", StringComparison.OrdinalIgnoreCase)))
