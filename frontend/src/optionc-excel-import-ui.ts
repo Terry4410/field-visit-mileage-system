@@ -30,3 +30,8 @@ export function maySubmitCanonicalExcelUpdates(preview:ImportPreview):boolean{
     &&x.errorMessage==="LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL")
    ||(x.action==="NoChange"&&x.status==="Valid")));
 }
+
+export type ExcelCanonicalRowLink={
+ rowNumber:number;importBatchItemId:number;requestPublicId:string;
+ operationCode:string;riskCode:string;requestStatus:string;
+};
