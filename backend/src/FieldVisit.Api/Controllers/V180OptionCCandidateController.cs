@@ -21,6 +21,15 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
         V180OptionCCreateLocation input, CancellationToken ct)
         => service.CreateAsync(input, ct);
 
+    // Import Preview remains unchanged. This explicit isolated-only route
+    // submits previously staged Create rows for independent canonical
+    // Leader/Admin review; legacy /imports/{id}/confirm stays fail-closed.
+    [HttpPost("imports/{importBatchId:guid}/submit-creates-for-review")]
+    [Authorize(Roles = "admin,leader")]
+    public Task<V180OptionCExcelCreateResult> SubmitExcelCreates(
+        Guid importBatchId,CancellationToken ct)
+        => service.SubmitExcelCreatesAsync(importBatchId,ct);
+
     [HttpPost("locations/merge-fields")]
     public Task<V180B3RequestView> SubmitMerge(V180OptionCMergeSubmit input, CancellationToken ct)
         => mergeService.SubmitAsync(input, ct);
