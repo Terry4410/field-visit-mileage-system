@@ -85,6 +85,20 @@ publishing, LowRisk request acceptance, CreateLocation/Low denial, missing
 before-image denial, additive constraint preservation and rerun denial.
 Unit tests cover server-owned risk classification and source shape.
 
+## Excel create fail-closed delta — 2026-10-14
+
+The legacy `WorkbookImportService.ConfirmAsync` path previously inserted an
+inactive Pending Location on Excel `Create` without writing a canonical
+ChangeRequest, reservation or independent Leader/Admin review. This was
+**not** a complete Scheme A CreateLocation transaction. The Recovery branch
+now refuses location-create import batches before processing any row with
+`LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW`. The existing published
+update guard remains in place. Project imports and location previews are
+not intentionally disabled. Do not re-enable Excel location creation until
+it is transactionally routed through the canonical CreateLocation service
+with server-owned identity, reservation, live authorization and evidence.
+This is a safety closure, **not** functional Excel-import completion.
+
 ## Release blockers
 
 - LowRisk published-update candidate now has an HTTP submission-to-publication
