@@ -114,6 +114,98 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Original address 11", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=11"));
     }
 
+    [Fact]
+    public async Task MergeFields_real_http_submission_approval_reject_and_history_are_atomic()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        await h.Exec("""
+            INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(1,900,10,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserFavoriteLocations(UserFavoriteLocationId,UserId,LocationId) VALUES(1,1,10);
+            INSERT dbo.GovernmentLocationMasters(GovernmentLocationMasterId,MatchedLocationId,UpdatedAt) VALUES(1,10,SYSUTCDATETIME());
+            """);
+        var sourceRefs = await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 FOR JSON PATH");
+        var snapshotRefs = await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 FOR JSON PATH");
+        var sourceVersion = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync() ?? throw new InvalidOperationException());
+        var survivorVersion = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=11", h.Db).ExecuteScalarAsync() ?? throw new InvalidOperationException());
+
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
+            builder.UseSetting("Auth:Mode", "Demo");
+            builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+        });
+        using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
+        var submit = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/merge-fields",
+            new V180OptionCMergeSubmit(10, 11, Convert.ToBase64String(sourceVersion),
+                Convert.ToBase64String(survivorVersion), "Merge duplicate locations",
+                new V180B3LocationFields("Merged survivor", "Taipei", "Xinyi",
+                    "Merged address", null, null, "Merge note")));
+        Assert.Equal(System.Net.HttpStatusCode.OK, submit.StatusCode);
+        var pending = await submit.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
+        Assert.Equal("Pending", pending.Status);
+        Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationMergeDetails WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id)", P("@id", pending.RequestPublicId)));
+        Assert.Equal("1", await h.EventCount(pending.RequestPublicId, "Submitted"));
+        Assert.Equal("PendingGeocode", await h.StageStatus(pending.RequestPublicId));
+        Assert.Equal("Original address 11", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=11"));
+
+        await h.Exec("""
+            UPDATE s SET GeocodeStatus=N'Succeeded',
+              GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),
+              Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',
+              DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME()
+            FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+            WHERE r.RequestPublicId=@id;
+            """, P("@id", pending.RequestPublicId));
+
+        using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        var self = await visitor.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
+            new V180B3Review(pending.RowVersion, Guid.NewGuid(), "Self approval denied"));
+        Assert.NotEqual(System.Net.HttpStatusCode.OK, self.StatusCode);
+        var approve = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
+            new V180B3Review(pending.RowVersion, Guid.NewGuid(), "Independent merge approval"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
+        var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
+        Assert.Equal("Applied", applied.Status);
+
+        Assert.Equal("Merged survivor", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=11"));
+        Assert.Equal("Merged address", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=11"));
+        Assert.Equal("0", await h.Scalar("SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("11", await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.ProjectLocations WHERE ProjectLocationId=1"));
+        Assert.Equal("11", await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.UserFavoriteLocations WHERE UserFavoriteLocationId=1"));
+        Assert.Equal("11", await h.Scalar("SELECT CONVERT(nvarchar(20),MatchedLocationId) FROM dbo.GovernmentLocationMasters WHERE GovernmentLocationMasterId=1"));
+        Assert.Equal(sourceRefs, await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 FOR JSON PATH"));
+        Assert.Equal(snapshotRefs, await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 FOR JSON PATH"));
+        Assert.Equal("2", await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND IsCurrent=1"));
+        Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND VersionNumber=1"));
+        Assert.Equal("1", await h.EventCount(pending.RequestPublicId, "Approved"));
+        Assert.Equal("1", await h.EventCount(pending.RequestPublicId, "Applied"));
+        var reconcile = await admin.GetAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/reconcile?decisionKey={Guid.NewGuid()}");
+        Assert.Equal(System.Net.HttpStatusCode.OK, reconcile.StatusCode);
+
+        var rejectSource = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=12", h.Db).ExecuteScalarAsync() ?? throw new InvalidOperationException());
+        var rejectSurvivor = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=13", h.Db).ExecuteScalarAsync() ?? throw new InvalidOperationException());
+        var rejectSubmit = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/merge-fields",
+            new V180OptionCMergeSubmit(12, 13, Convert.ToBase64String(rejectSource),
+                Convert.ToBase64String(rejectSurvivor), "Reject merge",
+                new V180B3LocationFields("Rejected survivor", "Taipei", "Xinyi",
+                    "Rejected address", null, null, "Reject note")));
+        Assert.Equal(System.Net.HttpStatusCode.OK, rejectSubmit.StatusCode);
+        var rejectPending = await rejectSubmit.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
+        var reject = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{rejectPending.RequestPublicId}/reject",
+            new V180B3Review(rejectPending.RowVersion, Guid.NewGuid(), "Independent rejection"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, reject.StatusCode);
+        Assert.Equal("Rejected", await h.RequestStatus(rejectPending.RequestPublicId));
+        Assert.Equal("Abandoned", await h.StageStatus(rejectPending.RequestPublicId));
+        Assert.Equal("Original 12", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=12"));
+        Assert.Equal("Original 13", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=13"));
+    }
+
     private static string Token(int userId, string employeeNo, string role)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));
@@ -736,6 +828,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 var repo=FindRoot();
                 foreach(var p in new[]{"1800_011/Up.sql","1800_012/Up.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql"})
                     await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft",p.Replace('/',Path.DirectorySeparatorChar))));
+                await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","merge","LocationMergeDetails.disposable.sql")));
                 return new Harness(root,db,name,dbb.ConnectionString);
             }
             catch{await db.DisposeAsync();await V180OptionCFinalSecurityGateSqlTests.Exec(root,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");await root.DisposeAsync();throw;}
@@ -825,6 +918,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 CREATE TABLE dbo.OptionCLiveApprovalActors(UserId int NOT NULL PRIMARY KEY,OrganizationId int NOT NULL,TeamId int NULL,IsActive bit NOT NULL,IsRequesterEligible bit NOT NULL,IsIndependentAdminEligible bit NOT NULL);
                 CREATE TABLE dbo.VisitTripStops(VisitTripStopId bigint NOT NULL PRIMARY KEY,LocationId int NOT NULL FOREIGN KEY REFERENCES dbo.Locations(LocationId));
                 CREATE TABLE dbo.VisitTripSnapshotStops(VisitTripSnapshotStopId bigint NOT NULL PRIMARY KEY,LocationId int NOT NULL FOREIGN KEY REFERENCES dbo.Locations(LocationId));
+                CREATE TABLE dbo.ProjectLocations(ProjectLocationId bigint NOT NULL PRIMARY KEY,ProjectId int NOT NULL,LocationId int NOT NULL,IsActive bit NOT NULL,IsPrimary bit NOT NULL,UpdatedAt datetime2 NULL);
+                CREATE TABLE dbo.UserFavoriteLocations(UserFavoriteLocationId bigint NOT NULL PRIMARY KEY,UserId int NOT NULL,LocationId int NOT NULL);
+                CREATE TABLE dbo.GovernmentLocationMasters(GovernmentLocationMasterId bigint NOT NULL PRIMARY KEY,MatchedLocationId int NULL,UpdatedAt datetime2 NULL);
                 INSERT dbo.Organizations VALUES(1),(2);
                 INSERT dbo.Teams(TeamId,OrganizationId,TeamCode,TeamName,IsActive,CreatedAt) VALUES(1,1,N'T1',N'Team 1',1,SYSUTCDATETIME()),(2,2,N'T2',N'Team 2',1,SYSUTCDATETIME());
                 INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt) VALUES(1,1,1,N'E1',N'Visitor',1,SYSUTCDATETIME()),(2,1,1,N'E2',N'Admin',1,SYSUTCDATETIME()),(3,2,2,N'E3',N'Other',1,SYSUTCDATETIME());
