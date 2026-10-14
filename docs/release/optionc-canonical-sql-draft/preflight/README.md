@@ -19,3 +19,19 @@ deployment/rollback contacts.
 Candidate order: target/backup gate -> 011 -> Verify -> 012 -> Verify ->
 014/backfill -> Verify -> LocationMergeDetails additive -> StageEvidenceAuditEvents additive ->
 backend/frontend deployment. Migration 1800_013 remains reserved and is never reused.
+
+## Phase-aware disposable SQL verification
+
+The nondeploy CI includes
+`V180OptionCSqlDraftRehearsalTests.Uat_readonly_preflight_executes_at_010_011_012_014_and_additive_audit_phases`.
+It executes this exact preflight SQL in a fresh `OptionCIsolated_*` localhost SQL
+Server 2022 database at schema phases 010, 011, 012, 014, and after the
+additive canonical audit constraint extension. It also verifies STOP behavior
+for an unexpected parallel audit table and an incorrect database identity.
+
+This test substitutes SQLCMD target placeholders **only in its disposable
+harness**; it does not exercise the Azure Entra read-only identity or execute
+the guarded UAT workflow. A passing CI test proves isolated phase
+compatibility, **not** that the exact UAT target, permissions, backups,
+rollback, or Owner execution authorization have been verified. The UAT
+read-only preflight remains NOT RUN until those independent gates are met.
