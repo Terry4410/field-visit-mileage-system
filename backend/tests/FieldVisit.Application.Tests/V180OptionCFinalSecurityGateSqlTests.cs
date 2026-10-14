@@ -581,6 +581,40 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(0,replayApplied.Submitted);
         Assert.Equal(updateId,Assert.Single(replayApplied.RequestPublicIds));
 
+        // Preview RowVersion is authoritative: a concurrent source change
+        // after Preview must refuse canonical Update with no orphan request.
+        var staleCsvBytes=Encoding.UTF8.GetBytes(
+            "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n"+
+            "EX-10,T1,Original 10,Taipei,Xinyi,Excel stale address,,Active\n");
+        using var staleForm=new MultipartFormDataContent();
+        using var staleFile=new ByteArrayContent(staleCsvBytes);
+        staleFile.Headers.ContentType=
+            new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        staleForm.Add(staleFile,"file","stale-update.csv");
+        using var stalePreviewHttp=await importer.PostAsync(
+            "api/v1/imports/locations/preview",staleForm);
+        Assert.True(stalePreviewHttp.IsSuccessStatusCode,
+            await stalePreviewHttp.Content.ReadAsStringAsync());
+        var stalePreview=await stalePreviewHttp.Content.ReadFromJsonAsync<ImportPreviewDto>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_STALE_PREVIEW_MISSING");
+        await h.Exec("""
+            UPDATE dbo.Locations SET MasterNote=N'concurrent source edit'
+            WHERE LocationId=10;
+            """);
+        using var staleSubmission=await importer.PostAsync(
+            $"api/v1/optionc-candidate/imports/{stalePreview.ImportBatchId}/submit-updates-for-review",null);
+        Assert.False(staleSubmission.IsSuccessStatusCode);
+        Assert.Equal("0",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND TRY_CONVERT(uniqueidentifier,
+                JSON_VALUE(DetailsJson,N'$.ImportBatchId'))=@batch
+            """,P("@batch",stalePreview.ImportBatchId)));
+        Assert.Equal("Excel reviewed address",await h.Scalar(
+            "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal(oldTrips,await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10"));
+
         // A mixed Create+Update batch cannot silently use either
         // operation-specific endpoint to bypass the other's controls.
         using var mixedUpdate=await admin.PostAsync(
