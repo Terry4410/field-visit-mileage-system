@@ -62,7 +62,15 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
             var auth = new V180OptionCLiveAuthorizationAdapter(db);
             var org = await auth.ResolveLiveOrganizationAsync(actorId, ct);
             long requestId; int teamId; int requesterId; string requestStatus, risk; byte[] stageVersion; string stageStatus, geocodeStatus, proposedSha;
-            await using (var cmd = new SqlCommand("""
+            // Candidate CreateLocation reservation table is additive and optional.
+            // SQL Server resolves table names at statement compilation even for
+            // branches ruled out by OR. Never reference absent candidate schema
+            // while processing existing UpdatePublishedLocation evidence.
+            await using var catalog = new SqlCommand(
+                "SELECT CASE WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NULL THEN 0 ELSE 1 END",
+                connection, (SqlTransaction)tx.GetDbTransaction());
+            var createSchemaExists = Convert.ToInt32(await catalog.ExecuteScalarAsync(ct)) == 1;
+            var scopeSql = createSchemaExists ? """
                 SELECT r.ChangeRequestId,r.TeamId,r.RequestedByUserId,r.Status,
                        s.RowVersion,s.StageStatus,s.GeocodeStatus,s.DuplicateReviewStatus,s.ProposedSha256,r.RiskCode
                 FROM dbo.ChangeRequests r WITH(UPDLOCK,HOLDLOCK)
@@ -77,7 +85,17 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                           AND cr.OrganizationId=r.OrganizationId
                           AND cr.TeamId=r.TeamId
                           AND cr.ReservationStatus=N'Pending')));
-                """, connection, (SqlTransaction)tx.GetDbTransaction()))
+                """ : """
+                SELECT r.ChangeRequestId,r.TeamId,r.RequestedByUserId,r.Status,
+                       s.RowVersion,s.StageStatus,s.GeocodeStatus,s.DuplicateReviewStatus,s.ProposedSha256,r.RiskCode
+                FROM dbo.ChangeRequests r WITH(UPDLOCK,HOLDLOCK)
+                JOIN dbo.LocationPublicationStages s WITH(UPDLOCK,HOLDLOCK) ON s.ChangeRequestId=r.ChangeRequestId
+                WHERE r.RequestPublicId=@id AND r.OrganizationId=@org
+                  AND r.EntityKind=N'Location'
+                  AND r.OperationCode=N'UpdatePublishedLocation'
+                  AND r.RiskCode IN(N'High',N'Low');
+                """;
+            await using (var cmd = new SqlCommand(scopeSql, connection, (SqlTransaction)tx.GetDbTransaction()))
             {
                 cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@org", org);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
