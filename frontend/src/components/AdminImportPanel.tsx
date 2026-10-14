@@ -25,7 +25,7 @@ export default function AdminImportPanel({type,onDone}:{type:"locations"|"projec
    setReview(reviewed);
    await refreshLinks();
    setMsg(`已提交 ${reviewed.submitted} 筆地點建立審查；先前提交 ${reviewed.alreadySubmitted} 筆。尚未核准或發布。`);
-  }catch(e){setMsg(`${e instanceof Error?e.message:"提交審查失敗"}；若結果不明，請先查詢申請紀錄。`)}
+  }catch(e){try{await refreshLinks()}catch{/* Fail closed; do not infer success. */}setMsg(`${e instanceof Error?e.message:"提交審查失敗"}；已嘗試重新查詢已提交的每列申請，請確認後再重試。`)}
   finally{setBusy(false)}
  };
  const submitUpdatesForReview=async()=>{
@@ -38,7 +38,7 @@ export default function AdminImportPanel({type,onDone}:{type:"locations"|"projec
    setReview(reviewed);
    await refreshLinks();
    setMsg(`已提交 ${reviewed.submitted} 筆已發布地點更新審查；重試恢復 ${reviewed.alreadySubmitted} 筆。尚未發布。`);
-  }catch(e){setMsg(`${e instanceof Error?e.message:"提交更新審查失敗"}；請先查詢申請紀錄再重試。`)}
+  }catch(e){try{await refreshLinks()}catch{/* Keep original failure visible. */}setMsg(`${e instanceof Error?e.message:"提交更新審查失敗"}；已嘗試重新查詢已提交的每列申請，請確認後再重試。`)}
   finally{setBusy(false)}
  };
  const confirm=async()=>{if(!preview)return;setBusy(true);try{const r=await api<ImportConfirmResult>(`/imports/${preview.importBatchId}/confirm`,{method:"POST"},120000);setResult(r);setMsg("匯入完成。");onDone()}catch(e){setMsg(e instanceof Error?e.message:"匯入失敗")}finally{setBusy(false)}};
