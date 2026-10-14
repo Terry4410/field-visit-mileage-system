@@ -179,11 +179,30 @@ public sealed class V180OptionCCandidateService(
 
     public async Task<string> ReconcileAsync(Guid id, Guid decisionKey, CancellationToken ct)
     {
-        await RequireTargetAsync(ct);
+        if (decisionKey == Guid.Empty)
+            throw new InvalidOperationException("OPTIONC_DECISION_KEY_REQUIRED");
+        var connection = await RequireTargetAsync(ct);
         var actorId = current.GetRequired().UserId;
-        var connection = db.Database.GetDbConnection().ConnectionString;
+        await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct))
+        {
+            var auth = new V180OptionCLiveAuthorizationAdapter(db);
+            var org = await auth.RequireIndependentAdminAsync(actorId, BusinessTime.Today, ct);
+            var request = await db.ChangeRequests.FromSqlInterpolated(
+                V180B3ApprovalLockSql.RequestByPublicId(id, org)).AsNoTracking()
+                .SingleOrDefaultAsync(ct)
+                ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
+            if (request.TeamId is not int team || request.RequestedByUserId == actorId)
+                throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
+            var evidence = await auth.AuthorizeDecisionAsync(request.RequestedByUserId, actorId,
+                request.OrganizationId, team, BusinessTime.Today, ct);
+            if (!evidence.OrganizationMatches || !evidence.TeamMatches)
+                throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
+            await tx.CommitAsync(ct);
+        }
+        // Observe using a fresh non-pooled connection after authorization so the
+        // read cannot inherit stale transaction state or retry across COMMIT.
         return await V180OptionCUnknownCommitReconciler.ObserveAsync(
-            connection, id, decisionKey, actorId, ct);
+            connection.ConnectionString, id, decisionKey, actorId, ct);
     }
 
     private async Task<V180B3RequestView> FindAsync(Guid id, CancellationToken ct)
