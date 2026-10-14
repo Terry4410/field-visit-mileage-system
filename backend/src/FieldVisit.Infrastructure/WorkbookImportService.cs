@@ -426,6 +426,11 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 }
             }
 
+            // Match Confirm's fail-closed CreateLocation gate in preview.
+            // Do not present an unreviewed Excel create as a Valid row.
+            if (error is null && action == "Create")
+                error = "LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW";
+
             await StageAsync(
                 batch,
                 preview,
