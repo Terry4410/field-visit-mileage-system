@@ -256,6 +256,19 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             await ExecuteAsync(db, File.ReadAllText(auditPath));
             await ExecuteAsync(db, script); // 014: canonical evidence audit extension
 
+            var leaderReviewPath = Path.Combine(rootDir, "docs", "release",
+                "optionc-canonical-sql-draft", "leader-review",
+                "LeaderReviewDetails.disposable.sql");
+            await ExecuteAsync(db, File.ReadAllText(leaderReviewPath));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.tables " +
+                "WHERE name=N'ChangeRequestLeaderReviews'"));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.check_constraints " +
+                "WHERE name=N'CK_B3_ChangeRequestEvents_EventType' " +
+                "AND definition LIKE N'%LeaderApproved%'"));
+            await ExecuteAsync(db, script); // additive Leader review remains visible to read-only preflight
+
             // Detect a parallel audit ledger as a STOP condition.
             await ExecuteAsync(db,
                 "CREATE TABLE dbo.StageEvidenceAuditEvents(Id int NOT NULL PRIMARY KEY)");
