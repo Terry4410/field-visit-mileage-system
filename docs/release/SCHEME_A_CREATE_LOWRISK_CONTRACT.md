@@ -60,10 +60,16 @@ isolated-only** application writer now performs Create/LowRisk atomic DML
 inside a caller-owned Serializable transaction. It checks the independent
 Leader decision and matching audit, canonical evidence events, source
 RowVersion, reservation, risk-sensitive identity fields and version ledger.
-It does **not** constitute a deployable orchestrator, API, UI or migration.
-A future orchestrator must obtain **live** HR/role/team/appointment evidence
-within the same transaction; a caller-supplied eligibility value alone is
-not sufficient production authorization.
+A separate **isolated-only** orchestrator now reads live requester,
+Leader, Admin, team scope, appointment/delegation and employment authority
+inside the same Serializable transaction before calling the writer.
+A guarded candidate endpoint `POST /api/v1/optionc-candidate/requests/{id}/publish-reviewed`
+is available only when the isolated candidate setting is enabled on a
+local disposable SQL Server. No UAT/Production activation is authorized.
+The current HTTP/DI/SQL tests seed canonical requests and stages directly
+in disposable SQL; this is **not** proof of the missing user-facing
+CreateLocation/LowRisk submission, staging and evidence workflow.
+It does **not** constitute a deployable production migration or UI.
 
 The isolated SQL rehearsal tests creation of the reservation without
 publishing, LowRisk request acceptance, CreateLocation/Low denial, missing
@@ -72,9 +78,10 @@ Unit tests cover server-owned risk classification and source shape.
 
 ## Release blockers
 
-- Isolated-only atomic writer candidate exists; no fully integrated
-  CreateLocation/LowRisk submission, live-authorized orchestration or
-  positive HTTP/DI/SQL E2E yet. The direct SQL test uses disposable fixtures.
+- Isolated-only writer, live-authorized orchestrator and candidate
+  publish-reviewed endpoint are present. Positive and negative HTTP/DI/SQL
+  tests use SQL-seeded requests and stages; no full CreateLocation/LowRisk
+  HTTP submission, automatic staging/evidence or Business User journey yet.
 - No complete positive and negative Leader review matrix for these operations.
 - No complete Pending Location picker/search/trip exclusion proof.
 - Excel, legacy direct mutation and background publication not canonically
