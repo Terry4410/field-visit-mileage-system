@@ -241,8 +241,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     [Fact]
     public async Task MergeFields_stale_source_or_survivor_rowversion_fails_closed_without_partial_publication()
     {
-        await using var h=await Harness.TryCreateAsync();if(h is null)return;await h.Exec("INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(3,902,10,1,1,SYSUTCDATETIME());
-");
+        await using var h=await Harness.TryCreateAsync();if(h is null)return;await h.Exec("INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(3,902,10,1,1,SYSUTCDATETIME());");
         async Task<Guid> Submit(int source,int survivor)
         {
             var sv=(byte[])(await new SqlCommand($"SELECT RowVersion FROM dbo.Locations WHERE LocationId={source}",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException());var uv=(byte[])(await new SqlCommand($"SELECT RowVersion FROM dbo.Locations WHERE LocationId={survivor}",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException());
