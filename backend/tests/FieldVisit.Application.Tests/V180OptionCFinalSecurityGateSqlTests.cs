@@ -830,6 +830,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // a JWT claim alone would be an invalid proof of the canonical guard.
         visitor.DefaultRequestHeaders.Authorization =
             new("Bearer", Token(1, "E1", "visitor", 1, 1));
+        using var dashboardBeforeResponse = await visitor.GetAsync("api/v1/dashboard");
+        Assert.True(dashboardBeforeResponse.IsSuccessStatusCode,
+            await dashboardBeforeResponse.Content.ReadAsStringAsync());
+        var dashboardBefore = await dashboardBeforeResponse.Content
+            .ReadFromJsonAsync<DashboardSummaryDto>()
+            ?? throw new InvalidOperationException("OPTIONC_DASHBOARD_BEFORE_MISSING");
         using var blockedLegacyCreate = await visitor.PostAsJsonAsync(
             "api/v1/managed-locations", direct);
         Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
@@ -1017,6 +1023,15 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("0", await h.Scalar(
             "SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id",
             P("@id", locationId)));
+        // A private Create reservation must not change the Visitor dashboard
+        // pending-location count; the query still counts legitimate legacy drafts.
+        using var dashboardAfterResponse = await visitor.GetAsync("api/v1/dashboard");
+        Assert.True(dashboardAfterResponse.IsSuccessStatusCode,
+            await dashboardAfterResponse.Content.ReadAsStringAsync());
+        var dashboardAfter = await dashboardAfterResponse.Content
+            .ReadFromJsonAsync<DashboardSummaryDto>()
+            ?? throw new InvalidOperationException("OPTIONC_DASHBOARD_AFTER_MISSING");
+        Assert.Equal(dashboardBefore.PendingLocations, dashboardAfter.PendingLocations);
         // Legacy Picker endpoints require the normal org/team JWT claims.
         // The isolated Option C write path above intentionally ignores claims
         // and instead authorizes directly against live HR/role/team tables.
