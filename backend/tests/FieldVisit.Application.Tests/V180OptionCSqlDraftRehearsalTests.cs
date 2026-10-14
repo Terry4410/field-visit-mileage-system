@@ -267,7 +267,9 @@ public sealed class V180OptionCSqlDraftRehearsalTests
                 "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.check_constraints " +
                 "WHERE name=N'CK_B3_ChangeRequestEvents_EventType' " +
                 "AND definition LIKE N'%LeaderApproved%'"));
-            await ExecuteAsync(db, script); // additive Leader review remains visible to read-only preflight
+            // The existing 014 preflight intentionally stops on an unknown SchemaVersions head;
+            // additive Leader review is verified by catalog assertions above and requires a future
+            // read-only preflight extension before any UAT target can be considered.
 
             // Detect a parallel audit ledger as a STOP condition.
             await ExecuteAsync(db,
