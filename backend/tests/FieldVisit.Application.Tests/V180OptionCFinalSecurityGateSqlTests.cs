@@ -283,6 +283,55 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var revoked=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request.RequestPublicId}/geocode-evidence",new V180OptionCGeocodeEvidence(dupv.StageRowVersion,true,25.03m,121.56m,"Revoked"));Assert.NotEqual(System.Net.HttpStatusCode.OK,revoked.StatusCode);
     }
 
+    [Fact]
+    public async Task Stage_evidence_key_collision_rolls_back_stage_and_audit_atomically()
+    {
+        await using var h=await Harness.TryCreateAsync();if(h is null)return;
+        await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>{
+            builder.UseSetting("OptionC:Candidate:Enabled","true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection",h.ConnectionString);
+            builder.UseSetting("Auth:Mode","Demo");
+            builder.UseSetting("Auth:JwtKey","test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled","false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");
+        });
+        using var visitor=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
+        visitor.DefaultRequestHeaders.Authorization=new("Bearer",Token(1,"E1","visitor"));
+        using var admin=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
+        admin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin"));
+
+        async Task<V180B3RequestView> Submit(int location)
+        {
+            var rv=Convert.ToBase64String((byte[])(await new SqlCommand($"SELECT RowVersion FROM dbo.Locations WHERE LocationId={location}",h.Db).ExecuteScalarAsync()??throw new InvalidOperationException()));
+            var response=await visitor.PostAsJsonAsync($"api/v1/optionc-candidate/locations/{location}/changes",
+                new V180B3SubmitLocation(location,rv,"Evidence collision",
+                    new V180B3LocationFields($"Original {location}","Taipei","Xinyi",$"Evidence collision {location}",null,null,"Evidence note")));
+            Assert.Equal(System.Net.HttpStatusCode.OK,response.StatusCode);
+            return await response.Content.ReadFromJsonAsync<V180B3RequestView>()??throw new InvalidOperationException();
+        }
+        async Task<string> StageVersion(Guid id)
+        {
+            await using var cmd=new SqlCommand("SELECT s.RowVersion FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id",h.Db);
+            cmd.Parameters.AddWithValue("@id",id);
+            return Convert.ToBase64String((byte[])(await cmd.ExecuteScalarAsync()??throw new InvalidOperationException()));
+        }
+
+        var first=await Submit(10);
+        var second=await Submit(11);
+        var key=Guid.NewGuid();
+        var firstGeo=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{first.RequestPublicId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(await StageVersion(first.RequestPublicId),true,25.03m,121.56m,"Collision source"){EvidenceKey=key});
+        Assert.Equal(System.Net.HttpStatusCode.OK,firstGeo.StatusCode);
+        Assert.Equal("1",await h.EventCount(first.RequestPublicId,"GeocodeEvidenceRecorded"));
+        var secondStageBefore=await h.StageStatus(second.RequestPublicId);
+        var secondGeo=await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{second.RequestPublicId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(await StageVersion(second.RequestPublicId),true,25.04m,121.57m,"Collision replay"){EvidenceKey=key});
+        Assert.NotEqual(System.Net.HttpStatusCode.OK,secondGeo.StatusCode);
+        Assert.Equal(secondStageBefore,await h.StageStatus(second.RequestPublicId));
+        Assert.Equal("Pending",await h.RequestStatus(second.RequestPublicId));
+        Assert.Equal("0",await h.EventCount(second.RequestPublicId,"GeocodeEvidenceRecorded"));
+    }
+
     private static string Token(int userId, string employeeNo, string role)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));
