@@ -16,6 +16,16 @@ namespace FieldVisit.Infrastructure;
 public sealed record V180OptionCCreateLocation(
     int TeamId, string Reason, V180B3LocationFields Proposed);
 
+/// <summary>Row-bound, independently reviewed Excel Create submission summary.</summary>
+public sealed record V180OptionCExcelCreateResult(
+    Guid ImportBatchId, int Submitted, int AlreadySubmitted, string Status,
+    IReadOnlyList<Guid> RequestPublicIds);
+
+internal sealed record V180OptionCExcelRowSource(Guid ImportBatchId, long ImportBatchItemId);
+internal sealed record V180OptionCExcelLocationRow(
+    string? LocationCode,string? TeamCode,string LocationName,
+    string? City,string? District,string? Address,string? PlusCode,string Status);
+
 public sealed class V180OptionCCandidateService(
     AppDbContext db, ICurrentUserService current, IConfiguration config)
 {
@@ -38,8 +48,13 @@ public sealed class V180OptionCCandidateService(
     /// Stage are all committed or rolled back in ONE Serializable transaction.
     /// No published Location or version is written here.
     /// </summary>
-    public async Task<V180B3RequestView> CreateAsync(
+    public Task<V180B3RequestView> CreateAsync(
         V180OptionCCreateLocation input, CancellationToken ct)
+        => CreateCoreAsync(input, ct, null);
+
+    private async Task<V180B3RequestView> CreateCoreAsync(
+        V180OptionCCreateLocation input, CancellationToken ct,
+        V180OptionCExcelRowSource? excel)
     {
         if (input is null || input.TeamId <= 0)
             throw new InvalidOperationException("OPTIONC_CREATE_INPUT_INVALID");
@@ -59,6 +74,52 @@ public sealed class V180OptionCCandidateService(
             var actorId = current.GetRequired().UserId;
             var scope = await new V180OptionCLiveAuthorizationAdapter(db)
                 .AuthorizeCreateSubmissionAsync(actorId, input.TeamId, BusinessTime.Today, ct);
+            FieldVisit.Domain.Entities.ImportBatchItem? excelItem = null;
+            FieldVisit.Domain.Entities.ImportBatch? excelBatch = null;
+            if (excel is not null)
+            {
+                // Lock the preview row and its batch inside the SAME serializable
+                // transaction that will commit Request/Reservation/Stage/audit.
+                // A concurrent/replayed submission cannot claim the same row.
+                excelBatch = await db.ImportBatches.FromSqlInterpolated(
+                    $"SELECT * FROM dbo.ImportBatches WITH (UPDLOCK,HOLDLOCK) WHERE ImportBatchId={excel.ImportBatchId}")
+                    .SingleOrDefaultAsync(ct);
+                excelItem = await db.ImportBatchItems.FromSqlInterpolated(
+                    $"SELECT * FROM dbo.ImportBatchItems WITH (UPDLOCK,HOLDLOCK) WHERE ImportBatchItemId={excel.ImportBatchItemId}")
+                    .SingleOrDefaultAsync(ct);
+                if (excelBatch is null || excelItem is null ||
+                    excelItem.ImportBatchId != excel.ImportBatchId ||
+                    excelBatch.ImportType != "locations" ||
+                    excelBatch.OrganizationId != scope.OrganizationId ||
+                    excelBatch.RequestedByUserId != actorId ||
+                    excelBatch.ExpiresAt < DateTime.UtcNow ||
+                    excelBatch.Status is not ("Previewed" or "PartiallySubmittedForReview") ||
+                    excelItem.EntityType != "Location" || excelItem.Action != "Create" ||
+                    excelItem.Status != "Error" ||
+                    excelItem.ErrorMessage != "LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW")
+                    throw new InvalidOperationException("OPTIONC_EXCEL_ROW_NOT_ELIGIBLE");
+                var staged = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
+                    excelItem.DataJson) ?? throw new InvalidOperationException("OPTIONC_EXCEL_ROW_INVALID");
+                if (!string.IsNullOrWhiteSpace(staged.LocationCode) ||
+                    !string.Equals(staged.LocationName.Trim(), proposed.LocationName,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(staged.Address?.Trim(), proposed.Address,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(staged.City?.Trim(), proposed.City,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(staged.District?.Trim(), proposed.District,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(staged.PlusCode?.Trim(), proposed.PlusCode,
+                        StringComparison.Ordinal))
+                    throw new InvalidOperationException("OPTIONC_EXCEL_ROW_PROPOSAL_DRIFT");
+                var teamCode = await db.Teams.AsNoTracking()
+                    .Where(x => x.TeamId == input.TeamId && x.OrganizationId == scope.OrganizationId)
+                    .Select(x => x.TeamCode).SingleOrDefaultAsync(ct);
+                if (string.IsNullOrWhiteSpace(teamCode) ||
+                    !string.Equals(teamCode, staged.TeamCode?.Trim(),
+                        StringComparison.Ordinal))
+                    throw new InvalidOperationException("OPTIONC_EXCEL_TEAM_DRIFT");
+            }
             await using (var schema = new SqlCommand("""
                 SELECT CAST(CASE WHEN EXISTS (
                   SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK')
@@ -214,11 +275,24 @@ public sealed class V180OptionCCandidateService(
                 ActorUserId=actorId, OccurredAt=DateTime.UtcNow,
                 CorrelationId=Guid.NewGuid(),
                 DetailsJson=JsonSerializer.Serialize(new { Reason=validated.Reason,
-                    LocationId=locationId, Operation="CreateLocation" })
+                    LocationId=locationId, Operation="CreateLocation",
+                    Source=excel is null ? "HTTP" : "Excel",
+                    ImportBatchId=excel?.ImportBatchId,
+                    ImportBatchItemId=excel?.ImportBatchItemId })
             });
             await db.SaveChangesAsync(ct);
             await V180OptionCStageDraftWriter.CreateFromLockedRequestAsync(
                 connection, sqlTx, requestId, scope.OrganizationId, ct);
+            if (excelItem is not null && excelBatch is not null)
+            {
+                // This row marker and the Submitted audit are atomic with the
+                // reserved Location and private Stage. Never use a separate
+                // commit for the Excel-to-canonical reference.
+                excelItem.Status = "SubmittedForReview";
+                excelItem.ErrorMessage = null;
+                excelBatch.Status = "PartiallySubmittedForReview";
+                await db.SaveChangesAsync(ct);
+            }
             await tx.CommitAsync(ct);
             return ToView(row);
         }
@@ -227,6 +301,126 @@ public sealed class V180OptionCCandidateService(
             try { await tx.RollbackAsync(CancellationToken.None); } catch { }
             throw;
         }
+    }
+
+    /// <summary>
+    /// Submit staged Excel Create rows as distinct canonical HighRisk
+    /// requests. Each row is atomic and retry-safe; mixed Update/create
+    /// batches are refused rather than falling through legacy Confirm.
+    /// Cannot run on UAT/Production because RequireTargetAsync rejects
+    /// non-loopback or non-OptionCIsolated SQL and disabled flags.
+    /// </summary>
+    public async Task<V180OptionCExcelCreateResult> SubmitExcelCreatesAsync(
+        Guid importBatchId, CancellationToken ct)
+    {
+        if (importBatchId == Guid.Empty)
+            throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_REQUIRED");
+        var connection = await RequireTargetAsync(ct);
+        var user = current.GetRequired();
+        if (!user.Roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase)
+            || x.Equals("leader", StringComparison.OrdinalIgnoreCase)))
+            throw new UnauthorizedAccessException("OPTIONC_EXCEL_ROLE_DENIED");
+        var batch = await db.ImportBatches.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.ImportBatchId == importBatchId, ct)
+            ?? throw new KeyNotFoundException("OPTIONC_EXCEL_BATCH_NOT_FOUND");
+        if (batch.RequestedByUserId != user.UserId ||
+            batch.OrganizationId != user.OrganizationId ||
+            batch.ImportType != "locations" ||
+            batch.Status is not ("Previewed" or "PartiallySubmittedForReview" or "SubmittedForReview"))
+            throw new UnauthorizedAccessException("OPTIONC_EXCEL_BATCH_SCOPE_DENIED");
+        if (batch.ExpiresAt < DateTime.UtcNow && batch.Status != "SubmittedForReview")
+            throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_EXPIRED");
+        var items = await db.ImportBatchItems.AsNoTracking()
+            .Where(x => x.ImportBatchId == importBatchId)
+            .OrderBy(x => x.RowNumber).ToListAsync(ct);
+        if (items.Count == 0 || !items.Any(x => x.Action == "Create"))
+            throw new InvalidOperationException("OPTIONC_EXCEL_CREATE_ROWS_REQUIRED");
+        // Preflight the whole batch before starting even one canonical request.
+        // Mixed Update rows, unknown Errors, missing addresses and invalid
+        // team codes never turn into a partial direct write.
+        var ready = new List<(FieldVisit.Domain.Entities.ImportBatchItem Item,
+            V180OptionCExcelLocationRow Row, int TeamId)>();
+        foreach (var item in items)
+        {
+            if (item.EntityType != "Location")
+                throw new InvalidOperationException("OPTIONC_EXCEL_MIXED_ENTITY_DENIED");
+            if (item.Action == "NoChange" && item.Status == "Valid") continue;
+            if (item.Action != "Create" ||
+                !(item.Status == "SubmittedForReview" ||
+                  (item.Status == "Error" &&
+                   item.ErrorMessage == "LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW")))
+                throw new InvalidOperationException("OPTIONC_EXCEL_MIXED_OR_INVALID_ROW_DENIED");
+            var row = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
+                item.DataJson) ?? throw new InvalidOperationException("OPTIONC_EXCEL_ROW_INVALID");
+            if (!string.IsNullOrWhiteSpace(row.LocationCode) ||
+                string.IsNullOrWhiteSpace(row.TeamCode) ||
+                string.IsNullOrWhiteSpace(row.LocationName) ||
+                string.IsNullOrWhiteSpace(row.Address))
+                throw new InvalidOperationException("OPTIONC_EXCEL_REQUIRED_FIELDS_MISSING");
+            var team = await db.Teams.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.TeamCode == row.TeamCode.Trim() &&
+                x.OrganizationId == batch.OrganizationId && x.IsActive, ct)
+                ?? throw new UnauthorizedAccessException("OPTIONC_EXCEL_TEAM_SCOPE_DENIED");
+            ready.Add((item,row,team.TeamId));
+        }
+        var requests = new List<Guid>();
+        int submitted = 0, already = 0;
+        foreach (var (item,row,teamId) in ready)
+        {
+            if (item.Status == "SubmittedForReview")
+            {
+                // Authoritative link is the canonical Submitted audit.
+                // No new identity may be created on a replay.
+                requests.Add(await FindExcelSubmissionAsync(connection,
+                    importBatchId,item.ImportBatchItemId,ct));
+                already++;
+                continue;
+            }
+            var fields = new V180B3LocationFields(row.LocationName.Trim(),
+                row.City?.Trim(),row.District?.Trim(),row.Address?.Trim(),
+                row.PlusCode?.Trim(),null,null);
+            var request = await CreateCoreAsync(new V180OptionCCreateLocation(
+                teamId,$"Excel batch {importBatchId:N}, row {item.RowNumber}: independent review required",
+                fields), ct,
+                new V180OptionCExcelRowSource(importBatchId,item.ImportBatchItemId));
+            requests.Add(request.RequestPublicId);
+            submitted++;
+        }
+        var latest = await db.ImportBatchItems.AsNoTracking()
+            .Where(x => x.ImportBatchId == importBatchId && x.Action == "Create")
+            .Select(x => x.Status).ToListAsync(ct);
+        if (latest.Count != ready.Count || latest.Any(x => x != "SubmittedForReview"))
+            throw new InvalidOperationException("OPTIONC_EXCEL_PARTIAL_SUBMISSION_REQUIRES_RETRY");
+        var finished = await db.ImportBatches.SingleAsync(
+            x => x.ImportBatchId == importBatchId, ct);
+        finished.Status = "SubmittedForReview";
+        finished.ConfirmedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return new(importBatchId,submitted,already,"SubmittedForReview",requests);
+    }
+
+    private static async Task<Guid> FindExcelSubmissionAsync(
+        SqlConnection connection, Guid batch, long item, CancellationToken ct)
+    {
+        await using var cmd = new SqlCommand("""
+            SELECT r.RequestPublicId
+            FROM dbo.ChangeRequestEvents e
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId
+            WHERE e.EventType=N'Submitted'
+              AND JSON_VALUE(e.DetailsJson,N'$.Source')=N'Excel'
+              AND TRY_CONVERT(uniqueidentifier,
+                  JSON_VALUE(e.DetailsJson,N'$.ImportBatchId'))=@batch
+              AND TRY_CONVERT(bigint,
+                  JSON_VALUE(e.DetailsJson,N'$.ImportBatchItemId'))=@item
+            """,connection);
+        cmd.Parameters.AddWithValue("@batch",batch);
+        cmd.Parameters.AddWithValue("@item",item);
+        var ids = new List<Guid>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) ids.Add(reader.GetGuid(0));
+        if (ids.Count != 1)
+            throw new InvalidOperationException("OPTIONC_EXCEL_CANONICAL_AUDIT_LINK_MISSING");
+        return ids[0];
     }
 
     public async Task<V180B3RequestView> SubmitAsync(V180B3SubmitLocation input, CancellationToken ct)
