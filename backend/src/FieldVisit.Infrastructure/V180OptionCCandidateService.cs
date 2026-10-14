@@ -519,5 +519,5 @@ public sealed class V180OptionCCandidateService(
     private static V180B3RequestView ToView(V180B3ChangeRequest r) => new(
         r.RequestPublicId, r.EntityId, r.TeamId, r.RiskCode, r.Status,
         r.RequestedByUserId, r.SubmittedAt, r.BeforeJson, r.ProposedJson,
-        Convert.ToBase64String(r.RowVersion));
+        Convert.ToBase64String(r.RowVersion),r.OperationCode);
 }

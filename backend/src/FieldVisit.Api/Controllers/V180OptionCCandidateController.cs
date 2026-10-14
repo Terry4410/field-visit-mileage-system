@@ -25,6 +25,10 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
     public Task<V180B3RequestView> SubmitMerge(V180OptionCMergeSubmit input, CancellationToken ct)
         => mergeService.SubmitAsync(input, ct);
 
+    [HttpGet("requests/{id:guid}/stage")]
+    public Task<V180OptionCStageEvidenceView> Stage(Guid id, CancellationToken ct)
+        => evidenceService.ReadForAdminAsync(id, ct);
+
     [HttpPost("requests/{id:guid}/geocode-evidence")]
     public Task<V180OptionCStageEvidenceView> GeocodeEvidence(Guid id, V180OptionCGeocodeEvidence input, CancellationToken ct)
         => evidenceService.RecordGeocodeAsync(id, input, ct);

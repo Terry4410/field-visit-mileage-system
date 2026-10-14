@@ -36,6 +36,109 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
         return connection;
     }
 
+    private async Task RequireLiveCreateLeaderAsync(
+        V180OptionCLiveAuthorizationAdapter auth, long requestId, int requesterId,
+        int organizationId, int teamId, CancellationToken ct)
+    {
+        var leader = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.ChangeRequestId == requestId && x.ReviewStage == "LeaderFirstLevel", ct);
+        if (leader?.Status != "Approved" || leader.ReviewerUserId is not int leaderId
+            || leaderId == requesterId || leader.DecisionKey is not Guid decisionKey
+            || !await db.ChangeRequestEvents.AsNoTracking().AnyAsync(x =>
+                x.ChangeRequestId == requestId && x.EventType == "LeaderApproved"
+                && x.ActorUserId == leaderId && x.DecisionKey == decisionKey, ct))
+            throw new UnauthorizedAccessException("OPTIONC_CREATE_LEADER_APPROVAL_REQUIRED");
+        var live = await auth.AuthorizeLeaderReviewAsync(
+            requesterId, leaderId, organizationId, teamId, BusinessTime.Today, ct);
+        if (!live.RequesterEligible || !live.ReviewerLeaderEligible
+            || !live.OrganizationMatches || !live.TeamMatches)
+            throw new UnauthorizedAccessException("OPTIONC_CREATE_LEADER_REVOKED");
+    }
+
+    /// <summary>
+    /// Read Stage/RowVersion only for an independently reauthorized Admin
+    /// within the isolated candidate database. Never read from UAT/Production.
+    /// </summary>
+    public async Task<V180OptionCStageEvidenceView> ReadForAdminAsync(
+        Guid id, CancellationToken ct)
+    {
+        if (id == Guid.Empty) throw new InvalidOperationException("OPTIONC_STAGE_ID_REQUIRED");
+        var connection = await RequireTargetAsync(ct);
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        try
+        {
+            var auth = new V180OptionCLiveAuthorizationAdapter(db);
+            var actor = current.GetRequired().UserId;
+            var org = await auth.ResolveLiveOrganizationAsync(actor, ct);
+            var row = await db.ChangeRequests.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.RequestPublicId == id && x.OrganizationId == org
+                && x.EntityKind == "Location" && x.RiskCode == "High"
+                && x.Status == "Pending"
+                && (x.OperationCode == "CreateLocation"
+                    || x.OperationCode == "UpdatePublishedLocation"), ct)
+                ?? throw new KeyNotFoundException("OPTIONC_STAGE_NOT_FOUND");
+            if (row.TeamId is not int team || team <= 0
+                || !int.TryParse(row.EntityId, out var location) || location <= 0)
+                throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
+            var reviewer = await auth.AuthorizeDecisionAsync(
+                row.RequestedByUserId, actor, org, team, BusinessTime.Today, ct);
+            if (!reviewer.RequesterEligible || !reviewer.IndependentAdminEligible
+                || !reviewer.OrganizationMatches || !reviewer.TeamMatches)
+                throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
+            var sqlTx = (SqlTransaction)tx.GetDbTransaction();
+            if (row.OperationCode == "CreateLocation")
+            {
+                await RequireLiveCreateLeaderAsync(auth, row.ChangeRequestId,
+                    row.RequestedByUserId, org, team, ct);
+                await using var catalog = new SqlCommand("""
+                    SELECT CASE WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NOT NULL
+                      AND EXISTS (SELECT 1 FROM dbo.SchemaVersions
+                                  WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THEN 1 ELSE 0 END
+                    """, connection, sqlTx);
+                if (Convert.ToInt32(await catalog.ExecuteScalarAsync(ct)) != 1)
+                    throw new InvalidOperationException("OPTIONC_CREATE_RESERVATION_SCHEMA_NOT_READY");
+                await using var reservation = new SqlCommand("""
+                    SELECT COUNT(*) FROM dbo.LocationCreateReservations WITH(HOLDLOCK)
+                    WHERE ChangeRequestId=@request AND LocationId=@location
+                      AND OrganizationId=@org AND TeamId=@team
+                      AND ReservationStatus=N'Pending'
+                    """, connection, sqlTx);
+                reservation.Parameters.AddWithValue("@request", row.ChangeRequestId);
+                reservation.Parameters.AddWithValue("@location", location);
+                reservation.Parameters.AddWithValue("@org", org);
+                reservation.Parameters.AddWithValue("@team", team);
+                if (Convert.ToInt32(await reservation.ExecuteScalarAsync(ct)) != 1)
+                    throw new UnauthorizedAccessException("OPTIONC_CREATE_RESERVATION_DENIED");
+            }
+            await using var cmd = new SqlCommand("""
+                SELECT StageStatus,GeocodeStatus,DuplicateReviewStatus,RowVersion
+                FROM dbo.LocationPublicationStages WITH(HOLDLOCK)
+                WHERE ChangeRequestId=@request AND LocationId=@location
+                  AND OrganizationId=@org AND TeamId=@team
+                """, connection, sqlTx);
+            cmd.Parameters.AddWithValue("@request", row.ChangeRequestId);
+            cmd.Parameters.AddWithValue("@location", location);
+            cmd.Parameters.AddWithValue("@org", org);
+            cmd.Parameters.AddWithValue("@team", team);
+            string stageStatus, geocode, duplicate; byte[] stageVersion;
+            await using (var rdr = await cmd.ExecuteReaderAsync(ct))
+            {
+                if (!await rdr.ReadAsync(ct))
+                    throw new KeyNotFoundException("OPTIONC_STAGE_NOT_FOUND");
+                stageStatus = rdr.GetString(0); geocode = rdr.GetString(1);
+                duplicate = rdr.GetString(2); stageVersion = rdr.GetFieldValue<byte[]>(3);
+            }
+            await tx.CommitAsync(ct);
+            return new(id,stageStatus,geocode,duplicate,
+                Convert.ToBase64String(stageVersion));
+        }
+        catch
+        {
+            try { await tx.RollbackAsync(CancellationToken.None); } catch { }
+            throw;
+        }
+    }
+
     public Task<V180OptionCStageEvidenceView> RecordGeocodeAsync(Guid id, V180OptionCGeocodeEvidence input, CancellationToken ct)
         => TransitionAsync(id, input.StageRowVersion, input.Reason, input.Succeeded, input.Latitude, input.Longitude, null, input.EvidenceKey, ct);
 
@@ -145,6 +248,13 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                 if (!evidence.RequesterEligible || !evidence.IndependentAdminEligible
                     || !evidence.OrganizationMatches || !evidence.TeamMatches)
                     throw new UnauthorizedAccessException("OPTIONC_STAGE_REVIEW_SCOPE_DENIED");
+                // A canonical CreateLocation has no Admin evidence path before
+                // independent live Leader approval and its canonical event.
+                var operation = await db.ChangeRequests.AsNoTracking()
+                    .Where(x => x.ChangeRequestId == requestId)
+                    .Select(x => x.OperationCode).SingleAsync(ct);
+                if (operation == "CreateLocation")
+                    await RequireLiveCreateLeaderAsync(auth,requestId,requesterId,org,teamId,ct);
             }
 
             var sqlTx=(SqlTransaction)tx.GetDbTransaction();

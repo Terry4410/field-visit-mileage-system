@@ -49,7 +49,7 @@ public sealed record V180B3SubmitLocation(int LocationId,string ExpectedRowVersi
 public sealed record V180B3Review(string RequestRowVersion,Guid DecisionKey,string Reason);
 public sealed record V180B3RequestView(Guid RequestPublicId,string EntityId,int? TeamId,
     string RiskCode,string Status,int RequestedByUserId,DateTime SubmittedAt,
-    string? BeforeJson,string ProposedJson,string RowVersion);
+    string? BeforeJson,string ProposedJson,string RowVersion,string OperationCode = "");
 
 /// <summary>Deliberately nondeployable-by-default B3 candidate.
 /// No permission for Leader is inferred from membership or seeded grants.
