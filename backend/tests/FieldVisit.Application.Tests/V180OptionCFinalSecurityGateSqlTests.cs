@@ -294,6 +294,119 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             WHERE ProposedJson LIKE N'%Excel real preview customer%'
             """));
 
+        // A multirow Excel Create batch produces one canonical request,
+        // reservation, private Stage and Submitted event PER row. The batch
+        // replay must recover the same Request IDs without new identities.
+        var multiBatch=Guid.NewGuid();
+        var multiFirst=System.Text.Json.JsonSerializer.Serialize(new {
+            locationCode=(string?)null,teamCode="T1",locationName="Excel multi first",
+            city="Taipei",district="Xinyi",address="Excel multi first address",
+            plusCode=(string?)null,status="Active"
+        });
+        var multiSecond=System.Text.Json.JsonSerializer.Serialize(new {
+            locationCode=(string?)null,teamCode="T1",locationName="Excel multi second",
+            city="Taipei",district="Xinyi",address="Excel multi second address",
+            plusCode=(string?)null,status="Active"
+        });
+        await h.Exec("""
+            INSERT dbo.ImportBatches(ImportBatchId,ImportType,OrganizationId,
+                RequestedByUserId,Status,TotalCount,ValidCount,ErrorCount,
+                CreatedAt,ExpiresAt)
+            VALUES(@batch,N'locations',1,2,N'Previewed',2,0,2,
+                SYSUTCDATETIME(),DATEADD(hour,4,SYSUTCDATETIME()));
+            INSERT dbo.ImportBatchItems(ImportBatchId,RowNumber,EntityType,Action,
+                Status,DisplayKey,DataJson,ErrorMessage,CreatedAt)
+            VALUES(@batch,2,N'Location',N'Create',N'Error',N'Excel multi first',
+                @one,N'LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW',SYSUTCDATETIME()),
+                  (@batch,3,N'Location',N'Create',N'Error',N'Excel multi second',
+                @two,N'LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW',SYSUTCDATETIME());
+            """,P("@batch",multiBatch),P("@one",multiFirst),P("@two",multiSecond));
+        var multiUrl=$"api/v1/optionc-candidate/imports/{multiBatch}/submit-creates-for-review";
+        using var multiResponse=await admin.PostAsync(multiUrl,null);
+        Assert.True(multiResponse.IsSuccessStatusCode,
+            await multiResponse.Content.ReadAsStringAsync());
+        var multiResult=await multiResponse.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_MULTI_RESULT_MISSING");
+        Assert.Equal(2,multiResult.Submitted);
+        Assert.Equal(0,multiResult.AlreadySubmitted);
+        Assert.Equal(2,multiResult.RequestPublicIds.Distinct().Count());
+        foreach(var requestId in multiResult.RequestPublicIds)
+        {
+            Assert.Equal("Pending",await h.RequestStatus(requestId));
+            Assert.Equal("PendingGeocode",await h.StageStatus(requestId));
+            Assert.Equal("1",await h.EventCount(requestId,"Submitted"));
+        }
+        Assert.Equal("2",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ImportBatchItems
+            WHERE ImportBatchId=@batch AND Status=N'SubmittedForReview'
+            """,P("@batch",multiBatch)));
+        Assert.Equal("2",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND JSON_VALUE(DetailsJson,N'$.ImportBatchId')=@batch
+            """,P("@batch",multiBatch.ToString())));
+        using var multiReplay=await admin.PostAsync(multiUrl,null);
+        Assert.True(multiReplay.IsSuccessStatusCode,
+            await multiReplay.Content.ReadAsStringAsync());
+        var multiReplayResult=await multiReplay.Content.ReadFromJsonAsync<V180OptionCExcelCreateResult>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_MULTI_REPLAY_MISSING");
+        Assert.Equal(0,multiReplayResult.Submitted);
+        Assert.Equal(2,multiReplayResult.AlreadySubmitted);
+        Assert.Equal(
+            multiResult.RequestPublicIds.OrderBy(x=>x),
+            multiReplayResult.RequestPublicIds.OrderBy(x=>x));
+        Assert.Equal("2",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND JSON_VALUE(DetailsJson,N'$.ImportBatchId')=@batch
+            """,P("@batch",multiBatch.ToString())));
+
+        // Fail on row 2 after a legal row 1: the second row's reservation,
+        // Stage and Submitted audit must roll back. Row 1 stays recoverable
+        // from the canonical audit, and a retry must not duplicate row 1.
+        var partialBatch=Guid.NewGuid();
+        var partialFirst=System.Text.Json.JsonSerializer.Serialize(new {
+            locationCode=(string?)null,teamCode="T1",locationName="Excel partial first",
+            city="Taipei",district="Xinyi",address="Excel partial first address",
+            plusCode=(string?)null,status="Active"
+        });
+        await h.Exec("""
+            INSERT dbo.ImportBatches(ImportBatchId,ImportType,OrganizationId,
+                RequestedByUserId,Status,TotalCount,ValidCount,ErrorCount,
+                CreatedAt,ExpiresAt)
+            VALUES(@batch,N'locations',1,2,N'Previewed',2,0,2,
+                SYSUTCDATETIME(),DATEADD(hour,4,SYSUTCDATETIME()));
+            INSERT dbo.ImportBatchItems(ImportBatchId,RowNumber,EntityType,Action,
+                Status,DisplayKey,DataJson,ErrorMessage,CreatedAt)
+            VALUES(@batch,2,N'Location',N'Create',N'Error',N'Excel partial first',
+                @one,N'LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW',SYSUTCDATETIME()),
+                  (@batch,3,N'Location',N'Create',N'Error',N'Excel canonical first',
+                @two,N'LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW',SYSUTCDATETIME());
+            """,P("@batch",partialBatch),P("@one",partialFirst),P("@two",staged));
+        var partialUrl=$"api/v1/optionc-candidate/imports/{partialBatch}/submit-creates-for-review";
+        using var partialFailed=await admin.PostAsync(partialUrl,null);
+        Assert.False(partialFailed.IsSuccessStatusCode);
+        Assert.Equal("PartiallySubmittedForReview",await h.Scalar(
+            "SELECT Status FROM dbo.ImportBatches WHERE ImportBatchId=@id",
+            P("@id",partialBatch)));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND JSON_VALUE(DetailsJson,N'$.ImportBatchId')=@id
+            """,P("@id",partialBatch.ToString())));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations
+            WHERE LocationName=N'Excel partial first' AND ApprovalStatus=N'Pending'
+              AND IsActive=0
+            """));
+        using var partialRetry=await admin.PostAsync(partialUrl,null);
+        Assert.False(partialRetry.IsSuccessStatusCode);
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequestEvents
+            WHERE EventType=N'Submitted'
+              AND JSON_VALUE(DetailsJson,N'$.ImportBatchId')=@id
+            """,P("@id",partialBatch.ToString())));
+
     }
 
     [Fact]
