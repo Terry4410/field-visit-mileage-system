@@ -37,6 +37,11 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
         Guid importBatchId, CancellationToken ct)
         => service.SubmitExcelUpdatesAsync(importBatchId,ct);
 
+    [HttpGet("imports/{importBatchId:guid}/request-links")]
+    public Task<IReadOnlyList<V180OptionCExcelRowLink>> ExcelRequestLinks(
+        Guid importBatchId, CancellationToken ct)
+        => service.ExcelRequestLinksAsync(importBatchId,ct);
+
     [HttpPost("locations/merge-fields")]
     public Task<V180B3RequestView> SubmitMerge(V180OptionCMergeSubmit input, CancellationToken ct)
         => mergeService.SubmitAsync(input, ct);
