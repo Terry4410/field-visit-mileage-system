@@ -68,8 +68,15 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                 FROM dbo.ChangeRequests r WITH(UPDLOCK,HOLDLOCK)
                 JOIN dbo.LocationPublicationStages s WITH(UPDLOCK,HOLDLOCK) ON s.ChangeRequestId=r.ChangeRequestId
                 WHERE r.RequestPublicId=@id AND r.OrganizationId=@org
-                  AND r.EntityKind=N'Location' AND r.OperationCode=N'UpdatePublishedLocation'
-                  AND r.RiskCode IN(N'High',N'Low');
+                  AND r.EntityKind=N'Location'
+                  AND ((r.OperationCode=N'UpdatePublishedLocation' AND r.RiskCode IN(N'High',N'Low'))
+                    OR (r.OperationCode=N'CreateLocation' AND r.RiskCode=N'High'
+                      AND EXISTS (SELECT 1 FROM dbo.LocationCreateReservations cr WITH(HOLDLOCK)
+                        WHERE cr.ChangeRequestId=r.ChangeRequestId
+                          AND cr.LocationId=s.LocationId
+                          AND cr.OrganizationId=r.OrganizationId
+                          AND cr.TeamId=r.TeamId
+                          AND cr.ReservationStatus=N'Pending')));
                 """, connection, (SqlTransaction)tx.GetDbTransaction()))
             {
                 cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@org", org);
