@@ -466,6 +466,44 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var restoredStage = await restored.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
             ?? throw new InvalidOperationException("OPTIONC_REVOCATION_RESTORE_MISSING");
         Assert.Equal(authorizedStage.StageRowVersion, restoredStage.StageRowVersion);
+
+        // An appointed Leader may originate CreateLocation but cannot self
+        // review. With no second qualified Leader in this isolated team,
+        // the request must remain Pending even when Admin is independent.
+        var leaderOrigin = new V180OptionCCreateLocation(1,
+            "Leader-originated customer requires an independent first review",
+            new V180B3LocationFields("Leader origin pending", "Taipei", "Xinyi",
+                "Leader origin unique address", null, null, null));
+        using var leaderSubmitted = await leader.PostAsJsonAsync(
+            "api/v1/optionc-candidate/locations", leaderOrigin);
+        Assert.True(leaderSubmitted.IsSuccessStatusCode,
+            await leaderSubmitted.Content.ReadAsStringAsync());
+        var leaderRequest = await leaderSubmitted.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_LEADER_ORIGIN_REQUEST_MISSING");
+        using var illegalLeaderReview = await leader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{leaderRequest.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(leaderRequest.RowVersion,
+                Guid.NewGuid(),"Self review prohibited",true));
+        Assert.False(illegalLeaderReview.IsSuccessStatusCode);
+        using var illegalAdminStage = await admin.GetAsync(
+            $"api/v1/optionc-candidate/requests/{leaderRequest.RequestPublicId}/stage");
+        Assert.False(illegalAdminStage.IsSuccessStatusCode);
+        using var illegalAdminPublish = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{leaderRequest.RequestPublicId}/publish-reviewed",
+            new V180B3Review(leaderRequest.RowVersion,Guid.NewGuid(),
+                "Admin must not bypass Leader"));
+        Assert.False(illegalAdminPublish.IsSuccessStatusCode);
+        using var illegalAdminReject = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{leaderRequest.RequestPublicId}/reject",
+            new V180B3Review(leaderRequest.RowVersion,Guid.NewGuid(),
+                "Admin cannot skip first-level review"));
+        Assert.False(illegalAdminReject.IsSuccessStatusCode);
+        Assert.Equal("Pending", await h.RequestStatus(leaderRequest.RequestPublicId));
+        Assert.Equal("PendingGeocode", await h.StageStatus(leaderRequest.RequestPublicId));
+        Assert.Equal("0", await h.EventCount(leaderRequest.RequestPublicId,"LeaderApproved"));
+        Assert.Equal("0", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id
+            """, P("@id",int.Parse(leaderRequest.EntityId))));
     }
 
     [Fact]
