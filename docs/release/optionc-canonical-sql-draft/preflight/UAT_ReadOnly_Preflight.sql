@@ -169,7 +169,13 @@ SELECT @Latest AS MigrationPhase,
 
 SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',
   COALESCE((
-    SELECT STRING_AGG(CONCAT(s.name,N'.',o.name,N'|',o.type,N'|',o.modify_date),N';')
+    SELECT STRING_AGG(
+      CONVERT(nvarchar(max), CONCAT(s.name COLLATE DATABASE_DEFAULT,N'.',
+        o.name COLLATE DATABASE_DEFAULT,N'|',o.type COLLATE DATABASE_DEFAULT,
+        N'|',CONVERT(nvarchar(33),o.modify_date,126)) COLLATE DATABASE_DEFAULT),
+      N';' COLLATE DATABASE_DEFAULT)
+      WITHIN GROUP (ORDER BY s.name COLLATE DATABASE_DEFAULT,
+        o.name COLLATE DATABASE_DEFAULT, o.type COLLATE DATABASE_DEFAULT)
     FROM sys.objects o JOIN sys.schemas s ON s.schema_id=o.schema_id
     WHERE o.type IN ('U','V','PK','F','UQ','D','C') AND s.name=N'dbo'
   ),N'')),2) AS CatalogFingerprintSha256;
