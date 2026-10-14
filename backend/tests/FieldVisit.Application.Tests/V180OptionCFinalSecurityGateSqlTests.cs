@@ -300,6 +300,15 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Low", submittedLow.RiskCode);
         Assert.Equal("Pending", submittedLow.Status);
         Assert.Equal("PendingDuplicateReview", await h.StageStatus(submittedLow.RequestPublicId));
+        // Admin cannot use the generic reject endpoint to bypass the
+        // Scheme A independent Leader-first low-risk review.
+        var adminRejectLow = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/reject",
+            new V180B3Review(submittedLow.RowVersion, Guid.NewGuid(),
+                "Admin is not the low-risk first-level reviewer"));
+        Assert.False(adminRejectLow.IsSuccessStatusCode);
+        Assert.Equal("Pending", await h.RequestStatus(submittedLow.RequestPublicId));
+        Assert.Equal("PendingDuplicateReview", await h.StageStatus(submittedLow.RequestPublicId));
         Assert.Equal("Reviewed low risk note", await h.Scalar(
             "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
 
