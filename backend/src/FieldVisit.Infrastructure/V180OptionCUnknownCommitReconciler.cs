@@ -61,7 +61,7 @@ internal static class V180OptionCUnknownCommitReconciler
                 if (await reader.ReadAsync(ct)) return "INDETERMINATE";
                 var baseEvidence = status == "Applied" && reviewer == reviewerUserId
                     && approved == 1 && applied == 1 && requestVersion == 1
-                    && currentVersion == 1 && stage == 1;
+                    && stage == 1;
                 if (!baseEvidence)
                 {
                     if (status == "Pending" && reviewer == -1
@@ -84,6 +84,8 @@ internal static class V180OptionCUnknownCommitReconciler
                 probe.Parameters.AddWithValue("@request", requestId);
                 hasMerge = Convert.ToInt64(await probe.ExecuteScalarAsync(ct)) == 1;
             }
+            if (!hasMerge && currentVersion != 1)
+                return "INDETERMINATE";
             if (hasMerge)
             {
                 await using var merge = new SqlCommand("""
