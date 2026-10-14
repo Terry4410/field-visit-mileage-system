@@ -224,3 +224,8 @@ Current authoritative Recovery branch: `work/v180-optionc-final-gates-recovery-r
 ## Canonical audit contract closure — 2026-10-14
 
 Authoritative Recovery branch: `work/v180-optionc-final-gates-recovery-r1`; SHA `2084e6d470264826ac359fa91ce1c633bc30e475`; exact-SHA CI `38511099449` SUCCESS. Backend 735/735, frontend 23/23 plus production build, real HTTP/DI evidence E2E, canonical audit event E2E, collision rollback, stale/revocation denial and canonical 011/012/014 rehearsal passed. The additive audit candidate is disposable-only and does not modify 013 or activate any feature. UAT target read-only preflight is NOT RUN; Business UAT is NOT RUN by design and is not a prerequisite for reviewing a future UAT execution authorization. No UAT/Production migration, deployment or GO declaration has occurred.
+
+
+## UAT execution preflight authorization — 2026-10-14
+
+Owner authorized preparation and read-only preflight only. No UAT target was supplied in the authorization message, so target connectivity and schema preflight remain NOT RUN. The consolidated package is `docs/release/OPTIONC_UAT_EXECUTION_AUTHORIZATION_PACKAGE.md`. Recovery engineering remains authoritative at SHA `c75cd4b3c7fd2fea012634ced246edc28c7ab21e`, exact-SHA CI `38511402016` SUCCESS. No migration, deployment, flag activation, promotion, merge or Business UAT GO is authorized by this entry.

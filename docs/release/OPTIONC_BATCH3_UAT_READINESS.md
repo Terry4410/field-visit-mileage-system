@@ -61,3 +61,8 @@ All rows are **NOT RUN** until Business Users execute them in authorized UAT.
 ## Explicit HOLD items
 
 MergeFields canonical approval, production/UAT route activation, UAT migration, deployment, Business User execution, and GO declaration remain HOLD.
+
+
+## UAT execution preflight authorization — 2026-10-14
+
+Preparation-only authorization is recorded. The consolidated Owner execution package is `OPTIONC_UAT_EXECUTION_AUTHORIZATION_PACKAGE.md`. UAT target identification and read-only schema/backup preflight remain NOT RUN because no exact UAT server/database target was supplied. This does not block review of the future execution authorization package, but it blocks actual UAT execution.
