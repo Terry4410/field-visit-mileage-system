@@ -47,6 +47,7 @@ internal static class V180OptionCUnknownCommitReconciler
             cmd.Parameters.AddWithValue("@decision", decisionKey);
             cmd.Parameters.AddWithValue("@reviewer", reviewerUserId);
             long requestId;
+            var currentVersion = 0;
             await using (var reader = await cmd.ExecuteReaderAsync(ct))
             {
                 if (!await reader.ReadAsync(ct)) return "INDETERMINATE";
@@ -55,7 +56,7 @@ internal static class V180OptionCUnknownCommitReconciler
                 var approved = reader.GetInt32(2);
                 var applied = reader.GetInt32(3);
                 var requestVersion = reader.GetInt32(4);
-                var currentVersion = reader.GetInt32(5);
+                currentVersion = reader.GetInt32(5);
                 var stage = reader.GetInt32(6);
                 requestId = reader.GetInt64(7);
                 if (await reader.ReadAsync(ct)) return "INDETERMINATE";
