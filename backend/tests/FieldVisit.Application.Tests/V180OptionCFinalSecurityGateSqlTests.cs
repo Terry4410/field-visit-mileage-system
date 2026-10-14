@@ -1,9 +1,16 @@
 using System.Data;
+using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text;
 using FieldVisit.Application;
 using FieldVisit.Infrastructure;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -11,6 +18,82 @@ namespace FieldVisit.Application.Tests;
 /// <summary>Real SQL Server 2022 final decision gates on disposable OptionCIsolated databases.</summary>
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
+    [Fact]
+    public async Task Candidate_http_submission_approval_and_rejection_use_real_di_and_preserve_history()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var locationBefore = await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=10");
+        var tripRefsBefore = await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY VisitTripStopId FOR JSON PATH");
+        var snapshotRefsBefore = await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY VisitTripSnapshotStopId FOR JSON PATH");
+        var versionBefore = await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10");
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
+            builder.UseSetting("Auth:Mode", "Demo");
+            builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+        });
+        using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
+        var rowVersion = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("ROWVERSION_TEST_FIXTURE_MISSING"));
+        var submit = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/10/changes", new V180B3SubmitLocation(
+            10, Convert.ToBase64String(rowVersion), "HTTP address correction",
+            new V180B3LocationFields("Original 10", "Taipei", "Xinyi", "HTTP approved address", null, null, "HTTP note")));
+        Assert.Equal(System.Net.HttpStatusCode.OK, submit.StatusCode);
+        var submitted = await submit.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_HTTP_SUBMIT_RESPONSE_MISSING");
+        Assert.Equal("Pending", submitted.Status);
+        await h.PrepareStage(submitted.RequestPublicId);
+        var requestVersion = await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.ChangeRequests WHERE RequestPublicId=@id", P("@id", submitted.RequestPublicId));
+        using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        var approve = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/approve", new V180B3Review(
+            Convert.ToBase64String(Convert.FromHexString(requestVersion[2..])), Guid.NewGuid(), "HTTP independent approval"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
+        var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_HTTP_APPROVE_RESPONSE_MISSING");
+        Assert.Equal("Applied", applied.Status);
+        Assert.Equal("HTTP approved address", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("10", await h.Scalar("SELECT CONVERT(nvarchar(20),LocationId) FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("2", await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=10"));
+        Assert.Equal("2", await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        Assert.Contains("Original address 10", await h.Scalar("SELECT PublishedJson FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND VersionNumber=1"));
+        Assert.Equal(tripRefsBefore, await h.Scalar("SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 ORDER BY VisitTripStopId FOR JSON PATH"));
+        Assert.Equal(snapshotRefsBefore, await h.Scalar("SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 ORDER BY VisitTripSnapshotStopId FOR JSON PATH"));
+        Assert.Equal("1", versionBefore);
+
+        var secondVersion = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=11", h.Db).ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("ROWVERSION_TEST_FIXTURE_MISSING"));
+        var submitReject = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/11/changes", new V180B3SubmitLocation(
+            11, Convert.ToBase64String(secondVersion), "HTTP reject correction",
+            new V180B3LocationFields("Original 11", "Taipei", "Xinyi", "HTTP rejected address", null, null, "HTTP note")));
+        Assert.Equal(System.Net.HttpStatusCode.OK, submitReject.StatusCode);
+        var rejectedRequest = await submitReject.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_HTTP_REJECT_SUBMIT_RESPONSE_MISSING");
+        var rejectVersion = Convert.FromHexString(rejectedRequest.RowVersion[2..]);
+        var reject = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{rejectedRequest.RequestPublicId}/reject", new V180B3Review(
+            Convert.ToBase64String(rejectVersion), Guid.NewGuid(), "HTTP independent rejection"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, reject.StatusCode);
+        var rejected = await reject.Content.ReadFromJsonAsync<V180B3RequestView>()
+            ?? throw new InvalidOperationException("OPTIONC_HTTP_REJECT_RESPONSE_MISSING");
+        Assert.Equal("Rejected", rejected.Status);
+        Assert.Equal("Abandoned", await h.StageStatus(rejected.RequestPublicId));
+        Assert.Equal("Original address 11", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=11"));
+    }
+
+    private static string Token(int userId, string employeeNo, string role)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("test-key-that-is-at-least-32-characters-long"));
+        var token = new JwtSecurityToken("FieldVisit.UAT", "FieldVisit.UAT.Users", new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Name, employeeNo),
+            new Claim("employee_no", employeeNo), new Claim(ClaimTypes.Role, role)
+        }, expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
     [Fact]
     public async Task Candidate_submission_persists_request_and_stage_without_publishing_location()
     {
