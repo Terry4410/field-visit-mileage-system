@@ -298,6 +298,68 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             Assert.Equal(51083, rerun.Number);
             Assert.Equal("1", await ScalarAsync(db,
                 "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-LEADER-REVIEW'"));
+            // Scheme A additive candidate is applied only after the immutable
+            // StageEvidence + LeaderReview union contract is present.
+            var createLowRiskPath = Path.Combine(rootDir, "docs", "release",
+                "optionc-canonical-sql-draft", "create-lowrisk",
+                "CreateLowRiskContract.disposable.sql");
+            var createLowRisk = File.ReadAllText(createLowRiskPath);
+            await ExecuteAsync(db, createLowRisk);
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK'"));
+            var createRerun = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteAsync(db, createLowRisk));
+            Assert.Equal(51093, createRerun.Number);
+
+            // Reservation exists before publication but is not itself a
+            // published version; the future writer must enforce this boundary.
+            await ExecuteAsync(db, "INSERT dbo.Locations VALUES(11)");
+            var createSql = """
+                INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                    EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                    BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+                VALUES(NEWID(),1,1,N'Location',N'11',N'CreateLocation',
+                    N'High',0x0000000000000001,NULL,N'{}',1,SYSUTCDATETIME(),N'Pending');
+                INSERT dbo.LocationCreateReservations(ChangeRequestId,LocationId,
+                    OrganizationId,TeamId,ReservedLocationRowVersion,ReservationStatus,
+                    CreatedAt,UpdatedAt)
+                VALUES(SCOPE_IDENTITY(),11,1,1,0x0000000000000001,N'Pending',
+                    SYSUTCDATETIME(),SYSUTCDATETIME());
+                """;
+            await ExecuteAsync(db, createSql);
+            Assert.Equal("0", await ScalarAsync(db,
+                "SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=11"));
+            var badCreate = await Assert.ThrowsAsync<SqlException>(() =>
+                ExecuteAsync(db, """
+                    INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                        EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                        BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+                    VALUES(NEWID(),1,1,N'Location',N'12',N'CreateLocation',
+                        N'Low',0x0000000000000001,NULL,N'{}',1,SYSUTCDATETIME(),N'Pending');
+                    """));
+            Assert.Equal(547, badCreate.Number);
+
+            var badBeforeImage = await Assert.ThrowsAsync<SqlException>(() =>
+                ExecuteAsync(db, """
+                    INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                        EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                        BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+                    VALUES(NEWID(),1,1,N'Location',N'12',N'UpdatePublishedLocation',
+                        N'Low',0x0000000000000001,NULL,N'{}',1,SYSUTCDATETIME(),N'Pending');
+                    """));
+            Assert.Equal(547, badBeforeImage.Number);
+            await ExecuteAsync(db, """
+                INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                    EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                    BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+                VALUES(NEWID(),1,1,N'Location',N'12',N'UpdatePublishedLocation',
+                    N'Low',0x0000000000000001,N'{}',N'{}',1,SYSUTCDATETIME(),N'Pending');
+                """);
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT COUNT(*) FROM dbo.ChangeRequests WHERE OperationCode=N'UpdatePublishedLocation' AND RiskCode=N'Low'"));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT COUNT(*) FROM sys.check_constraints WHERE name=N'CK_B3_ChangeRequestEvents_EventType' AND definition LIKE N'%LeaderApproved%' AND definition LIKE N'%GeocodeEvidenceRecorded%'"));
+
         }
         finally
         {
