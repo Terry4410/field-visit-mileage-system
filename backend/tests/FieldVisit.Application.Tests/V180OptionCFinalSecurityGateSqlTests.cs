@@ -176,7 +176,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/leader-review",
             new V180OptionCLeaderReviewDecision(submitted.RowVersion, Guid.NewGuid(),
                 "Team-scope Leader first-level approval", true));
-        Assert.Equal(System.Net.HttpStatusCode.OK, leaderReview.StatusCode);
+        Assert.True(leaderReview.StatusCode == System.Net.HttpStatusCode.OK,
+            await leaderReview.Content.ReadAsStringAsync());
         var leaderView = await leaderReview.Content.ReadFromJsonAsync<V180OptionCLeaderReviewView>()
             ?? throw new InvalidOperationException("OPTIONC_LEADER_REVIEW_RESPONSE_MISSING");
         Assert.Equal("Approved", leaderView.LeaderStatus);
