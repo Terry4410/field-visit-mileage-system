@@ -69,6 +69,26 @@ class OptionCCanonicalSqlDraftTests(unittest.TestCase):
         self.assertNotIn("LocationChangeRequests", up + preflight + verify)
         self.assertFalse((ROOT / "database/migrations/1800_014").exists())
 
+    def test_uat_preflight_supports_all_migration_phases_without_optional_table_binding(self):
+        preflight = (DRAFT / "preflight/UAT_ReadOnly_Preflight.sql").read_text()
+        self.assertIn("CONVERT(nvarchar(32),VersionNumber)", preflight)
+        self.assertIn("ORDER BY AppliedAt DESC, VersionNumber DESC", preflight)
+        self.assertNotIn("AppliedAtUtc", preflight)
+        self.assertIn("IF @pv=1", preflight)
+        self.assertIn("IF @cr=1", preflight)
+        self.assertIn("EXEC sys.sp_executesql N'SELECT N''CurrentPublishedVersionDuplicates''", preflight)
+        self.assertIn("EXEC sys.sp_executesql N'SELECT N''PendingDuplicateRequestSlots''", preflight)
+        self.assertIn("IF @Latest=N'1.8.0-011'", preflight)
+        self.assertIn("IF (@Latest=N'1.8.0-010'", preflight)
+        self.assertIn("IF (@Latest=N'1.8.0-014'", preflight)
+        self.assertIn("CK_B3_ChangeRequestEvents_StageEvidenceEventType", preflight)
+        self.assertIn("CK_B3_ChangeRequestEvents_DecisionState", preflight)
+        self.assertIn("GeocodeEvidenceRecorded", preflight)
+        self.assertIn("DuplicateReviewEvidenceRecorded", preflight)
+        self.assertIn("STOP: partial evidence event type extension", preflight)
+        self.assertNotIn("DECLARE @ae bit", preflight)
+        self.assertNotIn("FROM dbo.StageEvidenceAuditEvents", preflight)
+
     def test_read_only_uat_preflight_and_hash_manifest_are_present(self):
         preflight = (DRAFT / "preflight/UAT_ReadOnly_Preflight.sql").read_text()
         self.assertIn("ApplicationIntent=ReadOnly", (DRAFT / "preflight/README.md").read_text())
