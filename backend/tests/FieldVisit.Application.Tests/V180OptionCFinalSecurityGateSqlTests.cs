@@ -492,6 +492,23 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal(System.Net.HttpStatusCode.OK, submitReject.StatusCode);
         var rejectedRequest = await submitReject.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_REJECT_SUBMIT_RESPONSE_MISSING");
+        // Admin cannot reject a regular high-risk change before the
+        // independent Leader-first review, even though rejection is safe.
+        var prematureAdminReject = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{rejectedRequest.RequestPublicId}/reject",
+            new V180B3Review(rejectedRequest.RowVersion, Guid.NewGuid(),
+                "Admin must wait for Leader first-level review"));
+        Assert.False(prematureAdminReject.IsSuccessStatusCode);
+        Assert.Equal("Pending", await h.RequestStatus(rejectedRequest.RequestPublicId));
+        using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
+        var leaderReview = await leader.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{rejectedRequest.RequestPublicId}/leader-review",
+            new V180OptionCLeaderReviewDecision(rejectedRequest.RowVersion,
+                Guid.NewGuid(), "Independent Leader approves final Admin review", true));
+        Assert.True(leaderReview.IsSuccessStatusCode,
+            await leaderReview.Content.ReadAsStringAsync());
         var reject = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{rejectedRequest.RequestPublicId}/reject", new V180B3Review(
             rejectedRequest.RowVersion, Guid.NewGuid(), "HTTP independent rejection"));
         Assert.Equal(System.Net.HttpStatusCode.OK, reject.StatusCode);
