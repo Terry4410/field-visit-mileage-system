@@ -220,6 +220,22 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             Assert.Equal(51604, wrongReviewer.Number);
             await tx.RollbackAsync();
         }
+        // Even a canonically labelled Low request cannot substitute an
+        // invented before-image for the locked published Location.
+        await using (var tx = await h.Begin())
+        {
+            await h.Exec("""
+                UPDATE dbo.ChangeRequests SET BeforeJson=N'{"LocationName":"forged"}'
+                WHERE RequestPublicId=@id;
+                """, P("@id", lowId));
+            var forged = await Assert.ThrowsAsync<SqlException>(() =>
+                V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
+                    h.Db, tx, lowId, 1, 4, Guid.NewGuid(),
+                    "Forged before-image must fail", true, false, CancellationToken.None));
+            Assert.Equal(51621, forged.Number);
+            await tx.RollbackAsync();
+        }
+        Assert.Equal("Pending", await h.RequestStatus(lowId));
         var lowRv = (byte[])(await new SqlCommand(
             "SELECT RowVersion FROM dbo.ChangeRequests WHERE RequestPublicId=@id", h.Db)
             { Parameters = { new SqlParameter("@id", lowId) } }.ExecuteScalarAsync()
