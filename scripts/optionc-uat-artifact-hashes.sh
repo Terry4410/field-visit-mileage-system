@@ -12,6 +12,7 @@ files=(
   "docs/release/optionc-canonical-sql-draft/merge/LocationMergeDetails.disposable.sql"
   "docs/release/optionc-canonical-sql-draft/audit/StageEvidenceAuditEvents.disposable.sql"
   "docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql"
+  "docs/release/optionc-canonical-sql-draft/leader-review/LeaderReviewDetails.disposable.sql"
 )
 for rel in "${files[@]}"; do
   test -f "$root/$rel"
