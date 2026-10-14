@@ -222,3 +222,13 @@ Current status: **HOLD — NOT READY FOR OWNER EXECUTION REVIEW until target and
 - Dependency candidate: canonical `011 -> 012 -> 014 -> LeaderReviewDetails.disposable.sql`; additive script is disposable-only and requires `OptionCIsolated_*`. Migration 013 is reserved and unchanged.
 - Exact Recovery evidence: `2ce6108f9e091c32ea3a6099a9040196bb0a1e6c` / CI `38518256406 SUCCESS`.
 - UAT target/read-only preflight: NOT RUN; Business UAT: NOT RUN; all production/UAT flags remain OFF.
+
+
+## Final Leader review engineering closure — Recovery 81413aa394a19b08e3e697a5a85bba2992e422eb
+
+- Exact-SHA CI: `38521449544 — SUCCESS`。
+- Backend `737) tests PASS; frontend `24) test files and build PASS。
+- Real disposable SQL/HTTP/DI E2E PASS: Visitor submit → independent live-appointed Leader approval → application-owned geocode evidence → duplicate evidence → independent Admin approval → atomic publication, Version 2 current / Version 1 historical, canonical audit and historical references preserved。
+- Additive audit compatibility PASS: Submitted / Rejected / Approved / Applied / GeocodeEvidenceRecorded / DuplicateReviewEvidenceRecorded / LeaderApproved / LeaderRejected all remain permitted; rerun returns controlled STOP `51083)。
+- No UAT/Production SQL writes, migration, deployment, promotion, feature activation or migration 013 modification。
+- Remaining HOLD: CreateLocation/LowRisk controlled application path, Excel/legacy/background canonical routing, Leader rejection/concurrency/revocation positive HTTP matrix expansion, UAT target preflight and Business UAT。

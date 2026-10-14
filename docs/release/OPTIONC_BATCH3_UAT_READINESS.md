@@ -94,3 +94,13 @@ available, so UAT preflight is NOT RUN and the package remains HOLD; Business UA
 - Disposable order is `011 -> 012 -> 014 -> LeaderReviewDetails.disposable.sql`; the additive script is isolated to `OptionCIsolated_*` and never modifies migration 013.
 - Leader decision rechecks requester/reviewer live HR, effective role projection, organization/team scope, appointment or delegation, independence, and current Request RowVersion in a Serializable transaction.
 - Recovery evidence: `2ce6108f9e091c32ea3a6099a9040196bb0a1e6c`, CI `38518256406` SUCCESS. UAT target preflight and Business UAT remain NOT RUN.
+
+
+## Final Leader review engineering closure — Recovery 81413aa394a19b08e3e697a5a85bba2992e422eb
+
+- Exact-SHA CI: `38521449544 — SUCCESS`。
+- Backend `737) tests PASS; frontend `24) test files and build PASS。
+- Real disposable SQL/HTTP/DI E2E PASS: Visitor submit → independent live-appointed Leader approval → application-owned geocode evidence → duplicate evidence → independent Admin approval → atomic publication, Version 2 current / Version 1 historical, canonical audit and historical references preserved。
+- Additive audit compatibility PASS: Submitted / Rejected / Approved / Applied / GeocodeEvidenceRecorded / DuplicateReviewEvidenceRecorded / LeaderApproved / LeaderRejected all remain permitted; rerun returns controlled STOP `51083)。
+- No UAT/Production SQL writes, migration, deployment, promotion, feature activation or migration 013 modification。
+- Remaining HOLD: CreateLocation/LowRisk controlled application path, Excel/legacy/background canonical routing, Leader rejection/concurrency/revocation positive HTTP matrix expansion, UAT target preflight and Business UAT。

@@ -267,3 +267,13 @@ remains HOLD. Business UAT remains NOT RUN.
 - Exact-SHA CI: `38518256406 — SUCCESS`
 - Backend Release build/tests, frontend tests/build, Option C SQL E2E, canonical SQL rehearsal（含 Leader review additive table/constraint catalog assertions）均 PASS。
 - UAT/Production migration、deployment、promotion、feature activation、Business UAT：未執行，維持 HOLD。
+
+
+## Final Leader review engineering closure — Recovery 81413aa394a19b08e3e697a5a85bba2992e422eb
+
+- Exact-SHA CI: `38521449544 — SUCCESS`。
+- Backend `737) tests PASS; frontend `24) test files and build PASS。
+- Real disposable SQL/HTTP/DI E2E PASS: Visitor submit → independent live-appointed Leader approval → application-owned geocode evidence → duplicate evidence → independent Admin approval → atomic publication, Version 2 current / Version 1 historical, canonical audit and historical references preserved。
+- Additive audit compatibility PASS: Submitted / Rejected / Approved / Applied / GeocodeEvidenceRecorded / DuplicateReviewEvidenceRecorded / LeaderApproved / LeaderRejected all remain permitted; rerun returns controlled STOP `51083)。
+- No UAT/Production SQL writes, migration, deployment, promotion, feature activation or migration 013 modification。
+- Remaining HOLD: CreateLocation/LowRisk controlled application path, Excel/legacy/background canonical routing, Leader rejection/concurrency/revocation positive HTTP matrix expansion, UAT target preflight and Business UAT。
