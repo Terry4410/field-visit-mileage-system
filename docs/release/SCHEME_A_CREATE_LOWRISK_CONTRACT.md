@@ -1,5 +1,16 @@
 # Scheme A — CreateLocation / LowRisk controlled contract (NONDEPLOY)
 
+## 2026-10-14 — Excel published Location Update candidate (Recovery-only)
+
+- Verified starting baseline: `01e9403afa7e01dce67f62a556f800d3dc0e1b6e`, exact-SHA CI `38587007376` SUCCESS. **This is not a claim that the new Excel Update increment passed CI.**
+- New candidate-only `POST /api/v1/optionc-candidate/imports/{id}/submit-updates-for-review` consumes actual Excel/CSV preview **published Update** rows with preview-bound RowVersion. Existing Excel **Create** review flow is preserved.
+- Reuses the **same** Serializable canonical submission, server-owned risk classification, private Stage, Submitted audit and independent Leader / HighRisk Admin publication. The ImportBatchItem and canonical audit link are committed together; audit-backed replay recovers RequestPublicIds. Legacy Confirm stays fail-closed.
+- Mixed Create/Update batches **explicitly fail closed**. A Leader-owned Location may be updated by its authorized owner; a non-owner Admin cannot silently impersonate an owner. Cross-owner Excel bulk Update is not implemented.
+- New UI action is separately gated by `OPTIONC_EXCEL_UPDATE_UI_ENABLED=false`. The additive `1.8.0-EXCEL-CANONICAL-STATUS` constraint is required **before** candidate Excel submission; draft SQL only, no UAT/Production migration. Migration 013 untouched.
+- Remaining tests: full Update multi-row/partial-failure matrix, stale preview/revocation, Trip/mileage/report/export route audit, and final exact-SHA SQL E2E. **HOLD / NO-GO**; no UAT target preflight, deploy, flags or Business UAT.
+- Detailed contract: `docs/release/SCHEME_A_EXCEL_PUBLISHED_UPDATE_NONDEPLOY.md`.
+
+
 Status: **ENGINEERING CANDIDATE / NO-GO**. This document and the
 `create-lowrisk/CreateLowRiskContract.disposable.sql` candidate do not
 authorize UAT/Production SQL, deployment, promotion or feature activation.
