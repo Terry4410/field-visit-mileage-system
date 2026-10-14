@@ -303,6 +303,19 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Reviewed low risk note", await h.Scalar(
             "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
 
+        var unreviewedStageRv = (byte[])(await new SqlCommand("""
+            SELECT s.RowVersion FROM dbo.LocationPublicationStages s
+            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
+            WHERE r.RequestPublicId=@id
+            """, h.Db) { Parameters = { new SqlParameter("@id", submittedLow.RequestPublicId) } }
+            .ExecuteScalarAsync() ?? throw new InvalidOperationException("OPTIONC_LOW_UNREVIEWED_STAGE_MISSING"));
+        var prematureEvidence = await leaderClient.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(Convert.ToBase64String(unreviewedStageRv), true,
+                "Leader may not clear duplicate evidence before first-level approval",
+                Guid.NewGuid()));
+        Assert.False(prematureEvidence.IsSuccessStatusCode);
+        Assert.Equal("PendingDuplicateReview", await h.StageStatus(submittedLow.RequestPublicId));
         var reviewed = await leaderClient.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/leader-review",
             new V180OptionCLeaderReviewDecision(submittedLow.RowVersion,
