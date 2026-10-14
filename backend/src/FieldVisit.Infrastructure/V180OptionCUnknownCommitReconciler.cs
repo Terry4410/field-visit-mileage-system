@@ -118,6 +118,7 @@ internal static class V180OptionCUnknownCommitReconciler
                     return "INDETERMINATE";
             }
             return "COMMITTED_EVIDENCE_REQUIRES_REVIEW";
+            }
         catch
         {
             // Lost read access is itself an indeterminate result, never a
