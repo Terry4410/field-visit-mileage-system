@@ -17,12 +17,13 @@ internal sealed class V180OptionCCreateLowRiskPublicationOrchestrator(
     AppDbContext db, ICurrentUserService current)
 {
     internal async Task ExecuteAsync(Guid requestPublicId, Guid decisionKey,
-        string reason, CancellationToken ct)
+        string reason, string requestRowVersion, CancellationToken ct)
     {
         if (requestPublicId == Guid.Empty || decisionKey == Guid.Empty
             || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim()
             || reason.Length > 1000)
             throw new InvalidOperationException("OPTIONC_CREATE_LOW_REVIEW_INPUT_INVALID");
+        var expectedRequestVersion = V180B3RowVersionRules.Parse(requestRowVersion);
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
         if (connection.State != ConnectionState.Open)
@@ -40,6 +41,8 @@ internal sealed class V180OptionCCreateLowRiskPublicationOrchestrator(
                 V180B3ApprovalLockSql.RequestByPublicId(requestPublicId, org))
                 .AsNoTracking().SingleOrDefaultAsync(ct)
                 ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
+            if (!request.RowVersion.SequenceEqual(expectedRequestVersion))
+                throw new InvalidOperationException("ROWVERSION_CONFLICT");
             if (request.TeamId is not int team || team <= 0
                 || request.RequestedByUserId == actorId
                 || request.EntityKind != "Location" || request.Status != "Pending"
