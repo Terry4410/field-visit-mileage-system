@@ -100,6 +100,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 .Select(x => x.LocationId).ToListAsync();
             Assert.DoesNotContain(locationId, allowedIds);
             Assert.Contains(900, allowedIds);
+            var blocked = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                    geocodeDb, locationId, CancellationToken.None));
+            Assert.Equal("LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW",
+                blocked.Message);
+            await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                geocodeDb, 900, CancellationToken.None);
         }
 
         Assert.Equal("1", await h.Scalar("""

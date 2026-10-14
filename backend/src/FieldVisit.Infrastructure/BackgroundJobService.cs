@@ -3,7 +3,6 @@ using FieldVisit.Application;
 using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
 namespace FieldVisit.Infrastructure;
@@ -420,27 +419,8 @@ public sealed class BackgroundJobService(
         // RowVersion/coordinates outside the canonical evidence workflow.
         // Candidate schema is optional: inspect the catalog before building
         // a query referencing the additive reservation table.
-        var hasCreateReservations = false;
-        if (db.Database.IsSqlServer())
-        {
-            await db.Database.OpenConnectionAsync(ct);
-            var connection = db.Database.GetDbConnection() as SqlConnection
-                ?? throw new InvalidOperationException("LOCATION_BACKGROUND_SQLSERVER_REQUIRED");
-            await using var catalog = new SqlCommand("""
-                SELECT CASE
-                  WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NOT NULL
-                    AND EXISTS (SELECT 1 FROM dbo.SchemaVersions
-                                WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THEN 1
-                  WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NULL
-                    AND NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions
-                                    WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THEN 0
-                  ELSE -1 END
-                """, connection);
-            var catalogState = Convert.ToInt32(await catalog.ExecuteScalarAsync(ct));
-            if (catalogState < 0)
-                throw new InvalidOperationException("LOCATION_BACKGROUND_CREATE_SCHEMA_DRIFT");
-            hasCreateReservations = catalogState == 1;
-        }
+        var hasCreateReservations =
+            await V180OptionCCreateReservationGuard.HasValidatedSchemaAsync(db, ct);
         var q = PendingDraftGeocodingCandidates(db, job.OrganizationId.Value,
             hasCreateReservations);
         if (!admin)

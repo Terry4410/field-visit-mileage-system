@@ -67,3 +67,23 @@ Picker + CreateLocation full HTTP E2E: SHA
 `57d3faee175cd178a3481228159069efc596cf7c`, exact-SHA CI
 `38535811600 — SUCCESS`. New Background test remains unverified until
 its own Exact-SHA CI completes. HOLD / NO-GO.
+
+## Legacy draft reserved-identity guard — 2026-10-14
+
+Source inspection found that `V160FinalRepository`'s legacy
+`UpdateManagedLocationAsync`, `DeactivateManagedLocationAsync`,
+`GetManagedLocationDeleteImpactAsync` and `DeleteManagedLocationAsync`
+could otherwise treat the same Scheme A CreateLocation reserved row as an
+unpublished ordinary draft. An additive-schema-aware
+`V180OptionCCreateReservationGuard` now fails closed before such operations
+on **any** LocationId ever used by a CreateLocation reservation (including
+Abandoned) while permitting unreserved legacy drafts. The same optional-schema
+catalog proof is now shared with background geocoding; no missing-table SQL
+query is compiled on older databases. Disposable SQL tests assert reserved
+denial and unreserved draft compatibility.
+
+Verified prior Background fence exact SHA
+`d89ee8cefbc50984a72275e9b6e55a571ddcd088`,
+CI `38536671419 — SUCCESS` (753 backend + 1 Admin E2E +
+2 SQL rehearsal; frontend 24 files). This new legacy-guard change must
+obtain its own Exact-SHA CI before a PASS claim. UAT/Production HOLD.

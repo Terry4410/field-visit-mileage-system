@@ -824,6 +824,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         ValidateLocationRequest(user, request);
         await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
             row, user, request.TeamId,
             string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType,
@@ -858,6 +860,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
         await V180OptionCLiveLeaderScope.RequireAsync(db, user, row.TeamId, ct);
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
             row, user, row.TeamId, row.LocationType, false);
         row.IsActive = false;
@@ -871,6 +875,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         int locationId,
         CancellationToken ct)
     {
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         var row = await db.Locations.AsNoTracking().FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
@@ -901,6 +907,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task DeleteManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct)
     {
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
