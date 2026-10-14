@@ -479,6 +479,16 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
         return await (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking())
             .FirstOrDefaultAsync(x => x.LocationId == id, ct);
     }
+
+    public async Task<Location?> GetOperationalLocationAsync(int id, CancellationToken ct)
+    {
+        // This is deliberately distinct from historical/non-operational reads.
+        // A pending or abandoned canonical reservation must not become usable
+        // through a direct LocationId supplied to Trip or mileage endpoints.
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(db, id, ct);
+        return await db.Locations.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.LocationId == id, ct);
+    }
     public async Task AddLocationAsync(Location location, CancellationToken ct)
     {
         var candidates = await V180LocationDuplicateGovernance.FindCandidatesAsync(

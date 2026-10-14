@@ -493,7 +493,7 @@ public sealed class TripService(
 
             if (locationId.HasValue)
             {
-                var location = await masters.GetLocationAsync(locationId.Value, false, ct)
+                var location = await masters.GetOperationalLocationAsync(locationId.Value, ct)
                     ?? throw new KeyNotFoundException($"找不到地點 {locationId.Value}。");
                 var reusablePendingTemporary =
                     reusablePendingTemporaryLocationIds is not null

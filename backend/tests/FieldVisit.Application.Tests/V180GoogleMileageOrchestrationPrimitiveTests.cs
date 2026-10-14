@@ -510,6 +510,7 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     private sealed class FakeMasterRepository(Location location) : IMasterRepository
     {
         public Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct) => Task.FromResult<Location?>(id == location.LocationId ? location : null);
+        public Task<Location?> GetOperationalLocationAsync(int id, CancellationToken ct) => Task.FromResult<Location?>(id == location.LocationId ? location : null);
         public Task<List<Team>> GetTeamsAsync(CurrentUserDto user, CancellationToken ct) => throw new NotSupportedException();
         public Task<Team?> GetTeamAsync(int teamId, CancellationToken ct) => throw new NotSupportedException();
         public Task<List<Location>> GetLocationsAsync(CurrentUserDto user, bool activeOnly, CancellationToken ct) => throw new NotSupportedException();
