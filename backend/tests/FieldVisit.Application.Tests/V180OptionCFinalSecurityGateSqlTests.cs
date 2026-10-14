@@ -251,6 +251,49 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             JOIN dbo.ChangeRequests r ON r.EntityId=CONVERT(nvarchar(80),pv.LocationId)
             WHERE r.RequestPublicId=@id
             """,P("@id",newRequest)));
+        // A private Pending Create must not be advertised as an unchanged
+        // location on a subsequent Excel preview. Nor may malformed rows
+        // (no canonical team or physical address) be offered for review.
+        var guardCsv = Encoding.UTF8.GetBytes(
+            "LocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\n" +
+            ",T1,Excel real preview customer,Taipei,Xinyi,Excel real preview address,,Active\n" +
+            ",,Excel team missing,Taipei,Xinyi,Missing team address,,Active\n" +
+            ",T1,Excel address missing,Taipei,Xinyi,,8Q9HXQH6+74,Active\n");
+        using var guardForm = new MultipartFormDataContent();
+        using var guardFile = new ByteArrayContent(guardCsv);
+        guardFile.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        guardForm.Add(guardFile,"file","locations.csv");
+        using var guardPreview = await admin.PostAsync(
+            "api/v1/imports/locations/preview",guardForm);
+        Assert.True(guardPreview.IsSuccessStatusCode,
+            await guardPreview.Content.ReadAsStringAsync());
+        var guarded = await guardPreview.Content.ReadFromJsonAsync<ImportPreviewDto>()
+            ?? throw new InvalidOperationException("OPTIONC_EXCEL_PREVIEW_GUARDS_MISSING");
+        Assert.Equal(3,guarded.TotalCount);
+        Assert.Equal(0,guarded.ValidCount);
+        Assert.Equal(3,guarded.ErrorCount);
+        var guardedRows = guarded.Items.OrderBy(x => x.RowNumber).ToList();
+        Assert.Equal(new[] { "Create","Create","Create" },
+            guardedRows.Select(x => x.Action));
+        Assert.Equal(new[] {
+            "LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW",
+            "OPTIONC_EXCEL_TEAM_REQUIRED",
+            "OPTIONC_EXCEL_ADDRESS_REQUIRED" },
+            guardedRows.Select(x => x.ErrorMessage));
+        using var invalidSubmission = await admin.PostAsync(
+            $"api/v1/optionc-candidate/imports/{guarded.ImportBatchId}/submit-creates-for-review",
+            null);
+        Assert.False(invalidSubmission.IsSuccessStatusCode);
+        Assert.Equal("0",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations WHERE
+                LocationName IN(N'Excel team missing',N'Excel address missing')
+            """));
+        Assert.Equal("1",await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequests
+            WHERE ProposedJson LIKE N'%Excel real preview customer%'
+            """));
+
     }
 
     [Fact]
