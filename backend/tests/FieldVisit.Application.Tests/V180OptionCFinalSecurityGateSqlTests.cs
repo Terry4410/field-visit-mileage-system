@@ -1184,6 +1184,19 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private static string FindRoot(){var d=new DirectoryInfo(Directory.GetCurrentDirectory());while(d is not null){if(File.Exists(Path.Combine(d.FullName,"docs/release/optionc-canonical-sql-draft/1800_011/Up.sql")))return d.FullName;d=d.Parent;}throw new FileNotFoundException("OPTIONC_FINAL_GATE_REPO_ROOT_NOT_FOUND");}
     }
 
+    private static string FindRoot()
+    {
+        var d = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (d is not null)
+        {
+            if (File.Exists(Path.Combine(d.FullName,
+                "docs/release/optionc-canonical-sql-draft/1800_011/Up.sql")))
+                return d.FullName;
+            d = d.Parent;
+        }
+        throw new FileNotFoundException("OPTIONC_FINAL_GATE_REPO_ROOT_NOT_FOUND");
+    }
+
     private static async Task ExecOn(SqlConnection c,string sql,params SqlParameter[] ps){await using var cmd=new SqlCommand(sql,c){CommandTimeout=60};cmd.Parameters.AddRange(ps);await cmd.ExecuteNonQueryAsync();}
     private static async Task<string> ScalarOn(SqlConnection c,string sql,params SqlParameter[] ps){await using var cmd=new SqlCommand(sql,c){CommandTimeout=60};cmd.Parameters.AddRange(ps);return Convert.ToString(await cmd.ExecuteScalarAsync())??"";}
     private static async Task Exec(SqlConnection c,string sql,params SqlParameter[] ps)=>await ExecOn(c,sql,ps);
