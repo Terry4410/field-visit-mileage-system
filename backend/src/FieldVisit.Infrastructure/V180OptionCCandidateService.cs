@@ -428,6 +428,108 @@ public sealed class V180OptionCCandidateService(
         return new(importBatchId,submitted,already,"SubmittedForReview",requests);
     }
 
+    /// <summary>
+    /// Excel published Update rows use the SAME canonical submission,
+    /// Leader-first review, evidence and atomic publication as HTTP updates.
+    /// Explicitly fail closed for mixed Create/Update batches until the
+    /// mixed-operation contract is verified. No direct Confirm writes.
+    /// </summary>
+    public async Task<V180OptionCExcelCreateResult> SubmitExcelUpdatesAsync(
+        Guid importBatchId, CancellationToken ct)
+    {
+        if (importBatchId == Guid.Empty)
+            throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_REQUIRED");
+        var connection = await RequireTargetAsync(ct);
+        await RequireExcelStateContractAsync(connection,null,ct);
+        var user = current.GetRequired();
+        if (!user.Roles.Any(x => x.Equals("admin",StringComparison.OrdinalIgnoreCase)
+            || x.Equals("leader",StringComparison.OrdinalIgnoreCase)))
+            throw new UnauthorizedAccessException("OPTIONC_EXCEL_ROLE_DENIED");
+        var batch = await db.ImportBatches.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.ImportBatchId == importBatchId,ct)
+            ?? throw new KeyNotFoundException("OPTIONC_EXCEL_BATCH_NOT_FOUND");
+        if (batch.RequestedByUserId != user.UserId
+            || batch.OrganizationId != user.OrganizationId
+            || batch.ImportType != "locations"
+            || batch.Status is not ("Previewed" or "PartiallySubmittedForReview" or "SubmittedForReview"))
+            throw new UnauthorizedAccessException("OPTIONC_EXCEL_BATCH_SCOPE_DENIED");
+        if (batch.ExpiresAt < DateTime.UtcNow && batch.Status != "SubmittedForReview")
+            throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_EXPIRED");
+        var items = await db.ImportBatchItems.AsNoTracking()
+            .Where(x => x.ImportBatchId == importBatchId)
+            .OrderBy(x => x.RowNumber).ToListAsync(ct);
+        if (items.Count == 0 || !items.Any(x => x.Action == "Update"))
+            throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_ROWS_REQUIRED");
+        var ready = new List<(FieldVisit.Domain.Entities.ImportBatchItem Item,
+            V180OptionCExcelLocationRow Row, FieldVisit.Domain.Entities.Location Location)>();
+        foreach (var item in items)
+        {
+            if (item.EntityType != "Location")
+                throw new InvalidOperationException("OPTIONC_EXCEL_MIXED_ENTITY_DENIED");
+            if (item.Action == "NoChange" && item.Status == "Valid") continue;
+            if (item.Action != "Update"
+                || !(item.Status == "SubmittedForReview"
+                    || (item.Status == "Error" &&
+                        item.ErrorMessage == "LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL")))
+                throw new InvalidOperationException("OPTIONC_EXCEL_MIXED_OR_INVALID_ROW_DENIED");
+            var row = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
+                item.DataJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_ROW_INVALID");
+            if (string.IsNullOrWhiteSpace(row.LocationCode)
+                || string.IsNullOrWhiteSpace(row.TeamCode)
+                || string.IsNullOrWhiteSpace(row.LocationName)
+                || string.IsNullOrWhiteSpace(row.ExpectedEntityRowVersion))
+                throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_REQUIRED_FIELDS_MISSING");
+            // The rowversion is captured at preview, not invented at submit.
+            _ = V180B3RowVersionRules.Parse(row.ExpectedEntityRowVersion);
+            var location = await db.Locations.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.OrganizationId == batch.OrganizationId
+                    && x.LocationCode == row.LocationCode.Trim(),ct)
+                ?? throw new UnauthorizedAccessException("OPTIONC_EXCEL_UPDATE_LOCATION_NOT_FOUND");
+            if (location.TeamId is not int teamId
+                || location.LocationType != "Customer"
+                || location.ApprovalStatus != "Approved" || !location.IsActive
+                || !await db.Teams.AsNoTracking().AnyAsync(x =>
+                    x.TeamId == teamId && x.OrganizationId == batch.OrganizationId
+                    && x.IsActive && x.TeamCode == row.TeamCode.Trim(),ct))
+                throw new UnauthorizedAccessException("OPTIONC_EXCEL_UPDATE_LOCATION_SCOPE_DENIED");
+            ready.Add((item,row,location));
+        }
+        var ids = new List<Guid>();
+        int submitted=0,already=0;
+        foreach (var (item,row,location) in ready)
+        {
+            if (item.Status == "SubmittedForReview")
+            {
+                ids.Add(await FindExcelSubmissionAsync(connection,
+                    importBatchId,item.ImportBatchItemId,ct));
+                already++;
+                continue;
+            }
+            var proposal = new V180B3LocationFields(
+                row.LocationName.Trim(),row.City?.Trim(),row.District?.Trim(),
+                row.Address?.Trim(),row.PlusCode?.Trim(),
+                location.TaxId,location.MasterNote);
+            var request = await SubmitCoreAsync(new V180B3SubmitLocation(
+                location.LocationId,row.ExpectedEntityRowVersion!,
+                $"Excel batch {importBatchId:N}, row {item.RowNumber}: independent review required",
+                proposal),ct,new V180OptionCExcelRowSource(importBatchId,item.ImportBatchItemId));
+            ids.Add(request.RequestPublicId);
+            submitted++;
+        }
+        var statuses = await db.ImportBatchItems.AsNoTracking()
+            .Where(x => x.ImportBatchId == importBatchId && x.Action == "Update")
+            .Select(x => x.Status).ToListAsync(ct);
+        if (statuses.Count != ready.Count || statuses.Any(x => x != "SubmittedForReview"))
+            throw new InvalidOperationException("OPTIONC_EXCEL_PARTIAL_SUBMISSION_REQUIRES_RETRY");
+        var finished = await db.ImportBatches.SingleAsync(
+            x => x.ImportBatchId == importBatchId,ct);
+        finished.Status="SubmittedForReview";
+        finished.ConfirmedAt=DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return new(importBatchId,submitted,already,"SubmittedForReview",ids);
+    }
+
     private static async Task<Guid> FindExcelSubmissionAsync(
         SqlConnection connection, Guid batch, long item, CancellationToken ct)
     {
