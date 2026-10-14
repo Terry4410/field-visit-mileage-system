@@ -109,7 +109,7 @@ BEGIN
     THROW 51021, 'STOP: evidence decision-state constraint drift.', 1;
 END;
 
-SELECT t.name AS TableName, SUM(p.rows) AS RowCount
+SELECT t.name AS TableName, SUM(p.rows) AS [RowCount]
 FROM sys.tables t
 JOIN sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1)
 WHERE t.name IN (N'SchemaVersions',N'ChangeRequests',N'ChangeRequestEvents',
