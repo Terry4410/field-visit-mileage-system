@@ -172,6 +172,117 @@ public sealed class V180OptionCSqlDraftRehearsalTests
         }
     }
 
+    [Fact]
+    public async Task Uat_readonly_preflight_executes_at_010_011_012_014_and_additive_audit_phases()
+    {
+        // This runs the actual preflight SQL against a random disposable localhost
+        // database, never against Azure/UAT. It proves SQL compilation and phase
+        // behavior, not the real UAT Entra read-only identity or target.
+        var raw = Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            if (Environment.GetEnvironmentVariable("E1_R1_REQUIRED") == "1")
+                throw new InvalidOperationException("OPTIONC_ISOLATED_SQL_REQUIRED");
+            return;
+        }
+        var root = new SqlConnectionStringBuilder(raw) { Pooling = false, ConnectTimeout = 5 };
+        if (root.DataSource is not ("localhost,1433" or "127.0.0.1,1433")
+            || !root.InitialCatalog.Equals("master", StringComparison.OrdinalIgnoreCase)
+            || !root.UserID.Equals("sa", StringComparison.OrdinalIgnoreCase)
+            || root.IntegratedSecurity)
+            throw new InvalidOperationException("OPTIONC_SQL_NONLOCAL_TARGET_DENIED");
+
+        var databaseName = "OptionCIsolated_" + Guid.NewGuid().ToString("N");
+        var rootDir = FindRepoRoot();
+        await using (var admin = new SqlConnection(root.ConnectionString))
+        {
+            await admin.OpenAsync();
+            await ExecuteAsync(admin, $"CREATE DATABASE [{databaseName}]");
+        }
+        try
+        {
+            var isolated = new SqlConnectionStringBuilder(root.ConnectionString)
+            { InitialCatalog = databaseName, Pooling = false };
+            await using var db = new SqlConnection(isolated.ConnectionString);
+            await db.OpenAsync();
+            await ExecuteAsync(db, """
+                CREATE TABLE dbo.SchemaVersions(
+                    VersionNumber nvarchar(40) NOT NULL PRIMARY KEY,
+                    Description nvarchar(500) NULL,
+                    AppliedAt datetime2(3) NOT NULL,
+                    AppliedBy nvarchar(200) NULL);
+                CREATE TABLE dbo.Organizations(OrganizationId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Teams(TeamId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Users(UserId int NOT NULL PRIMARY KEY);
+                CREATE TABLE dbo.Locations(LocationId int NOT NULL PRIMARY KEY);
+                INSERT dbo.Organizations VALUES(1);
+                INSERT dbo.Teams VALUES(1);
+                INSERT dbo.Users VALUES(1),(2);
+                INSERT dbo.Locations VALUES(10);
+                INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy)
+                    VALUES(N'1.8.0-010',N'isolated bootstrap',SYSUTCDATETIME(),N'isolated');
+                """);
+
+            var scriptPath = Path.Combine(rootDir, "docs", "release",
+                "optionc-canonical-sql-draft", "preflight", "UAT_ReadOnly_Preflight.sql");
+            var script = File.ReadAllText(scriptPath);
+            Assert.Contains("ApplicationIntent=ReadOnly", script);
+            Assert.Contains("PREFLIGHT_COMPLETE_READ_ONLY", script);
+            // SQLCMD directives are substituted only inside this isolated
+            // harness. Production invocation stays behind the guarded workflow.
+            script = string.Join("\n", script.Split('\n').Where(
+                line => !line.TrimStart().StartsWith(":setvar", StringComparison.OrdinalIgnoreCase)));
+            var serverName = await ScalarAsync(db,
+                "SELECT CONVERT(nvarchar(256),SERVERPROPERTY('ServerName'))");
+            Assert.False(string.IsNullOrWhiteSpace(serverName));
+            script = script.Replace("REPLACE_WITH_APPROVED_FQDN",
+                    serverName.Replace("'", "''", StringComparison.Ordinal),
+                    StringComparison.Ordinal)
+                .Replace("REPLACE_WITH_APPROVED_DATABASE", databaseName,
+                    StringComparison.Ordinal);
+
+            await ExecuteAsync(db, script); // 010: canonical tables absent
+            await ExecuteAsync(db, ReadDraft(rootDir, "1800_011", "Up.sql"));
+            await ExecuteAsync(db, script); // 011: Submitted/Rejected only
+            await ExecuteAsync(db, ReadDraft(rootDir, "1800_012", "Up.sql"));
+            await ExecuteAsync(db, script); // 012: four canonical event types
+            await ExecuteAsync(db, ReadDraft(rootDir, "1800_014", "Up.sql"));
+            await ExecuteAsync(db, script); // 014: no additive audit yet
+
+            var auditPath = Path.Combine(rootDir, "docs", "release",
+                "optionc-canonical-sql-draft", "audit",
+                "StageEvidenceAuditEvents.disposable.sql");
+            await ExecuteAsync(db, File.ReadAllText(auditPath));
+            await ExecuteAsync(db, script); // 014: canonical evidence audit extension
+
+            // Detect a parallel audit ledger as a STOP condition.
+            await ExecuteAsync(db,
+                "CREATE TABLE dbo.StageEvidenceAuditEvents(Id int NOT NULL PRIMARY KEY)");
+            var parallelLedger = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteAsync(db, script));
+            Assert.Equal(51013, parallelLedger.Number);
+            await ExecuteAsync(db, "DROP TABLE dbo.StageEvidenceAuditEvents");
+            await ExecuteAsync(db, script);
+
+            // Mismatched target must fail closed before any catalog inspection.
+            var wrongTarget = script.Replace(
+                $"DECLARE @ExpectedDatabase sysname=N'{databaseName}'",
+                "DECLARE @ExpectedDatabase sysname=N'UNAUTHORIZED_DATABASE'",
+                StringComparison.Ordinal);
+            Assert.NotEqual(script, wrongTarget);
+            var mismatch = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteAsync(db, wrongTarget));
+            Assert.Equal(51002, mismatch.Number);
+        }
+        finally
+        {
+            await using var admin = new SqlConnection(root.ConnectionString);
+            await admin.OpenAsync();
+            await ExecuteAsync(admin,
+                $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}];");
+        }
+    }
+
     private static async Task<int> TryInsertFromIndependentConnectionAsync(
         string connectionString, string sql)
     {
