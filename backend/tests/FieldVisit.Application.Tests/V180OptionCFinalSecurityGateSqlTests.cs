@@ -167,8 +167,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var self = await visitor.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
             new V180B3Review(pending.RowVersion, Guid.NewGuid(), "Self approval denied"));
         Assert.NotEqual(System.Net.HttpStatusCode.OK, self.StatusCode);
+        var mergeApproveKey = Guid.NewGuid();
         var approve = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
-            new V180B3Review(pending.RowVersion, Guid.NewGuid(), "Independent merge approval"));
+            new V180B3Review(pending.RowVersion, mergeApproveKey, "Independent merge approval"));
         Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
         var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
         Assert.Equal("Applied", applied.Status);
@@ -185,8 +186,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND VersionNumber=1"));
         Assert.Equal("1", await h.EventCount(pending.RequestPublicId, "Approved"));
         Assert.Equal("1", await h.EventCount(pending.RequestPublicId, "Applied"));
-        var reconcile = await admin.GetAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/reconcile?decisionKey={Guid.NewGuid()}");
+        var reconcile = await admin.GetAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/reconcile?decisionKey={mergeApproveKey}");
         Assert.Equal(System.Net.HttpStatusCode.OK, reconcile.StatusCode);
+        Assert.Contains("COMMITTED_EVIDENCE_REQUIRES_REVIEW", await reconcile.Content.ReadAsStringAsync());
 
         var rejectSource = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=12", h.Db).ExecuteScalarAsync() ?? throw new InvalidOperationException());
         var rejectSurvivor = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=13", h.Db).ExecuteScalarAsync() ?? throw new InvalidOperationException());
