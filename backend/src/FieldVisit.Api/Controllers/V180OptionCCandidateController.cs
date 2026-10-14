@@ -30,6 +30,13 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
         Guid importBatchId,CancellationToken ct)
         => service.SubmitExcelCreatesAsync(importBatchId,ct);
 
+    // Published Excel Update: no legacy Confirm mutation, no mixed Create
+    // bypass. Each row becomes an independently reviewed canonical request.
+    [HttpPost("imports/{importBatchId:guid}/submit-updates-for-review")]
+    public Task<V180OptionCExcelCreateResult> SubmitExcelUpdates(
+        Guid importBatchId, CancellationToken ct)
+        => service.SubmitExcelUpdatesAsync(importBatchId,ct);
+
     [HttpPost("locations/merge-fields")]
     public Task<V180B3RequestView> SubmitMerge(V180OptionCMergeSubmit input, CancellationToken ct)
         => mergeService.SubmitAsync(input, ct);
