@@ -19,6 +19,168 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
+    public async Task Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var root = FindRoot();
+        foreach (var relative in new[] {
+            "leader-review/LeaderReviewDetails.disposable.sql",
+            "create-lowrisk/CreateLowRiskContract.disposable.sql" })
+            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                "optionc-canonical-sql-draft", relative.Replace('/', Path.DirectorySeparatorChar))));
+
+        const string createJson = """{"LocationName":"New customer","Address":"New customer address","City":"Taipei","MasterNote":"New note"}""";
+        const string lowJson = """{"LocationName":"Original 10","Address":"Original address 10","MasterNote":"Reviewed low risk note"}""";
+        var createId = Guid.NewGuid();
+        var lowId = Guid.NewGuid();
+        await h.Exec("""
+            INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,
+                LocationType,ApprovalStatus,IsActive,LocationName,Address)
+            VALUES(40,1,1,1,N'Customer',N'Pending',0,N'New customer',N'New customer address');
+            DECLARE @rv binary(8)=(SELECT RowVersion FROM dbo.Locations WHERE LocationId=40);
+            INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+            VALUES(@id,1,1,N'Location',N'40',N'CreateLocation',N'High',
+                @rv,NULL,@json,1,SYSUTCDATETIME(),N'Pending');
+            DECLARE @rid bigint=SCOPE_IDENTITY();
+            INSERT dbo.LocationCreateReservations(ChangeRequestId,LocationId,
+                OrganizationId,TeamId,ReservedLocationRowVersion,ReservationStatus,
+                CreatedAt,UpdatedAt)
+            VALUES(@rid,40,1,1,@rv,N'Pending',SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                ActorUserId,OccurredAt,CorrelationId)
+            VALUES(@rid,N'Submitted',1,SYSUTCDATETIME(),NEWID());
+            INSERT dbo.LocationPublicationStages(ChangeRequestId,LocationId,
+                OrganizationId,TeamId,ExpectedLocationRowVersion,
+                ProposedJson,ProposedSha256,StageStatus,GeocodeStatus,
+                GeocodeAddressSha256,Latitude,Longitude,DuplicateReviewStatus,
+                DuplicateEvidenceSha256,CreatedAt,UpdatedAt)
+            VALUES(@rid,40,1,1,@rv,@json,
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),@json)),
+                N'ReadyForPublish',N'Succeeded',
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),N'New customer address')),
+                25.03,121.56,N'Cleared',
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),@json)),
+                SYSUTCDATETIME(),SYSUTCDATETIME());
+            """, P("@id", createId), P("@json", createJson));
+        Assert.Equal("0", await h.Scalar(
+            "SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=40"));
+        Assert.Equal("0", await h.Scalar(
+            "SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=40"));
+        await using (var tx = await h.Begin())
+        {
+            var missingLeader = await Assert.ThrowsAsync<SqlException>(() =>
+                V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
+                    h.Db, tx, createId, 1, 2, Guid.NewGuid(),
+                    "Admin create", true, true, CancellationToken.None));
+            Assert.Equal(51602, missingLeader.Number);
+            await tx.RollbackAsync();
+        }
+        await h.Exec("""
+            DECLARE @rid bigint=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id);
+            INSERT dbo.ChangeRequestLeaderReviews(ChangeRequestId,ReviewStage,
+                Status,ReviewerUserId,ReviewedAt,Reason,DecisionKey)
+            VALUES(@rid,N'LeaderFirstLevel',N'Approved',4,SYSUTCDATETIME(),
+                N'Independent leader reviewed',NEWID());
+            INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),NEWID());
+            """, P("@id", createId));
+        await using (var tx = await h.Begin())
+        {
+            var sameLeader = await Assert.ThrowsAsync<SqlException>(() =>
+                V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
+                    h.Db, tx, createId, 1, 4, Guid.NewGuid(),
+                    "Self final review", true, true, CancellationToken.None));
+            Assert.Equal(51603, sameLeader.Number);
+            await tx.RollbackAsync();
+        }
+        await using (var tx = await h.Begin())
+        {
+            var noAdmin = await Assert.ThrowsAsync<SqlException>(() =>
+                V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
+                    h.Db, tx, createId, 1, 2, Guid.NewGuid(),
+                    "No admin", true, false, CancellationToken.None));
+            Assert.Equal(51603, noAdmin.Number);
+            await tx.RollbackAsync();
+        }
+        await using (var tx = await h.Begin())
+        {
+            await V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
+                h.Db, tx, createId, 1, 2, Guid.NewGuid(),
+                "Independent admin create", true, true, CancellationToken.None);
+            await tx.CommitAsync();
+        }
+        Assert.Equal("1", await h.Scalar(
+            "SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=40"));
+        Assert.Equal("1", await h.Scalar(
+            "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=40 AND IsCurrent=1"));
+        Assert.Equal("Published", await h.Scalar(
+            "SELECT ReservationStatus FROM dbo.LocationCreateReservations WHERE LocationId=40"));
+        Assert.Equal("Applied", await h.RequestStatus(createId));
+
+        var historicalTrip = await h.Scalar(
+            "SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 FOR JSON PATH");
+        var historicalSnapshot = await h.Scalar(
+            "SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 FOR JSON PATH");
+        await h.Exec("""
+            DECLARE @rv binary(8)=(SELECT RowVersion FROM dbo.Locations WHERE LocationId=10);
+            INSERT dbo.ChangeRequests(RequestPublicId,OrganizationId,TeamId,
+                EntityKind,EntityId,OperationCode,RiskCode,ExpectedEntityRowVersion,
+                BeforeJson,ProposedJson,RequestedByUserId,SubmittedAt,Status)
+            VALUES(@id,1,1,N'Location',N'10',N'UpdatePublishedLocation',N'Low',
+                @rv,N'{}',@json,1,SYSUTCDATETIME(),N'Pending');
+            DECLARE @rid bigint=SCOPE_IDENTITY();
+            INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                ActorUserId,OccurredAt,CorrelationId)
+            VALUES(@rid,N'Submitted',1,SYSUTCDATETIME(),NEWID());
+            INSERT dbo.LocationPublicationStages(ChangeRequestId,LocationId,
+                OrganizationId,TeamId,ExpectedLocationRowVersion,
+                ProposedJson,ProposedSha256,StageStatus,GeocodeStatus,
+                DuplicateReviewStatus,DuplicateEvidenceSha256,CreatedAt,UpdatedAt)
+            VALUES(@rid,10,1,1,@rv,@json,
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),@json)),
+                N'ReadyForPublish',N'NotRequired',N'Cleared',
+                HASHBYTES('SHA2_256',CONVERT(varbinary(max),@json)),
+                SYSUTCDATETIME(),SYSUTCDATETIME());
+            INSERT dbo.ChangeRequestLeaderReviews(ChangeRequestId,ReviewStage,
+                Status,ReviewerUserId,ReviewedAt,Reason,DecisionKey)
+            VALUES(@rid,N'LeaderFirstLevel',N'Approved',4,SYSUTCDATETIME(),
+                N'Independent low-risk review',NEWID());
+            INSERT dbo.ChangeRequestEvents(ChangeRequestId,EventType,
+                ActorUserId,OccurredAt,CorrelationId,DecisionKey)
+            VALUES(@rid,N'LeaderApproved',4,SYSUTCDATETIME(),NEWID(),NEWID());
+            """, P("@id", lowId), P("@json", lowJson));
+        await using (var tx = await h.Begin())
+        {
+            var wrongReviewer = await Assert.ThrowsAsync<SqlException>(() =>
+                V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
+                    h.Db, tx, lowId, 1, 2, Guid.NewGuid(),
+                    "Admin cannot bypass leader", true, true, CancellationToken.None));
+            Assert.Equal(51604, wrongReviewer.Number);
+            await tx.RollbackAsync();
+        }
+        await using (var tx = await h.Begin())
+        {
+            await V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
+                h.Db, tx, lowId, 1, 4, Guid.NewGuid(),
+                "Leader approved low risk", true, false, CancellationToken.None);
+            await tx.CommitAsync();
+        }
+        Assert.Equal("Reviewed low risk note", await h.Scalar(
+            "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("2", await h.Scalar(
+            "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        Assert.Equal(historicalTrip, await h.Scalar(
+            "SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId=10 FOR JSON PATH"));
+        Assert.Equal(historicalSnapshot, await h.Scalar(
+            "SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId=10 FOR JSON PATH"));
+        Assert.Equal("Applied", await h.RequestStatus(lowId));
+    }
+
+    [Fact]
     public async Task Candidate_http_submission_approval_and_rejection_use_real_di_and_preserve_history()
     {
         await using var h = await Harness.TryCreateAsync();
