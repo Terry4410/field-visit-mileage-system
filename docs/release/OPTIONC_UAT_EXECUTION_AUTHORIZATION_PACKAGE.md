@@ -1,6 +1,14 @@
 # Option C UAT Execution Authorization Package
 
 
+## 2026-10-15 — Latest read-path E2E checkpoint
+
+- Recovery implementation SHA `0dabadf98b0dee2369846f9c83d6db4c8238e014`; exact-SHA CI `38629143867` — **SUCCESS**. Backend `754/754`, frontend `110/110` (25 files) and build PASS; isolated Option C HTTP/DI/SQL E2E `1/1`; canonical 011/012/014 rehearsal `2/2`.
+- Real Visitor HTTP/DI/SQL test now verifies pending canonical Create reservation exclusion from Search, Nearby, Favorites, managed maintenance/search, legacy pending worklist, Dashboard count, and background-geocoding candidates. Unassigned team scope teamId=999 is denied for both Search and Nearby. A permitted unreserved legacy draft remains visible and counted.
+- This closes those specific candidate read-path assertions only. Full organization/team matrix, Project assignment, Trip/One-stop/mileage, historical display, reports/exports and all background reconciliation races remain **PARTIAL/HOLD**.
+- Candidate flags remain OFF. No UAT target preflight, UAT/Production SQL execution, migration, deployment, restore, promotion, merge, or Business UAT was performed. Migration 013 remains untouched. **Scheme A HOLD / NO-GO.**
+
+
 ## 2026-10-14 — Authoritative Scheme A Recovery checkpoint
 
 - Verified implementation SHA: `7fb9399cc8a4950a7694a0d13195a8afccdbf24f`; exact-SHA Recovery CI `38601741807` — **SUCCESS**. This checkpoint supersedes older status notes below for the current candidate state.
