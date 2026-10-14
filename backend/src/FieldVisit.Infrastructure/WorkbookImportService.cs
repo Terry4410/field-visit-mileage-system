@@ -12,7 +12,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private sealed record LocationImportRow(string? LocationCode, string? TeamCode, string LocationName, string? City, string? District, string? Address, string? PlusCode, string Status);
+    private sealed record LocationImportRow(string? LocationCode, string? TeamCode, string LocationName, string? City, string? District, string? Address, string? PlusCode, string Status, string? ExpectedEntityRowVersion = null);
     private sealed record ProjectImportRow(string ProjectCode, string ProjectName, string? TeamCode, string LocationMode, string? StartDate, string? EndDate, string Status, string? Description);
     private sealed record ProjectLocationImportRow(string ProjectCode, string LocationCode, bool IsPrimary, string Status);
 
@@ -379,6 +379,13 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                                 && existing.TeamId == teamId
                                     ? "NoChange"
                                     : "Update";
+                            // Bind the Excel preview to the exact published
+                            // rowversion. The canonical submission must
+                            // revalidate this value under a Serializable lock.
+                            if (action == "Update" && existing.RowVersion is { Length: 8 })
+                                data = data with {
+                                    ExpectedEntityRowVersion = Convert.ToBase64String(existing.RowVersion)
+                                };
                             // Preview must disclose the same Option C restriction
                             // that Confirm enforces. Do not advertise a direct
                             // update that would bypass independent review.
