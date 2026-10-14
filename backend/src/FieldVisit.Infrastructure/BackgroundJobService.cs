@@ -3,6 +3,7 @@ using FieldVisit.Application;
 using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
 namespace FieldVisit.Infrastructure;
@@ -414,9 +415,34 @@ public sealed class BackgroundJobService(
         // Until a reviewed draft-version/swap policy exists, the worker may
         // resolve only unpublished Pending drafts. Published coordinates are
         // authoritative and must never be changed by a queued job.
-        var q = db.Locations.Where(x => x.OrganizationId == job.OrganizationId
-            && x.ApprovalStatus == "Pending" && !x.IsActive
-            && (x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
+        // Scheme A's inactive CreateLocation reservation is NOT a legacy
+        // geocoding draft. An old job must not mutate its authoritative
+        // RowVersion/coordinates outside the canonical evidence workflow.
+        // Candidate schema is optional: inspect the catalog before building
+        // a query referencing the additive reservation table.
+        var hasCreateReservations = false;
+        if (db.Database.IsSqlServer())
+        {
+            await db.Database.OpenConnectionAsync(ct);
+            var connection = db.Database.GetDbConnection() as SqlConnection
+                ?? throw new InvalidOperationException("LOCATION_BACKGROUND_SQLSERVER_REQUIRED");
+            await using var catalog = new SqlCommand("""
+                SELECT CASE
+                  WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NOT NULL
+                    AND EXISTS (SELECT 1 FROM dbo.SchemaVersions
+                                WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THEN 1
+                  WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NULL
+                    AND NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions
+                                    WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THEN 0
+                  ELSE -1 END
+                """, connection);
+            var catalogState = Convert.ToInt32(await catalog.ExecuteScalarAsync(ct));
+            if (catalogState < 0)
+                throw new InvalidOperationException("LOCATION_BACKGROUND_CREATE_SCHEMA_DRIFT");
+            hasCreateReservations = catalogState == 1;
+        }
+        var q = PendingDraftGeocodingCandidates(db, job.OrganizationId.Value,
+            hasCreateReservations);
         if (!admin)
             q = q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
@@ -517,6 +543,28 @@ public sealed class BackgroundJobService(
             item.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
+    }
+
+    /// <summary>
+    /// Do not permit background workers to update an Option C CreateLocation
+    /// reserved row, including Abandoned reservations. The reservation table
+    /// is additive and absent in older databases; SQL must only reference it
+    /// when the catalog AND version marker prove the schema is present.
+    /// </summary>
+    internal static IQueryable<Location> PendingDraftGeocodingCandidates(
+        AppDbContext db, int organizationId, bool hasCreateReservations)
+    {
+        IQueryable<Location> locations = hasCreateReservations
+            ? db.Locations.FromSqlRaw("""
+                SELECT l.* FROM dbo.Locations AS l
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM dbo.LocationCreateReservations AS cr
+                    WHERE cr.LocationId=l.LocationId)
+                """)
+            : db.Locations;
+        return locations.Where(x => x.OrganizationId == organizationId
+            && x.ApprovalStatus == "Pending" && !x.IsActive
+            && (x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
     }
 
     private async Task<(bool Admin, List<int> Teams)> ResolveLiveGeocodingScopeAsync(

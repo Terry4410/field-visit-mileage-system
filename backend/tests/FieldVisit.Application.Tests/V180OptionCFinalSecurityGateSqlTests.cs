@@ -81,6 +81,27 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
             P("@id", locationId)));
         Assert.Equal("PendingGeocode", await h.StageStatus(created.RequestPublicId));
+        // Actual EF query path shared with BackgroundJobService must exclude
+        // reserved CreateLocation even though it looks Pending and inactive.
+        // Unreserved legacy drafts remain eligible; the candidate table must
+        // not be queried on schemas where it is absent.
+        await h.Exec("""
+            INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,
+                LocationType,ApprovalStatus,GeocodingStatus,IsActive,LocationName,Address)
+            VALUES(900,1,1,1,N'Customer',N'Pending',N'Pending',0,
+                N'Legitimate legacy draft',N'Legacy address');
+            """);
+        await using (var geocodeDb = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlServer(h.ConnectionString).Options))
+        {
+            var allowedIds = await BackgroundJobService.PendingDraftGeocodingCandidates(
+                geocodeDb, 1, hasCreateReservations: true)
+                .Select(x => x.LocationId).ToListAsync();
+            Assert.DoesNotContain(locationId, allowedIds);
+            Assert.Contains(900, allowedIds);
+        }
+
         Assert.Equal("1", await h.Scalar("""
             SELECT COUNT(*) FROM dbo.ChangeRequests r
             JOIN dbo.LocationCreateReservations cr ON cr.ChangeRequestId=r.ChangeRequestId

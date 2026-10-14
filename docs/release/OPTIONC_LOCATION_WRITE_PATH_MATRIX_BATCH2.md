@@ -48,3 +48,22 @@ that route.
   it before processing a batch. Canonical Excel submission is a remaining
   implementation blocker.
 - This delta does not authorize UAT/Production execution or feature flags.
+
+## Background geocoding reservation boundary — 2026-10-14
+
+Legacy `BackgroundJobService.ProcessGeocodingAsync` originally selected all
+Pending, inactive Locations and could update the server-owned RowVersion of an
+unpublished Scheme A CreateLocation reservation. The Recovery candidate now
+requires catalog plus additive version proof and excludes **every** LocationId
+referenced by `LocationCreateReservations` from its eligible geocoding drafts.
+Abandoned reservations are also excluded; valid unreserved legacy drafts still
+run. On older databases with no additive contract, it avoids referencing the
+missing table. Partial candidate schema fails closed.
+
+An additional disposable SQL / EF query regression checks reserved exclusion
+and legal legacy draft eligibility. This change is a nondeploy safety control,
+not Excel routing, UI readiness or Business UAT clearance. Latest verified
+Picker + CreateLocation full HTTP E2E: SHA
+`57d3faee175cd178a3481228159069efc596cf7c`, exact-SHA CI
+`38535811600 — SUCCESS`. New Background test remains unverified until
+its own Exact-SHA CI completes. HOLD / NO-GO.
