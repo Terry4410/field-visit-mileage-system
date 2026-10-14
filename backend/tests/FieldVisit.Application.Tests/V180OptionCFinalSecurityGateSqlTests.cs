@@ -1082,6 +1082,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var pendingResults = await pendingPicker.Content.ReadFromJsonAsync<V170LocationSearchResult>()
             ?? throw new InvalidOperationException("OPTIONC_CREATE_PICKER_VIEW_MISSING");
         Assert.DoesNotContain(pendingResults.Items, x => x.LocationId == locationId);
+        using var pendingNearby = await visitor.GetAsync(
+            "api/v1/locations/nearby?latitude=25.033&longitude=121.565&limit=100");
+        Assert.True(pendingNearby.IsSuccessStatusCode,
+            await pendingNearby.Content.ReadAsStringAsync());
+        var nearbyResults = await pendingNearby.Content
+            .ReadFromJsonAsync<List<V170LocationNearbyDto>>()
+            ?? throw new InvalidOperationException("OPTIONC_CREATE_NEARBY_VIEW_MISSING");
+        Assert.DoesNotContain(nearbyResults, x => x.LocationId == locationId);
         using var pendingFavorite = await visitor.PostAsync(
             $"api/v1/locations/{locationId}/favorite", null);
         Assert.False(pendingFavorite.IsSuccessStatusCode);
