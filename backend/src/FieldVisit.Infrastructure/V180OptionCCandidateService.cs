@@ -24,7 +24,8 @@ public sealed record V180OptionCExcelCreateResult(
 internal sealed record V180OptionCExcelRowSource(Guid ImportBatchId, long ImportBatchItemId);
 internal sealed record V180OptionCExcelLocationRow(
     string? LocationCode,string? TeamCode,string LocationName,
-    string? City,string? District,string? Address,string? PlusCode,string Status);
+    string? City,string? District,string? Address,string? PlusCode,string Status,
+    string? ExpectedEntityRowVersion = null);
 
 public sealed class V180OptionCCandidateService(
     AppDbContext db, ICurrentUserService current, IConfiguration config)
@@ -451,7 +452,11 @@ public sealed class V180OptionCCandidateService(
         return ids[0];
     }
 
-    public async Task<V180B3RequestView> SubmitAsync(V180B3SubmitLocation input, CancellationToken ct)
+    public Task<V180B3RequestView> SubmitAsync(V180B3SubmitLocation input, CancellationToken ct)
+        => SubmitCoreAsync(input, ct, null);
+
+    private async Task<V180B3RequestView> SubmitCoreAsync(
+        V180B3SubmitLocation input, CancellationToken ct, V180OptionCExcelRowSource? excel)
     {
         var expected = V180B3RequestInputRules.RequireSubmission(input);
         var connection = await RequireTargetAsync(ct);
@@ -462,6 +467,41 @@ public sealed class V180OptionCCandidateService(
             var actorId = actor.UserId;
             var auth = new V180OptionCLiveAuthorizationAdapter(db);
             var scope = await auth.AuthorizeSubmissionAsync(actorId, input.LocationId, BusinessTime.Today, ct);
+            FieldVisit.Domain.Entities.ImportBatch? excelBatch = null;
+            FieldVisit.Domain.Entities.ImportBatchItem? excelItem = null;
+            if (excel is not null)
+            {
+                await RequireExcelStateContractAsync(connection,
+                    (SqlTransaction)tx.GetDbTransaction(),ct);
+                excelBatch = await db.ImportBatches.FromSqlInterpolated(
+                    $"SELECT * FROM dbo.ImportBatches WITH(UPDLOCK,HOLDLOCK) WHERE ImportBatchId={excel.ImportBatchId}")
+                    .SingleOrDefaultAsync(ct);
+                excelItem = await db.ImportBatchItems.FromSqlInterpolated(
+                    $"SELECT * FROM dbo.ImportBatchItems WITH(UPDLOCK,HOLDLOCK) WHERE ImportBatchItemId={excel.ImportBatchItemId}")
+                    .SingleOrDefaultAsync(ct);
+                if (excelBatch is null || excelItem is null
+                    || excelItem.ImportBatchId != excel.ImportBatchId
+                    || excelBatch.RequestedByUserId != actorId
+                    || excelBatch.OrganizationId != scope.OrganizationId
+                    || excelBatch.ImportType != "locations"
+                    || excelBatch.ExpiresAt < DateTime.UtcNow
+                    || excelBatch.Status is not ("Previewed" or "PartiallySubmittedForReview")
+                    || excelItem.EntityType != "Location" || excelItem.Action != "Update"
+                    || excelItem.Status != "Error"
+                    || excelItem.ErrorMessage != "LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL")
+                    throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_ROW_NOT_ELIGIBLE");
+                var staged = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
+                    excelItem.DataJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                    ?? throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_ROW_INVALID");
+                if (staged.ExpectedEntityRowVersion != input.ExpectedEntityRowVersion
+                    || string.IsNullOrWhiteSpace(staged.LocationCode)
+                    || !string.Equals(staged.LocationName.Trim(),input.Proposed.LocationName,StringComparison.Ordinal)
+                    || !string.Equals(staged.City?.Trim(),input.Proposed.City,StringComparison.Ordinal)
+                    || !string.Equals(staged.District?.Trim(),input.Proposed.District,StringComparison.Ordinal)
+                    || !string.Equals(staged.Address?.Trim(),input.Proposed.Address,StringComparison.Ordinal)
+                    || !string.Equals(staged.PlusCode?.Trim(),input.Proposed.PlusCode,StringComparison.Ordinal))
+                    throw new InvalidOperationException("OPTIONC_EXCEL_UPDATE_PROPOSAL_DRIFT");
+            }
             var location = await db.Locations.FromSqlInterpolated($"""
                 SELECT * FROM dbo.Locations WITH (UPDLOCK,HOLDLOCK)
                 WHERE LocationId={input.LocationId} AND OrganizationId={scope.OrganizationId}
@@ -469,6 +509,21 @@ public sealed class V180OptionCCandidateService(
                 ?? throw new KeyNotFoundException("OPTIONC_LOCATION_NOT_FOUND");
             if (location.RowVersion is null || !location.RowVersion.SequenceEqual(expected))
                 throw new InvalidOperationException("ROWVERSION_CONFLICT");
+            if (excelItem is not null)
+            {
+                var staged = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
+                    excelItem.DataJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                var teamCode = await db.Teams.AsNoTracking()
+                    .Where(x => x.TeamId == location.TeamId
+                        && x.OrganizationId == scope.OrganizationId && x.IsActive)
+                    .Select(x => x.TeamCode).SingleOrDefaultAsync(ct);
+                if (string.IsNullOrWhiteSpace(teamCode)
+                    || !string.Equals(staged.TeamCode?.Trim(),teamCode,StringComparison.Ordinal)
+                    || !string.Equals(staged.LocationCode?.Trim(),location.LocationCode,StringComparison.Ordinal)
+                    || location.ApprovalStatus != "Approved" || !location.IsActive
+                    || location.LocationType != "Customer")
+                    throw new UnauthorizedAccessException("OPTIONC_EXCEL_UPDATE_LOCATION_SCOPE_DRIFT");
+            }
             var before = new V180B3LocationFields(location.LocationName, location.City,
                 location.District, location.Address, location.PlusCode, location.TaxId, location.MasterNote);
             var proposal = V180B3ProposalSafetyRules.Validate(input.Proposed, before, input.Reason);
@@ -505,12 +560,22 @@ public sealed class V180OptionCCandidateService(
             db.ChangeRequestEvents.Add(new V180B3ChangeEvent {
                 ChangeRequestId = row.ChangeRequestId, EventType = "Submitted", ActorUserId = actorId,
                 OccurredAt = DateTime.UtcNow, CorrelationId = Guid.NewGuid(),
-                DetailsJson = JsonSerializer.Serialize(new { Reason = proposal.Reason }) });
+                DetailsJson = JsonSerializer.Serialize(new { Reason = proposal.Reason,
+                    Source = excel is null ? "HTTP" : "Excel",
+                    ImportBatchId = excel?.ImportBatchId,
+                    ImportBatchItemId = excel?.ImportBatchItemId }) });
             await db.SaveChangesAsync(ct);
             var sqlTx = tx.GetDbTransaction() as SqlTransaction
                 ?? throw new InvalidOperationException("OPTIONC_SQL_TRANSACTION_REQUIRED");
             await V180OptionCStageDraftWriter.CreateFromLockedRequestAsync(
                 connection, sqlTx, row.RequestPublicId, scope.OrganizationId, ct);
+            if (excelItem is not null && excelBatch is not null)
+            {
+                excelItem.Status = "SubmittedForReview";
+                excelItem.ErrorMessage = null;
+                excelBatch.Status = "PartiallySubmittedForReview";
+                await db.SaveChangesAsync(ct);
+            }
             await tx.CommitAsync(ct);
             return ToView(row);
         }
