@@ -150,6 +150,41 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
               AND LocationName=N'Candidate HTTP identity'
               AND Address=N'New pending candidate address'
             """));
+        // Two real HTTP clients race to reserve the same Location identity.
+        // Exactly one request may commit; the loser must not leave a second
+        // Pending Location, orphan Reservation/Stage, or extra Submitted audit.
+        using var peerVisitor = factory.CreateClient(new WebApplicationFactoryClientOptions {
+            BaseAddress = new Uri("https://localhost") });
+        peerVisitor.DefaultRequestHeaders.Authorization =
+            new("Bearer", Token(1, "E1", "visitor", 1, 1));
+        var racePayload = new V180OptionCCreateLocation(1,
+            "Concurrent canonical create same identity",
+            new V180B3LocationFields("Race customer pending", "Taipei", "Xinyi",
+                "Unique concurrent race address", null, null, null));
+        var concurrent = await Task.WhenAll(
+            visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations", racePayload),
+            peerVisitor.PostAsJsonAsync("api/v1/optionc-candidate/locations", racePayload));
+        using var firstConcurrent = concurrent[0];
+        using var secondConcurrent = concurrent[1];
+        Assert.Single(concurrent.Where(x => x.IsSuccessStatusCode));
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations WHERE OrganizationId=1 AND TeamId=1
+              AND LocationName=N'Race customer pending'
+              AND Address=N'Unique concurrent race address'
+              AND ApprovalStatus=N'Pending' AND IsActive=0
+            """));
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.ChangeRequests r
+            JOIN dbo.Locations l ON r.EntityId=CONVERT(nvarchar(80),l.LocationId)
+            JOIN dbo.LocationCreateReservations cr ON cr.ChangeRequestId=r.ChangeRequestId
+            JOIN dbo.LocationPublicationStages s ON s.ChangeRequestId=r.ChangeRequestId
+            WHERE l.LocationName=N'Race customer pending'
+              AND l.Address=N'Unique concurrent race address'
+              AND r.OperationCode=N'CreateLocation' AND r.RiskCode=N'High'
+              AND r.Status=N'Pending' AND cr.ReservationStatus=N'Pending'
+              AND s.StageStatus=N'PendingGeocode'
+              AND cr.LocationId=l.LocationId AND s.LocationId=l.LocationId
+            """));
         using var outside = factory.CreateClient(new WebApplicationFactoryClientOptions {
             BaseAddress = new Uri("https://localhost") });
         outside.DefaultRequestHeaders.Authorization = new("Bearer", Token(3, "E3", "admin"));
