@@ -256,20 +256,6 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             await ExecuteAsync(db, File.ReadAllText(auditPath));
             await ExecuteAsync(db, script); // 014: canonical evidence audit extension
 
-            var leaderReviewPath = Path.Combine(rootDir, "docs", "release",
-                "optionc-canonical-sql-draft", "leader-review",
-                "LeaderReviewDetails.disposable.sql");
-            await ExecuteAsync(db, File.ReadAllText(leaderReviewPath));
-            Assert.Equal("1", await ScalarAsync(db,
-                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.tables " +
-                "WHERE name=N'ChangeRequestLeaderReviews'"));
-            Assert.Equal("1", await ScalarAsync(db,
-                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.check_constraints " +
-                "WHERE name=N'CK_B3_ChangeRequestEvents_EventType' " +
-                "AND definition LIKE N'%LeaderApproved%'"));
-            // The existing 014 preflight intentionally stops on an unknown SchemaVersions head;
-            // additive Leader review is verified by catalog assertions above and requires a future
-            // read-only preflight extension before any UAT target can be considered.
 
             // Detect a parallel audit ledger as a STOP condition.
             await ExecuteAsync(db,
@@ -289,6 +275,17 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             var mismatch = await Assert.ThrowsAsync<SqlException>(
                 () => ExecuteAsync(db, wrongTarget));
             Assert.Equal(51002, mismatch.Number);
+            var leaderReviewPath = Path.Combine(rootDir, "docs", "release",
+                "optionc-canonical-sql-draft", "leader-review",
+                "LeaderReviewDetails.disposable.sql");
+            await ExecuteAsync(db, File.ReadAllText(leaderReviewPath));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.tables " +
+                "WHERE name=N'ChangeRequestLeaderReviews'"));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT CAST(COUNT(*) AS nvarchar(20)) FROM sys.check_constraints " +
+                "WHERE name=N'CK_B3_ChangeRequestEvents_EventType' " +
+                "AND definition LIKE N'%LeaderApproved%'"));
         }
         finally
         {
