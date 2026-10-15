@@ -102,7 +102,7 @@ jobs:
               $message = $_.Exception.ToString()
               if ($message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
               if ($message -notmatch "(?i)(Msg\s+$code\b|ErrorNumber[^0-9]*$code\b|\b$code\b)") {
-                throw "UNEXPECTED_FAILURE:$name:$message"
+                throw "UNEXPECTED_FAILURE:$($name):$message"
               }
               Write-Host "FAIL_CLOSED_PASS $name code=$code"
             }
@@ -113,7 +113,7 @@ jobs:
               $message = $_.Exception.ToString()
               if ($message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
               if ($message -notmatch '(?i)(sqlcmd|variable|not defined|undefined|not found)') {
-                throw "UNEXPECTED_PREPROCESS_FAILURE:$name:$message"
+                throw "UNEXPECTED_PREPROCESS_FAILURE:$($name):$message"
               }
               Write-Host "PREPROCESS_FAIL_CLOSED_PASS $name"
             }
