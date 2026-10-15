@@ -168,7 +168,7 @@ jobs:
             NewDb 'OptionCIsolated_PR29_Partial011' '1.8.0-008' $true
             ExpectSqlGuard '008-canonical-unrecorded' 51026 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial011' } 'OptionCIsolated_PR29_Partial011' }
             NewDb 'OptionCIsolated_PR29_Partial014' '1.8.0-014' $false 'partial'
-            ExpectSqlGuard 'partial-014' 51016 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial014' } 'OptionCIsolated_PR29_Partial014' }
+            ExpectSqlGuard 'partial-014' 51015 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial014' } 'OptionCIsolated_PR29_Partial014' }
             NewDb 'OptionCIsolated_PR29_NoLocations' '1.8.0-010' $false 'none' $false
             ExpectSqlGuard 'missing-required-locations-unknown-permissions' 51024 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_NoLocations' } 'OptionCIsolated_PR29_NoLocations' }
             NewDb 'OptionCIsolated_PR29_Unexpected013' '1.8.0-014' $false
