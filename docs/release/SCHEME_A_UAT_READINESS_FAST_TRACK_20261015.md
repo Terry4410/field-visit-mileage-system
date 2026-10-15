@@ -1,11 +1,11 @@
 # Full Scheme A / Option C UAT Readiness Fast Track
 
 Status: **ENGINEERING CANDIDATE / UAT HOLD / NO-GO**  
-Evidence cut: 2026-10-15 UTC  
+Evidence cut: 2026-10-16 Asia/Taipei  
 This document is a nondeploy review record. It authorizes no migration,
 deployment, restore, feature activation, promotion, or Business UAT.
 
-## 1. Authoritative current state
+## Latest staging verification (nondeploy)\n\n- Staging candidate: `a70d14c50837f0859998c95f11561af1e32983a1`\n- Exact-SHA CI: `38772236548 — SUCCESS`\n- Backend: 759/759; Frontend: 110/110; Option C HTTP/SQL: 20/20; Canonical: 2/2; Trip/Mileage: 4/4; Historical Fingerprint: PASS\n- PR #33 remains Draft/Open/Unmerged and targets Recovery only.\n- DirectLowRisk UI flag and candidate approval UI flag remain OFF by default.\n- This evidence is engineering/isolated evidence only; it is not UAT or Business UAT approval.\n\n## 1. Authoritative current state
 
 | Evidence | Verified value | Result |
 |---|---|---|
@@ -80,7 +80,7 @@ do not mean runtime UAT verification.
 | Area | Recovery evidence | State |
 |---|---|---|
 | CreateLocation | `V180OptionCCandidateService.CreateAsync`; HTTP route `POST /api/v1/optionc-candidate/locations`; reservation/duplicate SQL test | implemented + isolated PASS |
-| Existing Location maintenance | Legacy PUT remains fail-closed. Candidate note-only endpoint uses live Visitor-owner/Leader-managed-team write scope and atomic request/version/event/audit; HighRisk stays reviewed | implemented; final isolated CI pending |
+| Existing Location maintenance | Legacy PUT remains fail-closed. Candidate note-only endpoint uses live Visitor-owner/Leader-managed-team write scope and atomic request/version/event/audit; HighRisk UI submits canonical `/changes` for independent review when candidate UI is enabled | implemented + isolated PASS; flags OFF |
 | Visitor ownership / Team / Org | `V180OptionCSubmissionScope`; `V180OptionCLiveAuthorizationAdapter.AuthorizeSubmissionAsync` | implemented + isolated PASS |
 | Leader managed scope | `AuthorizeLeaderReviewAsync`; `V180OptionCLeaderReviewService.DecideAsync`; independent reviewer rules | implemented + isolated PASS |
 | Shared read vs write | submission scope checks ownership independently of readable Location discovery | implemented + isolated PASS |
@@ -219,9 +219,9 @@ These are separate decisions; approving one does not approve the others.
 
 ### Final gate
 
-- Engineering implementation: **PASS at prior Recovery exact-SHA evidence; new package requires its own CI**.
+- Engineering implementation: **PASS at staging exact-SHA `a70d14c50837f0859998c95f11561af1e32983a1`, CI `38772236548`**.
 - UAT schema readiness: **HOLD**.
 - Backup configuration: **PASS**; restore-tested: **NOT RUN**.
-- Full Scheme A isolated E2E: **PASS for covered workflows; not UAT runtime proof**.
+- Full Scheme A isolated E2E: **PASS for covered workflows; not UAT runtime proof**. Browser automation: **NOT RUN**.
 - Business UAT: **NOT RUN**.
 - Deployment / release: **NO-GO**.
