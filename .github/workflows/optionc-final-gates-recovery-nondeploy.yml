@@ -99,6 +99,13 @@ jobs:
         run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
       - name: Backend tests
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger "console;verbosity=normal"
+      - name: Structured UAT preflight result-set capture (disposable SQL only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          ./scripts/ci/test_preflight_resultset_capture.ps1
+
       - name: Option C SQL Server E2E
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCAdminApprovalE2ETests' --logger "console;verbosity=normal"
       - name: Canonical 011/012/014 disposable SQL Server rehearsal
