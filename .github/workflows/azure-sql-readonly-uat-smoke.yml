@@ -116,6 +116,7 @@ jobs:
           function Convert-Row([System.Data.DataRow]$Row, [string[]]$Columns) {
             $record = [ordered]@{}
             $allowed = 'ServerName|DatabaseName|ApplicationName|ObservedUtc|ConnectedIdentity|ReadOnlyIdentity|VersionNumber|AppliedAt|MigrationPhase|CanonicalRequestTablesPresent|StageAndPublishedVersionsPresent|MergeDetailsPresent|CanonicalEvidenceAuditExtended|TableName|RowCount|ForeignKeyName|ParentSchema|ParentTable|ReferencedTable|IsNotTrusted|ConstraintName|is_not_trusted|definition|IndexName|is_unique|is_unique_constraint|is_disabled|IndexFingerprint|CatalogFingerprintSha256|OriginalLogin|ServerPrincipal|DatabaseUser|IsDbOwner|IsDbDdlAdmin|IsDbDatawriter|CanCreateTable|CanAlterAnyUser|CanInsertChangeRequests|CanUpdateChangeRequests|CanDeleteChangeRequests|CanInsertSchemaVersions|CanUpdateLocations|CheckName|Violations|Result|LatestSchemaVersion|CompletedUtc'
+            $sensitive = @('ConnectedIdentity','ReadOnlyIdentity','OriginalLogin','ServerPrincipal','DatabaseUser')
             foreach ($name in $Columns) {
               if ($name -notmatch "^($allowed)$") { continue }
               $value = $Row[$name]
@@ -123,7 +124,7 @@ jobs:
                 $value = $null
               } elseif ($value -is [datetime]) {
                 $value = $value.ToUniversalTime().ToString('o')
-              } elseif ($name -match 'Identity|Login|Principal|User') {
+              } elseif ($sensitive -contains $name) {
                 $value = '[REDACTED]'
               }
               $record[$name] = $value
@@ -148,35 +149,106 @@ jobs:
             return 'unclassified'
           }
 
-          function Convert-Table([System.Data.DataTable]$Table) {
+          function Convert-Table([System.Data.DataTable]$Table, [switch]$AllowUnknown) {
             $columns = Get-ColumnNames $Table
+            $kind = Get-ResultKind $columns
+            if ($kind -eq 'unclassified' -and -not $AllowUnknown) {
+              throw "STOP: unrecognized SQL result-set columns; refusing to expose unclassified data."
+            }
+            if ($kind -eq 'unclassified') {
+              return [pscustomobject]@{
+                Kind = 'unclassified'
+                Columns = @()
+                RowCount = $Table.Rows.Count
+                Rows = @()
+                Applicability = 'UnclassifiedDataSuppressed'
+              }
+            }
             $rows = @($Table.Rows | ForEach-Object { Convert-Row $_ $columns })
+            $applicability = if ($rows.Count -eq 0) { 'NotApplicable' } else { 'Executed' }
             [pscustomobject]@{
-              Kind = Get-ResultKind $columns
+              Kind = $kind
               Columns = $columns
               RowCount = $rows.Count
               Rows = $rows
+              Applicability = $applicability
             }
           }
 
-          function Capture-Evidence([object]$DataSet) {
+          function Capture-Evidence([object]$DataSet, [string]$CheckedOutSha) {
             $tables = Get-DataTables $DataSet
             if ($tables.Count -eq 0) { throw 'STOP: no SQL result sets were returned.' }
             $resultSets = @($tables | ForEach-Object { Convert-Table $_ })
-            $mandatory = @('identity','summary','catalogFingerprint','permissions','completion')
-            $present = @($resultSets | ForEach-Object { $_.Kind } | Select-Object -Unique)
+            if (@($resultSets | Where-Object { $_.Kind -eq 'unclassified' }).Count -gt 0) {
+              throw 'STOP: unclassified result set was returned.'
+            }
+
+            $mandatory = @('identity','schemaVersions','summary','catalogFingerprint','permissions','completion')
+            $byKind = @{}
             foreach ($kind in $mandatory) {
-              if ($present -notcontains $kind) { throw "STOP: mandatory evidence result set '$kind' was not observed." }
+              $matches = @($resultSets | Where-Object { $_.Kind -eq $kind })
+              if ($matches.Count -ne 1) { throw "STOP: mandatory evidence result set '$kind' was missing or duplicated." }
+              $byKind[$kind] = $matches[0]
+              if ($matches[0].RowCount -lt 1) { throw "STOP: mandatory evidence result set '$kind' was empty." }
             }
-            $completionRows = @($resultSets | Where-Object { $_.Kind -eq 'completion' } | ForEach-Object { $_.Rows })
-            if ($completionRows.Count -ne 1 -or $completionRows[0].Result -ne 'PREFLIGHT_COMPLETE_READ_ONLY') {
-              throw 'STOP: completion marker was missing or invalid.'
+
+            $identity = @($byKind['identity'].Rows)
+            if ($identity.Count -ne 1) { throw 'STOP: identity evidence must contain exactly one row.' }
+            foreach ($name in @('ServerName','DatabaseName','ObservedUtc')) {
+              if (-not (@($identity[0].PSObject.Properties.Name) -contains $name) -or [string]::IsNullOrWhiteSpace([string]$identity[0].$name)) {
+                throw "STOP: identity field '$name' was missing or empty."
+              }
             }
+
+            $schemaRows = @($byKind['schemaVersions'].Rows)
+            if ($schemaRows.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$schemaRows[0].VersionNumber)) {
+              throw 'STOP: schemaVersions evidence was missing, duplicated or unusable.'
+            }
+
+            $summary = @($byKind['summary'].Rows)
+            if ($summary.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$summary[0].MigrationPhase)) {
+              throw 'STOP: summary evidence was missing or unusable.'
+            }
+            foreach ($name in @('CanonicalRequestTablesPresent','StageAndPublishedVersionsPresent','MergeDetailsPresent','CanonicalEvidenceAuditExtended')) {
+              if (-not (@($summary[0].PSObject.Properties.Name) -contains $name) -or $null -eq $summary[0].$name) {
+                throw "STOP: summary field '$name' was missing or unknown."
+              }
+            }
+
+            $fingerprint = @($byKind['catalogFingerprint'].Rows)
+            if ($fingerprint.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$fingerprint[0].CatalogFingerprintSha256)) {
+              throw 'STOP: catalog fingerprint evidence was missing or unusable.'
+            }
+
+            $permissions = @($byKind['permissions'].Rows)
+            if ($permissions.Count -ne 1) { throw 'STOP: permission evidence must contain exactly one row.' }
+            foreach ($name in @('IsDbOwner','IsDbDdlAdmin','IsDbDatawriter','CanCreateTable','CanAlterAnyUser','CanInsertChangeRequests','CanUpdateChangeRequests','CanDeleteChangeRequests','CanInsertSchemaVersions','CanUpdateLocations')) {
+              if (-not (@($permissions[0].PSObject.Properties.Name) -contains $name) -or $null -eq $permissions[0].$name) {
+                throw "STOP: permission field '$name' was missing or unknown."
+              }
+              if ($permissions[0].$name -notin @(0,1)) { throw "STOP: permission field '$name' was not boolean numeric evidence." }
+            }
+
+            $completion = @($byKind['completion'].Rows)
+            if ($completion.Count -ne 1 -or $completion[0].Result -ne 'PREFLIGHT_COMPLETE_READ_ONLY' -or [string]::IsNullOrWhiteSpace([string]$completion[0].LatestSchemaVersion) -or [string]::IsNullOrWhiteSpace([string]$completion[0].CompletedUtc)) {
+              throw 'STOP: completion marker was missing, invalid or incomplete.'
+            }
+
+            $integritySets = @($resultSets | Where-Object { $_.Kind -eq 'integrity' })
+            foreach ($set in $integritySets) {
+              foreach ($row in @($set.Rows)) {
+                if ([string]::IsNullOrWhiteSpace([string]$row.CheckName) -or $null -eq $row.Violations) {
+                  throw 'STOP: integrity evidence was incomplete.'
+                }
+                if ([int]$row.Violations -ne 0) { throw "STOP: integrity violations detected for $($row.CheckName)." }
+              }
+            }
+
             [pscustomobject]@{
               ResultSetCount = $resultSets.Count
               ResultSets = $resultSets
-              CompletionMarker = $completionRows[0].Result
-              SourceSha = $env:GITHUB_SHA
+              CompletionMarker = $completion[0].Result
+              SourceSha = $CheckedOutSha
               CapturedUtc = [DateTime]::UtcNow.ToString('o')
             }
           }
@@ -195,11 +267,16 @@ jobs:
           $basic = 'SELECT DB_NAME() AS DatabaseName, ORIGINAL_LOGIN() AS ConnectedIdentity, SYSUTCDATETIME() AS ObservedUtc; SELECT TOP (5) name FROM sys.tables ORDER BY name;'
           $basicSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $true -OutputAs DataSet -Query $basic
           $basicTables = Get-DataTables $basicSet
-          Write-Output ("UAT_BASIC_JSON=" + ((@($basicTables | ForEach-Object { Convert-Table $_ }) | ConvertTo-Json -Depth 10 -Compress) -replace 'principal[^"]*','[REDACTED]'))
+          Write-Output ("UAT_BASIC_JSON=" + ((@($basicTables | ForEach-Object { Convert-Table $_ -AllowUnknown }) | ConvertTo-Json -Depth 10 -Compress))
 
           $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
           $preflightSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $true -OutputAs DataSet -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql
-          $evidence = Capture-Evidence $preflightSet
+          $checkedOutSha = (git rev-parse HEAD).Trim()
+          if ([string]::IsNullOrWhiteSpace($checkedOutSha)) { throw 'STOP: checked-out source SHA was unavailable.' }
+          if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA) -and $checkedOutSha -ne $env:GITHUB_SHA) {
+            throw "STOP: checked-out source SHA does not match workflow source SHA."
+          }
+          $evidence = Capture-Evidence $preflightSet $checkedOutSha
           Write-Output ("UAT_PREFLIGHT_EVIDENCE_JSON=" + ($evidence | ConvertTo-Json -Depth 20 -Compress))
           if ($env:GITHUB_STEP_SUMMARY) {
             "### Read-only preflight evidence" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
