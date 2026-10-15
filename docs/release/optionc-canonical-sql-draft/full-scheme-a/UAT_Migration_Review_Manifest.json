@@ -56,48 +56,60 @@
       "marker": null,
       "contract": "canonical Stage evidence audit event extension",
       "source": "docs/release/optionc-canonical-sql-draft/audit/StageEvidenceAuditEvents.disposable.sql",
-      "deployability": "HOLD_UNASSIGNED_VERSION",
-      "prerequisite": "014 and exact canonical event constraints"
+      "deployability": "PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "014 and exact canonical event constraints; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-015",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
     },
     {
       "order": 6,
       "marker": "1.8.0-LEADER-REVIEW",
       "contract": "persistent independent Leader first-level decision",
       "source": "docs/release/optionc-canonical-sql-draft/leader-review/LeaderReviewDetails.disposable.sql",
-      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
-      "prerequisite": "014 and Stage evidence audit extension"
+      "deployability": "PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "014 and Stage evidence audit extension; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-016",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
     },
     {
       "order": 7,
       "marker": "1.8.0-CREATE-LOWRISK",
       "contract": "CreateLocation reservation and LowRisk publication contract",
       "source": "docs/release/optionc-canonical-sql-draft/create-lowrisk/CreateLowRiskContract.disposable.sql",
-      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
-      "prerequisite": "Leader review contract and publication ledger"
+      "deployability": "PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "Leader review contract and publication ledger; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-017",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
     },
     {
       "order": 8,
       "marker": "1.8.0-LOWRISK-DIRECT",
       "contract": "authorized direct LowRisk version and immutable audit",
       "source": "docs/release/optionc-canonical-sql-draft/lowrisk-direct/LowRiskDirectContract.disposable.sql",
-      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
-      "prerequisite": "CreateLowRisk contract and canonical published-version ledger"
+      "deployability": "PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "CreateLowRisk contract and canonical published-version ledger; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-018",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
     },
     {
       "order": 9,
       "marker": null,
       "contract": "dual-Location MergeFields evidence",
       "source": "docs/release/optionc-canonical-sql-draft/merge/LocationMergeDetails.disposable.sql",
-      "deployability": "HOLD_UNASSIGNED_VERSION",
-      "prerequisite": "014, canonical audit extension, Leader review, and approved reference-rebinding policy"
+      "deployability": "PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "014, canonical audit extension, Leader review, and approved reference-rebinding policy; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-019",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
     },
     {
       "order": 10,
       "marker": "1.8.0-EXCEL-CANONICAL-STATUS",
       "contract": "Excel canonical submission statuses",
       "source": "docs/release/optionc-canonical-sql-draft/excel-import/ExcelImportStatusContract.disposable.sql",
-      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
-      "prerequisite": "canonical Create and published Update flows; existing ImportBatch data compatibility"
+      "deployability": "PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "canonical Create and published Update flows; existing ImportBatch data compatibility; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-020",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
     }
   ],
   "mandatoryStopConditions": [
@@ -111,5 +123,86 @@
     "version-1 backfill is ambiguous, incomplete, or would include Pending or inactive Locations",
     "backup recovery point, restore owner, rollback window, or deployment artifact identity is missing",
     "application and frontend candidate flags are not OFF before deployment"
-  ]
+  ],
+  "proposedRegistry": {
+    "status": "PROPOSED_NOT_FINAL_NOT_EXECUTABLE",
+    "reserved": "1.8.0-013",
+    "entries": [
+      {
+        "order": 1,
+        "marker": "1.8.0-011",
+        "contract": "canonical request and event ledger",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 2,
+        "marker": "1.8.0-012",
+        "contract": "Approved and Applied canonical states",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 3,
+        "marker": "1.8.0-014",
+        "contract": "publication Stage and immutable published-version ledger",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 4,
+        "marker": "1.8.0-015",
+        "contract": "Stage evidence audit event extension",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 5,
+        "marker": "1.8.0-016",
+        "contract": "persistent independent Leader first-level decision",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 6,
+        "marker": "1.8.0-017",
+        "contract": "CreateLocation reservation and LowRisk publication contract",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 7,
+        "marker": "1.8.0-018",
+        "contract": "authorized direct LowRisk version and immutable audit",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 8,
+        "marker": "1.8.0-019",
+        "contract": "dual-Location MergeFields evidence",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 9,
+        "marker": "1.8.0-020",
+        "contract": "Excel canonical submission statuses",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      }
+    ],
+    "rules": [
+      "No proposed marker may be written to UAT until migration review approval, checksum approval and deployment-window authorization.",
+      "1.8.0-013 remains reserved and must remain absent unless separately authorized by its own frozen contract.",
+      "Each step requires Preflight, Up/Backfill, Verify, historical fingerprint and Unknown Commit decision evidence.",
+      "A marker/object mismatch or partial execution is STOP; do not rerun blindly."
+    ]
+  },
+  "checksumManifest": {
+    "status": "REVIEW_REQUIRED",
+    "sourceFiles": [
+      "docs/release/optionc-canonical-sql-draft/1800_011",
+      "docs/release/optionc-canonical-sql-draft/1800_012",
+      "docs/release/optionc-canonical-sql-draft/1800_014",
+      "docs/release/optionc-canonical-sql-draft/audit/StageEvidenceAuditEvents.disposable.sql",
+      "docs/release/optionc-canonical-sql-draft/leader-review/LeaderReviewDetails.disposable.sql",
+      "docs/release/optionc-canonical-sql-draft/create-lowrisk/CreateLowRiskContract.disposable.sql",
+      "docs/release/optionc-canonical-sql-draft/lowrisk-direct/LowRiskDirectContract.disposable.sql",
+      "docs/release/optionc-canonical-sql-draft/merge/LocationMergeDetails.disposable.sql",
+      "docs/release/optionc-canonical-sql-draft/excel-import/ExcelImportStatusContract.disposable.sql"
+    ],
+    "note": "Populate immutable SHA-256 values during DBA review from exact reviewed files; symbolic/unassigned values are not UAT-safe."
+  }
 }
