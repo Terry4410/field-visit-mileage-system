@@ -216,17 +216,29 @@ try {
     throw 'STOP: permission principal redaction did not pass.'
   }
 
-  $missingCaught = $false
+  # -DisableVariables forces literal $(...) placeholders into the SQL fixture.
+  # This cannot accidentally reuse values from an earlier -Variable invocation.
+  $unsubstitutedCaught = $false
   try {
-    $null = Invoke-Sqlcmd @dbArgs -InputFile $fixturePath -OutputAs DataSet
+    $null = Invoke-Sqlcmd @dbArgs -DisableVariables -InputFile $fixturePath -OutputAs DataSet -ErrorAction Stop
   } catch {
-    if ($_.Exception.Message -notmatch '51028|required SQLCMD variables|scripting variable') {
-      throw
-    }
-    $missingCaught = $true
+    if ($_.Exception.Message -notmatch '51028|required SQLCMD variables are missing or invalid') { throw }
+    $unsubstitutedCaught = $true
   }
-  if (-not $missingCaught) {
-    throw 'STOP: missing SQLCMD variables did not fail closed.'
+  if (-not $unsubstitutedCaught) {
+    throw 'STOP: unsubstituted SQLCMD placeholders were not rejected.'
+  }
+
+  # An explicitly invalid server value must also fail, regardless of session state.
+  $invalidCaught = $false
+  try {
+    $null = Invoke-Sqlcmd @dbArgs -Variable @{ EXPECTED_SERVER='not-approved-server'; EXPECTED_DATABASE=$database } -InputFile $fixturePath -OutputAs DataSet -ErrorAction Stop
+  } catch {
+    if ($_.Exception.Message -notmatch '51028|required SQLCMD variables are missing or invalid') { throw }
+    $invalidCaught = $true
+  }
+  if (-not $invalidCaught) {
+    throw 'STOP: invalid SQLCMD variable values were not rejected.'
   }
 
   $stopCaught = $false
@@ -239,7 +251,7 @@ try {
   if (-not $stopCaught) { throw 'STOP: expected SQL STOP was not surfaced.' }
 
   Write-Output ($evidence | ConvertTo-Json -Depth 20 -Compress)
-  Write-Output '{"RuntimeAssertions":{"OutputAs":"DataSet","SqlServerModule":"22.4.5.1","MissingVariablesFailClosed":true,"StopDoesNotComplete":true,"SensitiveIdentityRedacted":true}}'
+  Write-Output '{"RuntimeAssertions":{"OutputAs":"DataSet","SqlServerModule":"22.4.5.1","UnsubstitutedPlaceholdersFailClosed":true,"InvalidVariablesFailClosed":true,"StopDoesNotComplete":true,"SensitiveIdentityRedacted":true}}'
 } finally {
   try { Invoke-Sqlcmd @masterArgs -Query "IF DB_ID(N'$database') IS NOT NULL BEGIN ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$database]; END" } catch {}
 }
