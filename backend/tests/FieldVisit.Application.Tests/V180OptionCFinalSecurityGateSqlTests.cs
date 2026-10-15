@@ -117,7 +117,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var outcomes=await Task.WhenAll(first,second);
         Assert.Equal(1,outcomes.Count(x=>x.IsSuccessStatusCode));
         Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=15"));
-        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequests WHERE EntityId=N'15' AND Status=N'Applied"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequests WHERE EntityId=N'15' AND Status=N'Applied'"));
 
         // Force a late audit failure: request, Location and version writes must
         // all roll back rather than leaving partial direct publication.
