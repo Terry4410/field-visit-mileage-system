@@ -25,6 +25,18 @@ called in this batch:
 These are configuration evidence, not proof that the endpoints are currently
 healthy or that the database is the intended UAT target.
 
+## Read-only runtime health evidence (owner-authorized GET only)
+
+At Taipei time **2026/10/15 09:47 (+0800)**, the owner-authorized, non-destructive GET checks were executed against the configured public endpoints. Response bodies were discarded; no login, authorization header, SQL, mutation, migration or deployment was used.
+
+| Endpoint | Result | Safe metadata |
+|---|---|---|
+| Frontend `/` | **HTTP 200** | GitHub.com; last-modified: Tue, 13 Oct 2026 02:42:21 GMT; public ETag recorded |
+| Backend `/health` | **HTTP 200** | Kestrel; application/json |
+| Backend `/health/ready` | **HTTP 200** | Kestrel; application/json |
+
+This confirms public HTTP reachability and that the readiness endpoint responded at the check time. It does **not** prove the deployed SHA, UAT database identity, SchemaVersion, backup/recovery readiness, or feature-flag state. Therefore the Existing v1.8.0 track remains **LIMITED GO for the 2026-10-16 readiness/controlled smoke review only**, with no Business UAT execution authorization. Restricted Trip/Mileage remains **NO-GO for UAT execution**, and Full Scheme A remains **HOLD/NO-GO**.
+
 ## Last recorded deployment evidence
 
 Read-only Actions metadata shows successful historical runs, but not a current
