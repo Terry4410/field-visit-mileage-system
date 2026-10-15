@@ -5,18 +5,18 @@
   no DDL, DML, migration, repair, or restore.
   Supply EXPECTED_SERVER and EXPECTED_DATABASE as SQLCMD variables.
 */
-:setvar EXPECTED_SERVER "REPLACE_WITH_APPROVED_FQDN"
-:setvar EXPECTED_DATABASE "REPLACE_WITH_APPROVED_DATABASE"
+-- No in-file SQLCMD defaults: the protected workflow must provide both variables.
+-- Missing variables fail closed before this script can produce a successful result.
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
-DECLARE @ExpectedServer nvarchar(256)=N'$(EXPECTED_SERVER)';
-DECLARE @ExpectedDatabase sysname=N'$(EXPECTED_DATABASE)';
+DECLARE @ExpectedServer nvarchar(256)=NULLIF(LTRIM(RTRIM(N'$(EXPECTED_SERVER)')),N'');
+DECLARE @ExpectedDatabase sysname=NULLIF(LTRIM(RTRIM(N'$(EXPECTED_DATABASE)')),N'');
 DECLARE @ActualDatabase sysname=DB_NAME();
-DECLARE @ServerName nvarchar(256)=CONVERT(nvarchar(256),SERVERPROPERTY('ServerName'));
+DECLARE @ServerName nvarchar(256)=NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(256),SERVERPROPERTY('ServerName')))),N'');
 
-IF @ExpectedServer LIKE N'REPLACE_%' OR @ExpectedDatabase LIKE N'REPLACE_%'
+IF @ExpectedServer IS NULL OR @ExpectedDatabase IS NULL
   THROW 51000, 'STOP: approved exact target variables are required.', 1;
 IF CHARINDEX(N'''', @ExpectedServer)>0 OR CHARINDEX(N';', @ExpectedServer)>0
    OR CHARINDEX(N'''', @ExpectedDatabase)>0 OR CHARINDEX(N';', @ExpectedDatabase)>0
@@ -25,10 +25,20 @@ IF @ActualDatabase IN (N'master',N'model',N'msdb',N'tempdb')
   THROW 51001, 'STOP: system database is not an approved UAT target.', 1;
 IF @ActualDatabase <> @ExpectedDatabase
   THROW 51002, 'STOP: database identity mismatch.', 1;
-DECLARE @IsDisposableTarget bit = CASE WHEN (@ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%') AND @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;
+DECLARE @IsDisposableTarget bit = CASE WHEN
+  (LOWER(@ExpectedServer) LIKE N'localhost%' OR LOWER(@ExpectedServer) LIKE N'127.0.0.1%')
+  AND @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;
 
-IF @IsDisposableTarget=0 AND @ServerName <> @ExpectedServer AND @ServerName NOT LIKE @ExpectedServer + N'.%'
-  THROW 51003, 'STOP: SQL server identity mismatch.', 1;
+IF @IsDisposableTarget=0 AND LOWER(@ExpectedServer) <> N'sql-fieldvisit-jpe-uat.database.windows.net'
+  THROW 51023, 'STOP: server variable is not the approved UAT FQDN.', 1;
+IF @IsDisposableTarget=0 AND @ServerName IS NULL
+  THROW 51003, 'STOP: SQL server identity is unavailable.', 1;
+IF @IsDisposableTarget=0
+BEGIN
+  DECLARE @ExpectedShortServer nvarchar(256)=LEFT(@ExpectedServer,CHARINDEX(N'.',@ExpectedServer+N'.')-1);
+  IF LOWER(@ServerName) NOT IN (LOWER(@ExpectedServer),LOWER(@ExpectedShortServer))
+    THROW 51003, 'STOP: SQL server identity mismatch.', 1;
+END;
 
 SELECT @ServerName AS ServerName, @ActualDatabase AS DatabaseName,
        ORIGINAL_LOGIN() AS ReadOnlyIdentity, APP_NAME() AS ApplicationName,
