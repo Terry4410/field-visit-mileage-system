@@ -103,10 +103,11 @@ jobs:
               Write-Host "FAIL_CLOSED_PASS $name"
             }
           }
-          function NewDb([string]$name,[string]$version,[bool]$canonical,[string]$stage='none') {
+          function NewDb([string]$name,[string]$version,[bool]$canonical,[string]$stage='none',[bool]$withLocations=$true) {
             Admin "IF DB_ID(N'$name') IS NOT NULL BEGIN ALTER DATABASE [$name] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$name]; END; CREATE DATABASE [$name];"
             Admin "CREATE USER [$roLogin] FOR LOGIN [$roLogin]; ALTER ROLE db_datareader ADD MEMBER [$roLogin];" $name
-            Admin "CREATE TABLE dbo.SchemaVersions(VersionNumber NVARCHAR(64) NOT NULL,AppliedAt DATETIME2 NOT NULL); INSERT dbo.SchemaVersions VALUES(N'$version',SYSUTCDATETIME()); CREATE TABLE dbo.Locations(LocationId INT NOT NULL PRIMARY KEY,Name NVARCHAR(100) NOT NULL); INSERT dbo.Locations VALUES(1,N'Fixture');" $name
+            Admin "CREATE TABLE dbo.SchemaVersions(VersionNumber NVARCHAR(64) NOT NULL,AppliedAt DATETIME2 NOT NULL); INSERT dbo.SchemaVersions VALUES(N'$version',SYSUTCDATETIME());" $name
+            if ($withLocations) { Admin "CREATE TABLE dbo.Locations(LocationId INT NOT NULL PRIMARY KEY,Name NVARCHAR(100) NOT NULL); INSERT dbo.Locations VALUES(1,N'Fixture');" $name }
             if ($canonical) {
               Admin "CREATE TABLE dbo.ChangeRequests(RequestPublicId NVARCHAR(100) NOT NULL PRIMARY KEY,DecisionKey NVARCHAR(100) NOT NULL); CREATE TABLE dbo.ChangeRequestEvents(ChangeRequestId NVARCHAR(100) NOT NULL,EventType NVARCHAR(100) NOT NULL,DecisionKey NVARCHAR(100) NOT NULL);" $name
             }
@@ -139,9 +140,11 @@ jobs:
             ExpectFailure '008-canonical-unrecorded' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial011' } 'OptionCIsolated_PR29_Partial011' }
             NewDb 'OptionCIsolated_PR29_Partial014' '1.8.0-014' $false 'partial'
             ExpectFailure 'partial-014' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial014' } 'OptionCIsolated_PR29_Partial014' }
+            NewDb 'OptionCIsolated_PR29_NoLocations' '1.8.0-010' $false 'none' $false
+            ExpectFailure 'missing-required-locations-unknown-permissions' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_NoLocations' } 'OptionCIsolated_PR29_NoLocations' }
             Write-Host 'PR29_RUNTIME_MATRIX=PASS'
           } finally {
-            foreach ($db in @('OptionCIsolated_PR29_Runtime','OptionCIsolated_PR29_008','OptionCIsolated_PR29_009','OptionCIsolated_PR29_Partial011','OptionCIsolated_PR29_Partial014')) {
+            foreach ($db in @('OptionCIsolated_PR29_Runtime','OptionCIsolated_PR29_008','OptionCIsolated_PR29_009','OptionCIsolated_PR29_Partial011','OptionCIsolated_PR29_Partial014','OptionCIsolated_PR29_NoLocations')) {
               try { Admin "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Warning "cleanup $db failed: $($_.Exception.Message)" }
             }
             try { Admin "IF SUSER_ID(N'$roLogin') IS NOT NULL DROP LOGIN [$roLogin];" } catch { Write-Warning "cleanup login failed: $($_.Exception.Message)" }
