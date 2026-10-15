@@ -172,7 +172,7 @@ jobs:
             NewDb 'OptionCIsolated_PR29_NoLocations' '1.8.0-010' $false 'none' $false
             ExpectSqlGuard 'missing-required-locations-unknown-permissions' 51024 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_NoLocations' } 'OptionCIsolated_PR29_NoLocations' }
             NewDb 'OptionCIsolated_PR29_Unexpected013' '1.8.0-014' $false
-            Admin "INSERT dbo.SchemaVersions VALUES(N'1.8.0-013',SYSUTCDATETIME());" 'OptionCIsolated_PR29_Unexpected013'
+            Admin "INSERT dbo.SchemaVersions VALUES(N'1.8.0-013',DATEADD(second,-1,SYSUTCDATETIME()));" 'OptionCIsolated_PR29_Unexpected013'
             ExpectSqlGuard 'unexpected-013-marker' 51027 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Unexpected013' } 'OptionCIsolated_PR29_Unexpected013' }
             NewDb 'OptionCIsolated_PR29_Integrity' '1.8.0-010' $false
             Admin "CREATE TABLE dbo.ProjectLocations(LocationId INT NOT NULL); INSERT dbo.ProjectLocations VALUES(999);" 'OptionCIsolated_PR29_Integrity'
