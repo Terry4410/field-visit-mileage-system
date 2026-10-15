@@ -139,7 +139,7 @@ jobs:
             ExpectSqlGuard 'wrong-server' 51023 { RunPreflight @{ EXPECTED_SERVER='wrong.example.invalid'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
             ExpectSqlGuard 'quote-injection' 51004 { RunPreflight @{ EXPECTED_SERVER="localhost,1433'"; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
             ExpectSqlGuard 'semicolon-injection' 51004 { RunPreflight @{ EXPECTED_SERVER='localhost,1433;DROP DATABASE master'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectSqlGuard 'approved-fqdn-on-disposable' 51003 { RunPreflight @{ EXPECTED_SERVER='sql-fieldvisit-jpe-uat.database.windows.net'; EXPECTED_DATABASE='db-fieldvisit-uat' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'approved-fqdn-on-disposable' 51003 { RunPreflight @{ EXPECTED_SERVER='sql-fieldvisit-jpe-uat.database.windows.net'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
             ExpectSqlGuard 'non-loopback' 51023 { RunPreflight @{ EXPECTED_SERVER='10.0.0.1'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
             ExpectSqlGuard 'db-owner' 51022 { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' $sa $saPassword }
             Admin "ALTER ROLE db_datawriter ADD MEMBER [$roLogin];" 'OptionCIsolated_PR29_Runtime'
