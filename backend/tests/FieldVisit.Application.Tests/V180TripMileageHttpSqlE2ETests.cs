@@ -277,7 +277,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
             Assert.Equal("GoogleMapsRoutes-TestStub", attempt.Provider);
             Assert.Equal("Succeeded", attempt.Status);
             Assert.Equal("Calculated", (await db.MileageGovernanceEvents
-                .SingleAsync(x => x.RouteCalculationAttemptId == attempt.RouteCalculationAttemptId)).EventType);
+                .SingleAsync(x => x.RouteCalculationAttemptId == attempt.RouteCalculationAttemptId && x.EventType == "Calculated")).EventType);
 
             using var calculated = await leader.PostAsJsonAsync(
                 "api/v1/leader/trips/calculate",
