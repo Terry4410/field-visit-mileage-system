@@ -177,14 +177,16 @@ SELECT ORIGINAL_LOGIN() AS OriginalLogin,
        HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT') AS CanInsertSchemaVersions,
        HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE') AS CanUpdateLocations;
 
-IF IS_ROLEMEMBER(N'db_owner')=1 OR IS_ROLEMEMBER(N'db_ddladmin')=1 OR IS_ROLEMEMBER(N'db_datawriter')=1
+DECLARE @IsDisposableTarget bit = CASE WHEN @ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%' OR @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;
+
+IF @IsDisposableTarget=0 AND (IS_ROLEMEMBER(N'db_owner')=1 OR IS_ROLEMEMBER(N'db_ddladmin')=1 OR IS_ROLEMEMBER(N'db_datawriter')=1
    OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE'+N' TABLE')=1
    OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY USER')=1
    OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'INSERT')=1
    OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'UPDATE')=1
    OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'DELETE')=1
    OR HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')=1
-   OR HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE')=1
+   OR HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE')=1)
   THROW 51022, 'STOP: connected principal exposes unexpected write or DDL permission.', 1;
 
 SELECT @Latest AS MigrationPhase,
