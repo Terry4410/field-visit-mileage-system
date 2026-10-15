@@ -5,7 +5,16 @@ Evidence cut: 2026-10-16 Asia/Taipei
 This document is a nondeploy review record. It authorizes no migration,
 deployment, restore, feature activation, promotion, or Business UAT.
 
-## Latest staging verification (nondeploy)\n\n- Staging candidate: `a70d14c50837f0859998c95f11561af1e32983a1`\n- Exact-SHA CI: `38772236548 — SUCCESS`\n- Backend: 759/759; Frontend: 110/110; Option C HTTP/SQL: 20/20; Canonical: 2/2; Trip/Mileage: 4/4; Historical Fingerprint: PASS\n- PR #33 remains Draft/Open/Unmerged and targets Recovery only.\n- DirectLowRisk UI flag and candidate approval UI flag remain OFF by default.\n- This evidence is engineering/isolated evidence only; it is not UAT or Business UAT approval.\n\n## 1. Authoritative current state
+## Latest staging verification (nondeploy)
+
+- Staging candidate: `1b1f2983762561759b57212a0df884cd45fde397`
+- Exact-SHA CI: `38774037924 — SUCCESS`
+- Backend: 759/759; Frontend: 110/110; Option C HTTP/SQL: 20/20; Canonical: 2/2; Trip/Mileage: 4/4; Historical Fingerprint: PASS.
+- PR #33 remains Draft/Open/Unmerged and targets Recovery only.
+- DirectLowRisk UI flag and candidate approval UI flag remain OFF by default.
+- This is engineering/isolated evidence only; it is not UAT or Business UAT approval.
+
+## 1. Authoritative current state
 
 | Evidence | Verified value | Result |
 |---|---|---|
@@ -127,12 +136,13 @@ Trip/mileage operational and snapshot evidence lives in
 ## 5. Historical invariants and UNKNOWN COMMIT
 
 Before an approved migration, capture the SELECT-only counts/hashes in
-`HistoricalFingerprint.readonly.sql`. Re-run after each Verify step. The three
+`HistoricalFingerprint.readonly.sql`. Re-run after each Verify step. All four
 evidence sets must match exactly:
 
-1. `VisitTripStops`: identity, Trip, order, LocationId, frozen name/address.
-2. `VisitTripSnapshots`: identity/version/type, approved distance/amount/status.
-3. `VisitTripSnapshotStops`: identity, Snapshot, order, LocationId and frozen fields.
+1. `VisitTrips`: identity, lifecycle status, owner/scope, rowversion and high-watermark.
+2. `VisitTripStops`: identity, Trip, order, LocationId, frozen name/address.
+3. `VisitTripSnapshots`: identity/version/type, approved distance/amount/status.
+4. `VisitTripSnapshotStops`: identity, Snapshot, order, LocationId and frozen fields.
 
 Any missing capture, count/hash difference, partial marker/object mismatch, or
 lost migration acknowledgement is **UNKNOWN COMMIT / STOP**. Do not rerun a
@@ -195,6 +205,26 @@ substituted for that external signoff. Current state: **NOT OBSERVABLE / HOLD**.
 The Owner acceptance record must link each external gate to its original
 reviewer, timestamp and artifact before production release review.
 
+## Migration approval-ready package (nonexecuted)
+
+The proposed immutable registry is now explicit but remains **PROPOSED / NOT FINAL / NOT EXECUTABLE**:
+
+| Order | Proposed marker | Contract | Current status |
+|---:|---|---|---|
+| 1 | 1.8.0-011 | Canonical request/event ledger | Existing marker; UAT absent |
+| 2 | 1.8.0-012 | Approved/Applied canonical states | Existing marker; UAT absent |
+| 3 | 1.8.0-014 | Stage and published-version ledger | Existing marker; UAT absent |
+| 4 | 1.8.0-015 | Stage evidence audit extension | Proposed; owner/DBA registry approval required |
+| 5 | 1.8.0-016 | Leader first-level review | Proposed; owner/DBA registry approval required |
+| 6 | 1.8.0-017 | CreateLocation/LowRisk contract | Proposed; owner/DBA registry approval required |
+| 7 | 1.8.0-018 | DirectLowRisk version/audit contract | Proposed; owner/DBA registry approval required |
+| 8 | 1.8.0-019 | MergeDetails dual-Location evidence | Proposed; owner/DBA registry approval required |
+| 9 | 1.8.0-020 | Excel canonical statuses | Proposed; owner/DBA registry approval required |
+
+Migration 013 remains reserved and untouched. Every candidate script remains disposable-only or review-only until exact-file SHA-256 values, trusted constraints, existing-data/backfill review, and an approved execution window are recorded. Preflight → Up/Backfill → Verify → historical four-table fingerprint is mandatory per step. Any marker/object mismatch, disabled/untrusted constraint, ambiguous backfill, lost acknowledgement or incomplete evidence is STOP/UNKNOWN COMMIT; never blindly retry. Rollback relies on flags OFF and an approved PITR/restore decision, not untested forward SQL reversal.
+
+Scripts currently **NOT UAT-SAFE**: all additive disposable scripts for 011/012/014 and the six proposed 015–020 contracts until registry assignment, checksum review, target compatibility and rollback/restore evidence are approved.
+
 ## 9. Owner decision form
 
 These are separate decisions; approving one does not approve the others.
@@ -219,7 +249,7 @@ These are separate decisions; approving one does not approve the others.
 
 ### Final gate
 
-- Engineering implementation: **PASS at staging exact-SHA `a70d14c50837f0859998c95f11561af1e32983a1`, CI `38772236548`**.
+- Engineering implementation: **PASS at staging exact-SHA `1b1f2983762561759b57212a0df884cd45fde397`, CI `38774037924`**.
 - UAT schema readiness: **HOLD**.
 - Backup configuration: **PASS**; restore-tested: **NOT RUN**.
 - Full Scheme A isolated E2E: **PASS for covered workflows; not UAT runtime proof**. Browser automation: **NOT RUN**.
