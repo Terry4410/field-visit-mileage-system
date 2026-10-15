@@ -106,7 +106,7 @@ jobs:
           function NewDb([string]$name,[string]$version,[bool]$canonical,[string]$stage='none') {
             Admin "IF DB_ID(N'$name') IS NOT NULL BEGIN ALTER DATABASE [$name] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$name]; END; CREATE DATABASE [$name];"
             Admin "CREATE USER [$roLogin] FOR LOGIN [$roLogin]; ALTER ROLE db_datareader ADD MEMBER [$roLogin];" $name
-            Admin "CREATE TABLE dbo.SchemaVersions(Version NVARCHAR(64) NOT NULL); INSERT dbo.SchemaVersions VALUES(N'$version'); CREATE TABLE dbo.Locations(LocationId INT NOT NULL PRIMARY KEY,Name NVARCHAR(100) NOT NULL); INSERT dbo.Locations VALUES(1,N'Fixture');" $name
+            Admin "CREATE TABLE dbo.SchemaVersions(VersionNumber NVARCHAR(64) NOT NULL,AppliedAt DATETIME2 NOT NULL); INSERT dbo.SchemaVersions VALUES(N'$version',SYSUTCDATETIME()); CREATE TABLE dbo.Locations(LocationId INT NOT NULL PRIMARY KEY,Name NVARCHAR(100) NOT NULL); INSERT dbo.Locations VALUES(1,N'Fixture');" $name
             if ($canonical) {
               Admin "CREATE TABLE dbo.ChangeRequests(RequestPublicId NVARCHAR(100) NOT NULL PRIMARY KEY,DecisionKey NVARCHAR(100) NOT NULL); CREATE TABLE dbo.ChangeRequestEvents(ChangeRequestId NVARCHAR(100) NOT NULL,EventType NVARCHAR(100) NOT NULL,DecisionKey NVARCHAR(100) NOT NULL);" $name
             }
