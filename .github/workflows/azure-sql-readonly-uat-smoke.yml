@@ -11,6 +11,12 @@ concurrency:
   group: azure-sql-readonly-uat-smoke
   cancel-in-progress: false
 
+env:
+  EXPECTED_RESOURCE_GROUP: rg-fieldvisit-uat
+  EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
+  EXPECTED_DATABASE: db-fieldvisit-uat
+  PREFLIGHT_SQL_SHA256: 981b79007ca5d7b890a7a609fc2785de9f3747e5886d49f4744135125c2446c3
+
 jobs:
   branch-guard:
     runs-on: ubuntu-latest
@@ -20,17 +26,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
-            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
+          test "${GITHUB_REF}" = "refs/heads/post-uat/v1.8.0" || {
+            echo "::error::This workflow may only run from post-uat/v1.8.0."
             exit 1
-          fi
+          }
 
   sql-readonly-smoke:
     needs: branch-guard
     runs-on: ubuntu-latest
     environment: uat
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
+      - name: Checkout protected source
+        uses: actions/checkout@v4
+        with:
+          ref: post-uat/v1.8.0
+          fetch-depth: 1
+
+      - name: Verify reviewed SQL source
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql"
+          test -f "$file"
+          actual="$(sha256sum "$file" | cut -d' ' -f1)"
+          test "$actual" = "$PREFLIGHT_SQL_SHA256" || {
+            echo "::error::SELECT-only preflight SHA-256 mismatch."
+            exit 1
+          }
+          echo "Reviewed SELECT-only SQL SHA-256=$actual"
+
       - name: Sign in to Azure with OIDC
         uses: azure/login@v2
         with:
@@ -38,71 +63,55 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Verify fixed Azure target metadata
+        env:
+          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIGURED_SERVER_NAME" = "sql-fieldvisit-jpe-uat"
+          test "$CONFIGURED_DATABASE" = "$EXPECTED_DATABASE"
+          rg="$(az group show --name "$EXPECTED_RESOURCE_GROUP" --query name -o tsv)"
+          test "$rg" = "$EXPECTED_RESOURCE_GROUP"
+          server="$(az sql server show --resource-group "$EXPECTED_RESOURCE_GROUP" --name "sql-fieldvisit-jpe-uat" --query fullyQualifiedDomainName -o tsv)"
+          test "$server" = "$EXPECTED_SERVER"
+          db="$(az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" --query name -o tsv)"
+          test "$db" = "$EXPECTED_DATABASE"
+          status="$(az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" --query status -o tsv)"
+          echo "AzureTarget=$server/$db Status=$status"
+
       - name: Install pinned SQL Server PowerShell module
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Install-Module `
-            -Name SqlServer `
-            -RequiredVersion 22.4.5.1 `
-            -Repository PSGallery `
-            -Scope CurrentUser `
-            -Force `
-            -AllowClobber
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
 
       - name: Query Azure SQL using Microsoft Entra access token
         env:
-          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
-          AZURE_SQL_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-
-          if ([string]::IsNullOrWhiteSpace($env:AZURE_SQL_SERVER_NAME)) {
-            throw 'AZURE_SQL_SERVER_NAME is not configured.'
-          }
-
-          if ([string]::IsNullOrWhiteSpace($env:AZURE_SQL_DATABASE)) {
-            throw 'AZURE_SQL_DATABASE is not configured.'
-          }
-
-          $server = "$($env:AZURE_SQL_SERVER_NAME).database.windows.net"
-          $accessToken = az account get-access-token `
-            --resource https://database.windows.net/ `
-            --query accessToken `
-            --output tsv
-
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
-            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
-          }
-
+          if ($env:CONFIGURED_SERVER_NAME -ne 'sql-fieldvisit-jpe-uat') { throw 'Unexpected SQL server allow-list value.' }
+          if ($env:CONFIGURED_DATABASE -ne $env:EXPECTED_DATABASE) { throw 'Unexpected SQL database allow-list value.' }
+          $accessToken = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) { throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.' }
           Write-Output "::add-mask::$accessToken"
+          $server = $env:EXPECTED_SERVER
+          $database = $env:EXPECTED_DATABASE
+          $basic = 'SELECT DB_NAME() AS DatabaseName, ORIGINAL_LOGIN() AS ConnectedIdentity, SYSUTCDATETIME() AS ObservedUtc; SELECT TOP (5) name FROM sys.tables ORDER BY name;'
+          Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $true -Query $basic | Format-Table -AutoSize
+          $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
+          Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $true -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql | Format-Table -AutoSize
 
-          $query = @'
-          SELECT DB_NAME() AS DatabaseName;
-
-          SELECT TOP 5
-              name
-          FROM sys.tables
-          ORDER BY name;
-          '@
-
-          try {
-            Invoke-Sqlcmd `
-              -ServerInstance $server `
-              -Database $env:AZURE_SQL_DATABASE `
-              -AccessToken $accessToken `
-              -ApplicationIntent ReadOnly `
-              -ConnectionTimeout 15 `
-              -QueryTimeout 30 `
-              -AbortOnError `
-              -OutputSqlErrors $true `
-              -Query $query | Format-Table -AutoSize
-          }
-          catch {
-            Write-Error ($_ | Out-String)
-            throw
-          }
+      - name: Azure backup and PITR metadata (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" --query '{name:name,status:status,earliestRestoreDate:earliestRestoreDate}' -o json
+          az sql db str-policy show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --database "$EXPECTED_DATABASE" -o json
 
       - name: Sign out of Azure
         if: always()
