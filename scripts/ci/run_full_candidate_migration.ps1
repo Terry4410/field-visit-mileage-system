@@ -6,7 +6,8 @@ $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($raw)
 if($b.DataSource -notin @('localhost,1433','127.0.0.1,1433') -or $b.InitialCatalog -ne 'master' -or $b.UserID -ne 'sa'){throw 'R3_NONLOCAL_TARGET_DENIED'}
 $db='OptionCIsolated_R3_'+[guid]::NewGuid().ToString('N')
 function Conn([string]$catalog){$x=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($raw);$x['Initial Catalog']=$catalog;$x['Pooling']=$false;return $x.ConnectionString}
-function Run([string]$sql){Invoke-Sqlcmd -ConnectionString (Conn $db) -Query $sql -AbortOnError -QueryTimeout 30}
+$script:runNo=0
+function Run([string]$sql){$script:runNo++;Write-Output "R3_SQL_STEP_$script:runNo";Invoke-Sqlcmd -ConnectionString (Conn $db) -Query $sql -AbortOnError -QueryTimeout 30}
 Invoke-Sqlcmd -ConnectionString $raw -Query "CREATE DATABASE [$db]" -AbortOnError
 try {
 $boot=@'
