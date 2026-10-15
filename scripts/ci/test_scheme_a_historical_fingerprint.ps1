@@ -4,7 +4,7 @@ $database = 'OptionCIsolated_Fingerprint_' + [Guid]::NewGuid().ToString('N')
 $master = $env:E1_R1_SQL_CONNECTION
 if ([string]::IsNullOrWhiteSpace($master) -or $master -notmatch 'Server=localhost,1433' -or $master -notmatch 'Database=master') { throw 'Historical fingerprint fixture requires disposable loopback SQL master.' }
 $builder = [Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($master)
-$builder.InitialCatalog = $database; $builder.Pooling = $false
+$builder['Initial Catalog'] = $database; $builder['Pooling'] = $false
 $connection = $builder.ConnectionString; $created = $false
 $script = Join-Path $PSScriptRoot '../../docs/release/optionc-canonical-sql-draft/full-scheme-a/HistoricalFingerprint.readonly.sql'
 function Invoke-Fingerprint([hashtable]$bounds,[string]$expectedDatabase=$database) {
