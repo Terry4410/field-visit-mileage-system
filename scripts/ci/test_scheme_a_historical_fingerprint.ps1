@@ -1,9 +1,10 @@
 $ErrorActionPreference = 'Stop'
+Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
 $database = 'OptionCIsolated_Fingerprint_' + [Guid]::NewGuid().ToString('N')
 $master = $env:E1_R1_SQL_CONNECTION
 if ([string]::IsNullOrWhiteSpace($master) -or $master -notmatch 'Server=localhost,1433' -or $master -notmatch 'Database=master') { throw 'Historical fingerprint fixture requires disposable loopback SQL master.' }
-$builder = [System.Data.Common.DbConnectionStringBuilder]::new(); $builder.ConnectionString = $master
-$null = $builder.Remove('Database'); $null = $builder.Remove('Initial Catalog'); $builder['Database'] = $database
+$builder = [Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($master)
+$builder.InitialCatalog = $database; $builder.Pooling = $false
 $connection = $builder.ConnectionString; $created = $false
 $script = Join-Path $PSScriptRoot '../../docs/release/optionc-canonical-sql-draft/full-scheme-a/HistoricalFingerprint.readonly.sql'
 function Invoke-Fingerprint([hashtable]$bounds,[string]$expectedDatabase=$database) {
