@@ -8,6 +8,7 @@ on:
       - .github/workflows/azure-sql-readonly-uat-smoke.yml
       - .github/workflows/pr30-preflight-output-nondeploy.yml
       - scripts/ci/test_pr30_preflight_output.ps1
+      - scripts/ci/pr30_preflight_evidence.ps1
   workflow_dispatch:
 
 permissions:
@@ -43,4 +44,5 @@ jobs:
           $ErrorActionPreference = 'Stop'
           ./scripts/ci/test_pr30_preflight_output.ps1 `
             -WorkflowPath .github/workflows/azure-sql-readonly-uat-smoke.yml `
+            -ModulePath scripts/ci/pr30_preflight_evidence.ps1 `
             -ExpectedSourceSha '${{ github.sha }}'
