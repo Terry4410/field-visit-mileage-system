@@ -34,10 +34,14 @@ public sealed class V180TripMileageHttpSqlE2ETests
         => RunTripFlowAsync(oneStop: true);
 
     [Fact]
+    public Task Trip_return_correction_resubmit_and_reapprove_preserve_historical_submissions()
+        => RunTripFlowAsync(oneStop: false, returnCorrection: true);
+
+    [Fact]
     public Task Draft_route_preview_uses_provider_distance_and_persists_governance_attempt()
         => RunProviderPreviewAsync();
 
-    private static async Task RunTripFlowAsync(bool oneStop)
+    private static async Task RunTripFlowAsync(bool oneStop, bool returnCorrection = false)
     {
         var raw = Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
         if (string.IsNullOrWhiteSpace(raw))
@@ -154,6 +158,55 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 var pendingApproval = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
                     ?? throw new InvalidOperationException("OPTIONC_TRIP_PENDING_APPROVAL_RESPONSE_MISSING");
                 Assert.Equal("PendingApproval", pendingApproval.Status);
+
+                if (returnCorrection)
+                {
+                    using var returnedResponse = await leader.PostAsJsonAsync(
+                        $"api/v1/trips/{created.VisitTripId}/return",
+                        new ReturnTripRequest("Please correct the visit purpose.", pendingApproval.RowVersion));
+                    Assert.True(returnedResponse.IsSuccessStatusCode, await returnedResponse.Content.ReadAsStringAsync());
+                    var returned = await returnedResponse.Content.ReadFromJsonAsync<TripDto>()
+                        ?? throw new InvalidOperationException("OPTIONC_TRIP_RETURN_RESPONSE_MISSING");
+                    Assert.Equal("Returned", returned.Status);
+                    Assert.Equal("Please correct the visit purpose.", returned.ReturnReason);
+
+                    using var correction = new HttpRequestMessage(HttpMethod.Put, $"api/v1/trips/{created.VisitTripId}")
+                    {
+                        Content = JsonContent.Create(Draft(fixture.Approved.LocationId, includeSecondStop: true) with
+                        {
+                            Notes = "Corrected after leader return"
+                        })
+                    };
+                    correction.Headers.TryAddWithoutValidation("If-Match", returned.RowVersion);
+                    using var correctedResponse = await visitor.SendAsync(correction);
+                    Assert.True(correctedResponse.IsSuccessStatusCode, await correctedResponse.Content.ReadAsStringAsync());
+                    var corrected = await correctedResponse.Content.ReadFromJsonAsync<TripDto>()
+                        ?? throw new InvalidOperationException("OPTIONC_TRIP_CORRECTION_RESPONSE_MISSING");
+                    Assert.Equal("Draft", corrected.Status);
+
+                    using var resubmit = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{created.VisitTripId}/submit")
+                    {
+                        Content = JsonContent.Create(new SubmitTripRequest(false))
+                    };
+                    resubmit.Headers.TryAddWithoutValidation("If-Match", corrected.RowVersion);
+                    using var resubmitted = await visitor.SendAsync(resubmit);
+                    Assert.True(resubmitted.IsSuccessStatusCode, await resubmitted.Content.ReadAsStringAsync());
+                    var resubmittedTrip = await resubmitted.Content.ReadFromJsonAsync<TripDto>()
+                        ?? throw new InvalidOperationException("OPTIONC_TRIP_RESUBMIT_RESPONSE_MISSING");
+                    Assert.Equal("Submitted", resubmittedTrip.Status);
+
+                    using var recalculate = await leader.PostAsJsonAsync(
+                        "api/v1/leader/trips/calculate",
+                        new MileageBatchRequest("Selected", null, null, [created.VisitTripId]));
+                    Assert.True(recalculate.IsSuccessStatusCode, await recalculate.Content.ReadAsStringAsync());
+                    pendingApproval = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
+                        ?? throw new InvalidOperationException("OPTIONC_TRIP_RECALCULATED_RESPONSE_MISSING");
+                    Assert.Equal("PendingApproval", pendingApproval.Status);
+                    Assert.Equal(2, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
+                    Assert.Contains(await db.VisitTripStatusHistories.Where(x => x.VisitTripId == created.VisitTripId).Select(x => x.Action).ToListAsync(), x => x == "Return");
+                    Assert.Contains(await db.VisitTripStatusHistories.Where(x => x.VisitTripId == created.VisitTripId).Select(x => x.Action).ToListAsync(), x => x == "Resubmit");
+                }
+
                 var approve = new ApproveTripRequest(8.5m, submittedTrip.RowVersion, "manual fallback", "ManualFallback");
                 approve = approve with { RowVersion = pendingApproval.RowVersion };
                 using var approved = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve);
@@ -163,11 +216,12 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal("Approved", approvedTrip.Status);
                 Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
 
-                Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
+                Assert.Equal(returnCorrection ? 2 : 1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
                 // Submitted and Approved snapshots retain the exact submitted
                 // stop identities; publication appends the approved snapshot
                 // and never rewrites the historical Submitted snapshot.
-                Assert.Equal(oneStop ? 2 : 4, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
+                var expectedSnapshotStops = (returnCorrection ? 3 : 2) * (oneStop ? 1 : 2);
+                Assert.Equal(expectedSnapshotStops, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
                 Assert.Equal(0, await db.VisitTripStops.CountAsync(x => x.LocationId == fixture.Pending.LocationId));
             }
         }
