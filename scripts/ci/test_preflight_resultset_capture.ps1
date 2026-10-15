@@ -117,33 +117,33 @@ function Capture-Evidence([object]$DataSet) {
 }
 
 $fixture = @'
-SELECT N''sql-fieldvisit-jpe-uat'' AS ServerName,
-       N''OptionCIsolated_PreflightCapture'' AS DatabaseName,
-       N''principal@example.invalid'' AS ReadOnlyIdentity,
-       N''isolated-test'' AS ApplicationName,
+SELECT N'sql-fieldvisit-jpe-uat' AS ServerName,
+       N'OptionCIsolated_PreflightCapture' AS DatabaseName,
+       N'principal@example.invalid' AS ReadOnlyIdentity,
+       N'isolated-test' AS ApplicationName,
        SYSUTCDATETIME() AS ObservedUtc;
-SELECT N''1.8.0-014'' AS VersionNumber,
+SELECT N'1.8.0-014' AS VersionNumber,
        SYSUTCDATETIME() AS AppliedAt,
-       N''isolated'' AS AppliedBy;
-SELECT N''CurrentPublishedVersionDuplicates'' AS CheckName, 0 AS Violations;
-SELECT N''SchemaVersions'' AS TableName, 1 AS RowCount;
-SELECT N''FK_Test'' AS ForeignKeyName, N''dbo'' AS ParentSchema,
-       N''ChangeRequests'' AS ParentTable, N''ChangeRequestEvents'' AS ReferencedTable,
+       N'isolated' AS AppliedBy;
+SELECT N'CurrentPublishedVersionDuplicates' AS CheckName, 0 AS Violations;
+SELECT N'SchemaVersions' AS TableName, 1 AS RowCount;
+SELECT N'FK_Test' AS ForeignKeyName, N'dbo' AS ParentSchema,
+       N'ChangeRequests' AS ParentTable, N'ChangeRequestEvents' AS ReferencedTable,
        CAST(0 AS bit) AS IsNotTrusted;
-SELECT N''CK_Test'' AS ConstraintName, N''ChangeRequests'' AS TableName,
-       CAST(0 AS bit) AS is_not_trusted, N''CHECK (1=1)'' AS definition;
-SELECT N''IX_Test'' AS IndexName, N''ChangeRequests'' AS TableName,
+SELECT N'CK_Test' AS ConstraintName, N'ChangeRequests' AS TableName,
+       CAST(0 AS bit) AS is_not_trusted, N'CHECK (1=1)' AS definition;
+SELECT N'IX_Test' AS IndexName, N'ChangeRequests' AS TableName,
        CAST(1 AS bit) AS is_unique, CAST(0 AS bit) AS is_unique_constraint,
-       CAST(0 AS bit) AS is_disabled, CONVERT(varchar(64),HASHBYTES(''SHA2_256'',N''ix''),2) AS IndexFingerprint;
-SELECT N''1.8.0-014'' AS MigrationPhase,
+       CAST(0 AS bit) AS is_disabled, CONVERT(varchar(64),HASHBYTES('SHA2_256',N'ix'),2) AS IndexFingerprint;
+SELECT N'1.8.0-014' AS MigrationPhase,
        CAST(1 AS bit) AS CanonicalRequestTablesPresent,
        CAST(1 AS bit) AS StageAndPublishedVersionsPresent,
        CAST(0 AS bit) AS MergeDetailsPresent,
        CAST(1 AS bit) AS CanonicalEvidenceAuditExtended;
-SELECT CONVERT(varchar(64),HASHBYTES(''SHA2_256'',N''catalog''),2) AS CatalogFingerprintSha256;
-SELECT N''OriginalLogin'' AS OriginalLogin,
-       N''ServerPrincipal'' AS ServerPrincipal,
-       N''DatabaseUser'' AS DatabaseUser,
+SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',N'catalog'),2) AS CatalogFingerprintSha256;
+SELECT N'OriginalLogin' AS OriginalLogin,
+       N'ServerPrincipal' AS ServerPrincipal,
+       N'DatabaseUser' AS DatabaseUser,
        CAST(0 AS int) AS IsDbOwner,
        CAST(0 AS int) AS IsDbDdlAdmin,
        CAST(0 AS int) AS IsDbDatawriter,
@@ -154,18 +154,18 @@ SELECT N''OriginalLogin'' AS OriginalLogin,
        CAST(0 AS int) AS CanDeleteChangeRequests,
        CAST(0 AS int) AS CanInsertSchemaVersions,
        CAST(0 AS int) AS CanUpdateLocations;
-SELECT N''PREFLIGHT_COMPLETE_READ_ONLY'' AS Result,
-       N''sql-fieldvisit-jpe-uat'' AS ServerName,
-       N''OptionCIsolated_PreflightCapture'' AS DatabaseName,
-       N''1.8.0-014'' AS LatestSchemaVersion,
+SELECT N'PREFLIGHT_COMPLETE_READ_ONLY' AS Result,
+       N'sql-fieldvisit-jpe-uat' AS ServerName,
+       N'OptionCIsolated_PreflightCapture' AS DatabaseName,
+       N'1.8.0-014' AS LatestSchemaVersion,
        SYSUTCDATETIME() AS CompletedUtc;
 '@
 $fixturePath = Join-Path $env:RUNNER_TEMP 'preflight-resultsets.sql'
 $fixture | Set-Content -Path $fixturePath -Encoding utf8
 
 $stopFixture = @'
-THROW 51027, ''STOP: unauthorized Migration 013 marker is present.'', 1;
-SELECT N''PREFLIGHT_COMPLETE_READ_ONLY'' AS Result;
+THROW 51027, 'STOP: unauthorized Migration 013 marker is present.', 1;
+SELECT N'PREFLIGHT_COMPLETE_READ_ONLY' AS Result;
 '@
 $stopPath = Join-Path $env:RUNNER_TEMP 'preflight-stop.sql'
 $stopFixture | Set-Content -Path $stopPath -Encoding utf8
