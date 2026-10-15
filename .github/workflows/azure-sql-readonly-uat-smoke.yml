@@ -94,17 +94,46 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/pr30_preflight_evidence.ps1')
+
           if ($env:CONFIGURED_SERVER_NAME -ne 'sql-fieldvisit-jpe-uat') { throw 'Unexpected SQL server allow-list value.' }
           if ($env:CONFIGURED_DATABASE -ne $env:EXPECTED_DATABASE) { throw 'Unexpected SQL database allow-list value.' }
+
           $accessToken = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) { throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.' }
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+          }
           Write-Output "::add-mask::$accessToken"
+
           $server = $env:EXPECTED_SERVER
           $database = $env:EXPECTED_DATABASE
           $basic = 'SELECT DB_NAME() AS DatabaseName, ORIGINAL_LOGIN() AS ConnectedIdentity, SYSUTCDATETIME() AS ObservedUtc; SELECT TOP (5) name FROM sys.tables ORDER BY name;'
-          Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $true -Query $basic | Format-Table -AutoSize
+          try {
+            $basicSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Query $basic
+          } catch {
+            throw 'STOP: basic read-only SQL query failed.'
+          }
+          $basicTables = @(Get-DataTables $basicSet)
+          $basicEvidence = @($basicTables | ForEach-Object { Convert-EvidenceTable $_ -AllowUnknown })
+          Write-Output ("UAT_BASIC_JSON=" + ($basicEvidence | ConvertTo-Json -Depth 10 -Compress))
+
           $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $true -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql | Format-Table -AutoSize
+          try {
+            $preflightSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql
+          } catch {
+            throw 'STOP: reviewed read-only SQL preflight failed.'
+          }
+
+          $checkedOutSha = (git rev-parse HEAD).Trim()
+          Assert-SourceSha $checkedOutSha $env:GITHUB_SHA
+          $evidence = Capture-Evidence $preflightSet $checkedOutSha
+          Write-Output ("UAT_PREFLIGHT_EVIDENCE_JSON=" + ($evidence | ConvertTo-Json -Depth 20 -Compress))
+          if ($env:GITHUB_STEP_SUMMARY) {
+            "### Read-only preflight evidence" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            ("- Completion marker: " + $evidence.CompletionMarker) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            ("- Result sets captured: " + $evidence.ResultSetCount) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            ("- Source SHA: " + $evidence.SourceSha) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
 
       - name: Azure backup and PITR metadata (read-only)
         shell: bash
