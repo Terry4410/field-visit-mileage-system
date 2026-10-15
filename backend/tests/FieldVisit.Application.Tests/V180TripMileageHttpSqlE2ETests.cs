@@ -182,7 +182,9 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     Assert.True(correctedResponse.IsSuccessStatusCode, await correctedResponse.Content.ReadAsStringAsync());
                     var corrected = await correctedResponse.Content.ReadFromJsonAsync<TripDto>()
                         ?? throw new InvalidOperationException("OPTIONC_TRIP_CORRECTION_RESPONSE_MISSING");
-                    Assert.Equal("Draft", corrected.Status);
+                    // Returned trips remain Returned while corrected; Submit
+                    // performs the canonical Returned -> Submitted Resubmit.
+                    Assert.Equal("Returned", corrected.Status);
 
                     using var resubmit = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{created.VisitTripId}/submit")
                     {
