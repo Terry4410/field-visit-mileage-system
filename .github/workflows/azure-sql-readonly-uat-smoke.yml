@@ -109,7 +109,7 @@ jobs:
           $database = $env:EXPECTED_DATABASE
           $basic = 'SELECT DB_NAME() AS DatabaseName, ORIGINAL_LOGIN() AS ConnectedIdentity, SYSUTCDATETIME() AS ObservedUtc; SELECT TOP (5) name FROM sys.tables ORDER BY name;'
           try {
-            $basicSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Query $basic
+            $basicSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 120 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Query $basic
           } catch {
             Throw-SanitizedSqlFailure -Failure $_ -Phase BasicQuery
           }
@@ -119,7 +119,7 @@ jobs:
 
           $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
           try {
-            $preflightSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql
+            $preflightSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 120 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql
           } catch {
             Throw-SanitizedSqlFailure -Failure $_ -Phase PreflightQuery
           }
