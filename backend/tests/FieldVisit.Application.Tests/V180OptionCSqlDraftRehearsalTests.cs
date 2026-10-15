@@ -235,9 +235,9 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             var serverName = await ScalarAsync(db,
                 "SELECT CONVERT(nvarchar(256),SERVERPROPERTY('ServerName'))");
             Assert.False(string.IsNullOrWhiteSpace(serverName));
+            const string expectedServer = "localhost,1433";
             script = script.Replace("$(EXPECTED_SERVER)",
-                    serverName.Replace("'", "''", StringComparison.Ordinal),
-                    StringComparison.Ordinal)
+                    expectedServer.Replace("'", "''", StringComparison.Ordinal),
                 .Replace("$(EXPECTED_DATABASE)", databaseName,
                     StringComparison.Ordinal);
             Assert.DoesNotContain("$(EXPECTED_", script);
