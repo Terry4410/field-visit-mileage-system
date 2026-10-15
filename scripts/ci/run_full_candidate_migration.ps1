@@ -93,7 +93,7 @@ foreach($row in @(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query $historySql 
 foreach($name in @('VisitTrips','VisitTripStops','VisitTripSnapshots','VisitTripSnapshotStops')){if($historyAfter[$name] -ne $historyBefore[$name]){throw "R3_HISTORY_FINGERPRINT_CHANGED_$name"}}
 Write-Output "R3_HISTORY_FINGERPRINT_PASS tables=4"
 try { Run 'partial-failure-negative' "SET XACT_ABORT ON; BEGIN TRAN; CREATE TABLE dbo.R3PartialFailureProbe(Id int NOT NULL); THROW 52998,N'R3_PARTIAL_FAILURE_STOP',1; COMMIT"; throw 'R3_PARTIAL_FAILURE_DID_NOT_STOP' } catch { if($_.Exception.Message -match 'DID_NOT_STOP'){throw}; if($_.Exception.ToString() -notmatch 'R3_PARTIAL_FAILURE_STOP'){throw 'R3_PARTIAL_FAILURE_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_PARTIAL_FAILURE_PASS' }
-$partialObject=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT OBJECT_ID(N'dbo.R3PartialFailureProbe',N'U') ObjectId").ObjectId
-if($null -ne $partialObject){throw 'R3_PARTIAL_FAILURE_OBJECT_PERSISTED'}
+$partialObject=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT COALESCE(OBJECT_ID(N'dbo.R3PartialFailureProbe',N'U'),0) AS ObjectId").ObjectId
+if([int]$partialObject -ne 0){throw 'R3_PARTIAL_FAILURE_OBJECT_PERSISTED'}
 Write-Output "R3_DRAFT_CHAIN_REHEARSAL_PASS final=$((Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT MAX(VersionNumber) AS VersionNumber FROM dbo.SchemaVersions').VersionNumber) UAT_MIGRATION_STATUS=HOLD_CANONICAL_DDL_AND_WRITER_E2E_NOT_PROVEN"
 } finally { Invoke-Sqlcmd -ConnectionString $raw -Query "ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]" -AbortOnError }
