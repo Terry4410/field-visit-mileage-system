@@ -25,7 +25,9 @@ IF @ActualDatabase IN (N'master',N'model',N'msdb',N'tempdb')
   THROW 51001, 'STOP: system database is not an approved UAT target.', 1;
 IF @ActualDatabase <> @ExpectedDatabase
   THROW 51002, 'STOP: database identity mismatch.', 1;
-DECLARE @IsDisposableTarget bit = CASE WHEN (@ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%') AND @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;\n\nIF @IsDisposableTarget=0 AND @ServerName <> @ExpectedServer AND @ServerName NOT LIKE @ExpectedServer + N'.%'
+DECLARE @IsDisposableTarget bit = CASE WHEN (@ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%') AND @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;
+
+IF @IsDisposableTarget=0 AND @ServerName <> @ExpectedServer AND @ServerName NOT LIKE @ExpectedServer + N'.%'
   THROW 51003, 'STOP: SQL server identity mismatch.', 1;
 
 SELECT @ServerName AS ServerName, @ActualDatabase AS DatabaseName,
