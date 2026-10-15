@@ -1,3 +1,12 @@
+# Current protected read-only UAT evidence — 2026-10-15 UTC
+
+- Authorized protected workflow: `Azure SQL read-only UAT smoke test`, run `35070213564`, attempt 3, **SUCCESS**; branch guard passed on `post-uat/v1.8.0`. SQL job `116215958391` and branch-guard job `116215960429` both succeeded.
+- Current target identity verified by the workflow variables and query: server `sql-fieldvisit-jpe-uat.database.windows.net`, database `db-fieldvisit-uat`; `DB_NAME()` returned `db-fieldvisit-uat`.
+- Azure OIDC login succeeded using the protected `uat` environment and the workflow’s configured service identity. No credential, token, connection string, DDL, DML, migration or restore was emitted or executed.
+- The workflow executed `ApplicationIntent=ReadOnly` and only `SELECT DB_NAME()` plus a limited `TOP 5 sys.tables` query. This is **limited target/connectivity evidence only**, not proof that the principal lacks write permission and not a full SchemaVersion/catalog gate.
+- Current full SchemaVersion, 011/012/014 compatibility, additive contract state, constraints/indexes/FKs, Migration 013 preservation, historical integrity, backup/PITR and restore evidence remain **NOT VERIFIED**. The historical migration-identity workflow is not treated as a current v1.8.0 schema gate.
+- Business UAT remains **NOT RUN**; Existing v1.8.0 is eligible only for a future separately authorized controlled review. Restricted Trip/Mileage remains **NO-GO** and Full Scheme A/Option C remains **HOLD / NO-GO**.
+
 # Option C UAT Execution Authorization Package
 
 
