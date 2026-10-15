@@ -1,0 +1,46 @@
+name: PR30 preflight output nondeploy validation
+
+on:
+  push:
+    branches:
+      - staging/preflight-output-visible-20261015
+    paths:
+      - .github/workflows/azure-sql-readonly-uat-smoke.yml
+      - .github/workflows/pr30-preflight-output-nondeploy.yml
+      - scripts/ci/test_pr30_preflight_output.ps1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr30-preflight-output-nondeploy
+  cancel-in-progress: false
+
+jobs:
+  synthetic-runtime:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/staging/preflight-output-visible-20261015'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact staging source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Verify nondeploy execution boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(sha256sum docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql | cut -d' ' -f1)" = "44c20438c8125150d8cdbfae5e2dab40f23acea6386507b96bec31ff3cb10955"
+          test -z "$(grep -E 'azure/login|environment:[[:space:]]*uat|id-token:[[:space:]]*write|Invoke-Sqlcmd|az login' .github/workflows/pr30-preflight-output-nondeploy.yml || true)"
+
+      - name: Execute synthetic PowerShell DataSet matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/ci/test_pr30_preflight_output.ps1 `
+            -WorkflowPath .github/workflows/azure-sql-readonly-uat-smoke.yml `
+            -ExpectedSourceSha '${{ github.sha }}'
