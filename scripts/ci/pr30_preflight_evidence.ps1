@@ -1,5 +1,82 @@
 Set-StrictMode -Version Latest
 
+function Get-SanitizedSqlFailure([object]$Failure, [ValidateSet('BasicQuery','PreflightQuery')][string]$Phase) {
+  $exception = if ($Failure -is [System.Management.Automation.ErrorRecord]) {
+    $Failure.Exception
+  } elseif ($null -ne $Failure -and @($Failure.PSObject.Properties.Name) -contains 'Exception') {
+    $Failure.Exception
+  } else {
+    $Failure
+  }
+
+  $approvedTypes = @(
+    'Microsoft.Data.SqlClient.SqlException',
+    'System.Data.SqlClient.SqlException',
+    'System.TimeoutException',
+    'System.Net.Sockets.SocketException',
+    'System.Management.Automation.RuntimeException',
+    'System.Exception'
+  )
+  $typeNames = [System.Collections.Generic.List[string]]::new()
+  $approvedNumbers = [System.Collections.Generic.List[int]]::new()
+  $knownNumbers = @(-2, 20, 53, 64, 233, 4060, 10928, 10929, 11001, 18456, 40197, 40501, 40540, 40613, 49918, 49919, 49920, 10053, 10054, 10060, 10061)
+  $current = $exception
+  $depth = 0
+  while ($null -ne $current -and $depth -lt 8) {
+    $runtimeType = if ($current -is [System.Exception]) { $current.GetType().FullName } else { [string]$current.PSTypeNames[0] }
+    [void]$typeNames.Add($(if ($approvedTypes -contains $runtimeType) { $runtimeType } else { 'OtherException' }))
+
+    if (@($current.PSObject.Properties.Name) -contains 'Number') {
+      $number = 0
+      if ([int]::TryParse([string]$current.Number, [ref]$number) -and $knownNumbers -contains $number -and -not $approvedNumbers.Contains($number)) {
+        [void]$approvedNumbers.Add($number)
+      }
+    }
+    if (@($current.PSObject.Properties.Name) -contains 'Errors' -and $null -ne $current.Errors) {
+      foreach ($sqlError in @($current.Errors)) {
+        $number = 0
+        if ($null -ne $sqlError -and @($sqlError.PSObject.Properties.Name) -contains 'Number' -and
+            [int]::TryParse([string]$sqlError.Number, [ref]$number) -and $knownNumbers -contains $number -and
+            -not $approvedNumbers.Contains($number)) {
+          [void]$approvedNumbers.Add($number)
+        }
+      }
+    }
+    $current = if (@($current.PSObject.Properties.Name) -contains 'InnerException') { $current.InnerException } else { $null }
+    $depth++
+  }
+
+  $classification = if ($approvedNumbers -contains -2 -or $typeNames -contains 'System.TimeoutException') {
+    'Timeout'
+  } elseif ($approvedNumbers -contains 18456) {
+    'AuthenticationRejected'
+  } elseif (@($approvedNumbers | Where-Object { $_ -in @(4060,40613,40197,40540) }).Count -gt 0) {
+    'DatabaseUnavailable'
+  } elseif (@($approvedNumbers | Where-Object { $_ -in @(10928,10929,40501,49918,49919,49920) }).Count -gt 0) {
+    'Throttled'
+  } elseif (@($approvedNumbers | Where-Object { $_ -in @(20,53,64,233,11001,10053,10054,10060,10061) }).Count -gt 0 -or
+            $typeNames -contains 'System.Net.Sockets.SocketException') {
+    'NetworkUnavailable'
+  } else {
+    'UnknownSqlFailure'
+  }
+
+  return [pscustomobject]@{
+    Phase = $Phase
+    Classification = $classification
+    ExceptionTypes = @($typeNames | Select-Object -Unique)
+    SqlErrorNumbers = @($approvedNumbers | Sort-Object -Unique)
+  }
+}
+
+function Throw-SanitizedSqlFailure([object]$Failure, [ValidateSet('BasicQuery','PreflightQuery')][string]$Phase) {
+  $safe = Get-SanitizedSqlFailure -Failure $Failure -Phase $Phase
+  $typeText = if ($safe.ExceptionTypes.Count -gt 0) { $safe.ExceptionTypes -join ',' } else { 'UnknownException' }
+  $numberText = if ($safe.SqlErrorNumbers.Count -gt 0) { $safe.SqlErrorNumbers -join ',' } else { 'none' }
+  throw "STOP: read-only SQL operation failed. Phase=$($safe.Phase); Classification=$($safe.Classification); ExceptionTypes=$typeText; SqlErrorNumbers=$numberText."
+}
+
+
 function Get-DataTables([object]$DataSet) {
   if ($DataSet -is [System.Data.DataSet]) {
     foreach ($table in $DataSet.Tables) {

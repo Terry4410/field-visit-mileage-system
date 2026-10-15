@@ -111,7 +111,7 @@ jobs:
           try {
             $basicSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Query $basic
           } catch {
-            throw 'STOP: basic read-only SQL query failed.'
+            Throw-SanitizedSqlFailure -Failure $_ -Phase BasicQuery
           }
           $basicTables = @(Get-DataTables $basicSet)
           $basicEvidence = @($basicTables | ForEach-Object { Convert-EvidenceTable $_ -AllowUnknown })
@@ -121,7 +121,7 @@ jobs:
           try {
             $preflightSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql
           } catch {
-            throw 'STOP: reviewed read-only SQL preflight failed.'
+            Throw-SanitizedSqlFailure -Failure $_ -Phase PreflightQuery
           }
 
           $checkedOutSha = (git rev-parse HEAD).Trim()

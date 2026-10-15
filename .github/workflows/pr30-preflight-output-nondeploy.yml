@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - staging/preflight-output-visible-20261015
+      - staging/pr30-preflight-failure-diagnostic-20261015
     paths:
       - .github/workflows/azure-sql-readonly-uat-smoke.yml
       - .github/workflows/pr30-preflight-output-nondeploy.yml
@@ -20,7 +21,7 @@ concurrency:
 
 jobs:
   synthetic-runtime:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/staging/preflight-output-visible-20261015'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && (github.ref == 'refs/heads/staging/preflight-output-visible-20261015' || github.ref == 'refs/heads/staging/pr30-preflight-failure-diagnostic-20261015')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

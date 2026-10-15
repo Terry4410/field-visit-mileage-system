@@ -11,6 +11,15 @@ $ErrorActionPreference = 'Stop'
 $script:Passed = 0
 $script:Failed = 0
 
+Add-Type -TypeDefinition @'
+public sealed class SyntheticSqlFailureException : System.Exception
+{
+    public int Number { get; }
+    public SyntheticSqlFailureException(int number, string message) : base(message) { Number = number; }
+}
+'@
+
+
 function Assert-True([bool]$Condition, [string]$Message) {
   if (-not $Condition) { throw $Message }
 }
@@ -303,9 +312,40 @@ Assert-Throws 'malformed source SHA fails closed' 'malformed' {
   Assert-SourceSha 'not-a-sha' $validSha
 }
 
+
+Run-Test 'sanitized timeout classification preserves approved number only' {
+  $failure = [SyntheticSqlFailureException]::new(-2, 'token-and-connection-secret')
+  $safe = Get-SanitizedSqlFailure -Failure $failure -Phase BasicQuery
+  Assert-True ($safe.Classification -eq 'Timeout') 'Timeout was not classified.'
+  Assert-True (@($safe.SqlErrorNumbers).Count -eq 1 -and $safe.SqlErrorNumbers[0] -eq -2) 'Approved timeout number was not preserved.'
+  $json = $safe | ConvertTo-Json -Depth 5 -Compress
+  Assert-True (-not $json.Contains('token-and-connection-secret')) 'Raw exception message leaked.'
+}
+
+Run-Test 'sanitized authentication classification does not expose message' {
+  $failure = [SyntheticSqlFailureException]::new(18456, 'principal-secret')
+  $safe = Get-SanitizedSqlFailure -Failure $failure -Phase PreflightQuery
+  Assert-True ($safe.Classification -eq 'AuthenticationRejected') 'Authentication failure was not classified.'
+  Assert-True (-not (($safe | ConvertTo-Json -Compress).Contains('principal-secret'))) 'Principal detail leaked.'
+}
+
+Run-Test 'unknown failure remains fail closed without raw details' {
+  $failure = [System.InvalidOperationException]::new('server-and-token-secret')
+  $safe = Get-SanitizedSqlFailure -Failure $failure -Phase BasicQuery
+  Assert-True ($safe.Classification -eq 'UnknownSqlFailure') 'Unknown failure was not retained as unknown.'
+  Assert-True ($safe.ExceptionTypes[0] -eq 'OtherException') 'Unapproved exception type was exposed.'
+  Assert-True (-not (($safe | ConvertTo-Json -Compress).Contains('server-and-token-secret'))) 'Unknown exception message leaked.'
+}
+
+Assert-Throws 'sanitized throw is nonzero and message-safe' 'Classification=Timeout' {
+  Throw-SanitizedSqlFailure -Failure ([SyntheticSqlFailureException]::new(-2, 'must-not-leak')) -Phase BasicQuery
+}
+
 Assert-True ($workflowText -notmatch 'Format-Table') 'Format-Table must not be used.'
 Assert-True ($workflowText -notmatch "-replace 'principal") 'String-level regex masking must not be used.'
 Assert-True (($workflowText | Select-String -Pattern '-OutputAs DataSet' -AllMatches).Matches.Count -eq 2) 'Both SQL calls must use DataSet output.'
+Assert-True (($workflowText | Select-String -Pattern 'Throw-SanitizedSqlFailure' -AllMatches).Matches.Count -eq 2) 'Both SQL catches must use sanitized diagnostics.'
+Assert-True (($workflowText | Select-String -Pattern '-OutputSqlErrors \$false' -AllMatches).Matches.Count -eq 2) 'Raw SQL error output must remain disabled.'
 Assert-True ($workflowText.Contains('-ApplicationIntent ReadOnly')) 'ApplicationIntent ReadOnly is missing.'
 Assert-True ($workflowText.Contains('environment: uat')) 'Protected environment guard is missing.'
 Assert-True ($workflowText.Contains('refs/heads/post-uat/v1.8.0')) 'Protected branch guard is missing.'
