@@ -1,5 +1,13 @@
 # UAT010 × Package B Option C — Owner 單一入口（持續更新）
 
+## 2026-10-15 — Authoritative UAT 1.8.0-010 evidence and Full Scheme A fast-track gate
+
+- Protected UAT preflight Run `38707441735` succeeded from protected SHA `ce70eddc290e85375c64311b6d96eedc09942dba`. Actual latest marker is `1.8.0-010`; canonical 011/012/014, Stage/PublishedVersions, MergeDetails and evidence audit extension are absent. Catalog fingerprint: `665C66D7BA7DE5F75AD855CDDDA10175E8AB31114B6572EC010813799BFCD975`.
+- All observed read-only principal write/DDL permission fields were `0`; observed orphan ProjectLocation and FavoriteLocation counts were `0`. PITR configuration is 7-day retention / 12-hour differential; restore remains **NOT RUN**.
+- Recovery engineering source inspected at `4191e29595d019b2b492ac3659bac86049970d5f`. Candidate API/UI flags remain OFF. The additive Stage evidence, Leader review, Create/LowRisk, Merge and Excel contracts are still disposable-only and contain symbolic or unassigned migration markers; they are not deployable UAT migrations.
+- Current authoritative package: `SCHEME_A_UAT_READINESS_FAST_TRACK_20261015.md` plus the machine-readable migration manifest and SELECT-only historical fingerprint under `optionc-canonical-sql-draft/full-scheme-a/`.
+- **Decision: Full Scheme A / Option C remains HOLD / NO-GO.** No migration, deployment, restore, feature activation or Business UAT was executed.
+
 
 ## 2026-10-15 — Latest read-path E2E checkpoint
 
