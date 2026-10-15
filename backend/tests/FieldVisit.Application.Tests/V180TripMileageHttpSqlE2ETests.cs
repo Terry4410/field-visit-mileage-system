@@ -8,6 +8,7 @@ using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -31,6 +32,10 @@ public sealed class V180TripMileageHttpSqlE2ETests
     [Fact]
     public Task One_stop_trip_create_submit_calculate_and_manual_fallback_approve_preserves_snapshot()
         => RunTripFlowAsync(oneStop: true);
+
+    [Fact]
+    public Task Draft_route_preview_uses_provider_distance_and_persists_governance_attempt()
+        => RunProviderPreviewAsync();
 
     private static async Task RunTripFlowAsync(bool oneStop)
     {
@@ -67,6 +72,8 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
                 builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
                 builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+                builder.ConfigureTestServices(services =>
+                    services.AddScoped<IV180RouteProvider, SuccessfulRouteProvider>());
             });
 
             using (var scope = factory.Services.CreateScope())
@@ -170,6 +177,88 @@ public sealed class V180TripMileageHttpSqlE2ETests
             await using var drop = new SqlCommand($"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}]", admin);
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    private static async Task RunProviderPreviewAsync()
+    {
+        var raw = Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            if (Environment.GetEnvironmentVariable("E1_R1_REQUIRED") == "1")
+                throw new InvalidOperationException("OPTIONC_TRIP_HTTP_SQL_REQUIRED");
+            return;
+        }
+
+        var root = new SqlConnectionStringBuilder(raw) { Pooling = false, ConnectTimeout = 5 };
+        if (root.DataSource is not ("localhost,1433" or "127.0.0.1,1433")
+            || root.InitialCatalog != "master" || root.UserID != "sa"
+            || root.IntegratedSecurity)
+            throw new InvalidOperationException("OPTIONC_TRIP_NONLOCAL_TARGET_DENIED");
+
+        var name = "OptionCIsolated_" + Guid.NewGuid().ToString("N");
+        await using (var admin = new SqlConnection(root.ConnectionString))
+        {
+            await admin.OpenAsync();
+            await using var create = new SqlCommand($"CREATE DATABASE [{name}]", admin);
+            await create.ExecuteNonQueryAsync();
+        }
+
+        try
+        {
+            var cs = new SqlConnectionStringBuilder(root.ConnectionString)
+            { InitialCatalog = name, Pooling = false }.ConnectionString;
+            await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("ConnectionStrings:DefaultConnection", cs);
+                builder.UseSetting("Auth:Mode", "Demo");
+                builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+                builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+                builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+                builder.ConfigureTestServices(services =>
+                    services.AddScoped<IV180RouteProvider, SuccessfulRouteProvider>());
+            });
+
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.EnsureCreatedAsync();
+            var fixture = await SeedAsync(db);
+            using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Visitor.UserId, fixture.Visitor.EmployeeNo!, "visitor", fixture.Team.TeamId));
+            using var createdResponse = await visitor.PostAsJsonAsync(
+                "api/v1/trips", Draft(fixture.Approved.LocationId, includeSecondStop: false));
+            Assert.True(createdResponse.IsSuccessStatusCode, await createdResponse.Content.ReadAsStringAsync());
+            var created = await createdResponse.Content.ReadFromJsonAsync<TripDto>()
+                ?? throw new InvalidOperationException("OPTIONC_TRIP_CREATE_RESPONSE_MISSING");
+
+            using var preview = await visitor.PostAsync($"api/v1/trips/{created.VisitTripId}/route-preview", null);
+            Assert.True(preview.IsSuccessStatusCode, await preview.Content.ReadAsStringAsync());
+            var result = await preview.Content.ReadFromJsonAsync<V180RouteOrchestrationResult>()
+                ?? throw new InvalidOperationException("OPTIONC_ROUTE_PREVIEW_RESPONSE_MISSING");
+            Assert.Equal("Succeeded", result.Status);
+            Assert.Equal(12.5m, result.SuggestedDistanceKm);
+            Assert.Equal(300, result.DurationSeconds);
+            var attempt = await db.RouteCalculationAttempts.SingleAsync(x => x.VisitTripId == created.VisitTripId);
+            Assert.Equal("GoogleMapsRoutes-TestStub", attempt.Provider);
+            Assert.Equal("Succeeded", attempt.Status);
+            Assert.Equal("Calculated", (await db.MileageGovernanceEvents
+                .SingleAsync(x => x.RouteCalculationAttemptId == attempt.RouteCalculationAttemptId)).EventType);
+        }
+        finally
+        {
+            await using var admin = new SqlConnection(root.ConnectionString);
+            await admin.OpenAsync();
+            await using var drop = new SqlCommand($"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}]", admin);
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    private sealed class SuccessfulRouteProvider : IV180RouteProvider
+    {
+        public string ProviderName => "GoogleMapsRoutes-TestStub";
+
+        public Task<V180RouteProviderResult> CalculateAsync(V180RouteProviderRequest request, CancellationToken ct) =>
+            Task.FromResult(new V180RouteProviderResult(
+                true, 12.5m, 300, "encoded-test-polyline", null, null));
     }
 
     private static SaveTripRequest Draft(int locationId, bool includeSecondStop = true) => new(
