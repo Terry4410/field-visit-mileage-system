@@ -17,6 +17,20 @@
 
 # Option C UAT Execution Authorization Package
 
+## Authoritative evidence update — protected Run 38707441735
+
+The current UAT database is verified at `1.8.0-010` with catalog fingerprint
+`665C66D7BA7DE5F75AD855CDDDA10175E8AB31114B6572EC010813799BFCD975`.
+Canonical 011/012/014 and all Full Scheme A additive contracts are absent.
+Observed write/DDL permissions are zero; observed Project/Favorite historical
+integrity checks have zero violations. PITR configuration is present (7-day
+retention, 12-hour differential), but restore is **NOT RUN**.
+
+The current decision package is
+`SCHEME_A_UAT_READINESS_FAST_TRACK_20261015.md`. Additive contracts remain
+disposable-only/symbolically versioned and therefore **HOLD**. This package
+does not authorize migration, deployment, flags, restore, or Business UAT.
+
 
 ## 2026-10-15 — Latest read-path E2E checkpoint
 
