@@ -77,6 +77,16 @@ function Get-ResultKind([string[]]$Columns) {
   return 'unclassified'
 }
 
+function Convert-Table([System.Data.DataTable]$Table) {
+  $columns = Get-ColumnNames $Table
+  $rows = @($Table.Rows | ForEach-Object { Convert-Row $_ $columns })
+  return [pscustomobject]@{
+    Columns = $columns
+    RowCount = $rows.Count
+    Rows = $rows
+  }
+}
+
 function Capture-Evidence([object]$DataSet) {
   $tables = Get-DataTables $DataSet
   $resultSets = @()
