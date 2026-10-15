@@ -65,8 +65,11 @@ jobs:
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
           $ProgressPreference = 'SilentlyContinue'
-          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber
+          Write-Host 'Available SqlServer versions:'
+          Find-Module -Name SqlServer -AllVersions -Repository PSGallery -ErrorAction Stop | Select-Object -First 12 Version | Format-Table -AutoSize
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
           $m = Get-Module -ListAvailable SqlServer | Where-Object Version -eq [version]'22.4.5.1' | Select-Object -First 1
           if (-not $m) { throw 'SqlServer 22.4.5.1 not available' }
           Import-Module $m.Path -Force
