@@ -1,3 +1,131 @@
+$ErrorActionPreference = 'Stop'
+Import-Module SqlServer -RequiredVersion 22.4.5.1
+
+$server = 'localhost,1433'
+$database = 'OptionCIsolated_PreflightCapture'
+$password = 'FieldVisit_Recovery!Sql2022'
+$masterArgs = @{
+  ServerInstance = $server
+  Database = 'master'
+  Username = 'sa'
+  Password = $password
+  TrustServerCertificate = $true
+  Encrypt = 'Optional'
+  ConnectionTimeout = 15
+  QueryTimeout = 30
+  AbortOnError = $true
+}
+$dbArgs = @{
+  ServerInstance = $server
+  Database = $database
+  Username = 'sa'
+  Password = $password
+  TrustServerCertificate = $true
+  Encrypt = 'Optional'
+  ApplicationIntent = 'ReadOnly'
+  ConnectionTimeout = 15
+  QueryTimeout = 30
+  AbortOnError = $true
+}
+
+function Get-DataTables([object]$DataSet) {
+  if ($DataSet -is [System.Data.DataSet]) {
+    foreach ($table in $DataSet.Tables) {
+      Write-Output -NoEnumerate $table
+    }
+    return
+  }
+  if ($DataSet -is [System.Data.DataTable]) {
+    Write-Output -NoEnumerate $DataSet
+    return
+  }
+  throw "STOP: Invoke-Sqlcmd did not return a DataSet/DataTable."
+}
+
+function Get-ColumnNames([System.Data.DataTable]$Table) {
+  return @($Table.Columns | ForEach-Object { $_.ColumnName })
+}
+
+function Convert-Row([System.Data.DataRow]$Row, [string[]]$Columns) {
+  $record = [ordered]@{}
+  $allowed = 'ServerName|DatabaseName|ApplicationName|ObservedUtc|ConnectedIdentity|ReadOnlyIdentity|VersionNumber|AppliedAt|MigrationPhase|CanonicalRequestTablesPresent|StageAndPublishedVersionsPresent|MergeDetailsPresent|CanonicalEvidenceAuditExtended|TableName|RowCount|ForeignKeyName|ParentSchema|ParentTable|ReferencedTable|IsNotTrusted|ConstraintName|is_not_trusted|definition|IndexName|is_unique|is_unique_constraint|is_disabled|IndexFingerprint|CatalogFingerprintSha256|OriginalLogin|ServerPrincipal|DatabaseUser|IsDbOwner|IsDbDdlAdmin|IsDbDatawriter|CanCreateTable|CanAlterAnyUser|CanInsertChangeRequests|CanUpdateChangeRequests|CanDeleteChangeRequests|CanInsertSchemaVersions|CanUpdateLocations|CheckName|Violations|Result|LatestSchemaVersion|CompletedUtc'
+  foreach ($name in $Columns) {
+    if ($name -notmatch "^($allowed)$") { continue }
+    $value = $Row[$name]
+    if ($value -is [System.DBNull]) {
+      $value = $null
+    } elseif ($value -is [datetime]) {
+      $value = $value.ToUniversalTime().ToString('o')
+    } elseif ($name -in @(
+      'ConnectedIdentity',
+      'ReadOnlyIdentity',
+      'OriginalLogin',
+      'ServerPrincipal',
+      'DatabaseUser'
+    )) {
+      $value = '[REDACTED]'
+    }
+    $record[$name] = $value
+  }
+  return [pscustomobject]$record
+}
+
+function Get-ResultKind([string[]]$Columns) {
+  $set = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($column in $Columns) { [void]$set.Add($column) }
+  if ($set.Contains('Result') -and $set.Contains('LatestSchemaVersion') -and $set.Contains('CompletedUtc')) { return 'completion' }
+  if ($set.Contains('MigrationPhase') -and $set.Contains('CanonicalRequestTablesPresent')) { return 'summary' }
+  if ($set.Contains('CatalogFingerprintSha256')) { return 'catalogFingerprint' }
+  if ($set.Contains('OriginalLogin') -and $set.Contains('IsDbOwner') -and $set.Contains('CanUpdateLocations')) { return 'permissions' }
+  if ($set.Contains('CheckName') -and $set.Contains('Violations')) { return 'integrity' }
+  if ($set.Contains('VersionNumber')) { return 'schemaVersions' }
+  if ($set.Contains('TableName') -and $set.Contains('RowCount')) { return 'rowCounts' }
+  if ($set.Contains('ForeignKeyName') -and $set.Contains('IsNotTrusted')) { return 'foreignKeys' }
+  if ($set.Contains('ConstraintName') -and $set.Contains('is_not_trusted')) { return 'checkConstraints' }
+  if ($set.Contains('IndexName') -and $set.Contains('IndexFingerprint')) { return 'indexes' }
+  if ($set.Contains('ServerName') -and $set.Contains('DatabaseName') -and $set.Contains('ObservedUtc')) { return 'identity' }
+  return 'unclassified'
+}
+
+function Convert-Table([System.Data.DataTable]$Table) {
+  $columns = Get-ColumnNames $Table
+  $rows = @($Table.Rows | ForEach-Object { Convert-Row $_ $columns })
+  return [pscustomobject]@{
+    Columns = $columns
+    RowCount = $rows.Count
+    Rows = $rows
+  }
+}
+
+function Capture-Evidence([object]$DataSet) {
+  $tables = Get-DataTables $DataSet
+  $resultSets = @()
+  foreach ($table in $tables) {
+    $tableEvidence = Convert-Table $table
+    $kind = Get-ResultKind $tableEvidence.Columns
+    $resultSets += [pscustomobject]@{
+      Kind = $kind
+      Columns = $tableEvidence.Columns
+      RowCount = $tableEvidence.RowCount
+      Rows = $tableEvidence.Rows
+    }
+  }
+  $mandatory = @('identity','schemaVersions','summary','catalogFingerprint','permissions','completion')
+  $present = @($resultSets | ForEach-Object { $_.Kind } | Select-Object -Unique)
+  foreach ($kind in $mandatory) {
+    if ($present -notcontains $kind) { throw "STOP: mandatory evidence result set '$kind' was not observed." }
+  }
+  $completion = @($resultSets | Where-Object { $_.Kind -eq 'completion' } | ForEach-Object { $_.Rows })
+  if (@($completion).Count -ne 1 -or $completion[0].Result -ne 'PREFLIGHT_COMPLETE_READ_ONLY') {
+    throw 'STOP: completion marker was missing or invalid.'
+  }
+  return [pscustomobject]@{
+    ResultSetCount = $resultSets.Count
+    ResultSets = $resultSets
+    CompletionMarker = $completion[0].Result
+    SourceSha = $env:GITHUB_SHA
+    CapturedUtc = [DateTime]::UtcNow.ToString('o')
+  }
 }
 
 $fixture = @'
