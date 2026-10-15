@@ -129,7 +129,9 @@ function Capture-Evidence([object]$DataSet) {
 }
 
 $fixture = @'
-IF '$(EXPECTED_SERVER)' LIKE CHAR(36) + '(EXPECTED_SERVER)' OR '$(EXPECTED_DATABASE)' LIKE CHAR(36) + '(EXPECTED_DATABASE)' THROW 51028, 'STOP: required SQLCMD variables are missing.', 1;
+IF N'$(EXPECTED_SERVER)' <> N'localhost,1433'
+   OR N'$(EXPECTED_DATABASE)' <> N'OptionCIsolated_PreflightCapture'
+  THROW 51028, 'STOP: required SQLCMD variables are missing or invalid.', 1;
 SELECT N'sql-fieldvisit-jpe-uat' AS ServerName,
        N'OptionCIsolated_PreflightCapture' AS DatabaseName,
        N'principal@example.invalid' AS ReadOnlyIdentity,
@@ -174,7 +176,7 @@ SELECT N'PREFLIGHT_COMPLETE_READ_ONLY' AS Result,
        SYSUTCDATETIME() AS CompletedUtc;
 '@
 
-    
+
 $fixturePath = Join-Path $env:RUNNER_TEMP 'preflight-resultsets.sql'
 $fixture | Set-Content -Path $fixturePath -Encoding utf8
 
@@ -216,11 +218,16 @@ try {
 
   $missingCaught = $false
   try {
-    Invoke-Sqlcmd @dbArgs -InputFile $fixturePath -OutputAs DataSet
+    $null = Invoke-Sqlcmd @dbArgs -InputFile $fixturePath -OutputAs DataSet
   } catch {
+    if ($_.Exception.Message -notmatch '51028|required SQLCMD variables|scripting variable') {
+      throw
+    }
     $missingCaught = $true
   }
-  if (-not $missingCaught) { throw 'STOP: missing SQLCMD variables did not fail closed.' }
+  if (-not $missingCaught) {
+    throw 'STOP: missing SQLCMD variables did not fail closed.'
+  }
 
   $stopCaught = $false
   try {
