@@ -30,10 +30,14 @@ $dbArgs = @{
 
 function Get-DataTables([object]$DataSet) {
   if ($DataSet -is [System.Data.DataSet]) {
-    return @($DataSet.Tables | ForEach-Object { $_ })
+    foreach ($table in $DataSet.Tables) {
+      Write-Output -NoEnumerate $table
+    }
+    return
   }
   if ($DataSet -is [System.Data.DataTable]) {
-    return @($DataSet)
+    Write-Output -NoEnumerate $DataSet
+    return
   }
   throw "STOP: Invoke-Sqlcmd did not return a DataSet/DataTable."
 }
