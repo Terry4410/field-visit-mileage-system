@@ -1,0 +1,109 @@
+name: Azure SQL protected UAT schema preflight (SELECT-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: azure-sql-protected-schema-preflight
+  cancel-in-progress: false
+
+env:
+  EXPECTED_RESOURCE_GROUP: rg-fieldvisit-uat
+  EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
+  EXPECTED_DATABASE: db-fieldvisit-uat
+  PREFLIGHT_SQL_SHA256: b647b95a196c25b569b6cc521b0d526a1931b9c0
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce protected execution branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/post-uat/v1.8.0" || {
+            echo "::error::Protected preflight is only runnable from post-uat/v1.8.0."
+            exit 1
+          }
+
+  read-only-schema-preflight:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 15
+    steps:
+      - name: Checkout protected source
+        uses: actions/checkout@v4
+        with:
+          ref: post-uat/v1.8.0
+          fetch-depth: 1
+
+      - name: Verify reviewed SQL source
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql"
+          test -f "$file"
+          actual="$(sha256sum "$file" | cut -d' ' -f1)"
+          test "$actual" = "$PREFLIGHT_SQL_SHA256" || {
+            echo "::error::SELECT-only preflight SHA-256 mismatch."
+            exit 1
+          }
+          grep -Eiq '(^|[^[:alpha:]])(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE)([^[:alpha:]]|$)' "$file" && {
+            echo "::error::Preflight source contains a write/DDL keyword."
+            exit 1
+          }
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify fixed Azure target metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          rg="$(az group show --name "$EXPECTED_RESOURCE_GROUP" --query name -o tsv)"
+          test "$rg" = "$EXPECTED_RESOURCE_GROUP"
+          server="$(az sql server show --resource-group "$EXPECTED_RESOURCE_GROUP" --name "sql-fieldvisit-jpe-uat" --query fullyQualifiedDomainName -o tsv)"
+          test "$server" = "$EXPECTED_SERVER"
+          db="$(az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" --query name -o tsv)"
+          test "$db" = "$EXPECTED_DATABASE"
+          status="$(az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" --query status -o tsv)"
+          echo "AzureTarget=$server/$db Status=$status"
+
+      - name: Install pinned SQL Server PowerShell module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+
+      - name: Execute SELECT-only catalog preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $accessToken = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) { throw 'Unable to obtain SQL access token.' }
+          Write-Output "::add-mask::$accessToken"
+          $server = $env:EXPECTED_SERVER
+          $database = $env:EXPECTED_DATABASE
+          $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
+          Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $true -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql | Format-Table -AutoSize
+
+      - name: Azure backup and PITR metadata (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" --query '{name:name,status:status,earliestRestoreDate:earliestRestoreDate}' -o json
+          az sql db str-policy show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --database "$EXPECTED_DATABASE" -o json
+
+      - name: Sign out of Azure
+        if: always()
+        run: az logout
