@@ -177,31 +177,43 @@ IF @cr=1
   EXEC sys.sp_executesql N'SELECT N''PendingDuplicateRequestSlots'' AS CheckName, COUNT(*) AS Violations FROM (SELECT OrganizationId,EntityId FROM dbo.ChangeRequests WHERE Status=N''Pending'' GROUP BY OrganizationId,EntityId HAVING COUNT(*)>1) d';
 
 -- Permission evidence is diagnostic only; this block performs no write or grant.
--- A read-only principal must not have database DDL or representative table-write rights.
+-- Unknown permission metadata is fail-closed; it is never treated as DENY WRITE.
+DECLARE @IsDbOwner int=IS_ROLEMEMBER(N'db_owner');
+DECLARE @IsDbDdlAdmin int=IS_ROLEMEMBER(N'db_ddladmin');
+DECLARE @IsDbDatawriter int=IS_ROLEMEMBER(N'db_datawriter');
+DECLARE @CanCreateTable int=HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE'+N' TABLE');
+DECLARE @CanAlterAnyUser int=HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY USER');
+DECLARE @CanInsertChangeRequests int=CASE WHEN @cr=1 THEN HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'INSERT') ELSE 0 END;
+DECLARE @CanUpdateChangeRequests int=CASE WHEN @cr=1 THEN HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'UPDATE') ELSE 0 END;
+DECLARE @CanDeleteChangeRequests int=CASE WHEN @cr=1 THEN HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'DELETE') ELSE 0 END;
+DECLARE @CanInsertSchemaVersions int=HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT');
+DECLARE @CanUpdateLocations int=CASE WHEN OBJECT_ID(N'dbo.Locations',N'U') IS NOT NULL THEN HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE') ELSE NULL END;
+
 SELECT ORIGINAL_LOGIN() AS OriginalLogin,
        SUSER_SNAME() AS ServerPrincipal,
        USER_NAME() AS DatabaseUser,
-       IS_ROLEMEMBER(N'db_owner') AS IsDbOwner,
-       IS_ROLEMEMBER(N'db_ddladmin') AS IsDbDdlAdmin,
-       IS_ROLEMEMBER(N'db_datawriter') AS IsDbDatawriter,
-       HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE'+N' TABLE') AS CanCreateTable,
-       HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY USER') AS CanAlterAnyUser,
-       HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'INSERT') AS CanInsertChangeRequests,
-       HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'UPDATE') AS CanUpdateChangeRequests,
-       HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'DELETE') AS CanDeleteChangeRequests,
-       HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT') AS CanInsertSchemaVersions,
-       HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE') AS CanUpdateLocations;
+       @IsDbOwner AS IsDbOwner,
+       @IsDbDdlAdmin AS IsDbDdlAdmin,
+       @IsDbDatawriter AS IsDbDatawriter,
+       @CanCreateTable AS CanCreateTable,
+       @CanAlterAnyUser AS CanAlterAnyUser,
+       @CanInsertChangeRequests AS CanInsertChangeRequests,
+       @CanUpdateChangeRequests AS CanUpdateChangeRequests,
+       @CanDeleteChangeRequests AS CanDeleteChangeRequests,
+       @CanInsertSchemaVersions AS CanInsertSchemaVersions,
+       @CanUpdateLocations AS CanUpdateLocations;
 
-IF @IsDisposableTarget=0 AND (IS_ROLEMEMBER(N'db_owner')=1 OR IS_ROLEMEMBER(N'db_ddladmin')=1 OR IS_ROLEMEMBER(N'db_datawriter')=1
-   OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE'+N' TABLE')=1
-   OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY USER')=1
-   OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'INSERT')=1
-   OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'UPDATE')=1
-   OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'DELETE')=1
-   OR HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')=1
-   OR HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE')=1)
+IF @IsDbOwner IS NULL OR @IsDbDdlAdmin IS NULL OR @IsDbDatawriter IS NULL
+   OR @CanCreateTable IS NULL OR @CanAlterAnyUser IS NULL
+   OR @CanInsertSchemaVersions IS NULL OR @CanUpdateLocations IS NULL
+  THROW 51024, 'STOP: permission evidence is unknown or required object is missing.', 1;
+
+IF @IsDbOwner=1 OR @IsDbDdlAdmin=1 OR @IsDbDatawriter=1
+   OR @CanCreateTable=1 OR @CanAlterAnyUser=1
+   OR @CanInsertChangeRequests=1 OR @CanUpdateChangeRequests=1
+   OR @CanDeleteChangeRequests=1 OR @CanInsertSchemaVersions=1
+   OR @CanUpdateLocations=1
   THROW 51022, 'STOP: connected principal exposes unexpected write or DDL permission.', 1;
-
 SELECT @Latest AS MigrationPhase,
        @cr AS CanonicalRequestTablesPresent,
        @st AS StageAndPublishedVersionsPresent,
