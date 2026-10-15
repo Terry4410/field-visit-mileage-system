@@ -70,10 +70,10 @@ jobs:
           Write-Host 'Available SqlServer versions:'
           Find-Module -Name SqlServer -AllVersions -Repository PSGallery -ErrorAction Stop | Select-Object -First 12 Version | Format-Table -AutoSize
           Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
-          $m = Get-Module -ListAvailable SqlServer | Where-Object Version -eq [version]'22.4.5.1' | Select-Object -First 1
-          if (-not $m) { throw 'SqlServer 22.4.5.1 not available' }
-          Import-Module $m.Path -Force
-          Write-Host "SqlServerVersion=$((Get-Module SqlServer).Version)"
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force -ErrorAction Stop
+          $m = Get-Module SqlServer
+          if (-not $m -or $m.Version -ne [version]'22.4.5.1') { throw 'SqlServer 22.4.5.1 not available' }
+          Write-Host "SqlServerVersion=$($m.Version)"
 
       - name: Execute Invoke-Sqlcmd runtime matrix
         shell: pwsh
