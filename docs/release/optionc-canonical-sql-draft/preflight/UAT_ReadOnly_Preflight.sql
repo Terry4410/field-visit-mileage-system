@@ -61,6 +61,8 @@ IF @Latest IS NULL OR @Latest NOT IN (N'1.8.0-008',N'1.8.0-009',N'1.8.0-010',N'1
 DECLARE @cr bit=CASE WHEN OBJECT_ID(N'dbo.ChangeRequests',N'U') IS NULL THEN 0 ELSE 1 END;
 DECLARE @ev bit=CASE WHEN OBJECT_ID(N'dbo.ChangeRequestEvents',N'U') IS NULL THEN 0 ELSE 1 END;
 IF @cr<>@ev THROW 51007, 'STOP: partial canonical 011 object set.', 1;
+IF (@Latest IN (N'1.8.0-008',N'1.8.0-009') AND (@cr<>0 OR @ev<>0))
+  THROW 51026, 'STOP: canonical 011/012 objects are present before their recorded SchemaVersion.', 1;
 IF (@Latest=N'1.8.0-010' AND (@cr<>0 OR @ev<>0))
    OR (@Latest IN (N'1.8.0-011',N'1.8.0-012',N'1.8.0-014') AND (@cr<>1 OR @ev<>1))
   THROW 51015, 'STOP: canonical object set does not match SchemaVersions.', 1;
