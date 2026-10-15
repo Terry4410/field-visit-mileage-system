@@ -1,0 +1,107 @@
+{
+  "status": "HOLD_NONEXECUTED_DESIGN",
+  "authoritativeUatEvidence": {
+    "workflowRunId": 38707441735,
+    "sourceSha": "ce70eddc290e85375c64311b6d96eedc09942dba",
+    "observedUtc": "2026-10-15T08:42:04.8304305Z",
+    "latestSchemaVersion": "1.8.0-010",
+    "catalogFingerprintSha256": "665C66D7BA7DE5F75AD855CDDDA10175E8AB31114B6572EC010813799BFCD975",
+    "canonicalRequestTablesPresent": false,
+    "stageAndPublishedVersionsPresent": false,
+    "mergeDetailsPresent": false,
+    "canonicalEvidenceAuditExtended": false
+  },
+  "frozenRules": {
+    "reservedMigration": "1.8.0-013",
+    "reservedMigrationAction": "NO_CHANGE_NO_EXECUTION",
+    "candidateFlagsDefaultOff": true,
+    "uatExecutionAuthorized": false,
+    "productionExecutionAuthorized": false
+  },
+  "orderedDesign": [
+    {
+      "order": 1,
+      "marker": "1.8.0-011",
+      "contract": "canonical request and event ledger",
+      "source": "docs/release/optionc-canonical-sql-draft/1800_011",
+      "deployability": "REVIEW_REQUIRED",
+      "prerequisite": "latest marker exactly 1.8.0-010 and canonical tables absent"
+    },
+    {
+      "order": 2,
+      "marker": "1.8.0-012",
+      "contract": "Approved and Applied canonical states",
+      "source": "docs/release/optionc-canonical-sql-draft/1800_012",
+      "deployability": "REVIEW_REQUIRED",
+      "prerequisite": "latest marker exactly 1.8.0-011"
+    },
+    {
+      "order": 3,
+      "marker": "1.8.0-013",
+      "contract": "reserved leader-grant migration",
+      "source": null,
+      "deployability": "RESERVED_DO_NOT_TOUCH",
+      "prerequisite": "none; this package must neither create nor alter it"
+    },
+    {
+      "order": 4,
+      "marker": "1.8.0-014",
+      "contract": "publication Stage and immutable published-version ledger",
+      "source": "docs/release/optionc-canonical-sql-draft/1800_014",
+      "deployability": "DISPOSABLE_ONLY_NOT_UAT_READY",
+      "prerequisite": "latest marker exactly 1.8.0-012; 013 must remain absent; deterministic version-1 backfill review"
+    },
+    {
+      "order": 5,
+      "marker": null,
+      "contract": "canonical Stage evidence audit event extension",
+      "source": "docs/release/optionc-canonical-sql-draft/audit/StageEvidenceAuditEvents.disposable.sql",
+      "deployability": "HOLD_UNASSIGNED_VERSION",
+      "prerequisite": "014 and exact canonical event constraints"
+    },
+    {
+      "order": 6,
+      "marker": "1.8.0-LEADER-REVIEW",
+      "contract": "persistent independent Leader first-level decision",
+      "source": "docs/release/optionc-canonical-sql-draft/leader-review/LeaderReviewDetails.disposable.sql",
+      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
+      "prerequisite": "014 and Stage evidence audit extension"
+    },
+    {
+      "order": 7,
+      "marker": "1.8.0-CREATE-LOWRISK",
+      "contract": "CreateLocation reservation and LowRisk publication contract",
+      "source": "docs/release/optionc-canonical-sql-draft/create-lowrisk/CreateLowRiskContract.disposable.sql",
+      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
+      "prerequisite": "Leader review contract and publication ledger"
+    },
+    {
+      "order": 8,
+      "marker": null,
+      "contract": "dual-Location MergeFields evidence",
+      "source": "docs/release/optionc-canonical-sql-draft/merge/LocationMergeDetails.disposable.sql",
+      "deployability": "HOLD_UNASSIGNED_VERSION",
+      "prerequisite": "014, canonical audit extension, Leader review, and approved reference-rebinding policy"
+    },
+    {
+      "order": 9,
+      "marker": "1.8.0-EXCEL-CANONICAL-STATUS",
+      "contract": "Excel canonical submission statuses",
+      "source": "docs/release/optionc-canonical-sql-draft/excel-import/ExcelImportStatusContract.disposable.sql",
+      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
+      "prerequisite": "canonical Create and published Update flows; existing ImportBatch data compatibility"
+    }
+  ],
+  "mandatoryStopConditions": [
+    "protected UAT target does not match the approved server and database",
+    "latest SchemaVersion is not exactly 1.8.0-010 before the first forward step",
+    "any 011/012/014 object exists without its matching marker or vice versa",
+    "any 1.8.0-013 marker or unauthorized 013 object is observed",
+    "disabled or untrusted required constraint or foreign key is observed",
+    "symbolic or unassigned additive migration marker has not been replaced by an Owner-approved immutable version",
+    "historical pre-migration fingerprint cannot be captured or differs after a forward step",
+    "version-1 backfill is ambiguous, incomplete, or would include Pending or inactive Locations",
+    "backup recovery point, restore owner, rollback window, or deployment artifact identity is missing",
+    "application and frontend candidate flags are not OFF before deployment"
+  ]
+}
