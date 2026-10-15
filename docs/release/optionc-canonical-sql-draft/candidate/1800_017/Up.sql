@@ -1,0 +1,6 @@
+SET NOCOUNT ON; SET XACT_ABORT ON;
+IF DB_NAME() NOT LIKE N'OptionCIsolated[_]%' THROW 52000,N'CANDIDATE_DISPOSABLE_TARGET_REQUIRED',1;
+IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-013') THROW 52001,N'RESERVED_013_DETECTED_STOP',1;
+IF (SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC)<>N'1.8.0-016' THROW 52002,N'EXPECTED_1.8.0-016_STOP',1;
+IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-017') THROW 52003,N'1.8.0-017_RERUN_STOP',1;
+BEGIN TRY BEGIN TRANSACTION; CREATE TABLE dbo.CreateLowRiskContracts(ChangeRequestId bigint NOT NULL PRIMARY KEY,OwnerUserId int NOT NULL,OperationKey uniqueidentifier NOT NULL UNIQUE,PublishedVersion int NOT NULL,CreatedAt datetime2(3) NOT NULL,CONSTRAINT FK_Candidate_LowCreateRequest FOREIGN KEY(ChangeRequestId) REFERENCES dbo.ChangeRequests(ChangeRequestId)); INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.8.0-017',N'R3 candidate 1800_017',SYSUTCDATETIME(),N'candidate-rehearsal'); COMMIT; SELECT N'UP_OK' Result,N'1.8.0-017' Marker; END TRY BEGIN CATCH IF @@TRANCOUNT>0 ROLLBACK; THROW; END CATCH;

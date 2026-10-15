@@ -1,0 +1,6 @@
+SET NOCOUNT ON; SET XACT_ABORT ON;
+IF DB_NAME() NOT LIKE N'OptionCIsolated[_]%' THROW 52000,N'CANDIDATE_DISPOSABLE_TARGET_REQUIRED',1;
+IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-013') THROW 52001,N'RESERVED_013_DETECTED_STOP',1;
+IF (SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC)<>N'1.8.0-014' THROW 52002,N'EXPECTED_1.8.0-014_STOP',1;
+IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-015') THROW 52003,N'1.8.0-015_RERUN_STOP',1;
+BEGIN TRY BEGIN TRANSACTION; CREATE TABLE dbo.StageEvidenceAuditEvents(EventId bigint IDENTITY PRIMARY KEY,ChangeRequestId bigint NOT NULL,EventType nvarchar(60) NOT NULL,EvidenceKey uniqueidentifier NOT NULL,EvidenceSha256 varbinary(32) NULL,ReviewerUserId int NULL,RecordedAt datetime2(3) NOT NULL,CONSTRAINT FK_Candidate_EvidenceRequest FOREIGN KEY(ChangeRequestId) REFERENCES dbo.ChangeRequests(ChangeRequestId),CONSTRAINT UX_Candidate_EvidenceReplay UNIQUE(ChangeRequestId,EventType,EvidenceKey)); INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.8.0-015',N'R3 candidate 1800_015',SYSUTCDATETIME(),N'candidate-rehearsal'); COMMIT; SELECT N'UP_OK' Result,N'1.8.0-015' Marker; END TRY BEGIN CATCH IF @@TRANCOUNT>0 ROLLBACK; THROW; END CATCH;

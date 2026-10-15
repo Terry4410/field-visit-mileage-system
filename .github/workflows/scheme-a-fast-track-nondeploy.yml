@@ -112,6 +112,13 @@ jobs:
             print(f'TRX_NONZERO {p} total={total} executed={executed}')
           PY
 
+      - name: Full 010 to 020 migration candidate disposable rehearsal
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          ./scripts/ci/run_full_candidate_migration.ps1
+
       - name: Explicit release HOLD
         if: always()
         run: |

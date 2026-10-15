@@ -1,0 +1,6 @@
+SET NOCOUNT ON; SET XACT_ABORT ON;
+IF DB_NAME() NOT LIKE N'OptionCIsolated[_]%' THROW 52000,N'CANDIDATE_DISPOSABLE_TARGET_REQUIRED',1;
+IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-013') THROW 52001,N'RESERVED_013_DETECTED_STOP',1;
+IF (SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC)<>N'1.8.0-018' THROW 52002,N'EXPECTED_1.8.0-018_STOP',1;
+IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-019') THROW 52003,N'1.8.0-019_RERUN_STOP',1;
+BEGIN TRY BEGIN TRANSACTION; CREATE TABLE dbo.LocationMergeDetails(MergeId bigint IDENTITY PRIMARY KEY,RequestId bigint NOT NULL,SourceLocationId int NOT NULL,SurvivorLocationId int NOT NULL,DecisionKey uniqueidentifier NOT NULL UNIQUE,AppliedAt datetime2(3) NOT NULL,CONSTRAINT FK_Candidate_MergeRequest FOREIGN KEY(RequestId) REFERENCES dbo.ChangeRequests(ChangeRequestId),CONSTRAINT CK_Candidate_MergeDistinct CHECK(SourceLocationId<>SurvivorLocationId)); INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.8.0-019',N'R3 candidate 1800_019',SYSUTCDATETIME(),N'candidate-rehearsal'); COMMIT; SELECT N'UP_OK' Result,N'1.8.0-019' Marker; END TRY BEGIN CATCH IF @@TRANCOUNT>0 ROLLBACK; THROW; END CATCH;
