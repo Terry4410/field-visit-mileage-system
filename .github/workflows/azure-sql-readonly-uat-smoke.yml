@@ -89,22 +89,118 @@ jobs:
 
       - name: Query Azure SQL using Microsoft Entra access token
         env:
-          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
-          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+          CONFIGURED_SERVER_NAME: \${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: \${{ vars.AZURE_SQL_DATABASE }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
+          function Get-DataTables([object]$DataSet) {
+            if ($DataSet -is [System.Data.DataSet]) {
+              return @($DataSet.Tables | ForEach-Object { $_ })
+            }
+            if ($DataSet -is [System.Data.DataTable]) {
+              return @($DataSet)
+            }
+            throw 'STOP: Invoke-Sqlcmd did not return a DataSet/DataTable.'
+          }
+
+          function Get-ColumnNames([System.Data.DataTable]$Table) {
+            return @($Table.Columns | ForEach-Object { $_.ColumnName })
+          }
+
+          function Convert-Row([System.Data.DataRow]$Row, [string[]]$Columns) {
+            $record = [ordered]@{}
+            foreach ($name in $Columns) {
+              $value = $Row[$name]
+              if ($value -is [System.DBNull]) {
+                $value = $null
+              } elseif ($value -is [datetime]) {
+                $value = $value.ToUniversalTime().ToString('o')
+              } elseif ($name -match 'Identity|Login|Principal|User') {
+                $value = '[REDACTED]'
+              }
+              $record[$name] = $value
+            }
+            return [pscustomobject]$record
+          }
+
+          function Get-ResultKind([string[]]$Columns) {
+            $set = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($column in $Columns) { [void]$set.Add($column) }
+            if ($set.Contains('Result') -and $set.Contains('LatestSchemaVersion') -and $set.Contains('CompletedUtc')) { return 'completion' }
+            if ($set.Contains('MigrationPhase') -and $set.Contains('CanonicalRequestTablesPresent')) { return 'summary' }
+            if ($set.Contains('CatalogFingerprintSha256')) { return 'catalogFingerprint' }
+            if ($set.Contains('OriginalLogin') -and $set.Contains('IsDbOwner') -and $set.Contains('CanUpdateLocations')) { return 'permissions' }
+            if ($set.Contains('CheckName') -and $set.Contains('Violations')) { return 'integrity' }
+            if ($set.Contains('VersionNumber')) { return 'schemaVersions' }
+            if ($set.Contains('TableName') -and $set.Contains('RowCount')) { return 'rowCounts' }
+            if ($set.Contains('ForeignKeyName') -and $set.Contains('IsNotTrusted')) { return 'foreignKeys' }
+            if ($set.Contains('ConstraintName') -and $set.Contains('is_not_trusted')) { return 'checkConstraints' }
+            if ($set.Contains('IndexName') -and $set.Contains('IndexFingerprint')) { return 'indexes' }
+            if ($set.Contains('ServerName') -and $set.Contains('DatabaseName') -and $set.Contains('ObservedUtc')) { return 'identity' }
+            return 'unclassified'
+          }
+
+          function Convert-Table([System.Data.DataTable]$Table) {
+            $columns = Get-ColumnNames $Table
+            $rows = @($Table.Rows | ForEach-Object { Convert-Row $_ $columns })
+            [pscustomobject]@{
+              Kind = Get-ResultKind $columns
+              Columns = $columns
+              RowCount = $rows.Count
+              Rows = $rows
+            }
+          }
+
+          function Capture-Evidence([object]$DataSet) {
+            $tables = Get-DataTables $DataSet
+            if ($tables.Count -eq 0) { throw 'STOP: no SQL result sets were returned.' }
+            $resultSets = @($tables | ForEach-Object { Convert-Table $_ })
+            $mandatory = @('identity','summary','catalogFingerprint','permissions','completion')
+            $present = @($resultSets | ForEach-Object { $_.Kind } | Select-Object -Unique)
+            foreach ($kind in $mandatory) {
+              if ($present -notcontains $kind) { throw "STOP: mandatory evidence result set '$kind' was not observed." }
+            }
+            $completionRows = @($resultSets | Where-Object { $_.Kind -eq 'completion' } | ForEach-Object { $_.Rows })
+            if ($completionRows.Count -ne 1 -or $completionRows[0].Result -ne 'PREFLIGHT_COMPLETE_READ_ONLY') {
+              throw 'STOP: completion marker was missing or invalid.'
+            }
+            [pscustomobject]@{
+              ResultSetCount = $resultSets.Count
+              ResultSets = $resultSets
+              CompletionMarker = $completionRows[0].Result
+              SourceSha = $env:GITHUB_SHA
+              CapturedUtc = [DateTime]::UtcNow.ToString('o')
+            }
+          }
+
           if ($env:CONFIGURED_SERVER_NAME -ne 'sql-fieldvisit-jpe-uat') { throw 'Unexpected SQL server allow-list value.' }
           if ($env:CONFIGURED_DATABASE -ne $env:EXPECTED_DATABASE) { throw 'Unexpected SQL database allow-list value.' }
+
           $accessToken = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) { throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.' }
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($accessToken)) {
+            throw 'Unable to obtain the Microsoft Entra access token for Azure SQL.'
+          }
           Write-Output "::add-mask::$accessToken"
+
           $server = $env:EXPECTED_SERVER
           $database = $env:EXPECTED_DATABASE
           $basic = 'SELECT DB_NAME() AS DatabaseName, ORIGINAL_LOGIN() AS ConnectedIdentity, SYSUTCDATETIME() AS ObservedUtc; SELECT TOP (5) name FROM sys.tables ORDER BY name;'
-          Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $true -Query $basic | Format-Table -AutoSize
+          $basicSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 30 -AbortOnError -OutputSqlErrors $true -OutputAs DataSet -Query $basic
+          $basicTables = Get-DataTables $basicSet
+          Write-Output ("UAT_BASIC_JSON=" + ((@($basicTables | ForEach-Object { Convert-Table $_ }) | ConvertTo-Json -Depth 10 -Compress) -replace 'principal[^"]*','[REDACTED]'))
+
           $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
-          Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $true -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql | Format-Table -AutoSize
+          $preflightSet = Invoke-Sqlcmd -ServerInstance $server -Database $database -AccessToken $accessToken -ApplicationIntent ReadOnly -ConnectionTimeout 15 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $true -OutputAs DataSet -Variable @{ EXPECTED_SERVER = $server; EXPECTED_DATABASE = $database } -InputFile $sql
+          $evidence = Capture-Evidence $preflightSet
+          Write-Output ("UAT_PREFLIGHT_EVIDENCE_JSON=" + ($evidence | ConvertTo-Json -Depth 20 -Compress))
+          if ($env:GITHUB_STEP_SUMMARY) {
+            "### Read-only preflight evidence" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            ("- Completion marker: " + $evidence.CompletionMarker) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            ("- Result sets captured: " + $evidence.ResultSetCount) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            ("- Source SHA: " + $evidence.SourceSha) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
 
       - name: Azure backup and PITR metadata (read-only)
         shell: bash
