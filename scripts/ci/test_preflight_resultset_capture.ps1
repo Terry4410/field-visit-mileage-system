@@ -118,7 +118,7 @@ SELECT N'1.8.0-014' AS VersionNumber,
        SYSUTCDATETIME() AS AppliedAt,
        N'isolated' AS AppliedBy;
 SELECT N'CurrentPublishedVersionDuplicates' AS CheckName, 0 AS Violations;
-SELECT N'SchemaVersions' AS TableName, 1 AS RowCount;
+SELECT N'SchemaVersions' AS TableName, 1 AS [RowCount];
 SELECT N'FK_Test' AS ForeignKeyName, N'dbo' AS ParentSchema,
        N'ChangeRequests' AS ParentTable, N'ChangeRequestEvents' AS ReferencedTable,
        CAST(0 AS bit) AS IsNotTrusted;
