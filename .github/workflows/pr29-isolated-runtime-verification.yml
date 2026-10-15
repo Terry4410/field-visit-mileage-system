@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Terry4410/field-visit-mileage-system
-          ref: 2ab1e91daafc28b5fba0ac7a5e115cb716b4c804
+          ref: 6e26755f4a19fa63b4331d8fb7fc1e6cc97533cd
           path: staging-source
           fetch-depth: 1
 
