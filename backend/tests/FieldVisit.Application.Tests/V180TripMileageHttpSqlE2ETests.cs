@@ -70,6 +70,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 builder.UseSetting("ConnectionStrings:DefaultConnection", cs);
                 builder.UseSetting("Auth:Mode", "Demo");
                 builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+                builder.UseSetting("OptionC:Candidate:Enabled", "true");
                 builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
                 builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
                 builder.ConfigureTestServices(services =>
@@ -212,6 +213,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 builder.UseSetting("ConnectionStrings:DefaultConnection", cs);
                 builder.UseSetting("Auth:Mode", "Demo");
                 builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+                builder.UseSetting("OptionC:Candidate:Enabled", "true");
                 builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
                 builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
                 builder.ConfigureTestServices(services =>
@@ -248,11 +250,57 @@ public sealed class V180TripMileageHttpSqlE2ETests
             Assert.Equal("Succeeded", result.Status);
             Assert.Equal(12.5m, result.SuggestedDistanceKm);
             Assert.Equal(300, result.DurationSeconds);
-            var attempt = await db.RouteCalculationAttempts.SingleAsync(x => x.VisitTripId == created.VisitTripId);
+            using var submit = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{created.VisitTripId}/submit")
+            {
+                Content = JsonContent.Create(new SubmitTripRequest(false))
+            };
+            submit.Headers.TryAddWithoutValidation("If-Match", created.RowVersion);
+            using var submittedResponse = await visitor.SendAsync(submit);
+            Assert.True(submittedResponse.IsSuccessStatusCode, await submittedResponse.Content.ReadAsStringAsync());
+            var submitted = await submittedResponse.Content.ReadFromJsonAsync<TripDto>()
+                ?? throw new InvalidOperationException("OPTIONC_PROVIDER_SUBMIT_RESPONSE_MISSING");
+            Assert.Equal("Submitted", submitted.Status);
+
+            using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Leader.UserId, fixture.Leader.EmployeeNo!, "leader", fixture.Team.TeamId));
+            using var retry = await leader.PostAsync($"api/v1/leader/trips/{created.VisitTripId}/route-retry", null);
+            Assert.True(retry.IsSuccessStatusCode, await retry.Content.ReadAsStringAsync());
+            var retryResult = await retry.Content.ReadFromJsonAsync<V180RouteOrchestrationResult>()
+                ?? throw new InvalidOperationException("OPTIONC_ROUTE_RETRY_RESPONSE_MISSING");
+            Assert.Equal("Succeeded", retryResult.Status);
+            Assert.Equal(12.5m, retryResult.SuggestedDistanceKm);
+            Assert.Equal(300, retryResult.DurationSeconds);
+
+            var attempt = await db.RouteCalculationAttempts
+                .Where(x => x.VisitTripId == created.VisitTripId && x.BasisType == "SubmittedSnapshot")
+                .SingleAsync();
             Assert.Equal("GoogleMapsRoutes-TestStub", attempt.Provider);
             Assert.Equal("Succeeded", attempt.Status);
             Assert.Equal("Calculated", (await db.MileageGovernanceEvents
                 .SingleAsync(x => x.RouteCalculationAttemptId == attempt.RouteCalculationAttemptId)).EventType);
+
+            using var calculated = await leader.PostAsJsonAsync(
+                "api/v1/leader/trips/calculate",
+                new MileageBatchRequest("Selected", null, null, [created.VisitTripId]));
+            Assert.True(calculated.IsSuccessStatusCode, await calculated.Content.ReadAsStringAsync());
+            var pendingApproval = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
+                ?? throw new InvalidOperationException("OPTIONC_PROVIDER_PENDING_APPROVAL_RESPONSE_MISSING");
+            Assert.Equal("PendingApproval", pendingApproval.Status);
+
+            using var approved = await leader.PostAsJsonAsync(
+                $"api/v1/trips/{created.VisitTripId}/approve",
+                new ApproveTripRequest(12.5m, pendingApproval.RowVersion,
+                    "provider suggested approval", "ProviderSuggested", attempt.RouteCalculationAttemptId));
+            Assert.True(approved.IsSuccessStatusCode, await approved.Content.ReadAsStringAsync());
+            var approvedTrip = await approved.Content.ReadFromJsonAsync<TripDto>()
+                ?? throw new InvalidOperationException("OPTIONC_PROVIDER_APPROVED_RESPONSE_MISSING");
+            Assert.Equal("Approved", approvedTrip.Status);
+            Assert.Equal(12.5m, approvedTrip.ApprovedDistanceKm);
+            Assert.Equal(37.5m, approvedTrip.ApprovedAmount);
+            Assert.Equal(2, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId));
+            Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
+            Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Approved"));
+            Assert.Equal(1, await db.MileageGovernanceEvents.CountAsync(x => x.VisitTripId == created.VisitTripId && x.EventType == "Approved"));
         }
         finally
         {
