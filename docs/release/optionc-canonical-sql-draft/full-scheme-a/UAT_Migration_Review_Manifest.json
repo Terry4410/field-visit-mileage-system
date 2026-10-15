@@ -77,6 +77,14 @@
     },
     {
       "order": 8,
+      "marker": "1.8.0-LOWRISK-DIRECT",
+      "contract": "authorized direct LowRisk version and immutable audit",
+      "source": "docs/release/optionc-canonical-sql-draft/lowrisk-direct/LowRiskDirectContract.disposable.sql",
+      "deployability": "HOLD_SYMBOLIC_VERSION_NOT_RELEASE_MARKER",
+      "prerequisite": "CreateLowRisk contract and canonical published-version ledger"
+    },
+    {
+      "order": 9,
       "marker": null,
       "contract": "dual-Location MergeFields evidence",
       "source": "docs/release/optionc-canonical-sql-draft/merge/LocationMergeDetails.disposable.sql",
@@ -84,7 +92,7 @@
       "prerequisite": "014, canonical audit extension, Leader review, and approved reference-rebinding policy"
     },
     {
-      "order": 9,
+      "order": 10,
       "marker": "1.8.0-EXCEL-CANONICAL-STATUS",
       "contract": "Excel canonical submission statuses",
       "source": "docs/release/optionc-canonical-sql-draft/excel-import/ExcelImportStatusContract.disposable.sql",

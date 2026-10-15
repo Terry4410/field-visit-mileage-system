@@ -38,12 +38,14 @@ it also proves that Full Scheme A cannot be enabled or tested there yet.
 | 5 | Stage evidence audit events | absent | disposable-only, no SchemaVersion marker | numeric marker and recovery contract required |
 | 6 | LeaderReviewDetails | absent | disposable-only; symbolic marker | numeric marker, compatibility and rollback review required |
 | 7 | Create/LowRisk + reservation | absent | disposable-only; symbolic marker | numeric marker and data compatibility required |
-| 8 | MergeDetails | absent | disposable-only; no SchemaVersion marker | numeric marker and reference-rebinding signoff required |
-| 9 | Excel canonical statuses | absent | disposable-only; symbolic marker | ImportBatch/Item data scan and numeric marker required |
+| 8 | Direct LowRisk version/audit | absent | disposable-only; symbolic marker | numeric marker and canonical direct-applied constraint review required |
+| 9 | MergeDetails | absent | disposable-only; no SchemaVersion marker | numeric marker and reference-rebinding signoff required |
+| 10 | Excel canonical statuses | absent | disposable-only; symbolic marker | ImportBatch/Item data scan and numeric marker required |
 
 Machine-readable order and stop conditions are in
 `full-scheme-a/UAT_Migration_Review_Manifest.json`. The existing symbolic
-markers (`LEADER-REVIEW`, `CREATE-LOWRISK`, `EXCEL-CANONICAL-STATUS`) and
+markers (`LEADER-REVIEW`, `CREATE-LOWRISK`, `LOWRISK-DIRECT`,
+`EXCEL-CANONICAL-STATUS`) and
 unmarked additive scripts are deliberate **HOLD** evidence; they must not be
 executed in UAT as-is. Assigning release identifiers requires an Owner-reviewed
 migration register update. It must not consume or modify 013.
@@ -61,6 +63,9 @@ migration register update. It must not consume or modify 013.
   must be consolidated or strictly sequenced so all eight event types survive.
 - Create/LowRisk replaces the known-code and published-origin CHECKs. Existing
   rows must be proven compatible before `WITH CHECK`.
+- Direct LowRisk extends canonical Applied/event constraints without
+  fabricating a reviewer; all existing event types and reviewed Applied rows
+  must remain accepted.
 - Excel replaces both legacy status CHECKs. Existing distinct statuses and
   column widths require a read-only compatibility report first.
 - MergeDetails has no Location FKs by design. The application locks both
@@ -75,7 +80,7 @@ do not mean runtime UAT verification.
 | Area | Recovery evidence | State |
 |---|---|---|
 | CreateLocation | `V180OptionCCandidateService.CreateAsync`; HTTP route `POST /api/v1/optionc-candidate/locations`; reservation/duplicate SQL test | implemented + isolated PASS |
-| Existing Location maintenance | `V170LocationRepository.UpdateMaintenanceAsync` and `V180OptionCLocationMaintenanceRisk` block published High/Low direct writes | implemented + isolated PASS |
+| Existing Location maintenance | Legacy PUT remains fail-closed. Candidate note-only endpoint uses live Visitor-owner/Leader-managed-team write scope and atomic request/version/event/audit; HighRisk stays reviewed | implemented; final isolated CI pending |
 | Visitor ownership / Team / Org | `V180OptionCSubmissionScope`; `V180OptionCLiveAuthorizationAdapter.AuthorizeSubmissionAsync` | implemented + isolated PASS |
 | Leader managed scope | `AuthorizeLeaderReviewAsync`; `V180OptionCLeaderReviewService.DecideAsync`; independent reviewer rules | implemented + isolated PASS |
 | Shared read vs write | submission scope checks ownership independently of readable Location discovery | implemented + isolated PASS |
@@ -94,6 +99,13 @@ Principal isolated transaction tests live in
 `V180OptionCFinalSecurityGateSqlTests`, including Create/LowRisk, Leader stage,
 Admin publication, Merge approve/reject/lost ACK, revocation, concurrent
 decisions, duplicate DecisionKey, rollback and historical preservation.
+The frozen-policy delta adds
+`Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit`:
+Visitor-owned and Leader-managed-team note-only saves are positive HTTP/DI/SQL
+cases; Admin read scope, cross-org, HR revocation, stale RowVersion, concurrent
+updates and injected late-audit failure are negative cases. The legacy PUT
+remains fail-closed, so read access cannot become write access.
+
 Trip/mileage operational and snapshot evidence lives in
 `V180TripMileageHttpSqlE2ETests`.
 
@@ -141,8 +153,11 @@ so migration execution remains HOLD.
 No step below is currently authorized.
 
 1. Freeze exact backend/frontend artifacts and checksums; confirm flags OFF.
-2. Capture fresh target identity, schema/catalog fingerprint, row counts,
-   historical fingerprints and an approved PITR recovery point.
+2. Quiesce business writes; capture exact allow-listed target identity,
+   immutable `1.8.0-001` baseline verification, four-table high-watermarks,
+   row counts/fingerprints and an approved PITR recovery point. Post-checks use
+   the same high-watermarks; rows above them are excluded, while any change
+   at/below them is STOP/UNKNOWN.
 3. Execute each migration as its own controlled step:
    Preflight -> Up -> Backfill where applicable -> Verify -> historical compare.
 4. Deploy backend with Option C/B3/Candidate OFF; run health and existing v1.8.0 smoke.

@@ -723,17 +723,18 @@ public sealed class V170LocationRepository(
         if(nextTax is {Length:>20})throw new InvalidOperationException("統一編號不可超過 20 個字元。");
         if(nextMasterNote is {Length:>1000})throw new InvalidOperationException("主檔備註不可超過 1000 個字元。");
 
-        // Legacy direct maintenance is not a canonical ChangeRequests
-        // publication writer. Both identity/address (HighRisk) and note-only
-        // (LowRisk) published changes must fail closed, without modifying the
-        // tracked entity or invalidating a pending review's RowVersion.
+        // Legacy direct maintenance derives accessibility from read scope and
+        // is not the frozen-policy LowRisk transaction. HighRisk must enter
+        // independent Admin approval; note-only LowRisk must use the candidate
+        // live-write-authorized atomic direct-save route. Neither may mutate
+        // here or invalidate a pending transaction's RowVersion.
         var published = !row.IsTemporary && row.ApprovalStatus == "Approved";
         V180OptionCLocationMaintenanceRisk.RequireApprovalForPublishedHighRiskChange(
             isPublished: published,
             hasHighRiskChange: V180OptionCLocationMaintenanceRisk.HasHighRiskChange(
                 row.City,row.District,row.Address,row.PlusCode,row.TaxId,
                 nextCity,nextDistrict,nextAddress,nextPlus,nextTax));
-        V180OptionCLocationMaintenanceRisk.RequireCanonicalForPublishedLowRiskChange(
+        V180OptionCLocationMaintenanceRisk.RequireAuthorizedCandidateForPublishedLowRiskChange(
             isPublished: published,
             hasLowRiskChange: !string.Equals(
                 row.MasterNote, nextMasterNote, StringComparison.Ordinal));

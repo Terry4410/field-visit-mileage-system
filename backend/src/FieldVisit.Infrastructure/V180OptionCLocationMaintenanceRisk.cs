@@ -23,17 +23,17 @@ public static class V180OptionCLocationMaintenanceRisk
     }
 
     /// <summary>
-    /// Legacy maintenance must not directly apply even a note-only change to
-    /// an approved Location. Scheme A requires the canonical request,
-    /// independent Leader first-level review, duplicate evidence and atomic
-    /// versioned publication for LowRisk as well as HighRisk.
+    /// Legacy maintenance has read-scope based authorization and therefore
+    /// cannot safely apply a published note. Frozen Scheme A policy permits
+    /// direct LowRisk save only through the candidate transaction that proves
+    /// live write scope and atomically appends request/version/audit evidence.
     /// </summary>
-    public static void RequireCanonicalForPublishedLowRiskChange(
+    public static void RequireAuthorizedCandidateForPublishedLowRiskChange(
         bool isPublished, bool hasLowRiskChange)
     {
         if (isPublished && hasLowRiskChange)
             throw new InvalidOperationException(
-                "LOCATION_LOW_RISK_CHANGE_REQUIRES_OPTIONC_LEADER_REVIEW");
+                "LOCATION_LOW_RISK_CHANGE_REQUIRES_AUTHORIZED_DIRECT_SAVE");
     }
 
     private static bool Changed(string? current, string? proposed) =>

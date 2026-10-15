@@ -16,6 +16,11 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
         return service.SubmitAsync(input, ct);
     }
 
+    [HttpPost("locations/{locationId:int}/low-risk-direct")]
+    public Task<V180B3RequestView> SaveLowRisk(
+        int locationId, V180OptionCLowRiskDirectUpdate input, CancellationToken ct)
+        => service.SaveLowRiskAsync(locationId, input, ct);
+
     [HttpPost("locations")]
     public Task<V180B3RequestView> CreateLocation(
         V180OptionCCreateLocation input, CancellationToken ct)

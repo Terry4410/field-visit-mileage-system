@@ -4,6 +4,7 @@ import{useAuth}from"../auth";
 import type{LocationMaintenance,LocationOfficialSite,MasterDataRow,Team}from"../types";
 import{Link}from"react-router-dom";
 import{todayTaipei}from"../v160";
+import{OPTIONC_CREATE_LOCATION_UI_ENABLED}from"../optionc-approval-flags";
 
 type Props={locationId:number;teamId?:number;onClose:()=>void;onChanged?:()=>void};
 
@@ -89,6 +90,22 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
   const save=async()=>{
     if(!data)return;setBusy(true);setMsg("");
     try{
+      const identityChanged=city.trim()!==(data.city||"")
+        ||district.trim()!==(data.district||"")
+        ||address.trim()!==(data.address||"")
+        ||plus.trim()!==(data.plusCode||"")
+        ||taxId.trim()!==(data.taxId||"");
+      const noteChanged=(masterNote.trim()||"")!==(data.masterNote||"");
+      if(OPTIONC_CREATE_LOCATION_UI_ENABLED&&noteChanged&&!identityChanged){
+        await api(`/optionc-candidate/locations/${locationId}/low-risk-direct`,{
+          method:"POST",body:JSON.stringify({expectedRowVersion:data.rowVersion,
+            masterNote:masterNote.trim()||null,reason:"Authorized low-risk note maintenance",
+            operationKey:crypto.randomUUID()})
+        });
+        await load();
+        setMsg("低風險備註已儲存並建立版本與稽核紀錄。");
+        onChanged?.();return;
+      }
       const row=await api<LocationMaintenance>(`/locations/${locationId}/maintenance`,{method:"PUT",body:JSON.stringify({
         city:city.trim()||null,district:district.trim()||null,address:address.trim()||null,plusCode:plus.trim()||null,
         taxId:taxId.trim()||null,masterNote:masterNote.trim()||null,rowVersion:data.rowVersion

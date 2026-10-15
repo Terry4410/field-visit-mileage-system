@@ -34,6 +34,7 @@ EXPECTED_SHA256 = {
     "audit/StageEvidenceAuditEvents.disposable.sql": "59a5bf105f26aaed578e2d47dd7067bf0c6f9abc771a179ef1032dce3b7b3307",
     "leader-review/LeaderReviewDetails.disposable.sql": "e96ee76d1b51612b57881d96087b1ccf06194f48eb437c0f51dbfbeed726076f",
     "create-lowrisk/CreateLowRiskContract.disposable.sql": "55e2ee2af2adb141d68402f1ffc581366aa96f0bd9438aa61cbec5c5f74ddd03",
+    "lowrisk-direct/LowRiskDirectContract.disposable.sql": "2b70b713a16b58c14929782f03805984b68a412108df5f45f37e54c5dd769aaa",
     "merge/LocationMergeDetails.disposable.sql": "c03d2f2a877121fcecd6d829c4339c27c659b8d0d1c2243abfcb1c810dee1a09",
     "excel-import/ExcelImportStatusContract.disposable.sql": "d581de8349927872a04586c59796891115df4a1bc0a825da7a2fa78deaa3fe32",
 }
@@ -71,7 +72,7 @@ class FullSchemeAUatReadinessTests(unittest.TestCase):
 
     def test_order_preserves_reserved_013_and_exposes_unassigned_additives(self):
         design = self.manifest["orderedDesign"]
-        self.assertEqual(list(range(1, 10)), [step["order"] for step in design])
+        self.assertEqual(list(range(1, 11)), [step["order"] for step in design])
         reserved = [step for step in design if step["marker"] == "1.8.0-013"]
         self.assertEqual(1, len(reserved))
         self.assertEqual("RESERVED_DO_NOT_TOUCH", reserved[0]["deployability"])
@@ -84,11 +85,13 @@ class FullSchemeAUatReadinessTests(unittest.TestCase):
             for relative in (
                 "leader-review/LeaderReviewDetails.disposable.sql",
                 "create-lowrisk/CreateLowRiskContract.disposable.sql",
+                "lowrisk-direct/LowRiskDirectContract.disposable.sql",
                 "excel-import/ExcelImportStatusContract.disposable.sql",
             )
         )
         self.assertIn("1.8.0-LEADER-REVIEW", combined)
         self.assertIn("1.8.0-CREATE-LOWRISK", combined)
+        self.assertIn("1.8.0-LOWRISK-DIRECT", combined)
         self.assertIn("1.8.0-EXCEL-CANONICAL-STATUS", combined)
         statuses = {step["contract"]: step["deployability"] for step in self.manifest["orderedDesign"]}
         self.assertTrue(all("HOLD" in state for name, state in statuses.items() if name in {
@@ -102,11 +105,14 @@ class FullSchemeAUatReadinessTests(unittest.TestCase):
         upper = re.sub(r"/\*.*?\*/", "", sql, flags=re.S).upper()
         for forbidden in (" INSERT ", " UPDATE ", " DELETE ", " MERGE ", " CREATE ", " ALTER ", " DROP ", " EXEC "):
             self.assertNotIn(forbidden, f" {upper} ", forbidden)
-        for table in ("VisitTripStops", "VisitTripSnapshots", "VisitTripSnapshotStops"):
+        for table in ("VisitTrips", "VisitTripStops", "VisitTripSnapshots", "VisitTripSnapshotStops"):
             self.assertIn(f"dbo.{table}", sql)
         self.assertIn("ApprovedDistanceKmSnapshot", sql)
         self.assertIn("LocationId", sql)
         self.assertIn("HISTORICAL_FINGERPRINT_COMPLETE_READ_ONLY", sql)
+        self.assertIn("INCLUDE_NULL_VALUES", sql)
+        self.assertIn("ObservedHighWatermark", sql)
+        self.assertIn("EXPECTED_DATABASE", sql)
 
     def test_runtime_flags_remain_off_and_candidate_boundary_is_present(self):
         appsettings = json.loads((ROOT / "backend/src/FieldVisit.Api/appsettings.json").read_text())
@@ -125,6 +131,7 @@ class FullSchemeAUatReadinessTests(unittest.TestCase):
         required = (
             "CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate",
             "Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history",
+            "Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit",
             "Leader_first_level_review_real_http_stage_evidence_and_admin_publication_preserve_history",
             "MergeFields_real_http_submission_approval_reject_and_history_are_atomic",
             "Reviewer_and_requester_hr_role_revocation_after_request_lock_is_fail_closed",

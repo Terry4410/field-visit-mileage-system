@@ -1,76 +1,45 @@
 $ErrorActionPreference = 'Stop'
-
 $database = 'OptionCIsolated_Fingerprint_' + [Guid]::NewGuid().ToString('N')
 $master = $env:E1_R1_SQL_CONNECTION
-if ([string]::IsNullOrWhiteSpace($master) -or $master -notmatch 'Server=localhost,1433' -or $master -notmatch 'Database=master') {
-    throw 'Historical fingerprint fixture requires the disposable local SQL Server master connection.'
+if ([string]::IsNullOrWhiteSpace($master) -or $master -notmatch 'Server=localhost,1433' -or $master -notmatch 'Database=master') { throw 'Historical fingerprint fixture requires disposable loopback SQL master.' }
+$builder = [System.Data.Common.DbConnectionStringBuilder]::new(); $builder.ConnectionString = $master; $builder['Database'] = $database
+$connection = $builder.ConnectionString; $created = $false
+$script = Join-Path $PSScriptRoot '../../docs/release/optionc-canonical-sql-draft/full-scheme-a/HistoricalFingerprint.readonly.sql'
+function Invoke-Fingerprint([hashtable]$bounds,[string]$expectedDatabase=$database) {
+  $variables = @("EXPECTED_SERVER=localhost","EXPECTED_DATABASE=$expectedDatabase","MAX_VISIT_TRIP_ID=$($bounds.Trips)","MAX_VISIT_TRIP_STOP_ID=$($bounds.Stops)","MAX_VISIT_TRIP_SNAPSHOT_ID=$($bounds.Snapshots)","MAX_VISIT_TRIP_SNAPSHOT_STOP_ID=$($bounds.SnapshotStops)")
+  Invoke-Sqlcmd -ConnectionString $connection -InputFile $script -Variable $variables -AbortOnError -OutputAs DataSet -QueryTimeout 30
 }
-
-$builder = [System.Data.Common.DbConnectionStringBuilder]::new()
-$builder.ConnectionString = $master
-$builder['Database'] = $database
-$fixtureConnection = $builder.ConnectionString
-$created = $false
-
+function Assert-Same($before,$after) {
+  foreach($i in 0..3) { if ([int64]$before.Tables[$i].Rows[0].RowCount -ne [int64]$after.Tables[$i].Rows[0].RowCount -or [string]$before.Tables[$i].Rows[0].FingerprintSha256 -ne [string]$after.Tables[$i].Rows[0].FingerprintSha256) { throw "Historical fingerprint changed for result $i." } }
+}
 try {
-    Invoke-Sqlcmd -ConnectionString $master -Query "CREATE DATABASE [$database]" -AbortOnError -QueryTimeout 30
-    $created = $true
-    $schema = @'
-CREATE TABLE dbo.VisitTripStops(
- VisitTripStopId bigint NOT NULL PRIMARY KEY, VisitTripId bigint NOT NULL,
- StopSequence int NOT NULL, LocationId int NULL,
- LocationNameSnapshot nvarchar(200) NULL, AddressSnapshot nvarchar(500) NULL);
-CREATE TABLE dbo.VisitTripSnapshots(
- VisitTripSnapshotId bigint NOT NULL PRIMARY KEY, VisitTripId bigint NOT NULL,
- SnapshotVersion int NOT NULL, SnapshotType nvarchar(30) NOT NULL,
- ApprovedDistanceKmSnapshot decimal(10,2) NULL,
- SubsidyAmountSnapshot decimal(12,2) NULL, StatusSnapshot nvarchar(30) NOT NULL);
-CREATE TABLE dbo.VisitTripSnapshotStops(
- VisitTripSnapshotStopId bigint NOT NULL PRIMARY KEY,
- VisitTripSnapshotId bigint NOT NULL, StopSequence int NOT NULL,
- LocationId int NULL, LocationNameSnapshot nvarchar(200) NULL,
- AddressSnapshot nvarchar(500) NULL);
-INSERT dbo.VisitTripStops VALUES(1,10,1,100,N'Frozen A',N'Address A');
-INSERT dbo.VisitTripSnapshots VALUES(2,10,1,N'Approved',12.30,30.75,N'Approved');
-INSERT dbo.VisitTripSnapshotStops VALUES(3,2,1,100,N'Frozen A',N'Address A');
+  Invoke-Sqlcmd -ConnectionString $master -Query "CREATE DATABASE [$database]" -AbortOnError -QueryTimeout 30; $created = $true
+  Invoke-Sqlcmd -ConnectionString $connection -AbortOnError -QueryTimeout 30 -Query @'
+CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(40) PRIMARY KEY);
+CREATE TABLE dbo.SchemaMigrationDataBaselines(MigrationVersion nvarchar(40) PRIMARY KEY);
+CREATE TABLE dbo.VisitTrips(VisitTripId bigint PRIMARY KEY,TripNo nvarchar(40),UserId int,OrganizationId int,TeamId int,Status nvarchar(30),VehicleType nvarchar(30),Purpose nvarchar(500),Notes nvarchar(500),ReturnReason nvarchar(500));
+CREATE TABLE dbo.VisitTripStops(VisitTripStopId bigint PRIMARY KEY,VisitTripId bigint,StopSequence int,LocationId int,LocationNameSnapshot nvarchar(200),AddressSnapshot nvarchar(500));
+CREATE TABLE dbo.VisitTripSnapshots(VisitTripSnapshotId bigint PRIMARY KEY,VisitTripId bigint,SnapshotVersion int,SnapshotType nvarchar(30),ApprovedDistanceKmSnapshot decimal(10,2),SubsidyAmountSnapshot decimal(12,2),StatusSnapshot nvarchar(30));
+CREATE TABLE dbo.VisitTripSnapshotStops(VisitTripSnapshotStopId bigint PRIMARY KEY,VisitTripSnapshotId bigint,StopSequence int,LocationId int,LocationNameSnapshot nvarchar(200),AddressSnapshot nvarchar(500));
+INSERT dbo.SchemaVersions VALUES(N'1.8.0-001'); INSERT dbo.SchemaMigrationDataBaselines VALUES(N'1.8.0-001');
+INSERT dbo.VisitTrips VALUES(1,N'T|1',7,1,1,N'Approved',N'Car',NULL,N'<NULL>',N'A:B');
+INSERT dbo.VisitTripStops VALUES(2,1,1,100,N'Frozen|A',NULL);
+INSERT dbo.VisitTripSnapshots VALUES(3,1,1,N'Approved',12.30,30.75,N'Approved');
+INSERT dbo.VisitTripSnapshotStops VALUES(4,3,1,100,N'Frozen:A',N'Address|A');
 '@
-    Invoke-Sqlcmd -ConnectionString $fixtureConnection -Query $schema -AbortOnError -QueryTimeout 30
-
-    $before = Invoke-Sqlcmd -ConnectionString $fixtureConnection -Query @'
-SELECT
- (SELECT COUNT_BIG(*) FROM dbo.VisitTripStops) AS TripStops,
- (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS Snapshots,
- (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshotStops) AS SnapshotStops;
-'@ -AbortOnError -QueryTimeout 30
-
-    $path = Join-Path $PSScriptRoot '../../docs/release/optionc-canonical-sql-draft/full-scheme-a/HistoricalFingerprint.readonly.sql'
-    $data = Invoke-Sqlcmd -ConnectionString $fixtureConnection -InputFile $path -AbortOnError -OutputAs DataSet -QueryTimeout 30
-    $tables = @($data.Tables)
-    if ($tables.Count -ne 4) { throw "Expected four fingerprint result sets; observed $($tables.Count)." }
-    foreach ($index in 0..2) {
-        if ($tables[$index].Rows.Count -ne 1) { throw "Fingerprint result $index is missing." }
-        if ([string]::IsNullOrWhiteSpace([string]$tables[$index].Rows[0].FingerprintSha256)) {
-            throw "Fingerprint result $index has no SHA-256."
-        }
-        if ([int64]$tables[$index].Rows[0].RowCount -ne 1) { throw "Fingerprint result $index row count drift." }
-    }
-    if ([string]$tables[3].Rows[0].Result -ne 'HISTORICAL_FINGERPRINT_COMPLETE_READ_ONLY') {
-        throw 'Historical fingerprint completion marker is invalid.'
-    }
-
-    $after = Invoke-Sqlcmd -ConnectionString $fixtureConnection -Query @'
-SELECT
- (SELECT COUNT_BIG(*) FROM dbo.VisitTripStops) AS TripStops,
- (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshots) AS Snapshots,
- (SELECT COUNT_BIG(*) FROM dbo.VisitTripSnapshotStops) AS SnapshotStops;
-'@ -AbortOnError -QueryTimeout 30
-    foreach ($column in 'TripStops','Snapshots','SnapshotStops') {
-        if ([int64]$before.$column -ne [int64]$after.$column) { throw "Read-only fingerprint mutated $column." }
-    }
-    Write-Output 'PASS historical fingerprint SELECT-only disposable runtime'
-}
-finally {
-    if ($created) {
-        Invoke-Sqlcmd -ConnectionString $master -Query "ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$database]" -AbortOnError -QueryTimeout 30
-    }
-}
+  $unbounded=@{Trips=[int64]::MaxValue;Stops=[int64]::MaxValue;Snapshots=[int64]::MaxValue;SnapshotStops=[int64]::MaxValue}; $capture=Invoke-Fingerprint $unbounded
+  if($capture.Tables.Count -ne 5){throw "Expected five result sets; observed $($capture.Tables.Count)."}
+  foreach($i in 0..3){if([int64]$capture.Tables[$i].Rows[0].RowCount -ne 1){throw "Missing fingerprint result $i."};if([string]::IsNullOrWhiteSpace([string]$capture.Tables[$i].Rows[0].FingerprintSha256)){throw "Missing hash $i."}}
+  $bounds=@{Trips=[int64]$capture.Tables[0].Rows[0].ObservedHighWatermark;Stops=[int64]$capture.Tables[1].Rows[0].ObservedHighWatermark;Snapshots=[int64]$capture.Tables[2].Rows[0].ObservedHighWatermark;SnapshotStops=[int64]$capture.Tables[3].Rows[0].ObservedHighWatermark}
+  Assert-Same $capture (Invoke-Fingerprint $bounds)
+  Invoke-Sqlcmd -ConnectionString $connection -AbortOnError -Query @'
+INSERT dbo.VisitTrips VALUES(11,N'new',7,1,1,N'Draft',N'Car',NULL,NULL,NULL); INSERT dbo.VisitTripStops VALUES(12,11,1,100,N'new',N'new'); INSERT dbo.VisitTripSnapshots VALUES(13,11,1,N'Submitted',NULL,NULL,N'Submitted'); INSERT dbo.VisitTripSnapshotStops VALUES(14,13,1,100,N'new',N'new');
+'@
+  Assert-Same $capture (Invoke-Fingerprint $bounds)
+  Invoke-Sqlcmd -ConnectionString $connection -AbortOnError -Query "UPDATE dbo.VisitTripStops SET LocationNameSnapshot=N'Frozen|B' WHERE VisitTripStopId=2"
+  $tampered=Invoke-Fingerprint $bounds
+  if([int64]$tampered.Tables[1].Rows[0].RowCount -ne [int64]$capture.Tables[1].Rows[0].RowCount){throw 'Tamper fixture changed row count.'}
+  if([string]$tampered.Tables[1].Rows[0].FingerprintSha256 -eq [string]$capture.Tables[1].Rows[0].FingerprintSha256){throw 'Frozen-value tamper was not detected.'}
+  try { Invoke-Fingerprint $bounds 'WrongDatabase'; throw 'Wrong database allow-list unexpectedly passed.' } catch { if($_.Exception.Message -match 'unexpectedly passed'){throw} }
+  Write-Output 'PASS historical fingerprint: 1.8.0-001 prerequisite, four high-water tables, NULL/delimiter serialization, constant-count tamper detection, exact DB allow-list'
+} finally { if ($created) { Invoke-Sqlcmd -ConnectionString $master -Query "ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$database]" -AbortOnError -QueryTimeout 30 } }

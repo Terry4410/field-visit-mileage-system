@@ -79,8 +79,17 @@ jobs:
 
       - name: Backend Release build and complete tests
         run: |
+          mkdir -p artifacts/test-results
           dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --logger "console;verbosity=normal"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --logger "trx;LogFileName=backend-full.trx" --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='artifacts/test-results/backend-full.trx'
+          root=ET.parse(p).getroot(); counters=next(x for x in root.iter() if x.tag.endswith('Counters'))
+          total=int(counters.attrib.get('total','0')); executed=int(counters.attrib.get('executed','0'))
+          if total<=0 or executed<=0 or executed!=total: raise SystemExit(f'Invalid TRX counters total={total} executed={executed}')
+          print(f'BACKEND_TRX_NONZERO total={total} executed={executed}')
+          PY
 
       - name: Historical fingerprint disposable SQL runtime
         shell: pwsh
@@ -91,9 +100,17 @@ jobs:
 
       - name: Real Option C HTTP DI SQL and canonical rehearsal
         run: |
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCFinalSecurityGateSqlTests' --logger "console;verbosity=normal"
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCSqlDraftRehearsalTests' --logger "console;verbosity=normal"
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180TripMileageHttpSqlE2ETests' --logger "console;verbosity=normal"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCFinalSecurityGateSqlTests' --logger "trx;LogFileName=optionc-http-sql.trx" --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCSqlDraftRehearsalTests' --logger "trx;LogFileName=canonical-rehearsal.trx" --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180TripMileageHttpSqlE2ETests' --logger "trx;LogFileName=trip-mileage-http-sql.trx" --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import glob,xml.etree.ElementTree as ET
+          for p in glob.glob('artifacts/test-results/*.trx'):
+            root=ET.parse(p).getroot(); counters=next(x for x in root.iter() if x.tag.endswith('Counters'))
+            total=int(counters.attrib.get('total','0')); executed=int(counters.attrib.get('executed','0'))
+            if total<=0 or executed<=0: raise SystemExit(f'Zero-test TRX: {p} total={total} executed={executed}')
+            print(f'TRX_NONZERO {p} total={total} executed={executed}')
+          PY
 
       - name: Explicit release HOLD
         if: always()
