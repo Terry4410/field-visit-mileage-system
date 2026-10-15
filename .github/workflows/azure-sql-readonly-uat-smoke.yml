@@ -171,11 +171,12 @@ jobs:
                 Applicability = 'UnclassifiedDataSuppressed'
               }
             }
+            $projectedColumns = @(Get-ApprovedColumnNames $columns)
             $rows = @($Table.Rows | ForEach-Object { Convert-Row $_ $columns })
             $applicability = if ($rows.Count -eq 0) { 'NotApplicable' } else { 'Executed' }
             [pscustomobject]@{
               Kind = $kind
-              Columns = $columns
+              Columns = $projectedColumns
               RowCount = $rows.Count
               Rows = $rows
               Applicability = $applicability
@@ -519,12 +520,15 @@ jobs:
             }
           }
 
+          function Get-ApprovedColumnNames([string[]]$Columns) {
+            $allowed = 'ServerName|DatabaseName|ApplicationName|ObservedUtc|ConnectedIdentity|ReadOnlyIdentity|VersionNumber|AppliedAt|MigrationPhase|CanonicalRequestTablesPresent|StageAndPublishedVersionsPresent|MergeDetailsPresent|CanonicalEvidenceAuditExtended|TableName|RowCount|ForeignKeyName|ParentSchema|ParentTable|ReferencedTable|IsNotTrusted|ConstraintName|is_not_trusted|definition|IndexName|is_unique|is_unique_constraint|is_disabled|IndexFingerprint|CatalogFingerprintSha256|OriginalLogin|ServerPrincipal|DatabaseUser|IsDbOwner|IsDbDdlAdmin|IsDbDatawriter|CanCreateTable|CanAlterAnyUser|CanInsertChangeRequests|CanUpdateChangeRequests|CanDeleteChangeRequests|CanInsertSchemaVersions|CanUpdateLocations|CheckName|Violations|Result|LatestSchemaVersion|CompletedUtc'
+            return @($Columns | Where-Object { $_ -match "^($allowed)$" })
+          }
+
           function Convert-Row([System.Data.DataRow]$Row, [string[]]$Columns) {
             $record = [ordered]@{}
-            $allowed = 'ServerName|DatabaseName|ApplicationName|ObservedUtc|ConnectedIdentity|ReadOnlyIdentity|VersionNumber|AppliedAt|MigrationPhase|CanonicalRequestTablesPresent|StageAndPublishedVersionsPresent|MergeDetailsPresent|CanonicalEvidenceAuditExtended|TableName|RowCount|ForeignKeyName|ParentSchema|ParentTable|ReferencedTable|IsNotTrusted|ConstraintName|is_not_trusted|definition|IndexName|is_unique|is_unique_constraint|is_disabled|IndexFingerprint|CatalogFingerprintSha256|OriginalLogin|ServerPrincipal|DatabaseUser|IsDbOwner|IsDbDdlAdmin|IsDbDatawriter|CanCreateTable|CanAlterAnyUser|CanInsertChangeRequests|CanUpdateChangeRequests|CanDeleteChangeRequests|CanInsertSchemaVersions|CanUpdateLocations|CheckName|Violations|Result|LatestSchemaVersion|CompletedUtc'
             $sensitive = @('ConnectedIdentity','ReadOnlyIdentity','OriginalLogin','ServerPrincipal','DatabaseUser')
-            foreach ($name in $Columns) {
-              if ($name -notmatch "^($allowed)$") { continue }
+            foreach ($name in @(Get-ApprovedColumnNames $Columns)) {
               $value = $Row[$name]
               if ($value -is [System.DBNull]) {
                 $value = $null
