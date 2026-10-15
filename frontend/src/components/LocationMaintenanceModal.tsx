@@ -4,7 +4,7 @@ import{useAuth}from"../auth";
 import type{LocationMaintenance,LocationOfficialSite,MasterDataRow,Team}from"../types";
 import{Link}from"react-router-dom";
 import{todayTaipei}from"../v160";
-import{OPTIONC_CREATE_LOCATION_UI_ENABLED}from"../optionc-approval-flags";
+import{OPTIONC_APPROVAL_UI_ENABLED,OPTIONC_DIRECT_LOWRISK_UI_ENABLED}from"../optionc-approval-flags";
 
 type Props={locationId:number;teamId?:number;onClose:()=>void;onChanged?:()=>void};
 
@@ -96,7 +96,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
         ||plus.trim()!==(data.plusCode||"")
         ||taxId.trim()!==(data.taxId||"");
       const noteChanged=(masterNote.trim()||"")!==(data.masterNote||"");
-      if(OPTIONC_CREATE_LOCATION_UI_ENABLED&&noteChanged&&!identityChanged){
+      if(OPTIONC_DIRECT_LOWRISK_UI_ENABLED&&noteChanged&&!identityChanged){
         await api(`/optionc-candidate/locations/${locationId}/low-risk-direct`,{
           method:"POST",body:JSON.stringify({expectedRowVersion:data.rowVersion,
             masterNote:masterNote.trim()||null,reason:"Authorized low-risk note maintenance",
@@ -104,6 +104,18 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
         });
         await load();
         setMsg("低風險備註已儲存並建立版本與稽核紀錄。");
+        onChanged?.();return;
+      }
+      if(OPTIONC_APPROVAL_UI_ENABLED&&identityChanged){
+        const request=await api<{requestPublicId:string;status:string}>(`/optionc-candidate/locations/${locationId}/changes`,{
+          method:"POST",body:JSON.stringify({
+            locationId,expectedRowVersion:data.rowVersion,reason:"Location maintenance submitted for independent review",
+            proposed:{locationName:data.locationName,city:city.trim()||null,district:district.trim()||null,
+              address:address.trim()||null,plusCode:plus.trim()||null,taxId:taxId.trim()||null,
+              masterNote:masterNote.trim()||null}
+          })
+        });
+        setMsg(`高風險異動已送出獨立覆核（${request.status}）。發布前不會直接修改正式地點。`);
         onChanged?.();return;
       }
       const row=await api<LocationMaintenance>(`/locations/${locationId}/maintenance`,{method:"PUT",body:JSON.stringify({
