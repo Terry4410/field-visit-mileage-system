@@ -82,7 +82,7 @@ foreach($m in $chain){
   if($actual -ne $expected[$m]){throw "R3_VERSION_MISMATCH_$m"}
   Write-Output "MIGRATION_PASS $($expected[$m])"
 }
-try { $file=Join-Path $root '1800_020/Up.sql'; Run '1800_020/Up.sql rerun-negative' (Get-Content -LiteralPath $file -Raw) $file; throw 'R3_RERUN_UNEXPECTED_PASS' } catch { if($_.Exception.Message -match 'UNEXPECTED_PASS'){throw}; if($_.Exception.ToString() -notmatch '1\.8\.0-020_RERUN_STOP'){throw 'R3_RERUN_NEGATIVE_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_RERUN_PASS' }
+try { $file=Join-Path $root '1800_020/Preflight.sql'; Run '1800_020/Preflight.sql rerun-negative' (Get-Content -LiteralPath $file -Raw) $file; throw 'R3_RERUN_UNEXPECTED_PASS' } catch { if($_.Exception.Message -match 'UNEXPECTED_PASS'){throw}; if($_.Exception.ToString() -notmatch '1\.8\.0-020_RERUN_STOP'){throw 'R3_RERUN_NEGATIVE_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_RERUN_PASS' }
 $count=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT COUNT(*) C FROM dbo.SchemaVersions').C
 if($count -ne 10){throw "R3_FINAL_MARKER_COUNT_$count"}
 try { Run 'unknown-commit-negative' "SET XACT_ABORT ON; BEGIN TRAN; INSERT dbo.SchemaVersions VALUES(N'1.8.0-021',N'injected failure',SYSUTCDATETIME(),N'test'); THROW 52999,N'R3_INJECTED_FAILURE_STOP',1; COMMIT"; throw 'R3_FAILURE_DID_NOT_STOP' } catch { if($_.Exception.Message -match 'DID_NOT_STOP'){throw}; if($_.Exception.ToString() -notmatch 'R3_INJECTED_FAILURE_STOP'){throw 'R3_FAILURE_INJECTION_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_FAILURE_INJECTION_PASS' }
