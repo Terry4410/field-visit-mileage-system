@@ -44,7 +44,9 @@ function Get-ColumnNames([System.Data.DataTable]$Table) {
 
 function Convert-Row([System.Data.DataRow]$Row, [string[]]$Columns) {
   $record = [ordered]@{}
+  $allowed = 'ServerName|DatabaseName|ApplicationName|ObservedUtc|ConnectedIdentity|ReadOnlyIdentity|VersionNumber|AppliedAt|MigrationPhase|CanonicalRequestTablesPresent|StageAndPublishedVersionsPresent|MergeDetailsPresent|CanonicalEvidenceAuditExtended|TableName|RowCount|ForeignKeyName|ParentSchema|ParentTable|ReferencedTable|IsNotTrusted|ConstraintName|is_not_trusted|definition|IndexName|is_unique|is_unique_constraint|is_disabled|IndexFingerprint|CatalogFingerprintSha256|OriginalLogin|ServerPrincipal|DatabaseUser|IsDbOwner|IsDbDdlAdmin|IsDbDatawriter|CanCreateTable|CanAlterAnyUser|CanInsertChangeRequests|CanUpdateChangeRequests|CanDeleteChangeRequests|CanInsertSchemaVersions|CanUpdateLocations|CheckName|Violations|Result|LatestSchemaVersion|CompletedUtc'
   foreach ($name in $Columns) {
+    if ($name -notmatch "^($allowed)$") { continue }
     $value = $Row[$name]
     if ($value -is [System.DBNull]) {
       $value = $null
@@ -56,16 +58,6 @@ function Convert-Row([System.Data.DataRow]$Row, [string[]]$Columns) {
     $record[$name] = $value
   }
   return [pscustomobject]$record
-}
-
-function Convert-Table([System.Data.DataTable]$Table) {
-  $columns = Get-ColumnNames $Table
-  $rows = @($Table.Rows | ForEach-Object { Convert-Row $_ $columns })
-  return [pscustomobject]@{
-    Columns = $columns
-    RowCount = $rows.Count
-    Rows = $rows
-  }
 }
 
 function Get-ResultKind([string[]]$Columns) {
