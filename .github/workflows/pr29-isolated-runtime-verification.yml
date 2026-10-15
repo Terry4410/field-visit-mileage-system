@@ -157,9 +157,15 @@ jobs:
             ExpectSqlGuard 'partial-014' 51016 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial014' } 'OptionCIsolated_PR29_Partial014' }
             NewDb 'OptionCIsolated_PR29_NoLocations' '1.8.0-010' $false 'none' $false
             ExpectSqlGuard 'missing-required-locations-unknown-permissions' 51024 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_NoLocations' } 'OptionCIsolated_PR29_NoLocations' }
+            NewDb 'OptionCIsolated_PR29_Unexpected013' '1.8.0-014' $false
+            Admin "INSERT dbo.SchemaVersions VALUES(N'1.8.0-013',SYSUTCDATETIME());" 'OptionCIsolated_PR29_Unexpected013'
+            ExpectSqlGuard 'unexpected-013-marker' 51027 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Unexpected013' } 'OptionCIsolated_PR29_Unexpected013' }
+            NewDb 'OptionCIsolated_PR29_Integrity' '1.8.0-010' $false
+            Admin "CREATE TABLE dbo.ProjectLocations(LocationId INT NOT NULL); INSERT dbo.ProjectLocations VALUES(999);" 'OptionCIsolated_PR29_Integrity'
+            ExpectSqlGuard 'orphan-project-location' 51030 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Integrity' } 'OptionCIsolated_PR29_Integrity' }
             Write-Host 'PR29_RUNTIME_MATRIX=PASS'
           } finally {
-            foreach ($db in @('OptionCIsolated_PR29_Runtime','OptionCIsolated_PR29_008','OptionCIsolated_PR29_009','OptionCIsolated_PR29_Partial011','OptionCIsolated_PR29_Partial014','OptionCIsolated_PR29_NoLocations')) {
+            foreach ($db in @('OptionCIsolated_PR29_Runtime','OptionCIsolated_PR29_008','OptionCIsolated_PR29_009','OptionCIsolated_PR29_Partial011','OptionCIsolated_PR29_Partial014','OptionCIsolated_PR29_NoLocations','OptionCIsolated_PR29_Unexpected013','OptionCIsolated_PR29_Integrity')) {
               try { Admin "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Warning "cleanup $db failed: $($_.Exception.Message)" }
             }
             try { Admin "IF SUSER_ID(N'$roLogin') IS NOT NULL DROP LOGIN [$roLogin];" } catch { Write-Warning "cleanup login failed: $($_.Exception.Message)" }
