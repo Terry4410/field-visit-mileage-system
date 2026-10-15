@@ -222,6 +222,17 @@ public sealed class V180TripMileageHttpSqlE2ETests
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await db.Database.EnsureCreatedAsync();
             var fixture = await SeedAsync(db);
+            await db.Database.ExecuteSqlRawAsync("""
+                IF OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NULL
+                    CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(40) NOT NULL PRIMARY KEY,Description nvarchar(500) NULL,AppliedAt datetime2(3) NOT NULL,AppliedBy nvarchar(200) NULL);
+                IF OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NULL
+                    CREATE TABLE dbo.LocationCreateReservations(LocationCreateReservationId bigint IDENTITY PRIMARY KEY,LocationId int NOT NULL,ReservationStatus nvarchar(30) NOT NULL,ChangeRequestId bigint NULL);
+                IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK')
+                    INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.8.0-CREATE-LOWRISK',N'disposable trip guard',SYSUTCDATETIME(),N'E2E');
+                """);
+            await db.Database.ExecuteSqlRawAsync(
+                "INSERT dbo.LocationCreateReservations(LocationId,ReservationStatus) VALUES ({0},N'Pending')",
+                fixture.Pending.LocationId);
             using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
             visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Visitor.UserId, fixture.Visitor.EmployeeNo!, "visitor", fixture.Team.TeamId));
             using var createdResponse = await visitor.PostAsJsonAsync(
