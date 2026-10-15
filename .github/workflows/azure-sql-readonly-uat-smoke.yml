@@ -89,8 +89,8 @@ jobs:
 
       - name: Query Azure SQL using Microsoft Entra access token
         env:
-          CONFIGURED_SERVER_NAME: \${{ vars.AZURE_SQL_SERVER_NAME }}
-          CONFIGURED_DATABASE: \${{ vars.AZURE_SQL_DATABASE }}
+          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
