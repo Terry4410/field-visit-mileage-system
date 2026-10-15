@@ -57,6 +57,8 @@ DECLARE @Latest nvarchar(32) =
 );
 IF @Latest IS NULL OR @Latest NOT IN (N'1.8.0-008',N'1.8.0-009',N'1.8.0-010',N'1.8.0-011',N'1.8.0-012',N'1.8.0-014')
   THROW 51006, 'STOP: unsupported SchemaVersions head.', 1;
+IF EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE CONVERT(nvarchar(32),VersionNumber)=N'1.8.0-013')
+  THROW 51027, 'STOP: unauthorized Migration 013 marker is present.', 1;
 
 DECLARE @cr bit=CASE WHEN OBJECT_ID(N'dbo.ChangeRequests',N'U') IS NULL THEN 0 ELSE 1 END;
 DECLARE @ev bit=CASE WHEN OBJECT_ID(N'dbo.ChangeRequestEvents',N'U') IS NULL THEN 0 ELSE 1 END;
@@ -170,13 +172,31 @@ WHERE OBJECT_NAME(i.object_id) IN
 -- Optional catalog queries use dynamic SQL so baseline 010/011/012 does not
 -- compile references to tables that are created only by later migrations.
 IF OBJECT_ID(N'dbo.ProjectLocations',N'U') IS NOT NULL
-  EXEC sys.sp_executesql N'SELECT N''ProjectLocationsWithoutLocation'' AS CheckName, COUNT(*) AS Violations FROM dbo.ProjectLocations pl LEFT JOIN dbo.Locations l ON l.LocationId=pl.LocationId WHERE l.LocationId IS NULL';
+  EXEC sys.sp_executesql N'
+    SELECT N''ProjectLocationsWithoutLocation'' AS CheckName, COUNT(*) AS Violations
+    FROM dbo.ProjectLocations pl LEFT JOIN dbo.Locations l ON l.LocationId=pl.LocationId
+    WHERE l.LocationId IS NULL;
+    IF EXISTS (SELECT 1 FROM dbo.ProjectLocations pl LEFT JOIN dbo.Locations l ON l.LocationId=pl.LocationId WHERE l.LocationId IS NULL)
+      THROW 51030, ''STOP: orphan ProjectLocations detected.'', 1;';
 IF OBJECT_ID(N'dbo.UserFavoriteLocations',N'U') IS NOT NULL
-  EXEC sys.sp_executesql N'SELECT N''FavoriteLocationsWithoutLocation'' AS CheckName, COUNT(*) AS Violations FROM dbo.UserFavoriteLocations f LEFT JOIN dbo.Locations l ON l.LocationId=f.LocationId WHERE l.LocationId IS NULL';
+  EXEC sys.sp_executesql N'
+    SELECT N''FavoriteLocationsWithoutLocation'' AS CheckName, COUNT(*) AS Violations
+    FROM dbo.UserFavoriteLocations f LEFT JOIN dbo.Locations l ON l.LocationId=f.LocationId
+    WHERE l.LocationId IS NULL;
+    IF EXISTS (SELECT 1 FROM dbo.UserFavoriteLocations f LEFT JOIN dbo.Locations l ON l.LocationId=f.LocationId WHERE l.LocationId IS NULL)
+      THROW 51031, ''STOP: orphan FavoriteLocations detected.'', 1;';
 IF @pv=1
-  EXEC sys.sp_executesql N'SELECT N''CurrentPublishedVersionDuplicates'' AS CheckName, COUNT(*) AS Violations FROM (SELECT LocationId FROM dbo.LocationPublishedVersions WHERE IsCurrent=1 GROUP BY LocationId HAVING COUNT(*)>1) d';
+  EXEC sys.sp_executesql N'
+    SELECT N''CurrentPublishedVersionDuplicates'' AS CheckName, COUNT(*) AS Violations
+    FROM (SELECT LocationId FROM dbo.LocationPublishedVersions WHERE IsCurrent=1 GROUP BY LocationId HAVING COUNT(*)>1) d;
+    IF EXISTS (SELECT LocationId FROM dbo.LocationPublishedVersions WHERE IsCurrent=1 GROUP BY LocationId HAVING COUNT(*)>1)
+      THROW 51032, ''STOP: duplicate current LocationPublishedVersions detected.'', 1;';
 IF @cr=1
-  EXEC sys.sp_executesql N'SELECT N''PendingDuplicateRequestSlots'' AS CheckName, COUNT(*) AS Violations FROM (SELECT OrganizationId,EntityId FROM dbo.ChangeRequests WHERE Status=N''Pending'' GROUP BY OrganizationId,EntityId HAVING COUNT(*)>1) d';
+  EXEC sys.sp_executesql N'
+    SELECT N''PendingDuplicateRequestSlots'' AS CheckName, COUNT(*) AS Violations
+    FROM (SELECT OrganizationId,EntityId FROM dbo.ChangeRequests WHERE Status=N''Pending'' GROUP BY OrganizationId,EntityId HAVING COUNT(*)>1) d;
+    IF EXISTS (SELECT OrganizationId,EntityId FROM dbo.ChangeRequests WHERE Status=N''Pending'' GROUP BY OrganizationId,EntityId HAVING COUNT(*)>1)
+      THROW 51033, ''STOP: duplicate pending canonical request slot detected.'', 1;';
 
 -- Permission evidence is diagnostic only; this block performs no write or grant.
 -- Unknown permission metadata is fail-closed; it is never treated as DENY WRITE.
