@@ -36,7 +36,7 @@ foreach($m in $chain){
   foreach($f in @('Preflight.sql','Up.sql')){Run (Get-Content (Join-Path $dir $f) -Raw)}
   if($m -eq '1800_014'){Run (Get-Content (Join-Path $dir 'Backfill.sql') -Raw)}
   Run (Get-Content (Join-Path $dir 'Verify.sql') -Raw)
-  $actual=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT TOP(1) sv.VersionNumber FROM dbo.SchemaVersions AS sv ORDER BY sv.AppliedAt DESC,sv.VersionNumber DESC").VersionNumber
+  $actual=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT MAX(VersionNumber) AS VersionNumber FROM dbo.SchemaVersions").VersionNumber
   if($actual -ne $expected[$m]){throw "R3_VERSION_MISMATCH_$m"}
   Write-Output "MIGRATION_PASS $($expected[$m])"
 }
@@ -49,5 +49,5 @@ if($count -ne 10){throw "R3_FINAL_MARKER_COUNT_$count"}
 try { Run "BEGIN TRAN; INSERT dbo.SchemaVersions VALUES(N'1.8.0-021',N'injected failure',SYSUTCDATETIME(),N'test'); THROW 52999,N'R3_INJECTED_FAILURE_STOP',1; COMMIT"; throw 'R3_FAILURE_DID_NOT_STOP' } catch { if($_.Exception.Message -match 'DID_NOT_STOP'){throw}; Write-Output 'FAIL_CLOSED_FAILURE_INJECTION_PASS' }
 $hist=Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT COUNT(*) RowCount FROM dbo.VisitTrips'
 if($hist.RowCount -ne 1){throw 'R3_HISTORY_ROWCOUNT_CHANGED'}
-Write-Output "R3_FULL_CHAIN_PASS final=$((Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT TOP(1) sv.VersionNumber FROM dbo.SchemaVersions AS sv ORDER BY sv.AppliedAt DESC,sv.VersionNumber DESC').VersionNumber)"
+Write-Output "R3_FULL_CHAIN_PASS final=$((Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT MAX(VersionNumber) AS VersionNumber FROM dbo.SchemaVersions').VersionNumber)"
 } finally { Invoke-Sqlcmd -ConnectionString $raw -Query "ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]" -AbortOnError }
