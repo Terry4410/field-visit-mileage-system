@@ -24,6 +24,9 @@ INSERT dbo.VisitTripStops VALUES(1,1,10,N'Frozen A',N'Address A'); INSERT dbo.Vi
 INSERT dbo.SchemaVersions VALUES(N'1.8.0-010',N'baseline',SYSUTCDATETIME(),N'fixture');
 '@
 Invoke-Sqlcmd -ConnectionString (Conn $db) -Query $boot -AbortOnError
+$cols=@(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT name FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.SchemaVersions') ORDER BY column_id").name
+if($cols -notcontains 'AppliedAt'){throw "R3_FIXTURE_SCHEMA_VERSIONS_MISSING_APPLIEDAT_$([string]::Join(',', $cols))"}
+Write-Output "BOOTSTRAP_SCHEMA_COLUMNS=$([string]::Join(',', $cols))"
 $root=Join-Path $PSScriptRoot '../../docs/release/optionc-canonical-sql-draft/candidate'
 $chain=@('1800_011','1800_012','1800_014','1800_015','1800_016','1800_017','1800_018','1800_019','1800_020')
 $expected=@{'1800_011'='1.8.0-011';'1800_012'='1.8.0-012';'1800_014'='1.8.0-014';'1800_015'='1.8.0-015';'1800_016'='1.8.0-016';'1800_017'='1.8.0-017';'1800_018'='1.8.0-018';'1800_019'='1.8.0-019';'1800_020'='1.8.0-020'}
