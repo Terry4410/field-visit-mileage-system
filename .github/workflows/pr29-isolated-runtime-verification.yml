@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr29-runtime-\${{ github.ref }}
+  group: pr29-runtime-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   runtime-verification:
-    if: \${{ github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-optionc-final-gates-recovery-r1' }}
+    if: ${{ github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/v180-optionc-final-gates-recovery-r1' }}
     runs-on: ubuntu-latest
     services:
       sqlserver:
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout Recovery exact SHA
         uses: actions/checkout@v4
         with:
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Checkout PR29 staging exact SHA
@@ -51,26 +51,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "\${GITHUB_REF}" = "refs/heads/work/v180-optionc-final-gates-recovery-r1"
-          test "\$(git -C staging-source rev-parse HEAD)" = "\${STAGING_SHA}"
+          test "${GITHUB_REF}" = "refs/heads/work/v180-optionc-final-gates-recovery-r1"
+          test "$(git -C staging-source rev-parse HEAD)" = "${STAGING_SHA}"
           sql="staging-source/docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql"
-          actual="\$(sha256sum "\$sql" | cut -d' ' -f1)"
-          test "\$actual" = "\${STAGING_SQL_SHA256}"
-          ! grep -Eiq '(^|[[:space:]])(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|DENY|REVOKE)[[:space:]]' "\$sql"
-          echo "staging_sha=\$(git -C staging-source rev-parse HEAD)"
-          echo "sql_sha256=\$actual"
+          actual="$(sha256sum "$sql" | cut -d' ' -f1)"
+          test "$actual" = "${STAGING_SQL_SHA256}"
+          ! grep -Eiq '(^|[[:space:]])(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|DENY|REVOKE)[[:space:]]' "$sql"
+          echo "staging_sha=$(git -C staging-source rev-parse HEAD)"
+          echo "sql_sha256=$actual"
           echo "mutation_keyword_scan=PASS"
 
       - name: Install pinned PowerShell and SqlServer module
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
-          \$ProgressPreference = 'SilentlyContinue'
+          $ProgressPreference = 'SilentlyContinue'
           Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber
-          \$m = Get-Module -ListAvailable SqlServer | Where-Object Version -eq [version]'22.4.5.1' | Select-Object -First 1
-          if (-not \$m) { throw 'SqlServer 22.4.5.1 not available' }
-          Import-Module \$m.Path -Force
-          Write-Host "SqlServerVersion=\$((Get-Module SqlServer).Version)"
+          $m = Get-Module -ListAvailable SqlServer | Where-Object Version -eq [version]'22.4.5.1' | Select-Object -First 1
+          if (-not $m) { throw 'SqlServer 22.4.5.1 not available' }
+          Import-Module $m.Path -Force
+          Write-Host "SqlServerVersion=$((Get-Module SqlServer).Version)"
 
       - name: Execute Invoke-Sqlcmd runtime matrix
         shell: pwsh
@@ -78,41 +78,41 @@ jobs:
           SA_PASSWORD: FieldVisit_Recovery!Sql2022
         run: |
           Set-StrictMode -Version Latest
-          \$ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Stop'
           Import-Module SqlServer -Force
-          \$server = 'localhost,1433'
-          \$sa = 'sa'
-          \$saPassword = \$env:SA_PASSWORD
-          \$roLogin = 'pr29_preflight_ro'
-          \$roPassword = 'Pr29_ReadOnly_2026!xY7'
-          \$source = Join-Path \$env:GITHUB_WORKSPACE 'staging-source/docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
-          \$varsBase = @{ EXPECTED_SERVER = 'localhost,1433'; EXPECTED_DATABASE = 'OptionCIsolated_PR29_Runtime' }
-          function Admin([string]\$q,[string]\$db='master') {
-            Invoke-Sqlcmd -ServerInstance \$server -Database \$db -Username \$sa -Password \$saPassword -TrustServerCertificate -ApplicationIntent ReadWrite -Query \$q -AbortOnError -QueryTimeout 60 | Out-Null
+          $server = 'localhost,1433'
+          $sa = 'sa'
+          $saPassword = $env:SA_PASSWORD
+          $roLogin = 'pr29_preflight_ro'
+          $roPassword = 'Pr29_ReadOnly_2026!xY7'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'staging-source/docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql'
+          $varsBase = @{ EXPECTED_SERVER = 'localhost,1433'; EXPECTED_DATABASE = 'OptionCIsolated_PR29_Runtime' }
+          function Admin([string]$q,[string]$db='master') {
+            Invoke-Sqlcmd -ServerInstance $server -Database $db -Username $sa -Password $saPassword -TrustServerCertificate -ApplicationIntent ReadWrite -Query $q -AbortOnError -QueryTimeout 60 | Out-Null
           }
-          function RunPreflight([hashtable]\$v,[string]\$db,\[string]\$user=\$roLogin,\[string]\$password=\$roPassword) {
-            Invoke-Sqlcmd -ServerInstance \$server -Database \$db -Username \$user -Password \$password -TrustServerCertificate -ApplicationIntent ReadOnly -ConnectionTimeout 10 -QueryTimeout 60 -AbortOnError -Variable \$v -InputFile \$source | Out-Null
+          function RunPreflight([hashtable]$v,[string]$db,[string]$user=$roLogin,[string]$password=$roPassword) {
+            Invoke-Sqlcmd -ServerInstance $server -Database $db -Username $user -Password $password -TrustServerCertificate -ApplicationIntent ReadOnly -ConnectionTimeout 10 -QueryTimeout 60 -AbortOnError -Variable $v -InputFile $source | Out-Null
           }
-          function ExpectFailure([string]\$name,[scriptblock]\$action) {
-            try { & \$action; throw "EXPECTED_FAILURE_NOT_OBSERVED:\$name" }
+          function ExpectFailure([string]$name,[scriptblock]$action) {
+            try { & $action; throw "EXPECTED_FAILURE_NOT_OBSERVED:$name" }
             catch {
-              if (\$_.Exception.Message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
-              Write-Host "FAIL_CLOSED_PASS \$name"
+              if ($_.Exception.Message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
+              Write-Host "FAIL_CLOSED_PASS $name"
             }
           }
-          function NewDb([string]\$name,[string]\$version,[bool]\$canonical,[string]\$stage='none') {
-            Admin "IF DB_ID(N'\$name') IS NOT NULL BEGIN ALTER DATABASE [\$name] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [\$name]; END; CREATE DATABASE [\$name];"
-            Admin "CREATE USER [\$roLogin] FOR LOGIN [\$roLogin]; ALTER ROLE db_datareader ADD MEMBER [\$roLogin];" \$name
-            Admin "CREATE TABLE dbo.SchemaVersions(Version NVARCHAR(64) NOT NULL); INSERT dbo.SchemaVersions VALUES(N'\$version'); CREATE TABLE dbo.Locations(LocationId INT NOT NULL PRIMARY KEY,Name NVARCHAR(100) NOT NULL); INSERT dbo.Locations VALUES(1,N'Fixture');" \$name
-            if (\$canonical) {
-              Admin "CREATE TABLE dbo.ChangeRequests(RequestPublicId NVARCHAR(100) NOT NULL PRIMARY KEY,DecisionKey NVARCHAR(100) NOT NULL); CREATE TABLE dbo.ChangeRequestEvents(ChangeRequestId NVARCHAR(100) NOT NULL,EventType NVARCHAR(100) NOT NULL,DecisionKey NVARCHAR(100) NOT NULL);" \$name
+          function NewDb([string]$name,[string]$version,[bool]$canonical,[string]$stage='none') {
+            Admin "IF DB_ID(N'$name') IS NOT NULL BEGIN ALTER DATABASE [$name] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$name]; END; CREATE DATABASE [$name];"
+            Admin "CREATE USER [$roLogin] FOR LOGIN [$roLogin]; ALTER ROLE db_datareader ADD MEMBER [$roLogin];" $name
+            Admin "CREATE TABLE dbo.SchemaVersions(Version NVARCHAR(64) NOT NULL); INSERT dbo.SchemaVersions VALUES(N'$version'); CREATE TABLE dbo.Locations(LocationId INT NOT NULL PRIMARY KEY,Name NVARCHAR(100) NOT NULL); INSERT dbo.Locations VALUES(1,N'Fixture');" $name
+            if ($canonical) {
+              Admin "CREATE TABLE dbo.ChangeRequests(RequestPublicId NVARCHAR(100) NOT NULL PRIMARY KEY,DecisionKey NVARCHAR(100) NOT NULL); CREATE TABLE dbo.ChangeRequestEvents(ChangeRequestId NVARCHAR(100) NOT NULL,EventType NVARCHAR(100) NOT NULL,DecisionKey NVARCHAR(100) NOT NULL);" $name
             }
-            if (\$stage -eq 'partial') { Admin "CREATE TABLE dbo.LocationPublicationStages(StageId INT NOT NULL PRIMARY KEY);" \$name }
+            if ($stage -eq 'partial') { Admin "CREATE TABLE dbo.LocationPublicationStages(StageId INT NOT NULL PRIMARY KEY);" $name }
           }
           try {
-            Admin "IF SUSER_ID(N'\$roLogin') IS NOT NULL DROP LOGIN [\$roLogin]; CREATE LOGIN [\$roLogin] WITH PASSWORD = N'\$roPassword', CHECK_POLICY = OFF;"
-            NewDb 'OptionCIsolated_PR29_Runtime' '1.8.0-010' \$false
-            RunPreflight \$varsBase 'OptionCIsolated_PR29_Runtime'
+            Admin "IF SUSER_ID(N'$roLogin') IS NOT NULL DROP LOGIN [$roLogin]; CREATE LOGIN [$roLogin] WITH PASSWORD = N'$roPassword', CHECK_POLICY = OFF;"
+            NewDb 'OptionCIsolated_PR29_Runtime' '1.8.0-010' $false
+            RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime'
             Write-Host 'CORRECT_VARIABLES_PASS'
             ExpectFailure 'missing-server' { RunPreflight @{ EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
             ExpectFailure 'empty-server' { RunPreflight @{ EXPECTED_SERVER=''; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
@@ -122,26 +122,26 @@ jobs:
             ExpectFailure 'semicolon-injection' { RunPreflight @{ EXPECTED_SERVER='localhost,1433;DROP DATABASE master'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
             ExpectFailure 'approved-fqdn-on-disposable' { RunPreflight @{ EXPECTED_SERVER='sql-fieldvisit-jpe-uat.database.windows.net'; EXPECTED_DATABASE='db-fieldvisit-uat' } 'OptionCIsolated_PR29_Runtime' }
             ExpectFailure 'non-loopback' { RunPreflight @{ EXPECTED_SERVER='10.0.0.1'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'db-owner' { RunPreflight \$varsBase 'OptionCIsolated_PR29_Runtime' \$sa \$saPassword }
-            Admin "ALTER ROLE db_datawriter ADD MEMBER [\$roLogin];" 'OptionCIsolated_PR29_Runtime'
-            ExpectFailure 'db-datawriter' { RunPreflight \$varsBase 'OptionCIsolated_PR29_Runtime' }
-            Admin "ALTER ROLE db_datawriter DROP MEMBER [\$roLogin]; GRANT UPDATE ON dbo.Locations TO [\$roLogin];" 'OptionCIsolated_PR29_Runtime'
-            ExpectFailure 'table-write-permission' { RunPreflight \$varsBase 'OptionCIsolated_PR29_Runtime' }
-            Admin "REVOKE UPDATE ON dbo.Locations FROM [\$roLogin];" 'OptionCIsolated_PR29_Runtime'
-            NewDb 'OptionCIsolated_PR29_008' '1.8.0-008' \$false
+            ExpectFailure 'db-owner' { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' $sa $saPassword }
+            Admin "ALTER ROLE db_datawriter ADD MEMBER [$roLogin];" 'OptionCIsolated_PR29_Runtime'
+            ExpectFailure 'db-datawriter' { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' }
+            Admin "ALTER ROLE db_datawriter DROP MEMBER [$roLogin]; GRANT UPDATE ON dbo.Locations TO [$roLogin];" 'OptionCIsolated_PR29_Runtime'
+            ExpectFailure 'table-write-permission' { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' }
+            Admin "REVOKE UPDATE ON dbo.Locations FROM [$roLogin];" 'OptionCIsolated_PR29_Runtime'
+            NewDb 'OptionCIsolated_PR29_008' '1.8.0-008' $false
             RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_008' } 'OptionCIsolated_PR29_008'
-            NewDb 'OptionCIsolated_PR29_009' '1.8.0-009' \$false
+            NewDb 'OptionCIsolated_PR29_009' '1.8.0-009' $false
             RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_009' } 'OptionCIsolated_PR29_009'
-            NewDb 'OptionCIsolated_PR29_Partial011' '1.8.0-008' \$true
+            NewDb 'OptionCIsolated_PR29_Partial011' '1.8.0-008' $true
             ExpectFailure '008-canonical-unrecorded' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial011' } 'OptionCIsolated_PR29_Partial011' }
-            NewDb 'OptionCIsolated_PR29_Partial014' '1.8.0-014' \$false 'partial'
+            NewDb 'OptionCIsolated_PR29_Partial014' '1.8.0-014' $false 'partial'
             ExpectFailure 'partial-014' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial014' } 'OptionCIsolated_PR29_Partial014' }
             Write-Host 'PR29_RUNTIME_MATRIX=PASS'
           } finally {
-            foreach (\$db in @('OptionCIsolated_PR29_Runtime','OptionCIsolated_PR29_008','OptionCIsolated_PR29_009','OptionCIsolated_PR29_Partial011','OptionCIsolated_PR29_Partial014')) {
-              try { Admin "IF DB_ID(N'\$db') IS NOT NULL BEGIN ALTER DATABASE [\$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [\$db]; END;" } catch { Write-Warning "cleanup \$db failed: \$($_.Exception.Message)" }
+            foreach ($db in @('OptionCIsolated_PR29_Runtime','OptionCIsolated_PR29_008','OptionCIsolated_PR29_009','OptionCIsolated_PR29_Partial011','OptionCIsolated_PR29_Partial014')) {
+              try { Admin "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Warning "cleanup $db failed: $($_.Exception.Message)" }
             }
-            try { Admin "IF SUSER_ID(N'\$roLogin') IS NOT NULL DROP LOGIN [\$roLogin];" } catch { Write-Warning "cleanup login failed: \$($_.Exception.Message)" }
+            try { Admin "IF SUSER_ID(N'$roLogin') IS NOT NULL DROP LOGIN [$roLogin];" } catch { Write-Warning "cleanup login failed: $($_.Exception.Message)" }
           }
 
       - name: Validate Azure CLI read-only syntax
