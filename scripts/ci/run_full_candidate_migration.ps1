@@ -10,6 +10,7 @@ function Run([string]$sql){Invoke-Sqlcmd -ConnectionString (Conn $db) -Query $sq
 Invoke-Sqlcmd -ConnectionString $raw -Query "CREATE DATABASE [$db]" -AbortOnError
 try {
 $boot=@'
+IF OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NOT NULL DROP TABLE dbo.SchemaVersions;
 CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(40) PRIMARY KEY,Description nvarchar(500),AppliedAt datetime2(3) NOT NULL,AppliedBy nvarchar(200));
 CREATE TABLE dbo.Organizations(OrganizationId int PRIMARY KEY); CREATE TABLE dbo.Teams(TeamId int PRIMARY KEY); CREATE TABLE dbo.Users(UserId int PRIMARY KEY);
 CREATE TABLE dbo.Locations(LocationId int PRIMARY KEY,IsActive bit NOT NULL,ApprovalStatus nvarchar(30) NOT NULL);
