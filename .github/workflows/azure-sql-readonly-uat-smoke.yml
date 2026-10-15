@@ -15,7 +15,7 @@ env:
   EXPECTED_RESOURCE_GROUP: rg-fieldvisit-uat
   EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
   EXPECTED_DATABASE: db-fieldvisit-uat
-  PREFLIGHT_SQL_SHA256: f3f02db02ce7fd68288beb16931b4ae0d76ef4ff23beab036d1c59f433c0c207
+  PREFLIGHT_SQL_SHA256: 7beea3bf0ecb90133f67ae8938eddd5a940b145cdae9e6106eec2c230ce05898
 
 jobs:
   branch-guard:
