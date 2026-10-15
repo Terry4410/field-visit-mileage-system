@@ -7,8 +7,8 @@ deployment, restore, feature activation, promotion, or Business UAT.
 
 ## Latest staging verification (nondeploy)
 
-- Staging candidate: `49dbe92b6856c68c7376ab143502259be27a316c`
-- Exact-SHA CI: `38775619546 — SUCCESS`
+- Staging candidate: `8b24c3504d5f12d86066a11da2241032901a6632`
+- Exact-SHA CI: `38776222319 — SUCCESS`
 - Backend: 759/759; Frontend: 110/110; Option C HTTP/SQL: 20/20; Canonical: 2/2; Trip/Mileage: 4/4; Historical Fingerprint: PASS.
 - PR #33 remains Draft/Open/Unmerged and targets Recovery only.
 - DirectLowRisk UI flag and candidate approval UI flag remain OFF by default.
@@ -249,7 +249,7 @@ These are separate decisions; approving one does not approve the others.
 
 ### Final gate
 
-- Engineering implementation: **PASS at staging exact-SHA `49dbe92b6856c68c7376ab143502259be27a316c`, CI `38775619546`**.
+- Engineering implementation: **PASS at staging exact-SHA `8b24c3504d5f12d86066a11da2241032901a6632`, CI `38776222319`**.
 - UAT schema readiness: **HOLD**.
 - Backup configuration: **PASS**; restore-tested: **NOT RUN**.
 - Full Scheme A isolated E2E: **PASS for covered workflows; not UAT runtime proof**. Browser automation: **NOT RUN**.
