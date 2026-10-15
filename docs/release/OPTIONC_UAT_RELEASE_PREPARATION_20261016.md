@@ -77,6 +77,37 @@ The source pair actually serving the target, current deployment timestamp,
 runtime health and database SchemaVersion remain **UNVERIFIED**. No generic
 deployment record was used as a substitute for target preflight.
 
+## Historical read-only target and recovery evidence
+
+The repository contains two prior successful, read-only GitHub Actions
+workflows against the protected `post-uat/v1.8.0` branch. These are historical
+evidence and do not prove the current 2026-10-15 target state:
+
+| Evidence | Run | Result |
+|---|---:|---|
+| Exact Azure SQL target and Entra OIDC read-only diagnostic | `36658417838` (2026-09-30) | SUCCESS; target identity was checked by the workflow |
+| Migration-identity read-only recovery/schema smoke | `34971900863` (2026-09-15) | SUCCESS; no DDL/DML/migration/restore |
+
+The successful logs recorded the configured and Azure-validated target as:
+
+- Resource group: `rg-fieldvisit-uat`
+- SQL Server FQDN: `sql-fieldvisit-jpe-uat.database.windows.net`
+- Database: `db-fieldvisit-uat`
+- Region: `japaneast`
+- Database status at the 2026-09-15 observation: `Online`
+- `DB_NAME()` at the read-only query: `db-fieldvisit-uat`
+- Latest SchemaVersion at that observation: `1.7.0-008`
+- `1.8.0-001` row count: `0`; partial-object preflight: PASS
+- Short-term retention: `7` days; differential backup interval: `12` hours
+- Earliest restore date observed then: `2026-09-08T13:01:10Z`
+
+The workflow used an existing managed Microsoft Entra OIDC identity and
+`ApplicationIntent=ReadOnly` for SQL queries. This proves that a protected
+read-only workflow path and target allow-list contract exist. It does **not**
+prove that the same target, schema, identity permissions or recovery point are
+current today. Restore was **NOT RUN**, and no current SchemaVersion/catalog
+fingerprint is claimed.
+
 ## Three-track release decision
 
 | Track | Current evidence | Deployment readiness | 2026-10-16 decision |
