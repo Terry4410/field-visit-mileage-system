@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  STAGING_SHA: 2ab1e91daafc28b5fba0ac7a5e115cb716b4c804
-  STAGING_SQL_SHA256: 3f24ba1013e9f73971e9e512e2e9ec893fcedeb38b6ac7bb2684447532bd78d0
+  STAGING_SHA: 6e26755f4a19fa63b4331d8fb7fc1e6cc97533cd
+  STAGING_SQL_SHA256: 44c20438c8125150d8cdbfae5e2dab40f23acea6386507b96bec31ff3cb10955
 
 jobs:
   runtime-verification:
@@ -96,11 +96,26 @@ jobs:
           function RunPreflight([hashtable]$v,[string]$db,[string]$user=$roLogin,[string]$password=$roPassword) {
             Invoke-Sqlcmd -ServerInstance $server -Database $db -Username $user -Password $password -TrustServerCertificate -ApplicationIntent ReadOnly -ConnectionTimeout 10 -QueryTimeout 60 -AbortOnError -Variable $v -InputFile $source | Out-Null
           }
-          function ExpectFailure([string]$name,[scriptblock]$action) {
+          function ExpectSqlGuard([string]$name,[int]$code,[scriptblock]$action) {
             try { & $action; throw "EXPECTED_FAILURE_NOT_OBSERVED:$name" }
             catch {
-              if ($_.Exception.Message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
-              Write-Host "FAIL_CLOSED_PASS $name"
+              $message = $_.Exception.ToString()
+              if ($message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
+              if ($message -notmatch "(?i)(Msg\s+$code\b|ErrorNumber[^0-9]*$code\b|\b$code\b)") {
+                throw "UNEXPECTED_FAILURE:$name:$message"
+              }
+              Write-Host "FAIL_CLOSED_PASS $name code=$code"
+            }
+          }
+          function ExpectPreprocessFailure([string]$name,[scriptblock]$action) {
+            try { & $action; throw "EXPECTED_FAILURE_NOT_OBSERVED:$name" }
+            catch {
+              $message = $_.Exception.ToString()
+              if ($message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
+              if ($message -notmatch '(?i)(sqlcmd|variable|not defined|undefined|not found)') {
+                throw "UNEXPECTED_PREPROCESS_FAILURE:$name:$message"
+              }
+              Write-Host "PREPROCESS_FAIL_CLOSED_PASS $name"
             }
           }
           function NewDb([string]$name,[string]$version,[bool]$canonical,[string]$stage='none',[bool]$withLocations=$true) {
@@ -118,30 +133,30 @@ jobs:
             NewDb 'OptionCIsolated_PR29_Runtime' '1.8.0-010' $false
             RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime'
             Write-Host 'CORRECT_VARIABLES_PASS'
-            ExpectFailure 'missing-server' { RunPreflight @{ EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'empty-server' { RunPreflight @{ EXPECTED_SERVER=''; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'wrong-database' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='WrongDb' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'wrong-server' { RunPreflight @{ EXPECTED_SERVER='wrong.example.invalid'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'quote-injection' { RunPreflight @{ EXPECTED_SERVER="localhost,1433'"; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'semicolon-injection' { RunPreflight @{ EXPECTED_SERVER='localhost,1433;DROP DATABASE master'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'approved-fqdn-on-disposable' { RunPreflight @{ EXPECTED_SERVER='sql-fieldvisit-jpe-uat.database.windows.net'; EXPECTED_DATABASE='db-fieldvisit-uat' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'non-loopback' { RunPreflight @{ EXPECTED_SERVER='10.0.0.1'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
-            ExpectFailure 'db-owner' { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' $sa $saPassword }
+            ExpectPreprocessFailure 'missing-server' { RunPreflight @{ EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'empty-server' 51000 { RunPreflight @{ EXPECTED_SERVER=''; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'wrong-database' 51002 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='WrongDb' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'wrong-server' 51023 { RunPreflight @{ EXPECTED_SERVER='wrong.example.invalid'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'quote-injection' 51004 { RunPreflight @{ EXPECTED_SERVER="localhost,1433'"; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'semicolon-injection' 51004 { RunPreflight @{ EXPECTED_SERVER='localhost,1433;DROP DATABASE master'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'approved-fqdn-on-disposable' 51003 { RunPreflight @{ EXPECTED_SERVER='sql-fieldvisit-jpe-uat.database.windows.net'; EXPECTED_DATABASE='db-fieldvisit-uat' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'non-loopback' 51023 { RunPreflight @{ EXPECTED_SERVER='10.0.0.1'; EXPECTED_DATABASE='OptionCIsolated_PR29_Runtime' } 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'db-owner' 51022 { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' $sa $saPassword }
             Admin "ALTER ROLE db_datawriter ADD MEMBER [$roLogin];" 'OptionCIsolated_PR29_Runtime'
-            ExpectFailure 'db-datawriter' { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'db-datawriter' 51022 { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' }
             Admin "ALTER ROLE db_datawriter DROP MEMBER [$roLogin]; GRANT UPDATE ON dbo.Locations TO [$roLogin];" 'OptionCIsolated_PR29_Runtime'
-            ExpectFailure 'table-write-permission' { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' }
+            ExpectSqlGuard 'table-write-permission' 51022 { RunPreflight $varsBase 'OptionCIsolated_PR29_Runtime' }
             Admin "REVOKE UPDATE ON dbo.Locations FROM [$roLogin];" 'OptionCIsolated_PR29_Runtime'
             NewDb 'OptionCIsolated_PR29_008' '1.8.0-008' $false
             RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_008' } 'OptionCIsolated_PR29_008'
             NewDb 'OptionCIsolated_PR29_009' '1.8.0-009' $false
             RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_009' } 'OptionCIsolated_PR29_009'
             NewDb 'OptionCIsolated_PR29_Partial011' '1.8.0-008' $true
-            ExpectFailure '008-canonical-unrecorded' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial011' } 'OptionCIsolated_PR29_Partial011' }
+            ExpectSqlGuard '008-canonical-unrecorded' 51026 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial011' } 'OptionCIsolated_PR29_Partial011' }
             NewDb 'OptionCIsolated_PR29_Partial014' '1.8.0-014' $false 'partial'
-            ExpectFailure 'partial-014' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial014' } 'OptionCIsolated_PR29_Partial014' }
+            ExpectSqlGuard 'partial-014' 51016 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_Partial014' } 'OptionCIsolated_PR29_Partial014' }
             NewDb 'OptionCIsolated_PR29_NoLocations' '1.8.0-010' $false 'none' $false
-            ExpectFailure 'missing-required-locations-unknown-permissions' { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_NoLocations' } 'OptionCIsolated_PR29_NoLocations' }
+            ExpectSqlGuard 'missing-required-locations-unknown-permissions' 51024 { RunPreflight @{ EXPECTED_SERVER='localhost,1433'; EXPECTED_DATABASE='OptionCIsolated_PR29_NoLocations' } 'OptionCIsolated_PR29_NoLocations' }
             Write-Host 'PR29_RUNTIME_MATRIX=PASS'
           } finally {
             foreach ($db in @('OptionCIsolated_PR29_Runtime','OptionCIsolated_PR29_008','OptionCIsolated_PR29_009','OptionCIsolated_PR29_Partial011','OptionCIsolated_PR29_Partial014','OptionCIsolated_PR29_NoLocations')) {
