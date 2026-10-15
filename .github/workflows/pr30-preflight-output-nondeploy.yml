@@ -34,9 +34,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          workflow=.github/workflows/pr30-preflight-output-nondeploy.yml
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           test "$(sha256sum docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql | cut -d' ' -f1)" = "44c20438c8125150d8cdbfae5e2dab40f23acea6386507b96bec31ff3cb10955"
-          test -z "$(grep -E 'azure/login|environment:[[:space:]]*uat|id-token:[[:space:]]*write|Invoke-Sqlcmd|az login' .github/workflows/pr30-preflight-output-nondeploy.yml || true)"
+          grep -Fxq "permissions:" "$workflow"
+          grep -Fxq "  contents: read" "$workflow"
+          forbidden_azure="azure/""login"
+          forbidden_environment="environment:""[[:space:]]*uat"
+          forbidden_oidc="id-token:""[[:space:]]*write"
+          forbidden_sql="Invoke-""Sqlcmd"
+          forbidden_cli="az ""login"
+          for pattern in "$forbidden_azure" "$forbidden_environment" "$forbidden_oidc" "$forbidden_sql" "$forbidden_cli"; do
+            if grep -Eq "$pattern" "$workflow"; then
+              echo "Forbidden protected-access capability detected in nondeploy workflow." >&2
+              exit 1
+            fi
+          done
 
       - name: Execute synthetic PowerShell DataSet matrix
         shell: pwsh
