@@ -1,3 +1,11 @@
+# Current read-only schema/recovery preflight extension — 2026-10-15
+
+- Recovery SHA `cd3f4e9fb25a7ae47b7ee369391887a47c42ce80`; exact-SHA CI `38673476786 — SUCCESS`.
+- The existing protected run `35070213564` attempt 3 remains the current target/connectivity evidence: OIDC and branch guard PASS; server `sql-fieldvisit-jpe-uat.database.windows.net`, database `db-fieldvisit-uat`, `DB_NAME()` PASS.
+- `UAT_ReadOnly_Preflight.sql` now emits connected principal, role membership, database DDL capability and representative Request/SchemaVersions/Location write-permission metadata. Non-isolated targets fail closed on unexpected write/DDL exposure; only explicit `localhost`, `127.0.0.1` or `OptionCIsolated_*` disposable targets bypass that hard stop for rehearsal.
+- The extension is SELECT/catalog metadata only. It was validated by the disposable SQL rehearsal; it was not executed against UAT because the protected workflow still exposes only the limited DB_NAME/sys.tables query and cannot be changed or activated under this authorization.
+- Current UAT SchemaVersion, complete catalog, effective principal permissions, current backup/PITR and restore proof remain **NOT VERIFIED/HOLD**. Business UAT remains **NOT RUN**; Restricted Trip/Mileage remains **NO-GO**; Full Scheme A/Option C remains **HOLD / NO-GO**.
+
 # Current protected read-only UAT evidence — 2026-10-15 UTC
 
 - Authorized protected workflow: `Azure SQL read-only UAT smoke test`, run `35070213564`, attempt 3, **SUCCESS**; branch guard passed on `post-uat/v1.8.0`. SQL job `116215958391` and branch-guard job `116215960429` both succeeded.
