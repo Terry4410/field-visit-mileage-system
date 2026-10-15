@@ -343,16 +343,16 @@ Assert-Throws 'sanitized throw is nonzero and message-safe' 'Classification=Time
 
 
 Run-Test 'bounded connection and query timeout contract' {
-  Assert-True (($workflowText | Select-String -Pattern '-ConnectionTimeout 120' -AllMatches).Matches.Count -eq 2) 'Both SQL calls must use ConnectionTimeout 120.'
-  Assert-True (($workflowText | Select-String -Pattern '-ConnectionTimeout 15' -AllMatches).Matches.Count -eq 0) 'Legacy ConnectionTimeout 15 remains.'
-  Assert-True (($workflowText | Select-String -Pattern '-QueryTimeout 30' -AllMatches).Matches.Count -eq 1) 'BasicQuery must retain QueryTimeout 30.'
-  Assert-True (($workflowText | Select-String -Pattern '-QueryTimeout 120' -AllMatches).Matches.Count -eq 1) 'ReviewedPreflight must retain QueryTimeout 120.'
+  Assert-True ([regex]::Matches($workflowText, [regex]::Escape('-ConnectionTimeout 120')).Count -eq 2) 'Both SQL calls must use ConnectionTimeout 120.'
+  Assert-True ([regex]::Matches($workflowText, [regex]::Escape('-ConnectionTimeout 15')).Count -eq 0) 'Legacy ConnectionTimeout 15 remains.'
+  Assert-True ([regex]::Matches($workflowText, [regex]::Escape('-QueryTimeout 30')).Count -eq 1) 'BasicQuery must retain QueryTimeout 30.'
+  Assert-True ([regex]::Matches($workflowText, [regex]::Escape('-QueryTimeout 120')).Count -eq 1) 'ReviewedPreflight must retain QueryTimeout 120.'
   Assert-True ($workflowText.Contains('timeout-minutes: 15')) 'SQL job timeout budget changed or is missing.'
 }
 
 Run-Test 'bounded wait preserves protected read-only guards' {
-  Assert-True (($workflowText | Select-String -Pattern '-ApplicationIntent ReadOnly' -AllMatches).Matches.Count -eq 2) 'ApplicationIntent ReadOnly must remain on both SQL calls.'
-  Assert-True (($workflowText | Select-String -Pattern '-OutputSqlErrors \$false' -AllMatches).Matches.Count -eq 2) 'Raw SQL error output must remain disabled.'
+  Assert-True ([regex]::Matches($workflowText, [regex]::Escape('-ApplicationIntent ReadOnly')).Count -eq 2) 'ApplicationIntent ReadOnly must remain on both SQL calls.'
+  Assert-True ([regex]::Matches($workflowText, [regex]::Escape('-OutputSqlErrors $false')).Count -eq 2) 'Raw SQL error output must remain disabled.'
   Assert-True ($workflowText.Contains('environment: uat')) 'Protected uat Environment guard is missing.'
   Assert-True ($workflowText.Contains('refs/heads/post-uat/v1.8.0')) 'Protected branch guard is missing.'
   Assert-True ($workflowText.Contains('44c20438c8125150d8cdbfae5e2dab40f23acea6386507b96bec31ff3cb10955')) 'Reviewed SQL checksum pin changed.'
