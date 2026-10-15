@@ -161,6 +161,32 @@ IF @pv=1
 IF @cr=1
   EXEC sys.sp_executesql N'SELECT N''PendingDuplicateRequestSlots'' AS CheckName, COUNT(*) AS Violations FROM (SELECT OrganizationId,EntityId FROM dbo.ChangeRequests WHERE Status=N''Pending'' GROUP BY OrganizationId,EntityId HAVING COUNT(*)>1) d';
 
+-- Permission evidence is diagnostic only; this block performs no write or grant.
+-- A read-only principal must not have database DDL or representative table write rights.
+SELECT ORIGINAL_LOGIN() AS OriginalLogin,
+       SUSER_SNAME() AS ServerPrincipal,
+       USER_NAME() AS DatabaseUser,
+       IS_ROLEMEMBER(N'db_owner') AS IsDbOwner,
+       IS_ROLEMEMBER(N'db_ddladmin') AS IsDbDdlAdmin,
+       IS_ROLEMEMBER(N'db_datawriter') AS IsDbDatawriter,
+       HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE TABLE') AS CanCreateTable,
+       HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY USER') AS CanAlterAnyUser,
+       HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'INSERT') AS CanInsertChangeRequests,
+       HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'UPDATE') AS CanUpdateChangeRequests,
+       HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'DELETE') AS CanDeleteChangeRequests,
+       HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT') AS CanInsertSchemaVersions,
+       HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE') AS CanUpdateLocations;
+
+IF IS_ROLEMEMBER(N'db_owner')=1 OR IS_ROLEMEMBER(N'db_ddladmin')=1 OR IS_ROLEMEMBER(N'db_datawriter')=1
+   OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE TABLE')=1
+   OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY USER')=1
+   OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'INSERT')=1
+   OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'UPDATE')=1
+   OR HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'DELETE')=1
+   OR HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')=1
+   OR HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE')=1
+  THROW 51022, 'STOP: connected principal exposes unexpected write or DDL permission.', 1;
+
 SELECT @Latest AS MigrationPhase,
        @cr AS CanonicalRequestTablesPresent,
        @st AS StageAndPublishedVersionsPresent,
