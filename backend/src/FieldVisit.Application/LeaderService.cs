@@ -46,10 +46,10 @@ public sealed class LeaderService(
 
         foreach (var trip in rows)
         {
-            if (trip.Stops.Count < 2)
+            if (trip.Stops.Count < V170TripMileageRules.MinimumVisitStopCount)
             {
                 skipped++;
-                items.Add(new MileageBatchItem(trip.VisitTripId, trip.TripNo, "Skipped", null, "STOP_INSUFFICIENT", "站點不足。"));
+                items.Add(new MileageBatchItem(trip.VisitTripId, trip.TripNo, "Skipped", null, "STOP_INSUFFICIENT", V170TripMileageRules.ApprovalMinimumStopsMessage));
                 continue;
             }
 
@@ -106,7 +106,7 @@ public sealed class LeaderService(
         V170TripMileageRules.EnsureReadyForApproval(trip.Stops.Count);
 
         if (request.ApprovedDistanceKm is null or <= 0)
-            throw new InvalidOperationException("兩個以上地點的行程必須填寫大於 0 的核定里程。");
+            throw new InvalidOperationException("含至少一個拜訪地點的行程必須填寫大於 0 的核定里程。");
 
         var calc = await mileage.GetByTripAsync(tripId, true, ct);
         if (calc is null)
@@ -218,131 +218,3 @@ public sealed class LeaderService(
                 ApprovedDistanceKm = request.ApprovedDistanceKm,
                 RatePerKm = rate.RatePerKm,
                 calc.ApprovedAmount
-            }), ct);
-
-        if (mileageGovernance is null)
-            throw new InvalidOperationException("F_B_GOVERNANCE_REPOSITORY_REQUIRED：治理 repository 尚未設定。");
-        if (decisionSource == "ManualFallback")
-        {
-            await mileageGovernance.AddGovernanceEventAsync(
-                new V180MileageGovernanceEventRequest(
-                    trip.VisitTripId, submittedBasis.VisitTripSnapshotId, null,
-                    "ManualFallback", "LEADER_MANUAL_FALLBACK",
-                    "Leader approved company mileage using manual fallback.",
-                    governanceCorrelationId, actionAt, user.UserId), ct);
-        }
-        await mileageGovernance.AddGovernanceEventAsync(
-            new V180MileageGovernanceEventRequest(
-                trip.VisitTripId, submittedBasis.VisitTripSnapshotId,
-                selectedAttempt?.RouteCalculationAttemptId, "Approved", decisionSource,
-                "Current company mileage decision approved.", governanceCorrelationId,
-                actionAt, user.UserId), ct);
-
-        await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
-        await uow.SaveChangesAsync(ct);
-
-        return await tripService.GetDtoAsync(tripId, ct);
-    }
-
-    public async Task<TripDto> ReturnAsync(long tripId, ReturnTripRequest request, CancellationToken ct)
-    {
-        var user = RequireLeader();
-        if (string.IsNullOrWhiteSpace(request.Reason)) throw new InvalidOperationException("退回原因必填。");
-        var trip = await GetScopedAsync(tripId, user, ct);
-        if (trip.Status != TripStatuses.PendingApproval)
-            throw new InvalidOperationException("只有待核准行程可以退回。");
-        EnsureRowVersion(trip.RowVersion, request.RowVersion);
-
-        var previous = trip.Status;
-        trip.Status = TripStatuses.Returned;
-        trip.ReturnReason = request.Reason.Trim();
-        trip.UpdatedAt = DateTime.UtcNow;
-        trip.UpdatedByUserId = user.UserId;
-
-        await workflow.AddApprovalAsync(new ApprovalRecord
-        {
-            VisitTripId = trip.VisitTripId,
-            ApprovalStep = 1,
-            ApproverUserId = user.UserId,
-            Action = "Returned",
-            Comments = request.Reason.Trim(),
-            ActionAt = DateTime.UtcNow
-        }, ct);
-        await workflow.AddStatusHistoryAsync(new VisitTripStatusHistory
-        {
-            VisitTripId = trip.VisitTripId,
-            PreviousStatus = previous,
-            NewStatus = TripStatuses.Returned,
-            Action = "Return",
-            ActionByUserId = user.UserId,
-            Comments = request.Reason.Trim(),
-            ActionAt = DateTime.UtcNow
-        }, ct);
-        await workflow.AddAuditAsync(Audit(user.UserId, trip.VisitTripId, "TripReturn", new { request.Reason }), ct);
-        await uow.SaveChangesAsync(ct);
-        return await tripService.GetDtoAsync(tripId, ct);
-    }
-
-    public async Task<BatchApproveResult> BatchApproveAsync(BatchApproveRequest request, CancellationToken ct)
-    {
-        int success = 0, failed = 0;
-        var errors = new List<string>();
-        foreach (var item in request.Items)
-        {
-            try
-            {
-                await ApproveAsync(
-                    item.VisitTripId,
-                    new ApproveTripRequest(
-                        item.ApprovedDistanceKm,
-                        item.RowVersion,
-                        "Batch approve",
-                        item.DistanceDecisionSource,
-                        item.RouteCalculationAttemptId),
-                    ct);
-                success++;
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException or KeyNotFoundException)
-            {
-                failed++;
-                errors.Add($"{item.VisitTripId}: {ex.Message}");
-            }
-        }
-        return new BatchApproveResult(success, failed, errors);
-    }
-
-    private CurrentUserDto RequireLeader()
-    {
-        var user = current.GetRequired();
-        if (!user.Roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase)) || user.TeamIds.Count == 0)
-            throw new UnauthorizedAccessException("只有具有效小組授權的小組長可以執行此操作。");
-        return user;
-    }
-
-    private async Task<VisitTrip> GetScopedAsync(long id, CurrentUserDto user, CancellationToken ct)
-    {
-        var trip = await trips.GetAsync(id, true, ct) ?? throw new KeyNotFoundException("找不到行程。");
-        if (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value))
-            throw new UnauthorizedAccessException("無權處理未授權小組資料。");
-        return trip;
-    }
-
-    private static void EnsureRowVersion(byte[] currentValue, string expectedBase64)
-    {
-        byte[] expected;
-        try { expected = Convert.FromBase64String(expectedBase64); }
-        catch { throw new InvalidOperationException("RowVersion 格式不正確。"); }
-        if (!currentValue.SequenceEqual(expected)) throw new InvalidOperationException("ROWVERSION_CONFLICT：資料已被其他使用者修改，請重新整理。");
-    }
-
-    private static AuditLog Audit(int userId, long tripId, string action, object value) => new()
-    {
-        UserId = userId,
-        EntityType = "Trip",
-        EntityId = tripId.ToString(),
-        Action = action,
-        NewValues = System.Text.Json.JsonSerializer.Serialize(value),
-        CorrelationId = Guid.NewGuid(),
-        CreatedAt = DateTime.UtcNow
-    };
-}

@@ -25,7 +25,14 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180TripMileageHttpSqlE2ETests
 {
     [Fact]
-    public async Task Trip_create_submit_and_leader_manual_fallback_preserve_location_identity_and_reject_reserved_location()
+    public Task Trip_create_submit_and_leader_manual_fallback_preserve_location_identity_and_reject_reserved_location()
+        => RunTripFlowAsync(oneStop: false);
+
+    [Fact]
+    public Task One_stop_trip_create_submit_calculate_and_manual_fallback_approve_preserves_snapshot()
+        => RunTripFlowAsync(oneStop: true);
+
+    private static async Task RunTripFlowAsync(bool oneStop)
     {
         var raw = Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
         if (string.IsNullOrWhiteSpace(raw))
@@ -84,11 +91,10 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
                 visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Visitor.UserId, fixture.Visitor.EmployeeNo!, "visitor", fixture.Team.TeamId));
 
-                // Two operational stops are required for the Leader mileage
-                // calculation path; the same approved identity is valid for
-                // this isolated route fixture and keeps the fixture's site
-                // assignment uniqueness intact.
-                var request = Draft(fixture.Approved.LocationId);
+                // A one-stop business visit still has the complete route
+                // context (start/end deployment sites); it must not require a
+                // fabricated second business stop.
+                var request = Draft(fixture.Approved.LocationId, includeSecondStop: !oneStop);
                 using var createdResponse = await visitor.PostAsJsonAsync("api/v1/trips", request);
                 Assert.True(createdResponse.IsSuccessStatusCode, await createdResponse.Content.ReadAsStringAsync());
                 var created = await createdResponse.Content.ReadFromJsonAsync<TripDto>()
@@ -150,10 +156,10 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
 
                 Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
-                // Submitted and Approved snapshots each retain both stop
-                // identities; publication appends the approved snapshot and
-                // never rewrites the historical Submitted snapshot.
-                Assert.Equal(4, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
+                // Submitted and Approved snapshots retain the exact submitted
+                // stop identities; publication appends the approved snapshot
+                // and never rewrites the historical Submitted snapshot.
+                Assert.Equal(oneStop ? 2 : 4, await db.VisitTripSnapshotStops.CountAsync(x => x.Snapshot.VisitTripId == created.VisitTripId && x.LocationId == fixture.Approved.LocationId));
                 Assert.Equal(0, await db.VisitTripStops.CountAsync(x => x.LocationId == fixture.Pending.LocationId));
             }
         }
@@ -166,12 +172,17 @@ public sealed class V180TripMileageHttpSqlE2ETests
         }
     }
 
-    private static SaveTripRequest Draft(int locationId, int? secondLocationId = null) => new(
+    private static SaveTripRequest Draft(int locationId, bool includeSecondStop = true) => new(
         new DateOnly(2026, 10, 15), new TimeOnly(9, 0), new TimeOnly(10, 0),
         8.5m, "HTTP trip", "isolated", false,
-        [new TripStopInput(locationId, null, null, "Location", "fixture", "address", "visit", null),
-         new TripStopInput(secondLocationId ?? locationId, null, null, "Location", "fixture-2", "address-2", "visit", null)],
+        Stops(locationId, includeSecondStop),
         1, 1, 1, "Motorcycle");
+
+    private static IReadOnlyList<TripStopInput> Stops(int locationId, bool includeSecondStop)
+        => includeSecondStop
+            ? new[] { new TripStopInput(locationId, null, null, "Location", "fixture", "address", "visit", null),
+                     new TripStopInput(locationId, null, null, "Location", "fixture-2", "address-2", "visit", null) }
+            : new[] { new TripStopInput(locationId, null, null, "Location", "fixture", "address", "visit", null) };
 
     private static async Task<(User Visitor, User Leader, Team Team, Location Approved, Location Pending)> SeedAsync(AppDbContext db)
     {
