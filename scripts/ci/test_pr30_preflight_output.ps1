@@ -2,6 +2,8 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$WorkflowPath,
   [Parameter(Mandatory = $true)]
+  [string]$ModulePath,
+  [Parameter(Mandatory = $true)]
   [string]$ExpectedSourceSha
 )
 
@@ -205,16 +207,11 @@ function New-ValidEvidenceDataSet(
 if (-not (Test-Path -LiteralPath $WorkflowPath)) {
   throw "Workflow not found: $WorkflowPath"
 }
-$workflowText = Get-Content -LiteralPath $WorkflowPath -Raw
-$functionMatch = [regex]::Match(
-  $workflowText,
-  '(?ms)^          function Get-DataTables.*?(?=^          if \(\$env:CONFIGURED_SERVER_NAME)'
-)
-if (-not $functionMatch.Success) {
-  throw 'Unable to extract the production PowerShell evidence functions.'
+if (-not (Test-Path -LiteralPath $ModulePath)) {
+  throw "Evidence module not found: $ModulePath"
 }
-$functionSource = ($functionMatch.Value -replace '(?m)^ {10}', '')
-Invoke-Expression $functionSource
+$workflowText = Get-Content -LiteralPath $WorkflowPath -Raw
+. $ModulePath
 
 $actualSourceSha = (git rev-parse HEAD).Trim()
 Assert-SourceSha $actualSourceSha $ExpectedSourceSha
