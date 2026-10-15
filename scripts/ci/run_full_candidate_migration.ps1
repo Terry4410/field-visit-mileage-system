@@ -7,7 +7,7 @@ if($b.DataSource -notin @('localhost,1433','127.0.0.1,1433') -or $b.InitialCatal
 $db='OptionCIsolated_R3_'+[guid]::NewGuid().ToString('N')
 function Conn([string]$catalog){$x=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($raw);$x.InitialCatalog=$catalog;$x.Pooling=$false;return $x.ConnectionString}
 $script:runNo=0
-function Run([string]$step,[string]$sql,[string]$sourcePath){
+function Run([string]$step,[string]$sql,[string]$sourcePath=$null){
   $script:runNo++
   $connection=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new((Conn $db))
   if([string]::IsNullOrWhiteSpace($sourcePath)){$resolved='<inline SQL>'; $sourceHash=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($sql)))}
@@ -16,11 +16,20 @@ function Run([string]$step,[string]$sql,[string]$sourcePath){
   Write-Output "R3_SQL_SOURCE_PATH=$resolved"
   Write-Output "R3_SQL_SOURCE_SHA256=$sourceHash"
   Write-Output "R3_SQL_CONNECTION_INITIAL_CATALOG=$($connection.InitialCatalog)"
+  $sqlConnection=[Microsoft.Data.SqlClient.SqlConnection]::new($connection.ConnectionString)
   try {
-    $session=Invoke-Sqlcmd -ConnectionString $connection.ConnectionString -Query "SELECT @@SPID AS SessionId, @@SERVERNAME AS ServerName, DB_NAME() AS DatabaseName, SCHEMA_NAME() AS DefaultSchema, OBJECT_ID(N'dbo.SchemaVersions',N'U') AS SchemaVersionsObjectId, COALESCE((SELECT STRING_AGG(c.name,N',') WITHIN GROUP(ORDER BY c.column_id) FROM sys.columns AS c WHERE c.object_id=OBJECT_ID(N'dbo.SchemaVersions',N'U')),N'<none>') AS SchemaVersionsColumns" -AbortOnError -QueryTimeout 30
-    Write-Output "R3_SQL_SESSION_ID=$($session.SessionId) SERVER=$($session.ServerName) DATABASE=$($session.DatabaseName) DEFAULT_SCHEMA=$($session.DefaultSchema) SCHEMAVERSIONS_OBJECT_ID=$($session.SchemaVersionsObjectId) COLUMNS=$($session.SchemaVersionsColumns)"
-    if($session.DatabaseName -ne $db){throw "R3_SQL_TARGET_MISMATCH_EXPECTED_${db}_ACTUAL_$($session.DatabaseName)"}
-    Invoke-Sqlcmd -ConnectionString $connection.ConnectionString -Query $sql -AbortOnError -QueryTimeout 30
+    $sqlConnection.Open()
+    $probe=$sqlConnection.CreateCommand()
+    $probe.CommandText="SELECT @@SPID AS SessionId, @@SERVERNAME AS ServerName, DB_NAME() AS DatabaseName, SCHEMA_NAME() AS DefaultSchema, OBJECT_ID(N'dbo.SchemaVersions',N'U') AS SchemaVersionsObjectId, COALESCE((SELECT STRING_AGG(c.name,N',') WITHIN GROUP(ORDER BY c.column_id) FROM sys.columns AS c WHERE c.object_id=OBJECT_ID(N'dbo.SchemaVersions',N'U')),N'<none>') AS SchemaVersionsColumns"
+    $probe.CommandTimeout=30
+    $sessionReader=$probe.ExecuteReader()
+    if(-not $sessionReader.Read()){throw 'R3_SQL_SESSION_DIAGNOSTIC_EMPTY'}
+    $sessionId=$sessionReader['SessionId']; $serverName=$sessionReader['ServerName']; $databaseName=$sessionReader['DatabaseName']; $defaultSchema=$sessionReader['DefaultSchema']; $schemaObjectId=$sessionReader['SchemaVersionsObjectId']; $schemaColumns=$sessionReader['SchemaVersionsColumns']
+    $sessionReader.Close()
+    Write-Output "R3_SQL_SESSION_ID=$sessionId SERVER=$serverName DATABASE=$databaseName DEFAULT_SCHEMA=$defaultSchema SCHEMAVERSIONS_OBJECT_ID=$schemaObjectId COLUMNS=$schemaColumns"
+    if($databaseName -ne $db){throw "R3_SQL_TARGET_MISMATCH_EXPECTED_${db}_ACTUAL_$databaseName"}
+    $command=$sqlConnection.CreateCommand(); $command.CommandText=$sql; $command.CommandTimeout=30
+    [void]$command.ExecuteNonQuery()
   } catch {
     $e=$_.Exception
     while($null -ne $e){
@@ -29,6 +38,8 @@ function Run([string]$step,[string]$sql,[string]$sourcePath){
     }
     Write-Output "R3_SQL_EXCEPTION_MESSAGE=$($_.Exception.Message)"
     throw
+  } finally {
+    if($null -ne $sqlConnection){$sqlConnection.Dispose()}
   }
 }
 Invoke-Sqlcmd -ConnectionString $raw -Query "CREATE DATABASE [$db]" -AbortOnError
@@ -63,10 +74,12 @@ foreach($m in $chain){
   if($actual -ne $expected[$m]){throw "R3_VERSION_MISMATCH_$m"}
   Write-Output "MIGRATION_PASS $($expected[$m])"
 }
-try { $file=Join-Path $root '1800_020/Up.sql'; Run '1800_020/Up.sql rerun-negative' (Get-Content -LiteralPath $file -Raw) $file; throw 'R3_RERUN_UNEXPECTED_PASS' } catch { if($_.Exception.Message -match 'UNEXPECTED_PASS'){throw}; Write-Output 'FAIL_CLOSED_RERUN_PASS' }
+try { $file=Join-Path $root '1800_020/Up.sql'; Run '1800_020/Up.sql rerun-negative' (Get-Content -LiteralPath $file -Raw) $file; throw 'R3_RERUN_UNEXPECTED_PASS' } catch { if($_.Exception.Message -match 'UNEXPECTED_PASS'){throw}; if($_.Exception.ToString() -notmatch '1\.8\.0-020_RERUN_STOP'){throw 'R3_RERUN_NEGATIVE_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_RERUN_PASS' }
 $count=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT COUNT(*) C FROM dbo.SchemaVersions').C
 if($count -ne 10){throw "R3_FINAL_MARKER_COUNT_$count"}
-try { Run "BEGIN TRAN; INSERT dbo.SchemaVersions VALUES(N'1.8.0-021',N'injected failure',SYSUTCDATETIME(),N'test'); THROW 52999,N'R3_INJECTED_FAILURE_STOP',1; COMMIT"; throw 'R3_FAILURE_DID_NOT_STOP' } catch { if($_.Exception.Message -match 'DID_NOT_STOP'){throw}; Write-Output 'FAIL_CLOSED_FAILURE_INJECTION_PASS' }
+try { Run 'unknown-commit-negative' "SET XACT_ABORT ON; BEGIN TRAN; INSERT dbo.SchemaVersions VALUES(N'1.8.0-021',N'injected failure',SYSUTCDATETIME(),N'test'); THROW 52999,N'R3_INJECTED_FAILURE_STOP',1; COMMIT"; throw 'R3_FAILURE_DID_NOT_STOP' } catch { if($_.Exception.Message -match 'DID_NOT_STOP'){throw}; if($_.Exception.ToString() -notmatch 'R3_INJECTED_FAILURE_STOP'){throw 'R3_FAILURE_INJECTION_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_FAILURE_INJECTION_PASS' }
+$unexpectedMarker=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT COUNT(*) C FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-021'").C
+if($unexpectedMarker -ne 0){throw 'R3_UNKNOWN_COMMIT_MARKER_PERSISTED'}
 $hist=Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT COUNT(*) RowCount FROM dbo.VisitTrips'
 if($hist.RowCount -ne 1){throw 'R3_HISTORY_ROWCOUNT_CHANGED'}
 Write-Output "R3_DRAFT_CHAIN_REHEARSAL_PASS final=$((Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT MAX(VersionNumber) AS VersionNumber FROM dbo.SchemaVersions').VersionNumber) UAT_MIGRATION_STATUS=HOLD_CANONICAL_DDL_AND_WRITER_E2E_NOT_PROVEN"
