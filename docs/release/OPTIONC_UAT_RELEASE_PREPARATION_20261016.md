@@ -144,3 +144,84 @@ fresh-read Unknown Commit reconciliation → restore only under separate approva
 
 Full Scheme A remains **HOLD / NO-GO** until the target, schema, backup,
 deployment and Owner approvals are independently complete.
+
+
+## 2026-10-16 Business User meeting package — existing v1.8.0 only
+
+This section is a meeting/review aid only. It is not Business UAT authorization and does not convert engineering evidence into UAT acceptance.
+
+### Evidence classification
+
+- Authenticated smoke Run **38668230583** on deployed source **68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2**: **ENGINEERING / CONTROLLED SMOKE EVIDENCE**.
+- Business User execution, sign-off and defect acceptance: **NOT RUN**.
+- SchemaVersion, backup/restore, rollback and formal UAT authorization: **HOLD**.
+
+### Included for review
+
+- Login and role-page access for existing Visitor, Leader and Admin accounts.
+- Existing published/active master-data lookup within the account scope.
+- Existing Trip draft/create/submit screens only where already deployed and approved for demonstration.
+- Existing one-stop and approved mileage display as a controlled demonstration, without candidate route-retry or Scheme A features.
+- Existing historical record visibility demonstration, without changing historical data.
+- Server-side denial examples using already available negative test accounts or pre-existing safe records; no SQL fixture creation.
+
+### Excluded from the meeting scope
+
+- Restricted Trip/Mileage candidate routes and route-retry.
+- Full Scheme A / Option C approval, Leader first-level candidate review, Excel canonical publication, MergeFields and candidate evidence workflows.
+- Any migration, schema change, deployment, restore, flag activation, direct SQL change or data cleanup.
+- New Location publication, destructive maintenance, production-like write testing and any Business UAT sign-off.
+
+### Visitor SOP — review/demo only
+
+1. Open the existing frontend and sign in through the approved account mechanism.
+2. Confirm the Visitor role pages load and only the assigned organization/team data is visible.
+3. Open an existing approved workflow or draft demonstration record; do not create new persistent UAT data unless separately authorized.
+4. Verify status text and expected validation messages.
+5. Record evidence as ENGINEERING / CONTROLLED SMOKE EVIDENCE, not BUSINESS UAT PASS.
+
+### Leader SOP — review/demo only
+
+1. Sign in with an existing Leader account and verify team scope.
+2. Open the existing trip/mileage review view available in v1.8.0.
+3. Confirm approved mileage/status visibility and that out-of-scope records are not exposed.
+4. Demonstrate validation or authorization denial using an existing safe scenario only.
+5. Do not execute candidate approval, return/correction, route-retry or new publication flows.
+
+### Admin SOP — review/demo only
+
+1. Sign in with an existing Admin account.
+2. Confirm authorized read-only master-data, project and historical views.
+3. Confirm candidate Option C approval/evidence functions remain unavailable or OFF.
+4. Verify no migration, flag activation or publication action is offered in this scope.
+5. Record any issue in the issue register without altering data.
+
+### Meeting test checklist
+
+| ID | Role | Check | Expected result | Classification |
+|---|---|---|---|---|
+| V180-01 | Visitor | Login and role pages | Successful login and scoped pages | ENGINEERING / CONTROLLED SMOKE EVIDENCE |
+| V180-02 | Visitor | Organization/team visibility | Only authorized scope is shown | Review only |
+| V180-03 | Visitor | Existing Trip screen | Existing deployed screen loads | Review only |
+| V180-04 | Visitor | Validation/denial message | Server/UI explains denial without data mutation | Review only |
+| V180-05 | Leader | Login and team scope | Leader pages load with assigned scope | ENGINEERING / CONTROLLED SMOKE EVIDENCE |
+| V180-06 | Leader | Existing mileage/status view | Existing approved result is visible | Review only |
+| V180-07 | Leader | Out-of-scope record | Access is denied or record is omitted | Review only |
+| V180-08 | Admin | Login and read-only views | Authorized views load | ENGINEERING / CONTROLLED SMOKE EVIDENCE |
+| V180-09 | Admin | Candidate feature visibility | Option C/Scheme A actions remain OFF | Review only |
+| V180-10 | All | Historical display | Existing history remains readable and unchanged | Review only |
+| V180-11 | All | Health/readiness | Existing public health/readiness responds | Controlled smoke |
+| V180-12 | Owner | Gate review | No Business UAT sign-off without separate authorization | Mandatory gate |
+
+For every item record actor role, target URL, expected/actual result, timestamp in Taipei time, screenshot or run link, and whether the result is ENGINEERING / CONTROLLED SMOKE EVIDENCE, DEMO ONLY, or FORMALLY AUTHORIZED BUSINESS UAT. The last label is unavailable in this batch.
+
+### Issue handling
+
+- P0: security exposure, unauthorized data access, wrong organization/team visibility, or destructive side effect. Stop the review.
+- P1: core existing v1.8.0 function unusable or materially incorrect. Do not broaden scope; record and hold.
+- P2: cosmetic, wording or nonblocking usability issue. Record for later triage.
+- No issue may be fixed by direct SQL or by enabling a candidate feature during this review.
+
+### Gate status after this preparation
+
+Existing v1.8.0: **LIMITED GO for controlled meeting review only**. Business UAT execution: **NO-GO until separately authorized**. Restricted Trip/Mileage: **NO-GO**. Full Scheme A/Option C: **HOLD / NO-GO**.
