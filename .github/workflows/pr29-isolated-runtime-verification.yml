@@ -123,7 +123,7 @@ jobs:
             catch {
               $message = $_.Exception.ToString()
               if ($message -like 'EXPECTED_FAILURE_NOT_OBSERVED:*') { throw }
-              if ($message -match '(?i)(login failed|cannot open database|connection|timeout|transport|network)') {
+              if ($message -match '(?i)(login failed|cannot open database|timeout expired|execution timeout|transport-level|network-related)') {
                 throw "UNEXPECTED_CONNECTION_FAILURE:$($name):$message"
               }
               if ($message -notmatch '(?i)(Msg\s+102\b|Incorrect syntax|51004)') {
