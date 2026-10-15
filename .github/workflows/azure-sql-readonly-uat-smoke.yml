@@ -111,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" --query '{name:name,status:status,earliestRestoreDate:earliestRestoreDate}' -o json
-          az sql db str-policy show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --database "$EXPECTED_DATABASE" -o json
+          az sql db str-policy show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "sql-fieldvisit-jpe-uat" --name "$EXPECTED_DATABASE" -o json
 
       - name: Sign out of Azure
         if: always()
