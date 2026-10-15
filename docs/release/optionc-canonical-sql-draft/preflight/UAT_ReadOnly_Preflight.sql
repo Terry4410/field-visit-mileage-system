@@ -18,6 +18,9 @@ DECLARE @ServerName nvarchar(256)=CONVERT(nvarchar(256),SERVERPROPERTY('ServerNa
 
 IF @ExpectedServer LIKE N'REPLACE_%' OR @ExpectedDatabase LIKE N'REPLACE_%'
   THROW 51000, 'STOP: approved exact target variables are required.', 1;
+IF CHARINDEX(N'''', @ExpectedServer)>0 OR CHARINDEX(N';', @ExpectedServer)>0
+   OR CHARINDEX(N'''', @ExpectedDatabase)>0 OR CHARINDEX(N';', @ExpectedDatabase)>0
+  THROW 51004, 'STOP: target variables contain unsafe SQLCMD characters.', 1;
 IF @ActualDatabase IN (N'master',N'model',N'msdb',N'tempdb')
   THROW 51001, 'STOP: system database is not an approved UAT target.', 1;
 IF @ActualDatabase <> @ExpectedDatabase
@@ -40,7 +43,7 @@ DECLARE @Latest nvarchar(32) =
   FROM dbo.SchemaVersions
   ORDER BY AppliedAt DESC, VersionNumber DESC
 );
-IF @Latest IS NULL OR @Latest NOT IN (N'1.8.0-010',N'1.8.0-011',N'1.8.0-012',N'1.8.0-014')
+IF @Latest IS NULL OR @Latest NOT IN (N'1.8.0-008',N'1.8.0-009',N'1.8.0-010',N'1.8.0-011',N'1.8.0-012',N'1.8.0-014')
   THROW 51006, 'STOP: unsupported SchemaVersions head.', 1;
 
 DECLARE @cr bit=CASE WHEN OBJECT_ID(N'dbo.ChangeRequests',N'U') IS NULL THEN 0 ELSE 1 END;
@@ -177,7 +180,7 @@ SELECT ORIGINAL_LOGIN() AS OriginalLogin,
        HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT') AS CanInsertSchemaVersions,
        HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE') AS CanUpdateLocations;
 
-DECLARE @IsDisposableTarget bit = CASE WHEN @ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%' OR @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;
+DECLARE @IsDisposableTarget bit = CASE WHEN (@ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%') AND @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;
 
 IF @IsDisposableTarget=0 AND (IS_ROLEMEMBER(N'db_owner')=1 OR IS_ROLEMEMBER(N'db_ddladmin')=1 OR IS_ROLEMEMBER(N'db_datawriter')=1
    OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE'+N' TABLE')=1
