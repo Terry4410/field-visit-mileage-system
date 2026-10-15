@@ -25,7 +25,7 @@ IF @ActualDatabase IN (N'master',N'model',N'msdb',N'tempdb')
   THROW 51001, 'STOP: system database is not an approved UAT target.', 1;
 IF @ActualDatabase <> @ExpectedDatabase
   THROW 51002, 'STOP: database identity mismatch.', 1;
-IF @ServerName <> @ExpectedServer AND @ServerName NOT LIKE @ExpectedServer + N'.%'
+DECLARE @IsDisposableTarget bit = CASE WHEN (@ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%') AND @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;\n\nIF @IsDisposableTarget=0 AND @ServerName <> @ExpectedServer AND @ServerName NOT LIKE @ExpectedServer + N'.%'
   THROW 51003, 'STOP: SQL server identity mismatch.', 1;
 
 SELECT @ServerName AS ServerName, @ActualDatabase AS DatabaseName,
@@ -179,8 +179,6 @@ SELECT ORIGINAL_LOGIN() AS OriginalLogin,
        HAS_PERMS_BY_NAME(N'dbo.ChangeRequests',N'OBJECT',N'DELETE') AS CanDeleteChangeRequests,
        HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT') AS CanInsertSchemaVersions,
        HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'UPDATE') AS CanUpdateLocations;
-
-DECLARE @IsDisposableTarget bit = CASE WHEN (@ExpectedServer LIKE N'localhost%' OR @ExpectedServer LIKE N'127.0.0.1%') AND @ExpectedDatabase LIKE N'OptionCIsolated[_]%' THEN 1 ELSE 0 END;
 
 IF @IsDisposableTarget=0 AND (IS_ROLEMEMBER(N'db_owner')=1 OR IS_ROLEMEMBER(N'db_ddladmin')=1 OR IS_ROLEMEMBER(N'db_datawriter')=1
    OR HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE'+N' TABLE')=1
