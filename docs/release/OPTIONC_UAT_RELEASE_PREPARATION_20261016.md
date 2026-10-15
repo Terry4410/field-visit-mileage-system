@@ -1,6 +1,29 @@
 # 2026-10-16 UAT Release Preparation — Deployment Discovery and Approval Sheet
 
-Status: **PREPARATION ONLY — NO TARGET PREFLIGHT, MIGRATION, DEPLOYMENT OR FLAG ACTIVATION**
+Status: **PREPARATION ONLY — FORMAL BUSINESS UAT DELAYED; NO TARGET PREFLIGHT, MIGRATION, DEPLOYMENT OR FLAG ACTIVATION**
+
+## Authoritative delayed-UAT checkpoint — 2026-10-15
+
+| Field | Verified value |
+|---|---|
+| Recovery branch | `work/v180-optionc-final-gates-recovery-r1` |
+| Frozen engineering candidate | `b91c8405593c1754ba19f1fb56af78f036e1b8cf` |
+| Exact-SHA Recovery CI | `38668490973` — **SUCCESS** |
+| Candidate change since prior frozen release | Readiness package and review evidence only; no runtime feature activation |
+| Authenticated existing-v1.8.0 smoke | Run `38668230583`, 9/9 PASS; engineering/controlled smoke evidence only |
+| Formal Business User UAT | **DELAYED / NOT RUN** |
+
+The Owner elected to delay formal Business User UAT so that release quality is
+not reduced to meet a calendar date. This SHA is a documentation-aligned
+engineering candidate, not a deployment approval. Existing v1.8.0 remains
+eligible only for a future separately authorized controlled smoke/review;
+Restricted Trip/Mileage remains NO-GO and Full Scheme A/Option C remains
+HOLD/NO-GO.
+
+The following gates are intentionally unresolved and must not be inferred from
+CI or public health responses: exact UAT target identity, target
+SchemaVersion/catalog compatibility, backup/restore and rollback evidence,
+deployment authorization, and feature-flag authorization.
 
 ## Read-only GitHub deployment discovery
 
@@ -35,7 +58,7 @@ At Taipei time **2026/10/15 09:47 (+0800)**, the owner-authorized, non-destructi
 | Backend `/health` | **HTTP 200** | Kestrel; application/json |
 | Backend `/health/ready` | **HTTP 200** | Kestrel; application/json |
 
-This confirms public HTTP reachability and that the readiness endpoint responded at the check time. It does **not** prove the deployed SHA, UAT database identity, SchemaVersion, backup/recovery readiness, or feature-flag state. Therefore the Existing v1.8.0 track remains **LIMITED GO for the 2026-10-16 readiness/controlled smoke review only**, with no Business UAT execution authorization. Restricted Trip/Mileage remains **NO-GO for UAT execution**, and Full Scheme A remains **HOLD/NO-GO**.
+This confirms public HTTP reachability and that the readiness endpoint responded at the check time. It does **not** prove the deployed SHA, UAT database identity, SchemaVersion, backup/recovery readiness, or feature-flag state. Therefore the Existing v1.8.0 track remains **LIMITED GO for a future controlled readiness review only**, with no Business UAT execution authorization. The scheduled Business User UAT is **DELAYED** pending release-candidate gates. Restricted Trip/Mileage remains **NO-GO for UAT execution**, and Full Scheme A remains **HOLD/NO-GO**.
 
 ## Last recorded deployment evidence
 
@@ -224,4 +247,23 @@ For every item record actor role, target URL, expected/actual result, timestamp 
 
 ### Gate status after this preparation
 
-Existing v1.8.0: **LIMITED GO for controlled meeting review only**. Business UAT execution: **NO-GO until separately authorized**. Restricted Trip/Mileage: **NO-GO**. Full Scheme A/Option C: **HOLD / NO-GO**.
+Existing v1.8.0: **LIMITED GO for future controlled review only**. Formal Business UAT: **DELAYED / NO-GO until release-candidate gates and separate authorization are complete**. Restricted Trip/Mileage: **NO-GO**. Full Scheme A/Option C: **HOLD / NO-GO**.
+
+## Delayed-UAT completion gates
+
+Formal Business UAT may be reconsidered only after all of the following have
+actual evidence, not assumptions:
+
+- frozen backend/frontend artifact SHAs with matching Exact-SHA CI;
+- approved target identity and read-only schema/catalog preflight;
+- compatible SchemaVersion and reviewed migration dependency/checksum matrix;
+- verified backup timestamp, retention, restore owner, recovery point and
+  rollback contact;
+- approved deployment sequence and post-deployment role smoke;
+- explicit feature-flag state and activation authorization;
+- required real HTTP/DI/SQL security, concurrency and historical-preservation
+  evidence for the selected scope;
+- a separately authorized Business User UAT plan and sign-off boundary.
+
+Until then, meeting materials are review/demo material only. No result may be
+recorded as Business UAT PASS.
