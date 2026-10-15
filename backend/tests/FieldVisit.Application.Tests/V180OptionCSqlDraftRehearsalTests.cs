@@ -238,6 +238,7 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             const string expectedServer = "localhost,1433";
             script = script.Replace("$(EXPECTED_SERVER)",
                     expectedServer.Replace("'", "''", StringComparison.Ordinal),
+                    StringComparison.Ordinal)
                 .Replace("$(EXPECTED_DATABASE)", databaseName,
                     StringComparison.Ordinal);
             Assert.DoesNotContain("$(EXPECTED_", script);
