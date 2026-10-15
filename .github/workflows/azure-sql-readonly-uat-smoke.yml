@@ -135,17 +135,20 @@ jobs:
           function Get-ResultKind([string[]]$Columns) {
             $set = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
             foreach ($column in $Columns) { [void]$set.Add($column) }
-            if ($set.Contains('Result') -and $set.Contains('LatestSchemaVersion') -and $set.Contains('CompletedUtc')) { return 'completion' }
-            if ($set.Contains('MigrationPhase') -and $set.Contains('CanonicalRequestTablesPresent')) { return 'summary' }
-            if ($set.Contains('CatalogFingerprintSha256')) { return 'catalogFingerprint' }
-            if ($set.Contains('OriginalLogin') -and $set.Contains('IsDbOwner') -and $set.Contains('CanUpdateLocations')) { return 'permissions' }
-            if ($set.Contains('CheckName') -and $set.Contains('Violations')) { return 'integrity' }
-            if ($set.Contains('VersionNumber')) { return 'schemaVersions' }
-            if ($set.Contains('TableName') -and $set.Contains('RowCount')) { return 'rowCounts' }
-            if ($set.Contains('ForeignKeyName') -and $set.Contains('IsNotTrusted')) { return 'foreignKeys' }
-            if ($set.Contains('ConstraintName') -and $set.Contains('is_not_trusted')) { return 'checkConstraints' }
-            if ($set.Contains('IndexName') -and $set.Contains('IndexFingerprint')) { return 'indexes' }
-            if ($set.Contains('ServerName') -and $set.Contains('DatabaseName') -and $set.Contains('ObservedUtc')) { return 'identity' }
+            $candidates = @()
+            if ($set.Contains('Result') -and $set.Contains('LatestSchemaVersion') -and $set.Contains('CompletedUtc')) { $candidates += 'completion' }
+            if ($set.Contains('MigrationPhase') -and $set.Contains('CanonicalRequestTablesPresent')) { $candidates += 'summary' }
+            if ($set.Contains('CatalogFingerprintSha256')) { $candidates += 'catalogFingerprint' }
+            if ($set.Contains('OriginalLogin') -and $set.Contains('IsDbOwner') -and $set.Contains('CanUpdateLocations')) { $candidates += 'permissions' }
+            if ($set.Contains('CheckName') -and $set.Contains('Violations')) { $candidates += 'integrity' }
+            if ($set.Contains('VersionNumber')) { $candidates += 'schemaVersions' }
+            if ($set.Contains('TableName') -and $set.Contains('RowCount')) { $candidates += 'rowCounts' }
+            if ($set.Contains('ForeignKeyName') -and $set.Contains('IsNotTrusted')) { $candidates += 'foreignKeys' }
+            if ($set.Contains('ConstraintName') -and $set.Contains('is_not_trusted')) { $candidates += 'checkConstraints' }
+            if ($set.Contains('IndexName') -and $set.Contains('IndexFingerprint')) { $candidates += 'indexes' }
+            if ($set.Contains('ServerName') -and $set.Contains('DatabaseName') -and $set.Contains('ObservedUtc')) { $candidates += 'identity' }
+            if ($candidates.Count -gt 1) { throw 'STOP: conflicting result-set column signatures.' }
+            if ($candidates.Count -eq 1) { return $candidates[0] }
             return 'unclassified'
           }
 
