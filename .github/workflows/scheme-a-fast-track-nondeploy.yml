@@ -142,6 +142,24 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+      - name: Deterministic Worker concurrency and real SQL 1205 1222 faults (EF baseline only)
+        run: |
+          set -o pipefail
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~Worker_sql_' --logger "trx;LogFileName=worker-security-sql.trx" --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root=ET.parse('artifacts/test-results/worker-security-sql.trx').getroot()
+          results=[x for x in root.iter() if x.tag.endswith('UnitTestResult')]
+          if len(results)!=13 or any(x.attrib.get('outcome')!='Passed' for x in results):
+            raise SystemExit('WORKER_SQL_HARNESS_REQUIRED_CASES_FAILED')
+          for result in results:
+            for node in result.iter():
+              if node.tag.endswith('StdOut'):
+                for line in (node.text or '').splitlines():
+                  if line.startswith(('SQL_WORKER_', 'SQL_PROVIDER_', 'REAL_SQL_', 'SENSITIVE_PROVIDER_', 'LIVENESS_HOLD=')):
+                    print(line)
+          PY
+
       - name: Historical fingerprint disposable SQL runtime
         shell: pwsh
         run: |

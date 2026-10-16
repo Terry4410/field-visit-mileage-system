@@ -26,7 +26,7 @@ namespace FieldVisit.Application.Tests;
 /// database so controller, authentication, context reader, repository and
 /// snapshot persistence are exercised together.
 /// </summary>
-public sealed class V180TripMileageHttpSqlE2ETests
+public sealed partial class V180TripMileageHttpSqlE2ETests
 {
     [Fact]
     public Task Provider_failure_manual_fallback_requires_authoritative_route_evidence_and_preserves_location_identity()
