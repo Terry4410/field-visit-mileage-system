@@ -1,4 +1,4 @@
-# Option C canonical schema gap matrix — R5
+# Option C canonical schema gap matrix — R6
 
 Status: **DISPOSABLE ENGINEERING ONLY — UAT compatibility remains HOLD.**
 
@@ -42,27 +42,57 @@ structural Verify, and SHA-256 emitted by the driver. SQL runs only in a newly
 created `OptionCIsolated_*` SQL Server 2022 database; 013 remains absent.
 
 The legacy `ImportBatches` / `ImportBatchItems` baseline in this driver is a
-synthetic EF-shaped 010 fixture, not an observed UAT catalog. The CI SQL runner and the application test Harness are separate disposable
-databases. The Harness now applies the complete 010 fixture → 011–020 chain
-and runs real HTTP LowRisk Direct in one test database, and Excel Create plus
-Update in another test database. Other Writer scenarios still run in separate
-core-plus-additive-contract databases rather than one shared chain database.
-Migration and these scoped same-chain HTTP tests do not establish UAT
-compatibility.
+synthetic EF-shaped 010 fixture, not an observed UAT catalog. The SQL migration
+runner and each application integration test create separate disposable
+databases. R5 added full-chain HTTP runs for LowRisk Direct and Excel Create /
+Update. R6 adds full-chain HTTP variants for Visitor CreateLocation, Visitor
+HighRisk → Leader → application-owned evidence → independent Admin publication,
+and MergeFields. Each scenario uses a newly migrated 010 fixture → 020
+database; the scenarios are not yet one sequential business journey in a
+single shared database. This distinction remains an integration gap.
 
 ## E2E evidence boundary
 
-Existing isolated tests exercise real application HTTP/DI/EF/SqlClient paths
-for CreateLocation, LowRisk direct publication, Visitor high-risk submission,
-independent Leader review, Stage evidence, Admin publication, MergeFields and
-Excel Create against canonical 011/012/014 plus the relevant additive
-disposable contracts. The new assertions preserve all four Trip/Mileage
-history tables during the Leader publication and MergeFields scenarios.
+## R6 010 schema fidelity boundary
 
-The independent full-chain driver still executes simple 015–020 candidate
-fixtures after the canonical core. It labels those as candidate add-on
-fixtures; they are not evidence that numeric 015–020 are canonical migrations.
-The repository has not yet bound those six numeric migration markers to the
-actual additive contracts, and the actual 010 catalog fingerprint has not
-been replayed in the disposable writer Harness. Accordingly there is no
-complete 010→020 canonical migration or UAT compatibility PASS.
+Protected source `ce70eddc290e85375c64311b6d96eedc09942dba` contains the real
+1600/1700 history and 1800_001–010 migrations. Existing authorized read-only
+evidence (run `38707441735`) proves UAT `db-fieldvisit-uat` was at
+`1.8.0-010`, reports catalog fingerprint
+`665C66D7BA7DE5F75AD855CDDDA10175E8AB31114B6572EC010813799BFCD975`, and
+shows the four Option C phase flags absent. That evidence did **not** return
+the full UAT column/type/nullability, key, index, check, or rowversion
+inventory. Its catalog fingerprint is based on dbo object names/types/modify
+dates, so it cannot prove column-level fidelity. The read-only SQL evidence
+also marks FK/CHECK/index result sets NotApplicable for the absent Option C
+objects; those empty result sets are not a whole-catalog inventory.
+
+| Fidelity area | Protected 001–010 / EF source | Authorized actual UAT evidence | R6 result |
+|---|---|---|---|
+| Migration state | 1800_001–010 protected chain | Latest `1.8.0-010`; SchemaVersions rows captured | State matches; no replay of 001–010 against UAT |
+| Tables / columns / SQL types / nullability | Readable in Protected migration SQL and `AppDbContext` mappings | Full UAT inventory was not returned | **Unknown / HOLD** |
+| PK / FK / CHECK / indexes / trusted state | Readable in migration SQL; compare requires target definitions | No whole-catalog definitions returned | **Unknown / HOLD** |
+| RowVersion | Required by EF and several writer contracts | UAT column-level evidence absent | **Unknown / HOLD** |
+| Existing-data and Backfill prerequisites | Canonical 014 requires exact approved active Location projections; prerequisites defined by source SQL | Summary says Option C tables absent; no row-level/location compatibility projection returned | **Unknown / HOLD** |
+| Catalog fingerprint | Protected query emits dbo object-name/type/modify-date hash | Exact hash above | Hash matches recorded evidence only; it is not a schema-shape proof |
+
+`UatSchemaFidelity.readonly.sql` prepares a metadata-only, SELECT-only inventory
+for a future separately approved read-only evidence run. It has not been run
+against UAT. 010 fixture parity and UAT compatibility therefore remain HOLD.
+
+## R6 real writer evidence
+
+The new tests call the real ASP.NET controllers, DI, EF and SqlClient after
+the full candidate migration chain. CreateLocation, LowRisk Direct, HighRisk
+submission/Leader review/evidence/Admin publication, MergeFields, and Excel
+Preview/Create/Update/Replay each run against a database that has reached
+1.8.0-020. The SQL fixtures seed actor identities and history only; they do
+not issue the business writes being asserted. Each flow currently has its own
+disposable migrated database rather than sharing one database across all
+eleven R6 cases. The dedicated CreateLocation test also calls the operational
+project-location endpoint and proves its pending reservation is excluded.
+
+Real Browser E2E is still not run. CI has only the 3-test Playwright suite
+whose API responses are fully mocked (`MOCK PASS`). Real isolated SQL-backed
+Browser, backup Restore, UAT execution, feature activation and Business UAT
+remain HOLD. Migration 013 stays absent/reserved.

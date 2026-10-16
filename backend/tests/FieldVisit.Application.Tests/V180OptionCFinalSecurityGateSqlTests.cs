@@ -928,17 +928,25 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     }
 
     [Fact]
-    public async Task CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate()
+    public Task CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate()
+        => Run_create_location_reservation_e2e(false);
+
+    [Fact]
+    public Task R6_full_010_to_020_chain_runs_real_visitor_create_location_writer()
+        => Run_create_location_reservation_e2e(true);
+
+    private async Task Run_create_location_reservation_e2e(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
         var root = FindRoot();
-        foreach (var relative in new[] {
-            "leader-review/LeaderReviewDetails.disposable.sql",
-            "create-lowrisk/CreateLowRiskContract.disposable.sql" })
-            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
-                "optionc-canonical-sql-draft",
-                relative.Replace('/', Path.DirectorySeparatorChar))));
+        if (!fullCanonicalChain)
+            foreach (var relative in new[] {
+                "leader-review/LeaderReviewDetails.disposable.sql",
+                "create-lowrisk/CreateLowRiskContract.disposable.sql" })
+                await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                    "optionc-canonical-sql-draft",
+                    relative.Replace('/', Path.DirectorySeparatorChar))));
         // Independent live-appointed Leader for the complete CREATE HTTP flow.
         await h.Exec("""
             INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
@@ -985,7 +993,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // columns used by the real count query; keep the table empty so
         // this test proves the pending reservation does not enter trip counts.
         await h.Exec("""
-            CREATE TABLE dbo.VisitTrips
+            IF OBJECT_ID(N'dbo.VisitTrips',N'U') IS NULL CREATE TABLE dbo.VisitTrips
             (
                 VisitTripId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 UserId int NOT NULL,
@@ -994,14 +1002,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 Status nvarchar(30) NOT NULL,
                 VisitDate date NOT NULL
             );
-            CREATE TABLE dbo.CorrectionRequests
+            IF OBJECT_ID(N'dbo.CorrectionRequests',N'U') IS NULL CREATE TABLE dbo.CorrectionRequests
             (
                 CorrectionRequestId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 VisitTripId bigint NOT NULL,
                 Status nvarchar(30) NOT NULL,
                 RequestedByUserId int NOT NULL
             );
-            CREATE TABLE dbo.MileageRateRules
+            IF OBJECT_ID(N'dbo.MileageRateRules',N'U') IS NULL CREATE TABLE dbo.MileageRateRules
             (
                 MileageRateRuleId int IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 OrganizationId int NULL,
@@ -1056,7 +1064,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // Verify that project-linked operational choices exclude canonical
         // Pending requests while preserving an approved active Location.
         await h.Exec("""
-            CREATE TABLE dbo.Projects
+            IF OBJECT_ID(N'dbo.Projects',N'U') IS NULL CREATE TABLE dbo.Projects
             (
                 ProjectId int NOT NULL PRIMARY KEY,
                 OrganizationId int NOT NULL,
@@ -2220,10 +2228,25 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     }
 
     [Fact]
-    public async Task Leader_first_level_review_real_http_stage_evidence_and_admin_publication_preserve_history()
+    public Task Leader_first_level_review_real_http_stage_evidence_and_admin_publication_preserve_history()
+        => Run_leader_stage_admin_publication_preserves_history(false);
+
+    [Fact]
+    public Task R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers()
+        => Run_leader_stage_admin_publication_preserves_history(true);
+
+    private async Task Run_leader_stage_admin_publication_preserves_history(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
+        await h.Exec("""
+            IF OBJECT_ID(N'dbo.AuditLogs',N'U') IS NULL
+                CREATE TABLE dbo.AuditLogs(AuditLogId bigint IDENTITY PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,EntityId nvarchar(100) NULL,
+                    Action nvarchar(120) NOT NULL,OldValues nvarchar(max) NULL,
+                    NewValues nvarchar(max) NULL,IpAddress nvarchar(100) NULL,
+                    CorrelationId uniqueidentifier NULL,CreatedAt datetime2 NOT NULL);
+            """);
         var historyBefore = await h.HistoryFingerprint();
 
         // Add a distinct, live-appointed Leader reviewer. This is fixture setup,
@@ -2248,10 +2271,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
             """);
 
-        var root = FindRoot();
-        await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
-            "optionc-canonical-sql-draft", "leader-review",
-            "LeaderReviewDetails.disposable.sql")));
+        if (!fullCanonicalChain)
+        {
+            var root = FindRoot();
+            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                "optionc-canonical-sql-draft", "leader-review",
+                "LeaderReviewDetails.disposable.sql")));
+        }
 
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -2336,13 +2362,30 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id) AND EventType=N'DuplicateReviewEvidenceRecorded'",
             P("@id", submitted.RequestPublicId)));
         Assert.Equal(historyBefore, await h.HistoryFingerprint());
+        if (fullCanonicalChain)
+            Console.WriteLine($"R6_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=VisitorHighRisk+LeaderReview+GeocodeEvidence+DuplicateEvidence+IndependentAdminApproval publication=Atomic version=2 audit=PASS history=PASS");
     }
 
     [Fact]
-    public async Task MergeFields_real_http_submission_approval_reject_and_history_are_atomic()
+    public Task MergeFields_real_http_submission_approval_reject_and_history_are_atomic()
+        => Run_merge_fields_real_http_atomicity(false);
+
+    [Fact]
+    public Task R6_full_010_to_020_chain_runs_real_merge_fields_writer()
+        => Run_merge_fields_real_http_atomicity(true);
+
+    private async Task Run_merge_fields_real_http_atomicity(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
+        await h.Exec("""
+            IF OBJECT_ID(N'dbo.AuditLogs',N'U') IS NULL
+                CREATE TABLE dbo.AuditLogs(AuditLogId bigint IDENTITY PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,EntityId nvarchar(100) NULL,
+                    Action nvarchar(120) NOT NULL,OldValues nvarchar(max) NULL,
+                    NewValues nvarchar(max) NULL,IpAddress nvarchar(100) NULL,
+                    CorrelationId uniqueidentifier NULL,CreatedAt datetime2 NOT NULL);
+            """);
         var historyBefore = await h.HistoryFingerprint();
         await h.Exec("""
             INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(1,900,10,1,1,SYSUTCDATETIME());
@@ -2378,17 +2421,24 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("PendingGeocode", await h.StageStatus(pending.RequestPublicId));
         Assert.Equal("Original address 11", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=11"));
 
-        await h.Exec("""
-            UPDATE s SET GeocodeStatus=N'Succeeded',
-              GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),
-              Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',
-              DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME()
-            FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
-            WHERE r.RequestPublicId=@id;
-            """, P("@id", pending.RequestPublicId));
-
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        var stage = await admin.GetAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/stage");
+        Assert.Equal(System.Net.HttpStatusCode.OK, stage.StatusCode);
+        var stageView = await stage.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_MERGE_STAGE_VIEW_MISSING");
+        var geo = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(stageView.StageRowVersion, true, 25.03m, 121.56m,
+                "Application-owned disposable merge geocode") { EvidenceKey = Guid.NewGuid() });
+        Assert.Equal(System.Net.HttpStatusCode.OK, geo.StatusCode);
+        var geoView = await geo.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_MERGE_GEOCODE_VIEW_MISSING");
+        var duplicate = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(geoView.StageRowVersion, true,
+                "Application-owned disposable duplicate review", Guid.NewGuid()));
+        Assert.Equal(System.Net.HttpStatusCode.OK, duplicate.StatusCode);
         var self = await visitor.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
             new V180B3Review(pending.RowVersion, Guid.NewGuid(), "Self approval denied"));
         Assert.NotEqual(System.Net.HttpStatusCode.OK, self.StatusCode);
@@ -2432,6 +2482,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Original 12", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=12"));
         Assert.Equal("Original 13", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=13"));
         Assert.Equal(historyBefore, await h.HistoryFingerprint());
+        if (fullCanonicalChain)
+            Console.WriteLine($"R6_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=MergeFields+GeocodeEvidence+DuplicateEvidence+IndependentAdminApproval publication=Atomic versions=PASS history=PASS");
     }
 
     [Fact]

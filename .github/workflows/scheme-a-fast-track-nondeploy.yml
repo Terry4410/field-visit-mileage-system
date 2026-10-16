@@ -60,6 +60,7 @@ jobs:
         run: |
           python3 -m unittest scripts/ci/test_optionc_sql_draft.py
           python3 -m unittest scripts/ci/validate_full_scheme_a_uat_readiness.py
+          python3 -m unittest scripts/ci/test_r6_schema_fidelity.py
 
       - uses: actions/setup-node@v4
         with:
