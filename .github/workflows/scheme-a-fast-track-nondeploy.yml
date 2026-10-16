@@ -101,6 +101,29 @@ jobs:
           print(f'BACKEND_TRX_NONZERO total={total} executed={executed}')
           PY
 
+      - name: Backend failure diagnostic summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, re, xml.etree.ElementTree as ET
+          p='artifacts/test-results/backend-full.trx'
+          summary=[]
+          if not os.path.exists(p):
+            summary.append('BACKEND_TRX_MISSING')
+          else:
+            root=ET.parse(p).getroot()
+            for result in root.iter():
+              if result.tag.endswith('UnitTestResult') and result.attrib.get('outcome') == 'Failed':
+                output=next((x for x in result if x.tag.endswith('Output')),None)
+                info=next((x for x in output or [] if x.tag.endswith('ErrorInfo')),None)
+                message=next((x.text or '' for x in info or [] if x.tag.endswith('Message')),'')
+                message=re.sub(r'(?i)(password|pwd|token|secret|authorization)\s*[:=]\s*[^;\s]+',r'\1=[REDACTED]',message)
+                summary.append(f"FAILED {result.attrib.get('testName','unknown')}: {message[:1200]}")
+          print('\n'.join(summary) if summary else 'BACKEND_FAILURE_DIAGNOSTIC_NO_FAILED_TESTS')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
+            f.write('### Backend test diagnostics\n\n'+'\n'.join(f'- {line}' for line in summary)+'\n')
+          PY
+
       - name: Historical fingerprint disposable SQL runtime
         shell: pwsh
         run: |
