@@ -418,9 +418,14 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     .Where(x => x.UserId == fixture.Leader.UserId && x.TeamId == fixture.Team.TeamId)
                     .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, (DateOnly?)null));
                 db.ChangeTracker.Clear();
-                pendingTripEntity.UserId = fixture.Leader.UserId;
-                await db.SaveChangesAsync();
-                var selfApprovalVersion = Convert.ToBase64String(pendingTripEntity.RowVersion);
+                await db.VisitTrips
+                    .Where(x => x.VisitTripId == created.VisitTripId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, fixture.Leader.UserId));
+                db.ChangeTracker.Clear();
+                var selfApprovalTrip = await db.VisitTrips
+                    .AsNoTracking()
+                    .SingleAsync(x => x.VisitTripId == created.VisitTripId);
+                var selfApprovalVersion = Convert.ToBase64String(selfApprovalTrip.RowVersion);
                 using (var selfApproval = await leader.PostAsJsonAsync(
                     $"api/v1/trips/{created.VisitTripId}/approve",
                     approve with { RowVersion = selfApprovalVersion }))
@@ -428,8 +433,10 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     Assert.Equal(HttpStatusCode.Forbidden, selfApproval.StatusCode);
                     Assert.Contains("TRIP_SELF_APPROVAL_DENIED", await selfApproval.Content.ReadAsStringAsync());
                 }
-                pendingTripEntity.UserId = visitorOwnerId;
-                await db.SaveChangesAsync();
+                await db.VisitTrips
+                    .Where(x => x.VisitTripId == created.VisitTripId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.UserId, visitorOwnerId));
+                db.ChangeTracker.Clear();
                 var refreshedPending = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
                     ?? throw new InvalidOperationException("OPTIONC_TRIP_AFTER_SELF_DENY_MISSING");
                 approve = approve with { RowVersion = refreshedPending.RowVersion };
