@@ -26,15 +26,16 @@ public sealed class BackgroundJobService(
             throw new InvalidOperationException("里程工作 Mode 只支援 AllPending、DateRange 或 Selected。");
         if (mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) && (request.StartDate is null || request.EndDate is null || request.EndDate < request.StartDate)) throw new InvalidOperationException("日期區間不正確。");
         if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && (request.SelectedTripIds is null || request.SelectedTripIds.Count == 0)) throw new InvalidOperationException("請先勾選行程。");
+        var selectedTripIds = request.SelectedTripIds ?? Array.Empty<long>();
         var candidateIds = await FindEligibleMileageRetryIds(
             user.TeamIds,
             mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.StartDate : null,
             mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
-            mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? request.SelectedTripIds : null,
+            mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? selectedTripIds : null,
             ct);
         if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
-            && (request.SelectedTripIds!.Distinct().Count() != request.SelectedTripIds.Count
-                || candidateIds.Count != request.SelectedTripIds.Count))
+            && (selectedTripIds.Distinct().Count() != selectedTripIds.Count
+                || candidateIds.Count != selectedTripIds.Count))
             throw new InvalidOperationException("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED：選取行程不具目前路線失敗證據或已不在授權範圍。");
         if (candidateIds.Count == 0)
             throw new InvalidOperationException("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE：沒有具目前路線 Google 失敗證據的可重試行程。");
@@ -176,6 +177,10 @@ public sealed class BackgroundJobService(
             request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
             request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? request.SelectedTripIds : null,
             ct);
+        var selectedIds = request.SelectedTripIds ?? Array.Empty<long>();
+        if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
+            && (selectedIds.Distinct().Count() != selectedIds.Count || tripIds.Count != selectedIds.Count))
+            throw new InvalidOperationException("MILEAGE_JOB_SELECTION_STALE_OR_UNAUTHORIZED：任何選取項目已失去目前路線失敗證據或範圍；整批停止。");
 
         await db.BackgroundJobs
             .Where(x => x.BackgroundJobId == jobId)

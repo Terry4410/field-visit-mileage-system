@@ -16,6 +16,8 @@ public sealed class LeaderService(
     IV170AccessControl access,
     IV180GoogleMileageGovernanceRepository? mileageGovernance = null)
 {
+    // ProviderSuggested must preserve the canonical provider distance at 0.01 km precision.
+    private const decimal ProviderDistanceToleranceKm = 0.01m;
     public async Task<List<TripDto>> ReviewQueueAsync(CancellationToken ct)
     {
         var user = RequireLeader();
@@ -196,6 +198,7 @@ public sealed class LeaderService(
             var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(basis.VehicleType);
             if (selectedAttempt.Status != "Succeeded"
                 || selectedAttempt.VisitTripId != trip.VisitTripId
+                || !V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(selectedAttempt, submittedBasis)
                 || (selectedAttempt.BasisType == "SubmittedSnapshot"
                     ? selectedAttempt.BasisVisitTripSnapshotId != submittedBasis.VisitTripSnapshotId
                     : selectedAttempt.BasisType != "Draft" || selectedAttempt.BasisVisitTripSnapshotId is not null)
@@ -206,6 +209,18 @@ public sealed class LeaderService(
                     "F_B_ROUTE_ATTEMPT_STALE：route attempt 必須成功且對應目前最新 Submitted Snapshot 與 canonical basis。");
             governanceCorrelationId = selectedAttempt.CorrelationId;
         }
+
+        var providerDistance = calc.SystemDistanceKm;
+        if (decisionSource == "ProviderSuggested"
+            && (!providerDistance.HasValue
+                || Math.Abs(request.ApprovedDistanceKm.Value - providerDistance.Value) > ProviderDistanceToleranceKm))
+            throw new InvalidOperationException(
+                "F_B_PROVIDER_DISTANCE_MISMATCH：ProviderSuggested 核准里程必須符合目前有效 Google 里程，容差 0.01 km；差異調整請改用 LeaderAdjusted 並提供個別原因。");
+        if (decisionSource == "LeaderAdjusted"
+            && (!providerDistance.HasValue
+                || Math.Abs(request.ApprovedDistanceKm.Value - providerDistance.Value) <= ProviderDistanceToleranceKm))
+            throw new InvalidOperationException(
+                "F_B_LEADER_ADJUSTMENT_NOT_DIFFERENT：LeaderAdjusted 必須與有效 Google 里程相差超過 0.01 km，否則請使用 ProviderSuggested。");
 
         var rate = await mileage.GetEffectiveRateAsync(
             trip.OrganizationId,
