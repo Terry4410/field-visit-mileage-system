@@ -30,7 +30,7 @@ that test baseline, not UAT compatibility.
 | 017 | `LocationCreateReservations`: request/location/org/team FKs, pending/published/abandoned status CHECK, `rowversion`, unique Location reservation. Used by CreateLocation Writer and Stage guard. | Candidate migration copies `create-lowrisk/CreateLowRiskContract.disposable.sql`, including reservation identity, status, scoped FKs, and unique Location index. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
 | 018 | Extends canonical request/event CHECKs for direct LowRisk publication and audit while keeping publication in the canonical ledger. | Candidate migration copies `lowrisk-direct/LowRiskDirectContract.disposable.sql`, extending canonical request/event checks and preserving the ledger. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
 | 019 | `LocationMergeDetails`: canonical ChangeRequest FK; source/survivor IDs, org/team, both rowversions, before/proposed/evidence JSON, scoped CHECKs. Used by merge submission, publication and reconciliation. | Candidate migration copies `merge/LocationMergeDetails.disposable.sql`, with ChangeRequest FK, organization/team/rowversion/JSON fields and checks. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
-| 020 | Additive status CHECK updates to existing `ImportBatches` and `ImportBatchItems`, preserving batch identity, row data, request link, status and audit semantics. Used by the actual Excel preview/submission flow. | Candidate migration copies `excel-import/ExcelImportStatusContract.disposable.sql`, widening status CHECKs on existing EF ImportBatches and ImportBatchItems. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** Excel Create/Update app tests are not run on this same chain database. |
+| 020 | Additive status CHECK updates to existing `ImportBatches` and `ImportBatchItems`, preserving batch identity, row data, request link, status and audit semantics. Used by the actual Excel preview/submission flow. | Candidate migration copies `excel-import/ExcelImportStatusContract.disposable.sql`, widening status CHECKs on existing EF ImportBatches and ImportBatchItems. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** The R5 same-chain HTTP test runs Excel Create and Update preview/submission on the migrated disposable database. |
 
 ## R5 additive chain evidence boundary
 
@@ -42,10 +42,13 @@ structural Verify, and SHA-256 emitted by the driver. SQL runs only in a newly
 created `OptionCIsolated_*` SQL Server 2022 database; 013 remains absent.
 
 The legacy `ImportBatches` / `ImportBatchItems` baseline in this driver is a
-synthetic EF-shaped 010 fixture, not an observed UAT catalog. The six numeric
-migrations have not yet been proven in the same database as the complete real
-HTTP Writer sequence. Migration-chain PASS therefore does not establish UAT
-compatibility or Writer same-database E2E.
+synthetic EF-shaped 010 fixture, not an observed UAT catalog. The CI SQL runner and the application test Harness are separate disposable
+databases. The Harness now applies the complete 010 fixture → 011–020 chain
+and runs real HTTP LowRisk Direct in one test database, and Excel Create plus
+Update in another test database. Other Writer scenarios still run in separate
+core-plus-additive-contract databases rather than one shared chain database.
+Migration and these scoped same-chain HTTP tests do not establish UAT
+compatibility.
 
 ## E2E evidence boundary
 
