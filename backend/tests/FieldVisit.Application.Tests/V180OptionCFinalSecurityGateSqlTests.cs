@@ -19,17 +19,25 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
-    public async Task Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit()
+    public Task Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit()
+        => Run_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit(false);
+
+    [Fact]
+    public Task R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database()
+        => Run_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit(true);
+
+    private async Task Run_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
         var root = FindRoot();
-        foreach (var relative in new[] {
-            "leader-review/LeaderReviewDetails.disposable.sql",
-            "create-lowrisk/CreateLowRiskContract.disposable.sql",
-            "lowrisk-direct/LowRiskDirectContract.disposable.sql" })
-            await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
-                "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
+        if (!fullCanonicalChain)
+            foreach (var relative in new[] {
+                "leader-review/LeaderReviewDetails.disposable.sql",
+                "create-lowrisk/CreateLowRiskContract.disposable.sql",
+                "lowrisk-direct/LowRiskDirectContract.disposable.sql" })
+                await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
+                    "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
         await h.Exec("""
             CREATE TABLE dbo.AuditLogs(
                 AuditLogId bigint IDENTITY PRIMARY KEY,UserId int NULL,
@@ -131,53 +139,74 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("",await h.Scalar("SELECT COALESCE(MasterNote,N'') FROM dbo.Locations WHERE LocationId=16"));
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=16"));
         Assert.Equal("0",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequests WHERE EntityId=N'16'"));
+        if(fullCanonicalChain)
+            Console.WriteLine($"R5_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=LowRiskDirect status=2xx versionAudit=PASS rollback=PASS");
     }
 
     [Fact]
-    public async Task Excel_create_submission_http_binds_preview_rows_to_canonical_pending_requests_atomically()
+    public Task Excel_create_submission_http_binds_preview_rows_to_canonical_pending_requests_atomically()
+        => Run_excel_create_and_update_http_e2e(false);
+
+    [Fact]
+    public Task R5_full_010_to_020_chain_runs_excel_create_and_update_writers_in_same_sql_database()
+        => Run_excel_create_and_update_http_e2e(true);
+
+    private async Task Run_excel_create_and_update_http_e2e(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
         var root = FindRoot();
-        foreach (var relative in new[] {
-            "leader-review/LeaderReviewDetails.disposable.sql",
-            "create-lowrisk/CreateLowRiskContract.disposable.sql" })
-            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
-                "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
+        if (!fullCanonicalChain)
+            foreach (var relative in new[] {
+                "leader-review/LeaderReviewDetails.disposable.sql",
+                "create-lowrisk/CreateLowRiskContract.disposable.sql" })
+                await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                    "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
         // The isolated Base fixture is intentionally limited. Create only
         // these existing legacy ImportBatch schema objects in the disposable
         // database (never a UAT/Production migration).
-        await h.Exec("""
-            CREATE TABLE dbo.ImportBatches(
-                ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,
-                ImportType nvarchar(30) NOT NULL,
-                OrganizationId int NOT NULL,
-                RequestedByUserId int NOT NULL,
-                Status nvarchar(30) NOT NULL
-                    CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(
-                        N'Previewed',N'Confirmed',N'PartiallyFailed')),
-                TotalCount int NOT NULL,ValidCount int NOT NULL,
-                ErrorCount int NOT NULL,
-                CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,
-                ConfirmedAt datetime2 NULL);
-            CREATE TABLE dbo.ImportBatchItems(
-                ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                ImportBatchId uniqueidentifier NOT NULL,
-                RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,
-                Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL
-                    CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(
-                        N'Valid',N'Error',N'Applied',N'Failed')),
-                DisplayKey nvarchar(250) NOT NULL,
-                DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,
-                CreatedAt datetime2 NOT NULL);
-            CREATE TABLE dbo.AuditLogs(
-                AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                UserId int NULL,EntityType nvarchar(100) NOT NULL,
-                EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
-                OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
-                IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
-                CreatedAt datetime2 NOT NULL);
-            """);
+        if (fullCanonicalChain)
+            await h.Exec("""
+                CREATE TABLE dbo.AuditLogs(
+                    AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,
+                    EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
+                    OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
+                    IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
+                    CreatedAt datetime2 NOT NULL);
+                """);
+        else
+            await h.Exec("""
+                CREATE TABLE dbo.ImportBatches(
+                    ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,
+                    ImportType nvarchar(30) NOT NULL,
+                    OrganizationId int NOT NULL,
+                    RequestedByUserId int NOT NULL,
+                    Status nvarchar(30) NOT NULL
+                        CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(
+                            N'Previewed',N'Confirmed',N'PartiallyFailed')),
+                    TotalCount int NOT NULL,ValidCount int NOT NULL,
+                    ErrorCount int NOT NULL,
+                    CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,
+                    ConfirmedAt datetime2 NULL);
+                CREATE TABLE dbo.ImportBatchItems(
+                    ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    ImportBatchId uniqueidentifier NOT NULL,
+                    RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,
+                    Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL
+                        CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(
+                            N'Valid',N'Error',N'Applied',N'Failed')),
+                    DisplayKey nvarchar(250) NOT NULL,
+                    DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,
+                    CreatedAt datetime2 NOT NULL);
+                CREATE TABLE dbo.AuditLogs(
+                    AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,
+                    EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
+                    OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
+                    IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
+                    CreatedAt datetime2 NOT NULL);
+                """);
         var batch = Guid.NewGuid();
         var staged = System.Text.Json.JsonSerializer.Serialize(new {
             locationCode=(string?)null,teamCode="T1",
@@ -214,20 +243,24 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             $"api/v1/imports/{batch}/confirm",null);
         Assert.False(legacy.IsSuccessStatusCode);
         var url=$"api/v1/optionc-candidate/imports/{batch}/submit-creates-for-review";
-        using var absentContract = await admin.PostAsync(url,null);
-        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
-            absentContract.StatusCode);
-        Assert.Contains("OPTIONC_EXCEL_STATUS_CONTRACT_NOT_READY",
-            await absentContract.Content.ReadAsStringAsync());
+        if (!fullCanonicalChain)
+        {
+            using var absentContract = await admin.PostAsync(url,null);
+            Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
+                absentContract.StatusCode);
+            Assert.Contains("OPTIONC_EXCEL_STATUS_CONTRACT_NOT_READY",
+                await absentContract.Content.ReadAsStringAsync());
+        }
         Assert.Equal("0",await h.Scalar("""
             SELECT COUNT(*) FROM dbo.Locations
             WHERE LocationName=N'Excel canonical first'
             """));
         // Only the disposable SQL fixture installs the NONEXECUTABLE
         // additive status draft. No UAT/Production schema is touched.
-        await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
-            "optionc-canonical-sql-draft","excel-import",
-            "ExcelImportStatusContract.disposable.sql")));
+        if (!fullCanonicalChain)
+            await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
+                "optionc-canonical-sql-draft","excel-import",
+                "ExcelImportStatusContract.disposable.sql")));
         using var submitted = await admin.PostAsync(url,null);
         Assert.True(submitted.IsSuccessStatusCode,
             await submitted.Content.ReadAsStringAsync());
@@ -889,6 +922,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var mixedUpdate=await admin.PostAsync(
             $"api/v1/optionc-candidate/imports/{mixedBatch}/submit-updates-for-review",null);
         Assert.False(mixedUpdate.IsSuccessStatusCode);
+        if(fullCanonicalChain)
+            Console.WriteLine($"R5_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=ExcelCreate+ExcelUpdate status=2xx duplicateReplay=PASS rollback=PASS");
 
     }
 
@@ -3132,9 +3167,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private readonly SqlConnection root; private readonly string name;
         internal SqlConnection Db{get;}
         internal string ConnectionString{get;}
+        internal string DatabaseName => name;
         private Harness(SqlConnection root,SqlConnection db,string name,string connectionString){this.root=root;Db=db;this.name=name;ConnectionString=connectionString;}
 
-        internal static async Task<Harness?> TryCreateAsync()
+        internal static async Task<Harness?> TryCreateAsync(bool fullCanonicalChain = false)
         {
             var raw=Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
             if(string.IsNullOrWhiteSpace(raw))
@@ -3154,10 +3190,36 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             {
                 await db.OpenAsync();await CreateBase(db);
                 var repo=FindRoot();
-                foreach(var p in new[]{"1800_011/Preflight.sql","1800_011/Up.sql","1800_011/Verify.sql","1800_012/Preflight.sql","1800_012/Up.sql","1800_012/Verify.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql","1800_014/Verify.sql","audit/StageEvidenceAuditEvents.disposable.sql"})
+                foreach(var p in new[]{"1800_011/Preflight.sql","1800_011/Up.sql","1800_011/Verify.sql","1800_012/Preflight.sql","1800_012/Up.sql","1800_012/Verify.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql","1800_014/Verify.sql"})
                     await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft",p.Replace('/',Path.DirectorySeparatorChar))));
                 await VerifyCanonicalBackfill(db);
-                await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","merge","LocationMergeDetails.disposable.sql")));
+                if(fullCanonicalChain)
+                {
+                    await V180OptionCFinalSecurityGateSqlTests.Exec(db,"""
+                        CREATE TABLE dbo.ImportBatches(ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,ImportType nvarchar(30) NOT NULL,OrganizationId int NOT NULL,RequestedByUserId int NOT NULL,Status nvarchar(30) NOT NULL CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(N'Previewed',N'Confirmed',N'PartiallyFailed')),TotalCount int NOT NULL,ValidCount int NOT NULL,ErrorCount int NOT NULL,CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,ConfirmedAt datetime2 NULL);
+                        CREATE TABLE dbo.ImportBatchItems(ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,ImportBatchId uniqueidentifier NOT NULL,RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(N'Valid',N'Error',N'Applied',N'Failed')),DisplayKey nvarchar(250) NOT NULL,DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,CreatedAt datetime2 NOT NULL,CONSTRAINT FK_ImportBatchItems_ImportBatches FOREIGN KEY(ImportBatchId) REFERENCES dbo.ImportBatches(ImportBatchId) ON DELETE CASCADE);
+                        CREATE INDEX IX_ImportBatchItems_ImportBatchId ON dbo.ImportBatchItems(ImportBatchId);
+                        """);
+                    foreach(var m in new[]{"1800_015","1800_016","1800_017","1800_018","1800_019","1800_020"})
+                    {
+                        var d=Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","candidate",m);
+                        foreach(var phase in new[]{"Preflight.sql","Up.sql","Verify.sql"})
+                        {
+                            var path=Path.Combine(d,phase);
+                            await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(path));
+                            Console.WriteLine($"R5_SAME_DATABASE_MIGRATION_PASS database={name} step={m}/{phase} sha256={Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)))}");
+                        }
+                    }
+                    if(await V180OptionCFinalSecurityGateSqlTests.ScalarOn(db,"SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN(N'1.8.0-015',N'1.8.0-016',N'1.8.0-017',N'1.8.0-018',N'1.8.0-019',N'1.8.0-020')")!="6")
+                        throw new InvalidOperationException("R5_FULL_CHAIN_MIGRATION_MARKER_SET_INCOMPLETE");
+                    if(await V180OptionCFinalSecurityGateSqlTests.ScalarOn(db,"SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-013'")!="0")
+                        throw new InvalidOperationException("R5_RESERVED_013_MUST_REMAIN_ABSENT");
+                }
+                else
+                {
+                    await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","audit","StageEvidenceAuditEvents.disposable.sql")));
+                    await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","merge","LocationMergeDetails.disposable.sql")));
+                }
                 return new Harness(root,db,name,dbb.ConnectionString);
             }
             catch{await db.DisposeAsync();await V180OptionCFinalSecurityGateSqlTests.Exec(root,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");await root.DisposeAsync();throw;}

@@ -162,6 +162,8 @@ class FullSchemeAUatReadinessTests(unittest.TestCase):
             "CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate",
             "Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history",
             "Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit",
+            "R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database",
+            "R5_full_010_to_020_chain_runs_excel_create_and_update_writers_in_same_sql_database",
             "Leader_first_level_review_real_http_stage_evidence_and_admin_publication_preserve_history",
             "MergeFields_real_http_submission_approval_reject_and_history_are_atomic",
             "Reviewer_and_requester_hr_role_revocation_after_request_lock_is_fail_closed",
