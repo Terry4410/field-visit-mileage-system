@@ -280,10 +280,10 @@ public sealed class BackgroundJobService(
                     || trip.MileageCalculation?.SystemDistanceKm is not null)
                     throw new UnauthorizedAccessException("MILEAGE_JOB_POST_PROVIDER_STATE_STALE：即時授權、Submitted 路線或里程狀態已改變，拒絕套用結果。");
 
-                // A competing worker may have completed the same current route
-                // while this worker was in provider I/O. Resolve under the same
-                // serializable transaction; an existing successful attempt wins,
-                // except when it is this worker's own attempt.
+                // The Trip update lock serializes application, not provider completion.
+                // Two durable successful Attempts must not mutually supersede.
+                // An eligible own success may claim the still-unapplied Trip; a
+                // failed result may never fall back over another current success.
                 var submittedSnapshot = await db.VisitTripSnapshots.AsNoTracking()
                     .Include(x => x.Stops)
                     .SingleAsync(x => x.VisitTripSnapshotId == submittedSnapshotId, ct);
@@ -295,7 +295,12 @@ public sealed class BackgroundJobService(
                 var currentAttemptId = googleResult?.RouteCalculationAttemptId;
                 var hasOtherAuthoritativeSuccess = authoritativeSuccesses.Any(
                     x => x.RouteCalculationAttemptId != currentAttemptId);
-                if (hasOtherAuthoritativeSuccess)
+                var hasEligibleOwnSuccess = useGoogleRoutes
+                    && googleResult is { Status: "Succeeded", SuggestedDistanceKm: > 0 }
+                    && authoritativeSuccesses.Any(x => x.RouteCalculationAttemptId == currentAttemptId);
+                if (useGoogleRoutes && googleResult is { Status: "Succeeded" } && !hasEligibleOwnSuccess)
+                    throw new InvalidOperationException("MILEAGE_JOB_PROVIDER_RESULT_NOT_AUTHORITATIVE");
+                if (hasOtherAuthoritativeSuccess && !hasEligibleOwnSuccess)
                 {
                     durableItem.Status = "Failed";
                     durableItem.ErrorCode = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";

@@ -1,10 +1,10 @@
 # WORK A — deterministic disposable SQL evidence delta
 
-Baseline: `8adf27b7d699a2070fa9f5eeb87017507766025f`.
+Baseline: `ef8718082b1b57dcb8074b4465f0d12296a9054c`.
 Authority: NONDEPLOY_ONLY. UAT release remains NO-GO.
 
-This batch changes test/CI/evidence paths only. The accepted second-success
-predicate, retry guard, atomic job claim and diagnostic allow-list are unchanged.
+This delta fixes mutual supersession in the actual final-persistence transaction.
+The accepted harness DI, retry guard, atomic job claim and diagnostic allow-list are unchanged.
 Final source SHA/run/counters are bound by the exact-head CI acceptance artifact,
 not by a self-referential SHA in this document.
 
@@ -27,9 +27,9 @@ or trusted UAT 001–010 schema-fidelity evidence. Browser remains API-mocked.
 
 | Case | Controlled interleaving / persisted assertion |
 | --- | --- |
-| Own success earliest | Both Attempts terminal before A's apply; A still detects B; no overwrite |
-| Other success earliest | B terminal before A; both final transactions detect the other success |
-| Both before persistence | Provider and final-persistence TaskCompletionSource barriers; no sleeps |
+| Own success earliest | Both Attempts terminal before A's apply; A's eligible own success applies once; B cannot overwrite |
+| Other success earliest | B terminal before A; A can apply its own eligible success despite B completing first |
+| Both before persistence | Both real transactions contend on Trip lock; exactly one matching Attempt/result applies; no sleeps |
 | Failure versus success | A failure cannot fall back over B's authoritative success; B alone applies 99.75 km |
 | One applies first | A applies 12.5 km while B is in provider I/O; B cannot overwrite it with 99.75 km |
 | Submitted route changes | Append a new Submitted snapshot with a changed basis while provider is blocked; old snapshot remains unchanged; reject old result |
@@ -55,20 +55,26 @@ The CI writes fixed-prefix execution observations to the acceptance summary;
 13 nonzero passing rows are required in a dedicated TRX in addition to the full
 backend suite. No source-text-only assertion is used for the new runtime proof.
 
-## Separate safety from liveness — required HOLD
+## Exactly-once completion under the existing Trip lock
 
-When both successful Attempts are durable before either final apply transaction,
-the accepted **ANY OTHER success → reject current result** rule rejects both
-Workers. The harness must record zero applications and both Items superseded,
-not mislabel that result as exactly-one business completion. Retry is correctly
-denied because immutable current-route success evidence exists.
+The serializable transaction retains the Trip UPDLOCK, live HR/role/team checks,
+latest Submitted snapshot identity, eligible Trip status and unapplied mileage guard.
+It verifies that the current provider result's own immutable Succeeded Attempt
+matches the current submitted route. That eligible result may apply while holding
+the Trip lock even when another successful Attempt is already durable. The next
+transaction sees the completed Trip state and cannot apply again. Completion order
+does not elect a provider result; the first eligible apply transaction does.
 
-Therefore no-overwrite / at-most-one safety can PASS while **exactly-one automatic
-completion/reconciliation is HOLD**. The existing Attempt contract does not store
-the successful numeric provider result. Safe reconciliation requires a reviewed
-durable result/selection contract or a separately designed pre-provider trip claim;
-simply weakening the accepted predicate or deleting successful Attempts is unsafe.
-No such production/schema expansion is made by this test-only batch.
+Failure/fallback still stops when any other authoritative success exists. A claimed
+success without its own authoritative current-route Attempt also stops. No Attempt
+or Snapshot is rewritten, no other provider result is reconstructed, and no approval
+or subsidy is automatically granted. The three formerly zero-application scenarios
+now require exactly one application and a matching winner Attempt/distance/history,
+one successful Item, one failed Item, consistent counters, and denied extra retry.
+The real SQL fault and sensitive-data regression cases remain unchanged.
+
+Runtime PASS is established only by the exact-SHA dedicated SQL TRX and full CI,
+not this description. The disposable EF baseline is not UAT compatibility proof.
 
 Remaining release gates: independent audit; trusted 001–010/UAT schema and app
 principal fidelity; real Browser→same canonical migrated DB; deployment provenance;

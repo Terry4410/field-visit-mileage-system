@@ -88,22 +88,38 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             var workerAttempts = attempts.OrderBy(x => x.RouteCalculationAttemptId).Skip(1).ToArray();
             Assert.True(workerAttempts[first].CompletedAt <= workerAttempts[1 - first].CompletedAt);
             var applications = await db.VisitTripStatusHistories.CountAsync(x => x.VisitTripId == h.TripId && x.Action == "GoogleMapsMileageCalculated", h.Token);
-            Assert.Equal(scenario is "one-applies-before-second-completes" or "failure-vs-success" ? 1 : 0, applications);
+            Assert.Equal(1, applications);
             var items = await db.BackgroundJobItems.OrderBy(x => x.BackgroundJobItemId).ToListAsync(h.Token);
             Assert.Equal(2, items.Count);
-            Assert.All(items, x => Assert.Contains(x.Status, new[] { "Failed", "Succeeded" }));
-            if (applications == 0)
+            var winner = Assert.Single(items.Where(x => x.Status == "Succeeded"));
+            var loser = Assert.Single(items.Where(x => x.Status == "Failed"));
+            Assert.Contains(loser.ErrorCode, new[]
             {
-                Assert.All(items, x => Assert.Equal("MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS", x.ErrorCode));
-                Assert.Null(await db.MileageCalculations.Where(x => x.VisitTripId == h.TripId).Select(x => x.SystemDistanceKm).SingleAsync(h.Token));
-            }
-            else Assert.Equal(scenario == "failure-vs-success" ? 99.75m : 12.5m, await db.MileageCalculations.Where(x => x.VisitTripId == h.TripId).Select(x => x.SystemDistanceKm).SingleAsync(h.Token));
+                "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS",
+                "MILEAGE_JOB_POST_PROVIDER_STATE_STALE"
+            });
+            using var applied = JsonDocument.Parse(winner.ResultJson!);
+            var appliedAttemptId = applied.RootElement.GetProperty("routeCalculationAttemptId").GetInt64();
+            var appliedDistance = applied.RootElement.GetProperty("distanceKm").GetDecimal();
+            var winningAttempt = Assert.Single(workerAttempts.Where(x => x.RouteCalculationAttemptId == appliedAttemptId));
+            Assert.Equal("Succeeded", winningAttempt.Status);
+            Assert.Equal(scenario == "failure-vs-success" ? workerAttempts[1].RouteCalculationAttemptId
+                : scenario == "both-before-persistence" ? appliedAttemptId
+                : workerAttempts[0].RouteCalculationAttemptId, appliedAttemptId);
+            Assert.Equal(appliedAttemptId == workerAttempts[0].RouteCalculationAttemptId ? 12.5m : 99.75m, appliedDistance);
+            var calculation = await db.MileageCalculations.SingleAsync(x => x.VisitTripId == h.TripId, h.Token);
+            Assert.Equal(appliedDistance, calculation.SystemDistanceKm);
+            Assert.Null(calculation.ApprovedDistanceKm);
+            Assert.Equal("PendingApproval", (await db.VisitTrips.SingleAsync(x => x.VisitTripId == h.TripId, h.Token)).Status);
+            var publication = await db.VisitTripStatusHistories.SingleAsync(x => x.VisitTripId == h.TripId
+                && x.Action == "GoogleMapsMileageCalculated", h.Token);
+            Assert.Contains($"RouteAttempt={appliedAttemptId}", publication.Comments);
             await h.AssertCountersAndNoApprovals(db);
             Assert.Equal(history, await h.History());
             using var retry = await h.Leader.PostAsJsonAsync("api/v1/jobs/mileage", new MileageBatchRequest("Selected", null, null, [h.TripId]), h.Token);
             Assert.Equal(HttpStatusCode.UnprocessableEntity, retry.StatusCode);
             harnessOutput.WriteLine($"SQL_WORKER_INTERLEAVING={scenario}; applications={applications}; attempts={attempts.Count}; history=UNCHANGED; retry=DENIED");
-            if (applications == 0) harnessOutput.WriteLine("LIVENESS_HOLD=ANY_OTHER_SUCCESS_REJECTS_BOTH; no attempt distance is durably available for reconciliation");
+            harnessOutput.WriteLine($"SQL_WORKER_COMPLETION=EXACTLY_ONE; winnerAttempt={appliedAttemptId}; distanceKm={appliedDistance}; loser={loser.ErrorCode}; approval=NONE");
         });
     }
 
