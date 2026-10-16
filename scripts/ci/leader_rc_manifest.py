@@ -21,7 +21,7 @@ def build_manifest(root,source,ref,head,evidence,gates):
             if p.is_symlink():raise ValueError('ARTIFACT_SYMLINK_DENIED')
             if p.is_file():files[str(p.relative_to(art))]=sha(p)
     return {'contract':'leader-uat-preflight-manifest-v2','sourceSha':source,'branch':ref,'protectedBase':'b1a507c90c577fb2c0cdd6a98ef33481d3a5f790',
-      'originalProtectedBase':'d691fba430ce80dd2048f84863b4628e1e6713d8','implementationSha':evidence['implementationSha'],
+      'originalProtectedBase':'d691fba430ce80dd2048f84863b4628e1e6713d8','implementationSha':source,'historicalImplementationAnchor':evidence['implementationSha'],
       'scope':'PARTIAL_LEADER_DRAFT_WITH_VISITOR_COMPATIBILITY','stage':'CANDIDATE_PACKAGE_BEFORE_FINAL_BROWSER_SQL_TESTS','migrationRequired':False,
       'observedPagesSourceSha':evidence['pages']['sourceSha'],'pagesProvenance':'LIVE_STAMP_OBSERVED_ARCHIVE_UNAVAILABLE',
       'deployedApiSource':'UNVERIFIED','historicalApiDeploymentSourceSha':evidence['api']['historicalSourceSha'],
