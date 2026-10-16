@@ -19,13 +19,15 @@
   ],
   "properties": {
     "Version": {
-      "const": 1
+      "const": 1,
+      "type": "integer"
     },
     "Lane": {
       "enum": [
         "WORK_A",
         "WORK_B",
         "WORK_C",
+        "WORK_D",
         "AUDIT",
         "OWNER"
       ]

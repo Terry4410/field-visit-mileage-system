@@ -32,7 +32,7 @@ jobs:
         run: python3 -m unittest discover -s scripts/control_tower -p 'test_*.py' -v
   aggregate:
     needs: validate
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/control-tower-hub-20261016' && github.event_name != 'pull_request'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/control-tower-hub-20261016' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,6 +40,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Enforce authorized read-only collector event
+        run: python3 scripts/control_tower/hub.py --guard-event
       - name: Select previous successful same-branch state
         id: baseline
         env:
