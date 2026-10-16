@@ -1076,14 +1076,23 @@ public sealed class V170LocationRepository(
     public async Task MergeAsync(
         CurrentUserDto admin,int sourceLocationId,V170LocationMergeRequest request,CancellationToken ct)
     {
-        var preview=await PreviewMergeAsync(admin,sourceLocationId,request.SurvivorLocationId,ct);
-        if(!preview.CanMerge)throw new InvalidOperationException(preview.BlockingReason??"此地點目前不可合併。");
-
-        var published=await db.Locations.AsNoTracking().AnyAsync(x=>
-            (x.LocationId==sourceLocationId||x.LocationId==request.SurvivorLocationId)
-            &&!x.IsTemporary&&x.ApprovalStatus=="Approved",ct);
+        if(sourceLocationId==request.SurvivorLocationId)
+            throw new InvalidOperationException("來源地點與保留地點不可相同。");
+        var organizationId=admin.OrganizationId
+            ??throw new UnauthorizedAccessException("管理者缺少 Organization scope。");
+        var scopedRows=await db.Locations.AsNoTracking()
+            .Where(x=>x.OrganizationId==organizationId
+                &&(x.LocationId==sourceLocationId||x.LocationId==request.SurvivorLocationId))
+            .Select(x=>new{x.LocationId,x.IsTemporary,x.ApprovalStatus})
+            .ToListAsync(ct);
+        if(scopedRows.Count!=2)
+            throw new KeyNotFoundException("找不到來源地點或保留地點。");
+        var published=scopedRows.Any(x=>!x.IsTemporary&&x.ApprovalStatus=="Approved");
         if(published&&request.Mode=="UseExisting")
             throw new InvalidOperationException("LOCATION_PUBLISHED_USE_EXISTING_REQUIRES_CANONICAL_REVIEW");
+
+        var preview=await PreviewMergeAsync(admin,sourceLocationId,request.SurvivorLocationId,ct);
+        if(!preview.CanMerge)throw new InvalidOperationException(preview.BlockingReason??"此地點目前不可合併。");
 
         if(request.Mode=="MergeFields")
         {
