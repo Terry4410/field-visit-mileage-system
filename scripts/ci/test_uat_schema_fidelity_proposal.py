@@ -13,9 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 SQL = ROOT / "docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql"
 WORKFLOW = ROOT / ".github/workflows/azure-sql-uat-schema-fidelity-readonly.yml"
 VALIDATOR = ROOT / "scripts/ci/uat_schema_fidelity_evidence.ps1"
+POWERSHELL_TEST = ROOT / "scripts/ci/test_uat_schema_fidelity_evidence.ps1"
 COMPARATOR = ROOT / "scripts/ci/compare_uat010_schema_inventory.py"
+REGISTRATION_STUB = ROOT / "docs/workflows/azure-sql-uat-schema-fidelity-readonly.main-registration-stub.yml"
 SQL_SHA = "e83552d4b1472e677f61a5e44973b80321d2874322f4a5954c070b8f3fd2c232"
-VALIDATOR_SHA = "f2953d17ea364e1191a5cddcbcf797251f9e97b109007aa89607f109875b3b15"
+VALIDATOR_SHA = "e6dcd6be4ecd2616ae3332818d438c6d8704eff494b32b4ab8681f86bdcffd11"
 
 
 def load_comparator():
@@ -93,6 +95,37 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertNotIn("database/migrations/", workflow)
         self.assertNotIn("dotnet ef database update", workflow.lower())
 
+    def test_dry_routing_default_main_refuses_and_protected_runs_guard_first(self):
+        stub = REGISTRATION_STUB.read_text(encoding="utf-8")
+        protected = WORKFLOW.read_text(encoding="utf-8")
+        expected_name = "name: Azure SQL UAT schema fidelity inventory (SELECT-only)"
+        self.assertIn(expected_name, stub)
+        self.assertIn(expected_name, protected)
+        self.assertIn("workflow_dispatch:", stub)
+        self.assertIn("contents: read", stub)
+        self.assertIn("exit 1", stub)
+        for forbidden in ("id-token: write", "environment: uat", "azure/login", "Invoke-Sqlcmd", "AZURE_CLIENT_ID"):
+            self.assertNotIn(forbidden, stub)
+        self.assertIn("needs: branch-guard", protected)
+        self.assertIn('test "${GITHUB_REF}" = "refs/heads/post-uat/v1.8.0"', protected)
+        self.assertLess(protected.index("branch-guard:"), protected.index("metadata-only-inventory:"))
+
+    def test_powershell_contract_suite_covers_seven_result_sets_and_negative_cases(self):
+        source = POWERSHELL_TEST.read_text(encoding="utf-8")
+        for required in (
+            "valid seven-result-set DataSet normalizes",
+            "wrong server identity fails",
+            "unexpected extra column fails",
+            "wrong schema version fails",
+            "missing historical aggregate fails",
+            "missing seventh result set fails",
+            "SQL failure output suppresses raw secret",
+            "wrong evidence mode fails",
+        ):
+            self.assertIn(required, source)
+        self.assertIn("New-ValidInventoryDataSet", source)
+        self.assertIn("Get-SanitizedUatInventoryFailure", source)
+
     def test_validator_is_hash_pinned_and_exact_shape(self):
         source = VALIDATOR.read_bytes()
         self.assertEqual(hashlib.sha256(source).hexdigest(), VALIDATOR_SHA)
@@ -101,7 +134,8 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertIn("result columns were missing, reordered or unexpected", text)
         self.assertIn("1.8.0-010", text)
         self.assertIn("METADATA_ONLY_NO_ROW_VALUES", text)
-        self.assertIn("raw SQL", WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("raw SQL error suppressed", text)
+        self.assertIn("Throw-SanitizedUatInventoryFailure", WORKFLOW.read_text(encoding="utf-8"))
 
     def test_comparator_detects_full_facet_and_010_drift(self):
         comparator = load_comparator()

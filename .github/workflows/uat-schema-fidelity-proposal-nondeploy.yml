@@ -49,5 +49,9 @@ jobs:
       - name: Run fail-closed proposal tests
         run: python3 -m unittest -v scripts/ci/test_uat_schema_fidelity_proposal.py
 
+      - name: Run PowerShell seven-result-set DataSet contract tests
+        shell: pwsh
+        run: ./scripts/ci/test_uat_schema_fidelity_evidence.ps1
+
       - name: Compile comparator
         run: python3 -m py_compile scripts/ci/compare_uat010_schema_inventory.py

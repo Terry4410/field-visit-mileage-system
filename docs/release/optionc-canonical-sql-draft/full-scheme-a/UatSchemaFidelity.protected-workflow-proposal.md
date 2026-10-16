@@ -47,7 +47,47 @@ the already-proven smoke workflow. It:
    summary. It does not print metadata rows to the log.
 
 The proposal-only CI is a different workflow with `contents: read` only. It has no
-OIDC permission, Azure login, UAT environment or SQL execution capability.
+OIDC permission, Azure login, UAT environment or SQL execution capability. It runs
+real PowerShell `System.Data.DataSet` contract tests for the valid seven-result-set
+shape and fail-closed cases covering wrong identity, extra columns, wrong version,
+missing historical aggregate, missing result set, wrong evidence mode and raw-error
+suppression.
+
+## P0 dispatch registration and routing
+
+GitHub registers `workflow_dispatch` only when that workflow path exists on the
+repository default branch. The default branch is `main`; therefore merging only the
+full workflow in this PR to `post-uat/v1.8.0` would not make the new workflow
+manually available.
+
+The least-privilege correction is a separate one-file `main` registration PR. Its
+exact proposed content is stored inertly at
+`docs/workflows/azure-sql-uat-schema-fidelity-readonly.main-registration-stub.yml`
+(SHA-256
+`88740ec58213ca8406eea49c641222b9621bda21b500ed569cceaba22c344014`).
+After separate approval, copy it without modification to the identical workflow
+path `.github/workflows/azure-sql-uat-schema-fidelity-readonly.yml` on `main`.
+
+The registration stub has only `contents: read`; it has no OIDC, Azure login, UAT
+environment, SQL command or artifact access. A default-branch dispatch exits 1. The
+full Protected version remains only on `post-uat/v1.8.0` and rejects every other ref
+in `branch-guard`; the SQL job has `needs: branch-guard`, so a wrong ref stops before
+OIDC, Azure target inspection or SQL.
+
+After both independently reviewed files are installed:
+
+- UI: Actions → `Azure SQL UAT schema fidelity inventory (SELECT-only)` → Run
+  workflow → select `post-uat/v1.8.0`. GitHub sets `GITHUB_REF` to that selected ref
+  and `GITHUB_SHA` to its last commit; the workflow checks out that exact SHA and
+  verifies `git rev-parse HEAD == GITHUB_SHA`.
+- CLI: `gh workflow run azure-sql-uat-schema-fidelity-readonly.yml --ref post-uat/v1.8.0`.
+- REST: dispatch the registered workflow filename with body
+  `{"ref":"post-uat/v1.8.0"}` and no inputs.
+
+Official GitHub documentation states that the Run workflow button requires the file
+on the default branch and that the UI/CLI/API can select another branch/ref. The
+proposal CI statically proves the stub has no protected capability and the full job
+depends on the exact-ref guard. It does not dispatch either workflow.
 
 ## 010 migration and EF compatibility gate
 
@@ -66,6 +106,13 @@ The comparator independently enforces the 010 delta:
 `CK_RouteCalculationAttempts_Reason` must be enabled and trusted and contain exactly
 the reviewed reason surface, including `BackgroundMileageJob`.
 
+The comparator deliberately excludes `Target`, `SqlSha256`,
+`HistoricalAggregates`, `CapturedUtc` and source SHA from schema-shape equality.
+Those fields remain mandatory provenance/precondition evidence and must be reviewed
+independently. Comparator PASS alone cannot prove that the artifact came from UAT,
+that historical row counts/high-watermarks are preserved, that backfill
+preconditions pass, or that release is GO.
+
 EF compatibility must use an exported relational-model reference from the same
 Protected source SHA. It must be reconciled against the same normalized 001–010
 reference before a result may be called PASS. The current repository has SQL-script
@@ -75,11 +122,13 @@ A catalog fingerprint alone cannot substitute for these comparisons.
 
 ## Required Owner approvals
 
-1. Approve the exact protected PR diff, workflow path and pinned file hashes.
-2. Approve merge/update of `post-uat/v1.8.0` at the reviewed head SHA.
-3. Separately approve one dispatch of the new SELECT-only workflow from that exact
+1. Approve a one-file default-`main` registration-stub PR at the exact path and
+   SHA-256 above. This registers the workflow identity only and cannot access UAT.
+2. Approve the exact Protected PR diff, workflow path and pinned file hashes.
+3. Approve merge/update of `post-uat/v1.8.0` at the reviewed head SHA.
+4. Separately approve one dispatch of the new SELECT-only workflow from that exact
    protected SHA. Approval to merge is not approval to dispatch.
-4. Review the resulting normalized artifact and the disposable 001–010 / EF
+5. Review the resulting normalized artifact and the disposable 001–010 / EF
    comparison report before any migration or deployment decision.
 
 No approval in this proposal includes UAT DDL/DML, migration, restore, deployment,
@@ -88,6 +137,8 @@ flag activation, Business UAT or PR merge.
 ## Remaining HOLD items
 
 - Proposed workflow is unmerged and has never queried UAT.
+- Default-main registration stub is only an inert proposal file; `main` is unchanged,
+  so the new workflow is not yet registered or dispatchable.
 - Normalized UAT inventory does not exist.
 - Protected 001–010 disposable normalized reference and EF relational-model export
   are not yet attached; therefore actual 010/EF fidelity is **HOLD**, not PASS.

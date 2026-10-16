@@ -1,0 +1,25 @@
+# Proposed exact contents for the separately authorized default-main registration PR.
+# Install at: .github/workflows/azure-sql-uat-schema-fidelity-readonly.yml
+name: Azure SQL UAT schema fidelity inventory (SELECT-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-sql-uat-schema-fidelity-registration
+  cancel-in-progress: false
+
+jobs:
+  registration-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Refuse default-branch execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Registration stub only. Select post-uat/v1.8.0 after the independently reviewed protected workflow is installed."
+          exit 1

@@ -17,7 +17,7 @@ env:
   EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
   EXPECTED_DATABASE: db-fieldvisit-uat
   INVENTORY_SQL_SHA256: e83552d4b1472e677f61a5e44973b80321d2874322f4a5954c070b8f3fd2c232
-  EVIDENCE_VALIDATOR_SHA256: f2953d17ea364e1191a5cddcbcf797251f9e97b109007aa89607f109875b3b15
+  EVIDENCE_VALIDATOR_SHA256: e6dcd6be4ecd2616ae3332818d438c6d8704eff494b32b4ab8681f86bdcffd11
 
 jobs:
   branch-guard:
@@ -104,7 +104,7 @@ jobs:
           try {
             $data = Invoke-Sqlcmd -ServerInstance $env:EXPECTED_SERVER -Database $env:EXPECTED_DATABASE -AccessToken $token -ApplicationIntent ReadOnly -ConnectionTimeout 120 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -InputFile $sql
           } catch {
-            throw 'STOP: metadata-only SQL inventory failed; raw SQL error suppressed.'
+            Throw-SanitizedUatInventoryFailure $_
           }
           $summary = Write-UatSchemaInventory $data $env:EXPECTED_SERVER $env:EXPECTED_DATABASE $env:GITHUB_SHA $env:INVENTORY_SQL_SHA256 $output
           "artifact_path=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Append

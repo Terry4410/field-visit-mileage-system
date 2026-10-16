@@ -1,5 +1,36 @@
 Set-StrictMode -Version Latest
 
+function Get-SanitizedUatInventoryFailure([object]$Failure) {
+  $exception = if ($Failure -is [System.Management.Automation.ErrorRecord]) {
+    $Failure.Exception
+  } elseif ($null -ne $Failure -and @($Failure.PSObject.Properties.Name) -contains 'Exception') {
+    $Failure.Exception
+  } else {
+    $Failure
+  }
+  $approvedTypes = @(
+    'Microsoft.Data.SqlClient.SqlException',
+    'System.Data.SqlClient.SqlException',
+    'System.TimeoutException',
+    'System.Net.Sockets.SocketException'
+  )
+  $runtimeType = if ($exception -is [System.Exception]) { $exception.GetType().FullName } else { 'OtherException' }
+  $classification = if ($runtimeType -eq 'System.TimeoutException') {
+    'Timeout'
+  } elseif ($runtimeType -eq 'System.Net.Sockets.SocketException') {
+    'NetworkUnavailable'
+  } elseif ($approvedTypes -contains $runtimeType) {
+    'SqlOperationRejected'
+  } else {
+    'UnknownSqlFailure'
+  }
+  return "STOP: metadata-only SQL inventory failed. Classification=$classification; raw SQL error suppressed."
+}
+
+function Throw-SanitizedUatInventoryFailure([object]$Failure) {
+  throw (Get-SanitizedUatInventoryFailure $Failure)
+}
+
 function Get-UatInventoryTables([object]$DataSet) {
   if ($DataSet -is [System.Data.DataSet]) {
     return @($DataSet.Tables | ForEach-Object { Write-Output -NoEnumerate $_ })
