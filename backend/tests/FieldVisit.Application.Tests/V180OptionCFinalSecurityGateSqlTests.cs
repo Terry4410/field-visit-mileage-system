@@ -1115,6 +1115,67 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                   (9901,900,@location,0,1,SYSUTCDATETIME()),
                   (9902,900,30,0,1,SYSUTCDATETIME());
             """, P("@location", locationId));
+        if (fullCanonicalChain)
+        {
+            await h.Exec("""
+                INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,
+                    LocationType,ApprovalStatus,GeocodingStatus,IsActive,LocationName,Address)
+                VALUES(901,1,1,2,N'Customer',N'Pending',N'Pending',0,N'Leader managed draft',N'Leader draft address'),
+                      (902,1,3,2,N'Customer',N'Pending',N'Pending',0,N'Unassigned team draft',N'Other team address');
+                """);
+            using var leaderClient = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            leaderClient.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader", 1, 1));
+            var leaderCreatePayload = new V180OptionCCreateLocation(1, "Leader single create",
+                new V180B3LocationFields("Leader-created customer", "Taipei", "Daan", "Leader create address", "8FVC9G8F+5W", "12345678", "Leader create note"));
+            using var leaderCreate = await leaderClient.PostAsJsonAsync("api/v1/optionc-candidate/locations", leaderCreatePayload);
+            Assert.True(leaderCreate.IsSuccessStatusCode, await leaderCreate.Content.ReadAsStringAsync());
+            var leaderCreated = await leaderCreate.Content.ReadFromJsonAsync<V180B3RequestView>()
+                ?? throw new InvalidOperationException("OPTIONC_LEADER_CREATE_HTTP_VIEW_MISSING");
+            Assert.Equal("CreateLocation", leaderCreated.OperationCode);
+            Assert.Equal("Pending", leaderCreated.Status);
+            var leaderLocationId = int.Parse(leaderCreated.EntityId);
+            Assert.Equal("0", await h.Scalar("SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=@id", P("@id", leaderLocationId)));
+            Assert.Equal("0", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id", P("@id", leaderLocationId)));
+
+            var versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
+            var version = Convert.ToBase64String(Convert.FromHexString(versionHex));
+            var edit = direct with { LocationName = "Leader managed update", Address = "Leader managed address", RowVersion = version };
+            using var allowedEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901", edit);
+            Assert.True(allowedEdit.IsSuccessStatusCode, await allowedEdit.Content.ReadAsStringAsync());
+            Assert.Equal("Leader managed update", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=901"));
+            Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.AuditLogs WHERE UserId=4 AND EntityType=N'Location' AND EntityId=N'901' AND Action=N'LocationUpdate'"));
+            using var staleEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901", edit);
+            Assert.False(staleEdit.IsSuccessStatusCode);
+            using var crossTeamEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/902", edit with { TeamId = 3 });
+            Assert.False(crossTeamEdit.IsSuccessStatusCode);
+            versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
+            using var visitorNonOwner = await visitor.PutAsJsonAsync("api/v1/managed-locations/901", edit with { RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+            Assert.False(visitorNonOwner.IsSuccessStatusCode);
+
+            versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=30");
+            using var publishedPut = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/30",
+                edit with { TeamId = 1, RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+            Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, publishedPut.StatusCode);
+            Assert.Contains("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL", await publishedPut.Content.ReadAsStringAsync());
+            Assert.Equal("Other team published", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=30"));
+
+            await h.Exec("""
+                UPDATE dbo.UserRoleAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,SYSUTCDATETIME())) WHERE UserId=4 AND RoleId=2;
+                """);
+            versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
+            using var revokedRole = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
+                edit with { RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+            Assert.False(revokedRole.IsSuccessStatusCode);
+            await h.Exec("""
+                UPDATE dbo.UserRoleAssignments SET EffectiveTo=NULL WHERE UserId=4 AND RoleId=2;
+                UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Terminated' WHERE EmploymentId=104;
+                """);
+            using var revokedHr = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
+                edit with { RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+            Assert.False(revokedHr.IsSuccessStatusCode);
+            Assert.Equal("Leader managed update", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=901"));
+            Console.WriteLine($"R8_LEADER_SINGLE_CREATE_AND_MANAGED_DRAFT_HTTP_PASS database={h.DatabaseName} create=PASS update=PASS crossTeam=DENY visitorNonOwner=DENY staleRowVersion=DENY roleRevoked=DENY hrRevoked=DENY publishedLegacyPut=DENY");
+        }
         using var projectLocationsResponse = await visitor.GetAsync(
             "api/v1/projects/900/locations");
         Assert.True(projectLocationsResponse.IsSuccessStatusCode,

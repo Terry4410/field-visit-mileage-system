@@ -32,11 +32,12 @@ public sealed class V180OptionCLocationWriteRulesTests
     }
 
     [Fact]
-    public void Leader_can_only_change_own_pending_customer_draft_with_same_team()
+    public void Leader_can_change_another_creators_pending_draft_within_same_organization_and_managed_team()
     {
-        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(Draft(), Leader(), 10, "Customer", false);
+        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(Draft(9), Leader(), 10, "Customer", false);
+        var otherOrganization = Draft(9); otherOrganization.OrganizationId = 2;
         Assert.Throws<UnauthorizedAccessException>(() =>
-            V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(Draft(9), Leader(), 10, "Customer", false));
+            V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(otherOrganization, Leader(), 10, "Customer", false));
         Assert.Throws<UnauthorizedAccessException>(() =>
             V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(Draft(), Leader(), 11, "Customer", false));
         Assert.Throws<UnauthorizedAccessException>(() =>

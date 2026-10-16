@@ -27,7 +27,6 @@ public static class V180OptionCLocationWriteRules
         if (actor.Roles.Any(r => r.Equals("leader", StringComparison.OrdinalIgnoreCase)))
         {
             if (location.OrganizationId != actor.OrganizationId
-                || location.CreatedByUserId != actor.UserId
                 || !location.TeamId.HasValue
                 || !actor.TeamIds.Contains(location.TeamId.Value)
                 || targetTeamId != location.TeamId
