@@ -1137,14 +1137,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             Assert.Equal("0", await h.Scalar("SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=@id", P("@id", leaderLocationId)));
             Assert.Equal("0", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id", P("@id", leaderLocationId)));
 
-            var versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
-            static string RowVersionBase64(string value)
-            {
-                var hex = value.Trim();
-                if (hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) hex = hex[2..];
-                return Convert.ToBase64String(Convert.FromHexString(hex));
-            }
-            var version = RowVersionBase64(versionHex);
+            var version = await h.LocationRowVersionBase64(901);
             var edit = direct with { LocationName = "Leader managed update", Address = "Leader managed address", RowVersion = version };
             using var allowedEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901", edit);
             Assert.True(allowedEdit.IsSuccessStatusCode, await allowedEdit.Content.ReadAsStringAsync());
@@ -1154,13 +1147,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             Assert.False(staleEdit.IsSuccessStatusCode);
             using var crossTeamEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/902", edit with { TeamId = 3 });
             Assert.False(crossTeamEdit.IsSuccessStatusCode);
-            versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
-            using var visitorNonOwner = await visitor.PutAsJsonAsync("api/v1/managed-locations/901", edit with { RowVersion = RowVersionBase64(versionHex) });
+            version = await h.LocationRowVersionBase64(901);
+            using var visitorNonOwner = await visitor.PutAsJsonAsync("api/v1/managed-locations/901", edit with { RowVersion = version });
             Assert.False(visitorNonOwner.IsSuccessStatusCode);
 
-            versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=30");
+            var publishedVersion = await h.LocationRowVersionBase64(30);
             using var publishedPut = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/30",
-                edit with { TeamId = 1, RowVersion = RowVersionBase64(versionHex) });
+                edit with { TeamId = 1, RowVersion = publishedVersion });
             Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, publishedPut.StatusCode);
             Assert.Contains("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL", await publishedPut.Content.ReadAsStringAsync());
             Assert.Equal("Other team published", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=30"));
@@ -1168,16 +1161,16 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await h.Exec("""
                 UPDATE dbo.UserRoleAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,SYSUTCDATETIME())) WHERE UserId=4 AND RoleId=2;
                 """);
-            versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
+            version = await h.LocationRowVersionBase64(901);
             using var revokedRole = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
-                edit with { RowVersion = RowVersionBase64(versionHex) });
+                edit with { RowVersion = version });
             Assert.False(revokedRole.IsSuccessStatusCode);
             await h.Exec("""
                 UPDATE dbo.UserRoleAssignments SET EffectiveTo=NULL WHERE UserId=4 AND RoleId=2;
                 UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Terminated' WHERE EmploymentId=104;
                 """);
             using var revokedHr = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
-                edit with { RowVersion = RowVersionBase64(versionHex) });
+                edit with { RowVersion = version });
             Assert.False(revokedHr.IsSuccessStatusCode);
             Assert.Equal("Leader managed update", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=901"));
             Console.WriteLine($"R8_LEADER_SINGLE_CREATE_AND_MANAGED_DRAFT_HTTP_PASS database={h.DatabaseName} create=PASS update=PASS crossTeam=DENY visitorNonOwner=DENY staleRowVersion=DENY roleRevoked=DENY hrRevoked=DENY publishedLegacyPut=DENY");
@@ -3438,6 +3431,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         internal async Task<string> StageStatus(Guid id)=>await Scalar("SELECT s.StageStatus FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id",P("@id",id));
         internal async Task<string> EventCount(Guid id,string type)=>await Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequestEvents e JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId WHERE r.RequestPublicId=@id AND e.EventType=@type",P("@id",id),P("@type",type));
         internal async Task<string> Scalar(string sql,params SqlParameter[] ps)=>await ScalarOn(Db,sql,ps);
+        internal async Task<string> LocationRowVersionBase64(int locationId)
+        {
+            await using var cmd = new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=@id", Db) { CommandTimeout = 60 };
+            cmd.Parameters.AddWithValue("@id", locationId);
+            var raw = await cmd.ExecuteScalarAsync() as byte[]
+                ?? throw new InvalidOperationException($"LOCATION_ROWVERSION_MISSING:{locationId}");
+            return Convert.ToBase64String(raw);
+        }
         internal async Task Exec(string sql,params SqlParameter[] ps)=>await ExecOn(Db,sql,ps);
         internal async Task<string> HistoryFingerprint()
         {
