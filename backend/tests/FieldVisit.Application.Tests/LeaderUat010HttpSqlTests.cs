@@ -71,10 +71,14 @@ public sealed class LeaderUat010HttpSqlTests
         await Denied(await client.PutAsJsonAsync($"/api/v1/managed-locations/{foreign.LocationId}",Input(rv:Convert.ToBase64String(foreign.RowVersion),label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);
         await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(otherTeam.TeamId,label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);
         await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt") with{IsActive=true}),HttpStatusCode.Forbidden);
+        await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt") with{LocationType="Official"}),HttpStatusCode.Forbidden);
+        await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt") with{TaxId=new string('X',21)}),HttpStatusCode.UnprocessableEntity);
         var list=await client.GetFromJsonAsync<List<ManagedLocationDto>>("/api/v1/managed-locations");Assert.DoesNotContain(list!,x=>x.LocationId==outside.LocationId||x.LocationId==foreign.LocationId);
         Login("visitor");await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);Login();
         status.EmploymentStatus=EmploymentStatuses.Leave;await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);status.EmploymentStatus=EmploymentStatuses.Active;await seed.SaveChangesAsync();
-        assignedRole.EffectiveTo=BusinessTime.Today.AddDays(-1);await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);assignedRole.EffectiveTo=null;await seed.SaveChangesAsync();
+        leader.IsActive=false;await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);leader.IsActive=true;await seed.SaveChangesAsync();
+        emp.TerminationDate=BusinessTime.Today;await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);emp.TerminationDate=null;await seed.SaveChangesAsync();
+        assignedRole.EffectiveTo=BusinessTime.Today.AddDays(-1);await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync("/api/v1/managed-locations")).StatusCode);assignedRole.EffectiveTo=null;await seed.SaveChangesAsync();
         grant.IsActive=false;await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);grant.IsActive=true;await seed.SaveChangesAsync();
         membership.EffectiveTo=BusinessTime.Today.AddDays(-1);await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);membership.EffectiveTo=null;await seed.SaveChangesAsync();
         appointment.EffectiveTo=BusinessTime.Today.AddDays(-1);await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);appointment.EffectiveTo=null;await seed.SaveChangesAsync();
@@ -82,6 +86,8 @@ public sealed class LeaderUat010HttpSqlTests
         Login(o:otherOrg.OrganizationId);await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);Login();
         // Old alternate endpoints must not turn the new draft wave into published writes.
         await Denied(await client.PutAsJsonAsync($"/api/v1/locations/{published.LocationId}/maintenance",new{city="Changed",address="Changed",rowVersion=Convert.ToBase64String(published.RowVersion)}),HttpStatusCode.Forbidden);
+        await Denied(await client.PostAsJsonAsync("/api/v1/jobs/geocoding",new{mode="AllPending"}),HttpStatusCode.Forbidden);
+        await Denied(await client.PostAsync($"/api/v1/imports/{Guid.NewGuid()}/confirm",null),HttpStatusCode.Forbidden);
         await using var final=Db();Assert.Equal("Published",(await final.Locations.SingleAsync(x=>x.LocationId==published.LocationId)).LocationName);Assert.Equal(2,await final.AuditLogs.CountAsync(x=>x.Action=="LocationCreate"||x.Action=="LocationUpdate"));
         if (!string.IsNullOrEmpty(fixturePath))
         {
