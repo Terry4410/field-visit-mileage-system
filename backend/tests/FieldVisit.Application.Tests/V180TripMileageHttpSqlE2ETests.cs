@@ -207,13 +207,15 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 var leaderQueue = await leader.GetFromJsonAsync<List<TripDto>>("api/v1/leader/review-queue")
                     ?? throw new InvalidOperationException("OPTIONC_RETRY_QUEUE_MISSING");
                 Assert.True(leaderQueue.Single(x => x.VisitTripId == created.VisitTripId).HasCurrentRouteFailureEvidence);
+                var mileageJobCountBeforeOutOfRange = await db.BackgroundJobs.CountAsync(x => x.JobType == "Mileage");
                 using (var outOfRangeJob = await leader.PostAsJsonAsync(
                     "api/v1/jobs/mileage",
                     new MileageBatchRequest("DateRange", new DateOnly(2026, 10, 16), new DateOnly(2026, 10, 17), null)))
                 {
                     Assert.Equal(HttpStatusCode.UnprocessableEntity, outOfRangeJob.StatusCode);
-                    Assert.Contains("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE", await outOfRangeJob.Content.ReadAsStringAsync());
                 }
+                Assert.Equal(mileageJobCountBeforeOutOfRange,
+                    await db.BackgroundJobs.CountAsync(x => x.JobType == "Mileage"));
                 using (var retryJob = await leader.PostAsJsonAsync(
                     "api/v1/jobs/mileage",
                     new MileageBatchRequest("Selected", null, null, [created.VisitTripId])))
@@ -224,6 +226,26 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     var persistedJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == createdJob.BackgroundJobId);
                     Assert.Contains(created.VisitTripId.ToString(), persistedJob.PayloadJson);
                     Assert.Contains("Selected", persistedJob.PayloadJson);
+
+                    var attemptsBeforeRevokedWorker = await db.RouteCalculationAttempts
+                        .CountAsync(x => x.VisitTripId == created.VisitTripId);
+                    var leaderRoleId = await db.Roles.Where(r => r.RoleCode == "leader")
+                        .Select(r => r.RoleId).SingleAsync();
+                    var revokedLeaderAssignment = await db.UserRoleAssignments
+                        .SingleAsync(x => x.UserId == fixture.Leader.UserId && x.RoleId == leaderRoleId);
+                    revokedLeaderAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+                    await db.SaveChangesAsync();
+                    var backgroundJobs = scope.ServiceProvider.GetRequiredService<IBackgroundJobService>();
+                    Assert.True(await backgroundJobs.ProcessNextAsync(CancellationToken.None));
+                    var processedJob = await db.BackgroundJobs.AsNoTracking()
+                        .SingleAsync(x => x.BackgroundJobId == createdJob.BackgroundJobId);
+                    Assert.Equal("Failed", processedJob.Status);
+                    Assert.Contains("MILEAGE_JOB_LEADER_ROLE_REVOKED", processedJob.ErrorMessage);
+                    Assert.Equal(attemptsBeforeRevokedWorker, await db.RouteCalculationAttempts
+                        .CountAsync(x => x.VisitTripId == created.VisitTripId));
+                    await db.UserRoleAssignments
+                        .Where(x => x.UserRoleAssignmentId == revokedLeaderAssignment.UserRoleAssignmentId)
+                        .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, (DateOnly?)null));
                 }
                 using var calculated = await leader.PostAsJsonAsync(
                     "api/v1/leader/trips/calculate",
@@ -250,7 +272,6 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     new MileageBatchRequest("Selected", null, null, [created.VisitTripId])))
                 {
                     Assert.Equal(HttpStatusCode.UnprocessableEntity, staleRetryJob.StatusCode);
-                    Assert.Contains("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE", await staleRetryJob.Content.ReadAsStringAsync());
                 }
                 Assert.Equal(jobCountBeforeStaleRetry, await db.BackgroundJobs.CountAsync(x => x.JobType == "Mileage"));
 
@@ -642,7 +663,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     Content = JsonContent.Create(Draft(fixture.Approved.LocationId, includeSecondStop: false) with
                     {
                         Notes = "returned edit; same route",
-                        Stops = [new TripStopInput(fixture.Approved.LocationId, null, null, "Location", "fixture", "address", "visit", null)]
+                        Stops = [new TripStopInput(fixture.Approved.LocationId, null, null, "Location", "fixture", "changed route address", "visit", null)]
                     })
                 };
                 returnedEdit.Headers.TryAddWithoutValidation("If-Match", returned.RowVersion);

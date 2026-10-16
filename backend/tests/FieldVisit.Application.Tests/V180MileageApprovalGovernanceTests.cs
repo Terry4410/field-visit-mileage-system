@@ -57,6 +57,10 @@ public sealed class V180MileageApprovalGovernanceTests
         var job = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
         Assert.Contains("FindEligibleMileageRetryIds", job);
         Assert.Contains("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED", job);
+        Assert.Contains("ResolveLiveMileageTeamIdsAsync", job);
+        Assert.Contains("MILEAGE_JOB_LEADER_ROLE_REVOKED", job);
+        Assert.Contains("IsolationLevel.Serializable", job);
+        Assert.Contains("MILEAGE_JOB_POST_PROVIDER_STATE_STALE", job);
     }
 
     [Fact]

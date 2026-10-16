@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain;
@@ -169,7 +170,9 @@ public sealed class BackgroundJobService(
         var request = JsonSerializer.Deserialize<MileageBatchRequest>(
             jobState.PayloadJson ?? "{}", JsonOptions)
             ?? new MileageBatchRequest("AllPending", null, null, null);
-        var teamIds = ParseTeamIds(jobState.TeamScopeJson);
+        var liveTeamIds = await ResolveLiveMileageTeamIdsAsync(
+            await db.BackgroundJobs.AsNoTracking().SingleAsync(x => x.BackgroundJobId == jobId, ct), ct);
+        var teamIds = liveTeamIds;
 
         var tripIds = await FindEligibleMileageRetryIds(
             teamIds,
@@ -189,6 +192,26 @@ public sealed class BackgroundJobService(
         foreach (var tripId in tripIds)
         {
             db.ChangeTracker.Clear();
+            var preflightJob = await db.BackgroundJobs.AsNoTracking()
+                .SingleAsync(x => x.BackgroundJobId == jobId, ct);
+            var preflightTeams = await ResolveLiveMileageTeamIdsAsync(preflightJob, ct);
+            var preflightSnapshot = await db.VisitTripSnapshots.AsNoTracking()
+                .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                .OrderByDescending(x => x.SnapshotVersion)
+                .FirstOrDefaultAsync(ct);
+            if (preflightSnapshot is null)
+                throw new InvalidOperationException("MILEAGE_JOB_SUBMITTED_SNAPSHOT_STALE：Submitted snapshot 已不存在，整批停止。");
+            var preflightTrip = await db.VisitTrips.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.VisitTripId == tripId, ct);
+            var hasCalculatedMileage = await db.MileageCalculations.AsNoTracking()
+                .AnyAsync(x => x.VisitTripId == tripId && x.SystemDistanceKm != null, ct);
+            if (preflightTrip is null || !preflightTrip.TeamId.HasValue
+                || !preflightTeams.Contains(preflightTrip.TeamId.Value)
+                || preflightTrip.Status is not (TripStatuses.Submitted or TripStatuses.RoutePending)
+                || hasCalculatedMileage
+                || (await FindEligibleMileageRetryIds(preflightTeams, null, null, [tripId], ct)).Count != 1)
+                throw new InvalidOperationException("MILEAGE_JOB_PRE_PROVIDER_STATE_STALE：即時授權、行程狀態或里程狀態已改變，整批停止。");
+            var submittedSnapshotId = preflightSnapshot.VisitTripSnapshotId;
             var item = new BackgroundJobItem
             {
                 BackgroundJobId = jobId,
@@ -220,7 +243,9 @@ public sealed class BackgroundJobService(
                 }
 
                 db.ChangeTracker.Clear();
+                await using var resultTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
                 var trip = await db.VisitTrips
+                    .FromSqlInterpolated($"SELECT * FROM dbo.VisitTrips WITH (UPDLOCK, ROWLOCK) WHERE VisitTripId = {tripId}")
                     .Include(x => x.Stops)
                     .Include(x => x.MileageCalculation)
                     .SingleAsync(x => x.VisitTripId == tripId, ct);
@@ -228,6 +253,20 @@ public sealed class BackgroundJobService(
                     .SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
                 var durableJob = await db.BackgroundJobs
                     .SingleAsync(x => x.BackgroundJobId == jobId, ct);
+
+                // Recheck live HR/role/team and the frozen route context after provider I/O,
+                // before applying any mileage/status/history writes.
+                var postProviderTeams = await ResolveLiveMileageTeamIdsAsync(durableJob, ct);
+                var currentSubmittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
+                    .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                    .OrderByDescending(x => x.SnapshotVersion)
+                    .Select(x => (long?)x.VisitTripSnapshotId)
+                    .FirstOrDefaultAsync(ct);
+                if (!trip.TeamId.HasValue || !postProviderTeams.Contains(trip.TeamId.Value)
+                    || trip.Status is not (TripStatuses.Submitted or TripStatuses.RoutePending)
+                    || currentSubmittedSnapshotId != submittedSnapshotId
+                    || trip.MileageCalculation?.SystemDistanceKm is not null)
+                    throw new UnauthorizedAccessException("MILEAGE_JOB_POST_PROVIDER_STATE_STALE：即時授權、Submitted 路線或里程狀態已改變，拒絕套用結果。");
 
                 var calc = trip.MileageCalculation;
                 if (calc is null)
@@ -377,6 +416,7 @@ public sealed class BackgroundJobService(
 
                 durableItem.CompletedAt = completedAt;
                 await db.SaveChangesAsync(ct);
+                await resultTransaction.CommitAsync(ct);
             }
             catch (Exception ex)
             {
@@ -660,6 +700,71 @@ public sealed class BackgroundJobService(
         if (snapshot.Any(id => id <= 0 || !currentTeams.Contains(id)))
             throw new UnauthorizedAccessException("GEOCODING_JOB_TEAM_SCOPE_REVOKED");
         return (false, snapshot.Distinct().ToList());
+    }
+
+    private async Task<List<int>> ResolveLiveMileageTeamIdsAsync(BackgroundJob job, CancellationToken ct)
+    {
+        if (!job.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_ORGANIZATION_REQUIRED");
+        var today = BusinessTime.Today;
+        var account = await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == job.RequestedByUserId, ct);
+        if (account is null || !account.IsActive || account.OrganizationId != job.OrganizationId)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_ACCOUNT_NOT_CURRENT");
+
+        var hasLeaderRole = await (from assignment in db.UserRoleAssignments.AsNoTracking()
+                                   join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
+                                   where assignment.UserId == account.UserId && role.IsActive
+                                       && assignment.EffectiveFrom <= today
+                                       && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                                       && role.RoleCode.ToUpper() == "LEADER"
+                                   select assignment.UserRoleAssignmentId).AnyAsync(ct);
+        if (!hasLeaderRole)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_LEADER_ROLE_REVOKED");
+
+        var identity = await db.UserIdentityProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == account.UserId, ct);
+        string? employmentStatus;
+        if (identity?.EmploymentId is long employmentId)
+        {
+            employmentStatus = await db.EmploymentStatusPeriods.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.EmploymentStatusPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+            var terminationDate = await db.Employments.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId)
+                .Select(x => x.TerminationDate).FirstOrDefaultAsync(ct);
+            if (terminationDate.HasValue && terminationDate.Value <= today)
+                employmentStatus = EmploymentStatuses.Terminated;
+        }
+        else
+        {
+            employmentStatus = await db.UserEmploymentPeriods.AsNoTracking()
+                .Where(x => x.UserId == account.UserId && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.UserEmploymentPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+        }
+        if (!string.Equals(employmentStatus, EmploymentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("MILEAGE_JOB_HR_STATUS_NOT_ACTIVE");
+
+        var frozenTeams = ParseTeamIds(job.TeamScopeJson).Distinct().ToArray();
+        if (frozenTeams.Length == 0)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_TEAM_SCOPE_REQUIRED");
+        var assignedTeams = await db.UserTeamAssignments.AsNoTracking()
+            .Where(x => x.UserId == account.UserId && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+            .Select(x => x.TeamId).Distinct().ToListAsync(ct);
+        var liveTeams = await db.Teams.AsNoTracking()
+            .Where(x => x.OrganizationId == job.OrganizationId && x.IsActive
+                && assignedTeams.Contains(x.TeamId))
+            .Select(x => x.TeamId).ToListAsync(ct);
+        if (frozenTeams.Any(id => id <= 0 || !liveTeams.Contains(id)))
+            throw new UnauthorizedAccessException("MILEAGE_JOB_TEAM_SCOPE_REVOKED");
+        return frozenTeams.ToList();
     }
 
     private BackgroundJob NewJob(string type, string mode, CurrentUserDto user, string payload) => new()
