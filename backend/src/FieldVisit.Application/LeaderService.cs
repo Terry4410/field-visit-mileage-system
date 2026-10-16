@@ -12,6 +12,8 @@ public sealed class LeaderService(
     ITripSnapshotRepository snapshots,
     IUnitOfWork uow,
     TripService tripService,
+    IUserRepository users,
+    IV170AccessControl access,
     IV180GoogleMileageGovernanceRepository? mileageGovernance = null)
 {
     public async Task<List<TripDto>> ReviewQueueAsync(CancellationToken ct)
@@ -109,9 +111,11 @@ public sealed class LeaderService(
 
     public async Task<TripDto> ApproveAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
     {
-        var user = RequireLeader();
+        var user = await RequireLiveLeaderAsync(ct);
         var trip = await GetScopedAsync(tripId, user, ct);
         V180MileageGovernanceRules.EnsureLeaderApprovalState(trip.Status);
+        if (trip.UserId == user.UserId)
+            throw new UnauthorizedAccessException("TRIP_SELF_APPROVAL_DENIED：小組長不得核准自己的行程。");
         EnsureRowVersion(trip.RowVersion, request.RowVersion);
 
         V170TripMileageRules.EnsureReadyForApproval(trip.Stops.Count);
@@ -129,6 +133,8 @@ public sealed class LeaderService(
         var decisionSource =
             V180MileageGovernanceRules.RequireLeaderApprovalDecisionSource(
                 request.DistanceDecisionSource);
+        if (decisionSource == "LeaderAdjusted" && string.IsNullOrWhiteSpace(request.Comments))
+            throw new InvalidOperationException("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED：手動調整里程必須記錄原因。");
         var submittedBasis = await snapshots.GetLatestAsync(trip.VisitTripId, "Submitted", ct)
             ?? throw new InvalidOperationException("SUBMITTED_SNAPSHOT_REQUIRED：F-B 核准必須使用最新 Submitted Snapshot。");
         var basis = V180MileageCanonicalization.BuildSubmittedSnapshotBasis(submittedBasis);
@@ -140,6 +146,30 @@ public sealed class LeaderService(
         {
             if (request.RouteCalculationAttemptId.HasValue)
                 throw new InvalidOperationException("F_B_MANUAL_FALLBACK_ATTEMPT：ManualFallback 不得選取 route attempt。");
+            if (mileageGovernance is null)
+                throw new InvalidOperationException("F_B_GOVERNANCE_REPOSITORY_REQUIRED：治理 repository 尚未設定。");
+            var failedAttempt = await mileageGovernance.GetLatestFailedRouteCalculationAttemptAsync(
+                trip.VisitTripId, ct);
+            var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(basis.VehicleType);
+            var successfulAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
+                trip.VisitTripId, submittedBasis.VisitTripSnapshotId, ct);
+            var hasCurrentSuccessfulEvidence = successfulAttempt is { Status: "Succeeded" }
+                && successfulAttempt.RequestBasisHash.SequenceEqual(approvalBasisHash)
+                && successfulAttempt.RequestedVehicleType == V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle)
+                && successfulAttempt.TravelMode == V180MileageCanonicalization.ToTravelMode(canonicalVehicle);
+            if (hasCurrentSuccessfulEvidence
+                || (calc.CalculationSource == "GoogleMapsAPI" && calc.SelectedRouteCalculationAttemptId.HasValue))
+                throw new InvalidOperationException(
+                    "F_B_MANUAL_FALLBACK_GOOGLE_SUCCESS_EXISTS：目前路線已有有效 Google 成功結果，不得以 ManualFallback 取代。");
+            if (failedAttempt is null
+                || !failedAttempt.RequestBasisHash.SequenceEqual(approvalBasisHash)
+                || failedAttempt.RequestedVehicleType != V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle)
+                || failedAttempt.TravelMode != V180MileageCanonicalization.ToTravelMode(canonicalVehicle)
+                || failedAttempt.BasisType is not ("Draft" or "SubmittedSnapshot")
+                || (failedAttempt.BasisType == "SubmittedSnapshot"
+                    && failedAttempt.BasisVisitTripSnapshotId != submittedBasis.VisitTripSnapshotId))
+                throw new InvalidOperationException(
+                    "F_B_MANUAL_FALLBACK_EVIDENCE_REQUIRED：ManualFallback 必須有目前 Submitted 路線的 Google 失敗證據。");
             governanceCorrelationId = Guid.NewGuid();
         }
         else
@@ -228,6 +258,8 @@ public sealed class LeaderService(
             new
             {
                 ApprovedDistanceKm = request.ApprovedDistanceKm,
+                DecisionSource = decisionSource,
+                AdjustmentReason = decisionSource == "LeaderAdjusted" ? request.Comments?.Trim() : null,
                 RatePerKm = rate.RatePerKm,
                 calc.ApprovedAmount
             }), ct);
@@ -247,7 +279,9 @@ public sealed class LeaderService(
             new V180MileageGovernanceEventRequest(
                 trip.VisitTripId, submittedBasis.VisitTripSnapshotId,
                 selectedAttempt?.RouteCalculationAttemptId, "Approved", decisionSource,
-                "Current company mileage decision approved.", governanceCorrelationId,
+                decisionSource == "LeaderAdjusted"
+                    ? $"Leader adjusted company mileage: {request.Comments!.Trim()}"
+                    : "Current company mileage decision approved.", governanceCorrelationId,
                 actionAt, user.UserId), ct);
 
         await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
@@ -329,6 +363,20 @@ public sealed class LeaderService(
         if (!user.Roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase)) || user.TeamIds.Count == 0)
             throw new UnauthorizedAccessException("只有具有效小組授權的小組長可以執行此操作。");
         return user;
+    }
+
+    private async Task<CurrentUserDto> RequireLiveLeaderAsync(CancellationToken ct)
+    {
+        var tokenUser = RequireLeader();
+        var liveUser = await users.GetProfileAsync(tokenUser.UserId, ct)
+            ?? throw new UnauthorizedAccessException("LEADER_LIVE_PROFILE_REQUIRED：找不到目前人員授權資料。");
+        var eligibility = await access.EvaluateLoginAsync(liveUser.UserId, adminEnabled: false, ct);
+        if (!eligibility.IsAllowed)
+            throw new UnauthorizedAccessException("LEADER_HR_ACCESS_REVOKED：目前人事狀態不允許核准行程。");
+        if (!liveUser.Roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase))
+            || liveUser.TeamIds.Count == 0)
+            throw new UnauthorizedAccessException("LEADER_ROLE_OR_TEAM_REVOKED：目前已無有效小組長授權。");
+        return liveUser;
     }
 
     private async Task<VisitTrip> GetScopedAsync(long id, CurrentUserDto user, CancellationToken ct)

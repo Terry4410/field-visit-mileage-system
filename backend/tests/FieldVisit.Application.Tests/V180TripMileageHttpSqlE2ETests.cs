@@ -26,11 +26,11 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180TripMileageHttpSqlE2ETests
 {
     [Fact]
-    public Task Trip_create_submit_and_leader_manual_fallback_preserve_location_identity_and_reject_reserved_location()
+    public Task Provider_failure_manual_fallback_requires_authoritative_route_evidence_and_preserves_location_identity()
         => RunTripFlowAsync(oneStop: false);
 
     [Fact]
-    public Task One_stop_trip_create_submit_calculate_and_manual_fallback_approve_preserves_snapshot()
+    public Task One_stop_trip_provider_failure_manual_fallback_enforces_live_leader_authorization_and_concurrency()
         => RunTripFlowAsync(oneStop: true);
 
     [Fact]
@@ -38,7 +38,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
         => RunTripFlowAsync(oneStop: false, returnCorrection: true);
 
     [Fact]
-    public Task Draft_route_preview_uses_provider_distance_and_persists_governance_attempt()
+    public Task Visitor_google_success_survives_same_route_edit_invalidates_changed_route_and_resubmits_with_immutable_history()
         => RunProviderPreviewAsync();
 
     private static async Task RunTripFlowAsync(bool oneStop, bool returnCorrection = false)
@@ -78,7 +78,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
                 builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
                 builder.ConfigureTestServices(services =>
-                    services.AddScoped<IV180RouteProvider, SuccessfulRouteProvider>());
+                    services.AddScoped<IV180RouteProvider, FailedRouteProvider>());
             });
 
             using (var scope = factory.Services.CreateScope())
@@ -154,6 +154,11 @@ public sealed class V180TripMileageHttpSqlE2ETests
 
                 // Use an explicit request so the real optimistic-concurrency
                 // If-Match contract is exercised by the HTTP pipeline.
+                using (var routeFailure = await visitor.PostAsync($"api/v1/trips/{created.VisitTripId}/route-preview", null))
+                {
+                    Assert.True(routeFailure.IsSuccessStatusCode, await routeFailure.Content.ReadAsStringAsync());
+                    Assert.Equal("Failed", (await routeFailure.Content.ReadFromJsonAsync<V180RouteOrchestrationResult>())?.Status);
+                }
                 using var submit = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{created.VisitTripId}/submit")
                 {
                     Content = JsonContent.Create(new SubmitTripRequest(false))
@@ -254,12 +259,75 @@ public sealed class V180TripMileageHttpSqlE2ETests
 
                 var approve = new ApproveTripRequest(8.5m, submittedTrip.RowVersion, "manual fallback", "ManualFallback");
                 approve = approve with { RowVersion = pendingApproval.RowVersion };
-                using var approved = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve);
-                Assert.True(approved.IsSuccessStatusCode, await approved.Content.ReadAsStringAsync());
-                var approvedTrip = await approved.Content.ReadFromJsonAsync<TripDto>()
-                    ?? throw new InvalidOperationException("OPTIONC_TRIP_APPROVE_RESPONSE_MISSING");
+                var leaderEmployment = await db.Employments.SingleAsync(x => x.PersonId == fixture.Leader.UserId);
+                var activeStatus = await db.EmploymentStatusPeriods.SingleAsync(x => x.EmploymentId == leaderEmployment.EmploymentId && x.EmploymentStatus == "Active");
+                activeStatus.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+                await db.SaveChangesAsync();
+                using (var revokedHr = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
+                    Assert.Equal(HttpStatusCode.Forbidden, revokedHr.StatusCode);
+                activeStatus.EffectiveTo = null;
+                var leaderRoleAssignment = await db.UserRoleAssignments.SingleAsync(x => x.UserId == fixture.Leader.UserId);
+                leaderRoleAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+                await db.SaveChangesAsync();
+                using (var revokedRole = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
+                    Assert.Equal(HttpStatusCode.Forbidden, revokedRole.StatusCode);
+                leaderRoleAssignment.EffectiveTo = null;
+                var leaderTeamAssignment = await db.UserTeamAssignments.SingleAsync(x => x.UserId == fixture.Leader.UserId);
+                leaderTeamAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+                await db.SaveChangesAsync();
+                using (var revokedTeam = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
+                    Assert.Equal(HttpStatusCode.Forbidden, revokedTeam.StatusCode);
+                leaderTeamAssignment.EffectiveTo = null;
+                await db.SaveChangesAsync();
+                var pendingTripEntity = await db.VisitTrips.SingleAsync(x => x.VisitTripId == created.VisitTripId);
+                var visitorOwnerId = pendingTripEntity.UserId;
+                pendingTripEntity.UserId = fixture.Leader.UserId;
+                await db.SaveChangesAsync();
+                var selfApprovalVersion = Convert.ToBase64String(pendingTripEntity.RowVersion);
+                using (var selfApproval = await leader.PostAsJsonAsync(
+                    $"api/v1/trips/{created.VisitTripId}/approve",
+                    approve with { RowVersion = selfApprovalVersion }))
+                {
+                    Assert.Equal(HttpStatusCode.Forbidden, selfApproval.StatusCode);
+                    Assert.Contains("TRIP_SELF_APPROVAL_DENIED", await selfApproval.Content.ReadAsStringAsync());
+                }
+                pendingTripEntity.UserId = visitorOwnerId;
+                await db.SaveChangesAsync();
+                var refreshedPending = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
+                    ?? throw new InvalidOperationException("OPTIONC_TRIP_AFTER_SELF_DENY_MISSING");
+                approve = approve with { RowVersion = refreshedPending.RowVersion };
+                using (var staleApproval = await leader.PostAsJsonAsync(
+                    $"api/v1/trips/{created.VisitTripId}/approve",
+                    approve with { RowVersion = "AA==" }))
+                {
+                    Assert.Equal(HttpStatusCode.Conflict, staleApproval.StatusCode);
+                    Assert.Contains("ROWVERSION_CONFLICT", await staleApproval.Content.ReadAsStringAsync());
+                }
+                var concurrentApprovals = await Task.WhenAll(
+                    leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve),
+                    leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve));
+                try
+                {
+                    Assert.Single(concurrentApprovals.Where(x => x.IsSuccessStatusCode));
+                    Assert.Contains(concurrentApprovals.Single(x => !x.IsSuccessStatusCode).StatusCode,
+                        new[] { HttpStatusCode.Conflict, HttpStatusCode.UnprocessableEntity });
+                    var approved = concurrentApprovals.Single(x => x.IsSuccessStatusCode);
+                    var approvedTrip = await approved.Content.ReadFromJsonAsync<TripDto>()
+                        ?? throw new InvalidOperationException("OPTIONC_TRIP_APPROVE_RESPONSE_MISSING");
                 Assert.Equal("Approved", approvedTrip.Status);
                 Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
+                var fallbackCalc = await db.MileageCalculations.SingleAsync(x => x.VisitTripId == created.VisitTripId);
+                Assert.Equal("ManualFallback", fallbackCalc.ApprovedDistanceSource);
+                Assert.True(fallbackCalc.ManualFallbackUsed);
+                Assert.Single(await db.MileageGovernanceEvents.Where(x => x.VisitTripId == created.VisitTripId && x.EventType == "ManualFallback").ToListAsync());
+                using var duplicateApproval = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve);
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, duplicateApproval.StatusCode);
+                Assert.Equal(1, await db.ApprovalRecords.CountAsync(x => x.VisitTripId == created.VisitTripId && x.Action == "Approved"));
+                }
+                finally
+                {
+                    foreach (var response in concurrentApprovals) response.Dispose();
+                }
 
                 Assert.Equal(returnCorrection ? 2 : 1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
                 // Submitted and Approved snapshots retain the exact submitted
@@ -349,11 +417,51 @@ public sealed class V180TripMileageHttpSqlE2ETests
             Assert.Equal("Succeeded", result.Status);
             Assert.Equal(12.5m, result.SuggestedDistanceKm);
             Assert.Equal(300, result.DurationSeconds);
+
+            using (var editSameRoute = new HttpRequestMessage(HttpMethod.Put, $"api/v1/trips/{created.VisitTripId}")
+            {
+                Content = JsonContent.Create(Draft(fixture.Approved.LocationId, includeSecondStop: false) with { Notes = "same route edit" })
+            })
+            {
+                editSameRoute.Headers.TryAddWithoutValidation("If-Match", created.RowVersion);
+                using var response = await visitor.SendAsync(editSameRoute);
+                Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+                var edited = await response.Content.ReadFromJsonAsync<TripDto>() ?? throw new InvalidOperationException("OPTIONC_SAME_ROUTE_EDIT_MISSING");
+                Assert.Equal(12.5m, edited.SystemDistanceKm);
+                Assert.Equal(result.RouteCalculationAttemptId, await db.MileageCalculations.Where(x => x.VisitTripId == created.VisitTripId).Select(x => x.SelectedRouteCalculationAttemptId).SingleAsync());
+                created = edited;
+            }
+
+            var changedRoute = Draft(fixture.Approved.LocationId, includeSecondStop: false) with
+            {
+                Notes = "changed route edit",
+                Stops = [new TripStopInput(fixture.Approved.LocationId, null, null, "Location", "fixture", "changed route address", "visit", null)]
+            };
+            using (var editChangedRoute = new HttpRequestMessage(HttpMethod.Put, $"api/v1/trips/{created.VisitTripId}")
+            {
+                Content = JsonContent.Create(changedRoute)
+            })
+            {
+                editChangedRoute.Headers.TryAddWithoutValidation("If-Match", created.RowVersion);
+                using var response = await visitor.SendAsync(editChangedRoute);
+                Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+                created = await response.Content.ReadFromJsonAsync<TripDto>() ?? throw new InvalidOperationException("OPTIONC_CHANGED_ROUTE_EDIT_MISSING");
+                Assert.Null(await db.MileageCalculations.Where(x => x.VisitTripId == created.VisitTripId).Select(x => x.SelectedRouteCalculationAttemptId).SingleAsync());
+                Assert.Null((await db.MileageCalculations.SingleAsync(x => x.VisitTripId == created.VisitTripId)).SystemDistanceKm);
+            }
+            using (var changedPreview = await visitor.PostAsync($"api/v1/trips/{created.VisitTripId}/route-preview", null))
+            {
+                Assert.True(changedPreview.IsSuccessStatusCode, await changedPreview.Content.ReadAsStringAsync());
+                Assert.Equal("Succeeded", (await changedPreview.Content.ReadFromJsonAsync<V180RouteOrchestrationResult>())?.Status);
+            }
+
             using var submit = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{created.VisitTripId}/submit")
             {
                 Content = JsonContent.Create(new SubmitTripRequest(false))
             };
-            submit.Headers.TryAddWithoutValidation("If-Match", created.RowVersion);
+            var currentDraft = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
+                ?? throw new InvalidOperationException("OPTIONC_CHANGED_ROUTE_DRAFT_MISSING");
+            submit.Headers.TryAddWithoutValidation("If-Match", currentDraft.RowVersion);
             using var submittedResponse = await visitor.SendAsync(submit);
             Assert.True(submittedResponse.IsSuccessStatusCode, await submittedResponse.Content.ReadAsStringAsync());
             var submitted = await submittedResponse.Content.ReadFromJsonAsync<TripDto>()
@@ -366,33 +474,78 @@ public sealed class V180TripMileageHttpSqlE2ETests
             leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Leader.UserId, fixture.Leader.EmployeeNo!, "leader", fixture.Team.TeamId));
             var attempt = await db.RouteCalculationAttempts
                 .Where(x => x.VisitTripId == created.VisitTripId && x.BasisType == "Draft")
-                .SingleAsync();
+                .OrderByDescending(x => x.RouteCalculationAttemptId).FirstAsync();
             Assert.Equal("GoogleMapsRoutes-TestStub", attempt.Provider);
             Assert.Equal("Succeeded", attempt.Status);
             Assert.Equal("Calculated", (await db.MileageGovernanceEvents
                 .SingleAsync(x => x.RouteCalculationAttemptId == attempt.RouteCalculationAttemptId && x.EventType == "Calculated")).EventType);
 
             var attemptsBeforeApproval = await db.RouteCalculationAttempts.CountAsync(x => x.VisitTripId == created.VisitTripId);
-            Assert.Equal(1, attemptsBeforeApproval); // successful visitor route is reused; Leader does not recalculate
+            Assert.Equal(2, attemptsBeforeApproval); // one stale attempt was invalidated by edit; only the current route is used
+            var jobsBeforeApproval = await db.BackgroundJobItems.CountAsync(x => x.EntityType == "VisitTrip" && x.EntityId == created.VisitTripId.ToString());
             var pendingApproval = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
                 ?? throw new InvalidOperationException("OPTIONC_PROVIDER_PENDING_APPROVAL_RESPONSE_MISSING");
             Assert.Equal("PendingApproval", pendingApproval.Status);
 
+            using (var fakeFallback = await leader.PostAsJsonAsync(
+                $"api/v1/trips/{created.VisitTripId}/approve",
+                new ApproveTripRequest(12.5m, pendingApproval.RowVersion, "client claims Google failed", "ManualFallback")))
+            {
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, fakeFallback.StatusCode);
+                Assert.Contains("F_B_MANUAL_FALLBACK_GOOGLE_SUCCESS_EXISTS", await fakeFallback.Content.ReadAsStringAsync());
+            }
+
+            using (var returnedResponse = await leader.PostAsJsonAsync(
+                $"api/v1/trips/{created.VisitTripId}/return",
+                new ReturnTripRequest("edit notes only", pendingApproval.RowVersion)))
+            {
+                Assert.True(returnedResponse.IsSuccessStatusCode, await returnedResponse.Content.ReadAsStringAsync());
+                var returned = await returnedResponse.Content.ReadFromJsonAsync<TripDto>() ?? throw new InvalidOperationException("OPTIONC_PROVIDER_RETURN_MISSING");
+                using var returnedEdit = new HttpRequestMessage(HttpMethod.Put, $"api/v1/trips/{created.VisitTripId}")
+                {
+                    Content = JsonContent.Create(Draft(fixture.Approved.LocationId, includeSecondStop: false) with
+                    {
+                        Notes = "returned edit; same route",
+                        Stops = [new TripStopInput(fixture.Approved.LocationId, null, null, "Location", "fixture", "changed route address", "visit", null)]
+                    })
+                };
+                returnedEdit.Headers.TryAddWithoutValidation("If-Match", returned.RowVersion);
+                using var editedResponse = await visitor.SendAsync(returnedEdit);
+                Assert.True(editedResponse.IsSuccessStatusCode, await editedResponse.Content.ReadAsStringAsync());
+                var returnedEdited = await editedResponse.Content.ReadFromJsonAsync<TripDto>() ?? throw new InvalidOperationException("OPTIONC_PROVIDER_RETURN_EDIT_MISSING");
+                Assert.Equal(12.5m, returnedEdited.SystemDistanceKm);
+                using var resubmit = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{created.VisitTripId}/submit")
+                {
+                    Content = JsonContent.Create(new SubmitTripRequest(false))
+                };
+                resubmit.Headers.TryAddWithoutValidation("If-Match", returnedEdited.RowVersion);
+                using var resubmitted = await visitor.SendAsync(resubmit);
+                Assert.True(resubmitted.IsSuccessStatusCode, await resubmitted.Content.ReadAsStringAsync());
+                pendingApproval = await resubmitted.Content.ReadFromJsonAsync<TripDto>() ?? throw new InvalidOperationException("OPTIONC_PROVIDER_RESUBMIT_MISSING");
+                Assert.Equal("PendingApproval", pendingApproval.Status);
+                Assert.Equal(2, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
+                Assert.Equal("changed route edit", await db.VisitTripSnapshots.Where(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted").OrderBy(x => x.SnapshotVersion).Select(x => x.NotesSnapshot).FirstAsync());
+            }
+
             using var approved = await leader.PostAsJsonAsync(
                 $"api/v1/trips/{created.VisitTripId}/approve",
                 new ApproveTripRequest(12.5m, pendingApproval.RowVersion,
-                    "provider suggested approval", "ProviderSuggested", attempt.RouteCalculationAttemptId));
+                    "Travel time differs from actual dispatch conditions; approved based on submitted route evidence.", "LeaderAdjusted", attempt.RouteCalculationAttemptId));
             Assert.True(approved.IsSuccessStatusCode, await approved.Content.ReadAsStringAsync());
             var approvedTrip = await approved.Content.ReadFromJsonAsync<TripDto>()
                 ?? throw new InvalidOperationException("OPTIONC_PROVIDER_APPROVED_RESPONSE_MISSING");
             Assert.Equal("Approved", approvedTrip.Status);
             Assert.Equal(12.5m, approvedTrip.ApprovedDistanceKm);
             Assert.Equal(37.5m, approvedTrip.ApprovedAmount);
-            Assert.Equal(2, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId));
-            Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
+            Assert.Equal(3, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId));
+            Assert.Equal(2, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted"));
             Assert.Equal(1, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Approved"));
             Assert.Equal(1, await db.MileageGovernanceEvents.CountAsync(x => x.VisitTripId == created.VisitTripId && x.EventType == "Approved"));
+            var approvalAudit = await db.AuditLogs.SingleAsync(x => x.EntityId == created.VisitTripId.ToString() && x.Action == "TripApprove");
+            Assert.Contains("LeaderAdjusted", approvalAudit.NewValues);
+            Assert.Contains("Travel time differs", approvalAudit.NewValues);
             Assert.Equal(attemptsBeforeApproval, await db.RouteCalculationAttempts.CountAsync(x => x.VisitTripId == created.VisitTripId));
+            Assert.Equal(jobsBeforeApproval, await db.BackgroundJobItems.CountAsync(x => x.EntityType == "VisitTrip" && x.EntityId == created.VisitTripId.ToString()));
         }
         finally
         {
@@ -410,6 +563,15 @@ public sealed class V180TripMileageHttpSqlE2ETests
         public Task<V180RouteProviderResult> CalculateAsync(V180RouteProviderRequest request, CancellationToken ct) =>
             Task.FromResult(new V180RouteProviderResult(
                 true, 12.5m, 300, "encoded-test-polyline", null, null));
+    }
+
+    private sealed class FailedRouteProvider : IV180RouteProvider
+    {
+        public string ProviderName => "GoogleMapsRoutes-TestStub";
+
+        public Task<V180RouteProviderResult> CalculateAsync(V180RouteProviderRequest request, CancellationToken ct) =>
+            Task.FromResult(new V180RouteProviderResult(
+                false, null, null, null, "PROVIDER_UNAVAILABLE", "isolated provider failure"));
     }
 
     private static SaveTripRequest Draft(int locationId, bool includeSecondStop = true) => new(
