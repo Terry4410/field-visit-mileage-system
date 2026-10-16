@@ -218,6 +218,52 @@ Run-Test 'real SqlException signals map only to allow-listed diagnostics' {
   }
 }
 
+Run-Test 'approved wrapper chain reaches provider signal within three levels' {
+  $provider = New-SyntheticSqlException 208
+  $targetWrapper = [System.Reflection.TargetInvocationException]::new(
+    'TARGET_WRAPPER_SECRET_MUST_NOT_LEAK',
+    $provider
+  )
+  $runtimeWrapper = [System.Management.Automation.RuntimeException]::new(
+    'RUNTIME_WRAPPER_SECRET_MUST_NOT_LEAK',
+    $targetWrapper
+  )
+  $record = [System.Management.Automation.ErrorRecord]::new(
+    $runtimeWrapper,
+    'WRAPPER_ID_MUST_NOT_LEAK',
+    [System.Management.Automation.ErrorCategory]::InvalidOperation,
+    $null
+  )
+  $safe = Get-SanitizedUatInventoryFailure $record
+  if ($safe -notmatch 'Classification=MissingObjectOrColumn; ProviderCode=208;') {
+    throw 'approved bounded wrapper chain did not reach the provider signal'
+  }
+  if ($safe -match 'SECRET_MUST_NOT_LEAK|WRAPPER_ID_MUST_NOT_LEAK|Microsoft\.|System\.') {
+    throw 'approved wrapper details leaked'
+  }
+}
+
+Run-Test 'unknown and over-depth wrappers stay suppressed' {
+  $provider = New-SyntheticSqlException 229
+  $unknown = [System.ApplicationException]::new('UNKNOWN_WRAPPER_SECRET_MUST_NOT_LEAK', $provider)
+  $unknownSafe = Get-SanitizedUatInventoryFailure $unknown
+  if ($unknownSafe -notmatch 'Classification=UnknownSqlFailure; ProviderCode=Suppressed;') {
+    throw 'unknown wrapper was traversed'
+  }
+
+  $tooDeep = [System.Reflection.TargetInvocationException]::new('DEPTH_4_SECRET', $provider)
+  foreach ($depth in 1..4) {
+    $tooDeep = [System.Reflection.TargetInvocationException]::new("DEPTH_${depth}_SECRET", $tooDeep)
+  }
+  $tooDeepSafe = Get-SanitizedUatInventoryFailure $tooDeep
+  if ($tooDeepSafe -notmatch 'Classification=UnknownSqlFailure; ProviderCode=Suppressed;') {
+    throw 'provider beyond maximum wrapper depth was traversed'
+  }
+  if (($unknownSafe + $tooDeepSafe) -match 'SECRET|ProviderCode=229|ApplicationException|TargetInvocationException') {
+    throw 'unknown or over-depth wrapper detail leaked'
+  }
+}
+
 Run-Test 'wrong evidence mode fails closed' {
   $data = (New-ValidInventoryDataSet).Copy()
   $data.Tables[0].Rows[0]['EvidenceMode'] = 'ROW_DATA'
