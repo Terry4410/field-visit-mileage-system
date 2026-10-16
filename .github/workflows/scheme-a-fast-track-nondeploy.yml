@@ -89,8 +89,9 @@ jobs:
 
       - name: Backend Release build and complete tests
         run: |
+          set -o pipefail
           mkdir -p artifacts/test-results
-          dotnet build backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release
+          dotnet build backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release | tee artifacts/test-results/backend-build.log
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --logger "trx;LogFileName=backend-full.trx" --results-directory artifacts/test-results
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
@@ -110,6 +111,10 @@ jobs:
           summary=[]
           if not os.path.exists(p):
             summary.append('BACKEND_TRX_MISSING')
+            build='artifacts/test-results/backend-build.log'
+            if os.path.exists(build):
+              summary.extend(line.strip() for line in open(build,encoding='utf-8',errors='replace')
+                             if re.search(r'\berror\b|Build FAILED',line,re.I))
           else:
             root=ET.parse(p).getroot()
             for result in root.iter():
