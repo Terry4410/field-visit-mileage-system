@@ -3232,6 +3232,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 IF COL_LENGTH(N'dbo.VisitTripStops',N'AddressSnapshot') IS NULL ALTER TABLE dbo.VisitTripStops ADD AddressSnapshot nvarchar(500) NULL;
                 IF COL_LENGTH(N'dbo.VisitTripSnapshotStops',N'VisitTripSnapshotId') IS NULL ALTER TABLE dbo.VisitTripSnapshotStops ADD VisitTripSnapshotId bigint NULL;
                 IF COL_LENGTH(N'dbo.VisitTripSnapshotStops',N'LocationNameSnapshot') IS NULL ALTER TABLE dbo.VisitTripSnapshotStops ADD LocationNameSnapshot nvarchar(200) NULL;
+                """);
+            // Keep DDL and references to the newly-added columns in separate
+            // SQL batches; SQL Server binds the original shape at compilation.
+            await Exec("""
                 UPDATE s SET VisitTripId=s.VisitTripStopId,LocationNameSnapshot=l.LocationName,AddressSnapshot=l.Address FROM dbo.VisitTripStops s JOIN dbo.Locations l ON l.LocationId=s.LocationId WHERE s.VisitTripId IS NULL;
                 UPDATE s SET VisitTripSnapshotId=s.VisitTripSnapshotStopId,LocationNameSnapshot=l.LocationName FROM dbo.VisitTripSnapshotStops s JOIN dbo.Locations l ON l.LocationId=s.LocationId WHERE s.VisitTripSnapshotId IS NULL;
                 INSERT dbo.VisitTrips(VisitTripId,Status,LocationId) SELECT s.VisitTripId,N'Approved',MIN(s.LocationId) FROM dbo.VisitTripStops s WHERE NOT EXISTS(SELECT 1 FROM dbo.VisitTrips t WHERE t.VisitTripId=s.VisitTripId) GROUP BY s.VisitTripId;
