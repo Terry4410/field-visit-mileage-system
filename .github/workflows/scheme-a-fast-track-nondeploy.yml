@@ -122,7 +122,18 @@ jobs:
           print('\n'.join(summary) if summary else 'BACKEND_FAILURE_DIAGNOSTIC_NO_FAILED_TESTS')
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
             f.write('### Backend test diagnostics\n\n'+'\n'.join(f'- {line}' for line in summary)+'\n')
+          with open('artifacts/test-results/r6-backend-failures.txt','w',encoding='utf-8') as f:
+            f.write('\n'.join(summary)+'\n')
           PY
+
+      - name: Upload sanitized backend failure summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r6-backend-failure-summary
+          path: artifacts/test-results/r6-backend-failures.txt
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Historical fingerprint disposable SQL runtime
         shell: pwsh
