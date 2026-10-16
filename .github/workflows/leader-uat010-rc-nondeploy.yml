@@ -41,6 +41,10 @@ jobs:
           python3 scripts/ci/validate_leader_rc_boundary.py
       - name: Assess genuine Protected reference prerequisites (not EF parity)
         run: python3 scripts/ci/leader_rc_reference_prerequisites.py
+      - name: Existing deployment source comparison and fail-closed manifest tests
+        run: |
+          python3 scripts/ci/leader_rc_source_compatibility.py
+          python3 -m unittest scripts/ci/test_leader_rc_preflight.py
       - name: Parse disposable reference builder without executing SQL
         shell: pwsh
         run: |
