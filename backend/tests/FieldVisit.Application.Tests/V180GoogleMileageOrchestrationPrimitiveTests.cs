@@ -372,6 +372,14 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     {
         public int SaveCount { get; private set; }
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(++SaveCount);
+        public Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct)
+            => Task.FromResult<IUnitOfWorkTransaction>(new FakeUnitOfWorkTransaction());
+
+        private sealed class FakeUnitOfWorkTransaction : IUnitOfWorkTransaction
+        {
+            public Task CommitAsync(CancellationToken ct) => Task.CompletedTask;
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private sealed class FakeRouteProvider : IV180RouteProvider
@@ -507,6 +515,7 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     private sealed class FakeTripRepository(VisitTrip trip) : ITripRepository
     {
         public Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct) => Task.FromResult<VisitTrip?>(tripId == trip.VisitTripId ? trip : null);
+        public Task<VisitTrip?> GetForApprovalAsync(long tripId, CancellationToken ct) => Task.FromResult<VisitTrip?>(tripId == trip.VisitTripId ? trip : null);
         public Task AddAsync(VisitTrip row, CancellationToken ct) => throw new NotSupportedException();
         public Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct) => throw new NotSupportedException();
         public Task<List<VisitTrip>> GetTeamQueueAsync(IReadOnlyCollection<int> teamIds, CancellationToken ct) => throw new NotSupportedException();

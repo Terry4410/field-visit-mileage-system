@@ -112,7 +112,12 @@ public sealed class LeaderService(
     public async Task<TripDto> ApproveAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
     {
         var user = await RequireLiveLeaderAsync(ct);
-        var trip = await GetScopedAsync(tripId, user, ct);
+        // Serialize live-state validation and the decision/history/snapshot
+        // write so concurrent approvals observe the first committed decision.
+        await using var approvalTransaction = await uow.BeginSerializableTransactionAsync(ct);
+        var trip = await trips.GetForApprovalAsync(tripId, ct) ?? throw new KeyNotFoundException("找不到行程。");
+        if (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value))
+            throw new UnauthorizedAccessException("無權處理未授權小組資料。");
         V180MileageGovernanceRules.EnsureLeaderApprovalState(trip.Status);
         if (trip.UserId == user.UserId)
             throw new UnauthorizedAccessException("TRIP_SELF_APPROVAL_DENIED：小組長不得核准自己的行程。");
@@ -286,6 +291,7 @@ public sealed class LeaderService(
 
         await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
         await uow.SaveChangesAsync(ct);
+        await approvalTransaction.CommitAsync(ct);
 
         return await tripService.GetDtoAsync(tripId, ct);
     }

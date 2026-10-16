@@ -338,6 +338,12 @@ public sealed class TripRepository(AppDbContext db) : ITripRepository
             .Include(x => x.Stops).ThenInclude(x => x.Location).Include(x => x.MileageCalculation);
 
     public Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct) => Query(tracking).FirstOrDefaultAsync(x => x.VisitTripId == tripId, ct);
+    public Task<VisitTrip?> GetForApprovalAsync(long tripId, CancellationToken ct) =>
+        db.VisitTrips
+            .FromSqlInterpolated($"SELECT * FROM dbo.VisitTrips WITH (UPDLOCK, ROWLOCK) WHERE VisitTripId = {tripId}")
+            .Include(x => x.Stops).ThenInclude(x => x.Location)
+            .Include(x => x.MileageCalculation)
+            .FirstOrDefaultAsync(ct);
     public Task AddAsync(VisitTrip trip, CancellationToken ct) => db.VisitTrips.AddAsync(trip, ct).AsTask();
 
     public Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct)
