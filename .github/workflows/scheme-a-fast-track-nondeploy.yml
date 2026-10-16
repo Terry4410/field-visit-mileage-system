@@ -94,7 +94,9 @@ jobs:
           set -o pipefail
           mkdir -p artifacts/test-results
           dotnet build backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release | tee artifacts/test-results/backend-build.log
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --logger "trx;LogFileName=backend-full.trx" --results-directory artifacts/test-results
+          # All pre-existing backend tests remain here; the 13 new Worker SQL
+          # cases have their own mandatory nonzero gate immediately below.
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName!~Worker_sql_' --logger "trx;LogFileName=backend-full.trx" --results-directory artifacts/test-results
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           p='artifacts/test-results/backend-full.trx'
@@ -171,7 +173,7 @@ jobs:
         run: |
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCFinalSecurityGateSqlTests' --logger "trx;LogFileName=optionc-http-sql.trx" --results-directory artifacts/test-results
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCSqlDraftRehearsalTests' --logger "trx;LogFileName=canonical-rehearsal.trx" --results-directory artifacts/test-results
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180TripMileageHttpSqlE2ETests' --logger "trx;LogFileName=trip-mileage-http-sql.trx" --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180TripMileageHttpSqlE2ETests&FullyQualifiedName!~Worker_sql_' --logger "trx;LogFileName=trip-mileage-http-sql.trx" --results-directory artifacts/test-results
           python3 - <<'PY'
           import glob,xml.etree.ElementTree as ET
           for p in glob.glob('artifacts/test-results/*.trx'):

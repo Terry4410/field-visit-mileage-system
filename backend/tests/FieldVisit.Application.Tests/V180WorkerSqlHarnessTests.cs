@@ -45,25 +45,25 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             using var scopeA = h.Factory.Services.CreateScope();
             using var scopeB = h.Factory.Services.CreateScope();
             var a = scopeA.ServiceProvider.GetRequiredService<IBackgroundJobService>().ProcessNextAsync(h.Token);
-            var ga = await h.Control.Arrived(0, h.Token);
+            var ga = await h.Arrived(0, a);
             var b = scopeB.ServiceProvider.GetRequiredService<IBackgroundJobService>().ProcessNextAsync(h.Token);
-            var gb = await h.Control.Arrived(1, h.Token);
+            var gb = await h.Arrived(1, b);
             var gates = new[] { ga, gb };
             ga.Success = aSucceeds;
             gb.Distance = 99.75m; // detect an incorrect competing overwrite
             gates[first].ProviderRelease.TrySetResult();
-            await gates[first].AtFinal.Task.WaitAsync(h.Token);
+            await h.FinalReached(gates[first], first == 0 ? a : b);
             if (scenario == "one-applies-before-second-completes")
             {
                 ga.FinalRelease.TrySetResult();
                 Assert.True(await a.WaitAsync(h.Token));
                 gb.ProviderRelease.TrySetResult();
-                await gb.AtFinal.Task.WaitAsync(h.Token);
+                await h.FinalReached(gb, b);
             }
             else
             {
                 gates[1 - first].ProviderRelease.TrySetResult();
-                await gates[1 - first].AtFinal.Task.WaitAsync(h.Token);
+                await h.FinalReached(gates[1 - first], first == 0 ? b : a);
             }
             // Serial release is deterministic and also avoids making the test
             // itself depend on SQL deadlock victim scheduling.
@@ -111,7 +111,7 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             h.Control.Armed = true;
             using var scope = h.Factory.Services.CreateScope();
             var worker = scope.ServiceProvider.GetRequiredService<IBackgroundJobService>().ProcessNextAsync(h.Token);
-            var gate = await h.Control.Arrived(0, h.Token);
+            var gate = await h.Arrived(0, worker);
             var history = await h.History();
             await using (var db = h.NewDb())
             {
@@ -145,7 +145,7 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
                     await db.UserTeamAssignments.Where(x => x.UserId == h.LeaderId).ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, new DateOnly(2020, 1, 2)), h.Token);
             }
             gate.ProviderRelease.TrySetResult();
-            await gate.AtFinal.Task.WaitAsync(h.Token);
+            await h.FinalReached(gate, worker);
             gate.FinalRelease.TrySetResult();
             Assert.True(await worker.WaitAsync(h.Token));
             await using var final = h.NewDb();
@@ -178,10 +178,10 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
                 await hold.ExecuteNonQueryAsync(h.Token);
             using var scope = h.Factory.Services.CreateScope();
             var worker = scope.ServiceProvider.GetRequiredService<IBackgroundJobService>().ProcessNextAsync(h.Token);
-            var gate = await h.Control.Arrived(0, h.Token);
+            var gate = await h.Arrived(0, worker);
             gate.Success = false; // durable failure permits a safe subsequent retry
             gate.ProviderRelease.TrySetResult();
-            await gate.AtFinal.Task.WaitAsync(h.Token);
+            await h.FinalReached(gate, worker);
             gate.FinalRelease.TrySetResult();
             await h.Control.FaultPrepared.Task.WaitAsync(h.Token);
             if (number == 1205)
@@ -241,11 +241,11 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             h.Control.Armed = true;
             using var scope = h.Factory.Services.CreateScope();
             var worker = scope.ServiceProvider.GetRequiredService<IBackgroundJobService>().ProcessNextAsync(h.Token);
-            var gate = await h.Control.Arrived(0, h.Token);
+            var gate = await h.Arrived(0, worker);
             gate.Success = false;
             gate.Payload = payload;
             gate.ProviderRelease.TrySetResult();
-            await gate.AtFinal.Task.WaitAsync(h.Token);
+            await h.FinalReached(gate, worker);
             gate.FinalRelease.TrySetResult();
             Assert.True(await worker.WaitAsync(h.Token));
             await using var db = h.NewDb();
@@ -360,6 +360,27 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
         public CancellationToken Token => token;
         public List<Guid> JobIds { get; } = [];
         public AppDbContext NewDb() => new(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(cs).Options);
+        public async Task<WorkerGate> Arrived(int index, Task<bool> worker)
+        {
+            var arrival = control.Slots[index].Task;
+            await Task.WhenAny(arrival, worker).WaitAsync(token);
+            if (!arrival.IsCompleted) await UnexpectedWorkerCompletion(worker, "PROVIDER");
+            return await arrival.WaitAsync(token);
+        }
+        public async Task FinalReached(WorkerGate gate, Task<bool> worker)
+        {
+            await Task.WhenAny(gate.AtFinal.Task, worker).WaitAsync(token);
+            if (!gate.AtFinal.Task.IsCompleted) await UnexpectedWorkerCompletion(worker, "PERSISTENCE");
+            await gate.AtFinal.Task.WaitAsync(token);
+        }
+        private async Task UnexpectedWorkerCompletion(Task<bool> worker, string phase)
+        {
+            await worker;
+            await using var db = NewDb();
+            var diagnostics = await db.BackgroundJobs.AsNoTracking().Select(x => new { x.Status, x.ErrorMessage }).ToArrayAsync(token);
+            var itemCodes = await db.BackgroundJobItems.AsNoTracking().Select(x => x.ErrorCode).ToArrayAsync(token);
+            throw new InvalidOperationException("WORKER_TERMINATED_BEFORE_" + phase + ":" + JsonSerializer.Serialize(new { diagnostics, itemCodes }));
+        }
         public async Task Enqueue()
         {
             using var response = await leader.PostAsJsonAsync("api/v1/jobs/mileage", new MileageBatchRequest("Selected", null, null, [tripId]), token);
