@@ -106,12 +106,12 @@ function New-SyntheticSqlException([int]$Number, [byte]$State = 1, [byte]$Class 
   $createArguments = [object[]]::new($createParameters.Count)
   for ($index = 0; $index -lt $createParameters.Count; $index++) {
     $parameter = $createParameters[$index]
-    $createArguments[$index] = if ($parameter.ParameterType -eq $collectionType) { $collection }
-      elseif ($parameter.ParameterType -eq [string]) { 'synthetic-version' }
-      elseif ($parameter.ParameterType -eq [Guid]) { [Guid]::Empty }
-      elseif ($parameter.ParameterType -eq [System.Exception]) { $null }
-      elseif ($parameter.ParameterType -eq [bool]) { $false }
-      else { $null }
+    if ($parameter.ParameterType -eq $collectionType) { $createArguments[$index] = [object]$collection }
+    elseif ($parameter.ParameterType -eq [string]) { $createArguments[$index] = 'synthetic-version' }
+    elseif ($parameter.ParameterType -eq [Guid]) { $createArguments[$index] = [Guid]::Empty }
+    elseif ($parameter.ParameterType -eq [System.Exception]) { $createArguments[$index] = $null }
+    elseif ($parameter.ParameterType -eq [bool]) { $createArguments[$index] = $false }
+    else { $createArguments[$index] = $null }
   }
   return $createMethod.Invoke($null, $createArguments)
 }
