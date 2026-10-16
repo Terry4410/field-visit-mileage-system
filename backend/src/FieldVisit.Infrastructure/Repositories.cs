@@ -124,12 +124,18 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
                 .AnyAsync(
                     x => x.UserId == userId,
                     ct);
+        // Some isolated and legacy catalogs carry effective-dated role rows
+        // without the identity-profile marker. Prefer those rows whenever they
+        // exist so a revoked role cannot remain usable through UserRoles.
+        var hasRoleAssignments =
+            await db.UserRoleAssignments.AsNoTracking().AnyAsync(
+                x => x.UserId == userId, ct);
 
         List<string> roles;
         List<TeamScopeDto> scopeRows;
         List<DataScopeDto> dataScopeRows = [];
 
-        if (hasV170Identity)
+        if (hasV170Identity || hasRoleAssignments)
         {
             var roleCodes =
                 await (

@@ -794,7 +794,8 @@ internal static class BackgroundJobFailureCodes
     public static string FromException(Exception exception)
     {
         var root = exception.GetBaseException();
-        var explicitCode = root.Message.Split(':', 2)[0].Trim();
+        var separator = root.Message.IndexOfAny([':', '：']);
+        var explicitCode = (separator >= 0 ? root.Message[..separator] : root.Message).Trim();
         if (IsSafeCode(explicitCode)) return explicitCode;
         if (root is SqlException sql)
         {

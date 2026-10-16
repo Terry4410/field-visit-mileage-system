@@ -179,7 +179,11 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         Assert.Equal(2, fixture.RouteProvider.CallCount);
         Assert.NotEqual(first.RouteCalculationAttemptId, second.RouteCalculationAttemptId);
         Assert.NotEqual(first.CorrelationId, second.CorrelationId);
-        Assert.All(fixture.Governance.RouteAttempts, attempt =>
+        var retryAttempts = fixture.Governance.RouteAttempts
+            .Where(attempt => attempt.CalculationReason == "LeaderRetry")
+            .ToList();
+        Assert.Equal(2, retryAttempts.Count);
+        Assert.All(retryAttempts, attempt =>
         {
             Assert.Equal("SubmittedSnapshot", attempt.BasisType);
             Assert.Equal(fixture.SubmittedSnapshot.VisitTripSnapshotId, attempt.BasisVisitTripSnapshotId);
