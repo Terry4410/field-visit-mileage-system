@@ -32,6 +32,10 @@ public sealed class V180VisitorLocationRulesTests
         var approved = Draft(); approved.ApprovalStatus = "Approved";
         Assert.Throws<UnauthorizedAccessException>(() => V180VisitorLocationRules.EnsureUpdate(Visitor(), approved, 10, "Customer", false, [10]));
         Assert.Throws<UnauthorizedAccessException>(() => V180VisitorLocationRules.EnsureUpdate(Visitor(), Draft(), 11, "Customer", false, [10]));
+        var temporary = Draft(); temporary.IsTemporary = true;
+        Assert.Throws<UnauthorizedAccessException>(() => V180VisitorLocationRules.EnsureUpdate(Visitor(), temporary, 10, "Customer", false, [10]));
+        var merged = Draft(); merged.DuplicateOfLocationId = 12;
+        Assert.Throws<UnauthorizedAccessException>(() => V180VisitorLocationRules.EnsureUpdate(Visitor(), merged, 10, "Customer", false, [10]));
     }
     [Fact]
     public void Visitor_update_requires_exact_nonempty_rowversion()

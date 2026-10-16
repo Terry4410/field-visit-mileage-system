@@ -38,6 +38,8 @@ public static class V180VisitorLocationRules
             throw new UnauthorizedAccessException("VISITOR_LOCATION_OWNER_REQUIRED");
         if (row.ApprovalStatus != "Pending" || row.IsActive)
             throw new UnauthorizedAccessException("VISITOR_PENDING_INACTIVE_DRAFT_ONLY");
+        if (row.IsTemporary || row.DuplicateOfLocationId.HasValue)
+            throw new UnauthorizedAccessException("VISITOR_CUSTOMER_MASTER_DRAFT_ONLY");
         if (!string.Equals(row.LocationType, "Customer", StringComparison.OrdinalIgnoreCase)
             || !string.Equals(locationType?.Trim(), "Customer", StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("VISITOR_CUSTOMER_LOCATION_ONLY");

@@ -692,7 +692,15 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
-        var q = await LeaderDraftReadScopeAsync(user, ct);
+        var q = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
+        if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
+        {
+            var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
+            q = q.Where(x => x.OrganizationId == user.OrganizationId
+                && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
+        }
+        else q = ApplyLocationScope(q, user);
         if (!includeInactive) q = q.Where(x => x.IsActive);
         var rows = await q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
         var ids = rows.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
@@ -721,7 +729,16 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var page = Math.Max(1, request.Page);
         var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
-        var q = await LeaderDraftReadScopeAsync(user, ct);
+        var visible = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
+        IQueryable<Location> q;
+        if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
+        {
+            var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
+            q = visible.Where(x => x.OrganizationId == user.OrganizationId
+                && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
+        }
+        else q = ApplyLocationScope(visible, user);
 
         if (!string.IsNullOrWhiteSpace(request.Q))
         {
@@ -776,18 +793,22 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         return new PagedResult<ManagedLocationDto>(items, page, pageSize, total);
     }
 
-    private async Task<ManagedLocationDto> CreateLeaderDraftCoreAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
+    public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
-        if (IsVisitorOnlyActor(user))
+        // Do not permit old direct Create to bypass canonical Request,
+        // independent Leader/Admin review and Location reservation once
+        // Scheme A's additive Create contract is present.
+        await V180OptionCCreateReservationGuard.RequireCanonicalCreateAsync(
+            db, request.LocationType, ct);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
+        V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
+            string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
+        if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
         {
             var teams = await EnsureVisitorCurrentAsync(user, ct);
             V180VisitorLocationRules.EnsureCreate(user, request.TeamId, request.LocationType, request.IsActive, teams);
         }
-        await V180LeaderDraftLiveScope.RequireAsync(db, user, request.TeamId, ct);
-        if (IsLeaderDraftActor(user))
-            V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
-                string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var orgId = RequireOrganization(user);
         var row = new Location
@@ -806,31 +827,27 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         return MapManagedLocation(row, teamName);
     }
 
-    private async Task<ManagedLocationDto> UpdateLeaderDraftCoreAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
+    public async Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
-        await V180LeaderDraftLiveScope.RequireAsync(db, user, request.TeamId, ct);
-        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
-        EnsureLocationWriteScope(row, user);
-        if (IsVisitorOnlyActor(user))
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
+        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
+            row, user, request.TeamId,
+            string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType,
+            request.IsActive);
+        if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
         {
             var teams = await EnsureVisitorCurrentAsync(user, ct);
             V180VisitorLocationRules.EnsureUpdate(user, row, request.TeamId, request.LocationType, request.IsActive, teams);
-            if (row.IsTemporary || row.DuplicateOfLocationId.HasValue)
-                throw new UnauthorizedAccessException("VISITOR_CUSTOMER_MASTER_DRAFT_ONLY");
+        }
+        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
+        EnsureLocationWriteScope(row, user);
+        if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
             V180VisitorLocationRules.EnsureRequiredRowVersion(row.RowVersion, request.RowVersion);
-        }
-        if (IsLeaderDraftActor(user))
-        {
-            V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(row, user, request.TeamId,
-                string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType, request.IsActive);
-            if (row.IsTemporary || row.DuplicateOfLocationId.HasValue)
-                throw new InvalidOperationException("LEADER_DRAFT_NOT_CUSTOMER_MASTER");
-            if (string.IsNullOrWhiteSpace(request.RowVersion))
-                throw new InvalidOperationException("ROWVERSION_REQUIRED");
-        }
-        EnsureRowVersion(row.RowVersion, request.RowVersion);
+        else EnsureRowVersion(row.RowVersion, request.RowVersion);
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;
         row.LocationName = request.LocationName.Trim();
@@ -850,6 +867,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, row.TeamId, ct);
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
+        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
+            row, user, row.TeamId, row.LocationType, false);
         row.IsActive = false;
         row.UpdatedAt = DateTime.UtcNow;
         AddAudit(user.UserId, "Location", locationId.ToString(), "LocationDeactivate", new { locationId });
@@ -861,6 +883,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         int locationId,
         CancellationToken ct)
     {
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         var row = await db.Locations.AsNoTracking().FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
@@ -891,9 +915,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task DeleteManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct)
     {
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        V180OptionCLocationWriteRules.EnsureUnpublishedDraft(row);
 
         var impact = await GetManagedLocationDeleteImpactAsync(user, locationId, ct);
         if (!impact.CanDelete)
@@ -926,11 +953,16 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var thisMonth = await trips.CountAsync(ct);
         var pending = await trips.CountAsync(x => x.Status == TripStatuses.PendingApproval, ct);
         var approved = await trips.CountAsync(x => x.Status == TripStatuses.Approved, ct);
+        // Canonical CreateLocation reservations are private, not legacy
+        // pending worklist items. Do not leak their existence via the
+        // dashboard pending-location counter; retain unreserved drafts.
+        var visiblePendingLocations = await V180OptionCCreateReservationGuard
+            .LegacyVisibleLocationsAsync(db, ct);
         var pendingLocations =
             HasRole(user, "supervisor")
                 ? 0
                 : await ApplyLocationScope(
-                    db.Locations.AsNoTracking(),
+                    visiblePendingLocations.AsNoTracking(),
                     user)
                     .CountAsync(
                         x =>
@@ -1097,7 +1129,6 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var today = BusinessTime.Today;
         var account = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.UserId, ct)
             ?? throw new UnauthorizedAccessException("VISITOR_ACCOUNT_NOT_FOUND");
-        if (account.OrganizationId != user.OrganizationId) throw new UnauthorizedAccessException("VISITOR_ORGANIZATION_MISMATCH");
         if (!account.IsActive) throw new UnauthorizedAccessException("VISITOR_ACCOUNT_INACTIVE");
 
         var effectiveRole = await (from assignment in db.UserRoleAssignments.AsNoTracking()

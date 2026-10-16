@@ -97,6 +97,10 @@ public interface IV180GoogleMileageGovernanceRepository
     Task<RouteCalculationAttempt?> GetRouteCalculationAttemptAsync(long attemptId, CancellationToken ct);
     Task<RouteCalculationAttempt?> GetLatestSuccessfulRouteCalculationAttemptAsync(
         long tripId, long? basisSnapshotId, CancellationToken ct);
+    Task<List<RouteCalculationAttempt>> GetRouteCalculationAttemptsAsync(
+        long tripId, CancellationToken ct);
+    Task<RouteCalculationAttempt?> GetLatestFailedRouteCalculationAttemptAsync(
+        long tripId, CancellationToken ct);
     Task<GeocodingAttempt?> GetGeocodingAttemptAsync(long attemptId, CancellationToken ct);
     Task<bool> TryFinalizeRouteCalculationAttemptAsync(
         long attemptId, string status, string? errorCode, string? errorMessage, DateTime completedAt, CancellationToken ct);
@@ -109,6 +113,18 @@ public static class V180MileageGovernanceRules
     public const string GovernanceVersion = "1.8.0";
     public const string SubmittedSnapshotBasisCode = "SubmittedSnapshot";
     public const string CorrectionProposalBasisCode = "CorrectionProposal";
+
+    public static string RequireLeaderAdjustmentReason(string? value)
+    {
+        var reason = value?.Trim();
+        if (string.IsNullOrWhiteSpace(reason) || reason.Length < 8 || reason.Length > 500
+            || reason.Equals("batch approve", StringComparison.OrdinalIgnoreCase)
+            || reason.Equals("adjusted", StringComparison.OrdinalIgnoreCase)
+            || reason.Equals("manual adjustment", StringComparison.OrdinalIgnoreCase)
+            || reason.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).Distinct().Take(3).Count() < 3)
+            throw new InvalidOperationException("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED：每筆里程調整必須填寫 8 至 500 字的具體原因。");
+        return reason;
+    }
 
     public static byte[] RequireHash32(byte[] value, string name)
     {
@@ -172,9 +188,21 @@ public static class V180MileageGovernanceRules
 
     public static (string Code, string? Message) SanitizeProviderFailure(string? code, string? message)
     {
-        var normalizedCode = Sanitize(code, 100, "PROVIDER_FAILURE", allowSpaces: false);
-        var normalizedMessage = Sanitize(message, 1000, "Provider operation failed.", allowSpaces: true);
-        return (normalizedCode, normalizedMessage);
+        // Provider text is untrusted. Persist and expose only fixed diagnostic
+        // codes; raw provider messages belong in protected telemetry only.
+        var normalized = (code ?? string.Empty).Trim().ToUpperInvariant();
+        var safeCode = normalized switch
+        {
+            "PROVIDER_CANCELLED" => "PROVIDER_CANCELLED",
+            "PROVIDER_TIMEOUT" => "PROVIDER_TIMEOUT",
+            "PROVIDER_UNAVAILABLE" => "PROVIDER_UNAVAILABLE",
+            "PROVIDER_AUTH_FAILED" => "PROVIDER_AUTH_FAILED",
+            "PROVIDER_INVALID_RESULT" => "PROVIDER_INVALID_RESULT",
+            "PROVIDER_EXCEPTION" => "PROVIDER_EXCEPTION",
+            "GOOGLE_ROUTE_FAILED" => "GOOGLE_ROUTE_FAILED",
+            _ => "PROVIDER_FAILURE"
+        };
+        return (safeCode, safeCode);
     }
 
     public static void EnsureCurrentGeocodingSelection(Location location, GeocodingAttempt attempt)
@@ -189,19 +217,6 @@ public static class V180MileageGovernanceRules
                 "F_B_GEOCODING_ATTEMPT_STALE：geocoding attempt 不符合目前 F-ADDR-v1 basis。");
     }
 
-    private static string Sanitize(string? value, int maxLength, string fallback, bool allowSpaces)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return fallback;
-        var builder = new StringBuilder(Math.Min(value.Length, maxLength));
-        foreach (var ch in value.Trim())
-        {
-            if (builder.Length >= maxLength) break;
-            if (char.IsLetterOrDigit(ch) || ch is '_' or '-' or '.' || (allowSpaces && char.IsWhiteSpace(ch)))
-                builder.Append(char.IsWhiteSpace(ch) ? ' ' : ch);
-        }
-        var result = builder.ToString().Trim();
-        return result.Length == 0 ? fallback : result;
-    }
 }
 
 public static class V180MileageCanonicalization
@@ -276,6 +291,29 @@ public static class V180MileageCanonicalization
     }
 
     public static byte[] HashRoute(V180RouteBasis basis) => SHA256.HashData(SerializeRoute(basis));
+
+    public static bool IsAuthoritativeCurrentRouteAttempt(
+        RouteCalculationAttempt attempt, VisitTripSnapshot submittedSnapshot)
+    {
+        var vehicle = CanonicalVehicleType(submittedSnapshot.VehicleTypeSnapshot);
+        var basisHash = HashRoute(BuildSubmittedSnapshotBasis(submittedSnapshot));
+        var basisMatches = (attempt.BasisType == "SubmittedSnapshot"
+                && attempt.BasisVisitTripSnapshotId == submittedSnapshot.VisitTripSnapshotId)
+            || (attempt.BasisType == "Draft" && attempt.BasisVisitTripSnapshotId is null);
+        return basisMatches
+            && attempt.Provider.StartsWith("GoogleMapsRoutes", StringComparison.Ordinal)
+            && attempt.RequestBasisHash.SequenceEqual(basisHash)
+            && attempt.RequestedVehicleType == ToDbRequestedVehicleType(vehicle)
+            && attempt.TravelMode == ToTravelMode(vehicle);
+    }
+
+    public static bool HasRetryEvidence(
+        VisitTripSnapshot submittedSnapshot, IReadOnlyCollection<RouteCalculationAttempt> attempts)
+    {
+        var current = attempts.Where(x => IsAuthoritativeCurrentRouteAttempt(x, submittedSnapshot)).ToArray();
+        return current.Any(x => x.Status == "Failed")
+            && !current.Any(x => x.Status == "Succeeded");
+    }
 
     public static V180RouteBasis BuildCorrectionProposalBasis(
         VisitTripSnapshot baseSnapshot,

@@ -1,13 +1,16 @@
 using FieldVisit.Application;
+using FieldVisit.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 
 namespace FieldVisit.Api.Controllers;
 
 [ApiController]
 [Authorize]
 [Route("api/v1")]
-public sealed class TripsController(TripService trips, LeaderService leader, V180GoogleMileageOrchestrationService googleMileage) : ControllerBase
+public sealed class TripsController(TripService trips, LeaderService leader, V180GoogleMileageOrchestrationService googleMileage, AppDbContext db, IConfiguration configuration) : ControllerBase
 {
     [HttpGet("trips/context")]
     [Authorize(Roles = "visitor")]
@@ -52,9 +55,32 @@ public sealed class TripsController(TripService trips, LeaderService leader, V18
     public async Task<ActionResult<V180RouteOrchestrationResult>> PreviewRoute(long tripId, CancellationToken ct) =>
         Ok(await googleMileage.PreviewRouteAsync(tripId, ct));
 
+    // Candidate-only leader route retry.  The route is deliberately inert in
+    // deployed environments: both the candidate flag and the explicit
+    // loopback OptionCIsolated_* execution boundary are required.  This keeps
+    // the real HTTP/DI path testable without turning on UAT/Production.
+    [HttpPost("leader/trips/{tripId:long}/route-retry")]
+    [Authorize(Roles = "leader")]
+    public async Task<ActionResult<V180RouteOrchestrationResult>> RetryRoute(long tripId, CancellationToken ct)
+    {
+        if (!configuration.GetValue<bool>("OptionC:Candidate:Enabled"))
+            throw new InvalidOperationException("OPTIONC_CANDIDATE_DISABLED");
+        if (db.Database.GetDbConnection() is not SqlConnection connection)
+            throw new InvalidOperationException("OPTIONC_EXECUTION_TARGET_DENIED");
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(ct);
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        return Ok(await googleMileage.RetryRouteAsync(tripId, ct));
+    }
+
     [HttpGet("leader/review-queue")]
     [Authorize(Roles = "leader")]
     public async Task<ActionResult<List<TripDto>>> Queue(CancellationToken ct) => Ok(await leader.ReviewQueueAsync(ct));
+
+    [HttpPost("leader/trips/calculate")]
+    [Authorize(Roles = "leader")]
+    public async Task<ActionResult<MileageBatchResult>> CalculateMileage(MileageBatchRequest request, CancellationToken ct) =>
+        Ok(await leader.CalculateBatchAsync(request, ct));
 
     [HttpPost("trips/{tripId:long}/approve")]
     [Authorize(Roles = "leader")]

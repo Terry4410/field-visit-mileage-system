@@ -1,7 +1,7 @@
 name: Minimal Leader UAT010 RC Nondeploy
 on:
   push:
-    branches: [work/leader-uat010-minimal-rc-20261016]
+    branches: [work/ac-controlled-integration-20261017]
 permissions:
   contents: read
 concurrency:
@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   isolated:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/leader-uat010-minimal-rc-20261016'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/ac-controlled-integration-20261017'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     services:
@@ -33,9 +33,17 @@ jobs:
       - name: Exact source and protected-model boundary
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$GITHUB_REF" = refs/heads/work/leader-uat010-minimal-rc-20261016
+          test "$GITHUB_REF" = refs/heads/work/ac-controlled-integration-20261017
           git merge-base --is-ancestor b1a507c90c577fb2c0cdd6a98ef33481d3a5f790 HEAD
-          git diff --exit-code b1a507c90c577fb2c0cdd6a98ef33481d3a5f790 -- database backend/src/FieldVisit.Infrastructure/AppDbContext.cs backend/src/FieldVisit.Domain backend/src/FieldVisit.Api/appsettings.json frontend/public/config.js .github/workflows/azure-sql-uat-schema-fidelity-readonly.yml .github/workflows/uat-schema-fidelity-proposal-nondeploy.yml scripts/ci/uat_schema_fidelity_evidence.ps1 scripts/ci/test_uat_schema_fidelity_evidence.ps1 scripts/ci/test_uat_schema_fidelity_proposal.py docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.failure-diagnostic.md .github/workflows/api-azure.yml .github/workflows/frontend-pages.yml
+          git diff --exit-code b1a507c90c577fb2c0cdd6a98ef33481d3a5f790 -- database backend/src/FieldVisit.Domain frontend/public/config.js .github/workflows/azure-sql-uat-schema-fidelity-readonly.yml .github/workflows/uat-schema-fidelity-proposal-nondeploy.yml scripts/ci/uat_schema_fidelity_evidence.ps1 scripts/ci/test_uat_schema_fidelity_evidence.ps1 scripts/ci/test_uat_schema_fidelity_proposal.py docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.failure-diagnostic.md .github/workflows/api-azure.yml .github/workflows/frontend-pages.yml
+          echo 'c00a269a310222550626544a053ed343a3b55a6c71aad1f128668b6b4d2aabc0  docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql' | sha256sum --check
+          echo '981b79007ca5d7b890a7a609fc2785de9f3747e5886d49f4744135125c2446c3  docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql' | sha256sum --check
+          test "$(jq -r '.PackageB.B3.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
+          test "$(jq -r '.OptionC.Approval.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
+          test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
+          test ! -e database/migrations/1800_013
+          echo "EF candidate model differs from Protected; UAT schema fidelity remains HOLD." >> "$GITHUB_STEP_SUMMARY"
+          echo "Protected read-only workflow remains pinned to its existing SQL hash; the candidate preflight is not dispatched to UAT." >> "$GITHUB_STEP_SUMMARY"
           test -z "${UAT_SQL_CONNECTION:-}"
           test -z "${PRODUCTION_SQL_CONNECTION:-}"
           python3 scripts/ci/validate_leader_rc_boundary.py

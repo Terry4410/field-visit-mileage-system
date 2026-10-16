@@ -124,12 +124,18 @@ public sealed class UserRepository(AppDbContext db) : IUserRepository
                 .AnyAsync(
                     x => x.UserId == userId,
                     ct);
+        // Some isolated and legacy catalogs carry effective-dated role rows
+        // without the identity-profile marker. Prefer those rows whenever they
+        // exist so a revoked role cannot remain usable through UserRoles.
+        var hasRoleAssignments =
+            await db.UserRoleAssignments.AsNoTracking().AnyAsync(
+                x => x.UserId == userId, ct);
 
         List<string> roles;
         List<TeamScopeDto> scopeRows;
         List<DataScopeDto> dataScopeRows = [];
 
-        if (hasV170Identity)
+        if (hasV170Identity || hasRoleAssignments)
         {
             var roleCodes =
                 await (
@@ -338,6 +344,12 @@ public sealed class TripRepository(AppDbContext db) : ITripRepository
             .Include(x => x.Stops).ThenInclude(x => x.Location).Include(x => x.MileageCalculation);
 
     public Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct) => Query(tracking).FirstOrDefaultAsync(x => x.VisitTripId == tripId, ct);
+    public Task<VisitTrip?> GetForApprovalAsync(long tripId, CancellationToken ct) =>
+        db.VisitTrips
+            .FromSqlInterpolated($"SELECT * FROM dbo.VisitTrips WITH (UPDLOCK, ROWLOCK) WHERE VisitTripId = {tripId}")
+            .Include(x => x.Stops).ThenInclude(x => x.Location)
+            .Include(x => x.MileageCalculation)
+            .FirstOrDefaultAsync(ct);
     public Task AddAsync(VisitTrip trip, CancellationToken ct) => db.VisitTrips.AddAsync(trip, ct).AsTask();
 
     public Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct)
@@ -449,9 +461,12 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
         return q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
     }
 
-    public Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct)
+    public async Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct)
     {
-        var q = db.Locations.AsNoTracking().Where(x =>
+        // The legacy pending/geocode worklist must never become a back door
+        // into a private canonical CreateLocation reservation.
+        var visible = await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(db, ct);
+        var q = visible.AsNoTracking().Where(x =>
             (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending") &&
             !db.VisitTripStops.Any(s => s.LocationId == x.LocationId && s.VisitTrip.Status == TripStatuses.Cancelled));
         if (user.OrganizationId.HasValue) q = q.Where(x => x.OrganizationId == user.OrganizationId.Value || x.OrganizationId == null);
@@ -462,11 +477,30 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
         }
         if (start.HasValue) q = q.Where(x => x.CreatedAt >= start.Value);
         if (end.HasValue) q = q.Where(x => x.CreatedAt <= end.Value);
-        return q.OrderBy(x => x.CreatedAt).ToListAsync(ct);
+        return await q.OrderBy(x => x.CreatedAt).ToListAsync(ct);
     }
 
-    public Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct) =>
-        (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking()).FirstOrDefaultAsync(x => x.LocationId == id, ct);
+    public async Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct)
+    {
+        // All old Master endpoints that request tracking (Update and Promote)
+        // must be unable to modify an unreleased canonical Create reservation.
+        // Nontracking reads, including historical trip/snapshot resolution,
+        // are intentionally unchanged.
+        if (tracking)
+            await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(db, id, ct);
+        return await (tracking ? db.Locations.AsQueryable() : db.Locations.AsNoTracking())
+            .FirstOrDefaultAsync(x => x.LocationId == id, ct);
+    }
+
+    public async Task<Location?> GetOperationalLocationAsync(int id, CancellationToken ct)
+    {
+        // This is deliberately distinct from historical/non-operational reads.
+        // A pending or abandoned canonical reservation must not become usable
+        // through a direct LocationId supplied to Trip or mileage endpoints.
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(db, id, ct);
+        return await db.Locations.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.LocationId == id, ct);
+    }
     public async Task AddLocationAsync(Location location, CancellationToken ct)
     {
         var candidates = await V180LocationDuplicateGovernance.FindCandidatesAsync(
@@ -526,7 +560,7 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
     public async Task<List<Location>> GetProjectLocationsAsync(int projectId, CurrentUserDto user, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking().FirstOrDefaultAsync(x => x.ProjectId == projectId, ct) ?? throw new KeyNotFoundException("找不到專案。");
-        if ((user.Roles.Contains("admin") || user.Roles.Contains("supervisor")) && user.OrganizationId.HasValue && project.OrganizationId != user.OrganizationId.Value)
+        if (!user.OrganizationId.HasValue || project.OrganizationId != user.OrganizationId.Value)
             throw new UnauthorizedAccessException("無權使用其他 Organization 專案。");
         if (user.Roles.Contains("leader") && project.TeamId.HasValue && !user.TeamIds.Contains(project.TeamId.Value))
             throw new UnauthorizedAccessException("無權使用未授權小組專案。");
@@ -534,9 +568,28 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
             && project.TeamId.HasValue
             && !user.TeamIds.Contains(project.TeamId.Value))
             throw new UnauthorizedAccessException("無權使用未授權小組專案。");
+        // Project-linked Trips consume this list as operational Location
+        // choices. Apply the same private Create reservation boundary used
+        // by legacy maintenance, then require a currently published,
+        // active Location inside the Project's organization/team scope.
+        // Historical Trip/Snapshot reads use their frozen records and do
+        // not call this operational lookup.
+        var visibleLocations = await V180OptionCCreateReservationGuard
+            .LegacyVisibleLocationsAsync(db, ct);
+        var teamScopedRole = user.Roles.Contains("visitor", StringComparer.OrdinalIgnoreCase)
+            || user.Roles.Contains("leader", StringComparer.OrdinalIgnoreCase);
+        var authorizedTeamIds = user.TeamIds.ToArray();
         return await (from pl in db.ProjectLocations.AsNoTracking()
-                      join l in db.Locations.AsNoTracking() on pl.LocationId equals l.LocationId
-                      where pl.ProjectId == projectId && pl.IsActive && l.IsActive
+                      join l in visibleLocations on pl.LocationId equals l.LocationId
+                      where pl.ProjectId == projectId && pl.IsActive
+                          && l.IsActive
+                          && !l.IsTemporary
+                          && l.ApprovalStatus == "Approved"
+                          && (!l.OrganizationId.HasValue || l.OrganizationId == project.OrganizationId)
+                          && (!l.TeamId.HasValue
+                              || (project.TeamId.HasValue
+                                  ? l.TeamId == project.TeamId.Value
+                                  : !teamScopedRole || authorizedTeamIds.Contains(l.TeamId.Value)))
                       orderby pl.IsPrimary descending, l.LocationName
                       select l).ToListAsync(ct);
     }

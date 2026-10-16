@@ -19,12 +19,6 @@ SELECT @ActualServer AS ServerName,DB_NAME() AS DatabaseName,
 IF OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NULL
     THROW 51992,N'R6_SCHEMA_FIDELITY_SCHEMA_VERSIONS_MISSING',1;
 
-IF ISNULL(HAS_PERMS_BY_NAME(N'dbo.VisitTrips',N'OBJECT',N'SELECT'),0)<>1
-   OR ISNULL(HAS_PERMS_BY_NAME(N'dbo.VisitTripStops',N'OBJECT',N'SELECT'),0)<>1
-   OR ISNULL(HAS_PERMS_BY_NAME(N'dbo.VisitTripSnapshots',N'OBJECT',N'SELECT'),0)<>1
-   OR ISNULL(HAS_PERMS_BY_NAME(N'dbo.VisitTripSnapshotStops',N'OBJECT',N'SELECT'),0)<>1
-    THROW 51993,N'R6_SCHEMA_FIDELITY_HISTORICAL_SELECT_OR_OBJECT_UNAVAILABLE',1;
-
 SELECT COUNT_BIG(*) AS SchemaVersionCount,
        MAX(CASE WHEN rn=1 THEN VersionNumber END) AS LatestVersion
 FROM
@@ -103,3 +97,4 @@ UNION ALL
 SELECT N'VisitTripSnapshots',COUNT_BIG(*),MAX(VisitTripSnapshotId) FROM dbo.VisitTripSnapshots
 UNION ALL
 SELECT N'VisitTripSnapshotStops',COUNT_BIG(*),MAX(VisitTripSnapshotStopId) FROM dbo.VisitTripSnapshotStops;
+

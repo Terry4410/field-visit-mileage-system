@@ -4,6 +4,7 @@ using FieldVisit.Application;
 using FieldVisit.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -13,6 +14,13 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService,CurrentUserService>();
 builder.Services.AddScoped<ITokenService,TokenService>();
 builder.Services.AddScoped<AuthService>();builder.Services.AddScoped<TripService>();builder.Services.AddScoped<LeaderService>();builder.Services.AddScoped<MasterService>();builder.Services.AddScoped<V160FinalService>();builder.Services.AddScoped<V170PeopleAdminService>();builder.Services.AddScoped<V170LocationService>();builder.Services.AddScoped<V170ProjectLocationAdminService>();builder.Services.AddScoped<V180MasterDataAdminService>();
+// Candidate Option C composition is registered for isolated HTTP/DI tests only.
+// Every candidate service independently enforces OptionC:Candidate:Enabled,
+// the isolated SQL target and catalog proof; deployed flags remain false.
+builder.Services.AddScoped<V180OptionCCandidateService>();
+builder.Services.AddScoped<V180OptionCMergeService>();
+builder.Services.AddScoped<V180OptionCLeaderReviewService>();
+builder.Services.AddScoped<V180OptionCStageEvidenceService>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IBackgroundJobSignal,BackgroundJobSignal>();
 builder.Services.AddHostedService<BackgroundJobHostedService>();
@@ -92,7 +100,31 @@ var origins=builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]
 builder.Services.AddControllers();builder.Services.AddEndpointsApiExplorer();builder.Services.AddSwaggerGen(c=>{c.SwaggerDoc("v1",new OpenApiInfo{Title="Field Visit Mileage API",Version="v1.8.0-uat-candidate"});c.AddSecurityDefinition("Bearer",new OpenApiSecurityScheme{Type=SecuritySchemeType.Http,Scheme="bearer",BearerFormat="JWT",In=ParameterLocation.Header});c.AddSecurityRequirement(new OpenApiSecurityRequirement{[new OpenApiSecurityScheme{Reference=new OpenApiReference{Type=ReferenceType.SecurityScheme,Id="Bearer"}}]=Array.Empty<string>()});});
 
 var app=builder.Build();
-app.UseExceptionHandler(handler=>handler.Run(async context=>{var ex=context.Features.Get<IExceptionHandlerFeature>()?.Error;var status=ex switch{UnauthorizedAccessException=>403,KeyNotFoundException=>404,DbUpdateConcurrencyException=>409,InvalidOperationException when ex.Message.Contains("ROWVERSION_CONFLICT",StringComparison.OrdinalIgnoreCase)=>409,InvalidOperationException=>422,_=>500};context.Response.StatusCode=status;context.Response.ContentType="application/problem+json";await context.Response.WriteAsJsonAsync(new{title=status==500?"系統錯誤":"無法完成操作",status,detail=status==500?"系統發生未預期錯誤，請記錄時間後聯絡系統管理者。":ex?.Message,traceId=context.TraceIdentifier});}));
+app.UseExceptionHandler(handler=>handler.Run(async context=>
+{
+    var ex=context.Features.Get<IExceptionHandlerFeature>()?.Error;
+    var sql = ApiExceptionPolicy.FindSqlException(ex);
+    var sqlCode = sql?.Number switch
+    {
+        1205 => "SQL_DEADLOCK_1205",
+        1222 => "SQL_LOCK_TIMEOUT_1222",
+        _ => null
+    };
+    var status=sqlCode is not null ? 409 : ex switch
+    {
+        UnauthorizedAccessException=>403,
+        KeyNotFoundException=>404,
+        DbUpdateConcurrencyException=>409,
+        InvalidOperationException when ex.Message.Contains("ROWVERSION_CONFLICT",StringComparison.OrdinalIgnoreCase)=>409,
+        InvalidOperationException=>422,
+        _=>500
+    };
+    context.Response.StatusCode=status;
+    context.Response.ContentType="application/problem+json";
+    var detail = sqlCode
+        ?? (status==500 ? "系統發生未預期錯誤，請記錄時間後聯絡系統管理者。" : ex?.Message);
+    await context.Response.WriteAsJsonAsync(new{title=status==500?"系統錯誤":"無法完成操作",status,detail,traceId=context.TraceIdentifier});
+}));
 var swaggerEnabled=builder.Configuration.GetValue<bool?>("Swagger:Enabled")??!app.Environment.IsProduction();if(swaggerEnabled){app.UseSwagger();app.UseSwaggerUI();}
 app.UseHttpsRedirection();app.UseCors("Frontend");app.UseAuthentication();app.UseAuthorization();app.MapControllers();
 var version=builder.Configuration["App:Version"]??"1.8.0-uat-candidate";var schema=builder.Configuration["App:DbSchemaVersion"]??"1.8.0-007";
@@ -101,5 +133,14 @@ app.MapGet("/health/live",()=>Results.Ok(new{status="ok",version,utc=DateTime.Ut
 app.MapGet("/health/ready",async(AppDbContext db)=>await db.Database.CanConnectAsync()?Results.Ok(new{status="ready",version,schema,utc=DateTime.UtcNow}):Results.Json(new{status="unavailable",version,utc=DateTime.UtcNow},statusCode:503));
 app.Run();
 
-// Enables isolated in-process HTTP integration tests; no runtime behavior change.
 public partial class Program { }
+
+internal static class ApiExceptionPolicy
+{
+    public static SqlException? FindSqlException(Exception? exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            if (current is SqlException sql) return sql;
+        return null;
+    }
+}

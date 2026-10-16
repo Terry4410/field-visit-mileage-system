@@ -37,6 +37,7 @@ public interface IUserRepository
 public interface ITripRepository
 {
     Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct);
+    Task<VisitTrip?> GetForApprovalAsync(long tripId, CancellationToken ct);
     Task AddAsync(VisitTrip trip, CancellationToken ct);
     Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct);
     Task<List<VisitTrip>> GetTeamQueueAsync(IReadOnlyCollection<int> teamIds, CancellationToken ct);
@@ -52,6 +53,10 @@ public interface IMasterRepository
     Task<List<Location>> GetLocationsAsync(CurrentUserDto user, bool activeOnly, CancellationToken ct);
     Task<List<Location>> GetPendingLocationsAsync(CurrentUserDto user, DateTime? start, DateTime? end, CancellationToken ct);
     Task<Location?> GetLocationAsync(int id, bool tracking, CancellationToken ct);
+    /// <summary>Resolves a location for a new trip/mileage operation.</summary>
+    /// Canonical Create reservations are never valid operational inputs, even
+    /// when a malformed row still advertises IsActive=true.
+    Task<Location?> GetOperationalLocationAsync(int id, CancellationToken ct);
     Task AddLocationAsync(Location location, CancellationToken ct);
     Task<Location?> FindReusableTemporaryLocationAsync(int? organizationId, int? teamId, string locationName, string? addressOrPlusCode, CancellationToken ct);
     Task AbandonUnusedTemporaryLocationsAsync(IReadOnlyCollection<int> locationIds, CancellationToken ct);
@@ -117,4 +122,10 @@ public interface IGeocodingService
 public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken ct);
+    Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct);
+}
+
+public interface IUnitOfWorkTransaction : IAsyncDisposable
+{
+    Task CommitAsync(CancellationToken ct);
 }

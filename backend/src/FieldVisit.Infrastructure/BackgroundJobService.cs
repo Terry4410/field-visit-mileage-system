@@ -1,8 +1,10 @@
+using System.Data;
 using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
 namespace FieldVisit.Infrastructure;
@@ -26,7 +28,23 @@ public sealed class BackgroundJobService(
             throw new InvalidOperationException("里程工作 Mode 只支援 AllPending、DateRange 或 Selected。");
         if (mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) && (request.StartDate is null || request.EndDate is null || request.EndDate < request.StartDate)) throw new InvalidOperationException("日期區間不正確。");
         if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && (request.SelectedTripIds is null || request.SelectedTripIds.Count == 0)) throw new InvalidOperationException("請先勾選行程。");
-        var row = NewJob("Mileage", mode, user, JsonSerializer.Serialize(request, JsonOptions));
+        var selectedTripIds = request.SelectedTripIds ?? Array.Empty<long>();
+        var candidateIds = await FindEligibleMileageRetryIds(
+            user.TeamIds,
+            mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.StartDate : null,
+            mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
+            mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? selectedTripIds : null,
+            ct);
+        if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
+            && (selectedTripIds.Distinct().Count() != selectedTripIds.Count
+                || candidateIds.Count != selectedTripIds.Count))
+            throw new InvalidOperationException("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED：選取行程不具目前路線失敗證據或已不在授權範圍。");
+        if (candidateIds.Count == 0)
+            throw new InvalidOperationException("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE：沒有具目前路線 Google 失敗證據的可重試行程。");
+        // Freeze the server-verified, date-filtered candidate set into the job.
+        // The worker revalidates route evidence before each calculation.
+        var normalized = new MileageBatchRequest("Selected", null, null, candidateIds);
+        var row = NewJob("Mileage", "Selected", user, JsonSerializer.Serialize(normalized, JsonOptions));
         await db.BackgroundJobs.AddAsync(row, ct);
         AddAudit(user.UserId, "BackgroundJob", row.BackgroundJobId.ToString(), "MileageJobEnqueued", new { request.Mode, user.TeamIds });
         await db.SaveChangesAsync(ct);
@@ -36,6 +54,8 @@ public sealed class BackgroundJobService(
     public async Task<BackgroundJobDto> EnqueueGeocodingAsync(CurrentUserDto user, CreateGeocodingJobRequest request, CancellationToken ct)
     {
         if (!HasRole(user, "leader") && !HasRole(user, "admin")) throw new UnauthorizedAccessException("目前角色無權建立地點解析工作。");
+        if (HasRole(user, "leader") && !HasRole(user, "admin") && user.TeamIds.Count == 0)
+            throw new UnauthorizedAccessException("小組長缺少有效小組授權，不得建立地點解析工作。");
         var mode = request.Mode?.Trim() ?? "Selected";
         if (!(mode.Equals("AllPending", StringComparison.OrdinalIgnoreCase)
               || mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase)
@@ -85,17 +105,28 @@ public sealed class BackgroundJobService(
 
     public async Task<bool> ProcessNextAsync(CancellationToken ct)
     {
-        var job = await db.BackgroundJobs
+        var candidate = await db.BackgroundJobs.AsNoTracking()
             .OrderBy(x => x.CreatedAt)
-            .FirstOrDefaultAsync(x => x.Status == "Waiting", ct);
-        if (job is null) return false;
+            .Where(x => x.Status == "Waiting")
+            .Select(x => new { x.BackgroundJobId })
+            .FirstOrDefaultAsync(ct);
+        if (candidate is null) return false;
 
+        // Claim is a single conditional UPDATE. Two workers may observe the
+        // same Waiting row, but only one can transition it to Processing.
+        var claimedAt = DateTime.UtcNow;
+        var claimed = await db.BackgroundJobs
+            .Where(x => x.BackgroundJobId == candidate.BackgroundJobId && x.Status == "Waiting")
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, "Processing")
+                .SetProperty(x => x.StartedAt, claimedAt)
+                .SetProperty(x => x.ErrorMessage, (string?)null), ct);
+        if (claimed != 1) return false;
+
+        var job = await db.BackgroundJobs
+            .SingleAsync(x => x.BackgroundJobId == candidate.BackgroundJobId, ct);
         var jobId = job.BackgroundJobId;
         var jobType = job.JobType;
-        job.Status = "Processing";
-        job.StartedAt = DateTime.UtcNow;
-        job.ErrorMessage = null;
-        await db.SaveChangesAsync(ct);
 
         try
         {
@@ -132,7 +163,7 @@ public sealed class BackgroundJobService(
             var failedJob = await db.BackgroundJobs
                 .SingleAsync(x => x.BackgroundJobId == jobId, ct);
             failedJob.Status = "Failed";
-            failedJob.ErrorMessage = ex.Message;
+            failedJob.ErrorMessage = BackgroundJobFailureCodes.FromException(ex);
             failedJob.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
@@ -151,28 +182,20 @@ public sealed class BackgroundJobService(
         var request = JsonSerializer.Deserialize<MileageBatchRequest>(
             jobState.PayloadJson ?? "{}", JsonOptions)
             ?? new MileageBatchRequest("AllPending", null, null, null);
-        var teamIds = ParseTeamIds(jobState.TeamScopeJson);
+        var liveTeamIds = await ResolveLiveMileageTeamIdsAsync(
+            await db.BackgroundJobs.AsNoTracking().SingleAsync(x => x.BackgroundJobId == jobId, ct), ct);
+        var teamIds = liveTeamIds;
 
-        var q = db.VisitTrips.AsNoTracking()
-            .Where(x => x.TeamId.HasValue
-                && teamIds.Contains(x.TeamId.Value)
-                && (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending)
-                && x.Stops.Count >= V170TripMileageRules.MinimumVisitStopCount
-                && (x.MileageCalculation == null || x.MileageCalculation.SystemDistanceKm == null));
-
-        if (request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase))
-        {
-            if (request.StartDate.HasValue) q = q.Where(x => x.VisitDate >= request.StartDate.Value);
-            if (request.EndDate.HasValue) q = q.Where(x => x.VisitDate <= request.EndDate.Value);
-        }
+        var tripIds = await FindEligibleMileageRetryIds(
+            teamIds,
+            request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.StartDate : null,
+            request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
+            request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? request.SelectedTripIds : null,
+            ct);
+        var selectedIds = request.SelectedTripIds ?? Array.Empty<long>();
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
-            && request.SelectedTripIds is { Count: > 0 })
-            q = q.Where(x => request.SelectedTripIds.Contains(x.VisitTripId));
-
-        var tripIds = await q.OrderBy(x => x.VisitDate)
-            .ThenBy(x => x.VisitTripId)
-            .Select(x => x.VisitTripId)
-            .ToListAsync(ct);
+            && (selectedIds.Distinct().Count() != selectedIds.Count || tripIds.Count != selectedIds.Count))
+            throw new InvalidOperationException("MILEAGE_JOB_SELECTION_STALE_OR_UNAUTHORIZED：任何選取項目已失去目前路線失敗證據或範圍；整批停止。");
 
         await db.BackgroundJobs
             .Where(x => x.BackgroundJobId == jobId)
@@ -181,6 +204,26 @@ public sealed class BackgroundJobService(
         foreach (var tripId in tripIds)
         {
             db.ChangeTracker.Clear();
+            var preflightJob = await db.BackgroundJobs.AsNoTracking()
+                .SingleAsync(x => x.BackgroundJobId == jobId, ct);
+            var preflightTeams = await ResolveLiveMileageTeamIdsAsync(preflightJob, ct);
+            var preflightSnapshot = await db.VisitTripSnapshots.AsNoTracking()
+                .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                .OrderByDescending(x => x.SnapshotVersion)
+                .FirstOrDefaultAsync(ct);
+            if (preflightSnapshot is null)
+                throw new InvalidOperationException("MILEAGE_JOB_SUBMITTED_SNAPSHOT_STALE：Submitted snapshot 已不存在，整批停止。");
+            var preflightTrip = await db.VisitTrips.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.VisitTripId == tripId, ct);
+            var hasCalculatedMileage = await db.MileageCalculations.AsNoTracking()
+                .AnyAsync(x => x.VisitTripId == tripId && x.SystemDistanceKm != null, ct);
+            if (preflightTrip is null || !preflightTrip.TeamId.HasValue
+                || !preflightTeams.Contains(preflightTrip.TeamId.Value)
+                || preflightTrip.Status is not (TripStatuses.Submitted or TripStatuses.RoutePending)
+                || hasCalculatedMileage
+                || (await FindEligibleMileageRetryIds(preflightTeams, null, null, [tripId], ct)).Count != 1)
+                throw new InvalidOperationException("MILEAGE_JOB_PRE_PROVIDER_STATE_STALE：即時授權、行程狀態或里程狀態已改變，整批停止。");
+            var submittedSnapshotId = preflightSnapshot.VisitTripSnapshotId;
             var item = new BackgroundJobItem
             {
                 BackgroundJobId = jobId,
@@ -212,7 +255,9 @@ public sealed class BackgroundJobService(
                 }
 
                 db.ChangeTracker.Clear();
+                await using var resultTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
                 var trip = await db.VisitTrips
+                    .FromSqlInterpolated($"SELECT * FROM dbo.VisitTrips WITH (UPDLOCK, ROWLOCK) WHERE VisitTripId = {tripId}")
                     .Include(x => x.Stops)
                     .Include(x => x.MileageCalculation)
                     .SingleAsync(x => x.VisitTripId == tripId, ct);
@@ -220,6 +265,52 @@ public sealed class BackgroundJobService(
                     .SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
                 var durableJob = await db.BackgroundJobs
                     .SingleAsync(x => x.BackgroundJobId == jobId, ct);
+
+                // Recheck live HR/role/team and the frozen route context after provider I/O,
+                // before applying any mileage/status/history writes.
+                var postProviderTeams = await ResolveLiveMileageTeamIdsAsync(durableJob, ct);
+                var currentSubmittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
+                    .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                    .OrderByDescending(x => x.SnapshotVersion)
+                    .Select(x => (long?)x.VisitTripSnapshotId)
+                    .FirstOrDefaultAsync(ct);
+                if (!trip.TeamId.HasValue || !postProviderTeams.Contains(trip.TeamId.Value)
+                    || trip.Status is not (TripStatuses.Submitted or TripStatuses.RoutePending)
+                    || currentSubmittedSnapshotId != submittedSnapshotId
+                    || trip.MileageCalculation?.SystemDistanceKm is not null)
+                    throw new UnauthorizedAccessException("MILEAGE_JOB_POST_PROVIDER_STATE_STALE：即時授權、Submitted 路線或里程狀態已改變，拒絕套用結果。");
+
+                // The Trip update lock serializes application, not provider completion.
+                // Two durable successful Attempts must not mutually supersede.
+                // An eligible own success may claim the still-unapplied Trip; a
+                // failed result may never fall back over another current success.
+                var submittedSnapshot = await db.VisitTripSnapshots.AsNoTracking()
+                    .Include(x => x.Stops)
+                    .SingleAsync(x => x.VisitTripSnapshotId == submittedSnapshotId, ct);
+                var authoritativeSuccesses = (await db.RouteCalculationAttempts.AsNoTracking()
+                    .Where(x => x.VisitTripId == tripId && x.Status == "Succeeded")
+                    .ToListAsync(ct))
+                    .Where(x => V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(x, submittedSnapshot))
+                    .ToArray();
+                var currentAttemptId = googleResult?.RouteCalculationAttemptId;
+                var hasOtherAuthoritativeSuccess = authoritativeSuccesses.Any(
+                    x => x.RouteCalculationAttemptId != currentAttemptId);
+                var hasEligibleOwnSuccess = useGoogleRoutes
+                    && googleResult is { Status: "Succeeded", SuggestedDistanceKm: > 0 }
+                    && authoritativeSuccesses.Any(x => x.RouteCalculationAttemptId == currentAttemptId);
+                if (useGoogleRoutes && googleResult is { Status: "Succeeded" } && !hasEligibleOwnSuccess)
+                    throw new InvalidOperationException("MILEAGE_JOB_PROVIDER_RESULT_NOT_AUTHORITATIVE");
+                if (hasOtherAuthoritativeSuccess && !hasEligibleOwnSuccess)
+                {
+                    durableItem.Status = "Failed";
+                    durableItem.ErrorCode = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
+                    durableItem.ErrorMessage = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
+                    durableItem.CompletedAt = DateTime.UtcNow;
+                    durableJob.FailedCount++;
+                    await db.SaveChangesAsync(ct);
+                    await resultTransaction.CommitAsync(ct);
+                    continue;
+                }
 
                 var calc = trip.MileageCalculation;
                 if (calc is null)
@@ -316,8 +407,10 @@ public sealed class BackgroundJobService(
                     });
 
                     durableItem.Status = "Failed";
-                    durableItem.ErrorCode = googleResult?.ErrorCode ?? "GOOGLE_ROUTE_FAILED";
-                    durableItem.ErrorMessage = googleResult?.ErrorMessage ?? trip.ReturnReason;
+                    var safeProviderFailure = V180MileageGovernanceRules.SanitizeProviderFailure(
+                        googleResult?.ErrorCode ?? "GOOGLE_ROUTE_FAILED", googleResult?.ErrorMessage);
+                    durableItem.ErrorCode = safeProviderFailure.Code;
+                    durableItem.ErrorMessage = safeProviderFailure.Message;
                     durableJob.FailedCount++;
                 }
                 else
@@ -345,11 +438,6 @@ public sealed class BackgroundJobService(
                         ActionAt = completedAt
                     });
 
-                    var submittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
-                        .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
-                        .OrderByDescending(x => x.SnapshotVersion)
-                        .Select(x => (long?)x.VisitTripSnapshotId)
-                        .FirstOrDefaultAsync(ct);
                     db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
                     {
                         VisitTripId = tripId,
@@ -369,16 +457,17 @@ public sealed class BackgroundJobService(
 
                 durableItem.CompletedAt = completedAt;
                 await db.SaveChangesAsync(ct);
+                await resultTransaction.CommitAsync(ct);
             }
             catch (Exception ex)
             {
-                var errorMessage = ex.Message;
                 db.ChangeTracker.Clear();
                 var failedItem = await db.BackgroundJobItems.SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
                 var durableJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == jobId, ct);
                 failedItem.Status = "Failed";
-                failedItem.ErrorCode = "MILEAGE_JOB_FAILED";
-                failedItem.ErrorMessage = errorMessage;
+                var safeCode = BackgroundJobFailureCodes.FromException(ex);
+                failedItem.ErrorCode = safeCode;
+                failedItem.ErrorMessage = safeCode;
                 failedItem.CompletedAt = DateTime.UtcNow;
                 durableJob.FailedCount++;
 
@@ -392,8 +481,8 @@ public sealed class BackgroundJobService(
                     VisitTripId = tripId,
                     VisitTripSnapshotId = failedTripSnapshotId,
                     EventType = "CalculationFailed",
-                    ReasonCode = "MILEAGE_JOB_FAILED",
-                    Message = errorMessage.Length <= 1000 ? errorMessage : errorMessage[..1000],
+                    ReasonCode = safeCode,
+                    Message = safeCode,
                     CorrelationId = Guid.NewGuid(),
                     OccurredAt = DateTime.UtcNow,
                     ActorUserId = durableJob.RequestedByUserId
@@ -403,17 +492,63 @@ public sealed class BackgroundJobService(
         }
     }
 
+    private async Task<List<long>> FindEligibleMileageRetryIds(
+        IReadOnlyCollection<int> teamIds,
+        DateOnly? start,
+        DateOnly? end,
+        IReadOnlyList<long>? selected,
+        CancellationToken ct)
+    {
+        if (teamIds.Count == 0) return [];
+        var q = db.VisitTrips.AsNoTracking()
+            .Where(x => x.TeamId.HasValue
+                && teamIds.Contains(x.TeamId.Value)
+                && (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending)
+                && x.Stops.Count >= V170TripMileageRules.MinimumVisitStopCount
+                && (x.MileageCalculation == null || x.MileageCalculation.SystemDistanceKm == null));
+        if (start.HasValue) q = q.Where(x => x.VisitDate >= start.Value);
+        if (end.HasValue) q = q.Where(x => x.VisitDate <= end.Value);
+        if (selected is { Count: > 0 }) q = q.Where(x => selected.Contains(x.VisitTripId));
+
+        var tripIds = await q.OrderBy(x => x.VisitDate).ThenBy(x => x.VisitTripId)
+            .Select(x => x.VisitTripId).ToListAsync(ct);
+        var eligible = new List<long>(tripIds.Count);
+        foreach (var tripId in tripIds)
+        {
+            var snapshot = await db.VisitTripSnapshots.AsNoTracking()
+                .Include(x => x.Stops)
+                .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                .OrderByDescending(x => x.SnapshotVersion)
+                .FirstOrDefaultAsync(ct);
+            if (snapshot is null) continue;
+            var attempts = await db.RouteCalculationAttempts.AsNoTracking()
+                .Where(x => x.VisitTripId == tripId)
+                .ToListAsync(ct);
+            if (V180MileageCanonicalization.HasRetryEvidence(snapshot, attempts)) eligible.Add(tripId);
+        }
+        return eligible;
+    }
+
     private async Task ProcessGeocodingAsync(BackgroundJob job, CancellationToken ct)
     {
         var request = JsonSerializer.Deserialize<CreateGeocodingJobRequest>(job.PayloadJson ?? "{}", JsonOptions) ?? new CreateGeocodingJobRequest();
-        var teamIds = ParseTeamIds(job.TeamScopeJson);
-        var q = db.Locations.Where(x => (x.OrganizationId == job.OrganizationId || x.OrganizationId == null) &&
-            (x.ApprovalStatus == "Pending" || x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
-        if (teamIds.Count > 0)
-            q = q.Where(
-                x => x.TeamId == null
-                     || (x.TeamId.HasValue
-                         && teamIds.Contains(x.TeamId.Value)));
+        // Never trust the job's original JWT/team snapshot as authorization.
+        // This also denies previously queued jobs after role, HR or team revocation.
+        var (admin, teamIds) = await ResolveLiveGeocodingScopeAsync(job, ct);
+        // Until a reviewed draft-version/swap policy exists, the worker may
+        // resolve only unpublished Pending drafts. Published coordinates are
+        // authoritative and must never be changed by a queued job.
+        // Scheme A's inactive CreateLocation reservation is NOT a legacy
+        // geocoding draft. An old job must not mutate its authoritative
+        // RowVersion/coordinates outside the canonical evidence workflow.
+        // Candidate schema is optional: inspect the catalog before building
+        // a query referencing the additive reservation table.
+        var hasCreateReservations =
+            await V180OptionCCreateReservationGuard.HasValidatedSchemaAsync(db, ct);
+        var q = PendingDraftGeocodingCandidates(db, job.OrganizationId.Value,
+            hasCreateReservations);
+        if (!admin)
+            q = q.Where(x => x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
         if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && request.LocationIds is { Count: > 0 })
             q = q.Where(x => request.LocationIds.Contains(x.LocationId));
 
@@ -479,21 +614,199 @@ public sealed class BackgroundJobService(
                 continue;
             }
 
+            if (!location.IsTemporary && location.ApprovalStatus == "Approved")
+            {
+                item.Status = "Skipped";
+                item.ErrorCode = "PUBLISHED_LOCATION_REQUIRES_OPTIONC_APPROVAL";
+                item.ErrorMessage = "已核准地點的座標更新須經 Option C 核准。";
+                item.CompletedAt = DateTime.UtcNow;
+                job.SkippedCount++;
+                await db.SaveChangesAsync(ct);
+                continue;
+            }
+
             try
             {
                 var result = await geocoding.ResolveAsync(location.Address, location.PlusCode, ct);
                 if (!result.Success || !result.Latitude.HasValue || !result.Longitude.HasValue) throw new InvalidOperationException(result.ErrorMessage ?? result.ErrorCode ?? "地址解析失敗。");
-                location.LocationCode ??= NewLocationCode(); location.Latitude = result.Latitude; location.Longitude = result.Longitude; location.GeocodingStatus = "Completed"; location.GeocodedAt = DateTime.UtcNow; location.ApprovalStatus = "Approved"; location.IsActive = true; location.UpdatedAt = DateTime.UtcNow;
-                db.LocationApprovalHistories.Add(new LocationApprovalHistory { LocationId = location.LocationId, Action = "Approved", ReviewedByUserId = job.RequestedByUserId, Comments = "Background geocoding/publish", ActionAt = DateTime.UtcNow });
+                // Option C: geocoding never approves, publishes or deactivates a Location.
+                // An independent, audited Admin publication step is required.
+                location.LocationCode ??= NewLocationCode();
+                location.Latitude = result.Latitude;
+                location.Longitude = result.Longitude;
+                location.GeocodingStatus = "Completed";
+                location.GeocodedAt = DateTime.UtcNow;
+                location.UpdatedAt = DateTime.UtcNow;
                 item.Status = "Succeeded"; item.ResultJson = JsonSerializer.Serialize(new { result.Latitude, result.Longitude }, JsonOptions); job.SuccessCount++;
             }
             catch (Exception ex)
             {
-                location.GeocodingStatus = "Failed"; location.IsActive = false; item.Status = "Failed"; item.ErrorCode = "GEOCODING_JOB_FAILED"; item.ErrorMessage = ex.Message; job.FailedCount++;
+                // Preserve existing Approved/Active status on a failed re-geocode.
+                var safeCode = BackgroundJobFailureCodes.FromException(ex);
+                location.GeocodingStatus = "Failed"; item.Status = "Failed"; item.ErrorCode = safeCode; item.ErrorMessage = safeCode; job.FailedCount++;
             }
             item.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
+    }
+
+    /// <summary>
+    /// Do not permit background workers to update an Option C CreateLocation
+    /// reserved row, including Abandoned reservations. The reservation table
+    /// is additive and absent in older databases; SQL must only reference it
+    /// when the catalog AND version marker prove the schema is present.
+    /// </summary>
+    internal static IQueryable<Location> PendingDraftGeocodingCandidates(
+        AppDbContext db, int organizationId, bool hasCreateReservations)
+    {
+        IQueryable<Location> locations = hasCreateReservations
+            ? db.Locations.FromSqlRaw("""
+                SELECT l.* FROM dbo.Locations AS l
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM dbo.LocationCreateReservations AS cr
+                    WHERE cr.LocationId=l.LocationId)
+                """)
+            : db.Locations;
+        return locations.Where(x => x.OrganizationId == organizationId
+            && x.ApprovalStatus == "Pending" && !x.IsActive
+            && (x.GeocodingStatus == "Pending" || x.GeocodingStatus == "Failed"));
+    }
+
+    private async Task<(bool Admin, List<int> Teams)> ResolveLiveGeocodingScopeAsync(
+        BackgroundJob job, CancellationToken ct)
+    {
+        if (!job.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_ORGANIZATION_REQUIRED");
+        var today = BusinessTime.Today;
+        var account = await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == job.RequestedByUserId, ct);
+        if (account is null || !account.IsActive || account.OrganizationId != job.OrganizationId)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_ACCOUNT_NOT_CURRENT");
+
+        var roles = await (from assignment in db.UserRoleAssignments.AsNoTracking()
+                           join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
+                           where assignment.UserId == account.UserId && role.IsActive
+                               && assignment.EffectiveFrom <= today
+                               && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                               && (role.RoleCode.ToUpper() == "ADMIN" || role.RoleCode.ToUpper() == "LEADER")
+                           select role.RoleCode).ToListAsync(ct);
+        var admin = roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase));
+        var leader = roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase));
+        if (!admin && !leader)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_ROLE_REVOKED");
+
+        var identity = await db.UserIdentityProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == account.UserId, ct);
+        string? employmentStatus;
+        if (identity?.EmploymentId is long employmentId)
+        {
+            employmentStatus = await db.EmploymentStatusPeriods.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId
+                    && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.EmploymentStatusPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+            var terminationDate = await db.Employments.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId)
+                .Select(x => x.TerminationDate).FirstOrDefaultAsync(ct);
+            if (terminationDate.HasValue && terminationDate.Value <= today)
+                employmentStatus = EmploymentStatuses.Terminated;
+        }
+        else
+        {
+            employmentStatus = await db.UserEmploymentPeriods.AsNoTracking()
+                .Where(x => x.UserId == account.UserId
+                    && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.UserEmploymentPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+        }
+        if (!string.Equals(employmentStatus, EmploymentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("GEOCODING_JOB_HR_STATUS_NOT_ACTIVE");
+
+        if (admin) return (true, []);
+        var snapshot = ParseTeamIds(job.TeamScopeJson);
+        if (snapshot.Count == 0)
+            throw new UnauthorizedAccessException("GEOCODING_JOB_TEAM_SCOPE_REQUIRED");
+        var currentAssignments = await db.UserTeamAssignments.AsNoTracking()
+            .Where(x => x.UserId == account.UserId
+                && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+            .Select(x => x.TeamId).Distinct().ToListAsync(ct);
+        var currentTeams = await db.Teams.AsNoTracking()
+            .Where(x => x.OrganizationId == job.OrganizationId && x.IsActive
+                && currentAssignments.Contains(x.TeamId))
+            .Select(x => x.TeamId).ToListAsync(ct);
+        if (snapshot.Any(id => id <= 0 || !currentTeams.Contains(id)))
+            throw new UnauthorizedAccessException("GEOCODING_JOB_TEAM_SCOPE_REVOKED");
+        return (false, snapshot.Distinct().ToList());
+    }
+
+    private async Task<List<int>> ResolveLiveMileageTeamIdsAsync(BackgroundJob job, CancellationToken ct)
+    {
+        if (!job.OrganizationId.HasValue)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_ORGANIZATION_REQUIRED");
+        var today = BusinessTime.Today;
+        var account = await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == job.RequestedByUserId, ct);
+        if (account is null || !account.IsActive || account.OrganizationId != job.OrganizationId)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_ACCOUNT_NOT_CURRENT");
+
+        var hasLeaderRole = await (from assignment in db.UserRoleAssignments.AsNoTracking()
+                                   join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
+                                   where assignment.UserId == account.UserId && role.IsActive
+                                       && assignment.EffectiveFrom <= today
+                                       && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                                       && role.RoleCode.ToUpper() == "LEADER"
+                                   select assignment.UserRoleAssignmentId).AnyAsync(ct);
+        if (!hasLeaderRole)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_LEADER_ROLE_REVOKED");
+
+        var identity = await db.UserIdentityProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.UserId == account.UserId, ct);
+        string? employmentStatus;
+        if (identity?.EmploymentId is long employmentId)
+        {
+            employmentStatus = await db.EmploymentStatusPeriods.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.EmploymentStatusPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+            var terminationDate = await db.Employments.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId)
+                .Select(x => x.TerminationDate).FirstOrDefaultAsync(ct);
+            if (terminationDate.HasValue && terminationDate.Value <= today)
+                employmentStatus = EmploymentStatuses.Terminated;
+        }
+        else
+        {
+            employmentStatus = await db.UserEmploymentPeriods.AsNoTracking()
+                .Where(x => x.UserId == account.UserId && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ThenByDescending(x => x.UserEmploymentPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+        }
+        if (!string.Equals(employmentStatus, EmploymentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("MILEAGE_JOB_HR_STATUS_NOT_ACTIVE");
+
+        var frozenTeams = ParseTeamIds(job.TeamScopeJson).Distinct().ToArray();
+        if (frozenTeams.Length == 0)
+            throw new UnauthorizedAccessException("MILEAGE_JOB_TEAM_SCOPE_REQUIRED");
+        var assignedTeams = await db.UserTeamAssignments.AsNoTracking()
+            .Where(x => x.UserId == account.UserId && x.EffectiveFrom <= today
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+            .Select(x => x.TeamId).Distinct().ToListAsync(ct);
+        var liveTeams = await db.Teams.AsNoTracking()
+            .Where(x => x.OrganizationId == job.OrganizationId && x.IsActive
+                && assignedTeams.Contains(x.TeamId))
+            .Select(x => x.TeamId).ToListAsync(ct);
+        if (frozenTeams.Any(id => id <= 0 || !liveTeams.Contains(id)))
+            throw new UnauthorizedAccessException("MILEAGE_JOB_TEAM_SCOPE_REVOKED");
+        return frozenTeams.ToList();
     }
 
     private BackgroundJob NewJob(string type, string mode, CurrentUserDto user, string payload) => new()
@@ -508,4 +821,48 @@ public sealed class BackgroundJobService(
     private void AddAudit(int userId, string entityType, string? entityId, string action, object value) => db.AuditLogs.Add(new AuditLog { UserId = userId, EntityType = entityType, EntityId = entityId, Action = action, NewValues = JsonSerializer.Serialize(value, JsonOptions), CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow });
     private static string NewLocationCode() => $"LOC-{DateTime.UtcNow:yyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
 
+}
+
+internal static class BackgroundJobFailureCodes
+{
+    public static string FromException(Exception exception)
+    {
+        var root = exception.GetBaseException();
+        var separator = root.Message.IndexOfAny([':', '：']);
+        var explicitCode = (separator >= 0 ? root.Message[..separator] : root.Message).Trim();
+        if (IsSafeCode(explicitCode)) return explicitCode;
+        if (root is SqlException sql)
+        {
+            return FromSqlNumber(sql.Number);
+        }
+
+        return root switch
+        {
+            OperationCanceledException => "BACKGROUND_JOB_CANCELLED",
+            UnauthorizedAccessException => "BACKGROUND_JOB_AUTHORIZATION_REVOKED",
+            InvalidOperationException => "BACKGROUND_JOB_STATE_REJECTED",
+            _ => "BACKGROUND_JOB_FAILED"
+        };
+    }
+
+    private static bool IsSafeCode(string value) => value.Length is > 0 and <= 100
+        && value.Contains('_')
+        && (value.StartsWith("F_", StringComparison.Ordinal)
+            || value.StartsWith("MILEAGE_", StringComparison.Ordinal)
+            || value.StartsWith("BACKGROUND_", StringComparison.Ordinal)
+            || value.StartsWith("SQL_", StringComparison.Ordinal)
+            || value.StartsWith("OPTIONC_", StringComparison.Ordinal)
+            || value.StartsWith("TRIP_", StringComparison.Ordinal)
+            || value.StartsWith("PROVIDER_", StringComparison.Ordinal)
+            || value.StartsWith("GEOCODING_", StringComparison.Ordinal)
+            || value.StartsWith("SUBMITTED_", StringComparison.Ordinal)
+            || value.StartsWith("LOCATION_", StringComparison.Ordinal))
+        && value.All(ch => char.IsUpper(ch) || char.IsDigit(ch) || ch == '_');
+
+    internal static string FromSqlNumber(int number) => number switch
+    {
+        1205 => "SQL_DEADLOCK_1205",
+        1222 => "SQL_LOCK_TIMEOUT_1222",
+        _ => "SQL_OPERATION_FAILED"
+    };
 }

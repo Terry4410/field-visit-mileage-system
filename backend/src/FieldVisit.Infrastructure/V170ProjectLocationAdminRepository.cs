@@ -23,17 +23,15 @@ public sealed class V170ProjectLocationAdminRepository(
         IReadOnlyList<V170ProjectLocationItemDto>>
         GetAssignedLocationsAsync(
             int projectId,
+            int organizationId,
+            int? projectTeamId,
             CancellationToken ct)
     {
         return await (
-            from assignment
-                in db.ProjectLocations
+            from assignment in db.ProjectLocations
                     .AsNoTracking()
-            join location
-                in db.Locations
-                    .AsNoTracking()
-                on assignment.LocationId
-                equals location.LocationId
+            join location in await EligibleLocationsAsync(organizationId, projectTeamId, ct)
+                on assignment.LocationId equals location.LocationId
             where
                 assignment.ProjectId == projectId
                 && assignment.IsActive
@@ -60,10 +58,7 @@ public sealed class V170ProjectLocationAdminRepository(
             V170ProjectLocationCandidateSpec spec,
             CancellationToken ct)
     {
-        var q =
-            EligibleLocations(
-                organizationId,
-                projectTeamId);
+        var q = await EligibleLocationsAsync(organizationId, projectTeamId, ct);
 
         var keyword =
             spec.Query!;
@@ -122,22 +117,16 @@ public sealed class V170ProjectLocationAdminRepository(
                 < total);
     }
 
-    public Task<int> CountEligibleLocationsAsync(
+    public async Task<int> CountEligibleLocationsAsync(
         int organizationId,
         int? projectTeamId,
         IReadOnlyCollection<int> locationIds,
         CancellationToken ct)
     {
-        if (locationIds.Count == 0)
-            return Task.FromResult(0);
+        if (locationIds.Count == 0) return 0;
 
-        return EligibleLocations(
-                organizationId,
-                projectTeamId)
-            .CountAsync(
-                x => locationIds.Contains(
-                    x.LocationId),
-                ct);
+        return await (await EligibleLocationsAsync(organizationId, projectTeamId, ct))
+            .CountAsync(x => locationIds.Contains(x.LocationId), ct);
     }
 
     public Task<List<ProjectLocation>>
@@ -180,13 +169,17 @@ public sealed class V170ProjectLocationAdminRepository(
             .AsTask();
     }
 
-    private IQueryable<Location> EligibleLocations(
+    private async Task<IQueryable<Location>> EligibleLocationsAsync(
         int organizationId,
-        int? projectTeamId)
+        int? projectTeamId,
+        CancellationToken ct)
     {
-        var q =
-            db.Locations
-                .AsNoTracking()
+        // Project assignment and candidate counts are operational paths too:
+        // do not allow a private canonical Create reservation to be attached
+        // indirectly, even if a stale active/approval bit is present.
+        var visible = await V180OptionCCreateReservationGuard
+            .LegacyVisibleLocationsAsync(db, ct);
+        var q = visible.AsNoTracking()
                 .Where(x =>
                     !x.IsTemporary
                     && x.IsActive
