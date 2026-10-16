@@ -351,19 +351,28 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     .SingleAsync();
                 var leaderRoleAssignment = await db.UserRoleAssignments
                     .SingleAsync(x => x.UserId == fixture.Leader.UserId && x.RoleId == leaderRoleIdForRevocation);
-                leaderRoleAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
-                await db.SaveChangesAsync();
+                var revokedRoleDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+                await db.UserRoleAssignments
+                    .Where(x => x.UserRoleAssignmentId == leaderRoleAssignment.UserRoleAssignmentId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, revokedRoleDate));
+                db.ChangeTracker.Clear();
                 using (var revokedRole = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
                     Assert.Equal(HttpStatusCode.Forbidden, revokedRole.StatusCode);
-                leaderRoleAssignment.EffectiveTo = null;
+                await db.UserRoleAssignments
+                    .Where(x => x.UserRoleAssignmentId == leaderRoleAssignment.UserRoleAssignmentId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, (DateOnly?)null));
                 var leaderTeamAssignment = await db.UserTeamAssignments
                     .SingleAsync(x => x.UserId == fixture.Leader.UserId && x.TeamId == fixture.Team.TeamId);
-                leaderTeamAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
-                await db.SaveChangesAsync();
+                var revokedTeamDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+                await db.UserTeamAssignments
+                    .Where(x => x.UserTeamAssignmentId == leaderTeamAssignment.UserTeamAssignmentId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, revokedTeamDate));
+                db.ChangeTracker.Clear();
                 using (var revokedTeam = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
                     Assert.Equal(HttpStatusCode.Forbidden, revokedTeam.StatusCode);
-                leaderTeamAssignment.EffectiveTo = null;
-                await db.SaveChangesAsync();
+                await db.UserTeamAssignments
+                    .Where(x => x.UserTeamAssignmentId == leaderTeamAssignment.UserTeamAssignmentId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, (DateOnly?)null));
                 var pendingTripEntity = await db.VisitTrips.SingleAsync(x => x.VisitTripId == created.VisitTripId);
                 await db.Entry(pendingTripEntity).ReloadAsync();
                 var visitorOwnerId = pendingTripEntity.UserId;
