@@ -105,18 +105,19 @@ public sealed class TripService(
                     request.Stops);
 
         int? tripTeamId;
+        V180TripContextDto? routeContext = null;
         var startSiteId = trip.StartDeploymentSiteId;
         var endSiteId = trip.EndDeploymentSiteId;
         if (trip.EmploymentId.HasValue)
         {
-            var context = await (tripContext ?? throw new InvalidOperationException("V180_TRIP_CONTEXT_READER_REQUIRED")).ResolveAsync(user, request.VisitDate, request.TeamId, ct);
-            if (context.EmploymentId != trip.EmploymentId.Value)
+            routeContext = await (tripContext ?? throw new InvalidOperationException("V180_TRIP_CONTEXT_READER_REQUIRED")).ResolveAsync(user, request.VisitDate, request.TeamId, ct);
+            if (routeContext.EmploymentId != trip.EmploymentId.Value)
                 throw new InvalidOperationException("TRIP_CONTEXT_EMPLOYMENT_CHANGED：人員資料已變更，請重新開啟行程。");
             var sites = V180TripPersistenceRules.ResolveDraftSites(
-                context, request.StartDeploymentSiteId, request.EndDeploymentSiteId,
+                routeContext, request.StartDeploymentSiteId, request.EndDeploymentSiteId,
                 trip.StartDeploymentSiteId, trip.EndDeploymentSiteId);
-            tripTeamId = context.SelectedTeamId
-                ?? throw new InvalidOperationException($"{context.ValidationCode}：{context.ValidationMessage}");
+            tripTeamId = routeContext.SelectedTeamId
+                ?? throw new InvalidOperationException($"{routeContext.ValidationCode}：{routeContext.ValidationMessage}");
             startSiteId = sites.Start;
             endSiteId = sites.End;
         }
@@ -165,22 +166,58 @@ public sealed class TripService(
             await mileage.AddAsync(calc, ct);
         }
 
+        var previousAttemptId = calc.SelectedRouteCalculationAttemptId;
+        RouteCalculationAttempt? reusableAttempt = null;
+        if (!authorityChanged
+            && routeContext is not null
+            && mileageGovernance is not null)
+        {
+            var start = V180TripPersistenceRules.ResolveStartSite(routeContext, trip.StartDeploymentSiteId);
+            var end = V180TripPersistenceRules.ResolveEndSite(routeContext, trip.EndDeploymentSiteId);
+            var currentRouteHash = V180MileageCanonicalization.HashRoute(
+                V180MileageCanonicalization.BuildDraftBasis(
+                    trip,
+                    new V180DeploymentSiteBasis(start.SiteCode, start.Address),
+                    new V180DeploymentSiteBasis(end.SiteCode, end.Address)));
+            var routeAttempts = await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            reusableAttempt = routeAttempts.FirstOrDefault(attempt =>
+                attempt.BasisType == "Draft"
+                && attempt.Status == "Succeeded"
+                && attempt.RequestBasisHash.SequenceEqual(currentRouteHash));
+            if (reusableAttempt is not null && calc.SystemDistanceKm is not > 0)
+                reusableAttempt = null;
+        }
+
         calc.ClaimedDistanceKm = request.ClaimedDistanceKm;
-        calc.SystemDistanceKm = null;
         calc.ApprovedDistanceKm = null;
         calc.MileageRateRuleId = null;
         calc.RatePerKmSnapshot = null;
         calc.ClaimedAmount = null;
         calc.ApprovedAmount = null;
-        calc.CalculationSource = null;
-        calc.CalculatedAt = null;
+        if (reusableAttempt is null)
+        {
+            calc.SelectedRouteCalculationAttemptId = null;
+            calc.SystemDistanceKm = null;
+            calc.CalculationSource = null;
+            calc.CalculatedAt = null;
+        }
+        else
+        {
+            calc.SelectedRouteCalculationAttemptId = reusableAttempt.RouteCalculationAttemptId;
+            calc.CalculationSource = "GoogleMapsAPI";
+            calc.CalculatedAt ??= reusableAttempt.CompletedAt;
+        }
         calc.UpdatedAt = DateTime.UtcNow;
 
-        if (authorityChanged && HasCurrentGovernedAuthority(calc))
+        var hadGovernedDecision = calc.DistanceDecisionGovernanceVersion is not null
+            || calc.ApprovedDistanceSource is not null
+            || calc.ApprovalBasisHash is not null;
+        if (authorityChanged || (previousAttemptId.HasValue && reusableAttempt is null) || hadGovernedDecision)
         {
             var invalidatedAt = trip.UpdatedAt ?? DateTime.UtcNow;
-            var invalidatedAttemptId = calc.SelectedRouteCalculationAttemptId;
-            calc.SelectedRouteCalculationAttemptId = null;
+            var invalidatedAttemptId = previousAttemptId;
+            if (reusableAttempt is null)
+                calc.SelectedRouteCalculationAttemptId = null;
             calc.ManualFallbackUsed = false;
             calc.DistanceDecisionGovernanceVersion = null;
             calc.ApprovedDistanceSource = null;
@@ -190,14 +227,19 @@ public sealed class TripService(
             calc.DistanceApprovedByUserId = null;
             calc.InvalidatedAt = invalidatedAt;
             calc.InvalidatedByUserId = user.UserId;
-            calc.InvalidationReason = "TripRouteAuthorityEdited";
+            calc.InvalidationReason = hadGovernedDecision
+                ? "TripEditedAfterApproval"
+                : "TripRouteAuthorityEdited";
 
-            await (mileageGovernance ?? throw new InvalidOperationException("V180_MILEAGE_GOVERNANCE_REPOSITORY_REQUIRED")).AddGovernanceEventAsync(
-                new V180MileageGovernanceEventRequest(
-                    trip.VisitTripId, null, invalidatedAttemptId, "Invalidated",
-                    "TRIP_ROUTE_AUTHORITY_EDITED",
-                    "Current route and mileage decision authority was invalidated.",
-                    Guid.NewGuid(), invalidatedAt, user.UserId), ct);
+            if (hadGovernedDecision || invalidatedAttemptId.HasValue)
+                await (mileageGovernance ?? throw new InvalidOperationException("V180_MILEAGE_GOVERNANCE_REPOSITORY_REQUIRED")).AddGovernanceEventAsync(
+                    new V180MileageGovernanceEventRequest(
+                        trip.VisitTripId, null, invalidatedAttemptId, "Invalidated",
+                        hadGovernedDecision ? "TRIP_EDITED_AFTER_APPROVAL" : "TRIP_ROUTE_AUTHORITY_EDITED",
+                        hadGovernedDecision
+                            ? "Prior approval decision was invalidated by trip edit; matching route evidence remains reusable only when its fingerprint is unchanged."
+                            : "Current route and mileage decision authority was invalidated.",
+                        Guid.NewGuid(), invalidatedAt, user.UserId), ct);
         }
 
         await AddHistoryAsync(trip, trip.Status, trip.Status, "Update", user.UserId, null, ct);
@@ -318,6 +360,31 @@ public sealed class TripService(
         if (authoritativeContext is not null)
             await (snapshots ?? throw new InvalidOperationException("V180_SNAPSHOT_REPOSITORY_REQUIRED")).AddSubmittedSnapshotAsync(trip, user, authoritativeContext, ct);
 
+        if (authoritativeContext is not null && mileageGovernance is not null)
+        {
+            var start = V180TripPersistenceRules.ResolveStartSite(authoritativeContext, trip.StartDeploymentSiteId);
+            var end = V180TripPersistenceRules.ResolveEndSite(authoritativeContext, trip.EndDeploymentSiteId);
+            var submittedHash = V180MileageCanonicalization.HashRoute(
+                V180MileageCanonicalization.BuildDraftBasis(
+                    trip,
+                    new V180DeploymentSiteBasis(start.SiteCode, start.Address),
+                    new V180DeploymentSiteBasis(end.SiteCode, end.Address)));
+            var routeAttempts = await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            var successfulDraftAttempt = routeAttempts.FirstOrDefault(attempt =>
+                attempt.BasisType == "Draft"
+                && attempt.Status == "Succeeded"
+                && attempt.RequestBasisHash.SequenceEqual(submittedHash));
+            if (successfulDraftAttempt is not null
+                && calc?.SystemDistanceKm is > 0
+                && calc.SelectedRouteCalculationAttemptId == successfulDraftAttempt.RouteCalculationAttemptId)
+            {
+                trip.Status = TripStatuses.PendingApproval;
+                trip.UpdatedAt = DateTime.UtcNow;
+                await AddHistoryAsync(trip, TripStatuses.Submitted, TripStatuses.PendingApproval,
+                    "VisitorGoogleRouteReady", user.UserId, "Visitor-side successful Google route matched submitted snapshot basis.", ct);
+            }
+        }
+
         await uow.SaveChangesAsync(ct);
         return await GetDtoAsync(tripId, ct);
     }
@@ -408,9 +475,18 @@ public sealed class TripService(
         }
 
         RouteCalculationAttempt? routeAttempt = null;
+        var hasCurrentRouteFailureEvidence = false;
         if (displaySnapshot is not null && mileageGovernance is not null)
-            routeAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
-                trip.VisitTripId, displaySnapshot.VisitTripSnapshotId, ct);
+        {
+            var attempts = await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            var currentAttempts = attempts.Where(x =>
+                V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(x, displaySnapshot)).ToList();
+            routeAttempt = currentAttempts.FirstOrDefault(x => x.Status == "Succeeded"
+                    && (!calc?.SelectedRouteCalculationAttemptId.HasValue ?? true
+                        || x.RouteCalculationAttemptId == calc.SelectedRouteCalculationAttemptId.Value))
+                ?? currentAttempts.FirstOrDefault(x => x.Status == "Succeeded");
+            hasCurrentRouteFailureEvidence = routeAttempt is null && currentAttempts.Any(x => x.Status == "Failed");
+        }
 
         V180TripContextDeploymentSiteDto? startSite = null;
         V180TripContextDeploymentSiteDto? endSite = null;
@@ -471,11 +547,18 @@ public sealed class TripService(
             trip.Stops.OrderBy(x => x.StopSequence).Select(x => new TripStopInput(
                 x.LocationId, x.ProjectId, x.VisitTypeId,
                 V180TemporaryLocationDraftRules.ResolveStopSourceType(x),
-                x.LocationNameSnapshot ?? "", x.AddressSnapshot, x.VisitPurpose, x.Notes)).ToList(),
+                x.LocationNameSnapshot ?? "", x.AddressSnapshot, x.VisitPurpose, x.Notes,
+                (trip.Status is TripStatuses.Draft or TripStatuses.Returned)
+                    && V180TemporaryLocationDraftRules.ResolveStopSourceType(x).Equals("Temporary", StringComparison.OrdinalIgnoreCase)
+                    ? x.Location?.TaxId : null,
+                (trip.Status is TripStatuses.Draft or TripStatuses.Returned)
+                    && V180TemporaryLocationDraftRules.ResolveStopSourceType(x).Equals("Temporary", StringComparison.OrdinalIgnoreCase)
+                    ? x.Location?.MasterNote : null)).ToList(),
             Convert.ToBase64String(trip.RowVersion ?? []),
             trip.VehicleType ?? "Motorcycle",
             routeAttempt?.RouteCalculationAttemptId,
-            mileageSource);
+            mileageSource,
+            hasCurrentRouteFailureEvidence);
     }
 
     private async Task BuildStopsAsync(
@@ -489,6 +572,10 @@ public sealed class TripService(
         var seq = 1;
         foreach (var input in inputs)
         {
+            if (input.TaxId?.Trim().Length > 20)
+                throw new InvalidOperationException("統一編號不可超過 20 個字元。");
+            if (input.MasterNote?.Trim().Length > 1000)
+                throw new InvalidOperationException("地點備註不可超過 1000 個字元。");
             int? locationId = input.LocationId;
 
             if (locationId.HasValue)
@@ -544,7 +631,7 @@ public sealed class TripService(
                 pendingLocation = new Location
                 {
                     OrganizationId = user.OrganizationId, TeamId = trip.TeamId, LocationName = input.LocationName.Trim(),
-                    LocationType = "Customer", Address = input.Address, IsTemporary = true,
+                    LocationType = "Customer", Address = input.Address, TaxId = NormalizeOptional(input.TaxId), MasterNote = NormalizeOptional(input.MasterNote), IsTemporary = true,
                     ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId, IsActive = false, CreatedAt = now
                 };
                 await masters.AddLocationAsync(pendingLocation, ct);
@@ -589,12 +676,6 @@ public sealed class TripService(
         if (request.Stops.Any(x => string.IsNullOrWhiteSpace(x.LocationName))) throw new InvalidOperationException("地點名稱不可空白。");
     }
 
-    private static bool HasCurrentGovernedAuthority(MileageCalculation calc) =>
-        calc.SelectedRouteCalculationAttemptId.HasValue
-        || calc.DistanceDecisionGovernanceVersion is not null
-        || calc.ApprovedDistanceSource is not null
-        || calc.ApprovalBasisHash is not null;
-
     private static bool RouteAuthorityChanged(
         VisitTrip trip,
         SaveTripRequest request,
@@ -631,6 +712,9 @@ public sealed class TripService(
         }
         return false;
     }
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static void EnsureRowVersion(byte[] currentValue, string expectedBase64)
     {

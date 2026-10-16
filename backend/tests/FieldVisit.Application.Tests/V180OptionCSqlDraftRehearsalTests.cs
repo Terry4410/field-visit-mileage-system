@@ -311,6 +311,18 @@ public sealed class V180OptionCSqlDraftRehearsalTests
             var createRerun = await Assert.ThrowsAsync<SqlException>(
                 () => ExecuteAsync(db, createLowRisk));
             Assert.Equal(51093, createRerun.Number);
+            var lowDirectPath = Path.Combine(rootDir, "docs", "release",
+                "optionc-canonical-sql-draft", "lowrisk-direct",
+                "LowRiskDirectContract.disposable.sql");
+            var lowDirect = File.ReadAllText(lowDirectPath);
+            await ExecuteAsync(db, lowDirect);
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-LOWRISK-DIRECT'"));
+            Assert.Equal("1", await ScalarAsync(db,
+                "SELECT COUNT(*) FROM sys.check_constraints WHERE name=N'CK_B3_ChangeRequestEvents_EventType' AND definition LIKE N'%DirectLowRiskApplied%'"));
+            var lowDirectRerun = await Assert.ThrowsAsync<SqlException>(
+                () => ExecuteAsync(db, lowDirect));
+            Assert.Equal(51703, lowDirectRerun.Number);
 
             // Reservation exists before publication but is not itself a
             // published version; the future writer must enforce this boundary.

@@ -30,15 +30,15 @@ public sealed class V180OptionCLocationMaintenanceRiskTests
     }
 
     [Fact]
-    public void Published_note_only_change_requires_independent_Leader_review()
+    public void Published_note_only_change_requires_authorized_candidate_direct_save()
     {
         var ex = Assert.Throws<InvalidOperationException>(() =>
-            V180OptionCLocationMaintenanceRisk.RequireCanonicalForPublishedLowRiskChange(
+            V180OptionCLocationMaintenanceRisk.RequireAuthorizedCandidateForPublishedLowRiskChange(
                 isPublished: true, hasLowRiskChange: true));
-        Assert.Equal("LOCATION_LOW_RISK_CHANGE_REQUIRES_OPTIONC_LEADER_REVIEW", ex.Message);
-        V180OptionCLocationMaintenanceRisk.RequireCanonicalForPublishedLowRiskChange(
+        Assert.Equal("LOCATION_LOW_RISK_CHANGE_REQUIRES_AUTHORIZED_DIRECT_SAVE", ex.Message);
+        V180OptionCLocationMaintenanceRisk.RequireAuthorizedCandidateForPublishedLowRiskChange(
             isPublished: false, hasLowRiskChange: true);
-        V180OptionCLocationMaintenanceRisk.RequireCanonicalForPublishedLowRiskChange(
+        V180OptionCLocationMaintenanceRisk.RequireAuthorizedCandidateForPublishedLowRiskChange(
             isPublished: true, hasLowRiskChange: false);
     }
 
@@ -47,7 +47,7 @@ public sealed class V180OptionCLocationMaintenanceRiskTests
     {
         var source = File.ReadAllText(Path.Combine(FindRepoRoot(),
             "backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs"));
-        var lowGate = source.IndexOf("RequireCanonicalForPublishedLowRiskChange(", StringComparison.Ordinal);
+        var lowGate = source.IndexOf("RequireAuthorizedCandidateForPublishedLowRiskChange(", StringComparison.Ordinal);
         var masterWrite = source.IndexOf("row.MasterNote=nextMasterNote", StringComparison.Ordinal);
         Assert.True(lowGate >= 0 && masterWrite > lowGate);
         Assert.Contains("row.MasterNote, nextMasterNote", source);

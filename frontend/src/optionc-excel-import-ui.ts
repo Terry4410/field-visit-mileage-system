@@ -5,6 +5,8 @@ export type ExcelCanonicalCreateResult={
  status:string;requestPublicIds:string[];
 };
 
+export const mayShowLegacyExcelConfirm=(reviewOnly:boolean)=>!reviewOnly;
+
 // Mixed updates, non-canonical errors and truncated preview arrays cannot
 // enter the explicit canonical Create flow. Backend independently revalidates
 // live HR, batch ownership, team and every staged row before SQL writes.

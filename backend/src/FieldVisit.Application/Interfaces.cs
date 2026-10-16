@@ -37,6 +37,7 @@ public interface IUserRepository
 public interface ITripRepository
 {
     Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct);
+    Task<VisitTrip?> GetForApprovalAsync(long tripId, CancellationToken ct);
     Task AddAsync(VisitTrip trip, CancellationToken ct);
     Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct);
     Task<List<VisitTrip>> GetTeamQueueAsync(IReadOnlyCollection<int> teamIds, CancellationToken ct);
@@ -121,4 +122,10 @@ public interface IGeocodingService
 public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken ct);
+    Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct);
+}
+
+public interface IUnitOfWorkTransaction : IAsyncDisposable
+{
+    Task CommitAsync(CancellationToken ct);
 }

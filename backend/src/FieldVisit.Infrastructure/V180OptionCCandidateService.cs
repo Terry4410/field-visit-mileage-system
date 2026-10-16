@@ -15,6 +15,8 @@ namespace FieldVisit.Infrastructure;
 /// </summary>
 public sealed record V180OptionCCreateLocation(
     int TeamId, string Reason, V180B3LocationFields Proposed);
+public sealed record V180OptionCLowRiskDirectUpdate(
+    string ExpectedRowVersion, string? MasterNote, string Reason, Guid OperationKey);
 
 /// <summary>Row-bound, independently reviewed Excel Create submission summary.</summary>
 public sealed record V180OptionCExcelCreateResult(
@@ -606,6 +608,66 @@ public sealed class V180OptionCCandidateService(
 
     public Task<V180B3RequestView> SubmitAsync(V180B3SubmitLocation input, CancellationToken ct)
         => SubmitCoreAsync(input, ct, null);
+
+    /// <summary>
+    /// Frozen Owner policy: an authorized note-only update is applied directly
+    /// (no Leader/Admin decision) but remains a canonical, versioned and
+    /// audited transaction. Legacy maintenance stays fail-closed.
+    /// </summary>
+    public async Task<V180B3RequestView> SaveLowRiskAsync(
+        int locationId, V180OptionCLowRiskDirectUpdate input, CancellationToken ct)
+    {
+        if (locationId <= 0 || input is null || input.OperationKey == Guid.Empty
+            || input.MasterNote?.Length > 1000 || input.Reason?.Length > 1000)
+            throw new InvalidOperationException("OPTIONC_LOW_DIRECT_INPUT_DENIED");
+        var reason = input.Reason?.Trim();
+        var note = string.IsNullOrWhiteSpace(input.MasterNote) ? null : input.MasterNote.Trim();
+        if (string.IsNullOrWhiteSpace(reason)
+            || reason.Any(c => char.IsControl(c) && c is not ('\r' or '\n' or '\t'))
+            || (note?.Any(c => char.IsControl(c) && c is not ('\r' or '\n' or '\t')) ?? false))
+            throw new InvalidOperationException("OPTIONC_LOW_DIRECT_INPUT_DENIED");
+        var expected = V180B3RowVersionRules.Parse(input.ExpectedRowVersion);
+        var connection = await RequireTargetAsync(ct);
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        Guid requestId;
+        try
+        {
+            var location = await db.Locations.FromSqlInterpolated($"""
+                SELECT * FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
+                WHERE LocationId={locationId}
+                """).SingleOrDefaultAsync(ct)
+                ?? throw new KeyNotFoundException("OPTIONC_LOCATION_NOT_FOUND");
+            if (location.OrganizationId is not int organizationId || organizationId <= 0
+                || location.TeamId is not int teamId || teamId <= 0
+                || location.RowVersion is null || !location.RowVersion.SequenceEqual(expected)
+                || location.LocationType != "Customer" || location.ApprovalStatus != "Approved"
+                || !location.IsActive)
+                throw new InvalidOperationException("ROWVERSION_CONFLICT");
+            var actorId = current.GetRequired().UserId;
+            var scope = await new V180OptionCLiveAuthorizationAdapter(db)
+                .AuthorizeLowRiskWriteAsync(actorId, locationId, BusinessTime.Today, ct);
+            if (scope.OrganizationId != organizationId || scope.TeamId != teamId)
+                throw new UnauthorizedAccessException("OPTIONC_LOW_RISK_WRITE_SCOPE_DENIED");
+            var before = new V180B3LocationFields(location.LocationName, location.City,
+                location.District, location.Address, location.PlusCode, location.TaxId,
+                location.MasterNote);
+            var proposed = before with { MasterNote = note };
+            if (string.Equals(before.MasterNote, proposed.MasterNote, StringComparison.Ordinal))
+                throw new InvalidOperationException("B3_NO_CHANGE");
+            requestId = await V180OptionCLowRiskDirectWriter.ExecuteAsync(
+                connection, (SqlTransaction)tx.GetDbTransaction(), locationId,
+                organizationId, teamId, actorId, expected,
+                JsonSerializer.Serialize(before), JsonSerializer.Serialize(proposed), note,
+                reason, input.OperationKey, transactionBoundLiveAuthorization: true, ct);
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            try { await tx.RollbackAsync(CancellationToken.None); } catch { }
+            throw;
+        }
+        return await FindAsync(requestId, ct);
+    }
 
     private async Task<V180B3RequestView> SubmitCoreAsync(
         V180B3SubmitLocation input, CancellationToken ct, V180OptionCExcelRowSource? excel)

@@ -36,7 +36,6 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
             x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("OPTIONC_LOCATION_NOT_FOUND");
         if (location.OrganizationId is not int organizationId || organizationId <= 0
-            || location.CreatedByUserId != actorUserId
             || location.TeamId is not int teamId || teamId <= 0
             || !string.Equals(location.LocationType, "Customer", StringComparison.OrdinalIgnoreCase)
             || !string.Equals(location.ApprovalStatus, "Approved", StringComparison.OrdinalIgnoreCase)
@@ -49,7 +48,8 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
         if (team is null) throw new UnauthorizedAccessException("OPTIONC_TEAM_NOT_CURRENT");
         var roles = await EffectiveRolesAsync(actorUserId, today, ct);
         var scoped = await HasCurrentTeamScopeAsync(actorUserId, teamId, today, ct);
-        var visitor = roles.Contains("visitor") && await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+        var visitor = location.CreatedByUserId == actorUserId
+            && roles.Contains("visitor") && await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
             x.EmploymentId == actor.EmploymentId && x.TeamId == teamId
             && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
         var leader = roles.Contains("leader") && (await db.TeamLeaderAssignments.AsNoTracking().AnyAsync(x =>
@@ -65,6 +65,22 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
         if (!scoped || (!visitor && !leader))
             throw new UnauthorizedAccessException("OPTIONC_SUBMISSION_ACTOR_NOT_ELIGIBLE");
         return new(actorUserId, organizationId, teamId, visitor, leader);
+    }
+
+    /// <summary>
+    /// Frozen Scheme A direct-LowRisk write boundary. A Visitor may maintain
+    /// only a Location they own; a Leader may maintain any Location in a
+    /// currently appointed/delegated managed team. Shared read scope is never
+    /// accepted as write authority. This method must execute in the same
+    /// serializable transaction that locks and versions the Location.
+    /// </summary>
+    public async Task<V180OptionCLiveSubmissionEvidence> AuthorizeLowRiskWriteAsync(
+        int actorUserId, int locationId, DateOnly today, CancellationToken ct)
+    {
+        var evidence = await AuthorizeSubmissionAsync(actorUserId, locationId, today, ct);
+        if (!evidence.VisitorEligible && !evidence.LeaderEligible)
+            throw new UnauthorizedAccessException("OPTIONC_LOW_RISK_WRITE_SCOPE_DENIED");
+        return evidence;
     }
 
     /// <summary>

@@ -37,7 +37,9 @@ public sealed record TripStopInput(
     string LocationName,
     string? Address,
     string? VisitPurpose,
-    string? Notes);
+    string? Notes,
+    string? TaxId = null,
+    string? MasterNote = null);
 
 public sealed record SaveTripRequest(
     DateOnly VisitDate,
@@ -93,7 +95,8 @@ public sealed record TripDto(
     string RowVersion,
     string? VehicleType = null,
     long? RouteCalculationAttemptId = null,
-    string? MileageSource = null);
+    string? MileageSource = null,
+    bool HasCurrentRouteFailureEvidence = false);
 
 public sealed record MileageBatchRequest(string Mode, DateOnly? StartDate, DateOnly? EndDate, IReadOnlyList<long>? SelectedTripIds);
 public sealed record MileageBatchItem(long VisitTripId, string TripNo, string Status, decimal? SystemDistanceKm, string? ErrorCode, string? ErrorMessage);
@@ -104,14 +107,18 @@ public sealed record ApproveTripRequest(
     string RowVersion,
     string? Comments,
     string? DistanceDecisionSource = null,
-    long? RouteCalculationAttemptId = null);
+    long? RouteCalculationAttemptId = null,
+    string? AdjustmentReason = null,
+    bool OverlappingTripsAcknowledged = false);
 public sealed record ReturnTripRequest(string Reason, string RowVersion);
 public sealed record BatchApproveItem(
     long VisitTripId,
     decimal ApprovedDistanceKm,
     string RowVersion,
     string? DistanceDecisionSource = null,
-    long? RouteCalculationAttemptId = null);
+    long? RouteCalculationAttemptId = null,
+    string? AdjustmentReason = null,
+    bool OverlappingTripsAcknowledged = false);
 public sealed record BatchApproveRequest(IReadOnlyList<BatchApproveItem> Items);
 public sealed record BatchApproveResult(int Success, int Failed, IReadOnlyList<string> Errors);
 

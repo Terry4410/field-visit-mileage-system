@@ -11,6 +11,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.IdentityModel.Tokens;
+using NPOI.SS.UserModel;
+using NPOI.XSSF.UserModel;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -19,50 +21,241 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
-    public async Task Excel_create_submission_http_binds_preview_rows_to_canonical_pending_requests_atomically()
+    public async Task R9_personnel_full_export_returns_filtered_five_sheet_history_only_to_admin()
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h=await Harness.TryCreateAsync(fullCanonicalChain:true);
+        if(h is null)return;
+        await h.Exec("""
+            CREATE TABLE dbo.Centers(CenterId int IDENTITY PRIMARY KEY,OrganizationId int NOT NULL,CenterCode nvarchar(50) NOT NULL,CenterName nvarchar(200) NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,IsActive bit NOT NULL,RowVersion rowversion NOT NULL);
+            CREATE TABLE dbo.DeploymentSites(DeploymentSiteId int IDENTITY PRIMARY KEY,CenterId int NOT NULL,SiteCode nvarchar(50) NOT NULL,SiteName nvarchar(200) NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,IsActive bit NOT NULL,Notes nvarchar(1000) NULL,CreatedAt datetime2 NOT NULL,CreatedByUserId int NULL,UpdatedAt datetime2 NULL,UpdatedByUserId int NULL,InactivatedAt datetime2 NULL,InactivatedByUserId int NULL,RowVersion rowversion NOT NULL);
+            CREATE TABLE dbo.EmploymentDeploymentSiteAssignments(EmploymentDeploymentSiteAssignmentId bigint IDENTITY PRIMARY KEY,EmploymentId bigint NOT NULL,DeploymentSiteId int NOT NULL,IsPrimary bit NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,CreatedAt datetime2 NOT NULL,CreatedByUserId int NULL,RowVersion rowversion NOT NULL);
+            CREATE TABLE dbo.UserDataScopes(UserDataScopeId bigint IDENTITY PRIMARY KEY,UserId int NOT NULL,ScopeType nvarchar(40) NOT NULL,OrganizationId int NULL,TeamId int NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,GrantedByUserId int NULL,CreatedAt datetime2 NOT NULL);
+            CREATE TABLE dbo.UserCapabilities(UserCapabilityId bigint IDENTITY PRIMARY KEY,UserId int NOT NULL,CapabilityCode nvarchar(100) NOT NULL,IsAllowed bit NOT NULL,EffectiveFrom date NOT NULL,EffectiveTo date NULL,GrantedByUserId int NULL,CreatedAt datetime2 NOT NULL);
+            INSERT dbo.Centers(OrganizationId,CenterCode,CenterName,EffectiveFrom,IsActive) VALUES(1,N'C1',N'Test Employment Center','2000-01-01',1);
+            INSERT dbo.DeploymentSites(CenterId,SiteCode,SiteName,EffectiveFrom,IsActive,CreatedAt) VALUES(1,N'S1',N'Test Site','2000-01-01',1,SYSUTCDATETIME());
+            INSERT dbo.EmploymentDeploymentSiteAssignments(EmploymentId,DeploymentSiteId,IsPrimary,EffectiveFrom,CreatedAt) VALUES(102,1,1,'2000-01-01',SYSUTCDATETIME());
+            """);
+        await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(builder=>{
+            builder.UseSetting("ConnectionStrings:DefaultConnection",h.ConnectionString);
+            builder.UseSetting("Auth:Mode","Demo");
+            builder.UseSetting("Auth:JwtKey","test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled","false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");
+        });
+        using var admin=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
+        admin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin",1,1));
+        using var response=await admin.GetAsync("api/v1/admin/query-exports/personnel-full.xlsx?keyword=E2&employmentStatus=Active");
+        Assert.True(response.StatusCode==System.Net.HttpStatusCode.OK,$"HTTP {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+        Assert.StartsWith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",response.Content.Headers.ContentType?.ToString());
+        await using var stream=await response.Content.ReadAsStreamAsync();
+        using var workbook=new XSSFWorkbook(stream);
+        Assert.Equal(5,workbook.NumberOfSheets);
+        var summary=workbook.GetSheet("人員完整總覽");
+        Assert.Equal("E2",summary.GetRow(1).GetCell(0).StringCellValue);
+        Assert.Equal("Admin",summary.GetRow(1).GetCell(1).StringCellValue);
+        Assert.Contains("Active",workbook.GetSheet("人員歷史期間快照").GetRow(1).Cells.Select(x=>x.ToString()));
+        var events=workbook.GetSheet("人員異動事件明細");
+        var eventText=string.Join("|",Enumerable.Range(0,events.LastRowNum+1).SelectMany(i=>events.GetRow(i).Cells).Select(x=>x.ToString()));
+        Assert.Contains("admin",eventText,StringComparison.OrdinalIgnoreCase);
+        var audit=workbook.GetSheet("完整稽核資料");
+        var auditText=string.Join("|",Enumerable.Range(0,audit.LastRowNum+1).SelectMany(i=>audit.GetRow(i).Cells).Select(x=>x.ToString()));
+        Assert.Contains("S1",auditText);
+        using var visitor=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
+        visitor.DefaultRequestHeaders.Authorization=new("Bearer",Token(1,"E1","visitor"));
+        using var denied=await visitor.GetAsync("api/v1/admin/query-exports/personnel-full.xlsx?keyword=E2");
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden,denied.StatusCode);
+        Console.WriteLine($"R9_PERSONNEL_FULL_EXPORT_HTTP_SQL_PASS database={h.DatabaseName} filteredEmployee=E2 sheets={workbook.NumberOfSheets} roleHistory=PASS teamHistory=PASS siteHistory=PASS nonAdmin=403");
+    }
+
+    [Fact]
+    public Task Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit()
+        => Run_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit(false);
+
+    [Fact]
+    public Task R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database()
+        => Run_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit(true);
+
+    private async Task Run_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit(bool fullCanonicalChain)
+    {
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
         var root = FindRoot();
-        foreach (var relative in new[] {
-            "leader-review/LeaderReviewDetails.disposable.sql",
-            "create-lowrisk/CreateLowRiskContract.disposable.sql" })
-            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
-                "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
+        if (!fullCanonicalChain)
+            foreach (var relative in new[] {
+                "leader-review/LeaderReviewDetails.disposable.sql",
+                "create-lowrisk/CreateLowRiskContract.disposable.sql",
+                "lowrisk-direct/LowRiskDirectContract.disposable.sql" })
+                await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
+                    "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
+        await h.Exec("""
+            CREATE TABLE dbo.AuditLogs(
+                AuditLogId bigint IDENTITY PRIMARY KEY,UserId int NULL,
+                EntityType nvarchar(100) NOT NULL,EntityId nvarchar(100) NULL,
+                Action nvarchar(120) NOT NULL,OldValues nvarchar(max) NULL,
+                NewValues nvarchar(max) NULL,IpAddress nvarchar(100) NULL,
+                CorrelationId uniqueidentifier NULL,CreatedAt datetime2 NOT NULL);
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+              VALUES(4,1,1,N'E4',N'Independent Leader',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt)
+              VALUES(4,104,N'Internal',N'E4',N'Test',SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,CreatedAt)
+              VALUES(104,104,1,N'E4','2000-01-01',4,N'Test',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+              VALUES(104,N'Active','2000-01-01',N'Test',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(4,2,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+              VALUES(4,2,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+              VALUES(4,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+              VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+              VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
+            """);
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
+            builder.UseSetting("OptionC:Candidate:Enabled","true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection",h.ConnectionString);
+            builder.UseSetting("Auth:Mode","Demo");
+            builder.UseSetting("Auth:JwtKey","test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled","false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");
+        });
+        HttpClient Client(int id,string employee,string role)
+        {
+            var c=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
+            c.DefaultRequestHeaders.Authorization=new("Bearer",Token(id,employee,role));
+            return c;
+        }
+        var visitor=Client(1,"E1","visitor");
+        var leader=Client(4,"E4","leader");
+        var admin=Client(2,"E2","admin");
+        var other=Client(3,"E3","admin");
+        async Task<string> Version(int id) => Convert.ToBase64String((byte[])(
+            await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=@id",h.Db)
+            {Parameters={P("@id",id)}}.ExecuteScalarAsync() ?? throw new InvalidOperationException()));
+        async Task<HttpResponseMessage> Save(HttpClient c,int id,string version,string note,Guid key) =>
+            await c.PostAsJsonAsync($"api/v1/optionc-candidate/locations/{id}/low-risk-direct",
+                new V180OptionCLowRiskDirectUpdate(version,note,"Authorized note correction",key));
+
+        var tripBefore=await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripStops");
+        var snapshotBefore=await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripSnapshotStops");
+        var operation=Guid.NewGuid();
+        using(var ok=await Save(visitor,10,await Version(10),"Visitor direct note",operation))
+            Assert.True(ok.IsSuccessStatusCode,await ok.Content.ReadAsStringAsync());
+        Assert.Equal("Visitor direct note",await h.Scalar("SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequestEvents WHERE EventType=N'DirectLowRiskApplied' AND DecisionKey=@key",P("@key",operation)));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.AuditLogs WHERE EntityId=N'10' AND Action=N'LocationLowRiskDirectApplied'"));
+        Assert.Equal(tripBefore,await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripStops"));
+        Assert.Equal(snapshotBefore,await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripSnapshotStops"));
+
+        // A Leader's live managed-team appointment authorizes a non-owned
+        // Location; read-only Admin/cross-org scope does not imply write.
+        using(var ok=await Save(leader,11,await Version(11),"Leader team note",Guid.NewGuid()))
+            Assert.True(ok.IsSuccessStatusCode,await ok.Content.ReadAsStringAsync());
+        using(var denied=await Save(admin,12,await Version(12),"Admin read is not write",Guid.NewGuid()))
+            Assert.False(denied.IsSuccessStatusCode);
+        using(var denied=await Save(other,12,await Version(12),"Cross org",Guid.NewGuid()))
+            Assert.False(denied.IsSuccessStatusCode);
+        Assert.Equal("",await h.Scalar("SELECT COALESCE(MasterNote,N'') FROM dbo.Locations WHERE LocationId=12"));
+
+        var stale=await Version(13);
+        await h.Exec("UPDATE dbo.Locations SET MasterNote=N'concurrent' WHERE LocationId=13");
+        using(var denied=await Save(visitor,13,stale,"stale",Guid.NewGuid()))
+            Assert.False(denied.IsSuccessStatusCode);
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'OnLeave' WHERE EmploymentId=101");
+        using(var denied=await Save(visitor,14,await Version(14),"revoked",Guid.NewGuid()))
+            Assert.False(denied.IsSuccessStatusCode);
+        await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Active' WHERE EmploymentId=101");
+
+        var concurrentVersion=await Version(15);
+        var first=Save(visitor,15,concurrentVersion,"first",Guid.NewGuid());
+        var second=Save(visitor,15,concurrentVersion,"second",Guid.NewGuid());
+        var outcomes=await Task.WhenAll(first,second);
+        Assert.Equal(1,outcomes.Count(x=>x.IsSuccessStatusCode));
+        Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=15"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequests WHERE EntityId=N'15' AND Status=N'Applied'"));
+
+        // Force a late audit failure: request, Location and version writes must
+        // all roll back rather than leaving partial direct publication.
+        await h.Exec("""
+            CREATE TRIGGER TR_Test_LowRiskAuditFail ON dbo.AuditLogs INSTEAD OF INSERT AS
+            THROW 51799,N'INJECTED_AUDIT_FAILURE',1;
+            """);
+        var rollbackVersion=await Version(16);
+        using(var denied=await Save(visitor,16,rollbackVersion,"must roll back",Guid.NewGuid()))
+            Assert.False(denied.IsSuccessStatusCode);
+        Assert.Equal("",await h.Scalar("SELECT COALESCE(MasterNote,N'') FROM dbo.Locations WHERE LocationId=16"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=16"));
+        Assert.Equal("0",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequests WHERE EntityId=N'16'"));
+        if(fullCanonicalChain)
+            Console.WriteLine($"R5_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=LowRiskDirect status=2xx versionAudit=PASS rollback=PASS");
+    }
+
+    [Fact]
+    public Task Excel_create_submission_http_binds_preview_rows_to_canonical_pending_requests_atomically()
+        => Run_excel_create_and_update_http_e2e(false);
+
+    [Fact]
+    public Task R5_full_010_to_020_chain_runs_excel_create_and_update_writers_in_same_sql_database()
+        => Run_excel_create_and_update_http_e2e(true);
+
+    private async Task Run_excel_create_and_update_http_e2e(bool fullCanonicalChain)
+    {
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
+        if (h is null) return;
+        var root = FindRoot();
+        if (!fullCanonicalChain)
+            foreach (var relative in new[] {
+                "leader-review/LeaderReviewDetails.disposable.sql",
+                "create-lowrisk/CreateLowRiskContract.disposable.sql" })
+                await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                    "optionc-canonical-sql-draft",relative.Replace('/',Path.DirectorySeparatorChar))));
         // The isolated Base fixture is intentionally limited. Create only
         // these existing legacy ImportBatch schema objects in the disposable
         // database (never a UAT/Production migration).
-        await h.Exec("""
-            CREATE TABLE dbo.ImportBatches(
-                ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,
-                ImportType nvarchar(30) NOT NULL,
-                OrganizationId int NOT NULL,
-                RequestedByUserId int NOT NULL,
-                Status nvarchar(30) NOT NULL
-                    CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(
-                        N'Previewed',N'Confirmed',N'PartiallyFailed')),
-                TotalCount int NOT NULL,ValidCount int NOT NULL,
-                ErrorCount int NOT NULL,
-                CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,
-                ConfirmedAt datetime2 NULL);
-            CREATE TABLE dbo.ImportBatchItems(
-                ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                ImportBatchId uniqueidentifier NOT NULL,
-                RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,
-                Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL
-                    CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(
-                        N'Valid',N'Error',N'Applied',N'Failed')),
-                DisplayKey nvarchar(250) NOT NULL,
-                DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,
-                CreatedAt datetime2 NOT NULL);
-            CREATE TABLE dbo.AuditLogs(
-                AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                UserId int NULL,EntityType nvarchar(100) NOT NULL,
-                EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
-                OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
-                IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
-                CreatedAt datetime2 NOT NULL);
-            """);
+        if (fullCanonicalChain)
+            await h.Exec("""
+                CREATE TABLE dbo.AuditLogs(
+                    AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,
+                    EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
+                    OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
+                    IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
+                    CreatedAt datetime2 NOT NULL);
+                """);
+        else
+            await h.Exec("""
+                CREATE TABLE dbo.ImportBatches(
+                    ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,
+                    ImportType nvarchar(30) NOT NULL,
+                    OrganizationId int NOT NULL,
+                    RequestedByUserId int NOT NULL,
+                    Status nvarchar(30) NOT NULL
+                        CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(
+                            N'Previewed',N'Confirmed',N'PartiallyFailed')),
+                    TotalCount int NOT NULL,ValidCount int NOT NULL,
+                    ErrorCount int NOT NULL,
+                    CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,
+                    ConfirmedAt datetime2 NULL);
+                CREATE TABLE dbo.ImportBatchItems(
+                    ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    ImportBatchId uniqueidentifier NOT NULL,
+                    RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,
+                    Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL
+                        CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(
+                            N'Valid',N'Error',N'Applied',N'Failed')),
+                    DisplayKey nvarchar(250) NOT NULL,
+                    DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,
+                    CreatedAt datetime2 NOT NULL);
+                CREATE TABLE dbo.AuditLogs(
+                    AuditLogId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,
+                    EntityId nvarchar(100) NULL,Action nvarchar(120) NOT NULL,
+                    OldValues nvarchar(max) NULL,NewValues nvarchar(max) NULL,
+                    IpAddress nvarchar(100) NULL,CorrelationId uniqueidentifier NULL,
+                    CreatedAt datetime2 NOT NULL);
+                """);
         var batch = Guid.NewGuid();
         var staged = System.Text.Json.JsonSerializer.Serialize(new {
             locationCode=(string?)null,teamCode="T1",
@@ -99,20 +292,24 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             $"api/v1/imports/{batch}/confirm",null);
         Assert.False(legacy.IsSuccessStatusCode);
         var url=$"api/v1/optionc-candidate/imports/{batch}/submit-creates-for-review";
-        using var absentContract = await admin.PostAsync(url,null);
-        Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
-            absentContract.StatusCode);
-        Assert.Contains("OPTIONC_EXCEL_STATUS_CONTRACT_NOT_READY",
-            await absentContract.Content.ReadAsStringAsync());
+        if (!fullCanonicalChain)
+        {
+            using var absentContract = await admin.PostAsync(url,null);
+            Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,
+                absentContract.StatusCode);
+            Assert.Contains("OPTIONC_EXCEL_STATUS_CONTRACT_NOT_READY",
+                await absentContract.Content.ReadAsStringAsync());
+        }
         Assert.Equal("0",await h.Scalar("""
             SELECT COUNT(*) FROM dbo.Locations
             WHERE LocationName=N'Excel canonical first'
             """));
         // Only the disposable SQL fixture installs the NONEXECUTABLE
         // additive status draft. No UAT/Production schema is touched.
-        await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
-            "optionc-canonical-sql-draft","excel-import",
-            "ExcelImportStatusContract.disposable.sql")));
+        if (!fullCanonicalChain)
+            await h.Exec(File.ReadAllText(Path.Combine(root,"docs","release",
+                "optionc-canonical-sql-draft","excel-import",
+                "ExcelImportStatusContract.disposable.sql")));
         using var submitted = await admin.PostAsync(url,null);
         Assert.True(submitted.IsSuccessStatusCode,
             await submitted.Content.ReadAsStringAsync());
@@ -774,21 +971,31 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var mixedUpdate=await admin.PostAsync(
             $"api/v1/optionc-candidate/imports/{mixedBatch}/submit-updates-for-review",null);
         Assert.False(mixedUpdate.IsSuccessStatusCode);
+        if(fullCanonicalChain)
+            Console.WriteLine($"R5_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=ExcelCreate+ExcelUpdate status=2xx duplicateReplay=PASS rollback=PASS");
 
     }
 
     [Fact]
-    public async Task CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate()
+    public Task CreateLocation_http_reserves_pending_identity_stage_and_rejects_duplicate()
+        => Run_create_location_reservation_e2e(false);
+
+    [Fact]
+    public Task R6_full_010_to_020_chain_runs_real_visitor_create_location_writer()
+        => Run_create_location_reservation_e2e(true);
+
+    private async Task Run_create_location_reservation_e2e(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
         var root = FindRoot();
-        foreach (var relative in new[] {
-            "leader-review/LeaderReviewDetails.disposable.sql",
-            "create-lowrisk/CreateLowRiskContract.disposable.sql" })
-            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
-                "optionc-canonical-sql-draft",
-                relative.Replace('/', Path.DirectorySeparatorChar))));
+        if (!fullCanonicalChain)
+            foreach (var relative in new[] {
+                "leader-review/LeaderReviewDetails.disposable.sql",
+                "create-lowrisk/CreateLowRiskContract.disposable.sql" })
+                await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                    "optionc-canonical-sql-draft",
+                    relative.Replace('/', Path.DirectorySeparatorChar))));
         // Independent live-appointed Leader for the complete CREATE HTTP flow.
         await h.Exec("""
             INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
@@ -835,7 +1042,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // columns used by the real count query; keep the table empty so
         // this test proves the pending reservation does not enter trip counts.
         await h.Exec("""
-            CREATE TABLE dbo.VisitTrips
+            IF OBJECT_ID(N'dbo.VisitTrips',N'U') IS NULL CREATE TABLE dbo.VisitTrips
             (
                 VisitTripId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 UserId int NOT NULL,
@@ -844,14 +1051,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 Status nvarchar(30) NOT NULL,
                 VisitDate date NOT NULL
             );
-            CREATE TABLE dbo.CorrectionRequests
+            IF OBJECT_ID(N'dbo.CorrectionRequests',N'U') IS NULL CREATE TABLE dbo.CorrectionRequests
             (
                 CorrectionRequestId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 VisitTripId bigint NOT NULL,
                 Status nvarchar(30) NOT NULL,
                 RequestedByUserId int NOT NULL
             );
-            CREATE TABLE dbo.MileageRateRules
+            IF OBJECT_ID(N'dbo.MileageRateRules',N'U') IS NULL CREATE TABLE dbo.MileageRateRules
             (
                 MileageRateRuleId int IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 OrganizationId int NULL,
@@ -906,7 +1113,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // Verify that project-linked operational choices exclude canonical
         // Pending requests while preserving an approved active Location.
         await h.Exec("""
-            CREATE TABLE dbo.Projects
+            IF OBJECT_ID(N'dbo.Projects',N'U') IS NULL CREATE TABLE dbo.Projects
             (
                 ProjectId int NOT NULL PRIMARY KEY,
                 OrganizationId int NOT NULL,
@@ -957,6 +1164,67 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                   (9901,900,@location,0,1,SYSUTCDATETIME()),
                   (9902,900,30,0,1,SYSUTCDATETIME());
             """, P("@location", locationId));
+        if (fullCanonicalChain)
+        {
+            await h.Exec("""
+                INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,
+                    LocationType,ApprovalStatus,GeocodingStatus,IsActive,LocationName,Address)
+                VALUES(901,1,1,2,N'Customer',N'Pending',N'Pending',0,N'Leader managed draft',N'Leader draft address'),
+                      (902,1,3,2,N'Customer',N'Pending',N'Pending',0,N'Unassigned team draft',N'Other team address');
+                """);
+            using var leaderClient = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            leaderClient.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader", 1, 1));
+            var leaderCreatePayload = new V180OptionCCreateLocation(1, "Leader single create",
+                new V180B3LocationFields("Leader-created customer", "Taipei", "Daan", "Leader create address", "8FVC9G8F+5W", "12345678", "Leader create note"));
+            using var leaderCreate = await leaderClient.PostAsJsonAsync("api/v1/optionc-candidate/locations", leaderCreatePayload);
+            Assert.True(leaderCreate.IsSuccessStatusCode, await leaderCreate.Content.ReadAsStringAsync());
+            var leaderCreated = await leaderCreate.Content.ReadFromJsonAsync<V180B3RequestView>()
+                ?? throw new InvalidOperationException("OPTIONC_LEADER_CREATE_HTTP_VIEW_MISSING");
+            Assert.Equal("CreateLocation", leaderCreated.OperationCode);
+            Assert.Equal("Pending", leaderCreated.Status);
+            var leaderLocationId = int.Parse(leaderCreated.EntityId);
+            Assert.Equal("0", await h.Scalar("SELECT CONVERT(nvarchar(1),IsActive) FROM dbo.Locations WHERE LocationId=@id", P("@id", leaderLocationId)));
+            Assert.Equal("0", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id", P("@id", leaderLocationId)));
+
+            var version = await h.LocationRowVersionBase64(901);
+            var edit = direct with { LocationName = "Leader managed update", Address = "Leader managed address", RowVersion = version };
+            using var allowedEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901", edit);
+            Assert.True(allowedEdit.IsSuccessStatusCode, await allowedEdit.Content.ReadAsStringAsync());
+            Assert.Equal("Leader managed update", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=901"));
+            Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.AuditLogs WHERE UserId=4 AND EntityType=N'Location' AND EntityId=N'901' AND Action=N'LocationUpdate'"));
+            using var staleEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901", edit);
+            Assert.False(staleEdit.IsSuccessStatusCode);
+            using var crossTeamEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/902", edit with { TeamId = 3 });
+            Assert.False(crossTeamEdit.IsSuccessStatusCode);
+            version = await h.LocationRowVersionBase64(901);
+            using var visitorNonOwner = await visitor.PutAsJsonAsync("api/v1/managed-locations/901", edit with { RowVersion = version });
+            Assert.False(visitorNonOwner.IsSuccessStatusCode);
+
+            var publishedVersion = await h.LocationRowVersionBase64(30);
+            using var publishedPut = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/30",
+                edit with { TeamId = 1, RowVersion = publishedVersion });
+            Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, publishedPut.StatusCode);
+            Assert.Contains("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL", await publishedPut.Content.ReadAsStringAsync());
+            Assert.Equal("Other team published", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=30"));
+
+            await h.Exec("""
+                UPDATE dbo.UserRoleAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,SYSUTCDATETIME())) WHERE UserId=4 AND RoleId=2;
+                """);
+            version = await h.LocationRowVersionBase64(901);
+            using var revokedRole = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
+                edit with { RowVersion = version });
+            Assert.False(revokedRole.IsSuccessStatusCode);
+            await h.Exec("""
+                UPDATE dbo.UserRoleAssignments SET EffectiveTo=NULL WHERE UserId=4 AND RoleId=2;
+                UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Terminated' WHERE EmploymentId=104;
+                """);
+            using var revokedHr = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
+                edit with { RowVersion = version });
+            Assert.False(revokedHr.IsSuccessStatusCode);
+            await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Active' WHERE EmploymentId=104;");
+            Assert.Equal("Leader managed update", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=901"));
+            Console.WriteLine($"R8_LEADER_SINGLE_CREATE_AND_MANAGED_DRAFT_HTTP_PASS database={h.DatabaseName} create=PASS update=PASS crossTeam=DENY visitorNonOwner=DENY staleRowVersion=DENY roleRevoked=DENY hrRevoked=DENY publishedLegacyPut=DENY");
+        }
         using var projectLocationsResponse = await visitor.GetAsync(
             "api/v1/projects/900/locations");
         Assert.True(projectLocationsResponse.IsSuccessStatusCode,
@@ -1154,10 +1422,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var dashboardAfter = await dashboardAfterResponse.Content
             .ReadFromJsonAsync<DashboardSummaryDto>()
             ?? throw new InvalidOperationException("OPTIONC_DASHBOARD_AFTER_MISSING");
-        // LocationId 900 is the one legitimate unreserved legacy draft
-        // deliberately added between dashboard reads. It remains countable;
-        // the private canonical reservation must contribute no extra count.
-        Assert.Equal(dashboardBefore.PendingLocations + 1,
+        // LocationId 900 and the same-team managed-draft fixture 901 are
+        // legitimate unreserved Pending rows and remain countable. Fixture
+        // 902 belongs to another team and is outside this visitor's scope.
+        // The private canonical reservation must contribute no extra count.
+        Assert.Equal(dashboardBefore.PendingLocations + (fullCanonicalChain ? 2 : 1),
             dashboardAfter.PendingLocations);
         // Legacy Picker endpoints require the normal org/team JWT claims.
         // The isolated Option C write path above intentionally ignores claims
@@ -2070,10 +2339,26 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     }
 
     [Fact]
-    public async Task Leader_first_level_review_real_http_stage_evidence_and_admin_publication_preserve_history()
+    public Task Leader_first_level_review_real_http_stage_evidence_and_admin_publication_preserve_history()
+        => Run_leader_stage_admin_publication_preserves_history(false);
+
+    [Fact]
+    public Task R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers()
+        => Run_leader_stage_admin_publication_preserves_history(true);
+
+    private async Task Run_leader_stage_admin_publication_preserves_history(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
+        await h.Exec("""
+            IF OBJECT_ID(N'dbo.AuditLogs',N'U') IS NULL
+                CREATE TABLE dbo.AuditLogs(AuditLogId bigint IDENTITY PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,EntityId nvarchar(100) NULL,
+                    Action nvarchar(120) NOT NULL,OldValues nvarchar(max) NULL,
+                    NewValues nvarchar(max) NULL,IpAddress nvarchar(100) NULL,
+                    CorrelationId uniqueidentifier NULL,CreatedAt datetime2 NOT NULL);
+            """);
+        var historyBefore = await h.HistoryFingerprint();
 
         // Add a distinct, live-appointed Leader reviewer. This is fixture setup,
         // not authorization evidence; all decisions still use the live adapter.
@@ -2097,10 +2382,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
             """);
 
-        var root = FindRoot();
-        await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
-            "optionc-canonical-sql-draft", "leader-review",
-            "LeaderReviewDetails.disposable.sql")));
+        if (!fullCanonicalChain)
+        {
+            var root = FindRoot();
+            await h.Exec(File.ReadAllText(Path.Combine(root, "docs", "release",
+                "optionc-canonical-sql-draft", "leader-review",
+                "LeaderReviewDetails.disposable.sql")));
+        }
 
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -2184,13 +2472,52 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("1", await h.Scalar(
             "SELECT COUNT(*) FROM dbo.ChangeRequestEvents WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id) AND EventType=N'DuplicateReviewEvidenceRecorded'",
             P("@id", submitted.RequestPublicId)));
+        Assert.Equal(historyBefore, await h.HistoryFingerprint());
+        if (fullCanonicalChain)
+            Console.WriteLine($"R6_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=VisitorHighRisk+LeaderReview+GeocodeEvidence+DuplicateEvidence+IndependentAdminApproval publication=Atomic version=2 audit=PASS history=PASS");
     }
 
     [Fact]
-    public async Task MergeFields_real_http_submission_approval_reject_and_history_are_atomic()
+    public Task MergeFields_real_http_submission_approval_reject_and_history_are_atomic()
+        => Run_merge_fields_real_http_atomicity(false);
+
+    [Fact]
+    public Task R6_full_010_to_020_chain_runs_real_merge_fields_writer()
+        => Run_merge_fields_real_http_atomicity(true);
+
+    private async Task Run_merge_fields_real_http_atomicity(bool fullCanonicalChain)
     {
-        await using var h = await Harness.TryCreateAsync();
+        await using var h = await Harness.TryCreateAsync(fullCanonicalChain);
         if (h is null) return;
+        await h.Exec("""
+            IF OBJECT_ID(N'dbo.AuditLogs',N'U') IS NULL
+                CREATE TABLE dbo.AuditLogs(AuditLogId bigint IDENTITY PRIMARY KEY,
+                    UserId int NULL,EntityType nvarchar(100) NOT NULL,EntityId nvarchar(100) NULL,
+                    Action nvarchar(120) NOT NULL,OldValues nvarchar(max) NULL,
+                    NewValues nvarchar(max) NULL,IpAddress nvarchar(100) NULL,
+                    CorrelationId uniqueidentifier NULL,CreatedAt datetime2 NOT NULL);
+            """);
+        var historyBefore = await h.HistoryFingerprint();
+        if (fullCanonicalChain)
+            await h.Exec("""
+                INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+                    VALUES(4,1,1,N'E4',N'Leader reviewer',1,SYSUTCDATETIME());
+                INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt,UpdatedAt)
+                    VALUES(4,104,N'Internal',N'E4',N'Demo',SYSUTCDATETIME(),SYSUTCDATETIME());
+                INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,LegacyUserId,HireDate,SourceType,CreatedAt)
+                    VALUES(104,104,1,N'E4',4,'2000-01-01',N'fixture',SYSUTCDATETIME());
+                INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+                    VALUES(104,N'Active','2000-01-01',N'fixture',SYSUTCDATETIME());
+                INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(4,2,SYSUTCDATETIME());
+                INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+                    VALUES(4,2,'2000-01-01',SYSUTCDATETIME());
+                INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+                    VALUES(4,1,1,1,SYSUTCDATETIME());
+                INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+                    VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
+                INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
+                    VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
+                """);
         await h.Exec("""
             INSERT dbo.ProjectLocations(ProjectLocationId,ProjectId,LocationId,IsActive,IsPrimary,UpdatedAt) VALUES(1,900,10,1,1,SYSUTCDATETIME());
             INSERT dbo.UserFavoriteLocations(UserFavoriteLocationId,UserId,LocationId) VALUES(1,1,10);
@@ -2210,6 +2537,26 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
             builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
         });
+        if(fullCanonicalChain)
+        {
+            using var mergeAdmin=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
+            mergeAdmin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin",1,1));
+            var sourceVersionBefore=await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10");
+            var survivorVersionBefore=await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=11");
+            var refsBefore=await h.Scalar("SELECT CONCAT((SELECT ProjectLocationId,LocationId FROM dbo.ProjectLocations WHERE LocationId IN(10,11) ORDER BY ProjectLocationId FOR JSON PATH),N'|',(SELECT UserFavoriteLocationId,LocationId FROM dbo.UserFavoriteLocations WHERE LocationId IN(10,11) ORDER BY UserFavoriteLocationId FOR JSON PATH),N'|',(SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId IN(10,11) ORDER BY VisitTripStopId FOR JSON PATH),N'|',(SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId IN(10,11) ORDER BY VisitTripSnapshotStopId FOR JSON PATH))");
+            var sourceStateBefore=await h.Scalar("SELECT CONCAT(IsActive,N'|',COALESCE(CONVERT(nvarchar(20),DuplicateOfLocationId),N'NULL'),N'|',COALESCE(DuplicateReason,N'NULL')) FROM dbo.Locations WHERE LocationId=10");
+            var auditCountBefore=await h.Scalar("SELECT COUNT(*) FROM dbo.AuditLogs");
+            using var useExisting=await mergeAdmin.PostAsJsonAsync("api/v1/locations/10/merge",
+                new V170LocationMergeRequest(11,"published duplicate review",await h.LocationRowVersionBase64(10),true,
+                    await h.LocationRowVersionBase64(11),"UseExisting",null));
+            Assert.True(useExisting.StatusCode==System.Net.HttpStatusCode.UnprocessableEntity,$"HTTP {(int)useExisting.StatusCode} {await useExisting.Content.ReadAsStringAsync()}");
+            Assert.Contains("LOCATION_PUBLISHED_USE_EXISTING_REQUIRES_CANONICAL_REVIEW",await useExisting.Content.ReadAsStringAsync());
+            Assert.Equal(sourceVersionBefore,await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10"));
+            Assert.Equal(survivorVersionBefore,await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=11"));
+            Assert.Equal(refsBefore,await h.Scalar("SELECT CONCAT((SELECT ProjectLocationId,LocationId FROM dbo.ProjectLocations WHERE LocationId IN(10,11) ORDER BY ProjectLocationId FOR JSON PATH),N'|',(SELECT UserFavoriteLocationId,LocationId FROM dbo.UserFavoriteLocations WHERE LocationId IN(10,11) ORDER BY UserFavoriteLocationId FOR JSON PATH),N'|',(SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId IN(10,11) ORDER BY VisitTripStopId FOR JSON PATH),N'|',(SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId IN(10,11) ORDER BY VisitTripSnapshotStopId FOR JSON PATH))"));
+            Assert.Equal(sourceStateBefore,await h.Scalar("SELECT CONCAT(IsActive,N'|',COALESCE(CONVERT(nvarchar(20),DuplicateOfLocationId),N'NULL'),N'|',COALESCE(DuplicateReason,N'NULL')) FROM dbo.Locations WHERE LocationId=10"));
+            Assert.Equal(auditCountBefore,await h.Scalar("SELECT COUNT(*) FROM dbo.AuditLogs"));
+        }
         using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
         var submit = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/merge-fields",
@@ -2217,7 +2564,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 Convert.ToBase64String(survivorVersion), "Merge duplicate locations",
                 new V180B3LocationFields("Merged survivor", "Taipei", "Xinyi",
                     "Merged address", null, null, "Merge note")));
-        Assert.Equal(System.Net.HttpStatusCode.OK, submit.StatusCode);
+        Assert.True(submit.StatusCode == System.Net.HttpStatusCode.OK,
+            $"Merge submit HTTP {(int)submit.StatusCode}: {await submit.Content.ReadAsStringAsync()}");
         var pending = await submit.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
         Assert.Equal("Pending", pending.Status);
         Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationMergeDetails WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id)", P("@id", pending.RequestPublicId)));
@@ -2225,24 +2573,48 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("PendingGeocode", await h.StageStatus(pending.RequestPublicId));
         Assert.Equal("Original address 11", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=11"));
 
-        await h.Exec("""
-            UPDATE s SET GeocodeStatus=N'Succeeded',
-              GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),
-              Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',
-              DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME()
-            FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
-            WHERE r.RequestPublicId=@id;
-            """, P("@id", pending.RequestPublicId));
+        if (fullCanonicalChain)
+        {
+            using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
+            var leaderReview = await leader.PostAsJsonAsync(
+                $"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/leader-review",
+                new V180OptionCLeaderReviewDecision(pending.RowVersion, Guid.NewGuid(),
+                    "Independent team Leader approval of MergeFields", true));
+            Assert.True(leaderReview.StatusCode == System.Net.HttpStatusCode.OK,
+                $"Merge Leader review HTTP {(int)leaderReview.StatusCode}: {await leaderReview.Content.ReadAsStringAsync()}");
+            Assert.Equal("1", await h.EventCount(pending.RequestPublicId, "LeaderApproved"));
+        }
 
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        var stage = await admin.GetAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/stage");
+        Assert.True(stage.StatusCode == System.Net.HttpStatusCode.OK,
+            $"Merge stage HTTP {(int)stage.StatusCode}: {await stage.Content.ReadAsStringAsync()}");
+        var stageView = await stage.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_MERGE_STAGE_VIEW_MISSING");
+        var geo = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/geocode-evidence",
+            new V180OptionCGeocodeEvidence(stageView.StageRowVersion, true, 25.03m, 121.56m,
+                "Application-owned disposable merge geocode") { EvidenceKey = Guid.NewGuid() });
+        Assert.True(geo.StatusCode == System.Net.HttpStatusCode.OK,
+            $"Merge geocode HTTP {(int)geo.StatusCode}: {await geo.Content.ReadAsStringAsync()}");
+        var geoView = await geo.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_MERGE_GEOCODE_VIEW_MISSING");
+        var duplicate = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/duplicate-evidence",
+            new V180OptionCDuplicateEvidence(geoView.StageRowVersion, true,
+                "Application-owned disposable duplicate review", Guid.NewGuid()));
+        Assert.True(duplicate.StatusCode == System.Net.HttpStatusCode.OK,
+            $"Merge duplicate evidence HTTP {(int)duplicate.StatusCode}: {await duplicate.Content.ReadAsStringAsync()}");
         var self = await visitor.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
             new V180B3Review(pending.RowVersion, Guid.NewGuid(), "Self approval denied"));
         Assert.NotEqual(System.Net.HttpStatusCode.OK, self.StatusCode);
         var mergeApproveKey = Guid.NewGuid();
         var approve = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
             new V180B3Review(pending.RowVersion, mergeApproveKey, "Independent merge approval"));
-        Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
+        Assert.True(approve.StatusCode == System.Net.HttpStatusCode.OK,
+            $"Merge approval HTTP {(int)approve.StatusCode}: {await approve.Content.ReadAsStringAsync()}");
         var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
         Assert.Equal("Applied", applied.Status);
 
@@ -2278,6 +2650,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Abandoned", await h.StageStatus(rejectPending.RequestPublicId));
         Assert.Equal("Original 12", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=12"));
         Assert.Equal("Original 13", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=13"));
+        Assert.Equal(historyBefore, await h.HistoryFingerprint());
+        if (fullCanonicalChain)
+            Console.WriteLine($"R6_SAME_DATABASE_HTTP_WRITER_PASS database={h.DatabaseName} scenario=MergeFields+GeocodeEvidence+DuplicateEvidence+IndependentAdminApproval publication=Atomic versions=PASS history=PASS");
     }
 
     [Fact]
@@ -3013,9 +3388,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         private readonly SqlConnection root; private readonly string name;
         internal SqlConnection Db{get;}
         internal string ConnectionString{get;}
+        internal string DatabaseName => name;
         private Harness(SqlConnection root,SqlConnection db,string name,string connectionString){this.root=root;Db=db;this.name=name;ConnectionString=connectionString;}
 
-        internal static async Task<Harness?> TryCreateAsync()
+        internal static async Task<Harness?> TryCreateAsync(bool fullCanonicalChain = false)
         {
             var raw=Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION");
             if(string.IsNullOrWhiteSpace(raw))
@@ -3035,12 +3411,68 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             {
                 await db.OpenAsync();await CreateBase(db);
                 var repo=FindRoot();
-                foreach(var p in new[]{"1800_011/Up.sql","1800_012/Up.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql","audit/StageEvidenceAuditEvents.disposable.sql"})
+                foreach(var p in new[]{"1800_011/Preflight.sql","1800_011/Up.sql","1800_011/Verify.sql","1800_012/Preflight.sql","1800_012/Up.sql","1800_012/Verify.sql","1800_014/Preflight.sql","1800_014/Up.sql","1800_014/Backfill.sql","1800_014/Verify.sql"})
                     await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft",p.Replace('/',Path.DirectorySeparatorChar))));
-                await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","merge","LocationMergeDetails.disposable.sql")));
+                await VerifyCanonicalBackfill(db);
+                if(fullCanonicalChain)
+                {
+                    await V180OptionCFinalSecurityGateSqlTests.Exec(db,"""
+                        CREATE TABLE dbo.ImportBatches(ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,ImportType nvarchar(30) NOT NULL,OrganizationId int NOT NULL,RequestedByUserId int NOT NULL,Status nvarchar(30) NOT NULL CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(N'Previewed',N'Confirmed',N'PartiallyFailed')),TotalCount int NOT NULL,ValidCount int NOT NULL,ErrorCount int NOT NULL,CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,ConfirmedAt datetime2 NULL);
+                        CREATE TABLE dbo.ImportBatchItems(ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,ImportBatchId uniqueidentifier NOT NULL,RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(N'Valid',N'Error',N'Applied',N'Failed')),DisplayKey nvarchar(250) NOT NULL,DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,CreatedAt datetime2 NOT NULL,CONSTRAINT FK_ImportBatchItems_ImportBatches FOREIGN KEY(ImportBatchId) REFERENCES dbo.ImportBatches(ImportBatchId) ON DELETE CASCADE);
+                        CREATE INDEX IX_ImportBatchItems_ImportBatchId ON dbo.ImportBatchItems(ImportBatchId);
+                        """);
+                    foreach(var m in new[]{"1800_015","1800_016","1800_017","1800_018","1800_019","1800_020"})
+                    {
+                        var d=Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","candidate",m);
+                        foreach(var phase in new[]{"Preflight.sql","Up.sql","Verify.sql"})
+                        {
+                            var path=Path.Combine(d,phase);
+                            await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(path));
+                            Console.WriteLine($"R5_SAME_DATABASE_MIGRATION_PASS database={name} step={m}/{phase} sha256={Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)))}");
+                        }
+                    }
+                    if(await V180OptionCFinalSecurityGateSqlTests.ScalarOn(db,"SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN(N'1.8.0-015',N'1.8.0-016',N'1.8.0-017',N'1.8.0-018',N'1.8.0-019',N'1.8.0-020')")!="6")
+                        throw new InvalidOperationException("R5_FULL_CHAIN_MIGRATION_MARKER_SET_INCOMPLETE");
+                    if(await V180OptionCFinalSecurityGateSqlTests.ScalarOn(db,"SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-013'")!="0")
+                        throw new InvalidOperationException("R5_RESERVED_013_MUST_REMAIN_ABSENT");
+                }
+                else
+                {
+                    await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","audit","StageEvidenceAuditEvents.disposable.sql")));
+                    await V180OptionCFinalSecurityGateSqlTests.Exec(db,File.ReadAllText(Path.Combine(repo,"docs","release","optionc-canonical-sql-draft","merge","LocationMergeDetails.disposable.sql")));
+                }
                 return new Harness(root,db,name,dbb.ConnectionString);
             }
             catch{await db.DisposeAsync();await V180OptionCFinalSecurityGateSqlTests.Exec(root,$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];");await root.DisposeAsync();throw;}
+        }
+
+        private static async Task VerifyCanonicalBackfill(SqlConnection c)
+        {
+            const string sql = """
+                IF (SELECT COUNT_BIG(*) FROM dbo.Locations WHERE IsActive=1 AND ApprovalStatus=N'Approved')
+                   <> (SELECT COUNT_BIG(*) FROM dbo.LocationPublishedVersions WHERE VersionNumber=1 AND IsCurrent=1 AND ChangeRequestId IS NULL)
+                    THROW 51980,N'CANONICAL_014_VERSION1_CARDINALITY_MISMATCH',1;
+                IF EXISTS(
+                    SELECT 1 FROM dbo.Locations l
+                    JOIN dbo.LocationPublishedVersions v ON v.LocationId=l.LocationId AND v.VersionNumber=1
+                    WHERE l.IsActive=1 AND l.ApprovalStatus=N'Approved'
+                      AND (ISJSON(v.PublishedJson)<>1
+                        OR v.PublishedJson=N'{}'
+                        OR v.PublishedSha256<>HASHBYTES('SHA2_256',CONVERT(varbinary(max),v.PublishedJson))
+                        OR v.PublishedByUserId<>l.CreatedByUserId
+                        OR v.SourceLocationRowVersion<>l.RowVersion
+                        OR TRY_CONVERT(int,JSON_VALUE(v.PublishedJson,N'$.LocationId'))<>l.LocationId
+                        OR TRY_CONVERT(int,JSON_VALUE(v.PublishedJson,N'$.OrganizationId'))<>l.OrganizationId
+                        OR TRY_CONVERT(int,JSON_VALUE(v.PublishedJson,N'$.TeamId'))<>l.TeamId
+                        OR JSON_VALUE(v.PublishedJson,N'$.LocationName')<>l.LocationName
+                        OR JSON_VALUE(v.PublishedJson,N'$.Address')<>l.Address))
+                    THROW 51981,N'CANONICAL_014_VERSION1_PROJECTION_OR_HASH_MISMATCH',1;
+                IF EXISTS(SELECT 1 FROM sys.foreign_keys WHERE parent_object_id IN(OBJECT_ID(N'dbo.LocationPublicationStages'),OBJECT_ID(N'dbo.LocationPublishedVersions')) AND (is_disabled=1 OR is_not_trusted=1))
+                    THROW 51982,N'CANONICAL_014_UNTRUSTED_FOREIGN_KEY',1;
+                IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id IN(OBJECT_ID(N'dbo.LocationPublicationStages'),OBJECT_ID(N'dbo.LocationPublishedVersions')) AND (is_disabled=1 OR is_not_trusted=1))
+                    THROW 51983,N'CANONICAL_014_UNTRUSTED_CHECK',1;
+                """;
+            await ExecOn(c,sql);
         }
 
         internal async Task<SqlTransaction> Begin()=> (SqlTransaction)await Db.BeginTransactionAsync(IsolationLevel.Serializable);
@@ -3070,7 +3502,44 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         internal async Task<string> StageStatus(Guid id)=>await Scalar("SELECT s.StageStatus FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id",P("@id",id));
         internal async Task<string> EventCount(Guid id,string type)=>await Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequestEvents e JOIN dbo.ChangeRequests r ON r.ChangeRequestId=e.ChangeRequestId WHERE r.RequestPublicId=@id AND e.EventType=@type",P("@id",id),P("@type",type));
         internal async Task<string> Scalar(string sql,params SqlParameter[] ps)=>await ScalarOn(Db,sql,ps);
+        internal async Task<string> LocationRowVersionBase64(int locationId)
+        {
+            await using var cmd = new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=@id", Db) { CommandTimeout = 60 };
+            cmd.Parameters.AddWithValue("@id", locationId);
+            var raw = await cmd.ExecuteScalarAsync() as byte[]
+                ?? throw new InvalidOperationException($"LOCATION_ROWVERSION_MISSING:{locationId}");
+            return Convert.ToBase64String(raw);
+        }
         internal async Task Exec(string sql,params SqlParameter[] ps)=>await ExecOn(Db,sql,ps);
+        internal async Task<string> HistoryFingerprint()
+        {
+            await Exec("""
+                IF OBJECT_ID(N'dbo.VisitTrips',N'U') IS NULL
+                    CREATE TABLE dbo.VisitTrips(VisitTripId bigint NOT NULL PRIMARY KEY,Status nvarchar(30) NOT NULL,LocationId int NOT NULL);
+                IF OBJECT_ID(N'dbo.VisitTripSnapshots',N'U') IS NULL
+                    CREATE TABLE dbo.VisitTripSnapshots(VisitTripSnapshotId bigint NOT NULL PRIMARY KEY,VisitTripId bigint NOT NULL,ApprovedDistanceKmSnapshot decimal(10,2) NOT NULL,StatusSnapshot nvarchar(30) NOT NULL);
+                IF COL_LENGTH(N'dbo.VisitTripStops',N'VisitTripId') IS NULL ALTER TABLE dbo.VisitTripStops ADD VisitTripId bigint NULL;
+                IF COL_LENGTH(N'dbo.VisitTripStops',N'LocationNameSnapshot') IS NULL ALTER TABLE dbo.VisitTripStops ADD LocationNameSnapshot nvarchar(200) NULL;
+                IF COL_LENGTH(N'dbo.VisitTripStops',N'AddressSnapshot') IS NULL ALTER TABLE dbo.VisitTripStops ADD AddressSnapshot nvarchar(500) NULL;
+                IF COL_LENGTH(N'dbo.VisitTripSnapshotStops',N'VisitTripSnapshotId') IS NULL ALTER TABLE dbo.VisitTripSnapshotStops ADD VisitTripSnapshotId bigint NULL;
+                IF COL_LENGTH(N'dbo.VisitTripSnapshotStops',N'LocationNameSnapshot') IS NULL ALTER TABLE dbo.VisitTripSnapshotStops ADD LocationNameSnapshot nvarchar(200) NULL;
+                """);
+            // Keep DDL and references to the newly-added columns in separate
+            // SQL batches; SQL Server binds the original shape at compilation.
+            await Exec("""
+                UPDATE s SET VisitTripId=s.VisitTripStopId,LocationNameSnapshot=l.LocationName,AddressSnapshot=l.Address FROM dbo.VisitTripStops s JOIN dbo.Locations l ON l.LocationId=s.LocationId WHERE s.VisitTripId IS NULL;
+                UPDATE s SET VisitTripSnapshotId=s.VisitTripSnapshotStopId,LocationNameSnapshot=l.LocationName FROM dbo.VisitTripSnapshotStops s JOIN dbo.Locations l ON l.LocationId=s.LocationId WHERE s.VisitTripSnapshotId IS NULL;
+                INSERT dbo.VisitTrips(VisitTripId,Status,LocationId) SELECT s.VisitTripId,N'Approved',MIN(s.LocationId) FROM dbo.VisitTripStops s WHERE NOT EXISTS(SELECT 1 FROM dbo.VisitTrips t WHERE t.VisitTripId=s.VisitTripId) GROUP BY s.VisitTripId;
+                INSERT dbo.VisitTripSnapshots(VisitTripSnapshotId,VisitTripId,ApprovedDistanceKmSnapshot,StatusSnapshot) SELECT s.VisitTripSnapshotId,s.VisitTripSnapshotId,12.3,N'Approved' FROM dbo.VisitTripSnapshotStops s WHERE NOT EXISTS(SELECT 1 FROM dbo.VisitTripSnapshots t WHERE t.VisitTripSnapshotId=s.VisitTripSnapshotId);
+                """);
+            return await Scalar("""
+            SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',CONVERT(varbinary(max),
+                (SELECT VisitTripId,Status,LocationId FROM dbo.VisitTrips ORDER BY VisitTripId FOR JSON PATH)+N'|'+
+                (SELECT VisitTripStopId,VisitTripId,LocationId,LocationNameSnapshot,AddressSnapshot FROM dbo.VisitTripStops ORDER BY VisitTripStopId FOR JSON PATH)+N'|'+
+                (SELECT VisitTripSnapshotId,VisitTripId,ApprovedDistanceKmSnapshot,StatusSnapshot FROM dbo.VisitTripSnapshots ORDER BY VisitTripSnapshotId FOR JSON PATH)+N'|'+
+                (SELECT VisitTripSnapshotStopId,VisitTripSnapshotId,LocationId,LocationNameSnapshot FROM dbo.VisitTripSnapshotStops ORDER BY VisitTripSnapshotStopId FOR JSON PATH))),2)
+            """);
+        }
 
         internal async Task<Outcome> Decide(FieldVisit.Infrastructure.V180OptionCAdminApprovalService service,Guid request,string kind,Guid key,TaskCompletionSource<int>? sessionReady)
         {
@@ -3144,7 +3613,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 INSERT dbo.TeamMemberships(EmploymentId,TeamId,IsPrimary,EffectiveFrom,CreatedAt) VALUES(101,1,1,'2000-01-01',SYSUTCDATETIME());
                 INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,LocationType,ApprovalStatus,IsActive,LocationName,Address) VALUES {locations};
                 INSERT dbo.OptionCLiveApprovalActors VALUES(1,1,1,1,1,0),(2,1,1,1,0,1),(3,2,2,1,0,1);
-                INSERT dbo.VisitTripStops SELECT LocationId+1000,LocationId FROM dbo.Locations;INSERT dbo.VisitTripSnapshotStops SELECT LocationId+2000,LocationId FROM dbo.Locations;
+                INSERT dbo.VisitTripStops SELECT LocationId+1000,LocationId FROM dbo.Locations;
+                INSERT dbo.VisitTripSnapshotStops SELECT LocationId+2000,LocationId FROM dbo.Locations;
                 INSERT dbo.SchemaVersions VALUES(N'1.8.0-010',N'isolated',SYSUTCDATETIME(),N'isolated');
                 """);
         }

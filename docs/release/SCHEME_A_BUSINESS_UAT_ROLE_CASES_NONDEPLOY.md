@@ -9,13 +9,13 @@ effective HR roles/teams and known canonical migration dependencies.
 |---|---|---|
 | VIS-01 | Visitor Create Customer Location | Pending private identity; request/Stage/Reservation/audit; not selectable |
 | VIS-02 | Visitor Create duplicate | Duplicate blocked, no orphan request/identity |
-| VIS-03 | Visitor published LowRisk note change | Pending; source remains current; server risk Low |
+| VIS-03 | Visitor own published LowRisk note change | Saved/Applied directly through live write authorization; canonical version/event/audit advance atomically; no fabricated review |
 | VIS-04 | Visitor published HighRisk address change | Pending; source remains current; server risk High |
 | VIS-05 | Visitor request status | Own Pending/Rejected/Applied visible; other team's denied |
 | VIS-06 | Visitor unauthorized team/HR leave | Submission and retry denied server-side |
 | LEAD-01 | Independent live Leader queue | Only effective scoped pending requests visible |
 | LEAD-02 | Leader self-review | Denied, including Leader-originated Create |
-| LEAD-03 | Leader approve LowRisk | Duplicate evidence and controlled apply required |
+| LEAD-03 | Leader managed-team published LowRisk note change | Saved/Applied directly with current appointment/delegation; read scope alone denied |
 | LEAD-04 | Leader approve HighRisk | Remains pending Admin/evidence; no early publish |
 | LEAD-05 | Leader reject Create | Request rejected; Stage/Reservation abandoned atomically |
 | LEAD-06 | Leader role/delegation revoked | Previously issued review cannot publish |
@@ -51,3 +51,23 @@ effective HR roles/teams and known canonical migration dependencies.
 
 These are test cases, not execution results. Test count is a planning
 inventory, not an assertion that the 25 cases have passed.
+
+## 25-case / legacy 22-case reconciliation
+
+The Scheme A inventory intentionally remains **25 cases** (`VIS 6 + LEAD 6 +
+ADMIN 4 + XLS 5 + TRIP 2 + SEC 2`). The older `OC-01..OC-22` matrix is an
+Option C security trace and is not a replacement count. Mapping is many-to-many:
+
+| Scheme A cases | Legacy OC trace | Reconciled outcome |
+|---|---|---|
+| VIS-01/02 | OC-01/11/12 | Create remains reviewed and duplicate/replay safe |
+| VIS-03, LEAD-03 | OC-21 | Frozen policy: authorized LowRisk note saves directly with live write scope and atomic version/audit; no Leader/Admin decision |
+| VIS-04, LEAD-01/02/04 | OC-01/02/05/06 | HighRisk remains pending through independent Leader then Admin |
+| VIS-05/06, LEAD-06 | OC-03/04/13/15/16/20 | Own status and live revocation/scope remain fail closed |
+| LEAD-05, ADMIN-01..04 | OC-06..10/14/17/18 | Reject/approve/evidence and independent Admin controls |
+| XLS-01..05 | OC-11/12/19 plus Excel-specific coverage | Per-row linkage, replay, stale/partial handling; no legacy Confirm bypass |
+| TRIP-01/02 | OC-22 | Operational isolation plus immutable historical references |
+| SEC-01/02 | OC-07/08/11/12/13/14/15/16/19 | Cross-scope, concurrency, replay, Unknown Commit and rollback |
+
+No case was removed to force a legacy count match. `OC-21` and the earlier
+VIS-03/LEAD-03 expectations are superseded by the frozen direct-LowRisk rule.

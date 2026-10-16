@@ -179,12 +179,41 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         Assert.Equal(2, fixture.RouteProvider.CallCount);
         Assert.NotEqual(first.RouteCalculationAttemptId, second.RouteCalculationAttemptId);
         Assert.NotEqual(first.CorrelationId, second.CorrelationId);
-        Assert.All(fixture.Governance.RouteAttempts, attempt =>
+        var retryAttempts = fixture.Governance.RouteAttempts
+            .Where(attempt => attempt.CalculationReason == "LeaderRetry")
+            .ToList();
+        Assert.Equal(2, retryAttempts.Count);
+        Assert.All(retryAttempts, attempt =>
         {
             Assert.Equal("SubmittedSnapshot", attempt.BasisType);
             Assert.Equal(fixture.SubmittedSnapshot.VisitTripSnapshotId, attempt.BasisVisitTripSnapshotId);
             Assert.Equal("LeaderRetry", attempt.CalculationReason);
         });
+    }
+
+    [Fact]
+    public async Task Leader_retry_is_blocked_when_current_route_has_any_success()
+    {
+        var fixture = Fixture.Leader();
+        var failed = fixture.Governance.RouteAttempts.Single();
+        fixture.Governance.RouteAttempts.Add(new RouteCalculationAttempt
+        {
+            RouteCalculationAttemptId = 901,
+            VisitTripId = failed.VisitTripId,
+            BasisType = failed.BasisType,
+            BasisVisitTripSnapshotId = failed.BasisVisitTripSnapshotId,
+            RequestedVehicleType = failed.RequestedVehicleType,
+            TravelMode = failed.TravelMode,
+            Provider = failed.Provider,
+            RequestBasisHash = failed.RequestBasisHash,
+            Status = "Succeeded"
+        });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.RetryRouteAsync(fixture.Trip.VisitTripId, default));
+
+        Assert.Contains("F_B_RETRY_EVIDENCE_REQUIRED", error.Message);
+        Assert.Equal(0, fixture.RouteProvider.CallCount);
     }
 
     [Fact]
@@ -318,7 +347,22 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         public static Fixture Leader()
         {
             var user = UserDto("leader");
-            return new Fixture(user, TripEntity(2, TripStatuses.Submitted, "Car"), Snapshot());
+            var fixture = new Fixture(user, TripEntity(2, TripStatuses.Submitted, "Car"), Snapshot());
+            fixture.Governance.RouteAttempts.Add(new RouteCalculationAttempt
+            {
+                RouteCalculationAttemptId = 900,
+                VisitTripId = fixture.Trip.VisitTripId,
+                BasisType = "SubmittedSnapshot",
+                BasisVisitTripSnapshotId = fixture.SubmittedSnapshot.VisitTripSnapshotId,
+                RequestedVehicleType = "Car",
+                TravelMode = "DRIVE",
+                Provider = "GoogleMapsRoutes-TestStub",
+                RequestBasisHash = V180MileageCanonicalization.HashRoute(
+                    V180MileageCanonicalization.BuildSubmittedSnapshotBasis(fixture.SubmittedSnapshot)),
+                Status = "Failed",
+                ErrorCode = "PROVIDER_UNAVAILABLE"
+            });
+            return fixture;
         }
 
         private static CurrentUserDto UserDto(string role) => new(
@@ -372,6 +416,14 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     {
         public int SaveCount { get; private set; }
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(++SaveCount);
+        public Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct)
+            => Task.FromResult<IUnitOfWorkTransaction>(new FakeUnitOfWorkTransaction());
+
+        private sealed class FakeUnitOfWorkTransaction : IUnitOfWorkTransaction
+        {
+            public Task CommitAsync(CancellationToken ct) => Task.CompletedTask;
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private sealed class FakeRouteProvider : IV180RouteProvider
@@ -473,6 +525,17 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
                     .ThenByDescending(x => x.RouteCalculationAttemptId)
                     .FirstOrDefault());
 
+        public Task<List<RouteCalculationAttempt>> GetRouteCalculationAttemptsAsync(long tripId, CancellationToken ct) =>
+            Task.FromResult(RouteAttempts.Where(x => x.VisitTripId == tripId).ToList());
+
+        public Task<RouteCalculationAttempt?> GetLatestFailedRouteCalculationAttemptAsync(
+            long tripId, CancellationToken ct) =>
+            Task.FromResult<RouteCalculationAttempt?>(RouteAttempts
+                .Where(x => x.VisitTripId == tripId && x.Status == "Failed")
+                .OrderByDescending(x => x.CompletedAt)
+                .ThenByDescending(x => x.RouteCalculationAttemptId)
+                .FirstOrDefault());
+
         public Task<GeocodingAttempt?> GetGeocodingAttemptAsync(long attemptId, CancellationToken ct) =>
             Task.FromResult<GeocodingAttempt?>(GeocodingAttempts.SingleOrDefault(x => x.GeocodingAttemptId == attemptId));
 
@@ -499,6 +562,7 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     private sealed class FakeTripRepository(VisitTrip trip) : ITripRepository
     {
         public Task<VisitTrip?> GetAsync(long tripId, bool tracking, CancellationToken ct) => Task.FromResult<VisitTrip?>(tripId == trip.VisitTripId ? trip : null);
+        public Task<VisitTrip?> GetForApprovalAsync(long tripId, CancellationToken ct) => Task.FromResult<VisitTrip?>(tripId == trip.VisitTripId ? trip : null);
         public Task AddAsync(VisitTrip row, CancellationToken ct) => throw new NotSupportedException();
         public Task<List<VisitTrip>> GetVisitorHistoryAsync(int userId, DateOnly? start, DateOnly? end, string? locationKeyword, CancellationToken ct) => throw new NotSupportedException();
         public Task<List<VisitTrip>> GetTeamQueueAsync(IReadOnlyCollection<int> teamIds, CancellationToken ct) => throw new NotSupportedException();

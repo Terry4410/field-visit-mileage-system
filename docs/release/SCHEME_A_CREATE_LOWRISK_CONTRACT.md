@@ -1,5 +1,13 @@
 # Scheme A — CreateLocation / LowRisk controlled contract (NONDEPLOY)
 
+> **Frozen Owner policy correction (2026-10-15):** authorized published
+> MasterNote-only LowRisk maintenance saves directly without a Leader/Admin
+> decision. It must use the isolated candidate live-write boundary and commit
+> canonical Request/version/event/AuditLog evidence atomically. HighRisk still
+> requires independent Leader first-level and independent Admin final review.
+> Earlier LowRisk Leader-review descriptions below are retained only as
+> historical provenance and are superseded for acceptance.
+
 ## 2026-10-14 — Excel published Location Update candidate (Recovery-only)
 
 - Verified starting baseline: `01e9403afa7e01dce67f62a556f800d3dc0e1b6e`, exact-SHA CI `38587007376` SUCCESS. **This is not a claim that the new Excel Update increment passed CI.**

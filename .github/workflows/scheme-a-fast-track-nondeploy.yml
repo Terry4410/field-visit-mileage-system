@@ -1,0 +1,253 @@
+name: Scheme A UAT Readiness Fast Track Nondeploy
+
+on:
+  push:
+    branches:
+      - staging/scheme-a-uat-readiness-fast-track-20261015
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheme-a-fast-track-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nondeploy:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/staging/scheme-a-uat-readiness-fast-track-20261015'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "FieldVisit_Recovery!Sql2022"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Recovery!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+      E1_R1_REQUIRED: "1"
+      E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Exact-SHA and nondeploy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = "refs/heads/staging/scheme-a-uat-readiness-fast-track-20261015"
+          test "$OPTIONC_EXECUTION_MODE" = "IsolatedSqlTest"
+          test "$E1_R1_SQL_CONNECTION" = "Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          test "$(jq -r '.PackageB.B3.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
+          test "$(jq -r '.OptionC.Approval.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
+          test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
+          test ! -e database/migrations/1800_013
+          echo "NONDEPLOY: local disposable SQL only; UAT and Production are not accessed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Full Scheme A migration and readiness contract
+        run: |
+          python3 -m unittest scripts/ci/test_optionc_sql_draft.py
+          python3 -m unittest scripts/ci/validate_full_scheme_a_uat_readiness.py
+          python3 -m unittest scripts/ci/test_r6_schema_fidelity.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Deterministic Worker concurrency and real SQL 1205 1222 faults (EF baseline only)
+        run: |
+          set -o pipefail
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~Worker_sql_' --logger "trx;LogFileName=worker-security-sql.trx" --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root=ET.parse('artifacts/test-results/worker-security-sql.trx').getroot()
+          results=[x for x in root.iter() if x.tag.endswith('UnitTestResult')]
+          if len(results)!=13 or any(x.attrib.get('outcome')!='Passed' for x in results):
+            raise SystemExit('WORKER_SQL_HARNESS_REQUIRED_CASES_FAILED')
+          for result in results:
+            for node in result.iter():
+              if node.tag.endswith('StdOut'):
+                for line in (node.text or '').splitlines():
+                  if line.startswith(('SQL_WORKER_', 'SQL_PROVIDER_', 'REAL_SQL_', 'SENSITIVE_PROVIDER_', 'LIVENESS_HOLD=')):
+                    print(line)
+          PY
+
+      - name: Frontend tests and production build
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          mkdir -p ../artifacts/test-results
+          npm ci --no-audit --no-fund
+          npm test -- --reporter=dot | tee ../artifacts/test-results/frontend-tests.log
+          npm run build | tee ../artifacts/test-results/frontend-build.log
+
+      - name: Isolated Playwright browser E2E (API fully mocked)
+        working-directory: uat
+        env:
+          UAT_BASE_URL: http://127.0.0.1:4173/
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm run test:epic-a
+
+      - name: Backend Release build and complete tests
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/test-results
+          dotnet build backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release | tee artifacts/test-results/backend-build.log
+          # All pre-existing backend tests remain here; the 13 new Worker SQL
+          # cases have their own mandatory nonzero gate immediately below.
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName!~Worker_sql_' --logger "trx;LogFileName=backend-full.trx" --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='artifacts/test-results/backend-full.trx'
+          root=ET.parse(p).getroot(); counters=next(x for x in root.iter() if x.tag.endswith('Counters'))
+          total=int(counters.attrib.get('total','0')); executed=int(counters.attrib.get('executed','0'))
+          if total<=0 or executed<=0 or executed!=total: raise SystemExit(f'Invalid TRX counters total={total} executed={executed}')
+          print(f'BACKEND_TRX_NONZERO total={total} executed={executed}')
+          PY
+
+      - name: Backend failure diagnostic summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, re, xml.etree.ElementTree as ET
+          p='artifacts/test-results/backend-full.trx'
+          summary=[]
+          if not os.path.exists(p):
+            summary.append('BACKEND_TRX_MISSING')
+            build='artifacts/test-results/backend-build.log'
+            if os.path.exists(build):
+              summary.extend(line.strip() for line in open(build,encoding='utf-8',errors='replace')
+                             if re.search(r'\berror\b|Build FAILED',line,re.I))
+          else:
+            root=ET.parse(p).getroot()
+            for result in root.iter():
+              if result.tag.endswith('UnitTestResult') and result.attrib.get('outcome') == 'Failed':
+                output=next((x for x in result if x.tag.endswith('Output')),None)
+                info=next((x for x in output or [] if x.tag.endswith('ErrorInfo')),None)
+                message=next((x.text or '' for x in info or [] if x.tag.endswith('Message')),'')
+                message=re.sub(r'(?i)(password|pwd|token|secret|authorization)\s*[:=]\s*[^;\s]+',r'\1=[REDACTED]',message)
+                summary.append(f"FAILED {result.attrib.get('testName','unknown')}: {message[:1200]}")
+          print('\n'.join(summary) if summary else 'BACKEND_FAILURE_DIAGNOSTIC_NO_FAILED_TESTS')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
+            f.write('### Backend test diagnostics\n\n'+'\n'.join(f'- {line}' for line in summary)+'\n')
+          with open('artifacts/test-results/r6-backend-failures.txt','w',encoding='utf-8') as f:
+            f.write('\n'.join(summary)+'\n')
+          PY
+
+      - name: Upload sanitized backend failure summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r6-backend-failure-summary
+          path: artifacts/test-results/r6-backend-failures.txt
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Historical fingerprint disposable SQL runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          ./scripts/ci/test_scheme_a_historical_fingerprint.ps1
+
+      - name: Real Option C HTTP DI SQL and canonical rehearsal
+        run: |
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCFinalSecurityGateSqlTests' --logger "trx;LogFileName=optionc-http-sql.trx" --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180OptionCSqlDraftRehearsalTests' --logger "trx;LogFileName=canonical-rehearsal.trx" --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~V180TripMileageHttpSqlE2ETests&FullyQualifiedName!~Worker_sql_' --logger "trx;LogFileName=trip-mileage-http-sql.trx" --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import glob,xml.etree.ElementTree as ET
+          for p in glob.glob('artifacts/test-results/*.trx'):
+            root=ET.parse(p).getroot(); counters=next(x for x in root.iter() if x.tag.endswith('Counters'))
+            total=int(counters.attrib.get('total','0')); executed=int(counters.attrib.get('executed','0'))
+            if total<=0 or executed<=0: raise SystemExit(f'Zero-test TRX: {p} total={total} executed={executed}')
+            print(f'TRX_NONZERO {p} total={total} executed={executed}')
+          PY
+
+      - name: Canonical 010 fixture → 011-020 additive SQL 2022 rehearsal (UAT held)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          ./scripts/ci/run_full_candidate_migration.ps1
+
+      - name: Explicit release HOLD
+        if: always()
+        run: |
+          echo "Engineering evidence only. UAT migration/deployment/flags/Business UAT remain HOLD and NO-GO." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create sanitized WORK A acceptance evidence
+        if: always()
+        env:
+          WORKFLOW_RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, xml.etree.ElementTree as ET
+          os.makedirs('artifacts/work-a-p0-evidence', exist_ok=True)
+          lines = [
+            'WORK_A_P0_ACCEPTANCE_EVIDENCE_V1',
+            f'SOURCE_SHA={os.environ.get("GITHUB_SHA", "")}',
+            f'WORKFLOW_RESULT={os.environ.get("WORKFLOW_RESULT", "unknown")}',
+            'NONDEPLOY_ONLY=true',
+            'REAL_BROWSER_SAME_CANONICAL_SQL=HOLD_NOT_IMPLEMENTED',
+            'UAT_COMPATIBILITY=HOLD',
+          ]
+          front = 'artifacts/test-results/frontend-tests.log'
+          if os.path.exists(front):
+            content = open(front, encoding='utf-8', errors='replace').read()
+            match = re.search(r'Tests\s+(\d+)\s+passed', content)
+            lines.append(f'FRONTEND_TESTS_PASSED={match.group(1) if match else "UNKNOWN"}')
+          else:
+            lines.append('FRONTEND_TESTS_PASSED=UNKNOWN')
+          for path in sorted(glob.glob('artifacts/test-results/*.trx')):
+            try:
+              root = ET.parse(path).getroot()
+              counters = next(x for x in root.iter() if x.tag.endswith('Counters'))
+              total = int(counters.attrib.get('total', '0'))
+              executed = int(counters.attrib.get('executed', '0'))
+              failed = int(counters.attrib.get('failed', '0'))
+              lines.append(f'TRX_{os.path.basename(path)}_TOTAL={total}_EXECUTED={executed}_FAILED={failed}')
+              if os.path.basename(path) == 'worker-security-sql.trx':
+                for node in root.iter():
+                  if node.tag.endswith('StdOut'):
+                    for line in (node.text or '').splitlines():
+                      if line.startswith(('SQL_WORKER_', 'SQL_PROVIDER_', 'REAL_SQL_', 'SENSITIVE_PROVIDER_', 'LIVENESS_HOLD=')):
+                        lines.append(line)
+            except Exception:
+              lines.append(f'TRX_{os.path.basename(path)}=UNREADABLE')
+          path = 'artifacts/work-a-p0-evidence/summary.txt'
+          with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+          print('WORK_A_SANITIZED_EVIDENCE_CREATED')
+          PY
+
+      - name: Upload sanitized WORK A acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: work-a-p0-acceptance
+          path: |
+            artifacts/work-a-p0-evidence/summary.txt
+            docs/release/OPTIONC_OWNER_ACCEPTANCE_TRACEABILITY_R8.md
+            docs/release/WORK_A_REAL_SQL_HARNESS_DELTA.md
+          if-no-files-found: error
+          retention-days: 30

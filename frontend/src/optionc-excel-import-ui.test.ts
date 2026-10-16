@@ -1,11 +1,15 @@
 import{describe,it,expect}from"vitest";
-import{maySubmitCanonicalExcelCreates,maySubmitCanonicalExcelUpdates}from"./optionc-excel-import-ui";
+import{mayShowLegacyExcelConfirm,maySubmitCanonicalExcelCreates,maySubmitCanonicalExcelUpdates}from"./optionc-excel-import-ui";
 import type{ImportPreview}from"./types";
 const valid:ImportPreview={importBatchId:"b",importType:"locations",totalCount:1,
  validCount:0,errorCount:1,items:[{rowNumber:2,entityType:"Location",
  action:"Create",status:"Error",displayKey:"New",
  errorMessage:"LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW"}]};
 describe("Scheme A Excel gated canonical submission",()=>{
+ it("hides legacy Confirm on Leader review-only entry while preserving Admin batch behavior",()=>{
+  expect(mayShowLegacyExcelConfirm(true)).toBe(false);
+  expect(mayShowLegacyExcelConfirm(false)).toBe(true);
+ });
  it("permits only explicit canonical review-required Create preview rows",()=>{
   expect(maySubmitCanonicalExcelCreates(valid)).toBe(true);
   expect(maySubmitCanonicalExcelCreates({...valid,items:[

@@ -1,11 +1,21 @@
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace FieldVisit.Infrastructure;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
 {
+    public async Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct)
+        => new UnitOfWorkTransaction(await Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct));
+
+    private sealed class UnitOfWorkTransaction(IDbContextTransaction transaction) : IUnitOfWorkTransaction
+    {
+        public Task CommitAsync(CancellationToken ct) => transaction.CommitAsync(ct);
+        public ValueTask DisposeAsync() => transaction.DisposeAsync();
+    }
+
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<User> Users => Set<User>();
