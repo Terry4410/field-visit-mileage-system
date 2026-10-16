@@ -34,6 +34,25 @@ class R6SchemaFidelityTests(unittest.TestCase):
         self.assertNotIn("SELECT *", upper)
         self.assertNotIn("APPLIEDBY", upper)
 
+    def test_inventory_sql_matches_reviewed_immutable_sha256(self):
+        import hashlib
+
+        source = SQL.read_bytes()
+        self.assertEqual(
+            hashlib.sha256(source).hexdigest(),
+            "c00a269a310222550626544a053ed343a3b55a6c71aad1f128668b6b4d2aabc0",
+            "Schema inventory SQL changed; it requires a new independent review.",
+        )
+        executable = re.sub(
+            rb"/\\*.*?\\*/|--[^\\n]*", b"", source, flags=re.S
+        ).upper()
+        for identity_surface in (
+            b"ORIGINAL_LOGIN", b"SUSER_SNAME", b"SYSTEM_USER",
+            b"CURRENT_USER", b"APPLIEDBY",
+        ):
+            self.assertNotIn(identity_surface, executable)
+        self.assertNotIn(b"SELECT *", executable)
+
     def test_real_full_chain_writer_variants_are_bound_to_sql_harness(self):
         tests = TESTS.read_text(encoding="utf-8")
         for name in (

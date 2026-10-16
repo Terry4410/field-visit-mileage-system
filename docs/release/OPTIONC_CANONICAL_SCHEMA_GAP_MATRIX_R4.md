@@ -63,9 +63,7 @@ evidence (run `38707441735`) proves UAT `db-fieldvisit-uat` was at
 shows the four Option C phase flags absent. That evidence did **not** return
 the full UAT column/type/nullability, key, index, check, or rowversion
 inventory. Its catalog fingerprint is based on dbo object names/types/modify
-dates, so it cannot prove column-level fidelity. The read-only SQL evidence
-also marks FK/CHECK/index result sets NotApplicable for the absent Option C
-objects; those empty result sets are not a whole-catalog inventory.
+dates, so it cannot prove column-level fidelity. Run `38835570403` re-used the protected workflow's preflight SQL pinned to SHA-256 `44c20438c8125150d8cdbfae5e2dab40f23acea6386507b96bec31ff3cb10955`; it did not execute the new inventory query. The protected workflow has no compatible source-hash/output validator for that inventory. Its empty FK/CHECK/index result sets are not a whole-catalog inventory.
 
 | Fidelity area | Protected 001–010 / EF source | Authorized actual UAT evidence | R6 result |
 |---|---|---|---|
@@ -76,9 +74,7 @@ objects; those empty result sets are not a whole-catalog inventory.
 | Existing-data and Backfill prerequisites | Canonical 014 requires exact approved active Location projections; prerequisites defined by source SQL | Summary says Option C tables absent; no row-level/location compatibility projection returned | **Unknown / HOLD** |
 | Catalog fingerprint | Protected query emits dbo object-name/type/modify-date hash | Exact hash above | Hash matches recorded evidence only; it is not a schema-shape proof |
 
-`UatSchemaFidelity.readonly.sql` prepares a metadata-only, SELECT-only inventory
-for a future separately approved read-only evidence run. It has not been run
-against UAT. 010 fixture parity and UAT compatibility therefore remain HOLD.
+`UatSchemaFidelity.readonly.sql` (SHA-256 `${sqlHash}`) prepares a metadata-only inventory for a future separately approved read-only evidence run. Static review confirms exact expected server/database guards, system-catalog shape queries, aggregate-only historical row counts/high-watermarks, and no business-row values or actor identity fields. The query has not been run against UAT. Its hash is pinned by `scripts/ci/test_r6_schema_fidelity.py`; changes invalidate that test and require re-review. 010 fixture parity and UAT compatibility therefore remain HOLD.
 
 ## R6 real writer evidence
 
