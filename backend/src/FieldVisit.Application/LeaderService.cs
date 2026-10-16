@@ -143,8 +143,9 @@ public sealed class LeaderService(
             var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(basis.VehicleType);
             if (selectedAttempt.Status != "Succeeded"
                 || selectedAttempt.VisitTripId != trip.VisitTripId
-                || selectedAttempt.BasisType != "SubmittedSnapshot"
-                || selectedAttempt.BasisVisitTripSnapshotId != submittedBasis.VisitTripSnapshotId
+                || (selectedAttempt.BasisType == "SubmittedSnapshot"
+                    ? selectedAttempt.BasisVisitTripSnapshotId != submittedBasis.VisitTripSnapshotId
+                    : selectedAttempt.BasisType != "Draft" || selectedAttempt.BasisVisitTripSnapshotId is not null)
                 || !selectedAttempt.RequestBasisHash.SequenceEqual(approvalBasisHash)
                 || selectedAttempt.RequestedVehicleType != V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle)
                 || selectedAttempt.TravelMode != V180MileageCanonicalization.ToTravelMode(canonicalVehicle))

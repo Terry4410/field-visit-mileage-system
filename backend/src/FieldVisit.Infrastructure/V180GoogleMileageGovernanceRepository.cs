@@ -62,8 +62,9 @@ public sealed class V180GoogleMileageGovernanceRepository(AppDbContext db) : IV1
         db.RouteCalculationAttempts.AsNoTracking()
             .Where(x => x.VisitTripId == tripId
                 && x.Status == "Succeeded"
-                && x.BasisType == "SubmittedSnapshot"
-                && (!basisSnapshotId.HasValue || x.BasisVisitTripSnapshotId == basisSnapshotId.Value))
+                && ((x.BasisType == "SubmittedSnapshot"
+                     && (!basisSnapshotId.HasValue || x.BasisVisitTripSnapshotId == basisSnapshotId.Value))
+                    || (x.BasisType == "Draft" && x.BasisVisitTripSnapshotId == null)))
             .OrderByDescending(x => x.CompletedAt)
             .ThenByDescending(x => x.RouteCalculationAttemptId)
             .FirstOrDefaultAsync(ct);

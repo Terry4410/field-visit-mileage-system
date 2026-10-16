@@ -17,7 +17,8 @@ public sealed class V180GoogleMileageOrchestrationService(
     IV180GoogleMileageGovernanceRepository governance,
     IV180RouteProvider routeProvider,
     IV180GeocodingProvider geocodingProvider,
-    IUnitOfWork uow)
+    IUnitOfWork uow,
+    IMileageRepository? mileage = null)
 {
     private static readonly TimeSpan PostProviderTerminalizationTimeout = TimeSpan.FromSeconds(30);
 
@@ -250,6 +251,19 @@ public sealed class V180GoogleMileageOrchestrationService(
                 validSuccess ? "Calculated" : "CalculationFailed",
                 failure.Code, failure.Message, correlationId, completedAt, actorUserId), terminalizationToken);
         await uow.SaveChangesAsync(terminalizationToken);
+
+        if (validSuccess && basisType == "Draft" && mileage is not null)
+        {
+            var calculation = await mileage.GetByTripAsync(trip.VisitTripId, true, terminalizationToken)
+                ?? new MileageCalculation { VisitTripId = trip.VisitTripId, CreatedAt = completedAt };
+            calculation.SystemDistanceKm = providerResult.SuggestedDistanceKm;
+            calculation.CalculationSource = "GoogleMapsAPI";
+            calculation.SelectedRouteCalculationAttemptId = attempt.RouteCalculationAttemptId;
+            calculation.UpdatedAt = completedAt;
+            if (calculation.MileageCalculationId == 0)
+                await mileage.AddAsync(calculation, terminalizationToken);
+            await uow.SaveChangesAsync(terminalizationToken);
+        }
 
         if (providerCancellation is not null) throw providerCancellation;
         ct.ThrowIfCancellationRequested();

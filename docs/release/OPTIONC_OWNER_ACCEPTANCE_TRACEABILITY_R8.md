@@ -101,6 +101,19 @@ The independent audit contains 30 frozen rows; the 26-row R8 engineering trace a
 - Published `UseExisting` remains fail closed until there is an independently reviewed canonical merge writer. Trip and snapshot references remain untouched.
 - No Protected branch, real UAT database, deployment, restore, release flag, or PR state was changed.
 
+### Owner runtime feedback delta (2026-10-16)
+
+| Feedback | Staging implementation | Verification added | Release disposition |
+|---|---|---|---|
+| Trip field must show assigned deployment site | Separate `本次行程小組` from `地點歸屬`; value derives from the authoritative trip context default/primary deployment site | Frontend source-binding test uses a team label and two assigned sites; verifies the primary dispatch site is shown | Isolated CI pending; UAT HOLD |
+| Reuse successful visitor Google mileage | Persist successful draft result and selected attempt; on submit advance to approval only when the submitted route hash matches; failure/stale basis remains on calculation path | Disposable SQL/HTTP test asserts direct `PendingApproval`, distance/source, and no second attempt before Leader approval | Isolated CI pending; UAT HOLD |
+| Date range not applied to batch list | Apply inclusive range to non-approval rows; keep approval rows visible; successful Google rows are not selectable for recalculation | Frontend in/out-of-range tests and disposable SQL repository query in/out-of-range assertions | Isolated CI pending; UAT HOLD |
+| Separate Leader location sections | Add `待審地點` and `我的地點草稿` tabs over the existing managed-location response and edit guard | Existing `mayEditScopedDraft` team scope guard retained; new negative test denies other-team and published-row editing | Isolated CI pending; UAT HOLD |
+| Visitor temporary location TaxId / MasterNote | Add optional fields through UI, DTO, validation and pending temporary Location persistence | Disposable HTTP/SQL test verifies both values persist and rejects TaxId over 20 characters | Isolated CI pending; UAT HOLD |
+| Ambiguous draft button text | Change to `儲存地點草稿` and explain subsequent review | Source/UI text changed; workflow endpoint and guard unchanged | Copy update; UAT HOLD |
+
+The original R9 CI evidence above remains historical and does not validate this feedback delta. No UAT PASS is claimed for this batch.
+
 ### Tally correction
 
 The original R8 tally of 26 rows applies only to the R8 engineering trace above. The frozen AUDIT set has 30 rows and is reconciled here. Do not reuse R8 SHA/CI as evidence for R9. R9 implementation evidence at `fbac09e1798a009ad5642856f575f834051f66d9` is Exact-SHA CI `38844433349` **SUCCESS**: backend 765/765, frontend 115/115, API-mocked Playwright 3/3, disposable Historical fingerprint PASS, Option C HTTP/DI/SQL PASS, and canonical 011/012/014/015–020 rehearsal PASS. This verifies the implementation in disposable CI only; synthetic 010 remains non-equivalent to the UAT catalog. Protected/UAT deployed and Owner runtime verified remain **0 PASS / 30 HOLD** until separately authorized release/runtime evidence exists.

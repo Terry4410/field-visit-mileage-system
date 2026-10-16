@@ -318,6 +318,29 @@ public sealed class TripService(
         if (authoritativeContext is not null)
             await (snapshots ?? throw new InvalidOperationException("V180_SNAPSHOT_REPOSITORY_REQUIRED")).AddSubmittedSnapshotAsync(trip, user, authoritativeContext, ct);
 
+        if (authoritativeContext is not null && mileageGovernance is not null)
+        {
+            var start = V180TripPersistenceRules.ResolveStartSite(authoritativeContext, trip.StartDeploymentSiteId);
+            var end = V180TripPersistenceRules.ResolveEndSite(authoritativeContext, trip.EndDeploymentSiteId);
+            var submittedHash = V180MileageCanonicalization.HashRoute(
+                V180MileageCanonicalization.BuildDraftBasis(
+                    trip,
+                    new V180DeploymentSiteBasis(start.SiteCode, start.Address),
+                    new V180DeploymentSiteBasis(end.SiteCode, end.Address)));
+            var successfulDraftAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
+                trip.VisitTripId, null, ct);
+            if (successfulDraftAttempt is { BasisType: "Draft", Status: "Succeeded" }
+                && successfulDraftAttempt.RequestBasisHash.SequenceEqual(submittedHash)
+                && calc?.SystemDistanceKm is > 0
+                && calc.SelectedRouteCalculationAttemptId == successfulDraftAttempt.RouteCalculationAttemptId)
+            {
+                trip.Status = TripStatuses.PendingApproval;
+                trip.UpdatedAt = DateTime.UtcNow;
+                await AddHistoryAsync(trip, TripStatuses.Submitted, TripStatuses.PendingApproval,
+                    "VisitorGoogleRouteReady", user.UserId, "Visitor-side successful Google route matched submitted snapshot basis.", ct);
+            }
+        }
+
         await uow.SaveChangesAsync(ct);
         return await GetDtoAsync(tripId, ct);
     }
@@ -411,6 +434,12 @@ public sealed class TripService(
         if (displaySnapshot is not null && mileageGovernance is not null)
             routeAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
                 trip.VisitTripId, displaySnapshot.VisitTripSnapshotId, ct);
+        if (routeAttempt is not null && displaySnapshot is not null)
+        {
+            var snapshotHash = V180MileageCanonicalization.HashRoute(
+                V180MileageCanonicalization.BuildSubmittedSnapshotBasis(displaySnapshot));
+            if (!routeAttempt.RequestBasisHash.SequenceEqual(snapshotHash)) routeAttempt = null;
+        }
 
         V180TripContextDeploymentSiteDto? startSite = null;
         V180TripContextDeploymentSiteDto? endSite = null;
@@ -471,7 +500,13 @@ public sealed class TripService(
             trip.Stops.OrderBy(x => x.StopSequence).Select(x => new TripStopInput(
                 x.LocationId, x.ProjectId, x.VisitTypeId,
                 V180TemporaryLocationDraftRules.ResolveStopSourceType(x),
-                x.LocationNameSnapshot ?? "", x.AddressSnapshot, x.VisitPurpose, x.Notes)).ToList(),
+                x.LocationNameSnapshot ?? "", x.AddressSnapshot, x.VisitPurpose, x.Notes,
+                (trip.Status is TripStatuses.Draft or TripStatuses.Returned)
+                    && V180TemporaryLocationDraftRules.ResolveStopSourceType(x).Equals("Temporary", StringComparison.OrdinalIgnoreCase)
+                    ? x.Location?.TaxId : null,
+                (trip.Status is TripStatuses.Draft or TripStatuses.Returned)
+                    && V180TemporaryLocationDraftRules.ResolveStopSourceType(x).Equals("Temporary", StringComparison.OrdinalIgnoreCase)
+                    ? x.Location?.MasterNote : null)).ToList(),
             Convert.ToBase64String(trip.RowVersion ?? []),
             trip.VehicleType ?? "Motorcycle",
             routeAttempt?.RouteCalculationAttemptId,
@@ -489,6 +524,10 @@ public sealed class TripService(
         var seq = 1;
         foreach (var input in inputs)
         {
+            if (input.TaxId?.Trim().Length > 20)
+                throw new InvalidOperationException("統一編號不可超過 20 個字元。");
+            if (input.MasterNote?.Trim().Length > 1000)
+                throw new InvalidOperationException("地點備註不可超過 1000 個字元。");
             int? locationId = input.LocationId;
 
             if (locationId.HasValue)
@@ -544,7 +583,7 @@ public sealed class TripService(
                 pendingLocation = new Location
                 {
                     OrganizationId = user.OrganizationId, TeamId = trip.TeamId, LocationName = input.LocationName.Trim(),
-                    LocationType = "Customer", Address = input.Address, IsTemporary = true,
+                    LocationType = "Customer", Address = input.Address, TaxId = NormalizeOptional(input.TaxId), MasterNote = NormalizeOptional(input.MasterNote), IsTemporary = true,
                     ApprovalStatus = "Pending", GeocodingStatus = "Pending", CreatedByUserId = user.UserId, IsActive = false, CreatedAt = now
                 };
                 await masters.AddLocationAsync(pendingLocation, ct);
@@ -631,6 +670,9 @@ public sealed class TripService(
         }
         return false;
     }
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static void EnsureRowVersion(byte[] currentValue, string expectedBase64)
     {

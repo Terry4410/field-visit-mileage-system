@@ -37,7 +37,9 @@ public sealed record TripStopInput(
     string LocationName,
     string? Address,
     string? VisitPurpose,
-    string? Notes);
+    string? Notes,
+    string? TaxId = null,
+    string? MasterNote = null);
 
 public sealed record SaveTripRequest(
     DateOnly VisitDate,

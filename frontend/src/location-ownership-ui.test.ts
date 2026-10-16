@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {mayEditVisitorDraft,mayMaintainLeaderPublishedLowRisk} from "./location-ownership-ui";
+import {mayEditScopedDraft,mayEditVisitorDraft,mayMaintainLeaderPublishedLowRisk} from "./location-ownership-ui";
 import {OPTIONC_DIRECT_LOWRISK_UI_ENABLED} from "./optionc-approval-flags";
 import type {ManagedLocation} from "./types";
 
@@ -28,5 +28,17 @@ describe("visitor location UI guard",()=>{
   expect(mayEditVisitorDraft(row({createdByUserId:7,isActive:true}),7)).toBe(false);
   expect(mayEditVisitorDraft(row({createdByUserId:7,approvalStatus:"Approved"}),7)).toBe(false);
   expect(mayEditVisitorDraft(row({createdByUserId:7,locationType:"Official"}),7)).toBe(false);
+ });
+});
+
+describe("leader managed-team draft guard",()=>{
+ const leader={userId:4,teamScopes:[{teamId:7,teamName:"Managed",isPrimary:true}]};
+ it("keeps drafts inside the leader's managed team",()=>{
+  const draft=row({teamId:7,createdByUserId:99});
+  expect(mayEditScopedDraft(draft,leader,"leader")).toBe(true);
+  expect(mayEditScopedDraft({...draft,teamId:8},leader,"leader")).toBe(false);
+ });
+ it("never turns an approved published row into an editable draft",()=>{
+  expect(mayEditScopedDraft(row({teamId:7,approvalStatus:"Approved",isActive:true}),leader,"leader")).toBe(false);
  });
 });
