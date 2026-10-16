@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 16730)
-Total output lines: 907
-
 using System.Data;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
@@ -459,7 +456,42 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 builder.UseSetting("OptionC:Candidate:Enabled", "true");
                 builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
                 builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
-            …730 tokens truncated…thod.Put, $"api/v1/trips/{created.VisitTripId}")
+                builder.ConfigureTestServices(services =>
+                    services.AddScoped<IV180RouteProvider, SuccessfulRouteProvider>());
+            });
+
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.EnsureCreatedAsync();
+            var fixture = await SeedAsync(db);
+            await db.Database.ExecuteSqlRawAsync("""
+                IF OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NULL
+                    CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(40) NOT NULL PRIMARY KEY,Description nvarchar(500) NULL,AppliedAt datetime2(3) NOT NULL,AppliedBy nvarchar(200) NULL);
+                IF OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NULL
+                    CREATE TABLE dbo.LocationCreateReservations(LocationCreateReservationId bigint IDENTITY PRIMARY KEY,LocationId int NOT NULL,ReservationStatus nvarchar(30) NOT NULL,ChangeRequestId bigint NULL);
+                IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK')
+                    INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.8.0-CREATE-LOWRISK',N'disposable trip guard',SYSUTCDATETIME(),N'E2E');
+                """);
+            await db.Database.ExecuteSqlRawAsync(
+                "INSERT dbo.LocationCreateReservations(LocationId,ReservationStatus) VALUES ({0},N'Pending')",
+                fixture.Pending.LocationId);
+            using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Visitor.UserId, fixture.Visitor.EmployeeNo!, "visitor", fixture.Team.TeamId));
+            using var createdResponse = await visitor.PostAsJsonAsync(
+                "api/v1/trips", Draft(fixture.Approved.LocationId, includeSecondStop: false));
+            Assert.True(createdResponse.IsSuccessStatusCode, await createdResponse.Content.ReadAsStringAsync());
+            var created = await createdResponse.Content.ReadFromJsonAsync<TripDto>()
+                ?? throw new InvalidOperationException("OPTIONC_TRIP_CREATE_RESPONSE_MISSING");
+
+            using var preview = await visitor.PostAsync($"api/v1/trips/{created.VisitTripId}/route-preview", null);
+            Assert.True(preview.IsSuccessStatusCode, await preview.Content.ReadAsStringAsync());
+            var result = await preview.Content.ReadFromJsonAsync<V180RouteOrchestrationResult>()
+                ?? throw new InvalidOperationException("OPTIONC_ROUTE_PREVIEW_RESPONSE_MISSING");
+            Assert.Equal("Succeeded", result.Status);
+            Assert.Equal(12.5m, result.SuggestedDistanceKm);
+            Assert.Equal(300, result.DurationSeconds);
+
+            using (var editSameRoute = new HttpRequestMessage(HttpMethod.Put, $"api/v1/trips/{created.VisitTripId}")
             {
                 Content = JsonContent.Create(Draft(fixture.Approved.LocationId, includeSecondStop: false) with { Notes = "same route edit" })
             })
