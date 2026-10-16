@@ -310,14 +310,16 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 try
                 {
                     Assert.Single(concurrentApprovals.Where(x => x.IsSuccessStatusCode));
-                    Assert.Contains(concurrentApprovals.Single(x => !x.IsSuccessStatusCode).StatusCode,
-                        new[] { HttpStatusCode.Conflict, HttpStatusCode.UnprocessableEntity });
+                    var rejectedConcurrent = concurrentApprovals.Single(x => !x.IsSuccessStatusCode);
+                    Assert.True(
+                        rejectedConcurrent.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.UnprocessableEntity,
+                        $"Concurrent approval should be rejected as a conflict, received {(int)rejectedConcurrent.StatusCode}: {await rejectedConcurrent.Content.ReadAsStringAsync()}");
                     var approved = concurrentApprovals.Single(x => x.IsSuccessStatusCode);
                     var approvedTrip = await approved.Content.ReadFromJsonAsync<TripDto>()
                         ?? throw new InvalidOperationException("OPTIONC_TRIP_APPROVE_RESPONSE_MISSING");
-                Assert.Equal("Approved", approvedTrip.Status);
-                Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
-                var fallbackCalc = await db.MileageCalculations.SingleAsync(x => x.VisitTripId == created.VisitTripId);
+                    Assert.Equal("Approved", approvedTrip.Status);
+                    Assert.Equal(8.5m, approvedTrip.ApprovedDistanceKm);
+                    var fallbackCalc = await db.MileageCalculations.AsNoTracking().SingleAsync(x => x.VisitTripId == created.VisitTripId);
                 Assert.Equal("ManualFallback", fallbackCalc.ApprovedDistanceSource);
                 Assert.True(fallbackCalc.ManualFallbackUsed);
                 Assert.Single(await db.MileageGovernanceEvents.Where(x => x.VisitTripId == created.VisitTripId && x.EventType == "ManualFallback").ToListAsync());
