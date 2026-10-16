@@ -87,7 +87,7 @@ public sealed class V180GoogleMileageOrchestrationService(
 
     public async Task<V180GeocodingOrchestrationResult> GeocodeLocationAsync(int locationId, CancellationToken ct)
     {
-        var user = RequireAny("leader", "admin");
+        var user = RequireAny("admin");
         var location = await masters.GetLocationAsync(locationId, false, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationScope(user, location);

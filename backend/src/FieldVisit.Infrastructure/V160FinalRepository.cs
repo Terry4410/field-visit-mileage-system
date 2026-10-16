@@ -692,8 +692,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
-        var q = db.Locations.AsNoTracking().AsQueryable();
-        q = ApplyLocationScope(q, user);
+        var q = await LeaderDraftReadScopeAsync(user, ct);
         if (!includeInactive) q = q.Where(x => x.IsActive);
         var rows = await q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
         var ids = rows.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
@@ -708,7 +707,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var page = Math.Max(1, request.Page);
         var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
-        var q = ApplyLocationScope(db.Locations.AsNoTracking(), user);
+        var q = await LeaderDraftReadScopeAsync(user, ct);
 
         if (!string.IsNullOrWhiteSpace(request.Q))
         {
@@ -763,9 +762,13 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         return new PagedResult<ManagedLocationDto>(items, page, pageSize, total);
     }
 
-    public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
+    private async Task<ManagedLocationDto> CreateLeaderDraftCoreAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        await V180LeaderDraftLiveScope.RequireAsync(db, user, request.TeamId, ct);
+        if (IsLeaderDraftActor(user))
+            V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
+                string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var orgId = RequireOrganization(user);
         var row = new Location
@@ -784,12 +787,22 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         return MapManagedLocation(row, teamName);
     }
 
-    public async Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
+    private async Task<ManagedLocationDto> UpdateLeaderDraftCoreAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        await V180LeaderDraftLiveScope.RequireAsync(db, user, request.TeamId, ct);
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        if (IsLeaderDraftActor(user))
+        {
+            V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(row, user, request.TeamId,
+                string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType, request.IsActive);
+            if (row.IsTemporary || row.DuplicateOfLocationId.HasValue)
+                throw new InvalidOperationException("LEADER_DRAFT_NOT_CUSTOMER_MASTER");
+            if (string.IsNullOrWhiteSpace(request.RowVersion))
+                throw new InvalidOperationException("ROWVERSION_REQUIRED");
+        }
         EnsureRowVersion(row.RowVersion, request.RowVersion);
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;

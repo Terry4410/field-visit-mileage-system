@@ -1,0 +1,152 @@
+--- a/.github/workflows/api-azure.yml
++++ b/.github/workflows/api-azure.yml
+@@ -1,16 +1,58 @@
+ name: Build Test and Deploy API to Azure UAT
+ on:
+-  push:
+-    branches: [ main ]
+-    paths: [ "backend/**", ".github/workflows/api-azure.yml" ]
+   workflow_dispatch:
++    inputs:
++      approved_sha:
++        description: Exact 40-character Owner-approved source SHA
++        required: true
++        type: string
++      operation:
++        description: Separately approved deploy_candidate or rollback
++        type: choice
++        required: true
++        options: [deploy_candidate, rollback]
++      approval_reference:
++        description: Control Tower consolidated execution approval reference
++        required: true
++        type: string
+ permissions:
+   contents: read
+ jobs:
+   build-test-deploy:
++    environment: uat
+     runs-on: ubuntu-latest
+     steps:
++      - name: Require explicit exact-source dispatch
++        working-directory: ${{ github.workspace }}
++        env:
++          APPROVED_SHA: ${{ inputs.approved_sha }}
++          OPERATION: ${{ inputs.operation }}
++          APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
++        run: |
++          set -euo pipefail
++          test "$GITHUB_EVENT_NAME" = workflow_dispatch
++          test "$GITHUB_REF" = refs/heads/work/leader-uat010-minimal-rc-20261016
++          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
++          test -n "$APPROVAL_REFERENCE"
++          if [ "$OPERATION" = deploy_candidate ]; then test "$APPROVED_SHA" = "$GITHUB_SHA"; fi
++          if [ "$OPERATION" = rollback ]; then
++            echo 'Rollback is HOLD until immutable prior artifact IDs/hashes are reviewed and pinned.'
++            exit 1
++          fi
+       - uses: actions/checkout@v4
++        with:
++          ref: ${{ inputs.approved_sha }}
++      - name: Require reviewed release gates and exact checkout
++        working-directory: ${{ github.workspace }}
++        env:
++          APPROVED_SHA: ${{ inputs.approved_sha }}
++        run: |
++          test "$(git rev-parse HEAD)" = "$APPROVED_SHA"
++          python3 - <<'PYGATE'
++          import json
++          g=json.load(open('docs/release/leader-uat010-rc/release-gates.json'))
++          if any(v != 'PASS' for v in g.values()): raise SystemExit('RELEASE_HOLD')
++          PYGATE
+       - uses: actions/setup-dotnet@v4
+         with:
+           dotnet-version: "8.0.x"
+@@ -33,6 +75,8 @@
+           mkdir -p ./publish/fonts
+           cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc ./publish/fonts/NotoSansCJK-Regular.ttc
+           test -s ./publish/fonts/NotoSansCJK-Regular.ttc
++      - name: Stamp candidate artifact provenance
++        run: git rev-parse HEAD > ./publish/source-sha.txt
+       - name: Deploy Azure UAT
+         uses: azure/webapps-deploy@v3
+         with:
+--- a/.github/workflows/frontend-pages.yml
++++ b/.github/workflows/frontend-pages.yml
+@@ -1,9 +1,20 @@
+ name: Build Test and Deploy Frontend to GitHub Pages
+ on:
+-  push:
+-    branches: [ main ]
+-    paths: [ "frontend/**", ".github/workflows/frontend-pages.yml" ]
+   workflow_dispatch:
++    inputs:
++      approved_sha:
++        description: Exact 40-character Owner-approved source SHA
++        required: true
++        type: string
++      operation:
++        description: Separately approved deploy_candidate or rollback
++        type: choice
++        required: true
++        options: [deploy_candidate, rollback]
++      approval_reference:
++        description: Control Tower consolidated execution approval reference
++        required: true
++        type: string
+ permissions:
+   contents: read
+   pages: write
+@@ -13,12 +24,43 @@
+   cancel-in-progress: true
+ jobs:
+   build:
++    environment: uat
+     runs-on: ubuntu-latest
+     defaults:
+       run:
+         working-directory: frontend
+     steps:
++      - name: Require explicit exact-source dispatch
++        working-directory: ${{ github.workspace }}
++        env:
++          APPROVED_SHA: ${{ inputs.approved_sha }}
++          OPERATION: ${{ inputs.operation }}
++          APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
++        run: |
++          set -euo pipefail
++          test "$GITHUB_EVENT_NAME" = workflow_dispatch
++          test "$GITHUB_REF" = refs/heads/work/leader-uat010-minimal-rc-20261016
++          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
++          test -n "$APPROVAL_REFERENCE"
++          if [ "$OPERATION" = deploy_candidate ]; then test "$APPROVED_SHA" = "$GITHUB_SHA"; fi
++          if [ "$OPERATION" = rollback ]; then
++            echo 'Rollback is HOLD until immutable prior artifact IDs/hashes are reviewed and pinned.'
++            exit 1
++          fi
+       - uses: actions/checkout@v4
++        with:
++          ref: ${{ inputs.approved_sha }}
++      - name: Require reviewed release gates and exact checkout
++        working-directory: ${{ github.workspace }}
++        env:
++          APPROVED_SHA: ${{ inputs.approved_sha }}
++        run: |
++          test "$(git rev-parse HEAD)" = "$APPROVED_SHA"
++          python3 - <<'PYGATE'
++          import json
++          g=json.load(open('docs/release/leader-uat010-rc/release-gates.json'))
++          if any(v != 'PASS' for v in g.values()): raise SystemExit('RELEASE_HOLD')
++          PYGATE
+       - uses: actions/setup-node@v4
+         with:
+           node-version: "22"
+@@ -26,6 +68,8 @@
+         run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+       - run: npm run test
+       - run: npm run build
++      - name: Stamp frontend source
++        run: git rev-parse HEAD > dist/source-sha.txt
+       - uses: actions/upload-pages-artifact@v3
+         with:
+           path: frontend/dist

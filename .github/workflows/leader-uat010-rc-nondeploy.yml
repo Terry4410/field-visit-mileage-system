@@ -1,0 +1,99 @@
+name: Minimal Leader UAT010 RC Nondeploy
+on:
+  push:
+    branches: [work/leader-uat010-minimal-rc-20261016]
+permissions:
+  contents: read
+concurrency:
+  group: leader-uat010-rc-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  isolated:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/leader-uat010-minimal-rc-20261016'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: FieldVisit_Recovery!Sql2022
+        ports: ['1433:1433']
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Recovery!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    env:
+      LEADER_RC_REQUIRED: '1'
+      LEADER_RC_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Exact source and protected-model boundary
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = refs/heads/work/leader-uat010-minimal-rc-20261016
+          git merge-base --is-ancestor d691fba430ce80dd2048f84863b4628e1e6713d8 HEAD
+          git diff --exit-code d691fba430ce80dd2048f84863b4628e1e6713d8 -- database backend/src/FieldVisit.Infrastructure/AppDbContext.cs backend/src/FieldVisit.Domain backend/src/FieldVisit.Api/appsettings.json .github/workflows/api-azure.yml .github/workflows/frontend-pages.yml
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          python3 scripts/ci/validate_leader_rc_boundary.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Exact frontend tests and build
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+      - name: API build and complete tests
+        run: |
+          mkdir -p artifacts/test-results
+          dotnet build backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --logger 'trx;LogFileName=backend.trx' --results-directory artifacts/test-results
+      - name: Prepare disposable real browser fixture via real HTTP SQL tests
+        env:
+          LEADER_RC_BROWSER_FIXTURE_PATH: /tmp/leader-rc-browser.json
+        run: |
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~LeaderUat010HttpSqlTests.Leader_draft' --logger 'trx;LogFileName=leader-http-sql.trx' --results-directory artifacts/test-results
+          test -s /tmp/leader-rc-browser.json
+      - name: Candidate artifacts (not deployment)
+        run: |
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build -o artifacts/api
+          cp -R frontend/dist artifacts/frontend
+          printf '%s\n' "$GITHUB_SHA" > artifacts/api/source-sha.txt
+          printf '%s\n' "$GITHUB_SHA" > artifacts/frontend/source-sha.txt
+          python3 scripts/ci/leader_rc_manifest.py
+      - name: Real Browser to API to SQL (no mocked API)
+        env:
+          UAT_BASE_URL: http://127.0.0.1:4173/
+          LEADER_RC_BROWSER_FIXTURE_PATH: /tmp/leader-rc-browser.json
+        run: |
+          node scripts/ci/start-leader-rc-api.cjs
+          cd uat
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npx playwright test tests/leader-rc-browser-sql.spec.ts --retries=0
+      - name: Verify browser persistence and audit in SQL
+        env:
+          LEADER_RC_VERIFY_BROWSER_FIXTURE: /tmp/leader-rc-browser.json
+        run: |
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter 'FullyQualifiedName~LeaderUat010HttpSqlTests.Browser_write_sql_probe' --logger 'trx;LogFileName=browser-sql-probe.trx' --results-directory artifacts/test-results
+      - name: Require nonzero successful evidence and HOLD
+        if: always()
+        run: |
+          python3 scripts/ci/leader_rc_trx.py
+          echo 'Actual UAT schema parity, rollback evidence and deployment authorization HOLD. Partial Leader draft candidate only.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leader-uat010-rc-${{ github.sha }}
+          path: |
+            artifacts/
+            uat/playwright-report/
+          retention-days: 7

@@ -141,7 +141,7 @@ public sealed class V160FinalService(
         imports.CreateErrorReportAsync(RequireAny("admin", "leader"), batchId, ct);
 
     public Task<ImportConfirmResultDto> ConfirmImportAsync(Guid batchId, CancellationToken ct) =>
-        imports.ConfirmAsync(RequireAny("admin", "leader"), batchId, ct);
+        imports.ConfirmAsync(RequireRole("admin"), batchId, ct);
 
     public async Task<BackgroundJobDto> EnqueueMileageAsync(
         MileageBatchRequest request,
@@ -164,7 +164,7 @@ public sealed class V160FinalService(
     {
         var result =
             await jobs.EnqueueGeocodingAsync(
-                RequireAny("leader", "admin"),
+                RequireRole("admin"),
                 request,
                 ct);
 
