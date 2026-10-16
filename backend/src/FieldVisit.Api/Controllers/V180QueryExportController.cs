@@ -17,8 +17,8 @@ public sealed class V180QueryExportController(
     IV160FinalRepository repository,
     ICurrentUserService current,
     V160FinalService locations,
-    MasterService master,
-    V180MasterDataAdminService official) : ControllerBase
+    V180MasterDataAdminService official,
+    IReportExportAuthorizationService exportAuthorization) : ControllerBase
 {
     private const int MaxRows = 10000;
     private const int BatchSize = 100;
@@ -28,9 +28,10 @@ public sealed class V180QueryExportController(
     [HttpGet("personnel.xlsx")]
     public async Task<IActionResult> Personnel([FromQuery] V170PeopleQueryRequest request, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         request = request with { UserType = "Internal" };
         var rows = await GetAllAsync(page => people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
-        return Workbook("人事資料", request,
+        return await Workbook("人事資料", request,
             ["工號", "姓名", "Email", "人事狀態", "入職日", "離職日", "主要小組", "主要派駐據點", "就業中心"],
             rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName, x.Email, x.EmploymentStatus,
                 x.HireDate, x.TerminationDate, x.PrimaryTeamName, x.PrimaryDeploymentSiteName, x.PrimaryCenterName)));
@@ -39,9 +40,10 @@ public sealed class V180QueryExportController(
     [HttpGet("roles.xlsx")]
     public async Task<IActionResult> Roles([FromQuery] V170PeopleQueryRequest request, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         request = request with { UserType = "Internal" };
         var rows = await GetAllAsync(page => people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
-        return Workbook("角色與登入", request,
+        return await Workbook("角色與登入", request,
             ["工號", "姓名", "角色", "人事狀態", "實際登入", "管理小組"],
             rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName,
                 string.Join("、", x.Roles), x.EmploymentStatus, x.ActualAccess ? "可登入" : "不可登入",
@@ -51,20 +53,22 @@ public sealed class V180QueryExportController(
     [HttpGet("teams.xlsx")]
     public async Task<IActionResult> Teams([FromQuery] V180SearchRequest request, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         var user = current.GetRequired();
         var rows = await GetAllAsync(page => repository.SearchTeamsAsync(user, request with { Page = page, PageSize = BatchSize }, ct), ct);
-        return Workbook("小組", request, ["小組代碼", "小組名稱", "啟用", "成員人數"],
+        return await Workbook("小組", request, ["小組代碼", "小組名稱", "啟用", "成員人數"],
             rows.Select(x => Cells(x.TeamCode, x.TeamName, x.IsActive ? "是" : "否", x.MemberCount)));
     }
 
     [HttpGet("members.xlsx")]
     public async Task<IActionResult> Members([FromQuery] V170PeopleQueryRequest request, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         if (!request.TeamId.HasValue || request.TeamId <= 0)
             return BadRequest("請先選擇小組，才能匯出該組成員。");
         request = request with { UserType = "Internal" };
         var rows = await GetAllAsync(page => people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
-        return Workbook("小組成員", request,
+        return await Workbook("小組成員", request,
             ["工號", "姓名", "角色", "人事狀態", "主要小組", "其他小組", "主要派駐據點"],
             rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName, string.Join("、", x.Roles),
                 x.EmploymentStatus, x.PrimaryTeamName,
@@ -75,9 +79,10 @@ public sealed class V180QueryExportController(
     [HttpGet("locations.xlsx")]
     public async Task<IActionResult> Locations([FromQuery] ManagedLocationQueryRequest request, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         var rows = await GetAllAsync(page => locations.SearchManagedLocationsAsync(
             request with { Page = page, PageSize = BatchSize }, ct), ct);
-        return Workbook("地點主檔", request,
+        return await Workbook("地點主檔", request,
             ["地點代碼", "名稱", "統一編號", "主檔備註", "小組", "縣市", "鄉鎮區", "地址", "Plus Code", "類型", "審核狀態", "解析狀態", "啟用"],
             rows.Select(x => Cells(x.LocationCode, x.LocationName, x.TaxId, x.MasterNote, x.TeamName,
                 x.City, x.District, x.Address, x.PlusCode, x.LocationType, x.ApprovalStatus,
@@ -87,9 +92,10 @@ public sealed class V180QueryExportController(
     [HttpGet("projects.xlsx")]
     public async Task<IActionResult> Projects([FromQuery] V180SearchRequest request, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         var user = current.GetRequired();
         var rows = await GetAllAsync(page => repository.SearchProjectsAsync(user, request with { Page = page, PageSize = BatchSize }, ct), ct);
-        return Workbook("專案", request,
+        return await Workbook("專案", request,
             ["專案代碼", "專案名稱", "歸屬小組 ID", "說明", "地點方式", "開始日", "結束日", "啟用", "固定地點數"],
             rows.Select(x => Cells(x.ProjectCode, x.ProjectName, x.TeamId, x.Description,
                 x.LocationMode, x.StartDate, x.EndDate, x.IsActive ? "是" : "否", x.LocationCount)), request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
@@ -98,12 +104,9 @@ public sealed class V180QueryExportController(
     [HttpGet("visit-types.xlsx")]
     public async Task<IActionResult> VisitTypes(CancellationToken ct)
     {
-        var rows = await master.VisitTypesAsync(ct);
-        if (rows.Count > MaxRows) throw new InvalidOperationException("結果超過 10000 筆，請聯絡管理員。");
-        return Workbook("拜訪型式", new { Scope = "全部已授權資料" },
-            ["代碼", "名稱", "說明", "排序", "啟用"],
-            rows.OrderBy(x => x.SortOrder).Select(x => Cells(x.VisitTypeCode, x.VisitTypeName,
-                x.Description, x.SortOrder, x.IsActive ? "是" : "否")));
+        await AuthorizeAdminExportAsync(ct);
+        throw new InvalidOperationException(
+            "REPORT_EXPORT_VISIT_TYPES_SCOPE_HOLD：目前主檔查詢沒有組織範圍，待確認其全域或組織歸屬後再開放匯出。");
     }
 
 
@@ -111,10 +114,11 @@ public sealed class V180QueryExportController(
     [HttpGet("centers.xlsx")]
     public async Task<IActionResult> Centers([FromQuery] string? keyword, [FromQuery] string? status, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         var rows = (await official.ListAsync("centers", ct)).OrderBy(x => x.Key).ToList();
         GuardOfficialCount(rows.Count);
         var filtered = rows.Where(x => MatchCenter(x, keyword, status));
-        return Workbook("就業中心", new { keyword, status },
+        return await Workbook("就業中心", new { keyword, status },
             ["Center Code", "就業中心名稱", "生效日", "失效日", "目前狀態"],
             filtered.Select(x => Cells(x.Key, x.Detail, x.EffectiveFrom, x.EffectiveTo, StatusOf(x))));
     }
@@ -123,12 +127,13 @@ public sealed class V180QueryExportController(
     public async Task<IActionResult> DeploymentSites([FromQuery] string? keyword, [FromQuery] string? status,
         [FromQuery] string? centerCode, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         var centers = await official.ListAsync("centers", ct);
         var centerNames = centers.ToDictionary(x => x.Key, x => x.Detail ?? x.Key);
         var sites = (await official.ListAsync("deployment-sites", ct)).OrderBy(x => x.ParentKey).ThenBy(x => x.Key).ToList();
         GuardOfficialCount(sites.Count);
         var filtered = sites.Where(x => MatchSite(x, keyword, status, centerCode, centerNames));
-        return Workbook("官方據點", new { keyword, status, centerCode },
+        return await Workbook("官方據點", new { keyword, status, centerCode },
             ["Center Code", "就業中心", "Site Code", "據點名稱", "Location Code", "生效日", "失效日", "目前狀態"],
             filtered.Select(x => Cells(x.ParentKey, centerNames.GetValueOrDefault(x.ParentKey ?? ""), x.Key,
                 x.Detail, x.ReferenceKey, x.EffectiveFrom, x.EffectiveTo, StatusOf(x))));
@@ -137,6 +142,7 @@ public sealed class V180QueryExportController(
     [HttpGet("locations-official.xlsx")]
     public async Task<IActionResult> LocationsOfficial([FromQuery] ManagedLocationQueryRequest request, CancellationToken ct)
     {
+        await AuthorizeAdminExportAsync(ct);
         var all = await GetAllAsync(page => locations.SearchManagedLocationsAsync(
             request with { Page = page, PageSize = BatchSize }, ct), ct);
         var centers = await official.ListAsync("centers", ct);
@@ -145,7 +151,7 @@ public sealed class V180QueryExportController(
         var teamCenters = await official.ListAsync("team-centers", ct);
         var teamSites = await official.ListAsync("team-sites", ct);
         foreach(var count in new[] {centers.Count,sites.Count,assignments.Count,teamCenters.Count,teamSites.Count}) GuardOfficialCount(count);
-        return WorkbookSheets("地點與官方據點整合",
+        return await WorkbookSheets("地點與官方據點整合",
             new {LocationFilters=request, OfficialCenterAndSiteScope="目前 Organization 全部已授權主檔與歷史，不受地點主檔文字篩選影響"},
         [
             new ExportSheet("地點主檔",
@@ -195,8 +201,9 @@ public sealed class V180QueryExportController(
 
     private sealed record ExportSheet(string Name, string[] Headers, IEnumerable<string[]> Rows);
 
-    private IActionResult WorkbookSheets(string title, object filters, IReadOnlyList<ExportSheet> sheets, string scopeLabel = "全組織")
+    private async Task<IActionResult> WorkbookSheets(string title, object filters, IReadOnlyList<ExportSheet> sheets, string scopeLabel = "全組織")
     {
+        var materialized = sheets.Select(x => x with { Rows = x.Rows.ToList() }).ToArray();
         using var book = new XSSFWorkbook();
         var metadata = book.CreateSheet("報表資訊");
         WriteRow(metadata,0,["報表種類",title]);
@@ -204,7 +211,8 @@ public sealed class V180QueryExportController(
         WriteRow(metadata,2,["查詢條件",JsonSerializer.Serialize(filters)]);
         WriteRow(metadata,3,["資料權限","僅組織管理員可匯出，其他角色由 API 拒絕"]);
         var line=4;
-        foreach(var data in sheets)
+        var totalRows = 0;
+        foreach(var data in materialized)
         {
             var sheet=book.CreateSheet(data.Name);
             WriteRow(sheet,0,data.Headers);
@@ -216,15 +224,22 @@ public sealed class V180QueryExportController(
             }
             sheet.CreateFreezePane(0,1);
             WriteRow(metadata,line++,[data.Name,"筆數", (row-1).ToString(CultureInfo.InvariantCulture)]);
+            totalRows += row - 1;
         }
         using var stream=new MemoryStream();
         book.Write(stream);
         var name=$"FieldVisit_{SafeName(title)}_{SafeName(scopeLabel)}_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
-        return File(stream.ToArray(),Mime,name);
+        var file = File(stream.ToArray(),Mime,name);
+        await AuthorizeAdminExportAsync(HttpContext.RequestAborted);
+        await AuditAdminExportAsync(title, totalRows, HttpContext.RequestAborted);
+        return file;
     }
 
     private static string SafeName(string raw) =>
         new string(raw.Select(x=>char.IsLetterOrDigit(x)||x=='-'||x=='_'?x:'_').Take(60).ToArray());
+
+    private Task<CurrentUserDto> AuthorizeAdminExportAsync(CancellationToken ct) =>
+        exportAuthorization.AuthorizeAsync(["admin"], "xlsx", ct);
 
 
     // Read-only multi-sheet HR report. All heavy history relations are loaded in
@@ -236,6 +251,7 @@ public sealed class V180QueryExportController(
         [FromQuery] bool includeHistory = true,
         CancellationToken ct = default)
     {
+        await AuthorizeAdminExportAsync(ct);
         request = request with { UserType = "Internal" };
         var peopleRows = await GetAllAsync(page =>
             people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
@@ -379,7 +395,7 @@ public sealed class V180QueryExportController(
                 events.Select(x => Cells(x.Kind, x.SourceId, x.EmployeeNo, x.Code, x.Detail, x.ReferenceKey,
                     x.From, x.To, x.IsPrimary, x.IsActive))));
         }
-        return WorkbookSheets("人事完整履歷",
+        return await WorkbookSheets("人事完整履歷",
             new { request, columns, includeHistory,
                 SnapshotAsOf = BusinessTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 Criteria = "總覽每人一列；快照依有效期間切分；事件與稽核各保留來源紀錄" },
@@ -482,8 +498,19 @@ public sealed class V180QueryExportController(
             _ => Convert.ToString(x, CultureInfo.InvariantCulture) ?? ""
         }).ToArray();
 
-    private IActionResult Workbook(string title, object filters, string[] headers, IEnumerable<string[]> records, string scopeLabel = "全組織")
+    private async Task<IActionResult> Workbook(string title, object filters, string[] headers, IEnumerable<string[]> records, string scopeLabel = "全組織")
     {
+        var recordRows = records.ToList();
+        var cleanTitle = SafeName(title);
+        var filename = $"FieldVisit_{cleanTitle}_{SafeName(scopeLabel)}_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
+        if (!IsLegacyExportRequested())
+        {
+            var bilingual = File(BilingualReportWorkbookWriter.Create(title, filters, headers, recordRows, MaxRows), Mime, filename);
+            await AuthorizeAdminExportAsync(HttpContext.RequestAborted);
+            await AuditAdminExportAsync(title, recordRows.Count, HttpContext.RequestAborted);
+            return bilingual;
+        }
+
         using var book = new XSSFWorkbook();
         var sheet = book.CreateSheet("查詢結果");
         var meta = book.CreateSheet("匯出資訊");
@@ -494,14 +521,43 @@ public sealed class V180QueryExportController(
         WriteRow(meta, 4, ["最大筆數", MaxRows.ToString(CultureInfo.InvariantCulture)]);
         WriteRow(sheet, 0, headers);
         var rowNumber = 1;
-        foreach (var values in records) WriteRow(sheet, rowNumber++, values);
+        foreach (var values in recordRows) WriteRow(sheet, rowNumber++, values);
         sheet.CreateFreezePane(0, 1);
         using var stream = new MemoryStream();
         WriteRow(meta, 5, ["符合查詢筆數", (rowNumber - 1).ToString(CultureInfo.InvariantCulture)]);
         book.Write(stream);
-        var cleanTitle = SafeName(title);
-        var filename = $"FieldVisit_{cleanTitle}_{SafeName(scopeLabel)}_{DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)):yyyyMMdd_HHmmss}.xlsx";
-        return File(stream.ToArray(), Mime, filename);
+        var legacy = File(stream.ToArray(), Mime, filename);
+        await AuthorizeAdminExportAsync(HttpContext.RequestAborted);
+        await AuditAdminExportAsync(title, recordRows.Count, HttpContext.RequestAborted);
+        return legacy;
+    }
+
+    private Task AuditAdminExportAsync(string title, int count, CancellationToken ct)
+    {
+        var code = title switch
+        {
+            "人事資料" => "PERSONNEL",
+            "角色與登入" => "ROLES_LOGIN",
+            "小組" => "TEAMS",
+            "小組成員" => "TEAM_MEMBERS",
+            "地點主檔" => "LOCATIONS",
+            "專案" => "PROJECTS",
+            "就業中心" => "CENTERS",
+            "官方據點" => "DEPLOYMENT_SITES",
+            "地點與官方據點整合" => "LOCATIONS_OFFICIAL_HISTORY",
+            "人事完整履歷" => "PERSONNEL_FULL_HISTORY",
+            _ => throw new InvalidOperationException("REPORT_EXPORT_AUDIT_CODE_UNKNOWN")
+        };
+        return repository.AuditReportExportAsync(current.GetRequired(), code, count, ct);
+    }
+
+    private bool IsLegacyExportRequested()
+    {
+        var query = ControllerContext?.HttpContext?.Request?.Query;
+        return query is not null
+            && query.TryGetValue("legacy", out var value)
+            && bool.TryParse(value.FirstOrDefault(), out var enabled)
+            && enabled;
     }
 
     private static void WriteRow(ISheet sheet, int rowNumber, string[] values)

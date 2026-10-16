@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 20406)
+Total output lines: 1428
+
 using System.Text.Json;
 using FieldVisit.Application;
 using FieldVisit.Domain;
@@ -686,38 +689,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         await EnsureTeamCanDeactivateAsync(teamId, ct);
         row.IsActive = false;
         row.UpdatedAt = DateTime.UtcNow;
-        AddAudit(user.UserId, "Team", teamId.ToString(), "TeamDeactivate", new { row.TeamCode, row.TeamName });
-        await db.SaveChangesAsync(ct);
-    }
-
-    public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
-    {
-        var q = db.Locations.AsNoTracking().AsQueryable();
-        q = ApplyLocationScope(q, user);
-        if (!includeInactive) q = q.Where(x => x.IsActive);
-        var rows = await q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
-        var ids = rows.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
-        var teams = await db.Teams.AsNoTracking().Where(x => ids.Contains(x.TeamId)).ToDictionaryAsync(x => x.TeamId, ct);
-        return rows.Select(x => MapManagedLocation(x, x.TeamId.HasValue && teams.TryGetValue(x.TeamId.Value, out var t) ? t.TeamName : null)).ToList();
-    }
-
-    public async Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(
-        CurrentUserDto user,
-        ManagedLocationQueryRequest request,
-        CancellationToken ct)
-    {
-        var page = Math.Max(1, request.Page);
-        var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
-        var q = ApplyLocationScope(db.Locations.AsNoTracking(), user);
-
-        if (!string.IsNullOrWhiteSpace(request.Q))
-        {
-            var keyword = request.Q.Trim();
-            q = q.Where(x =>
-                x.LocationCode != null && x.LocationCode.Contains(keyword)
-                || x.LocationName.Contains(keyword)
-                || (x.Address != null && x.Address.Contains(keyword))
-                || (x.PlusCode != null && x.PlusCode.Contains(keyword))
+        AddAudit(user.UserId, "Team", teamId.ToString(), "TeamDeactivate", new { row.TeamCode, row.…406 tokens truncated…PlusCode != null && x.PlusCode.Contains(keyword))
                 || (x.TaxId != null && x.TaxId.Contains(keyword))
                 || (x.MasterNote != null && x.MasterNote.Contains(keyword))
                 || db.TeamLocationNotes.AsNoTracking().Any(n =>
@@ -936,7 +908,17 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task AuditExportAsync(CurrentUserDto user, string format, TripQueryRequest request, int count, CancellationToken ct)
     {
-        AddAudit(user.UserId, "Report", null, "ReportExport", new { Format = format, Filters = request, Count = count });
+        // Filter keywords may contain employee, location or business data.
+        // Audit the operation and volume only; never serialize filter payloads.
+        AddAudit(user.UserId, "Report", null, "ReportExport", new { ReportCode = "TRIP_MILEAGE", Format = format, Count = count });
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task AuditReportExportAsync(CurrentUserDto user, string reportCode, int count, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(reportCode) || reportCode.Length > 50 || count < 0)
+            throw new InvalidOperationException("REPORT_EXPORT_AUDIT_INVALID");
+        AddAudit(user.UserId, "Report", null, "ReportExport", new { ReportCode = reportCode, Count = count });
         await db.SaveChangesAsync(ct);
     }
 
