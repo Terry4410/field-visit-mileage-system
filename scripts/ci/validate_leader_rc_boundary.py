@@ -1,6 +1,6 @@
 from pathlib import Path
 import subprocess
-base='7f0cf0cb55467916fb0f57239301a8787fd5cb69'
+base='b1a507c90c577fb2c0cdd6a98ef33481d3a5f790'
 changed=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
 for p in changed:
  if p.startswith(('database/','demos/')): raise SystemExit('OUT_OF_SCOPE '+p)

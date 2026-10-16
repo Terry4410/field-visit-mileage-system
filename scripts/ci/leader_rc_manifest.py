@@ -20,13 +20,13 @@ def build_manifest(root,source,ref,head,evidence,gates):
         for p in folder.rglob('*'):
             if p.is_symlink():raise ValueError('ARTIFACT_SYMLINK_DENIED')
             if p.is_file():files[str(p.relative_to(art))]=sha(p)
-    return {'contract':'leader-uat-preflight-manifest-v2','sourceSha':source,'branch':ref,'protectedBase':PROTECTED,
+    return {'contract':'leader-uat-preflight-manifest-v2','sourceSha':source,'branch':ref,'protectedBase':'b1a507c90c577fb2c0cdd6a98ef33481d3a5f790',
       'originalProtectedBase':'d691fba430ce80dd2048f84863b4628e1e6713d8','implementationSha':evidence['implementationSha'],
-      'scope':'PARTIAL_LEADER_CUSTOMER_DRAFT_ONLY','stage':'CANDIDATE_PACKAGE_BEFORE_FINAL_BROWSER_SQL_TESTS','migrationRequired':False,
+      'scope':'PARTIAL_LEADER_DRAFT_WITH_VISITOR_COMPATIBILITY','stage':'CANDIDATE_PACKAGE_BEFORE_FINAL_BROWSER_SQL_TESTS','migrationRequired':False,
       'observedPagesSourceSha':evidence['pages']['sourceSha'],'pagesProvenance':'LIVE_STAMP_OBSERVED_ARCHIVE_UNAVAILABLE',
       'deployedApiSource':'UNVERIFIED','historicalApiDeploymentSourceSha':evidence['api']['historicalSourceSha'],
       'schemaEvidence':'PROTECTED_EF_MODEL_ONLY','actualUatParity':'HOLD','referenceChain':'HOLD_MISSING_APPROVED_150_BASELINE',
-      'existingVisitorCompatibility':'HOLD_SOURCE_REGRESSIONS','rollbackArtifact':'HOLD_PRIOR_BINARY_PAIR_UNVERIFIED',
+      'existingVisitorCompatibility':'SOURCE_CONTRACT_RESTORED_RUNTIME_EVIDENCE_REQUIRED','rollbackArtifact':'HOLD_PRIOR_BINARY_PAIR_UNVERIFIED',
       'deployment':'NOT_AUTHORIZED','releaseGates':gates,'evidenceSnapshot':evidence,'files':files,
       'evidenceSnapshotSha256':sha(root/'docs/release/leader-uat010-rc/evidence/existing-uat-observations.json'),
       'releaseGatesSha256':sha(root/'docs/release/leader-uat010-rc/release-gates.json')}

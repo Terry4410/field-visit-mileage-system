@@ -11,7 +11,7 @@ class PreflightTests(unittest.TestCase):
  def tearDown(self):self.tmp.cleanup()
  def build(self,source=None,ref=None,head=None,e=None,g=None):return m.build_manifest(self.root,source or self.source,ref or m.BRANCH,head or self.source,e or self.e,g or self.g)
  def test_exact_manifest_keeps_history_distinct_from_active_source(self):
-  d=self.build();self.assertEqual('UNVERIFIED',d['deployedApiSource']);self.assertEqual('NOT_AUTHORIZED',d['deployment']);self.assertEqual('HOLD_SOURCE_REGRESSIONS',d['existingVisitorCompatibility'])
+  d=self.build();self.assertEqual('UNVERIFIED',d['deployedApiSource']);self.assertEqual('NOT_AUTHORIZED',d['deployment']);self.assertEqual('SOURCE_CONTRACT_RESTORED_RUNTIME_EVIDENCE_REQUIRED',d['existingVisitorCompatibility'])
  def test_source_branch_and_stamp_mismatch_are_denied(self):
   for args in [{'head':'b'*40},{'ref':'refs/heads/main'},{'source':'not-sha'}]:
    with self.assertRaises(ValueError):self.build(**args)

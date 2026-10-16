@@ -12,7 +12,7 @@ if request(read(api,contract))!=request(Path(contract).read_bytes()):raise Syste
 old_app=read(pages,'frontend/src/App.tsx').decode();app=Path('frontend/src/App.tsx').read_text()
 old_controller=read(api,'backend/src/FieldVisit.Api/V160FinalController.cs').decode();controller=Path('backend/src/FieldVisit.Api/V160FinalController.cs').read_text()
 findings={'visitorRouteRemoved':'path="/locations/manage"' in old_app and 'path="/locations/manage"' not in app,'visitorTeamEndpointRemoved':'managed-locations/visitor-teams' in old_controller and 'managed-locations/visitor-teams' not in controller,'createdByDtoRemoved':'CreatedByUserId' in read(api,contract).decode() and 'CreatedByUserId' not in Path(contract).read_text()}
-if not all(findings.values()):raise SystemExit('REVIEWED_SOURCE_REGRESSION_EVIDENCE_CHANGED_REAUDIT_REQUIRED')
+if any(findings.values()):raise SystemExit('VISITOR_SOURCE_REGRESSION')
 Path('artifacts').mkdir(exist_ok=True)
-Path('artifacts/source-compatibility.json').write_text(json.dumps({'state':'HOLD_SOURCE_REGRESSIONS','historicalApiSource':api,'observedPagesSource':pages,'unchangedModelAndDdlPaths':unchanged,'saveRequestUnchanged':True,'findings':findings,'actualUatParity':'HOLD'},indent=2)+'\n')
-print('MODEL_SOURCE_DIFF_CHECK_PASS; EXISTING_VISITOR_COMPATIBILITY=HOLD_SOURCE_REGRESSIONS; ACTUAL_UAT_SCHEMA_PARITY=HOLD')
+Path('artifacts/source-compatibility.json').write_text(json.dumps({'state':'SOURCE_CONTRACT_RESTORED_RUNTIME_EVIDENCE_REQUIRED','historicalApiSource':api,'observedPagesSource':pages,'unchangedModelAndDdlPaths':unchanged,'saveRequestUnchanged':True,'findings':findings,'actualUatParity':'HOLD'},indent=2)+'\n')
+print('MODEL_SOURCE_DIFF_CHECK_PASS; EXISTING_VISITOR_COMPATIBILITY=SOURCE_CONTRACT_RESTORED_RUNTIME_EVIDENCE_REQUIRED; ACTUAL_UAT_SCHEMA_PARITY=HOLD')

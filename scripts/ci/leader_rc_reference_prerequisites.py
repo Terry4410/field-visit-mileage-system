@@ -1,7 +1,7 @@
 """Inventory true protected chain prerequisites; never infer fidelity from EF."""
 import hashlib,json,os
 from pathlib import Path
-protected='7f0cf0cb55467916fb0f57239301a8787fd5cb69'
+protected='b1a507c90c577fb2c0cdd6a98ef33481d3a5f790'
 migrations=sorted(p for p in Path('database/migrations').iterdir() if p.name.startswith(('1600_','1700_','1800_')) and p.is_dir())
 entries=[]
 for p in migrations:

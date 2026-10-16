@@ -16,7 +16,7 @@ Import-Module SqlServer -RequiredVersion 22.4.5.1
 $root=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($env:LEADER_RC_SQL_CONNECTION)
 if($root.DataSource -notin @('localhost,1433','127.0.0.1,1433') -or $root.InitialCatalog -ne 'master' -or $root.UserID -ne 'sa'){throw 'REFERENCE_NONLOCAL_TARGET_DENIED'}
 $plan=Get-Content artifacts/reference-prerequisites.json -Raw|ConvertFrom-Json
-if($plan.protectedBase -ne '7f0cf0cb55467916fb0f57239301a8787fd5cb69'){throw 'REFERENCE_PROTECTED_PIN_MISMATCH'}
+if($plan.protectedBase -ne 'b1a507c90c577fb2c0cdd6a98ef33481d3a5f790'){throw 'REFERENCE_PROTECTED_PIN_MISMATCH'}
 foreach($entry in $plan.migrationFiles){if((Get-FileHash -LiteralPath $entry.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256){throw 'REFERENCE_MIGRATION_HASH_MISMATCH'}}
 $db='LeaderRcReference_'+[guid]::NewGuid().ToString('N')
 function Execute([string]$sql,[string]$catalog){
