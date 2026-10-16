@@ -141,8 +141,7 @@ public sealed class V180QueryExportTests
         Assert.NotNull(business.GetRow(1).GetCell(0).CellStyle);
         using var packageStream = new MemoryStream();
         book.Write(packageStream);
-        packageStream.Position = 0;
-        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+        using var archive = new ZipArchive(new MemoryStream(packageStream.ToArray()), ZipArchiveMode.Read);
         using var worksheet = new StreamReader(archive.GetEntry("xl/worksheets/sheet1.xml")!.Open());
         Assert.Contains("autoFilter", worksheet.ReadToEnd());
         Assert.Contains("Teams.TeamCode", book.GetSheet("欄位對照表").GetRow(1).GetCell(2).StringCellValue);
