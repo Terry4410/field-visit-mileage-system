@@ -84,6 +84,31 @@ public sealed class V180MileageApprovalGovernanceTests
     }
 
     [Fact]
+    public void Provider_failures_use_allowlisted_codes_and_never_persist_provider_text()
+    {
+        var hostile = "SQL 1205 token=abc SSN=123-45-6789 customer@example.com";
+        var sanitized = V180MileageGovernanceRules.SanitizeProviderFailure(
+            "PROVIDER_DEFINED_FAILURE", hostile);
+
+        Assert.Equal("PROVIDER_FAILURE", sanitized.Code);
+        Assert.Equal("PROVIDER_FAILURE", sanitized.Message);
+        Assert.DoesNotContain("1205", sanitized.Message);
+        Assert.DoesNotContain("abc", sanitized.Message);
+        Assert.DoesNotContain("123-45-6789", sanitized.Message);
+        Assert.DoesNotContain("customer@example.com", sanitized.Message);
+    }
+
+    [Fact]
+    public void Background_job_rechecks_authoritative_success_before_applying_provider_result()
+    {
+        var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
+        Assert.Contains("IsAuthoritativeCurrentRouteAttempt", source);
+        Assert.Contains("MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS", source);
+        Assert.Contains("googleResult?.RouteCalculationAttemptId != authoritativeSuccess.RouteCalculationAttemptId", source);
+        Assert.Contains("IsolationLevel.Serializable", source);
+    }
+
+    [Fact]
     public void Retry_evidence_is_current_route_only_and_any_current_success_blocks_it()
     {
         var snapshot = new VisitTripSnapshot

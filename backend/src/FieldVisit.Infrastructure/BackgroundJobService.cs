@@ -280,6 +280,33 @@ public sealed class BackgroundJobService(
                     || trip.MileageCalculation?.SystemDistanceKm is not null)
                     throw new UnauthorizedAccessException("MILEAGE_JOB_POST_PROVIDER_STATE_STALE：即時授權、Submitted 路線或里程狀態已改變，拒絕套用結果。");
 
+                // A competing worker may have completed the same current route
+                // while this worker was in provider I/O. Resolve under the same
+                // serializable transaction; an existing successful attempt wins,
+                // except when it is this worker's own attempt.
+                var submittedSnapshot = await db.VisitTripSnapshots.AsNoTracking()
+                    .Include(x => x.Stops)
+                    .SingleAsync(x => x.VisitTripSnapshotId == submittedSnapshotId, ct);
+                var authoritativeSuccess = (await db.RouteCalculationAttempts.AsNoTracking()
+                    .Where(x => x.VisitTripId == tripId && x.Status == "Succeeded")
+                    .ToListAsync(ct))
+                    .Where(x => V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(x, submittedSnapshot))
+                    .OrderBy(x => x.CompletedAt ?? x.RequestedAt)
+                    .ThenBy(x => x.RouteCalculationAttemptId)
+                    .FirstOrDefault();
+                if (authoritativeSuccess is not null
+                    && (!useGoogleRoutes || googleResult?.RouteCalculationAttemptId != authoritativeSuccess.RouteCalculationAttemptId))
+                {
+                    durableItem.Status = "Failed";
+                    durableItem.ErrorCode = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
+                    durableItem.ErrorMessage = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
+                    durableItem.CompletedAt = DateTime.UtcNow;
+                    durableJob.FailedCount++;
+                    await db.SaveChangesAsync(ct);
+                    await resultTransaction.CommitAsync(ct);
+                    continue;
+                }
+
                 var calc = trip.MileageCalculation;
                 if (calc is null)
                 {
@@ -375,8 +402,10 @@ public sealed class BackgroundJobService(
                     });
 
                     durableItem.Status = "Failed";
-                    durableItem.ErrorCode = googleResult?.ErrorCode ?? "GOOGLE_ROUTE_FAILED";
-                    durableItem.ErrorMessage = googleResult?.ErrorMessage ?? trip.ReturnReason;
+                    var safeProviderFailure = V180MileageGovernanceRules.SanitizeProviderFailure(
+                        googleResult?.ErrorCode ?? "GOOGLE_ROUTE_FAILED", googleResult?.ErrorMessage);
+                    durableItem.ErrorCode = safeProviderFailure.Code;
+                    durableItem.ErrorMessage = safeProviderFailure.Message;
                     durableJob.FailedCount++;
                 }
                 else

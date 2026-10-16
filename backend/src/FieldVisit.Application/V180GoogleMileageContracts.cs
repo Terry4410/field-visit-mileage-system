@@ -188,9 +188,21 @@ public static class V180MileageGovernanceRules
 
     public static (string Code, string? Message) SanitizeProviderFailure(string? code, string? message)
     {
-        var normalizedCode = Sanitize(code, 100, "PROVIDER_FAILURE", allowSpaces: false);
-        var normalizedMessage = Sanitize(message, 1000, "Provider operation failed.", allowSpaces: true);
-        return (normalizedCode, normalizedMessage);
+        // Provider text is untrusted. Persist and expose only fixed diagnostic
+        // codes; raw provider messages belong in protected telemetry only.
+        var normalized = (code ?? string.Empty).Trim().ToUpperInvariant();
+        var safeCode = normalized switch
+        {
+            "PROVIDER_CANCELLED" => "PROVIDER_CANCELLED",
+            "PROVIDER_TIMEOUT" => "PROVIDER_TIMEOUT",
+            "PROVIDER_UNAVAILABLE" => "PROVIDER_UNAVAILABLE",
+            "PROVIDER_AUTH_FAILED" => "PROVIDER_AUTH_FAILED",
+            "PROVIDER_INVALID_RESULT" => "PROVIDER_INVALID_RESULT",
+            "PROVIDER_EXCEPTION" => "PROVIDER_EXCEPTION",
+            "GOOGLE_ROUTE_FAILED" => "GOOGLE_ROUTE_FAILED",
+            _ => "PROVIDER_FAILURE"
+        };
+        return (safeCode, safeCode);
     }
 
     public static void EnsureCurrentGeocodingSelection(Location location, GeocodingAttempt attempt)
@@ -205,19 +217,6 @@ public static class V180MileageGovernanceRules
                 "F_B_GEOCODING_ATTEMPT_STALE：geocoding attempt 不符合目前 F-ADDR-v1 basis。");
     }
 
-    private static string Sanitize(string? value, int maxLength, string fallback, bool allowSpaces)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return fallback;
-        var builder = new StringBuilder(Math.Min(value.Length, maxLength));
-        foreach (var ch in value.Trim())
-        {
-            if (builder.Length >= maxLength) break;
-            if (char.IsLetterOrDigit(ch) || ch is '_' or '-' or '.' || (allowSpaces && char.IsWhiteSpace(ch)))
-                builder.Append(char.IsWhiteSpace(ch) ? ' ' : ch);
-        }
-        var result = builder.ToString().Trim();
-        return result.Length == 0 ? fallback : result;
-    }
 }
 
 public static class V180MileageCanonicalization
