@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Data.SqlClient;
@@ -362,6 +363,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     var connection = (SqlConnection)db.Database.GetDbConnection();
                     await db.Database.OpenConnectionAsync();
                     await using var spidCommand = new SqlCommand("SELECT @@SPID", connection);
+                    spidCommand.Transaction = (SqlTransaction)revokeTransaction.GetDbTransaction();
                     var blockerSpid = Convert.ToInt32(await spidCommand.ExecuteScalarAsync());
                     var racedApproval = leader.PostAsJsonAsync(
                         $"api/v1/trips/{created.VisitTripId}/approve", approve);
@@ -640,7 +642,6 @@ public sealed class V180TripMileageHttpSqlE2ETests
             var calculation = await db.MileageCalculations.SingleAsync(x => x.VisitTripId == created.VisitTripId);
             calculation.CalculationSource = null;
             calculation.SelectedRouteCalculationAttemptId = null;
-            calculation.SystemDistanceKm = null;
             await db.SaveChangesAsync();
             attemptsBeforeApproval = await db.RouteCalculationAttempts.CountAsync(x => x.VisitTripId == created.VisitTripId);
 

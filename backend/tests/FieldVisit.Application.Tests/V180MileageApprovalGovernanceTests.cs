@@ -90,6 +90,17 @@ public sealed class V180MileageApprovalGovernanceTests
             Status = "Failed"
         };
         Assert.True(V180MileageCanonicalization.HasRetryEvidence(snapshot, [failed]));
+        var unverifiedProviderClaim = new RouteCalculationAttempt
+        {
+            VisitTripId = failed.VisitTripId,
+            BasisType = failed.BasisType,
+            BasisVisitTripSnapshotId = failed.BasisVisitTripSnapshotId,
+            RequestedVehicleType = failed.RequestedVehicleType,
+            TravelMode = failed.TravelMode,
+            RequestBasisHash = hash,
+            Status = "Failed"
+        };
+        Assert.False(V180MileageCanonicalization.HasRetryEvidence(snapshot, [unverifiedProviderClaim]));
         var currentSuccess = new RouteCalculationAttempt
         {
             VisitTripId = 10,
@@ -105,6 +116,7 @@ public sealed class V180MileageApprovalGovernanceTests
         var staleFailure = new RouteCalculationAttempt
         {
             VisitTripId = failed.VisitTripId,
+            Provider = failed.Provider,
             BasisType = failed.BasisType,
             BasisVisitTripSnapshotId = failed.BasisVisitTripSnapshotId,
             RequestedVehicleType = failed.RequestedVehicleType,

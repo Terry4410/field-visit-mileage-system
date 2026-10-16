@@ -169,12 +169,9 @@ public sealed class TripService(
         var previousAttemptId = calc.SelectedRouteCalculationAttemptId;
         RouteCalculationAttempt? reusableAttempt = null;
         if (!authorityChanged
-            && previousAttemptId.HasValue
             && routeContext is not null
             && mileageGovernance is not null)
         {
-            var latestSuccessful = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
-                trip.VisitTripId, null, ct);
             var start = V180TripPersistenceRules.ResolveStartSite(routeContext, trip.StartDeploymentSiteId);
             var end = V180TripPersistenceRules.ResolveEndSite(routeContext, trip.EndDeploymentSiteId);
             var currentRouteHash = V180MileageCanonicalization.HashRoute(
@@ -182,10 +179,13 @@ public sealed class TripService(
                     trip,
                     new V180DeploymentSiteBasis(start.SiteCode, start.Address),
                     new V180DeploymentSiteBasis(end.SiteCode, end.Address)));
-            if (latestSuccessful is { BasisType: "Draft", Status: "Succeeded" }
-                && latestSuccessful.RouteCalculationAttemptId == previousAttemptId.Value
-                && latestSuccessful.RequestBasisHash.SequenceEqual(currentRouteHash))
-                reusableAttempt = latestSuccessful;
+            var routeAttempts = await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            reusableAttempt = routeAttempts.FirstOrDefault(attempt =>
+                attempt.BasisType == "Draft"
+                && attempt.Status == "Succeeded"
+                && attempt.RequestBasisHash.SequenceEqual(currentRouteHash));
+            if (reusableAttempt is not null && calc.SystemDistanceKm is not > 0)
+                reusableAttempt = null;
         }
 
         calc.ClaimedDistanceKm = request.ClaimedDistanceKm;
@@ -200,6 +200,12 @@ public sealed class TripService(
             calc.SystemDistanceKm = null;
             calc.CalculationSource = null;
             calc.CalculatedAt = null;
+        }
+        else
+        {
+            calc.SelectedRouteCalculationAttemptId = reusableAttempt.RouteCalculationAttemptId;
+            calc.CalculationSource = "GoogleMapsAPI";
+            calc.CalculatedAt ??= reusableAttempt.CompletedAt;
         }
         calc.UpdatedAt = DateTime.UtcNow;
 
