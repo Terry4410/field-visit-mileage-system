@@ -6,13 +6,13 @@ import{Link}from"react-router-dom";
 import{todayTaipei}from"../v160";
 import{OPTIONC_APPROVAL_UI_ENABLED,OPTIONC_DIRECT_LOWRISK_UI_ENABLED}from"../optionc-approval-flags";
 
-type Props={locationId:number;teamId?:number;onClose:()=>void;onChanged?:()=>void};
+type Props={locationId:number;teamId?:number;onClose:()=>void;onChanged?:()=>void;lowRiskOnly?:boolean};
 
 const SUSPECTED="疑似重複，待管理者人工覆核";
 export const eligibleOfficialCentersForDate=(rows:MasterDataRow[],date:string)=>
   rows.filter(x=>x.isActive!==false&&x.effectiveFrom<=date&&(!x.effectiveTo||date<=x.effectiveTo));
 
-export default function LocationMaintenanceModal({locationId,teamId,onClose,onChanged}:Props){
+export default function LocationMaintenanceModal({locationId,teamId,onClose,onChanged,lowRiskOnly=false}:Props){
   const{user}=useAuth();
   const isAdmin=!!user?.roles.some(r=>r.toLowerCase()==="admin");
   const[data,setData]=useState<LocationMaintenance|null>(null);
@@ -96,6 +96,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
         ||plus.trim()!==(data.plusCode||"")
         ||taxId.trim()!==(data.taxId||"");
       const noteChanged=(masterNote.trim()||"")!==(data.masterNote||"");
+      if(lowRiskOnly&&!noteChanged){setMsg("主檔備註沒有變更。");return;}
       if(OPTIONC_DIRECT_LOWRISK_UI_ENABLED&&noteChanged&&!identityChanged){
         await api(`/optionc-candidate/locations/${locationId}/low-risk-direct`,{
           method:"POST",body:JSON.stringify({expectedRowVersion:data.rowVersion,
@@ -148,14 +149,17 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
     {data.duplicateReason===SUSPECTED&&<div className="note danger-note" style={{marginTop:10}}>系統已自動標記疑似重複；完成管理者人工覆核前不可發布為正式可用地點。</div>}
     {msg&&<div className="note" style={{marginTop:10}}>{msg}</div>}
 
+    {lowRiskOnly&&<div className="note">小組長僅可透過已授權的 Option C LowRisk 路徑更新主檔備註；地址、名稱、統編與其他識別欄位不在此入口修改。</div>}
     <div className="grid cols-2" style={{marginTop:14}}>
+      {!lowRiskOnly&&<>
       <div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮／區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div>
       <div className="field span-2"><label>地址</label><input value={address} onChange={e=>setAddress(e.target.value)}/></div><div className="field"><label>Plus Code</label><input value={plus} onChange={e=>setPlus(e.target.value)}/></div>
-      <div className="field"><label>統一編號</label><input value={taxId} onChange={e=>setTaxId(e.target.value)} maxLength={20}/></div><div className="field span-2"><label>主檔備註</label><textarea value={masterNote} onChange={e=>setMasterNote(e.target.value)} maxLength={1000}/></div>
+      <div className="field"><label>統一編號</label><input value={taxId} onChange={e=>setTaxId(e.target.value)} maxLength={20}/></div></>}
+      <div className="field span-2"><label>主檔備註</label><textarea value={masterNote} onChange={e=>setMasterNote(e.target.value)} maxLength={1000}/></div>
     </div>
-    <div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save()}>儲存地點資料</button></div>
+    <div className="actions"><button className="btn ok" disabled={busy||(lowRiskOnly&&!OPTIONC_DIRECT_LOWRISK_UI_ENABLED)} onClick={()=>void save()}>{lowRiskOnly?"儲存 LowRisk 主檔備註":"儲存地點資料"}</button></div>
 
-    {isAdmin&&<><hr/>
+    {isAdmin&&!lowRiskOnly&&<><hr/>
       <div className="section-title"><div><h4>官方據點</h4><div className="sub">Location-first：地點完成解析／發布後，只需在這裡指定所屬中心；Site Code 由系統自動產生。</div></div></div>
       {officialSite===null?<div className="note">官方據點狀態載入中…</div>:
        officialSite.isOfficialSite?
@@ -179,7 +183,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
        </>}
     </>}
 
-    <hr/><h4>地點備註</h4>
+    {!lowRiskOnly&&<><hr/><h4>地點備註</h4>
     {!effectiveTeamId&&isAdmin&&<div className="field"><label>備註所屬小組</label><select value={activeTeamId||""} onChange={e=>setActiveTeamId(e.target.value?Number(e.target.value):undefined)}><option value="">請選擇</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div>}
     <div className="field"><label>新增備註</label><textarea value={note} onChange={e=>setNote(e.target.value)} maxLength={1000}/></div><div className="field"><label>異動原因（選填）</label><input value={noteReason} onChange={e=>setNoteReason(e.target.value)}/></div>
     <button className="btn secondary" disabled={busy||!canAddNote} onClick={()=>void addNote()}>新增備註</button>
@@ -187,6 +191,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
 
     <hr/><h4>地址／主檔異動歷史</h4>
     <div className="route-list">{audits.map(a=><div className="route-item" key={a.auditLogId}><div><strong>{a.changedBy||"系統"}｜{a.action}</strong><div className="sub">{new Date(a.changedAt).toLocaleString("zh-TW")}{a.sourceLocationId&&a.sourceLocationId!==data.locationId?`｜原始地點：${a.sourceLocationName||a.sourceLocationId}`:""}</div><details><summary>查看異動內容</summary><pre style={{whiteSpace:"pre-wrap"}}>{a.oldValues||"—"}{"\n→\n"}{a.newValues||"—"}</pre></details></div></div>)}{!audits.length&&<div className="empty compact-empty">尚無地址／主檔異動歷史。</div>}</div>
+    </>}
 
     {isAdmin&&data.duplicateReason===SUSPECTED&&<><hr/><div className="section-title"><div><h4>疑似重複人工覆核</h4><div className="sub">此地點已被標記為疑似重複。覆核、沿用與合併統一在「疑似重複覆核」分頁處理，避免同一責任有兩個維護入口。</div></div><Link className="btn small secondary" to="/admin/locations/duplicates" onClick={onClose}>前往疑似重複覆核</Link></div></>}
   </div></div>;

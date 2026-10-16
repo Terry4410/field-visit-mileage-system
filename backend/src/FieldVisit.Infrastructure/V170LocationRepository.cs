@@ -1079,11 +1079,14 @@ public sealed class V170LocationRepository(
         var preview=await PreviewMergeAsync(admin,sourceLocationId,request.SurvivorLocationId,ct);
         if(!preview.CanMerge)throw new InvalidOperationException(preview.BlockingReason??"此地點目前不可合併。");
 
+        var published=await db.Locations.AsNoTracking().AnyAsync(x=>
+            (x.LocationId==sourceLocationId||x.LocationId==request.SurvivorLocationId)
+            &&!x.IsTemporary&&x.ApprovalStatus=="Approved",ct);
+        if(published&&request.Mode=="UseExisting")
+            throw new InvalidOperationException("LOCATION_PUBLISHED_USE_EXISTING_REQUIRES_CANONICAL_REVIEW");
+
         if(request.Mode=="MergeFields")
         {
-            var published=await db.Locations.AsNoTracking().AnyAsync(x=>
-                (x.LocationId==sourceLocationId||x.LocationId==request.SurvivorLocationId)
-                &&!x.IsTemporary&&x.ApprovalStatus=="Approved",ct);
             V180OptionCLocationMaintenanceRisk.RequireApprovalForPublishedHighRiskChange(
                 published,hasHighRiskChange:true);
         }

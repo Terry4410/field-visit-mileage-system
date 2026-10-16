@@ -55,3 +55,52 @@ Staging automated-test result: **PASS** at exact SHA `5ffc9fca5967e559be8b1bc3cd
 Protected/UAT deployed: **0 PASS / 26 HOLD**.
 Owner real UAT verified: **0 PASS / 26 HOLD**.
 The implementation and isolated CI evidence will be reported separately from the UAT gate.
+
+## AUDIT 30 independent requirement reconciliation — R9 delta
+
+The independent audit contains 30 frozen rows; the 26-row R8 engineering trace above is retained as prior evidence and is not the full acceptance set. **Isolated PASS** means only the named nonzero automated test on Staging passed. **HOLD** means Protected/UAT behavior is unverified. **FAIL→Staging fix** records a defect corrected in this branch; it does not imply UAT acceptance.
+
+| Audit ID | Frozen requirement | Audit baseline | R9 Staging delta | Isolated evidence | Protected / UAT gate |
+|---:|---|---|---|---|---|
+| 01 | Visitor Create Customer Location | HOLD | No change | No new row-specific evidence | HOLD |
+| 02 | Visitor edit own draft | HOLD | No change | No new row-specific evidence | HOLD |
+| 03 | Leader single-create Customer Location | R7 audit FAIL; independently verified corrected in R8 | No R9 change | Real HTTP/SQL isolated PASS at R8 SHA | HOLD |
+| 04 | Leader edit managed-team draft, including other creator | R7 audit FAIL; independently verified corrected in R8 | No R9 change | Real HTTP/SQL isolated PASS at R8 SHA | HOLD |
+| 05 | Leader / Visitor field parity | R7 audit FAIL; independently verified corrected in R8 | No R9 change | Frontend isolated PASS at R8 SHA | HOLD |
+| 06 | Visitor published LowRisk maintenance | HOLD | No change | No new row-specific evidence | HOLD |
+| 07 | Leader published LowRisk maintenance entry | FAIL | Added managed-team/approved-active Customer entry; only MasterNote editor uses Option C direct route; UI gate remains OFF | R9 targeted eligibility/flag-off UI tests added; final Exact-SHA workflow result reported with delivery | HOLD |
+| 08 | Published HighRisk change submits for review | HOLD | No change | No new row-specific evidence | HOLD |
+| 09 | Legacy direct PUT cannot mutate published location | R7 audit FAIL; independently verified corrected in R8 | No R9 change | Real HTTP/SQL isolated PASS at R8 SHA | HOLD |
+| 10 | Leader review / reject | HOLD | No change | No new row-specific evidence | HOLD |
+| 11 | Independent Admin review / publication | HOLD | No change | No new row-specific evidence | HOLD |
+| 12 | Admin location maintenance | HOLD | No change | No new row-specific evidence | HOLD |
+| 13 | Excel Create uses canonical submission | HOLD | Existing candidate contract retained | Prior full-chain HTTP/SQL evidence; no new R9 claim | HOLD |
+| 14 | Excel published Update uses canonical submission | HOLD | Existing candidate contract retained | Prior full-chain HTTP/SQL evidence; no new R9 claim | HOLD |
+| 15 | Leader Excel entry uses canonical review, not legacy confirm | FAIL | Replaced legacy confirm UI with review-only panel; Excel Create/Update submit controls remain independently flag-gated | Targeted front-end review-only negative test added; final Exact-SHA workflow result reported with delivery | HOLD |
+| 16 | Excel mixed/invalid/retry protection | HOLD | No change | Prior candidate validators and SQL tests; no new R9 claim | HOLD |
+| 17 | Admin duplicate-location three actions | HOLD | No change | No new row-specific evidence | HOLD |
+| 18 | Published duplicate merge must be guarded | FAIL | Published `UseExisting` throws `LOCATION_PUBLISHED_USE_EXISTING_REQUIRES_CANONICAL_REVIEW` before transaction/mutation | Real disposable SQL/HTTP negative added; final Exact-SHA workflow result reported with delivery | HOLD |
+| 19 | Pending / Abandoned locations excluded from trips | HOLD | No change | No new row-specific evidence | HOLD |
+| 20 | Historical Trip / Snapshot references are not rewritten | HOLD | No change | Existing disposable fingerprint tests; no new R9 claim | HOLD |
+| 21 | HR / role / team revocation stops writes | HOLD | No change | No new row-specific evidence | HOLD |
+| 22 | Admin full personnel Excel includes complete history | FAIL | People page now routes to `personnel-full.xlsx`, carrying applied query filters | Frontend route test added; existing endpoint workbook tests are not relabeled as new evidence; final Exact-SHA workflow result reported with delivery | HOLD |
+| 23 | Admin roles / login Excel | HOLD | No change | No new row-specific evidence | HOLD |
+| 24 | Admin teams / members Excel | HOLD | No change | No new row-specific evidence | HOLD |
+| 25 | Admin locations / projects / visit-type Excel | HOLD | No change | No new row-specific evidence | HOLD |
+| 26 | HR status lockout | HOLD | No change | No new row-specific evidence | HOLD |
+| 27 | Leader trip individual / batch mileage review | HOLD | No change | No new row-specific evidence | HOLD |
+| 28 | Admin allowance rate effective-date rules | HOLD | No change | No new row-specific evidence | HOLD |
+| 29 | Admin corrections / history | HOLD | No change | No new row-specific evidence | HOLD |
+| 30 | Three roles have correct limited login / navigation | Limited PASS (navigation only) | No change | Owner visual evidence only | HOLD for end-to-end UAT acceptance |
+
+### R9 evidence classification
+
+- R8 tests are historical evidence tied to their original SHA/CI; they do not prove the four R9 deltas.
+- The personnel full workbook route is covered by the existing Admin-authorized controller and keeps applied filters. This UI change does not broaden export permission.
+- The Leader LowRisk entry is limited to an active, approved, non-temporary Customer in a currently managed team. It cannot edit name, address, Plus Code, or Tax ID. Its UI gate remains disabled by default; no flag was activated.
+- Published `UseExisting` remains fail closed until there is an independently reviewed canonical merge writer. Trip and snapshot references remain untouched.
+- No Protected branch, real UAT database, deployment, restore, release flag, or PR state was changed.
+
+### Tally correction
+
+The original R8 tally of 26 rows applies only to the R8 engineering trace above. The frozen AUDIT set has 30 rows and is reconciled here. Do not reuse R8 SHA/CI as evidence for R9. Final SHA/CI evidence for the R9 changes is recorded in the commit and delivery report after the exact-SHA workflow completes. Protected/UAT deployed and Owner runtime verified remain **0 PASS / 30 HOLD** until separately authorized release/runtime evidence exists.

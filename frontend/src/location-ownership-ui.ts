@@ -11,6 +11,13 @@ export const mayEditLeaderManagedDraft = (
   teamIds: readonly number[] | undefined
 ) => !!row.teamId && !!teamIds?.includes(row.teamId) && isEditableDraft(row);
 
+export const mayMaintainLeaderPublishedLowRisk = (
+  row: ManagedLocation,
+  teamIds: readonly number[] | undefined
+) => !!row.teamId && !!teamIds?.includes(row.teamId)
+  && row.locationType === "Customer" && row.approvalStatus === "Approved"
+  && row.isActive && !row.isTemporary;
+
 export const mayEditScopedDraft = (
   row: ManagedLocation,
   user: {userId:number;teamScopes?:{teamId:number;teamName:string;isPrimary:boolean}[]} | null,
