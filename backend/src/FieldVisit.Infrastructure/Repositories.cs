@@ -7,6 +7,12 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class UserRepository(AppDbContext db) : IUserRepository
 {
+    public Task<bool?> GetIsActiveAsync(int userId, CancellationToken ct) =>
+        db.Users.AsNoTracking()
+            .Where(x => x.UserId == userId)
+            .Select(x => (bool?)x.IsActive)
+            .FirstOrDefaultAsync(ct);
+
     public Task<User?> FindByAccountAsync(
         string account,
         CancellationToken ct) =>
