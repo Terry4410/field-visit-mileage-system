@@ -27,9 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Isolated contract and negative security tests
-        run: python3 -m unittest discover -s scripts/control_tower -p 'test_*.py' -v
+        env:
+          HUB_TEST_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/control_tower/validate.py --output hub-validation
+      - name: Publish exact-source validation evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: control-tower-validation
+          path: hub-validation/validation.json
+          if-no-files-found: error
+          retention-days: 30
   aggregate:
     needs: validate
     if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/control-tower-hub-20261016' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')

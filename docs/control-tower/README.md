@@ -19,6 +19,8 @@ The collector reads fixed GitHub sources and exact-head Actions runs, then scans
 
 Every valid current handoff must bind all CI IDs to successful runs on its exact source SHA. Every pure SHA-256 Evidence value must equal an **unexpired GitHub artifact's registered archive digest** from one of those CI runs, with matching artifact head SHA. Missing metadata/digest, expiry, mismatched run or hash means INVALID/HOLD. This verifies GitHub metadata provenance, not artifact semantics or byte contents. An independent audit must still download, hash and inspect the evidence. CI success does not prove requirement compliance, deployed UAT or Business UAT.
 
+Exact-head validation runs publish a separate `control-tower-validation` artifact. A WORK_D handoff can cite the completed PR validation run while the read-only collector refreshes in a different push run; it must not cite its own in-progress run as successful evidence.
+
 The report contains current refs, CI IDs/attempts/status, safe acceptance codes, authorization, artifacts, schema hash, source commit/PR/comment timestamps, collector SHA/run and collection timestamp. No PR titles/bodies, raw comment text, actor/employee/business data, SQL text, log excerpts, tokens or exception strings enter artifacts. Invalid records contain only numeric comment IDs, recognized lane/sequence and fixed diagnostics. Source and handoff stream are re-read after collection; movement fails closed. API errors are generic HOLD messages.
 
 ## Historical invalid handoff — preserved, not normalized
