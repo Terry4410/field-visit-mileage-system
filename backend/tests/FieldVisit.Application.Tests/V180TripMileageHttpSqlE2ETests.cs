@@ -187,6 +187,17 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     ?? throw new InvalidOperationException("OPTIONC_TRIP_CALCULATION_RESPONSE_MISSING");
                 Assert.Equal(1, calculation.Success);
 
+                var attemptCountBeforeStaleSelection = await db.RouteCalculationAttempts
+                    .CountAsync(x => x.VisitTripId == created.VisitTripId);
+                using var staleSelection = await leader.PostAsJsonAsync(
+                    "api/v1/leader/trips/calculate",
+                    new MileageBatchRequest("Selected", null, null, [created.VisitTripId, long.MaxValue]));
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, staleSelection.StatusCode);
+                Assert.Contains("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED",
+                    await staleSelection.Content.ReadAsStringAsync());
+                Assert.Equal(attemptCountBeforeStaleSelection, await db.RouteCalculationAttempts
+                    .CountAsync(x => x.VisitTripId == created.VisitTripId));
+
                 var pendingApproval = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
                     ?? throw new InvalidOperationException("OPTIONC_TRIP_PENDING_APPROVAL_RESPONSE_MISSING");
                 Assert.Equal("PendingApproval", pendingApproval.Status);

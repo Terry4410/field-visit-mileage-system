@@ -114,6 +114,14 @@ The independent audit contains 30 frozen rows; the 26-row R8 engineering trace a
 
 The original R9 CI evidence above remains historical and does not validate this feedback delta. No UAT PASS is claimed for this batch.
 
+### Owner runtime audit 6211550638 / 6211568211 — retry queue delta
+
+| Audit rows | Staging correction | Verification | Disposition |
+|---|---|---|---|
+| A6–A7 | Separate date-scoped Google Maps recalculation candidates from the all-date `PendingApproval` decision queue. Date filtering is inclusive over the API's `DateOnly` values; invalid ranges disable submission. Selection state is pruned when a selected row leaves the candidate set. The server rejects duplicate, stale, no-longer-calculable, and unauthorized Selected IDs before calculating any row. | Frontend queue partition/date-boundary unit test; disposable HTTP/SQL test asserts a stale Selected batch returns 422 and adds no route attempt. | Staging code/test PASS when Exact-SHA CI completes; Protected/UAT and real-browser evidence HOLD. |
+
+The audit's other rows remain separately gated. Trip endpoint date-effective HR SQL assertions, full fallback/return/resubmit and LeaderAdjusted audit lifecycle, concurrency negatives, and actual UAT 010 parity are not inferred from this retry-queue correction.
+
 ### Tally correction
 
 The original R8 tally of 26 rows applies only to the R8 engineering trace above. The frozen AUDIT set has 30 rows and is reconciled here. Do not reuse R8 SHA/CI as evidence for R9. R9 implementation evidence at `fbac09e1798a009ad5642856f575f834051f66d9` is Exact-SHA CI `38844433349` **SUCCESS**: backend 765/765, frontend 115/115, API-mocked Playwright 3/3, disposable Historical fingerprint PASS, Option C HTTP/DI/SQL PASS, and canonical 011/012/014/015–020 rehearsal PASS. This verifies the implementation in disposable CI only; synthetic 010 remains non-equivalent to the UAT catalog. Protected/UAT deployed and Owner runtime verified remain **0 PASS / 30 HOLD** until separately authorized release/runtime evidence exists.

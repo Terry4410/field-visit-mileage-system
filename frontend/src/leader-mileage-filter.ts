@@ -12,7 +12,15 @@ export function filterLeaderMileageRowsByDate<T extends Pick<Trip,"visitDate"|"s
   rows:T[], mode:string, start:string, end:string
 ):T[]{
   if(mode!=="DateRange")return rows;
-  return rows.filter(row=>row.status==="PendingApproval"||(
-    (!start||row.visitDate>=start)&&(!end||row.visitDate<=end)
-  ));
+  return rows.filter(row=>(!start||row.visitDate>=start)&&(!end||row.visitDate<=end));
+}
+
+export function partitionLeaderMileageQueues<T extends Pick<Trip,"visitDate"|"status">>(
+  rows:T[], mode:string, start:string, end:string
+):{retryCandidates:T[];approvalQueue:T[]}{
+  return {
+    retryCandidates:filterLeaderMileageRowsByDate(rows,mode,start,end)
+      .filter(row=>row.status!=="PendingApproval"),
+    approvalQueue:rows.filter(row=>row.status==="PendingApproval")
+  };
 }

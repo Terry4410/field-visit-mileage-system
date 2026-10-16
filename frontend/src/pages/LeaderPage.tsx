@@ -12,7 +12,7 @@ import type{BackgroundJob,CorrectionRequest,DashboardSummary,ManagedLocation,Tea
 import{km,money,monthStart,todayTaipei}from"../v160";
 import{tripRouteSummary}from"../components/TripRouteDisplay";
 import{hasMinimumVisitStops}from"../trip-submit-rules";
-import{filterLeaderMileageRowsByDate,isLeaderMileageCalculable}from"../leader-mileage-filter";
+import{partitionLeaderMileageQueues,isLeaderMileageCalculable}from"../leader-mileage-filter";
 
 type Props={section:'dashboard'|'review'|'locations'};
 export default function LeaderPage({section}:Props){const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);if(section==='dashboard')return <Dashboard setMsg={setMsg} msg={msg}/>;if(section==='locations')return <LeaderLocationTabs setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>;return <Review setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>}
@@ -41,15 +41,20 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const[corrections,setCorrections]=useState<CorrectionRequest[]>([]);
 
  const selectionEnabled=mode==='Selected';
- const visibleRows=filterLeaderMileageRowsByDate(rows,mode,start,end);
- const calculableRows=visibleRows.filter(t=>hasMinimumVisitStops(t.stops.length)&&isLeaderMileageCalculable(t));
+ const queues=partitionLeaderMileageQueues(rows,mode,start,end);
+ const calculableRows=queues.retryCandidates.filter(t=>hasMinimumVisitStops(t.stops.length)&&isLeaderMileageCalculable(t));
  const calculableIds=calculableRows.map(t=>t.visitTripId);
- const approvalRows=rows.filter(t=>t.status==='PendingApproval');
+ const approvalRows=queues.approvalQueue;
  const approvalIds=approvalRows.map(t=>t.visitTripId);
  const allCalculableSelected=calculableIds.length>0&&calculableIds.every(id=>selected.includes(id));
  const someCalculableSelected=calculableIds.some(id=>selected.includes(id));
  const allApprovalSelected=approvalIds.length>0&&approvalIds.every(id=>approvalSelected.includes(id));
  const someApprovalSelected=approvalIds.some(id=>approvalSelected.includes(id));
+
+ useEffect(()=>{
+   const currentCandidates=new Set(calculableIds);
+   setSelected(current=>current.filter(id=>currentCandidates.has(id)));
+ },[rows,mode,start,end]);
 
  const toggleAllCalculable=(checked:boolean)=>setSelected(current=>checked?Array.from(new Set([...current,...calculableIds])):current.filter(id=>!calculableIds.includes(id)));
  const toggleAllApproval=(checked:boolean)=>setApprovalSelected(checked?approvalIds:[]);
@@ -141,31 +146,49 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
     </select>
     {mode==='DateRange'&&<><input type="date" value={start} onChange={e=>setStart(e.target.value)}/><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></>}
     {selectionEnabled&&<span className="pill">已選 {selected.length} 筆</span>}
-    <button className="btn" disabled={busy} onClick={()=>void enqueue()}>建立 Google Maps 計算工作</button>
+    <button className="btn" disabled={busy||(mode==='DateRange'&&(!start||!end||end<start))} onClick={()=>void enqueue()}>建立 Google Maps 計算工作</button>
    </div>
+   {mode==='DateRange'&&(!start||!end||end<start)&&<div role="alert" className="note danger-note">日期區間無效，請確認起訖日期。</div>}
    {job&&<div className="note">工作狀態：{job.status}｜總計 {job.totalCount}｜成功 {job.successCount}｜失敗 {job.failedCount}</div>}
    {msg&&<div className="note">{msg}</div>}
   </div>
 
   <div className="card" style={{marginTop:18}}>
-   <div className="section-title"><h2>行程審核</h2><div className="actions"><span className="pill">{rows.length} 筆</span><button className="btn small ok" disabled={busy||!approvalSelected.length} onClick={()=>void batchApprove()}>批次核准（{approvalSelected.length}）</button></div></div>
+   <div className="section-title"><div><h2>Google Maps 重算候選</h2><div className="sub">僅顯示待計算且符合日期區間的行程；已成功的 Google 結果不會列入。</div></div><span className="pill">{calculableRows.length} 筆</span></div>
    <div className="table-wrap"><table>
     <thead><tr>
-     <th><input type="checkbox" aria-label="全選可計算行程" title="全選可計算行程" checked={allCalculableSelected} disabled={!selectionEnabled||!calculableRows.length} ref={el=>{if(el)el.indeterminate=selectionEnabled&&someCalculableSelected&&!allCalculableSelected}} onChange={e=>toggleAllCalculable(e.target.checked)}/></th>
+     <th><input type="checkbox" aria-label="全選可重算行程" title="全選可重算行程" checked={allCalculableSelected} disabled={!selectionEnabled||!calculableRows.length} ref={el=>{if(el)el.indeterminate=selectionEnabled&&someCalculableSelected&&!allCalculableSelected}} onChange={e=>toggleAllCalculable(e.target.checked)}/></th>
+     <th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>人工備援</th><th>Google Maps API</th><th>狀態</th>
+    </tr></thead>
+    <tbody>{calculableRows.map(t=>{
+     const noMileage=!hasMinimumVisitStops(t.stops.length);const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
+     return <tr key={t.visitTripId}>
+      <td><input type="checkbox" disabled={!selectionEnabled} title={!selectionEnabled?'請先選擇「勾選指定行程」':'選取日期區間內待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
+      <td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
+      <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>
+      <td>{km(t.claimedDistanceKm)}</td><td>{km(t.systemDistanceKm)}</td><td>{t.status}</td>
+     </tr>
+    })}</tbody>
+   </table></div>
+  </div>
+
+  <div className="card" style={{marginTop:18}}>
+   <div className="section-title"><div><h2>待核准行程</h2><div className="sub">此佇列顯示所有目前待核准行程，不受上方 Google Maps 日期篩選影響。</div></div><div className="actions"><span className="pill">{approvalRows.length} 筆</span><button className="btn small ok" disabled={busy||!approvalSelected.length} onClick={()=>void batchApprove()}>批次核准（{approvalSelected.length}）</button></div></div>
+   <div className="table-wrap"><table>
+    <thead><tr>
      <th><input type="checkbox" aria-label="全選待核准行程" title="全選待核准行程" checked={allApprovalSelected} disabled={!approvalRows.length} ref={el=>{if(el)el.indeterminate=someApprovalSelected&&!allApprovalSelected}} onChange={e=>toggleAllApproval(e.target.checked)}/></th>
      <th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>人工備援</th><th>Google Maps API</th><th>小組長核定</th><th>里程來源</th><th>操作</th>
     </tr></thead>
-    <tbody>{visibleRows.map(t=>{
+    <tbody>{approvalRows.map(t=>{
      const noMileage=!hasMinimumVisitStops(t.stops.length);const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
      return <tr key={t.visitTripId}>
-      <td><input type="checkbox" disabled={!selectionEnabled||!isLeaderMileageCalculable(t)} title={!selectionEnabled?'請先選擇「勾選指定行程」':noMileage?'此行程至少需要 1 個拜訪地點':!isLeaderMileageCalculable(t)?'訪客端已有成功的 Google Maps 結果，不需重算':'選取待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
       <td><input type="checkbox" disabled={t.status!=='PendingApproval'} checked={approvalSelected.includes(t.visitTripId)} onChange={e=>setApprovalSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
       <td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
       <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>
       <td>{km(t.claimedDistanceKm)}</td><td>{noMileage?'N/A':km(t.systemDistanceKm)}</td>
       <td>{noMileage?<span className="pill">N/A</span>:<input className="mileage-input" type="number" step="0.1" value={reviewKm[t.visitTripId]||''} onChange={e=>setReviewKm(x=>({...x,[t.visitTripId]:e.target.value}))}/>}</td>
       <td>{noMileage?<span className="pill">N/A</span>:<><strong>{sourceText(t)}</strong>{t.mileageSource==='GoogleMapsAPI'&&<div className="muted">Google 路線可直接核准；若調整里程會記錄 LeaderAdjusted。</div>}{t.mileageSource==='ManualFallback'&&<div className="muted">Google 無可用結果，本次使用人工備援並保留治理紀錄。</div>}</>}</td>
-      <td>{t.status==='PendingApproval'?<div className="actions"><button className="btn small ok" onClick={()=>void approve(t)} disabled={busy}>核准</button><button className="btn small danger" onClick={()=>void ret(t)} disabled={busy}>退回</button></div>:<span className="muted">{t.status==='Returned'?'已退回補人工備援':'待里程計算'}</span>}</td>
+      <td><div className="actions"><button className="btn small ok" onClick={()=>void approve(t)} disabled={busy}>核准</button><button className="btn small danger" onClick={()=>void ret(t)} disabled={busy}>退回</button></div></td>
      </tr>
     })}</tbody>
    </table></div>

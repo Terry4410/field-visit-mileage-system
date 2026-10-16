@@ -33,13 +33,24 @@ public sealed class LeaderService(
         if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) &&
             (request.SelectedTripIds is null || request.SelectedTripIds.Count == 0))
             throw new InvalidOperationException("請先勾選要計算里程的行程。");
+        if (!mode.Equals("AllPending", StringComparison.OrdinalIgnoreCase)
+            && !mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase)
+            && !mode.Equals("Selected", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("里程計算範圍不正確。");
+
+        var selectedIds = request.SelectedTripIds?.Distinct().ToArray();
+        if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
+            && selectedIds!.Length != request.SelectedTripIds!.Count)
+            throw new InvalidOperationException("MILEAGE_BATCH_SELECTION_DUPLICATE：選取清單含重複行程。");
 
         var rows = await trips.GetPendingMileageAsync(
             user.TeamIds,
             mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.StartDate : null,
             mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
-            mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? request.SelectedTripIds : null,
+            mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? selectedIds : null,
             ct);
+        if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && rows.Count != selectedIds!.Length)
+            throw new InvalidOperationException("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED：選取行程已不可計算或不在授權範圍。");
 
         var items = new List<MileageBatchItem>();
         int ok = 0, failed = 0, skipped = 0;
