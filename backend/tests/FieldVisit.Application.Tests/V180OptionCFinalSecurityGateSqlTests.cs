@@ -2413,7 +2413,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 Convert.ToBase64String(survivorVersion), "Merge duplicate locations",
                 new V180B3LocationFields("Merged survivor", "Taipei", "Xinyi",
                     "Merged address", null, null, "Merge note")));
-        Assert.Equal(System.Net.HttpStatusCode.OK, submit.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, submit.StatusCode, await submit.Content.ReadAsStringAsync());
         var pending = await submit.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
         Assert.Equal("Pending", pending.Status);
         Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationMergeDetails WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id)", P("@id", pending.RequestPublicId)));
@@ -2424,28 +2424,28 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         admin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
         var stage = await admin.GetAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/stage");
-        Assert.Equal(System.Net.HttpStatusCode.OK, stage.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, stage.StatusCode, await stage.Content.ReadAsStringAsync());
         var stageView = await stage.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
             ?? throw new InvalidOperationException("OPTIONC_MERGE_STAGE_VIEW_MISSING");
         var geo = await admin.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/geocode-evidence",
             new V180OptionCGeocodeEvidence(stageView.StageRowVersion, true, 25.03m, 121.56m,
                 "Application-owned disposable merge geocode") { EvidenceKey = Guid.NewGuid() });
-        Assert.Equal(System.Net.HttpStatusCode.OK, geo.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, geo.StatusCode, await geo.Content.ReadAsStringAsync());
         var geoView = await geo.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
             ?? throw new InvalidOperationException("OPTIONC_MERGE_GEOCODE_VIEW_MISSING");
         var duplicate = await admin.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/duplicate-evidence",
             new V180OptionCDuplicateEvidence(geoView.StageRowVersion, true,
                 "Application-owned disposable duplicate review", Guid.NewGuid()));
-        Assert.Equal(System.Net.HttpStatusCode.OK, duplicate.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, duplicate.StatusCode, await duplicate.Content.ReadAsStringAsync());
         var self = await visitor.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
             new V180B3Review(pending.RowVersion, Guid.NewGuid(), "Self approval denied"));
         Assert.NotEqual(System.Net.HttpStatusCode.OK, self.StatusCode);
         var mergeApproveKey = Guid.NewGuid();
         var approve = await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{pending.RequestPublicId}/approve",
             new V180B3Review(pending.RowVersion, mergeApproveKey, "Independent merge approval"));
-        Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.OK, approve.StatusCode, await approve.Content.ReadAsStringAsync());
         var applied = await approve.Content.ReadFromJsonAsync<V180B3RequestView>() ?? throw new InvalidOperationException();
         Assert.Equal("Applied", applied.Status);
 
