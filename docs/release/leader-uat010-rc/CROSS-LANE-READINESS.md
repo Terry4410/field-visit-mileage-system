@@ -65,7 +65,7 @@ Read reviewed SOP/schema at Hub14d5fc005587b260723a316a586278a7a886daa0 and Issu
 
 ## Isolated merge-tree evidence
 
-Executed git merge-tree --write-tree for C2a212b08187c9336afff1854fde363dd6b6c0a2c and A4bf090fce8a3ed338b30db1a72120629e4751d4f; conflict result, no ref/worktree changes. Nine files require reviewed resolution:
+Executed git merge-tree --write-tree for C83ed04ac160503bd47223ca0d74f83db06acb74f and A8adf27b7d699a2070fa9f5eeb87017507766025f; common merge-base is 68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2. Conflict result, no ref/worktree changes. Nine current files require reviewed resolution. A exact CI38928241611 is SUCCESS with artifacts12058156400/12057678213, but independent audit checklist6211568211 is not acceptance:
 
 - backend/src/FieldVisit.Api/Program.cs
 - backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs
@@ -77,9 +77,25 @@ Executed git merge-tree --write-tree for C2a212b08187c9336afff1854fde363dd6b6c0a
 - frontend/src/location-ownership-ui.ts
 - frontend/src/pages/ScopedLocationPage.tsx
 
+Conflict ownership and resolution matrix:
+
+| File | Conflict | Resolution owner | Required rule |
+|---|---|---|---|
+| backend/src/FieldVisit.Api/Program.cs | test host/Protected wiring vs canonical registrations | API + schema owner | retain isolated test boundary; add canonical registrations only when default-OFF and 010-compatible |
+| backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs | Visitor/Leader live scope vs canonical publication paths | authorization owner | preserve Visitor draft and Leader live guards; published LowRisk/HighRisk use canonical services; no legacy bypass |
+| docs/.../UatSchemaFidelity.protected-workflow-proposal.md | evidence/proposal versions | schema evidence owner | preserve Protected diagnostic hashes; reconcile only after exact SHA review |
+| docs/.../UatSchemaFidelity.readonly.sql | read-only inventory hash conflict | schema evidence owner | pin one reviewed SQL hash; UAT execution remains forbidden |
+| docs/.../preflight/UAT_ReadOnly_Preflight.sql | preflight query scope conflict | schema evidence owner | SELECT-only, no business rows/secrets, no dispatch |
+| frontend/src/App.tsx | Visitor and Leader routes vs canonical navigation | frontend owner | keep /locations/manage and Leader entry; flags remain OFF outside isolated host |
+| frontend/src/location-ownership-ui.test.ts | ownership tests vs canonical test surface | frontend owner | retain ownership denials and add published-state assertions |
+| frontend/src/location-ownership-ui.ts | owner predicate vs canonical UI policy | authorization owner | backend remains source of truth; UI only renders safe affordances |
+| frontend/src/pages/ScopedLocationPage.tsx | Visitor draft UI vs canonical views | frontend + product owner | preserve Visitor draft UX; no direct Visitor publish |
+
 No combined runtime candidate was claimed: unresolved overlapping authorization/transaction paths and divergent canonical schema make an automatic merge unsuitable. Preserve Protected SQL bytes and integrate Visitor semantics rather than choosing ours/theirs wholesale. A's backend defaults PackageB:B3:Enabled, OptionC:Approval:Enabled and OptionC:Candidate:Enabled are false. All six frontend flags (approval, leader review, create, direct LowRisk, Excel create/update) are false at the pinned A source. Runtime settings remain unverified; none were changed.
 
 010 source prerequisite review: Up requires exact latest009, RouteCalculationAttempts, enabled/trusted predecessor reason constraint and predecessor-valid data. Its postcondition adds BackgroundMileageJob as an allowed CalculationReason and records010. This is read-only source analysis, not a claim about actual UAT state. C adds no migration. Required existing columns include Locations.CreatedByUserId/RowVersion and current user/role/team/HR facts already in Protected model; actual catalog facets and effective application grants remain unverified.
+
+Integrated Scheme A test plan/prerequisites: in an isolated disposable SQL Server first replay the trusted 001-010 chain (blocked until approved 1.5 baseline exists), then seed synthetic Visitor/Leader/Admin/Supervisor accounts and migrated SchemaVersions. Execute Visitor draft create/edit; authorized low-risk Published change; high-risk Published change with independent Admin approval; Leader/Admin role and scope checks; cross-team/org rejection; HR/role/team revocations; immutable Trip/Snapshot history; legacy maintenance/import/geocode bypass denials; and Browser→API→the same migrated SQL persistence/audit assertions. Require canonical 011-020 dependencies and OFF-to-isolated flag proof before canonical scenarios. C's EF EnsureCreated fixture cannot satisfy this prerequisite. Any missing prerequisite remains HOLD.
 
 Public reads refreshed at 2026-10-16T15:45:36Z: Pages stamp0899f39/config hash unchanged, API health/live200 and source stamp404. API run38334707319 artifact list still contains only test report11784129018. Snapshot: evidence/current-public-observations.json. No authentication, SQL or active-binary inference.
 

@@ -2,6 +2,8 @@
 
 HOLD / NONDEPLOY_ONLY. See CROSS-LANE-READINESS.md and the exact-run visitor-acceptance.json for the current candidate matrix. The prior d664 source regression below is historical: this delta restores Visitor route, API/DTO/ownership and adds real role/browser/SQL regression gates. Live UAT business/history compatibility still requires separate acceptance. Current integrated Protected is b1a507c90c577fb2c0cdd6a98ef33481d3a5f790. No privileged operation is requested.
 
+Integration refresh: WORK A is now \`8adf27b7d699a2070fa9f5eeb87017507766025f\`, with successful exact CI \`38928241611\` and artifact metadata \`12058156400\` / \`12057678213\`. The independent audit checklist \`6211568211\` remains an acceptance prerequisite, not a PASS. The current C/A merge-tree was recomputed and has nine conflicts; no integrated runtime candidate exists.
+
 ---
 
 # Historical d664 preflight decision (retained audit record)
