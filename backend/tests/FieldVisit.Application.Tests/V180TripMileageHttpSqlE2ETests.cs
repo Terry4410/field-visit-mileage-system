@@ -407,6 +407,17 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     $"UPDATE dbo.UserTeamAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,GETDATE())) WHERE UserId={fixture.Leader.UserId} AND TeamId={fixture.Team.TeamId} AND EffectiveTo IS NULL",
                     $"UPDATE dbo.UserTeamAssignments SET EffectiveTo=NULL WHERE UserId={fixture.Leader.UserId} AND TeamId={fixture.Team.TeamId}", "team");
 
+                // The race helper deliberately closes/reopens its connection;
+                // normalize the live authorization rows before the next
+                // independent self-approval assertion so the assertion is not
+                // coupled to a prior transaction's tracked state.
+                await db.UserRoleAssignments
+                    .Where(x => x.UserId == fixture.Leader.UserId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, (DateOnly?)null));
+                await db.UserTeamAssignments
+                    .Where(x => x.UserId == fixture.Leader.UserId && x.TeamId == fixture.Team.TeamId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, (DateOnly?)null));
+                db.ChangeTracker.Clear();
                 pendingTripEntity.UserId = fixture.Leader.UserId;
                 await db.SaveChangesAsync();
                 var selfApprovalVersion = Convert.ToBase64String(pendingTripEntity.RowVersion);
