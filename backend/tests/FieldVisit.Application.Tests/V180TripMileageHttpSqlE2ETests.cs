@@ -280,6 +280,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 leaderTeamAssignment.EffectiveTo = null;
                 await db.SaveChangesAsync();
                 var pendingTripEntity = await db.VisitTrips.SingleAsync(x => x.VisitTripId == created.VisitTripId);
+                await db.Entry(pendingTripEntity).ReloadAsync();
                 var visitorOwnerId = pendingTripEntity.UserId;
                 pendingTripEntity.UserId = fixture.Leader.UserId;
                 await db.SaveChangesAsync();
