@@ -176,7 +176,7 @@ Run-Test 'real SqlException signals map only to allow-listed diagnostics' {
   $cases = @(
     @{ Number = 51990; Classification = 'TargetGuardRejected' },
     @{ Number = 51992; Classification = 'RequiredObjectMissing' },
-    @{ Number = 51993; Classification = 'HistoricalSelectPermissionMissing' },
+    @{ Number = 51993; Classification = 'HistoricalSelectOrObjectUnavailable' },
     @{ Number = 229; Classification = 'SqlPermissionDenied' },
     @{ Number = 207; Classification = 'MissingObjectOrColumn' },
     @{ Number = 102; Classification = 'SqlSyntaxOrCompatibility' },
@@ -201,6 +201,21 @@ Run-Test 'real SqlException signals map only to allow-listed diagnostics' {
     throw 'unapproved SQL number was not suppressed'
   }
   if ($unknown -match '50001|SYNTHETIC_SECRET_MUST_NOT_LEAK') { throw 'unapproved SQL signal leaked' }
+
+  $wrappedException = New-SyntheticSqlException 50001
+  $wrapped = [System.Management.Automation.ErrorRecord]::new(
+    $wrappedException,
+    'SyntheticSqlFailure',
+    [System.Management.Automation.ErrorCategory]::InvalidOperation,
+    $null
+  )
+  $wrappedSafe = Get-SanitizedUatInventoryFailure $wrapped
+  if ($wrappedSafe -notmatch 'Classification=UnclassifiedSqlFailure; ProviderCode=Suppressed;') {
+    throw 'wrapped unapproved SQL number was not suppressed'
+  }
+  if ($wrappedSafe -match '50001|SYNTHETIC_SECRET_MUST_NOT_LEAK|SyntheticSqlFailure') {
+    throw 'wrapped SQL signal leaked'
+  }
 }
 
 Run-Test 'wrong evidence mode fails closed' {

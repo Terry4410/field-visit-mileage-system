@@ -52,8 +52,9 @@ finding about the live identity.
 
 Before reading the four historical tables, the SQL now calls
 `HAS_PERMS_BY_NAME(..., 'OBJECT', 'SELECT')` for each and emits custom error 51993
-if any answer is false or unknown. No principal name or per-table denial is
-reported.
+if any answer is false or unknown. Because `NULL` can also mean that a securable is
+invalid or not visible through metadata, this signal deliberately does not claim a
+confirmed permission denial. No principal name or per-table result is reported.
 
 The PowerShell catch path reads only the SQL exception's numeric provider code and
 maps a strict allow-list to these stable categories:
@@ -62,7 +63,7 @@ maps a strict allow-list to these stable categories:
 |---|---|
 | `TargetGuardRejected` | 51990, 51991 |
 | `RequiredObjectMissing` | 51992 |
-| `HistoricalSelectPermissionMissing` | 51993 |
+| `HistoricalSelectOrObjectUnavailable` | 51993 |
 | `SqlPermissionDenied` | 229, 230, 262 |
 | `MissingObjectOrColumn` | 207, 208 |
 | `SqlSyntaxOrCompatibility` | 102, 156, 319 |

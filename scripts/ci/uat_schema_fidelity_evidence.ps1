@@ -23,7 +23,7 @@ function Get-SanitizedUatInventoryFailure([object]$Failure) {
     $classification = switch ($number) {
       { $_ -in 51990,51991 } { 'TargetGuardRejected'; break }
       51992 { 'RequiredObjectMissing'; break }
-      51993 { 'HistoricalSelectPermissionMissing'; break }
+      51993 { 'HistoricalSelectOrObjectUnavailable'; break }
       { $_ -in 229,230,262 } { 'SqlPermissionDenied'; break }
       { $_ -in 207,208 } { 'MissingObjectOrColumn'; break }
       { $_ -in 102,156,319 } { 'SqlSyntaxOrCompatibility'; break }

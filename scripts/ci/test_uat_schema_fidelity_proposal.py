@@ -16,8 +16,8 @@ VALIDATOR = ROOT / "scripts/ci/uat_schema_fidelity_evidence.ps1"
 POWERSHELL_TEST = ROOT / "scripts/ci/test_uat_schema_fidelity_evidence.ps1"
 COMPARATOR = ROOT / "scripts/ci/compare_uat010_schema_inventory.py"
 REGISTRATION_STUB = ROOT / "docs/workflows/azure-sql-uat-schema-fidelity-readonly.main-registration-stub.yml"
-SQL_SHA = "67ada322e9df337ff4bf92ea166763b89ede51512a7aa4e78b4a181d51b86813"
-VALIDATOR_SHA = "5fed0070815ef410641d46e8d42a3789244a34e37a179bcbec7006559ae0156e"
+SQL_SHA = "67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734"
+VALIDATOR_SHA = "d41eec46426f1ed0749eab69fdb1a2cd021a3d5a042b0d69a3f4f745f44ceaf3"
 
 
 def load_comparator():
@@ -83,6 +83,7 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         for table in (b"VISITTRIPS", b"VISITTRIPSTOPS", b"VISITTRIPSNAPSHOTS", b"VISITTRIPSNAPSHOTSTOPS"):
             self.assertIn(b"HAS_PERMS_BY_NAME(N'DBO." + table + b"',N'OBJECT',N'SELECT')", executable)
         self.assertIn(b"THROW 51993", executable)
+        self.assertIn(b"HISTORICAL_SELECT_OR_OBJECT_UNAVAILABLE", executable)
 
     def test_inventory_references_match_protected_001_010_and_ef_model(self):
         migrations = [
@@ -159,6 +160,8 @@ class SchemaFidelityProposalTests(unittest.TestCase):
             self.assertIn(required, source)
         self.assertIn("New-ValidInventoryDataSet", source)
         self.assertIn("Get-SanitizedUatInventoryFailure", source)
+        self.assertIn("System.Management.Automation.ErrorRecord", source)
+        self.assertIn("wrapped unapproved SQL number was not suppressed", source)
 
     def test_validator_is_hash_pinned_and_exact_shape(self):
         source = VALIDATOR.read_bytes()
@@ -170,7 +173,7 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertIn("METADATA_ONLY_NO_ROW_VALUES", text)
         self.assertIn("raw SQL error suppressed", text)
         for classification in (
-            "TargetGuardRejected", "RequiredObjectMissing", "HistoricalSelectPermissionMissing",
+            "TargetGuardRejected", "RequiredObjectMissing", "HistoricalSelectOrObjectUnavailable",
             "SqlPermissionDenied", "MissingObjectOrColumn", "SqlSyntaxOrCompatibility",
             "AuthenticationOrDatabaseAccess", "TimeoutOrTransient", "ConnectivityFailure",
             "UnclassifiedSqlFailure",
