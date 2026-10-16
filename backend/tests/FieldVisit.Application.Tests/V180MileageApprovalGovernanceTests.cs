@@ -104,7 +104,9 @@ public sealed class V180MileageApprovalGovernanceTests
         var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
         Assert.Contains("IsAuthoritativeCurrentRouteAttempt", source);
         Assert.Contains("MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS", source);
-        Assert.Contains("googleResult?.RouteCalculationAttemptId != authoritativeSuccess.RouteCalculationAttemptId", source);
+        Assert.Contains("x.RouteCalculationAttemptId != currentAttemptId", source);
+        Assert.Contains("authoritativeSuccesses.Any", source);
+        Assert.DoesNotContain("FirstOrDefault();", source[source.IndexOf("authoritativeSuccesses", StringComparison.Ordinal)..]);
         Assert.Contains("IsolationLevel.Serializable", source);
     }
 

@@ -287,15 +287,15 @@ public sealed class BackgroundJobService(
                 var submittedSnapshot = await db.VisitTripSnapshots.AsNoTracking()
                     .Include(x => x.Stops)
                     .SingleAsync(x => x.VisitTripSnapshotId == submittedSnapshotId, ct);
-                var authoritativeSuccess = (await db.RouteCalculationAttempts.AsNoTracking()
+                var authoritativeSuccesses = (await db.RouteCalculationAttempts.AsNoTracking()
                     .Where(x => x.VisitTripId == tripId && x.Status == "Succeeded")
                     .ToListAsync(ct))
                     .Where(x => V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(x, submittedSnapshot))
-                    .OrderBy(x => x.CompletedAt ?? x.RequestedAt)
-                    .ThenBy(x => x.RouteCalculationAttemptId)
-                    .FirstOrDefault();
-                if (authoritativeSuccess is not null
-                    && (!useGoogleRoutes || googleResult?.RouteCalculationAttemptId != authoritativeSuccess.RouteCalculationAttemptId))
+                    .ToArray();
+                var currentAttemptId = googleResult?.RouteCalculationAttemptId;
+                var hasOtherAuthoritativeSuccess = authoritativeSuccesses.Any(
+                    x => x.RouteCalculationAttemptId != currentAttemptId);
+                if (hasOtherAuthoritativeSuccess)
                 {
                     durableItem.Status = "Failed";
                     durableItem.ErrorCode = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
