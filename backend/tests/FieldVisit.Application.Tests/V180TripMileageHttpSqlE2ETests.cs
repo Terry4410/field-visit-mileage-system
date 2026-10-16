@@ -345,13 +345,19 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 using (var revokedHr = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
                     Assert.Equal(HttpStatusCode.Forbidden, revokedHr.StatusCode);
                 activeStatus.EffectiveTo = null;
-                var leaderRoleAssignment = await db.UserRoleAssignments.SingleAsync(x => x.UserId == fixture.Leader.UserId);
+                var leaderRoleIdForRevocation = await db.Roles
+                    .Where(r => r.RoleCode == "leader")
+                    .Select(r => r.RoleId)
+                    .SingleAsync();
+                var leaderRoleAssignment = await db.UserRoleAssignments
+                    .SingleAsync(x => x.UserId == fixture.Leader.UserId && x.RoleId == leaderRoleIdForRevocation);
                 leaderRoleAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
                 await db.SaveChangesAsync();
                 using (var revokedRole = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
                     Assert.Equal(HttpStatusCode.Forbidden, revokedRole.StatusCode);
                 leaderRoleAssignment.EffectiveTo = null;
-                var leaderTeamAssignment = await db.UserTeamAssignments.SingleAsync(x => x.UserId == fixture.Leader.UserId);
+                var leaderTeamAssignment = await db.UserTeamAssignments
+                    .SingleAsync(x => x.UserId == fixture.Leader.UserId && x.TeamId == fixture.Team.TeamId);
                 leaderTeamAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
                 await db.SaveChangesAsync();
                 using (var revokedTeam = await leader.PostAsJsonAsync($"api/v1/trips/{created.VisitTripId}/approve", approve))
