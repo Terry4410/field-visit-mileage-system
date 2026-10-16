@@ -108,6 +108,28 @@ class FullSchemeAUatReadinessTests(unittest.TestCase):
             "Excel canonical submission statuses",
         }))
 
+    def test_r5_additive_migrations_are_bound_to_real_disposable_writer_contracts(self):
+        sources = {
+            "1800_015": ("audit/StageEvidenceAuditEvents.disposable.sql", "CK_B3_ChangeRequestEvents_StageEvidenceEventType"),
+            "1800_016": ("leader-review/LeaderReviewDetails.disposable.sql", "ChangeRequestLeaderReviews"),
+            "1800_017": ("create-lowrisk/CreateLowRiskContract.disposable.sql", "LocationCreateReservations"),
+            "1800_018": ("lowrisk-direct/LowRiskDirectContract.disposable.sql", "DirectLowRiskApplied"),
+            "1800_019": ("merge/LocationMergeDetails.disposable.sql", "SourceLocationRowVersion"),
+            "1800_020": ("excel-import/ExcelImportStatusContract.disposable.sql", "ImportBatchItems"),
+        }
+        for migration, (source, contract_token) in sources.items():
+            up = (DRAFT / "candidate" / migration / "Up.sql").read_text(encoding="utf-8")
+            self.assertIn(contract_token, up, migration)
+            self.assertIn(f"1.8.0-{migration[-3:]}", up)
+            self.assertIn("OptionCIsolated[_]%", up)
+            self.assertIn("R5_PREDECESSOR_REQUIRED", (DRAFT / "candidate" / migration / "Preflight.sql").read_text())
+            self.assertIn("R5_CONTRACT_SHAPE_INVALID", (DRAFT / "candidate" / migration / "Verify.sql").read_text())
+            self.assertTrue((DRAFT / source).exists())
+        runner = (ROOT / "scripts/ci/run_full_candidate_migration.ps1").read_text()
+        self.assertIn("CANONICAL_ADDITIVE_MIGRATION_PASS", runner)
+        self.assertIn("R5_CANONICAL_CORE_PLUS_ADDITIVES_PASS", runner)
+        self.assertNotIn("R3_CANONICAL_CORE_PLUS_CANDIDATE_ADDON_REHEARSAL_PASS", runner)
+
     def test_historical_fingerprint_is_select_only_and_covers_trip_invariants(self):
         sql = HISTORICAL.read_text(encoding="utf-8")
         upper = re.sub(r"/\*.*?\*/", "", sql, flags=re.S).upper()

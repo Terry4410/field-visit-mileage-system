@@ -1,4 +1,4 @@
-# Option C canonical schema gap matrix — R4
+# Option C canonical schema gap matrix — R5
 
 Status: **DISPOSABLE ENGINEERING ONLY — UAT compatibility remains HOLD.**
 
@@ -25,12 +25,27 @@ that test baseline, not UAT compatibility.
 | 012 | Canonical widening of request/event states for Approved/Applied; trusted CHECK replacements, preserving 011 columns/indexes/FKs. | Candidate copy is now byte-identical to canonical SQL. | **Aligned to canonical source.** |
 | 013 | Reserved leader-grant slot. | No migration files or marker added. | **Unchanged / reserved.** |
 | 014 | Canonical `LocationPublicationStages` and `LocationPublishedVersions`: full publication/evidence fields, binary SHA-256, source/publisher/version fields, rowversion on Stage; trusted FK/CHECKs and filtered unique indexes. Explicit Approved+Active version-1 JSON projection. | Candidate copies now byte-identical to canonical SQL and backfill. | **Aligned to canonical source.** Historical completeness is asserted in SQL integration tests; real UAT rows were not read. |
-| 015 | `ChangeRequestEvents` CHECK extension for `GeocodeEvidenceRecorded` and `DuplicateReviewEvidenceRecorded` in `audit/StageEvidenceAuditEvents.disposable.sql`. | Creates a separate `StageEvidenceAuditEvents` table with a different row shape. | **Mismatch.** Separate table does not extend the canonical event ledger. |
-| 016 | `ChangeRequestLeaderReviews`: request/reviewer FKs, review state CHECKs, JSON evidence, `rowversion`, unique request/stage and decision-key indexes. Used by EF `V180OptionCLeaderReview`. | Creates `LeaderReviewDetails` with different column and constraint names. | **Mismatch.** Actual Writer tests use the additive disposable contract, not this fixture. |
-| 017 | `LocationCreateReservations`: request/location/org/team FKs, pending/published/abandoned status CHECK, `rowversion`, unique Location reservation. Used by CreateLocation Writer and Stage guard. | Creates `CreateLowRiskContracts`; no reservation fields or uniqueness contract. | **Mismatch.** Actual Writer tests use `CreateLowRiskContract.disposable.sql`. |
-| 018 | Extends canonical request/event CHECKs for direct LowRisk publication and audit while keeping publication in the canonical ledger. | Creates `DirectLowRiskAudit`; not consumed by the Writer. | **Mismatch.** Actual Writer tests use `LowRiskDirectContract.disposable.sql`. |
-| 019 | `LocationMergeDetails`: canonical ChangeRequest FK; source/survivor IDs, org/team, both rowversions, before/proposed/evidence JSON, scoped CHECKs. Used by merge submission, publication and reconciliation. | Minimal `RequestId`, source/survivor IDs, key and timestamp; wrong FK and missing business evidence. | **Mismatch.** Actual MergeFields HTTP tests use `merge/LocationMergeDetails.disposable.sql`. |
-| 020 | Additive status CHECK updates to existing `ImportBatches` and `ImportBatchItems`, preserving batch identity, row data, request link, status and audit semantics. Used by the actual Excel preview/submission flow. | Creates a separate `ExcelImportStatus` table. | **Mismatch.** Actual Excel Create HTTP tests use `excel-import/ExcelImportStatusContract.disposable.sql`; Excel Update remains unverified against a complete production baseline. |
+| 015 | `ChangeRequestEvents` CHECK extension for `GeocodeEvidenceRecorded` and `DuplicateReviewEvidenceRecorded` in `audit/StageEvidenceAuditEvents.disposable.sql`. | Candidate migration copies the real `audit/StageEvidenceAuditEvents.disposable.sql` contract and extends canonical `ChangeRequestEvents` CHECKs. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
+| 016 | `ChangeRequestLeaderReviews`: request/reviewer FKs, review state CHECKs, JSON evidence, `rowversion`, unique request/stage and decision-key indexes. Used by EF `V180OptionCLeaderReview`. | Candidate migration copies `leader-review/LeaderReviewDetails.disposable.sql`, including `ChangeRequestLeaderReviews`, FKs, CHECKs, indexes, and rowversion. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
+| 017 | `LocationCreateReservations`: request/location/org/team FKs, pending/published/abandoned status CHECK, `rowversion`, unique Location reservation. Used by CreateLocation Writer and Stage guard. | Candidate migration copies `create-lowrisk/CreateLowRiskContract.disposable.sql`, including reservation identity, status, scoped FKs, and unique Location index. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
+| 018 | Extends canonical request/event CHECKs for direct LowRisk publication and audit while keeping publication in the canonical ledger. | Candidate migration copies `lowrisk-direct/LowRiskDirectContract.disposable.sql`, extending canonical request/event checks and preserving the ledger. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
+| 019 | `LocationMergeDetails`: canonical ChangeRequest FK; source/survivor IDs, org/team, both rowversions, before/proposed/evidence JSON, scoped CHECKs. Used by merge submission, publication and reconciliation. | Candidate migration copies `merge/LocationMergeDetails.disposable.sql`, with ChangeRequest FK, organization/team/rowversion/JSON fields and checks. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** |
+| 020 | Additive status CHECK updates to existing `ImportBatches` and `ImportBatchItems`, preserving batch identity, row data, request link, status and audit semantics. Used by the actual Excel preview/submission flow. | Candidate migration copies `excel-import/ExcelImportStatusContract.disposable.sql`, widening status CHECKs on existing EF ImportBatches and ImportBatchItems. | **Aligned to the isolated Writer contract; UAT compatibility HOLD.** Excel Create/Update app tests are not run on this same chain database. |
+
+## R5 additive chain evidence boundary
+
+The disposable full-chain driver now invokes the six additive contract sources
+used by the real Writer (`audit`, `leader-review`, `create-lowrisk`,
+`lowrisk-direct`, `merge`, and `excel-import`) as numeric candidate migrations
+015–020. Each has a fail-closed Preflight, atomic Up and numeric marker,
+structural Verify, and SHA-256 emitted by the driver. SQL runs only in a newly
+created `OptionCIsolated_*` SQL Server 2022 database; 013 remains absent.
+
+The legacy `ImportBatches` / `ImportBatchItems` baseline in this driver is a
+synthetic EF-shaped 010 fixture, not an observed UAT catalog. The six numeric
+migrations have not yet been proven in the same database as the complete real
+HTTP Writer sequence. Migration-chain PASS therefore does not establish UAT
+compatibility or Writer same-database E2E.
 
 ## E2E evidence boundary
 

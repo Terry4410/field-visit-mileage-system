@@ -56,6 +56,9 @@ CREATE TABLE dbo.VisitTrips(VisitTripId bigint PRIMARY KEY,Status nvarchar(30) N
 CREATE TABLE dbo.VisitTripStops(VisitTripStopId bigint PRIMARY KEY,VisitTripId bigint NOT NULL,LocationId int NOT NULL,LocationNameSnapshot nvarchar(200),AddressSnapshot nvarchar(500));
 CREATE TABLE dbo.VisitTripSnapshots(VisitTripSnapshotId bigint PRIMARY KEY,VisitTripId bigint NOT NULL,ApprovedDistanceKmSnapshot decimal(10,2),StatusSnapshot nvarchar(30));
 CREATE TABLE dbo.VisitTripSnapshotStops(VisitTripSnapshotStopId bigint PRIMARY KEY,VisitTripSnapshotId bigint NOT NULL,LocationId int NOT NULL,LocationNameSnapshot nvarchar(200));
+CREATE TABLE dbo.ImportBatches(ImportBatchId uniqueidentifier NOT NULL PRIMARY KEY,ImportType nvarchar(30) NOT NULL,OrganizationId int NOT NULL,RequestedByUserId int NOT NULL,Status nvarchar(30) NOT NULL CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(N'Previewed',N'Confirmed',N'PartiallyFailed')),TotalCount int NOT NULL,ValidCount int NOT NULL,ErrorCount int NOT NULL,CreatedAt datetime2 NOT NULL,ExpiresAt datetime2 NOT NULL,ConfirmedAt datetime2 NULL);
+CREATE TABLE dbo.ImportBatchItems(ImportBatchItemId bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,ImportBatchId uniqueidentifier NOT NULL,RowNumber int NOT NULL,EntityType nvarchar(40) NOT NULL,Action nvarchar(30) NOT NULL,Status nvarchar(30) NOT NULL CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(N'Valid',N'Error',N'Applied',N'Failed')),DisplayKey nvarchar(250) NOT NULL,DataJson nvarchar(max) NOT NULL,ErrorMessage nvarchar(1000) NULL,CreatedAt datetime2 NOT NULL,CONSTRAINT FK_ImportBatchItems_ImportBatches FOREIGN KEY(ImportBatchId) REFERENCES dbo.ImportBatches(ImportBatchId) ON DELETE CASCADE);
+CREATE INDEX IX_ImportBatchItems_ImportBatchId ON dbo.ImportBatchItems(ImportBatchId);
 INSERT dbo.Organizations VALUES(1); INSERT dbo.Teams VALUES(1); INSERT dbo.Users VALUES(1),(2),(3);
 INSERT dbo.Locations(LocationId,OrganizationId,TeamId,CreatedByUserId,LocationType,LocationName,City,District,Address,ApprovalStatus,IsActive) VALUES(10,1,1,1,N'Customer',N'Legacy approved 10',N'Taipei',N'Xinyi',N'Legacy address 10',N'Approved',1),(11,1,1,1,N'Customer',N'Legacy approved 11',N'Taipei',N'Da-an',N'Legacy address 11',N'Approved',1); INSERT dbo.VisitTrips VALUES(1,N'Approved',10);
 INSERT dbo.VisitTripStops VALUES(1,1,10,N'Frozen A',N'Address A'); INSERT dbo.VisitTripSnapshots VALUES(1,1,12.3,N'Approved'); INSERT dbo.VisitTripSnapshotStops VALUES(1,1,10,N'Frozen A');
@@ -88,17 +91,21 @@ $canonicalBackfill=Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "IF (SELECT
 Write-Output "CANONICAL_VERSION1_BACKFILL_PASS rows=$($canonicalBackfill.Version1Count)"
 $candidateRoot=Join-Path $PSScriptRoot '../../docs/release/optionc-canonical-sql-draft/candidate'
 foreach($m in $chain){
+  $version=$expected[$m]
   $dir=Join-Path $candidateRoot $m
-  foreach($f in @('Preflight.sql','Up.sql')){$file=Join-Path $dir $f; Run "$m/$f" (Get-Content -LiteralPath $file -Raw) $file}
-  if($m -eq '1800_014'){$file=Join-Path $dir 'Backfill.sql'; Run "$m/Backfill.sql" (Get-Content -LiteralPath $file -Raw) $file}
+  foreach($f in @('Preflight.sql')){$file=Join-Path $dir $f; Run "$m/$f" (Get-Content -LiteralPath $file -Raw) $file}
+  $file=Join-Path $dir 'Up.sql'; $up=Get-Content -LiteralPath $file -Raw
+  Run "$m/Up.sql" $up $file
   $file=Join-Path $dir 'Verify.sql'; Run "$m/Verify.sql" (Get-Content -LiteralPath $file -Raw) $file
-  $actual=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT MAX(VersionNumber) AS VersionNumber FROM dbo.SchemaVersions").VersionNumber
-  if($actual -ne $expected[$m]){throw "R3_ADDON_FIXTURE_VERSION_MISMATCH_$m"}
-  Write-Output "CANDIDATE_ADDON_FIXTURE_PASS $($expected[$m])"
+  $actual=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT COUNT(*) C FROM dbo.SchemaVersions WHERE VersionNumber=N'$version'").C
+  if($actual -ne 1){throw "R5_CANONICAL_ADDITIVE_MARKER_MISMATCH_$m"}
+  Write-Output "CANONICAL_ADDITIVE_MIGRATION_PASS $version"
 }
-try { $file=Join-Path $candidateRoot '1800_020/Preflight.sql'; Run 'candidate 1800_020/Preflight.sql rerun-negative' (Get-Content -LiteralPath $file -Raw) $file; throw 'R3_RERUN_UNEXPECTED_PASS' } catch { if($_.Exception.Message -match 'UNEXPECTED_PASS'){throw}; if($_.Exception.ToString() -notmatch '1\.8\.0-020_RERUN_STOP'){throw 'R3_RERUN_NEGATIVE_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_RERUN_PASS' }
+try { $file=Join-Path $candidateRoot '1800_020/Preflight.sql'; Run 'candidate 1800_020/Preflight.sql rerun-negative' (Get-Content -LiteralPath $file -Raw) $file; throw 'R3_RERUN_UNEXPECTED_PASS' } catch { if($_.Exception.Message -match 'UNEXPECTED_PASS'){throw}; if($_.Exception.ToString() -notmatch 'R5_RERUN_STOP_1800_020'){throw 'R3_RERUN_NEGATIVE_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_RERUN_PASS' }
+$reserved=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT COUNT(*) C FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-013'").C
+if($reserved -ne 0){throw 'R5_RESERVED_013_MARKER_PRESENT'}
 $count=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT COUNT(*) C FROM dbo.SchemaVersions').C
-if($count -ne 10){throw "R3_FINAL_MARKER_COUNT_$count"}
+if($count -ne 14){throw "R5_FINAL_MARKER_COUNT_$count"}
 try { Run 'unknown-commit-negative' "SET XACT_ABORT ON; BEGIN TRAN; INSERT dbo.SchemaVersions VALUES(N'1.8.0-021',N'injected failure',SYSUTCDATETIME(),N'test'); THROW 52999,N'R3_INJECTED_FAILURE_STOP',1; COMMIT"; throw 'R3_FAILURE_DID_NOT_STOP' } catch { if($_.Exception.Message -match 'DID_NOT_STOP'){throw}; if($_.Exception.ToString() -notmatch 'R3_INJECTED_FAILURE_STOP'){throw 'R3_FAILURE_INJECTION_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_FAILURE_INJECTION_PASS' }
 $unexpectedMarker=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT COUNT(*) C FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-021'").C
 if($unexpectedMarker -ne 0){throw 'R3_UNKNOWN_COMMIT_MARKER_PERSISTED'}
@@ -109,5 +116,5 @@ Write-Output "R3_HISTORY_FINGERPRINT_PASS tables=4"
 try { Run 'partial-failure-negative' "SET XACT_ABORT ON; BEGIN TRAN; CREATE TABLE dbo.R3PartialFailureProbe(Id int NOT NULL); THROW 52998,N'R3_PARTIAL_FAILURE_STOP',1; COMMIT"; throw 'R3_PARTIAL_FAILURE_DID_NOT_STOP' } catch { if($_.Exception.Message -match 'DID_NOT_STOP'){throw}; if($_.Exception.ToString() -notmatch 'R3_PARTIAL_FAILURE_STOP'){throw 'R3_PARTIAL_FAILURE_WRONG_FAILURE'}; Write-Output 'FAIL_CLOSED_PARTIAL_FAILURE_PASS' }
 $partialObject=(Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT COALESCE(OBJECT_ID(N'dbo.R3PartialFailureProbe',N'U'),0) AS ObjectId").ObjectId
 if([int]$partialObject -ne 0){throw 'R3_PARTIAL_FAILURE_OBJECT_PERSISTED'}
-Write-Output "R3_CANONICAL_CORE_PLUS_CANDIDATE_ADDON_REHEARSAL_PASS canonical=011,012,014 candidateAddons=015-020 final=$((Invoke-Sqlcmd -ConnectionString (Conn $db) -Query 'SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC').VersionNumber) UAT_MIGRATION_STATUS=HOLD_010_BASELINE_AND_015_020_WRITER_COMPATIBILITY_NOT_PROVEN"
+Write-Output "R5_CANONICAL_CORE_PLUS_ADDITIVES_PASS canonical=011,012,014,015,016,017,018,019,020 final=$((Invoke-Sqlcmd -ConnectionString (Conn $db) -Query "SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions WHERE VersionNumber LIKE N'1.8.0-0%' ORDER BY AppliedAt DESC,VersionNumber DESC").VersionNumber) UAT_MIGRATION_STATUS=HOLD_010_BASELINE_NOT_PROVEN_WRITER_SAME_DATABASE_E2E_NOT_YET_PROVEN"
 } finally { Invoke-Sqlcmd -ConnectionString $raw -Query "ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]" -AbortOnError }

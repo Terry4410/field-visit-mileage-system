@@ -112,7 +112,7 @@ jobs:
             print(f'TRX_NONZERO {p} total={total} executed={executed}')
           PY
 
-      - name: Canonical 011-014 plus explicitly candidate 015-020 disposable rehearsal
+      - name: Canonical 010 fixture → 011-020 additive SQL 2022 rehearsal (UAT held)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
