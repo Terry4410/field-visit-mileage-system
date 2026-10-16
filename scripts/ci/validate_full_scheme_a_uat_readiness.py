@@ -69,6 +69,14 @@ class FullSchemeAUatReadinessTests(unittest.TestCase):
         for migration in ("1800_011", "1800_012", "1800_014"):
             self.assertFalse((ROOT / "database/migrations" / migration).exists())
             self.assertFalse((ROOT / "database/candidates" / migration).exists())
+            for filename in ("Preflight.sql", "Up.sql", "Verify.sql"):
+                canonical = (DRAFT / migration / filename).read_bytes()
+                rehearsal = (DRAFT / "candidate" / migration / filename).read_bytes()
+                self.assertEqual(canonical, rehearsal,
+                    f"candidate rehearsal must remain byte-identical to canonical {migration}/{filename}")
+            if migration == "1800_014":
+                self.assertEqual((DRAFT / migration / "Backfill.sql").read_bytes(),
+                    (DRAFT / "candidate" / migration / "Backfill.sql").read_bytes())
 
     def test_order_preserves_reserved_013_and_exposes_unassigned_additives(self):
         design = self.manifest["orderedDesign"]

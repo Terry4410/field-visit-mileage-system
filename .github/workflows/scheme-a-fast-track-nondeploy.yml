@@ -112,7 +112,7 @@ jobs:
             print(f'TRX_NONZERO {p} total={total} executed={executed}')
           PY
 
-      - name: Full 010 to 020 migration candidate disposable rehearsal
+      - name: Canonical 011-014 plus explicitly candidate 015-020 disposable rehearsal
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
