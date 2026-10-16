@@ -158,6 +158,17 @@ Exact code evidence: 07392072e97ff14f6f939bf94e85e51be63faca0 / CI 38889522855 S
 
 ### Tally correction
 
+### WORK A real SQL harness delta (after Sequence 5)
+
+The executable A6/P1 evidence is now defined by
+`docs/release/WORK_A_REAL_SQL_HARNESS_DELTA.md` and the exact-head
+`worker-security-sql.trx` (13 required cases). A3–A5/A7/A8 accepted business
+implementation is unchanged. Runtime PASS requires the current run's nonzero
+passing TRX and fixed-prefix SQL observations, not the prior source assertions.
+The accepted ANY OTHER success rule can reject both already-successful Workers;
+exactly-one automatic business completion/reconciliation remains HOLD even when
+no-overwrite, real 1205/1222 rollback and safe-error assertions pass. No UAT GO.
+
 ### WORK A P1 hardening — post-audit 6215934840
 
 | Control | Implementation / test evidence | Disposition |

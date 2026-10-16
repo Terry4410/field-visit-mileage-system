@@ -246,5 +246,6 @@ jobs:
           path: |
             artifacts/work-a-p0-evidence/summary.txt
             docs/release/OPTIONC_OWNER_ACCEPTANCE_TRACEABILITY_R8.md
+            docs/release/WORK_A_REAL_SQL_HARNESS_DELTA.md
           if-no-files-found: error
           retention-days: 30

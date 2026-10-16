@@ -292,14 +292,16 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             var cs = new SqlConnectionStringBuilder(root.ConnectionString) { InitialCatalog = name }.ConnectionString;
             await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
-                foreach (var setting in new Dictionary<string, string?>
+                var settings = new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DefaultConnection"] = cs,
                     ["Auth:Mode"] = "Demo", ["Auth:JwtKey"] = "test-key-that-is-at-least-32-characters-long",
                     ["OptionC:Candidate:Enabled"] = "true", ["Providers:Route"] = "Google",
                     ["GoogleMaps:ApiKey"] = "synthetic-unused-controlled-provider",
                     ["BackgroundJobs:WorkerEnabled"] = "false", ["BackgroundJobs:RecoverOnStartup"] = "false"
-                }) builder.UseSetting(setting.Key, setting.Value);
+                };
+                foreach (var setting in settings) builder.UseSetting(setting.Key, setting.Value);
+                builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(settings));
                 builder.ConfigureTestServices(services =>
                 {
                     services.AddScoped<IV180RouteProvider>(sp => new WorkerProvider(control, sp.GetRequiredService<AppDbContext>()));
@@ -307,6 +309,10 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
                 });
             });
             using var seedScope = factory.Services.CreateScope();
+            var runtimeConfiguration = seedScope.ServiceProvider.GetRequiredService<IConfiguration>();
+            Assert.Equal("Google", runtimeConfiguration["Providers:Route"]);
+            Assert.Equal("false", runtimeConfiguration["BackgroundJobs:WorkerEnabled"]);
+            Assert.IsType<WorkerProvider>(seedScope.ServiceProvider.GetRequiredService<IV180RouteProvider>());
             var db = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
             await db.Database.EnsureCreatedAsync(timeout.Token);
             var fixture = await SeedAsync(db);
