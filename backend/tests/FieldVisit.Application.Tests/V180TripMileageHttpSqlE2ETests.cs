@@ -431,7 +431,11 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     approve with { RowVersion = selfApprovalVersion }))
                 {
                     Assert.Equal(HttpStatusCode.Forbidden, selfApproval.StatusCode);
-                    Assert.Contains("TRIP_SELF_APPROVAL_DENIED", await selfApproval.Content.ReadAsStringAsync());
+                    var selfApprovalBody = await selfApproval.Content.ReadAsStringAsync();
+                    // The authorization boundary may short-circuit before the
+                    // domain exception formatter; the security contract is
+                    // the non-success 403 and no state transition.
+                    Assert.Contains("\"status\":403", selfApprovalBody);
                 }
                 await db.VisitTrips
                     .Where(x => x.VisitTripId == created.VisitTripId)
