@@ -86,3 +86,8 @@ Evidence now distinguishes live Pages source stamp 0899f3996618c4b2bd02ecd659c76
 Comparing those source records to this RC identifies a P0 existing-Visitor regression: /locations/manage nav/route, Visitor managed-location API grants, visitor-teams endpoint and creator DTO field are absent in the RC. No runtime feature is altered in this continuation; the single WORK A/Control Tower plan must resolve this before release. Source model/DDL and SaveManagedLocationRequest match the historical API source, but this is not actual catalog parity or full existing-UAT compatibility. The new source-comparison CI step records HOLD rather than declaring business acceptance.
 
 The exact-SHA preflight manifest now binds candidate source/ref, package stamps/hashes, immutable evidence snapshot/hash and unreleased gate/hash. It denies branch/SHA/stamp mismatch, symlink artifacts and unsupported evidence promotion; it cannot emit GO. The Owner decision sheet and verified recovery procedure report unresolved baseline, app-principal, active binary and rollback gaps. No UAT SQL, credentials, deployments or business row copies were used.
+
+
+## Visitor restoration and current Protected delta
+
+See CROSS-LANE-READINESS.md. This continuation changes implementation to preserve Visitor behavior, integrates Protected b1a507c diagnostics, and adds four-role HTTP/SQL plus Visitor browser regression gates. Earlier statements that implementation is unchanged or Visitor is not patched describe d664 only. Actual UAT/catalog/principal/rollback acceptance remains HOLD.

@@ -90,7 +90,7 @@ jobs:
           cd uat
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
-          npx playwright test tests/leader-rc-browser-sql.spec.ts --retries=0
+          PLAYWRIGHT_JSON_OUTPUT_NAME=../artifacts/browser-results.json npx playwright test tests/leader-rc-browser-sql.spec.ts --retries=0 --reporter=list,html,json
       - name: Verify browser persistence and audit in SQL
         env:
           LEADER_RC_VERIFY_BROWSER_FIXTURE: /tmp/leader-rc-browser.json
@@ -100,6 +100,7 @@ jobs:
         if: always()
         run: |
           python3 scripts/ci/leader_rc_trx.py
+          python3 scripts/ci/leader_rc_acceptance.py
           echo 'Actual UAT schema parity, rollback evidence and deployment authorization HOLD. Partial Leader draft candidate only.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()

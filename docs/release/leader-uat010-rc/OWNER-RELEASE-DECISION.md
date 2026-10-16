@@ -1,3 +1,11 @@
+# Current decision — Visitor restoration / cross-lane delta
+
+HOLD / NONDEPLOY_ONLY. See CROSS-LANE-READINESS.md and the exact-run visitor-acceptance.json for the current candidate matrix. The prior d664 source regression below is historical: this delta restores Visitor route, API/DTO/ownership and adds real role/browser/SQL regression gates. Live UAT business/history compatibility still requires separate acceptance. Current integrated Protected is b1a507c90c577fb2c0cdd6a98ef33481d3a5f790. No privileged operation is requested.
+
+---
+
+# Historical d664 preflight decision (retained audit record)
+
 # Owner release decision sheet — evidence readiness only
 
 **Recommended decision: KEEP HOLD. No GO, merge or execution is requested.**

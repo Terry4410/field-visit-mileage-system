@@ -8,17 +8,17 @@ Starting C d664d4470d8b1dfad5ec5e0357f79562bfd956f4; Protected b1a507c90c577fb2c
 
 Historical observed Pages source 0899f3996618c4b2bd02ecd659c76fdd07cc91ed and recorded API deployment source db235938b8b13ca8a65ab3b525de1df10d911645 supply the Visitor compatibility contract. They do not identify today's active API binary.
 
-## Visitor matrix (candidate execution pending exact CI)
+## Visitor matrix (isolated execution; live UAT remains HOLD)
 
 | Requirement | Evidence required | Current release state |
 |---|---|---|
-| Entry/nav and /locations/manage | Chromium actual candidate React/API | HOLD pending new exact CI |
-| Search/create/edit and eight fields | real HTTP/SQL plus browser persistence probe | HOLD pending new exact CI |
-| Own draft only, CreatedByUserId, VisitorTeamDto | DTO assertions, other-owner 403, disabled browser action | HOLD pending new exact CI |
-| Current role/HR/team/account and scope | disposable SQL mutation negatives | HOLD pending new exact CI |
-| Leader current authorization and other-owner authorized draft | prior tests retained and rerun | HOLD pending new exact CI |
-| Admin legacy create/edit, unauthorized/anonymous refusal | real HTTP/SQL role checks | HOLD pending new exact CI |
-| Published/foreign historical row remains unchanged | real SQL assertion | HOLD pending new exact CI |
+| Entry/nav and /locations/manage | Chromium actual candidate React/API | PASS_ISOLATED on C2a212b0 / run38926432231 |
+| Search/create/edit and eight fields | real HTTP/SQL plus browser persistence probe | PASS_ISOLATED on C2a212b0 / run38926432231 |
+| Own draft only, CreatedByUserId, VisitorTeamDto | DTO assertions, other-owner 403, disabled browser action | PASS_ISOLATED on C2a212b0 / run38926432231 |
+| Current role/HR/team/account and scope | disposable SQL mutation negatives | PASS_ISOLATED on C2a212b0 / run38926432231 |
+| Leader current authorization and other-owner authorized draft | prior tests retained and rerun | PASS_ISOLATED on C2a212b0 / run38926432231 |
+| Admin legacy create/edit, unauthorized/anonymous refusal | real HTTP/SQL role checks | PASS_ISOLATED on C2a212b0 / run38926432231 |
+| Published/foreign historical row remains unchanged | real SQL assertion | PASS_ISOLATED on C2a212b0 / run38926432231 |
 | Existing deployed Visitor behavior/business history | no authenticated UAT execution or business data accessed | HOLD |
 
 Visitor policy is selectively restored from the recorded deployed API, with explicit organization matching, rejection of temporary/merged records and serializable Visitor draft writes. Existing Leader live authorization remains separate. Legacy maintenance/geocode/import restrictions remain intact. No database/domain/model/config/default flag change.
@@ -50,7 +50,7 @@ Common merge base C/A at start: 68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2. A is n
 
 | Gate | Decision / unresolved requirement |
 |---|---|
-| C engineering | Await new exact-SHA CI; partial Leader + Visitor compatibility only |
+| C engineering | C2a212b0 run38926432231 SUCCESS; final documentation/evidence delta reruns exact CI; partial Leader + Visitor compatibility only |
 | Full Owner A1–A15 | HOLD; A engineering and independent acceptance remain required |
 | True010 schema/app principal | HOLD; trusted baseline/catalog/permissions missing |
 | Active API provenance | HOLD; authenticated active deployment identity not available |
@@ -62,3 +62,27 @@ Common merge base C/A at start: 68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2. A is n
 ## Hub operating adoption
 
 Read reviewed SOP/schema at Hub14d5fc005587b260723a316a586278a7a886daa0 and Issue41. Downloaded artifact12037935872 from successful producer38881037875 and inspected status.json. It records A8f69816/Cd664/Protectedb1a507c; A is stale against live4bf090f and C will become stale after this delta. Treat it as historical, not current acceptance. WORK_C had no marked handoff at task start. Completion must append schema-validated fixed-code JSON, increasing sequence, exact successful C CI and retrievable evidence hash, then read back. Hub branch/activation remains untouched.
+
+## Isolated merge-tree evidence
+
+Executed git merge-tree --write-tree for C2a212b08187c9336afff1854fde363dd6b6c0a2c and A4bf090fce8a3ed338b30db1a72120629e4751d4f; conflict result, no ref/worktree changes. Nine files require reviewed resolution:
+
+- backend/src/FieldVisit.Api/Program.cs
+- backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs
+- docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.protected-workflow-proposal.md
+- docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql
+- docs/release/optionc-canonical-sql-draft/preflight/UAT_ReadOnly_Preflight.sql
+- frontend/src/App.tsx
+- frontend/src/location-ownership-ui.test.ts
+- frontend/src/location-ownership-ui.ts
+- frontend/src/pages/ScopedLocationPage.tsx
+
+No combined runtime candidate was claimed: unresolved overlapping authorization/transaction paths and divergent canonical schema make an automatic merge unsuitable. Preserve Protected SQL bytes and integrate Visitor semantics rather than choosing ours/theirs wholesale. A's backend defaults PackageB:B3:Enabled, OptionC:Approval:Enabled and OptionC:Candidate:Enabled are false. All six frontend flags (approval, leader review, create, direct LowRisk, Excel create/update) are false at the pinned A source. Runtime settings remain unverified; none were changed.
+
+010 source prerequisite review: Up requires exact latest009, RouteCalculationAttempts, enabled/trusted predecessor reason constraint and predecessor-valid data. Its postcondition adds BackgroundMileageJob as an allowed CalculationReason and records010. This is read-only source analysis, not a claim about actual UAT state. C adds no migration. Required existing columns include Locations.CreatedByUserId/RowVersion and current user/role/team/HR facts already in Protected model; actual catalog facets and effective application grants remain unverified.
+
+Public reads refreshed at 2026-10-16T15:45:36Z: Pages stamp0899f39/config hash unchanged, API health/live200 and source stamp404. API run38334707319 artifact list still contains only test report11784129018. Snapshot: evidence/current-public-observations.json. No authentication, SQL or active-binary inference.
+
+The newer successful Hub run38881045011 is PR validation-only with zero artifacts; latest available successful state producer remains38881037875. Its stale source comparison above is explicit.
+
+C2a212b08187c9336afff1854fde363dd6b6c0a2c exact run38926432231 succeeded, including both actual browser scenarios and independent SQL persistence probe. The final delta adds a sanitized acceptance artifact derived from mandatory TRX/browser results and reruns every gate; its own exact source is identified in that artifact and GitHub CI, not recursively hardcoded here.
