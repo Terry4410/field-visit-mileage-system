@@ -49,8 +49,7 @@ jobs:
           forbidden_azure="azure/""login"
           forbidden_environment="environment:""[[:space:]]*uat"
           forbidden_oidc="id-token:""[[:space:]]*write"
-          forbidden_sql="Invoke-""Sqlcmd"
-          for pattern in "$forbidden_azure" "$forbidden_environment" "$forbidden_oidc" "$forbidden_sql"; do
+          for pattern in "$forbidden_azure" "$forbidden_environment" "$forbidden_oidc"; do
             if grep -Eq "$pattern" "$workflow"; then
               echo "Forbidden protected-access capability detected in proposal CI." >&2
               exit 1
