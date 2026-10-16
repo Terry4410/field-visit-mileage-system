@@ -1372,10 +1372,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var dashboardAfter = await dashboardAfterResponse.Content
             .ReadFromJsonAsync<DashboardSummaryDto>()
             ?? throw new InvalidOperationException("OPTIONC_DASHBOARD_AFTER_MISSING");
-        // LocationId 900 is the one legitimate unreserved legacy draft
-        // deliberately added between dashboard reads. It remains countable;
-        // the private canonical reservation must contribute no extra count.
-        Assert.Equal(dashboardBefore.PendingLocations + 1,
+        // LocationId 900 and the same-team managed-draft fixture 901 are
+        // legitimate unreserved Pending rows and remain countable. Fixture
+        // 902 belongs to another team and is outside this visitor's scope.
+        // The private canonical reservation must contribute no extra count.
+        Assert.Equal(dashboardBefore.PendingLocations + 2,
             dashboardAfter.PendingLocations);
         // Legacy Picker endpoints require the normal org/team JWT claims.
         // The isolated Option C write path above intentionally ignores claims
