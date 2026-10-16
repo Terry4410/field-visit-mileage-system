@@ -44,7 +44,7 @@ class R6SchemaFidelityTests(unittest.TestCase):
             "Schema inventory SQL changed; it requires a new independent review.",
         )
         executable = re.sub(
-            rb"/\\*.*?\\*/|--[^\\n]*", b"", source, flags=re.S
+            rb"/\*.*?\*/|--[^\n]*", b"", source, flags=re.S
         ).upper()
         for identity_surface in (
             b"ORIGINAL_LOGIN", b"SUSER_SNAME", b"SYSTEM_USER",
