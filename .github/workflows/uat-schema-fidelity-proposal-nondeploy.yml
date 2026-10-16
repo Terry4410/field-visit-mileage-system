@@ -5,6 +5,7 @@ on:
     branches:
       - work/uat-schema-fidelity-protected-proposal-20261016
       - work/uat-schema-inventory-failure-diagnostic-20261016
+      - work/uat-schema-r2-unknown-failure-diagnostic-20261016
   pull_request:
     branches:
       - post-uat/v1.8.0
@@ -20,7 +21,16 @@ concurrency:
 jobs:
   static-and-comparator-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: Disposable_SQL_2026!Only
+        ports:
+          - 1433:1433
     steps:
       - name: Checkout exact proposal SHA
         uses: actions/checkout@v4
@@ -55,6 +65,15 @@ jobs:
         run: |
           Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
           ./scripts/ci/test_uat_schema_fidelity_evidence.ps1
+
+      - name: Run disposable SQL Invoke-Sqlcmd negative tests
+        shell: pwsh
+        env:
+          SCHEMA_TEST_SQL_SERVER: localhost,1433
+          SCHEMA_TEST_SQL_DATABASE: master
+          SCHEMA_TEST_SQL_USER: sa
+          SCHEMA_TEST_SQL_PASSWORD: Disposable_SQL_2026!Only
+        run: ./scripts/ci/test_uat_schema_fidelity_invoke_sqlcmd.ps1
 
       - name: Compile comparator
         run: python3 -m py_compile scripts/ci/compare_uat010_schema_inventory.py

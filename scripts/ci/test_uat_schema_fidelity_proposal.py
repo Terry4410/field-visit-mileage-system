@@ -14,10 +14,12 @@ SQL = ROOT / "docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFi
 WORKFLOW = ROOT / ".github/workflows/azure-sql-uat-schema-fidelity-readonly.yml"
 VALIDATOR = ROOT / "scripts/ci/uat_schema_fidelity_evidence.ps1"
 POWERSHELL_TEST = ROOT / "scripts/ci/test_uat_schema_fidelity_evidence.ps1"
+INVOKE_SQLCMD_TEST = ROOT / "scripts/ci/test_uat_schema_fidelity_invoke_sqlcmd.ps1"
 COMPARATOR = ROOT / "scripts/ci/compare_uat010_schema_inventory.py"
 REGISTRATION_STUB = ROOT / "docs/workflows/azure-sql-uat-schema-fidelity-readonly.main-registration-stub.yml"
+R2_DIAGNOSTIC = ROOT / "docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.r2-unknown-failure-diagnostic.md"
 SQL_SHA = "67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734"
-VALIDATOR_SHA = "d41eec46426f1ed0749eab69fdb1a2cd021a3d5a042b0d69a3f4f745f44ceaf3"
+VALIDATOR_SHA = "5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653"
 
 
 def load_comparator():
@@ -155,6 +157,8 @@ class SchemaFidelityProposalTests(unittest.TestCase):
             "missing seventh result set fails",
             "SQL failure output suppresses raw secret",
             "real SqlException signals map only to allow-listed diagnostics",
+            "approved wrapper chain reaches provider signal within three levels",
+            "unknown and over-depth wrappers stay suppressed",
             "wrong evidence mode fails",
         ):
             self.assertIn(required, source)
@@ -162,6 +166,46 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertIn("Get-SanitizedUatInventoryFailure", source)
         self.assertIn("System.Management.Automation.ErrorRecord", source)
         self.assertIn("wrapped unapproved SQL number was not suppressed", source)
+
+    def test_wrapper_traversal_is_exact_allowlisted_bounded_and_fail_closed(self):
+        source = VALIDATOR.read_text(encoding="utf-8")
+        for wrapper in (
+            "Microsoft.SqlServer.Management.PowerShell.SqlPowerShellSqlExecutionException",
+            "System.Management.Automation.RuntimeException",
+            "System.Reflection.TargetInvocationException",
+        ):
+            self.assertIn(wrapper, source)
+        self.assertIn("$item.Depth -ge 3", source)
+        self.assertIn("$approvedWrappers -notcontains $exception.GetType().FullName", source)
+        self.assertIn("$Failure -is [System.Exception]", source)
+        self.assertNotIn("PSObject.Properties.Name", source)
+
+    def test_disposable_invoke_sqlcmd_tests_are_runner_local_and_nondeploy(self):
+        source = INVOKE_SQLCMD_TEST.read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/uat-schema-fidelity-proposal-nondeploy.yml").read_text(encoding="utf-8")
+        for required in (
+            "localhost,1433", "master", "SqlServer -RequiredVersion 22.4.5.1",
+            "AbortOnError = $true", "OutputSqlErrors = $false", "-OutputAs DataSet",
+            "SqlPowerShellSqlExecutionException", "unsupported-provider-code",
+        ):
+            self.assertIn(required, source)
+        for forbidden in (
+            "sql-fieldvisit-jpe-uat", "db-fieldvisit-uat", "AccessToken", "azure/login",
+            "INSERT ", "UPDATE ", "DELETE ", "MERGE ", "CREATE ", "ALTER ", "DROP ",
+            "RESTORE ", "BACKUP ", "upload-artifact",
+        ):
+            self.assertNotIn(forbidden, source)
+        self.assertIn("mcr.microsoft.com/mssql/server:2022-latest", workflow)
+        self.assertNotIn("id-token: write", workflow)
+        self.assertNotIn("environment: uat", workflow)
+
+    def test_r2_diagnostic_plan_is_staged_and_requires_new_authorization(self):
+        source = R2_DIAGNOSTIC.read_text(encoding="utf-8")
+        for stage in ("IdentityVersion", "Catalog", "HistoricalAccess", "HistoricalAggregates"):
+            self.assertIn(stage, source)
+        self.assertIn("distinct `Invoke-Sqlcmd` call", source)
+        self.assertIn("R2 authorization is consumed", source)
+        self.assertIn("separately reviewed, hash-pinned stage SQL", source)
 
     def test_validator_is_hash_pinned_and_exact_shape(self):
         source = VALIDATOR.read_bytes()

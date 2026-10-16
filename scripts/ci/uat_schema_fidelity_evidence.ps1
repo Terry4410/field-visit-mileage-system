@@ -1,41 +1,85 @@
 Set-StrictMode -Version Latest
 
-function Get-SanitizedUatInventoryFailure([object]$Failure) {
-  $exception = if ($Failure -is [System.Management.Automation.ErrorRecord]) {
+function Get-ApprovedUatFailureExceptions([object]$Failure) {
+  $approvedWrappers = @(
+    'Microsoft.SqlServer.Management.PowerShell.SqlPowerShellSqlExecutionException',
+    'System.Management.Automation.ActionPreferenceStopException',
+    'System.Management.Automation.CmdletInvocationException',
+    'System.Management.Automation.MethodInvocationException',
+    'System.Management.Automation.ParentContainsErrorRecordException',
+    'System.Management.Automation.ProviderInvocationException',
+    'System.Management.Automation.RuntimeException',
+    'System.Reflection.TargetInvocationException'
+  )
+  $initial = if ($Failure -is [System.Management.Automation.ErrorRecord]) {
     $Failure.Exception
-  } elseif ($null -ne $Failure -and @($Failure.PSObject.Properties.Name) -contains 'Exception') {
-    $Failure.Exception
-  } else {
+  } elseif ($Failure -is [System.Exception]) {
     $Failure
+  } else {
+    $null
   }
+  if ($null -eq $initial) { return @() }
+
+  $queue = [System.Collections.Generic.Queue[object]]::new()
+  $queue.Enqueue([pscustomobject]@{ Exception = $initial; Depth = 0 })
+  $visited = [System.Collections.Generic.HashSet[System.Exception]]::new()
+  $approved = [System.Collections.Generic.List[System.Exception]]::new()
+
+  while ($queue.Count -gt 0) {
+    $item = $queue.Dequeue()
+    $exception = $item.Exception
+    if ($exception -isnot [System.Exception] -or -not $visited.Add($exception)) { continue }
+    [void]$approved.Add($exception)
+    if ($item.Depth -ge 3 -or $approvedWrappers -notcontains $exception.GetType().FullName) { continue }
+
+    if ($exception.InnerException -is [System.Exception]) {
+      $queue.Enqueue([pscustomobject]@{ Exception = $exception.InnerException; Depth = $item.Depth + 1 })
+    }
+    if ($exception -is [System.Management.Automation.RuntimeException] -and
+        $null -ne $exception.ErrorRecord -and
+        $exception.ErrorRecord.Exception -is [System.Exception] -and
+        -not [object]::ReferenceEquals($exception.ErrorRecord.Exception, $exception)) {
+      $queue.Enqueue([pscustomobject]@{ Exception = $exception.ErrorRecord.Exception; Depth = $item.Depth + 1 })
+    }
+  }
+  return @($approved)
+}
+
+function Get-SanitizedUatInventoryFailure([object]$Failure) {
   $sqlTypes = @(
     'Microsoft.Data.SqlClient.SqlException',
     'System.Data.SqlClient.SqlException'
   )
-  $runtimeType = if ($exception -is [System.Exception]) { $exception.GetType().FullName } else { 'OtherException' }
+  $exceptions = @(Get-ApprovedUatFailureExceptions $Failure)
   $providerCode = 'Suppressed'
-  $classification = if ($runtimeType -eq 'System.TimeoutException') {
-    'TimeoutOrTransient'
-  } elseif ($runtimeType -eq 'System.Net.Sockets.SocketException') {
-    'ConnectivityFailure'
-  } elseif ($sqlTypes -contains $runtimeType) {
-    $number = [int]$exception.Number
-    $classification = switch ($number) {
-      { $_ -in 51990,51991 } { 'TargetGuardRejected'; break }
-      51992 { 'RequiredObjectMissing'; break }
-      51993 { 'HistoricalSelectOrObjectUnavailable'; break }
-      { $_ -in 229,230,262 } { 'SqlPermissionDenied'; break }
-      { $_ -in 207,208 } { 'MissingObjectOrColumn'; break }
-      { $_ -in 102,156,319 } { 'SqlSyntaxOrCompatibility'; break }
-      { $_ -in 916,18456,4060 } { 'AuthenticationOrDatabaseAccess'; break }
-      { $_ -in -2,1205,40197,40501,40613,49918,49919,49920 } { 'TimeoutOrTransient'; break }
-      { $_ -in 2,20,53,64,233,10053,10054,10060,10061,11001 } { 'ConnectivityFailure'; break }
-      default { 'UnclassifiedSqlFailure' }
+  $classification = 'UnknownSqlFailure'
+  foreach ($exception in $exceptions) {
+    $runtimeType = $exception.GetType().FullName
+    if ($runtimeType -eq 'System.TimeoutException') {
+      $classification = 'TimeoutOrTransient'
+      break
     }
-    if ($classification -ne 'UnclassifiedSqlFailure') { $providerCode = [string]$number }
-    $classification
-  } else {
-    'UnknownSqlFailure'
+    if ($runtimeType -eq 'System.Net.Sockets.SocketException') {
+      $classification = 'ConnectivityFailure'
+      break
+    }
+    if ($sqlTypes -contains $runtimeType) {
+      $number = [int]$exception.Number
+      $classification = switch ($number) {
+        { $_ -in 51990,51991 } { 'TargetGuardRejected'; break }
+        51992 { 'RequiredObjectMissing'; break }
+        51993 { 'HistoricalSelectOrObjectUnavailable'; break }
+        { $_ -in 229,230,262 } { 'SqlPermissionDenied'; break }
+        { $_ -in 207,208 } { 'MissingObjectOrColumn'; break }
+        { $_ -in 102,156,319 } { 'SqlSyntaxOrCompatibility'; break }
+        { $_ -in 916,18456,4060 } { 'AuthenticationOrDatabaseAccess'; break }
+        { $_ -in -2,1205,40197,40501,40613,49918,49919,49920 } { 'TimeoutOrTransient'; break }
+        { $_ -in 2,20,53,64,233,10053,10054,10060,10061,11001 } { 'ConnectivityFailure'; break }
+        default { 'UnclassifiedSqlFailure' }
+      }
+      if ($classification -ne 'UnclassifiedSqlFailure') { $providerCode = [string]$number }
+      break
+    }
   }
   return "STOP: metadata-only SQL inventory failed. Classification=$classification; ProviderCode=$providerCode; raw SQL error suppressed."
 }
