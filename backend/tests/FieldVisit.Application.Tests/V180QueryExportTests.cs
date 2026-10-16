@@ -93,6 +93,18 @@ public sealed class V180QueryExportTests
     }
 
     [Fact]
+    public async Task Visit_type_export_denies_unclassified_scope_with_controlled_403()
+    {
+        var controller = BuildController();
+        var result = await controller.VisitTypes(CancellationToken.None);
+        var denied = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, denied.StatusCode);
+        var body = System.Text.Json.JsonSerializer.Serialize(denied.Value);
+        Assert.Contains("REPORT_EXPORT_VISIT_TYPES_SCOPE_HOLD", body);
+        Assert.DoesNotContain("InvalidOperationException", body);
+    }
+
+    [Fact]
     public void Personnel_and_official_exports_require_admin_role()
     {
         var auth = typeof(V180QueryExportController)
