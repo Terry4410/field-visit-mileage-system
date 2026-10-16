@@ -413,7 +413,7 @@ public sealed class LeaderService(
         var eligibility = await access.EvaluateLoginAsync(liveUser.UserId, adminEnabled: false, ct);
         if (!eligibility.IsAllowed)
             throw new UnauthorizedAccessException("LEADER_HR_ACCESS_REVOKED：目前人事狀態不允許核准行程。");
-        if (!liveUser.Roles.Any(x => x.Equals("leader", StringComparison.OrdinalIgnoreCase))
+        if (!await access.HasEffectiveRoleAsync(liveUser.UserId, "leader", ct)
             || liveUser.TeamIds.Count == 0)
             throw new UnauthorizedAccessException("LEADER_ROLE_OR_TEAM_REVOKED：目前已無有效小組長授權。");
         return liveUser;

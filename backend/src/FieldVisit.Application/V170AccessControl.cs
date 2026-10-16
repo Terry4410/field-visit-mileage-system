@@ -26,6 +26,11 @@ public interface IV170AccessControl
         bool adminEnabled,
         CancellationToken ct);
 
+    Task<bool> HasEffectiveRoleAsync(
+        int userId,
+        string roleCode,
+        CancellationToken ct);
+
     Task<V170ReadScope> ResolveReadScopeAsync(
         CurrentUserDto user,
         CancellationToken ct);
