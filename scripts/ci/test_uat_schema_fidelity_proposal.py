@@ -16,8 +16,8 @@ VALIDATOR = ROOT / "scripts/ci/uat_schema_fidelity_evidence.ps1"
 POWERSHELL_TEST = ROOT / "scripts/ci/test_uat_schema_fidelity_evidence.ps1"
 COMPARATOR = ROOT / "scripts/ci/compare_uat010_schema_inventory.py"
 REGISTRATION_STUB = ROOT / "docs/workflows/azure-sql-uat-schema-fidelity-readonly.main-registration-stub.yml"
-SQL_SHA = "e83552d4b1472e677f61a5e44973b80321d2874322f4a5954c070b8f3fd2c232"
-VALIDATOR_SHA = "e6dcd6be4ecd2616ae3332818d438c6d8704eff494b32b4ab8681f86bdcffd11"
+SQL_SHA = "67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734"
+VALIDATOR_SHA = "d41eec46426f1ed0749eab69fdb1a2cd021a3d5a042b0d69a3f4f745f44ceaf3"
 
 
 def load_comparator():
@@ -80,6 +80,40 @@ class SchemaFidelityProposalTests(unittest.TestCase):
             self.assertIn(required, executable)
         for sensitive in (b"ORIGINAL_LOGIN", b"SUSER_SNAME", b"SYSTEM_USER", b"CURRENT_USER", b"APPLIEDBY"):
             self.assertNotIn(sensitive, executable)
+        for table in (b"VISITTRIPS", b"VISITTRIPSTOPS", b"VISITTRIPSNAPSHOTS", b"VISITTRIPSNAPSHOTSTOPS"):
+            self.assertIn(b"HAS_PERMS_BY_NAME(N'DBO." + table + b"',N'OBJECT',N'SELECT')", executable)
+        self.assertIn(b"THROW 51993", executable)
+        self.assertIn(b"HISTORICAL_SELECT_OR_OBJECT_UNAVAILABLE", executable)
+
+    def test_inventory_references_match_protected_001_010_and_ef_model(self):
+        migrations = [
+            ROOT / f"database/migrations/1800_{number:03d}_{name}/Up.sql"
+            for number, name in (
+                (1, "organization_center_team_lifecycle"),
+                (2, "person_employment_role_membership"),
+                (3, "deployment_sites"),
+                (4, "location_governance"),
+                (5, "project_visit_rate_lifecycle"),
+                (6, "notification_framework"),
+                (7, "mileage_google_governance"),
+                (8, "rate_manual_effective_dates"),
+                (9, "one_stop_route_attempt_constraint"),
+                (10, "background_mileage_reason_constraint"),
+            )
+        ]
+        self.assertTrue(all(path.is_file() for path in migrations))
+        for number, path in enumerate(migrations, start=1):
+            self.assertIn(f"1.8.0-{number:03d}", path.read_text(encoding="utf-8-sig"))
+
+        migration_001 = migrations[0].read_text(encoding="utf-8-sig")
+        for token in ("VisitTripId", "VisitTripSnapshotId", "VisitTripSnapshotStopId"):
+            self.assertIn(token, migration_001)
+        ef_model = (ROOT / "backend/src/FieldVisit.Infrastructure/AppDbContext.cs").read_text(encoding="utf-8")
+        for token in ("VisitTripId", "VisitTripStopId", "VisitTripSnapshotId", "VisitTripSnapshotStopId"):
+            self.assertIn(token, ef_model)
+        migration_010 = migrations[9].read_text(encoding="utf-8-sig")
+        self.assertIn("CK_RouteCalculationAttempts_Reason", migration_010)
+        self.assertIn("BackgroundMileageJob", migration_010)
 
     def test_workflow_is_fixed_target_hash_pinned_and_fail_closed(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -120,11 +154,14 @@ class SchemaFidelityProposalTests(unittest.TestCase):
             "missing historical aggregate fails",
             "missing seventh result set fails",
             "SQL failure output suppresses raw secret",
+            "real SqlException signals map only to allow-listed diagnostics",
             "wrong evidence mode fails",
         ):
             self.assertIn(required, source)
         self.assertIn("New-ValidInventoryDataSet", source)
         self.assertIn("Get-SanitizedUatInventoryFailure", source)
+        self.assertIn("System.Management.Automation.ErrorRecord", source)
+        self.assertIn("wrapped unapproved SQL number was not suppressed", source)
 
     def test_validator_is_hash_pinned_and_exact_shape(self):
         source = VALIDATOR.read_bytes()
@@ -135,6 +172,13 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertIn("1.8.0-010", text)
         self.assertIn("METADATA_ONLY_NO_ROW_VALUES", text)
         self.assertIn("raw SQL error suppressed", text)
+        for classification in (
+            "TargetGuardRejected", "RequiredObjectMissing", "HistoricalSelectOrObjectUnavailable",
+            "SqlPermissionDenied", "MissingObjectOrColumn", "SqlSyntaxOrCompatibility",
+            "AuthenticationOrDatabaseAccess", "TimeoutOrTransient", "ConnectivityFailure",
+            "UnclassifiedSqlFailure",
+        ):
+            self.assertIn(classification, text)
         self.assertIn("Throw-SanitizedUatInventoryFailure", WORKFLOW.read_text(encoding="utf-8"))
 
     def test_comparator_detects_full_facet_and_010_drift(self):

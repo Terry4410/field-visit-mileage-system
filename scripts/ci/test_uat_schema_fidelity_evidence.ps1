@@ -3,6 +3,8 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'uat_schema_fidelity_evidence.ps1')
 
+Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
+
 $script:Passed = 0
 $script:Failed = 0
 
@@ -72,6 +74,48 @@ function Assert-Throws([string]$Name, [string]$MessagePattern, [scriptblock]$Bod
   throw "$Name did not fail closed."
 }
 
+function New-SyntheticSqlException([int]$Number, [byte]$State = 1, [byte]$Class = 16) {
+  $errorType = [Microsoft.Data.SqlClient.SqlError]
+  $collectionType = [Microsoft.Data.SqlClient.SqlErrorCollection]
+  $exceptionType = [Microsoft.Data.SqlClient.SqlException]
+  $flags = [System.Reflection.BindingFlags]'Instance,NonPublic'
+
+  $errorConstructor = @($errorType.GetConstructors($flags) | Sort-Object { $_.GetParameters().Count } -Descending)[0]
+  $errorArguments = @($errorConstructor.GetParameters() | ForEach-Object {
+    if ($_.Name -match 'infoNumber|number') { $Number }
+    elseif ($_.Name -match 'errorState|state') { $State }
+    elseif ($_.Name -match 'errorClass|class') { $Class }
+    elseif ($_.ParameterType -eq [string] -and $_.Name -match 'message') { 'SYNTHETIC_SECRET_MUST_NOT_LEAK' }
+    elseif ($_.ParameterType -eq [string]) { '' }
+    elseif ($_.ParameterType -eq [int]) { 0 }
+    elseif ($_.ParameterType -eq [uint32]) { [uint32]0 }
+    elseif ($_.ParameterType -eq [byte]) { [byte]0 }
+    elseif ($_.ParameterType -eq [System.Exception]) { $null }
+    else { $null }
+  })
+  $sqlError = $errorConstructor.Invoke($errorArguments)
+
+  $collection = [Activator]::CreateInstance($collectionType, $true)
+  $addMethod = $collectionType.GetMethod('Add', $flags)
+  [void]$addMethod.Invoke($collection, @($sqlError))
+
+  $createMethod = @($exceptionType.GetMethods([System.Reflection.BindingFlags]'Static,NonPublic') |
+    Where-Object { $_.Name -eq 'CreateException' -and $_.GetParameters()[0].ParameterType -eq $collectionType } |
+    Sort-Object { $_.GetParameters().Count })[0]
+  $createParameters = @($createMethod.GetParameters())
+  $createArguments = [object[]]::new($createParameters.Count)
+  for ($index = 0; $index -lt $createParameters.Count; $index++) {
+    $parameter = $createParameters[$index]
+    if ($parameter.ParameterType -eq $collectionType) { $createArguments[$index] = [object]$collection }
+    elseif ($parameter.ParameterType -eq [string]) { $createArguments[$index] = 'synthetic-version' }
+    elseif ($parameter.ParameterType -eq [Guid]) { $createArguments[$index] = [Guid]::Empty }
+    elseif ($parameter.ParameterType -eq [System.Exception]) { $createArguments[$index] = $null }
+    elseif ($parameter.ParameterType -eq [bool]) { $createArguments[$index] = $false }
+    else { $createArguments[$index] = $null }
+  }
+  return $createMethod.Invoke($null, $createArguments)
+}
+
 Run-Test 'valid seven-result-set DataSet normalizes' {
   $result = Convert-UatSchemaInventory (New-ValidInventoryDataSet) 'sql-fieldvisit-jpe-uat.database.windows.net' 'db-fieldvisit-uat' ('a' * 40) ('b' * 64)
   if ($result.ContractVersion -ne 'uat-schema-fidelity-v1') { throw 'contract version mismatch' }
@@ -125,6 +169,52 @@ Run-Test 'SQL failure output suppresses raw secret and query text' {
   if ($safe -notmatch 'raw SQL error suppressed') { throw 'sanitized marker missing' }
   Assert-Throws 'sanitized throw' 'Classification=UnknownSqlFailure' {
     Throw-SanitizedUatInventoryFailure ([System.Exception]::new($secret))
+  }
+}
+
+Run-Test 'real SqlException signals map only to allow-listed diagnostics' {
+  $cases = @(
+    @{ Number = 51990; Classification = 'TargetGuardRejected' },
+    @{ Number = 51992; Classification = 'RequiredObjectMissing' },
+    @{ Number = 51993; Classification = 'HistoricalSelectOrObjectUnavailable' },
+    @{ Number = 229; Classification = 'SqlPermissionDenied' },
+    @{ Number = 207; Classification = 'MissingObjectOrColumn' },
+    @{ Number = 102; Classification = 'SqlSyntaxOrCompatibility' },
+    @{ Number = 18456; Classification = 'AuthenticationOrDatabaseAccess' },
+    @{ Number = 40501; Classification = 'TimeoutOrTransient' },
+    @{ Number = 10060; Classification = 'ConnectivityFailure' }
+  )
+  foreach ($case in $cases) {
+    $exception = New-SyntheticSqlException $case.Number
+    if ($exception.GetType().FullName -ne 'Microsoft.Data.SqlClient.SqlException' -or $exception.Number -ne $case.Number) {
+      throw "test fixture was not a real SqlException with number $($case.Number)"
+    }
+    $safe = Get-SanitizedUatInventoryFailure $exception
+    if ($safe -notmatch "Classification=$($case.Classification); ProviderCode=$($case.Number);") {
+      throw "SQL $($case.Number) did not map to $($case.Classification)"
+    }
+    if ($safe -match 'SYNTHETIC_SECRET_MUST_NOT_LEAK') { throw 'synthetic SQL message leaked' }
+  }
+
+  $unknown = Get-SanitizedUatInventoryFailure (New-SyntheticSqlException 50001)
+  if ($unknown -notmatch 'Classification=UnclassifiedSqlFailure; ProviderCode=Suppressed;') {
+    throw 'unapproved SQL number was not suppressed'
+  }
+  if ($unknown -match '50001|SYNTHETIC_SECRET_MUST_NOT_LEAK') { throw 'unapproved SQL signal leaked' }
+
+  $wrappedException = New-SyntheticSqlException 50001
+  $wrapped = [System.Management.Automation.ErrorRecord]::new(
+    $wrappedException,
+    'SyntheticSqlFailure',
+    [System.Management.Automation.ErrorCategory]::InvalidOperation,
+    $null
+  )
+  $wrappedSafe = Get-SanitizedUatInventoryFailure $wrapped
+  if ($wrappedSafe -notmatch 'Classification=UnclassifiedSqlFailure; ProviderCode=Suppressed;') {
+    throw 'wrapped unapproved SQL number was not suppressed'
+  }
+  if ($wrappedSafe -match '50001|SYNTHETIC_SECRET_MUST_NOT_LEAK|SyntheticSqlFailure') {
+    throw 'wrapped SQL signal leaked'
   }
 }
 

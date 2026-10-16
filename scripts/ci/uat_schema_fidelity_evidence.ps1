@@ -8,23 +8,36 @@ function Get-SanitizedUatInventoryFailure([object]$Failure) {
   } else {
     $Failure
   }
-  $approvedTypes = @(
+  $sqlTypes = @(
     'Microsoft.Data.SqlClient.SqlException',
-    'System.Data.SqlClient.SqlException',
-    'System.TimeoutException',
-    'System.Net.Sockets.SocketException'
+    'System.Data.SqlClient.SqlException'
   )
   $runtimeType = if ($exception -is [System.Exception]) { $exception.GetType().FullName } else { 'OtherException' }
+  $providerCode = 'Suppressed'
   $classification = if ($runtimeType -eq 'System.TimeoutException') {
-    'Timeout'
+    'TimeoutOrTransient'
   } elseif ($runtimeType -eq 'System.Net.Sockets.SocketException') {
-    'NetworkUnavailable'
-  } elseif ($approvedTypes -contains $runtimeType) {
-    'SqlOperationRejected'
+    'ConnectivityFailure'
+  } elseif ($sqlTypes -contains $runtimeType) {
+    $number = [int]$exception.Number
+    $classification = switch ($number) {
+      { $_ -in 51990,51991 } { 'TargetGuardRejected'; break }
+      51992 { 'RequiredObjectMissing'; break }
+      51993 { 'HistoricalSelectOrObjectUnavailable'; break }
+      { $_ -in 229,230,262 } { 'SqlPermissionDenied'; break }
+      { $_ -in 207,208 } { 'MissingObjectOrColumn'; break }
+      { $_ -in 102,156,319 } { 'SqlSyntaxOrCompatibility'; break }
+      { $_ -in 916,18456,4060 } { 'AuthenticationOrDatabaseAccess'; break }
+      { $_ -in -2,1205,40197,40501,40613,49918,49919,49920 } { 'TimeoutOrTransient'; break }
+      { $_ -in 2,20,53,64,233,10053,10054,10060,10061,11001 } { 'ConnectivityFailure'; break }
+      default { 'UnclassifiedSqlFailure' }
+    }
+    if ($classification -ne 'UnclassifiedSqlFailure') { $providerCode = [string]$number }
+    $classification
   } else {
     'UnknownSqlFailure'
   }
-  return "STOP: metadata-only SQL inventory failed. Classification=$classification; raw SQL error suppressed."
+  return "STOP: metadata-only SQL inventory failed. Classification=$classification; ProviderCode=$providerCode; raw SQL error suppressed."
 }
 
 function Throw-SanitizedUatInventoryFailure([object]$Failure) {

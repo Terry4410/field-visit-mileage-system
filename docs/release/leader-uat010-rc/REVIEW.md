@@ -1,6 +1,7 @@
 # WORK C — Existing UAT minimal Leader RC (NONDEPLOY)
 
-Protected base: `d691fba430ce80dd2048f84863b4628e1e6713d8`.
+Current reconciled Protected base: `7f0cf0cb55467916fb0f57239301a8787fd5cb69`.
+Original engineering base: `d691fba430ce80dd2048f84863b4628e1e6713d8` (retained in ancestry; not deployed-binary evidence).
 Selected R9 source: `95b1987c7f9f92bf589f2f9aecb0632d5d880325`.
 Authority: PR #33 Control Tower comment 6208799210 and Owner WORK C continuation.
 Candidate: `work/leader-uat010-minimal-rc-20261016`.
@@ -52,7 +53,7 @@ Minimal API/Frontend workflow diff is supplied as `deployment-workflows.patch` f
 Before any dispatch, require all of:
 1. Control Tower review of candidate diff, Exact-SHA CI and this partial scope.
 2. Successful independently reviewed actual UAT schema parity plus application-principal permission evidence, obtained only through separately authorized read-only diagnostics. Existing failed inventory is insufficient.
-3. Both current API and Pages **actual deployed** artifact IDs/run IDs, source SHAs, SHA-256, existing `config.js` and App Service setting fingerprint captured/verified read-only; current assumption `d691fba...` must be checked against deployment provenance. No credentials in artifacts/review text.
+3. Both current API and Pages **actual deployed** artifact IDs/run IDs, source SHAs, SHA-256, existing `config.js` and App Service setting fingerprint captured/verified read-only; neither original `d691fba...` nor current Protected `7f0cf0c...` establishes deployed source; actual provenance must be captured. No credentials in artifacts/review text.
 4. Approved backup/export evidence for UAT. Capture schema-only and relevant synthetic test-row/audit before/after evidence under a separately authorized procedure; do not export actual personnel/business content into this branch/CI. No backup/export performed by this PR.
 5. Reviewed same-host API/Frontend workflow patch and participant acceptance script. Candidate artifacts require PDF font packaging consistent with existing pipeline before release; current CI package does not claim a fully font-complete deploy bundle.
 6. One consolidated Owner approval naming both candidate artifacts, exact source SHA, unchanged UAT target identities, operations/order, test data cleanup, expiry and rollback artifacts. No existing SQL/dispatch approval is reused.
@@ -66,3 +67,14 @@ This wave changes no schema. Rollback restores the **captured actual prior API a
 ## Acceptance classification
 
 Engineering candidate/isolated validation can PASS. Actual UAT compatibility, release and Business acceptance remain HOLD. Even after this narrow wave is authorized and verified on existing UAT, label it **partial Leader location UAT**, never complete Leader/Scheme A acceptance.
+
+
+## Post-PR36 reconciliation
+
+PR #37 merges exact Protected `7f0cf0cb55467916fb0f57239301a8787fd5cb69` as a second parent, preserving its diagnostic SQL, safe classifier, tests and immutable workflow pins byte for byte. No API/domain/EF/security code changed in the Protected delta. CI now compares unchanged schema/config/deployment files against this current base and reruns the same real HTTP/SQL and Chromium persistence checks. Historical d691/af8 CI results are historical only; use the reconciled source SHA and its new run.
+
+`reference-prerequisites.json` in the candidate artifact inventories/hash-pins the exact 1600/1700 prerequisites and Protected 1800_001–010 Up/Verify files. `run-leader-rc-protected-reference.ps1` is the disposable-only reference builder. Its prerequisites are a separately approved, immutable **schema-only 1.5 baseline**, its SHA-256 and provenance reference. It rejects absent inputs, nonlocal targets, EF baselines and business INSERTs. It executes all unmodified protected migration/verify files in order and emits normalized reference metadata using a local-target-only derivative of the preserved inventory query. Derived and original query hashes are recorded distinctly. It never overwrites the protected UAT query or connects to UAT.
+
+The repository/history contains only `database/015_schema_v1_5_verify.sql`, not a 1.5 CREATE schema source. Thus genuine chain execution/reference compatibility remains HOLD, even if candidate runtime CI succeeds. No SchemaVersions row is fabricated to turn an EF fixture into a reference. Future comparison requires both the genuine generated reference and an independently authorized normalized UAT inventory, plus application-principal permissions. No read-only UAT dispatch is executed or retried by WORK C.
+
+The CI's candidate manifest explicitly marks deployed API/Pages source UNVERIFIED; Protected HEAD must never be substituted. Read-only deployment provenance collection is prepared in `PREDEPLOY-EVIDENCE.md`; execution requires a separately approved plan for actual Azure/Pages deployment inspection, verified prior artifact hashes and rollback eligibility. No live target inspection is implied by this nondeploy PR.

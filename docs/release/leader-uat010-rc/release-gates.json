@@ -6,5 +6,6 @@
   "fontCompleteReleaseArtifacts": "HOLD",
   "controlTowerReview": "HOLD",
   "ownerExecutionApproval": "NOT_AUTHORIZED",
-  "deployment": "HOLD"
+  "deployment": "HOLD",
+  "protectedMigrationReferenceCompatibility": "HOLD"
 }
