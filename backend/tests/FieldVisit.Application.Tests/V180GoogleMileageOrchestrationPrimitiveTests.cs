@@ -481,6 +481,9 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
                     .ThenByDescending(x => x.RouteCalculationAttemptId)
                     .FirstOrDefault());
 
+        public Task<List<RouteCalculationAttempt>> GetRouteCalculationAttemptsAsync(long tripId, CancellationToken ct) =>
+            Task.FromResult(RouteAttempts.Where(x => x.VisitTripId == tripId).ToList());
+
         public Task<RouteCalculationAttempt?> GetLatestFailedRouteCalculationAttemptAsync(
             long tripId, CancellationToken ct) =>
             Task.FromResult<RouteCalculationAttempt?>(RouteAttempts

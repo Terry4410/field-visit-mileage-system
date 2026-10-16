@@ -51,8 +51,21 @@ public sealed class LeaderService(
             mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
             mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? selectedIds : null,
             ct);
-        if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && rows.Count != selectedIds!.Length)
+        var eligibleRows = new List<VisitTrip>();
+        foreach (var trip in rows)
+        {
+            var submitted = await snapshots.GetLatestAsync(trip.VisitTripId, "Submitted", ct);
+            List<RouteCalculationAttempt> attempts = mileageGovernance is null
+                ? new List<RouteCalculationAttempt>()
+                : await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            if (submitted is not null && V180MileageCanonicalization.HasRetryEvidence(submitted, attempts))
+                eligibleRows.Add(trip);
+        }
+        if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && eligibleRows.Count != selectedIds!.Length)
             throw new InvalidOperationException("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED：選取行程已不可計算或不在授權範圍。");
+        rows = eligibleRows;
+        if (rows.Count == 0)
+            throw new InvalidOperationException("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE：沒有具目前路線 Google 失敗證據的可重試行程。");
 
         var items = new List<MileageBatchItem>();
         int ok = 0, failed = 0, skipped = 0;
@@ -111,10 +124,12 @@ public sealed class LeaderService(
 
     public async Task<TripDto> ApproveAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
     {
-        var user = await RequireLiveLeaderAsync(ct);
         // Serialize live-state validation and the decision/history/snapshot
         // write so concurrent approvals observe the first committed decision.
         await using var approvalTransaction = await uow.BeginSerializableTransactionAsync(ct);
+        // Live HR, role and team reads occur inside the serializable transaction;
+        // revocation cannot commit between authorization and the decision.
+        var user = await RequireLiveLeaderAsync(ct);
         var trip = await trips.GetForApprovalAsync(tripId, ct) ?? throw new KeyNotFoundException("找不到行程。");
         if (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value))
             throw new UnauthorizedAccessException("無權處理未授權小組資料。");
@@ -138,8 +153,9 @@ public sealed class LeaderService(
         var decisionSource =
             V180MileageGovernanceRules.RequireLeaderApprovalDecisionSource(
                 request.DistanceDecisionSource);
-        if (decisionSource == "LeaderAdjusted" && string.IsNullOrWhiteSpace(request.Comments))
-            throw new InvalidOperationException("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED：手動調整里程必須記錄原因。");
+        var adjustmentReason = decisionSource == "LeaderAdjusted"
+            ? V180MileageGovernanceRules.RequireLeaderAdjustmentReason(request.AdjustmentReason)
+            : null;
         var submittedBasis = await snapshots.GetLatestAsync(trip.VisitTripId, "Submitted", ct)
             ?? throw new InvalidOperationException("SUBMITTED_SNAPSHOT_REQUIRED：F-B 核准必須使用最新 Submitted Snapshot。");
         var basis = V180MileageCanonicalization.BuildSubmittedSnapshotBasis(submittedBasis);
@@ -153,26 +169,17 @@ public sealed class LeaderService(
                 throw new InvalidOperationException("F_B_MANUAL_FALLBACK_ATTEMPT：ManualFallback 不得選取 route attempt。");
             if (mileageGovernance is null)
                 throw new InvalidOperationException("F_B_GOVERNANCE_REPOSITORY_REQUIRED：治理 repository 尚未設定。");
-            var failedAttempt = await mileageGovernance.GetLatestFailedRouteCalculationAttemptAsync(
-                trip.VisitTripId, ct);
-            var canonicalVehicle = V180MileageCanonicalization.CanonicalVehicleType(basis.VehicleType);
-            var successfulAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
-                trip.VisitTripId, submittedBasis.VisitTripSnapshotId, ct);
-            var hasCurrentSuccessfulEvidence = successfulAttempt is { Status: "Succeeded" }
-                && successfulAttempt.RequestBasisHash.SequenceEqual(approvalBasisHash)
-                && successfulAttempt.RequestedVehicleType == V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle)
-                && successfulAttempt.TravelMode == V180MileageCanonicalization.ToTravelMode(canonicalVehicle);
-            if (hasCurrentSuccessfulEvidence
-                || (calc.CalculationSource == "GoogleMapsAPI" && calc.SelectedRouteCalculationAttemptId.HasValue))
+            var attempts = await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            var hasCurrentSuccessfulEvidence = attempts.Any(attempt =>
+                attempt.Status == "Succeeded"
+                && V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(attempt, submittedBasis));
+            if (hasCurrentSuccessfulEvidence)
                 throw new InvalidOperationException(
                     "F_B_MANUAL_FALLBACK_GOOGLE_SUCCESS_EXISTS：目前路線已有有效 Google 成功結果，不得以 ManualFallback 取代。");
-            if (failedAttempt is null
-                || !failedAttempt.RequestBasisHash.SequenceEqual(approvalBasisHash)
-                || failedAttempt.RequestedVehicleType != V180MileageCanonicalization.ToDbRequestedVehicleType(canonicalVehicle)
-                || failedAttempt.TravelMode != V180MileageCanonicalization.ToTravelMode(canonicalVehicle)
-                || failedAttempt.BasisType is not ("Draft" or "SubmittedSnapshot")
-                || (failedAttempt.BasisType == "SubmittedSnapshot"
-                    && failedAttempt.BasisVisitTripSnapshotId != submittedBasis.VisitTripSnapshotId))
+            var hasCurrentFailedEvidence = attempts.Any(attempt =>
+                attempt.Status == "Failed"
+                && V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(attempt, submittedBasis));
+            if (!hasCurrentFailedEvidence)
                 throw new InvalidOperationException(
                     "F_B_MANUAL_FALLBACK_EVIDENCE_REQUIRED：ManualFallback 必須有目前 Submitted 路線的 Google 失敗證據。");
             governanceCorrelationId = Guid.NewGuid();
@@ -264,7 +271,7 @@ public sealed class LeaderService(
             {
                 ApprovedDistanceKm = request.ApprovedDistanceKm,
                 DecisionSource = decisionSource,
-                AdjustmentReason = decisionSource == "LeaderAdjusted" ? request.Comments?.Trim() : null,
+                AdjustmentReason = adjustmentReason,
                 RatePerKm = rate.RatePerKm,
                 calc.ApprovedAmount
             }), ct);
@@ -285,7 +292,7 @@ public sealed class LeaderService(
                 trip.VisitTripId, submittedBasis.VisitTripSnapshotId,
                 selectedAttempt?.RouteCalculationAttemptId, "Approved", decisionSource,
                 decisionSource == "LeaderAdjusted"
-                    ? $"Leader adjusted company mileage: {request.Comments!.Trim()}"
+                    ? $"Leader adjusted company mileage: {adjustmentReason}"
                     : "Current company mileage decision approved.", governanceCorrelationId,
                 actionAt, user.UserId), ct);
 
@@ -348,9 +355,10 @@ public sealed class LeaderService(
                     new ApproveTripRequest(
                         item.ApprovedDistanceKm,
                         item.RowVersion,
-                        "Batch approve",
+                        null,
                         item.DistanceDecisionSource,
-                        item.RouteCalculationAttemptId),
+                        item.RouteCalculationAttemptId,
+                        item.AdjustmentReason),
                     ct);
                 success++;
             }

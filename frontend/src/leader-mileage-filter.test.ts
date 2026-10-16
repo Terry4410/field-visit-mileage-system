@@ -12,8 +12,23 @@ describe("leader mileage candidate safety",()=>{
     expect(queues.retryCandidates.map(x=>x.visitTripId)).toEqual([2]);
     expect(queues.approvalQueue.map(x=>x.visitTripId)).toEqual([3]);
   });
+  it("keeps only current-route failure rows inside the selected date range",()=>{
+    const rows=[
+      trip({visitTripId:10,visitDate:"2026-10-09",hasCurrentRouteFailureEvidence:true}),
+      trip({visitTripId:11,visitDate:"2026-10-12",hasCurrentRouteFailureEvidence:true}),
+      trip({visitTripId:12,visitDate:"2026-10-13",hasCurrentRouteFailureEvidence:false})
+    ];
+    const candidates=partitionLeaderMileageQueues(rows,"DateRange","2026-10-10","2026-10-12").retryCandidates
+      .filter(isLeaderMileageCalculable);
+    expect(candidates.map(x=>x.visitTripId)).toEqual([11]);
+  });
   it("does not send a successful visitor Google route for batch recalculation",()=>{
     expect(isLeaderMileageCalculable(trip({mileageSource:"GoogleMapsAPI",routeCalculationAttemptId:42,systemDistanceKm:18.2}))).toBe(false);
-    expect(isLeaderMileageCalculable(trip({mileageSource:"ManualFallback",claimedDistanceKm:9}))).toBe(true);
+    expect(isLeaderMileageCalculable(trip({mileageSource:"ManualFallback",claimedDistanceKm:9,hasCurrentRouteFailureEvidence:true}))).toBe(true);
+  });
+  it("requires current-route failure evidence and excludes stale or absent evidence",()=>{
+    expect(isLeaderMileageCalculable(trip({status:"Submitted"}))).toBe(false);
+    expect(isLeaderMileageCalculable(trip({status:"Submitted",hasCurrentRouteFailureEvidence:true}))).toBe(true);
+    expect(isLeaderMileageCalculable(trip({status:"Submitted",hasCurrentRouteFailureEvidence:true,mileageSource:"GoogleMapsAPI",routeCalculationAttemptId:7,systemDistanceKm:12}))).toBe(false);
   });
 });

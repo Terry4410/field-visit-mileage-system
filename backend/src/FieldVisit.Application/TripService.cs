@@ -467,14 +467,17 @@ public sealed class TripService(
         }
 
         RouteCalculationAttempt? routeAttempt = null;
+        var hasCurrentRouteFailureEvidence = false;
         if (displaySnapshot is not null && mileageGovernance is not null)
-            routeAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
-                trip.VisitTripId, displaySnapshot.VisitTripSnapshotId, ct);
-        if (routeAttempt is not null && displaySnapshot is not null)
         {
-            var snapshotHash = V180MileageCanonicalization.HashRoute(
-                V180MileageCanonicalization.BuildSubmittedSnapshotBasis(displaySnapshot));
-            if (!routeAttempt.RequestBasisHash.SequenceEqual(snapshotHash)) routeAttempt = null;
+            var attempts = await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            var currentAttempts = attempts.Where(x =>
+                V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(x, displaySnapshot)).ToList();
+            routeAttempt = currentAttempts.FirstOrDefault(x => x.Status == "Succeeded"
+                    && (!calc?.SelectedRouteCalculationAttemptId.HasValue ?? true
+                        || x.RouteCalculationAttemptId == calc.SelectedRouteCalculationAttemptId.Value))
+                ?? currentAttempts.FirstOrDefault(x => x.Status == "Succeeded");
+            hasCurrentRouteFailureEvidence = routeAttempt is null && currentAttempts.Any(x => x.Status == "Failed");
         }
 
         V180TripContextDeploymentSiteDto? startSite = null;
@@ -546,7 +549,8 @@ public sealed class TripService(
             Convert.ToBase64String(trip.RowVersion ?? []),
             trip.VehicleType ?? "Motorcycle",
             routeAttempt?.RouteCalculationAttemptId,
-            mileageSource);
+            mileageSource,
+            hasCurrentRouteFailureEvidence);
     }
 
     private async Task BuildStopsAsync(

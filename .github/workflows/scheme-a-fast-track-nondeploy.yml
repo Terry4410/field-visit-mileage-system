@@ -74,9 +74,11 @@ jobs:
       - name: Frontend tests and production build
         working-directory: frontend
         run: |
+          set -o pipefail
+          mkdir -p ../artifacts/test-results
           npm ci --no-audit --no-fund
-          npm test
-          npm run build
+          npm test -- --reporter=dot | tee ../artifacts/test-results/frontend-tests.log
+          npm run build | tee ../artifacts/test-results/frontend-build.log
 
       - name: Isolated Playwright browser E2E (API fully mocked)
         working-directory: uat
@@ -172,3 +174,53 @@ jobs:
         if: always()
         run: |
           echo "Engineering evidence only. UAT migration/deployment/flags/Business UAT remain HOLD and NO-GO." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create sanitized WORK A acceptance evidence
+        if: always()
+        env:
+          WORKFLOW_RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import glob, os, re, xml.etree.ElementTree as ET
+          os.makedirs('artifacts/work-a-p0-evidence', exist_ok=True)
+          lines = [
+            'WORK_A_P0_ACCEPTANCE_EVIDENCE_V1',
+            f'SOURCE_SHA={os.environ.get("GITHUB_SHA", "")}',
+            f'WORKFLOW_RESULT={os.environ.get("WORKFLOW_RESULT", "unknown")}',
+            'NONDEPLOY_ONLY=true',
+            'REAL_BROWSER_SAME_CANONICAL_SQL=HOLD_NOT_IMPLEMENTED',
+            'UAT_COMPATIBILITY=HOLD',
+          ]
+          front = 'artifacts/test-results/frontend-tests.log'
+          if os.path.exists(front):
+            content = open(front, encoding='utf-8', errors='replace').read()
+            match = re.search(r'Tests\s+(\d+)\s+passed', content)
+            lines.append(f'FRONTEND_TESTS_PASSED={match.group(1) if match else "UNKNOWN"}')
+          else:
+            lines.append('FRONTEND_TESTS_PASSED=UNKNOWN')
+          for path in sorted(glob.glob('artifacts/test-results/*.trx')):
+            try:
+              root = ET.parse(path).getroot()
+              counters = next(x for x in root.iter() if x.tag.endswith('Counters'))
+              total = int(counters.attrib.get('total', '0'))
+              executed = int(counters.attrib.get('executed', '0'))
+              failed = int(counters.attrib.get('failed', '0'))
+              lines.append(f'TRX_{os.path.basename(path)}_TOTAL={total}_EXECUTED={executed}_FAILED={failed}')
+            except Exception:
+              lines.append(f'TRX_{os.path.basename(path)}=UNREADABLE')
+          path = 'artifacts/work-a-p0-evidence/summary.txt'
+          with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+          print('WORK_A_SANITIZED_EVIDENCE_CREATED')
+          PY
+
+      - name: Upload sanitized WORK A acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: work-a-p0-acceptance
+          path: |
+            artifacts/work-a-p0-evidence/summary.txt
+            docs/release/OPTIONC_OWNER_ACCEPTANCE_TRACEABILITY_R8.md
+          if-no-files-found: error
+          retention-days: 30

@@ -34,6 +34,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const[selected,setSelected]=useState<number[]>([]);
  const[approvalSelected,setApprovalSelected]=useState<number[]>([]);
  const[reviewKm,setReviewKm]=useState<Record<number,string>>({});
+ const[adjustmentReasons,setAdjustmentReasons]=useState<Record<number,string>>({});
  const[mode,setMode]=useState('AllPending');
  const[start,setStart]=useState(monthStart());
  const[end,setEnd]=useState(todayTaipei());
@@ -99,6 +100,11 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const approve=async(t:Trip)=>{
    let payload;
    try{payload=approvalPayload(t)}catch(e){return setMsg(e instanceof Error?e.message:'核定資料不完整')}
+   if(payload.distanceDecisionSource==='LeaderAdjusted'){
+     const reason=adjustmentReasons[t.visitTripId]?.trim()||'';
+     if(reason.length<8||reason.length>500||['adjusted','batch approve','manual adjustment'].includes(reason.toLowerCase()))return setMsg(`${t.tripNo}：請填寫 8 至 500 字的具體里程調整原因。`);
+     payload={...payload,adjustmentReason:reason};
+   }
    const overlapMessage=leaderOverlapConfirmMessage(t,rows);
    if(overlapMessage&&!window.confirm(overlapMessage))return;
    const comments=overlapMessage?(t.timeOverlapConfirmed?'時間重疊；外訪員已確認，小組長確認仍核准。':'時間重疊；小組長確認仍核准。'):null;
@@ -113,7 +119,15 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    const targets=approvalRows.filter(t=>approvalSelected.includes(t.visitTripId));
    if(!targets.length)return setMsg('請先勾選要批次核准的行程。');
    let items;
-   try{items=targets.map(approvalPayload)}catch(e){return setMsg(e instanceof Error?e.message:'批次核定資料不完整')}
+   try{items=targets.map(t=>{
+     const item=approvalPayload(t);
+     if(item.distanceDecisionSource==='LeaderAdjusted'){
+       const reason=adjustmentReasons[t.visitTripId]?.trim()||'';
+       if(reason.length<8||reason.length>500||['adjusted','batch approve','manual adjustment'].includes(reason.toLowerCase()))throw new Error(`${t.tripNo}：請填寫 8 至 500 字的具體里程調整原因。`);
+       return{...item,adjustmentReason:reason};
+     }
+     return item;
+   })}catch(e){return setMsg(e instanceof Error?e.message:'批次核定資料不完整')}
    const overlapCount=targets.filter(t=>hasLeaderTimeOverlap(t,rows)).length;
    if(overlapCount>0&&!window.confirm(`選取行程中有 ${overlapCount} 筆存在時間重疊提醒，是否仍要批次核准？`))return;
    if(!window.confirm(`確認批次核准 ${targets.length} 筆行程？`))return;
@@ -186,7 +200,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
       <td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
       <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>
       <td>{km(t.claimedDistanceKm)}</td><td>{noMileage?'N/A':km(t.systemDistanceKm)}</td>
-      <td>{noMileage?<span className="pill">N/A</span>:<input className="mileage-input" type="number" step="0.1" value={reviewKm[t.visitTripId]||''} onChange={e=>setReviewKm(x=>({...x,[t.visitTripId]:e.target.value}))}/>}</td>
+      <td>{noMileage?<span className="pill">N/A</span>:<><input className="mileage-input" type="number" step="0.1" value={reviewKm[t.visitTripId]||''} onChange={e=>setReviewKm(x=>({...x,[t.visitTripId]:e.target.value}))}/>{t.mileageSource==='GoogleMapsAPI'&&Math.abs(Number(reviewKm[t.visitTripId]||t.systemDistanceKm)-Number(t.systemDistanceKm||0))>0.000001&&<input aria-label={`${t.tripNo} 里程調整原因`} className="mileage-input" type="text" maxLength={500} placeholder="個別調整原因（至少 8 字）" value={adjustmentReasons[t.visitTripId]||''} onChange={e=>setAdjustmentReasons(x=>({...x,[t.visitTripId]:e.target.value}))}/>}</>}</td>
       <td>{noMileage?<span className="pill">N/A</span>:<><strong>{sourceText(t)}</strong>{t.mileageSource==='GoogleMapsAPI'&&<div className="muted">Google 路線可直接核准；若調整里程會記錄 LeaderAdjusted。</div>}{t.mileageSource==='ManualFallback'&&<div className="muted">Google 無可用結果，本次使用人工備援並保留治理紀錄。</div>}</>}</td>
       <td><div className="actions"><button className="btn small ok" onClick={()=>void approve(t)} disabled={busy}>核准</button><button className="btn small danger" onClick={()=>void ret(t)} disabled={busy}>退回</button></div></td>
      </tr>

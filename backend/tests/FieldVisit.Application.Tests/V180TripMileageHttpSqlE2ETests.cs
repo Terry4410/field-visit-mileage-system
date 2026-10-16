@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
@@ -114,6 +115,24 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal("Draft", created.Status);
                 Assert.Contains(created.Stops, x => x.LocationId == fixture.Approved.LocationId);
 
+                using (var overlappingCheck = await visitor.PostAsJsonAsync(
+                    "api/v1/trips/time-overlap-check",
+                    new TimeOverlapRequest(created.VisitDate, new TimeOnly(9, 30), new TimeOnly(9, 45), null)))
+                {
+                    Assert.True(overlappingCheck.IsSuccessStatusCode, await overlappingCheck.Content.ReadAsStringAsync());
+                    var overlap = await overlappingCheck.Content.ReadFromJsonAsync<TimeOverlapResult>()
+                        ?? throw new InvalidOperationException("OPTIONC_OVERLAP_RESPONSE_MISSING");
+                    Assert.True(overlap.HasOverlap);
+                    Assert.Contains(overlap.OverlappingTrips, x => x.VisitTripId == created.VisitTripId);
+                }
+                using (var adjacentCheck = await visitor.PostAsJsonAsync(
+                    "api/v1/trips/time-overlap-check",
+                    new TimeOverlapRequest(created.VisitDate, new TimeOnly(10, 0), new TimeOnly(11, 0), null)))
+                {
+                    Assert.True(adjacentCheck.IsSuccessStatusCode, await adjacentCheck.Content.ReadAsStringAsync());
+                    Assert.False((await adjacentCheck.Content.ReadFromJsonAsync<TimeOverlapResult>())?.HasOverlap);
+                }
+
                 if (oneStop && !returnCorrection)
                 {
                     var temporaryRequest = Draft(fixture.Approved.LocationId, includeSecondStop: false) with
@@ -184,6 +203,27 @@ public sealed class V180TripMileageHttpSqlE2ETests
 
                 using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
                 leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(fixture.Leader.UserId, fixture.Leader.EmployeeNo!, "leader", fixture.Team.TeamId));
+                var leaderQueue = await leader.GetFromJsonAsync<List<TripDto>>("api/v1/leader/review-queue")
+                    ?? throw new InvalidOperationException("OPTIONC_RETRY_QUEUE_MISSING");
+                Assert.True(leaderQueue.Single(x => x.VisitTripId == created.VisitTripId).HasCurrentRouteFailureEvidence);
+                using (var outOfRangeJob = await leader.PostAsJsonAsync(
+                    "api/v1/jobs/mileage",
+                    new MileageBatchRequest("DateRange", new DateOnly(2026, 10, 16), new DateOnly(2026, 10, 17), null)))
+                {
+                    Assert.Equal(HttpStatusCode.UnprocessableEntity, outOfRangeJob.StatusCode);
+                    Assert.Contains("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE", await outOfRangeJob.Content.ReadAsStringAsync());
+                }
+                using (var retryJob = await leader.PostAsJsonAsync(
+                    "api/v1/jobs/mileage",
+                    new MileageBatchRequest("Selected", null, null, [created.VisitTripId])))
+                {
+                    Assert.True(retryJob.IsSuccessStatusCode, await retryJob.Content.ReadAsStringAsync());
+                    var createdJob = await retryJob.Content.ReadFromJsonAsync<BackgroundJobDto>()
+                        ?? throw new InvalidOperationException("OPTIONC_RETRY_JOB_MISSING");
+                    var persistedJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == createdJob.BackgroundJobId);
+                    Assert.Contains(created.VisitTripId.ToString(), persistedJob.PayloadJson);
+                    Assert.Contains("Selected", persistedJob.PayloadJson);
+                }
                 using var calculated = await leader.PostAsJsonAsync(
                     "api/v1/leader/trips/calculate",
                     new MileageBatchRequest("Selected", null, null, [created.VisitTripId]));
@@ -282,6 +322,35 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 var pendingTripEntity = await db.VisitTrips.SingleAsync(x => x.VisitTripId == created.VisitTripId);
                 await db.Entry(pendingTripEntity).ReloadAsync();
                 var visitorOwnerId = pendingTripEntity.UserId;
+
+                async Task AssertRevocationWinsApprovalRace(string revokeSql, string restoreSql, string label)
+                {
+                    await using var revokeTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+                    await db.Database.ExecuteSqlRawAsync(revokeSql);
+                    var connection = (SqlConnection)db.Database.GetDbConnection();
+                    await db.Database.OpenConnectionAsync();
+                    await using var spidCommand = new SqlCommand("SELECT @@SPID", connection);
+                    var blockerSpid = Convert.ToInt32(await spidCommand.ExecuteScalarAsync());
+                    var racedApproval = leader.PostAsJsonAsync(
+                        $"api/v1/trips/{created.VisitTripId}/approve", approve);
+                    await WaitUntilBlockedByAsync(root.ConnectionString, blockerSpid, racedApproval, label);
+                    await revokeTransaction.CommitAsync();
+                    using var racedResponse = await racedApproval.WaitAsync(TimeSpan.FromSeconds(10));
+                    Assert.Equal(HttpStatusCode.Forbidden, racedResponse.StatusCode);
+                    await db.Database.ExecuteSqlRawAsync(restoreSql);
+                    await db.Database.CloseConnectionAsync();
+                }
+
+                await AssertRevocationWinsApprovalRace(
+                    $"UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Leave' WHERE EmploymentId={leaderEmployment.EmploymentId} AND EmploymentStatus=N'Active'",
+                    $"UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Active' WHERE EmploymentId={leaderEmployment.EmploymentId}", "HR");
+                await AssertRevocationWinsApprovalRace(
+                    $"UPDATE dbo.UserRoleAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,GETDATE())) WHERE UserId={fixture.Leader.UserId} AND RoleId=(SELECT RoleId FROM dbo.Roles WHERE RoleCode=N'leader') AND EffectiveTo IS NULL",
+                    $"UPDATE dbo.UserRoleAssignments SET EffectiveTo=NULL WHERE UserId={fixture.Leader.UserId} AND RoleId=(SELECT RoleId FROM dbo.Roles WHERE RoleCode=N'leader')", "role");
+                await AssertRevocationWinsApprovalRace(
+                    $"UPDATE dbo.UserTeamAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,GETDATE())) WHERE UserId={fixture.Leader.UserId} AND TeamId={fixture.Team.TeamId} AND EffectiveTo IS NULL",
+                    $"UPDATE dbo.UserTeamAssignments SET EffectiveTo=NULL WHERE UserId={fixture.Leader.UserId} AND TeamId={fixture.Team.TeamId}", "team");
+
                 pendingTripEntity.UserId = fixture.Leader.UserId;
                 await db.SaveChangesAsync();
                 var selfApprovalVersion = Convert.ToBase64String(pendingTripEntity.RowVersion);
@@ -490,6 +559,58 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 ?? throw new InvalidOperationException("OPTIONC_PROVIDER_PENDING_APPROVAL_RESPONSE_MISSING");
             Assert.Equal("PendingApproval", pendingApproval.Status);
 
+            // A current successful result remains authoritative even when a
+            // newer failure and newer stale success would hide it from a
+            // latest-success-only lookup. Clear the convenience pointer to
+            // prove fallback uses immutable provider evidence.
+            var currentSubmitted = await db.VisitTripSnapshots.Include(x => x.Stops)
+                .Where(x => x.VisitTripId == created.VisitTripId && x.SnapshotType == "Submitted")
+                .OrderByDescending(x => x.SnapshotVersion).FirstAsync();
+            var currentHash = V180MileageCanonicalization.HashRoute(
+                V180MileageCanonicalization.BuildSubmittedSnapshotBasis(currentSubmitted));
+            db.RouteCalculationAttempts.AddRange(
+                new RouteCalculationAttempt
+                {
+                    VisitTripId = created.VisitTripId,
+                    BasisType = "SubmittedSnapshot",
+                    BasisVisitTripSnapshotId = currentSubmitted.VisitTripSnapshotId,
+                    CalculationReason = "VisitorSubmit",
+                    RequestedVehicleType = attempt.RequestedVehicleType,
+                    TravelMode = attempt.TravelMode,
+                    Provider = "GoogleMapsRoutes-TestStub",
+                    StopCount = attempt.StopCount,
+                    RequestBasisHash = currentHash,
+                    Status = "Failed",
+                    ErrorCode = "PROVIDER_UNAVAILABLE",
+                    CorrelationId = Guid.NewGuid(),
+                    RequestedAt = DateTime.UtcNow.AddSeconds(1),
+                    CompletedAt = DateTime.UtcNow.AddSeconds(1),
+                    RequestedByUserId = fixture.Visitor.UserId
+                },
+                new RouteCalculationAttempt
+                {
+                    VisitTripId = created.VisitTripId,
+                    BasisType = "SubmittedSnapshot",
+                    BasisVisitTripSnapshotId = currentSubmitted.VisitTripSnapshotId,
+                    CalculationReason = "VisitorSubmit",
+                    RequestedVehicleType = attempt.RequestedVehicleType,
+                    TravelMode = attempt.TravelMode,
+                    Provider = "GoogleMapsRoutes-TestStub",
+                    StopCount = attempt.StopCount,
+                    RequestBasisHash = SHA256.HashData("stale-route"u8.ToArray()),
+                    Status = "Succeeded",
+                    CorrelationId = Guid.NewGuid(),
+                    RequestedAt = DateTime.UtcNow.AddSeconds(2),
+                    CompletedAt = DateTime.UtcNow.AddSeconds(2),
+                    RequestedByUserId = fixture.Visitor.UserId
+                });
+            var calculation = await db.MileageCalculations.SingleAsync(x => x.VisitTripId == created.VisitTripId);
+            calculation.CalculationSource = null;
+            calculation.SelectedRouteCalculationAttemptId = null;
+            calculation.SystemDistanceKm = null;
+            await db.SaveChangesAsync();
+            attemptsBeforeApproval = await db.RouteCalculationAttempts.CountAsync(x => x.VisitTripId == created.VisitTripId);
+
             using (var fakeFallback = await leader.PostAsJsonAsync(
                 $"api/v1/trips/{created.VisitTripId}/approve",
                 new ApproveTripRequest(12.5m, pendingApproval.RowVersion, "client claims Google failed", "ManualFallback")))
@@ -533,9 +654,16 @@ public sealed class V180TripMileageHttpSqlE2ETests
             using var approved = await leader.PostAsJsonAsync(
                 $"api/v1/trips/{created.VisitTripId}/approve",
                 new ApproveTripRequest(12.5m, pendingApproval.RowVersion,
-                    "Travel time differs from actual dispatch conditions; approved based on submitted route evidence.", "LeaderAdjusted", attempt.RouteCalculationAttemptId));
-            Assert.True(approved.IsSuccessStatusCode, await approved.Content.ReadAsStringAsync());
-            var approvedTrip = await approved.Content.ReadFromJsonAsync<TripDto>()
+                    "overlap confirmation remains separate", "LeaderAdjusted", attempt.RouteCalculationAttemptId));
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, approved.StatusCode);
+            Assert.Contains("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED", await approved.Content.ReadAsStringAsync());
+            using var approvedWithReason = await leader.PostAsJsonAsync(
+                $"api/v1/trips/{created.VisitTripId}/approve",
+                new ApproveTripRequest(12.5m, pendingApproval.RowVersion,
+                    null, "LeaderAdjusted", attempt.RouteCalculationAttemptId,
+                    "Travel time differs due to dispatch conditions."));
+            Assert.True(approvedWithReason.IsSuccessStatusCode, await approvedWithReason.Content.ReadAsStringAsync());
+            var approvedTrip = await approvedWithReason.Content.ReadFromJsonAsync<TripDto>()
                 ?? throw new InvalidOperationException("OPTIONC_PROVIDER_APPROVED_RESPONSE_MISSING");
             Assert.Equal("Approved", approvedTrip.Status);
             Assert.Equal(12.5m, approvedTrip.ApprovedDistanceKm);
@@ -546,9 +674,78 @@ public sealed class V180TripMileageHttpSqlE2ETests
             Assert.Equal(1, await db.MileageGovernanceEvents.CountAsync(x => x.VisitTripId == created.VisitTripId && x.EventType == "Approved"));
             var approvalAudit = await db.AuditLogs.SingleAsync(x => x.EntityId == created.VisitTripId.ToString() && x.Action == "TripApprove");
             Assert.Contains("LeaderAdjusted", approvalAudit.NewValues);
-            Assert.Contains("Travel time differs", approvalAudit.NewValues);
+            Assert.Contains("Travel time differs due to dispatch conditions", approvalAudit.NewValues);
             Assert.Equal(attemptsBeforeApproval, await db.RouteCalculationAttempts.CountAsync(x => x.VisitTripId == created.VisitTripId));
             Assert.Equal(jobsBeforeApproval, await db.BackgroundJobItems.CountAsync(x => x.EntityType == "VisitTrip" && x.EntityId == created.VisitTripId.ToString()));
+
+            async Task<(TripDto Trip, long AttemptId)> CreateBatchCandidate(DateOnly date, string purpose)
+            {
+                var draft = Draft(fixture.Approved.LocationId, includeSecondStop: false) with
+                { VisitDate = date, Purpose = purpose };
+                using var create = await visitor.PostAsJsonAsync("api/v1/trips", draft);
+                Assert.True(create.IsSuccessStatusCode, await create.Content.ReadAsStringAsync());
+                var createdBatch = await create.Content.ReadFromJsonAsync<TripDto>()
+                    ?? throw new InvalidOperationException("OPTIONC_BATCH_DRAFT_MISSING");
+                using var preview = await visitor.PostAsync($"api/v1/trips/{createdBatch.VisitTripId}/route-preview", null);
+                Assert.True(preview.IsSuccessStatusCode, await preview.Content.ReadAsStringAsync());
+                var previewResult = await preview.Content.ReadFromJsonAsync<V180RouteOrchestrationResult>()
+                    ?? throw new InvalidOperationException("OPTIONC_BATCH_ROUTE_PREVIEW_MISSING");
+                var currentDraft = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{createdBatch.VisitTripId}")
+                    ?? throw new InvalidOperationException("OPTIONC_BATCH_REFRESH_MISSING");
+                using var submitRequest = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{createdBatch.VisitTripId}/submit")
+                { Content = JsonContent.Create(new SubmitTripRequest(false)) };
+                submitRequest.Headers.TryAddWithoutValidation("If-Match", currentDraft.RowVersion);
+                using var submitResponse = await visitor.SendAsync(submitRequest);
+                Assert.True(submitResponse.IsSuccessStatusCode, await submitResponse.Content.ReadAsStringAsync());
+                var pending = await submitResponse.Content.ReadFromJsonAsync<TripDto>()
+                    ?? throw new InvalidOperationException("OPTIONC_BATCH_SUBMIT_MISSING");
+                Assert.Equal("PendingApproval", pending.Status);
+                return (pending, previewResult.RouteCalculationAttemptId);
+            }
+
+            var batchOne = await CreateBatchCandidate(new DateOnly(2026, 10, 16), "batch adjustment one");
+            var batchTwo = await CreateBatchCandidate(new DateOnly(2026, 10, 17), "batch adjustment two");
+            using (var partialBatch = await leader.PostAsJsonAsync("api/v1/trips/batch-approve", new BatchApproveRequest([
+                new BatchApproveItem(batchOne.Trip.VisitTripId, 11.5m, batchOne.Trip.RowVersion, "LeaderAdjusted", batchOne.AttemptId),
+                new BatchApproveItem(batchTwo.Trip.VisitTripId, 13.5m, batchTwo.Trip.RowVersion, "LeaderAdjusted", batchTwo.AttemptId,
+                    "Traffic conditions required this specific route adjustment.")
+            ])))
+            {
+                Assert.True(partialBatch.IsSuccessStatusCode, await partialBatch.Content.ReadAsStringAsync());
+                var outcome = await partialBatch.Content.ReadFromJsonAsync<BatchApproveResult>()
+                    ?? throw new InvalidOperationException("OPTIONC_BATCH_RESULT_MISSING");
+                Assert.Equal(1, outcome.Success);
+                Assert.Equal(1, outcome.Failed);
+                Assert.Contains("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED", string.Join(";", outcome.Errors));
+            }
+            using (var completeBatch = await leader.PostAsJsonAsync("api/v1/trips/batch-approve", new BatchApproveRequest([
+                new BatchApproveItem(batchOne.Trip.VisitTripId, 11.5m, batchOne.Trip.RowVersion, "LeaderAdjusted", batchOne.AttemptId,
+                    "Dispatch timing required this individual adjustment.")
+            ])))
+            {
+                Assert.True(completeBatch.IsSuccessStatusCode, await completeBatch.Content.ReadAsStringAsync());
+                var outcome = await completeBatch.Content.ReadFromJsonAsync<BatchApproveResult>()
+                    ?? throw new InvalidOperationException("OPTIONC_BATCH_RETRY_RESULT_MISSING");
+                Assert.Equal(1, outcome.Success);
+                Assert.Equal(0, outcome.Failed);
+            }
+            var batchAudits = await db.AuditLogs.Where(x =>
+                    (x.EntityId == batchOne.Trip.VisitTripId.ToString() || x.EntityId == batchTwo.Trip.VisitTripId.ToString())
+                    && x.Action == "TripApprove")
+                .ToListAsync();
+            Assert.Equal(2, batchAudits.Count);
+            Assert.Contains(batchAudits, x => x.NewValues.Contains("Dispatch timing required this individual adjustment"));
+            Assert.Contains(batchAudits, x => x.NewValues.Contains("Traffic conditions required this specific route adjustment"));
+            using (var overlappingDraftResponse = await visitor.PostAsJsonAsync(
+                "api/v1/trips",
+                Draft(fixture.Approved.LocationId, includeSecondStop: !oneStop) with { Purpose = "overlap warning case" }))
+            {
+                Assert.True(overlappingDraftResponse.IsSuccessStatusCode, await overlappingDraftResponse.Content.ReadAsStringAsync());
+                var overlappingDraft = await overlappingDraftResponse.Content.ReadFromJsonAsync<TripDto>()
+                    ?? throw new InvalidOperationException("OPTIONC_OVERLAP_DRAFT_MISSING");
+                Assert.True(overlappingDraft.HasTimeOverlapWarning);
+                Assert.False(overlappingDraft.TimeOverlapConfirmed);
+            }
         }
         finally
         {
@@ -566,6 +763,26 @@ public sealed class V180TripMileageHttpSqlE2ETests
         public Task<V180RouteProviderResult> CalculateAsync(V180RouteProviderRequest request, CancellationToken ct) =>
             Task.FromResult(new V180RouteProviderResult(
                 true, 12.5m, 300, "encoded-test-polyline", null, null));
+    }
+
+    private static async Task WaitUntilBlockedByAsync(
+        string connectionString, int blockingSessionId,
+        Task<HttpResponseMessage> request, string caseName)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString) { Pooling = false };
+        await using var monitor = new SqlConnection(builder.ConnectionString);
+        await monitor.OpenAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline && !request.IsCompleted)
+        {
+            await using var command = new SqlCommand(
+                "SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE blocking_session_id=@spid AND session_id<>@@SPID",
+                monitor);
+            command.Parameters.AddWithValue("@spid", blockingSessionId);
+            if (Convert.ToInt64(await command.ExecuteScalarAsync()) > 0) return;
+            await Task.Delay(50);
+        }
+        throw new InvalidOperationException($"TRIP_APPROVAL_REVOCATION_RACE_NOT_BLOCKED_{caseName}");
     }
 
     private sealed class FailedRouteProvider : IV180RouteProvider

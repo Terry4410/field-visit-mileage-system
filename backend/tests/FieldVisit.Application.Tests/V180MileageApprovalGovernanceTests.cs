@@ -1,4 +1,5 @@
 using FieldVisit.Application;
+using FieldVisit.Domain.Entities;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -36,6 +37,68 @@ public sealed class V180MileageApprovalGovernanceTests
     }
 
     [Fact]
+    public void Retry_candidates_require_current_route_failure_and_no_current_success()
+    {
+        var source = ReadRepositoryFile("backend/src/FieldVisit.Application/V180GoogleMileageContracts.cs");
+        Assert.Contains("HasRetryEvidence", source);
+        Assert.Contains("x.Status == \"Failed\"", source);
+        Assert.Contains("!current.Any(x => x.Status == \"Succeeded\")", source);
+        var job = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
+        Assert.Contains("FindEligibleMileageRetryIds", job);
+        Assert.Contains("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED", job);
+    }
+
+    [Fact]
+    public void Retry_evidence_is_current_route_only_and_any_current_success_blocks_it()
+    {
+        var snapshot = new VisitTripSnapshot
+        {
+            VisitTripSnapshotId = 8,
+            VehicleTypeSnapshot = "Motorcycle",
+            StartDeploymentSiteCodeSnapshot = "S1",
+            StartDeploymentAddressSnapshot = "Start",
+            EndDeploymentSiteCodeSnapshot = "S1",
+            EndDeploymentAddressSnapshot = "End",
+            Stops = [new VisitTripSnapshotStop { StopSequence = 1, AddressSnapshot = "Visited" }]
+        };
+        var hash = V180MileageCanonicalization.HashRoute(
+            V180MileageCanonicalization.BuildSubmittedSnapshotBasis(snapshot));
+        var failed = new RouteCalculationAttempt
+        {
+            VisitTripId = 10,
+            BasisType = "SubmittedSnapshot",
+            BasisVisitTripSnapshotId = snapshot.VisitTripSnapshotId,
+            RequestedVehicleType = "Motorcycle",
+            TravelMode = "TWO_WHEELER",
+            RequestBasisHash = hash,
+            Status = "Failed"
+        };
+        Assert.True(V180MileageCanonicalization.HasRetryEvidence(snapshot, [failed]));
+        var currentSuccess = new RouteCalculationAttempt
+        {
+            VisitTripId = 10,
+            BasisType = "SubmittedSnapshot",
+            BasisVisitTripSnapshotId = snapshot.VisitTripSnapshotId,
+            RequestedVehicleType = "Motorcycle",
+            TravelMode = "TWO_WHEELER",
+            RequestBasisHash = hash,
+            Status = "Succeeded"
+        };
+        Assert.False(V180MileageCanonicalization.HasRetryEvidence(snapshot, [failed, currentSuccess]));
+        var staleFailure = new RouteCalculationAttempt
+        {
+            VisitTripId = failed.VisitTripId,
+            BasisType = failed.BasisType,
+            BasisVisitTripSnapshotId = failed.BasisVisitTripSnapshotId,
+            RequestedVehicleType = failed.RequestedVehicleType,
+            TravelMode = failed.TravelMode,
+            RequestBasisHash = new byte[32],
+            Status = "Failed"
+        };
+        Assert.False(V180MileageCanonicalization.HasRetryEvidence(snapshot, [staleFailure]));
+    }
+
+    [Fact]
     public void Pending_approval_without_decision_evidence_fails_closed()
     {
         var ex = Assert.Throws<InvalidOperationException>(
@@ -52,8 +115,21 @@ public sealed class V180MileageApprovalGovernanceTests
 
         Assert.Contains("item.DistanceDecisionSource", source);
         Assert.Contains("item.RouteCalculationAttemptId", source);
+        Assert.Contains("item.AdjustmentReason", source);
+        Assert.DoesNotContain("\"Batch approve\"", source);
         Assert.DoesNotContain("unchangedLegacyPendingApproval", source);
         Assert.Contains("RequireLeaderApprovalDecisionSource", source);
+    }
+
+    [Fact]
+    public void Leader_adjustments_require_individual_specific_reason()
+    {
+        Assert.Equal("Travel time differs due to dispatch conditions.",
+            V180MileageGovernanceRules.RequireLeaderAdjustmentReason(" Travel time differs due to dispatch conditions. "));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason(null));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("Batch approve"));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("adjusted"));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason(new string('x', 501)));
     }
 
     [Fact]

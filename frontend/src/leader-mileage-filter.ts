@@ -5,7 +5,8 @@ export function isLeaderMileageCalculable(trip:Trip):boolean{
     &&Boolean(trip.routeCalculationAttemptId)
     &&typeof trip.systemDistanceKm==="number"
     &&trip.systemDistanceKm>0;
-  return trip.status!=="PendingApproval"&&!alreadyCalculated&&trip.stops.length>=1;
+  return trip.status!=="PendingApproval"&&!alreadyCalculated&&trip.stops.length>=1
+    &&trip.hasCurrentRouteFailureEvidence===true;
 }
 
 export function filterLeaderMileageRowsByDate<T extends Pick<Trip,"visitDate"|"status">>(

@@ -26,7 +26,22 @@ public sealed class BackgroundJobService(
             throw new InvalidOperationException("里程工作 Mode 只支援 AllPending、DateRange 或 Selected。");
         if (mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) && (request.StartDate is null || request.EndDate is null || request.EndDate < request.StartDate)) throw new InvalidOperationException("日期區間不正確。");
         if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) && (request.SelectedTripIds is null || request.SelectedTripIds.Count == 0)) throw new InvalidOperationException("請先勾選行程。");
-        var row = NewJob("Mileage", mode, user, JsonSerializer.Serialize(request, JsonOptions));
+        var candidateIds = await FindEligibleMileageRetryIds(
+            user.TeamIds,
+            mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.StartDate : null,
+            mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
+            mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? request.SelectedTripIds : null,
+            ct);
+        if (mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
+            && (request.SelectedTripIds!.Distinct().Count() != request.SelectedTripIds.Count
+                || candidateIds.Count != request.SelectedTripIds.Count))
+            throw new InvalidOperationException("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED：選取行程不具目前路線失敗證據或已不在授權範圍。");
+        if (candidateIds.Count == 0)
+            throw new InvalidOperationException("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE：沒有具目前路線 Google 失敗證據的可重試行程。");
+        // Freeze the server-verified, date-filtered candidate set into the job.
+        // The worker revalidates route evidence before each calculation.
+        var normalized = new MileageBatchRequest("Selected", null, null, candidateIds);
+        var row = NewJob("Mileage", "Selected", user, JsonSerializer.Serialize(normalized, JsonOptions));
         await db.BackgroundJobs.AddAsync(row, ct);
         AddAudit(user.UserId, "BackgroundJob", row.BackgroundJobId.ToString(), "MileageJobEnqueued", new { request.Mode, user.TeamIds });
         await db.SaveChangesAsync(ct);
@@ -155,26 +170,12 @@ public sealed class BackgroundJobService(
             ?? new MileageBatchRequest("AllPending", null, null, null);
         var teamIds = ParseTeamIds(jobState.TeamScopeJson);
 
-        var q = db.VisitTrips.AsNoTracking()
-            .Where(x => x.TeamId.HasValue
-                && teamIds.Contains(x.TeamId.Value)
-                && (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending)
-                && x.Stops.Count >= V170TripMileageRules.MinimumVisitStopCount
-                && (x.MileageCalculation == null || x.MileageCalculation.SystemDistanceKm == null));
-
-        if (request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase))
-        {
-            if (request.StartDate.HasValue) q = q.Where(x => x.VisitDate >= request.StartDate.Value);
-            if (request.EndDate.HasValue) q = q.Where(x => x.VisitDate <= request.EndDate.Value);
-        }
-        if (request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase)
-            && request.SelectedTripIds is { Count: > 0 })
-            q = q.Where(x => request.SelectedTripIds.Contains(x.VisitTripId));
-
-        var tripIds = await q.OrderBy(x => x.VisitDate)
-            .ThenBy(x => x.VisitTripId)
-            .Select(x => x.VisitTripId)
-            .ToListAsync(ct);
+        var tripIds = await FindEligibleMileageRetryIds(
+            teamIds,
+            request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.StartDate : null,
+            request.Mode.Equals("DateRange", StringComparison.OrdinalIgnoreCase) ? request.EndDate : null,
+            request.Mode.Equals("Selected", StringComparison.OrdinalIgnoreCase) ? request.SelectedTripIds : null,
+            ct);
 
         await db.BackgroundJobs
             .Where(x => x.BackgroundJobId == jobId)
@@ -403,6 +404,43 @@ public sealed class BackgroundJobService(
                 await db.SaveChangesAsync(ct);
             }
         }
+    }
+
+    private async Task<List<long>> FindEligibleMileageRetryIds(
+        IReadOnlyCollection<int> teamIds,
+        DateOnly? start,
+        DateOnly? end,
+        IReadOnlyList<long>? selected,
+        CancellationToken ct)
+    {
+        if (teamIds.Count == 0) return [];
+        var q = db.VisitTrips.AsNoTracking()
+            .Where(x => x.TeamId.HasValue
+                && teamIds.Contains(x.TeamId.Value)
+                && (x.Status == TripStatuses.Submitted || x.Status == TripStatuses.RoutePending)
+                && x.Stops.Count >= V170TripMileageRules.MinimumVisitStopCount
+                && (x.MileageCalculation == null || x.MileageCalculation.SystemDistanceKm == null));
+        if (start.HasValue) q = q.Where(x => x.VisitDate >= start.Value);
+        if (end.HasValue) q = q.Where(x => x.VisitDate <= end.Value);
+        if (selected is { Count: > 0 }) q = q.Where(x => selected.Contains(x.VisitTripId));
+
+        var tripIds = await q.OrderBy(x => x.VisitDate).ThenBy(x => x.VisitTripId)
+            .Select(x => x.VisitTripId).ToListAsync(ct);
+        var eligible = new List<long>(tripIds.Count);
+        foreach (var tripId in tripIds)
+        {
+            var snapshot = await db.VisitTripSnapshots.AsNoTracking()
+                .Include(x => x.Stops)
+                .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                .OrderByDescending(x => x.SnapshotVersion)
+                .FirstOrDefaultAsync(ct);
+            if (snapshot is null) continue;
+            var attempts = await db.RouteCalculationAttempts.AsNoTracking()
+                .Where(x => x.VisitTripId == tripId)
+                .ToListAsync(ct);
+            if (V180MileageCanonicalization.HasRetryEvidence(snapshot, attempts)) eligible.Add(tripId);
+        }
+        return eligible;
     }
 
     private async Task ProcessGeocodingAsync(BackgroundJob job, CancellationToken ct)

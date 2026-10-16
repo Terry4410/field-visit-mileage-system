@@ -69,6 +69,13 @@ public sealed class V180GoogleMileageGovernanceRepository(AppDbContext db) : IV1
             .ThenByDescending(x => x.RouteCalculationAttemptId)
             .FirstOrDefaultAsync(ct);
 
+    public Task<List<RouteCalculationAttempt>> GetRouteCalculationAttemptsAsync(long tripId, CancellationToken ct) =>
+        db.RouteCalculationAttempts.AsNoTracking()
+            .Where(x => x.VisitTripId == tripId)
+            .OrderByDescending(x => x.CompletedAt)
+            .ThenByDescending(x => x.RouteCalculationAttemptId)
+            .ToListAsync(ct);
+
     public Task<RouteCalculationAttempt?> GetLatestFailedRouteCalculationAttemptAsync(
         long tripId, CancellationToken ct) =>
         db.RouteCalculationAttempts.AsNoTracking()
