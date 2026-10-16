@@ -6,4 +6,5 @@
     <ProjectReference Include="..\..\src\FieldVisit.Application\FieldVisit.Application.csproj" />
     <ProjectReference Include="..\..\src\FieldVisit.Api\FieldVisit.Api.csproj" />
   </ItemGroup>
+  <ItemGroup><PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0" /></ItemGroup>
 </Project>
