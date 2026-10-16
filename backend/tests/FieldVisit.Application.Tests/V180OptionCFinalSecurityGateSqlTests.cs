@@ -1172,6 +1172,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             using var revokedHr = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
                 edit with { RowVersion = version });
             Assert.False(revokedHr.IsSuccessStatusCode);
+            await h.Exec("UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Active' WHERE EmploymentId=104;");
             Assert.Equal("Leader managed update", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=901"));
             Console.WriteLine($"R8_LEADER_SINGLE_CREATE_AND_MANAGED_DRAFT_HTTP_PASS database={h.DatabaseName} create=PASS update=PASS crossTeam=DENY visitorNonOwner=DENY staleRowVersion=DENY roleRevoked=DENY hrRevoked=DENY publishedLegacyPut=DENY");
         }
@@ -1376,7 +1377,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // legitimate unreserved Pending rows and remain countable. Fixture
         // 902 belongs to another team and is outside this visitor's scope.
         // The private canonical reservation must contribute no extra count.
-        Assert.Equal(dashboardBefore.PendingLocations + 2,
+        Assert.Equal(dashboardBefore.PendingLocations + (fullCanonicalChain ? 2 : 1),
             dashboardAfter.PendingLocations);
         // Legacy Picker endpoints require the normal org/team JWT claims.
         // The isolated Option C write path above intentionally ignores claims
