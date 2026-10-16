@@ -1,0 +1,75 @@
+name: Control Tower Hub nondeploy
+on:
+  push:
+    branches: [work/control-tower-hub-20261016]
+  pull_request:
+    paths:
+      - scripts/control_tower/**
+      - docs/control-tower/**
+      - .github/workflows/control-tower-hub.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: control-tower-hub-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'collector' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Isolated contract and negative security tests
+        run: python3 -m unittest discover -s scripts/control_tower -p 'test_*.py' -v
+  aggregate:
+    needs: validate
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/control-tower-hub-20261016' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select previous successful same-branch state
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/control_tower/baseline.py
+      - name: Read previous state artifact
+        if: steps.baseline.outputs.run_id != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.baseline.outputs.run_id }}
+          name: control-tower-state
+          path: hub-previous
+      - name: Collect fixed GitHub metadata and delta audit queue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_RUN: ${{ steps.baseline.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ -n "$BASELINE_RUN" ]; then
+            python3 scripts/control_tower/hub.py --previous hub-previous/status.json
+          else
+            python3 scripts/control_tower/hub.py
+          fi
+      - name: Publish sanitized dashboard and delta notification artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: control-tower-state
+          path: hub-output/
+          if-no-files-found: error
+          retention-days: 30

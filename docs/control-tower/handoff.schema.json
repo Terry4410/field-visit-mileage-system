@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Terry4410/field-visit-mileage-system/control-tower/handoff-v1",
+  "title": "Control Tower nondeploy handoff v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "Blockers",
+    "CI",
+    "Completed",
+    "Evidence",
+    "Lane",
+    "NextDelta",
+    "OwnerAuthorization",
+    "SHA",
+    "Sequence",
+    "Status",
+    "Version"
+  ],
+  "properties": {
+    "Version": {
+      "const": 1
+    },
+    "Lane": {
+      "enum": [
+        "WORK_A",
+        "WORK_B",
+        "WORK_C",
+        "AUDIT",
+        "OWNER"
+      ]
+    },
+    "SHA": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "Sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000000
+    },
+    "CI": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000000000000000
+      }
+    },
+    "Status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "HOLD",
+        "IN_PROGRESS"
+      ]
+    },
+    "Completed": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "enum": [
+          "BUSINESS_UAT",
+          "CI_FAILED",
+          "CI_PENDING",
+          "DEPLOYMENT_PROVENANCE",
+          "EVIDENCE_CHANGED",
+          "IMPLEMENTATION",
+          "INDEPENDENT_AUDIT",
+          "NONDEPLOY_VALIDATION",
+          "NO_CHANGE",
+          "OWNER_REVIEW",
+          "R3_HOLD",
+          "ROLLBACK_EVIDENCE",
+          "SCHEMA_FIDELITY",
+          "SOURCE_CHANGED"
+        ]
+      }
+    },
+    "Blockers": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "enum": [
+          "BUSINESS_UAT",
+          "CI_FAILED",
+          "CI_PENDING",
+          "DEPLOYMENT_PROVENANCE",
+          "EVIDENCE_CHANGED",
+          "IMPLEMENTATION",
+          "INDEPENDENT_AUDIT",
+          "NONDEPLOY_VALIDATION",
+          "NO_CHANGE",
+          "OWNER_REVIEW",
+          "R3_HOLD",
+          "ROLLBACK_EVIDENCE",
+          "SCHEMA_FIDELITY",
+          "SOURCE_CHANGED"
+        ]
+      }
+    },
+    "NextDelta": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "enum": [
+          "BUSINESS_UAT",
+          "CI_FAILED",
+          "CI_PENDING",
+          "DEPLOYMENT_PROVENANCE",
+          "EVIDENCE_CHANGED",
+          "IMPLEMENTATION",
+          "INDEPENDENT_AUDIT",
+          "NONDEPLOY_VALIDATION",
+          "NO_CHANGE",
+          "OWNER_REVIEW",
+          "R3_HOLD",
+          "ROLLBACK_EVIDENCE",
+          "SCHEMA_FIDELITY",
+          "SOURCE_CHANGED"
+        ]
+      }
+    },
+    "OwnerAuthorization": {
+      "const": "NONDEPLOY_ONLY"
+    },
+    "Evidence": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "Status": {
+            "const": "PASS"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "CI": {
+            "minItems": 1
+          },
+          "Evidence": {
+            "minItems": 1
+          },
+          "Blockers": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ]
+}
