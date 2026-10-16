@@ -1138,7 +1138,13 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             Assert.Equal("0", await h.Scalar("SELECT COUNT(*) FROM dbo.LocationPublishedVersions WHERE LocationId=@id", P("@id", leaderLocationId)));
 
             var versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
-            var version = Convert.ToBase64String(Convert.FromHexString(versionHex));
+            static string RowVersionBase64(string value)
+            {
+                var hex = value.Trim();
+                if (hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) hex = hex[2..];
+                return Convert.ToBase64String(Convert.FromHexString(hex));
+            }
+            var version = RowVersionBase64(versionHex);
             var edit = direct with { LocationName = "Leader managed update", Address = "Leader managed address", RowVersion = version };
             using var allowedEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901", edit);
             Assert.True(allowedEdit.IsSuccessStatusCode, await allowedEdit.Content.ReadAsStringAsync());
@@ -1149,12 +1155,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             using var crossTeamEdit = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/902", edit with { TeamId = 3 });
             Assert.False(crossTeamEdit.IsSuccessStatusCode);
             versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
-            using var visitorNonOwner = await visitor.PutAsJsonAsync("api/v1/managed-locations/901", edit with { RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+            using var visitorNonOwner = await visitor.PutAsJsonAsync("api/v1/managed-locations/901", edit with { RowVersion = RowVersionBase64(versionHex) });
             Assert.False(visitorNonOwner.IsSuccessStatusCode);
 
             versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=30");
             using var publishedPut = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/30",
-                edit with { TeamId = 1, RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+                edit with { TeamId = 1, RowVersion = RowVersionBase64(versionHex) });
             Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity, publishedPut.StatusCode);
             Assert.Contains("LOCATION_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL", await publishedPut.Content.ReadAsStringAsync());
             Assert.Equal("Other team published", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=30"));
@@ -1164,14 +1170,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 """);
             versionHex = await h.Scalar("SELECT CONVERT(varchar(32),RowVersion,2) FROM dbo.Locations WHERE LocationId=901");
             using var revokedRole = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
-                edit with { RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+                edit with { RowVersion = RowVersionBase64(versionHex) });
             Assert.False(revokedRole.IsSuccessStatusCode);
             await h.Exec("""
                 UPDATE dbo.UserRoleAssignments SET EffectiveTo=NULL WHERE UserId=4 AND RoleId=2;
                 UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Terminated' WHERE EmploymentId=104;
                 """);
             using var revokedHr = await leaderClient.PutAsJsonAsync("api/v1/managed-locations/901",
-                edit with { RowVersion = Convert.ToBase64String(Convert.FromHexString(versionHex)) });
+                edit with { RowVersion = RowVersionBase64(versionHex) });
             Assert.False(revokedHr.IsSuccessStatusCode);
             Assert.Equal("Leader managed update", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=901"));
             Console.WriteLine($"R8_LEADER_SINGLE_CREATE_AND_MANAGED_DRAFT_HTTP_PASS database={h.DatabaseName} create=PASS update=PASS crossTeam=DENY visitorNonOwner=DENY staleRowVersion=DENY roleRevoked=DENY hrRevoked=DENY publishedLegacyPut=DENY");
