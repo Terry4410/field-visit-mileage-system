@@ -13,9 +13,11 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -313,6 +315,10 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
                 builder.ConfigureTestServices(services =>
                 {
                     services.AddScoped<IV180RouteProvider>(sp => new WorkerProvider(control, sp.GetRequiredService<AppDbContext>()));
+                    // EF Core 8 TryAdd keeps the first options delegate. Replace
+                    // only test-host options so both synchronization interceptors
+                    // actually execute; real services/repositories are retained.
+                    services.RemoveAll<DbContextOptions<AppDbContext>>();
                     services.AddDbContext<AppDbContext>(options => options.UseSqlServer(cs).AddInterceptors(new WorkerInterceptor(control), new WorkerFaultInterceptor(control)));
                 });
             });
@@ -322,6 +328,10 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             Assert.Equal("false", runtimeConfiguration["BackgroundJobs:WorkerEnabled"]);
             Assert.IsType<WorkerProvider>(seedScope.ServiceProvider.GetRequiredService<IV180RouteProvider>());
             var db = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var interceptors = db.GetService<IDbContextOptions>().Extensions
+                .OfType<CoreOptionsExtension>().SelectMany(x => x.Interceptors ?? Array.Empty<IInterceptor>()).ToArray();
+            Assert.Contains(interceptors, x => x is WorkerInterceptor);
+            Assert.Contains(interceptors, x => x is WorkerFaultInterceptor);
             await db.Database.EnsureCreatedAsync(timeout.Token);
             var fixture = await SeedAsync(db);
             await db.Database.ExecuteSqlRawAsync("""
