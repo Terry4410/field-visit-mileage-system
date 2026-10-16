@@ -36,3 +36,19 @@ The preflight comparison test detects and records HOLD; its successful execution
 Control Tower should coordinate these independent gates: (1) resolve existing Visitor regression using the single implementation writer; (2) obtain approved genuine baseline plus synthetic reference chain and independently authorized UAT metadata/app-principal evidence; (3) obtain authenticated read-only current API deployment/source/package evidence; (4) preserve and independently verify a matched prior binary pair/settings fingerprint; (5) review exact new candidate CI/manifest and partial feature tradeoffs.
 
 Only after all gates are separately satisfied should one consolidated Owner execution request name exact candidate and rollback artifact IDs/digests, API/Pages target IDs, schema compatibility evidence, canary scope, execution order, expiry and recovery criteria. This sheet itself grants no operation, retries no consumed authorization, and leaves release-gates.json HOLD.
+
+## Frozen Owner requirements alignment — not a substitute for WORK A/AUDIT
+
+Authority read directly: PR #33 frozen Owner comment 6211550638 and audit checklist 6211568211. This is a preflight scope/decision cross-reference, not a duplicate A1–A15 engineering audit.
+
+| Frozen item | PR #37 partial candidate disposition |
+|---|---|
+| A1–A9: HR primary site, Visitor Google/save/submit/return/resubmit, fallback and Leader review/retry | Outside this lane. Coordinate WORK A and independent AUDIT; no full lifecycle or actual UAT PASS claimed here |
+| A10: scoped pending-location review tab | Canonical review is excluded/disabled in narrow 010 RC. No operational review tab or endpoint acceptance |
+| A11: own drafts vs maintained-for-others labels/two views | Current RC has a single table, no creator-vs-maintainer labeling, and lacks CreatedByUserId DTO. Frozen two-view requirement remains unmet |
+| A12: temporary Trip stop TaxId/MasterNote persistence | Not implemented/validated by this preflight continuation; do not equate eight master fields with temporary-stop/snapshot parity |
+| A13: literal button 儲存地點草稿 and accurate saved/submitted state | Current Leader page uses 新增地點（待審核） / 儲存草稿修改（待審核）; frozen literal wording is not met. Do not rename or change semantics in this separate readiness lane |
+| A14: all-user published-write/merge/geocode/UseExisting safety and history | Narrow Leader draft negatives PASS in isolated tests, but existing Admin legacy mutation/merge remains outside this upgrade. Full all-user canonical/history invariant cannot be certified; HOLD |
+| A15: actual catalog/permissions/provenance/rollback | Explicitly tracked as HOLD/partially observed in this package; no inference from isolated CI |
+
+Owner's frozen note explicitly says not to revive PR #37 as a surrogate for the full requirements. Keep this RC preserved for reviewed reuse; do not recommend its standalone deployment as completion of the Owner scope. The P0 Visitor regression requires coordinated integration, not a silent tradeoff or a test expectation change.
