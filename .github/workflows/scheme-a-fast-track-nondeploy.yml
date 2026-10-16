@@ -77,6 +77,15 @@ jobs:
           npm test
           npm run build
 
+      - name: Isolated Playwright browser E2E (API fully mocked)
+        working-directory: uat
+        env:
+          UAT_BASE_URL: http://127.0.0.1:4173/
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm run test:epic-a
+
       - name: Backend Release build and complete tests
         run: |
           mkdir -p artifacts/test-results
