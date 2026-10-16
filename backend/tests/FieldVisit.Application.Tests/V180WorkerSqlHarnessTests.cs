@@ -65,12 +65,19 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
                 gates[1 - first].ProviderRelease.TrySetResult();
                 await h.FinalReached(gates[1 - first], first == 0 ? b : a);
             }
-            // Serial release is deterministic and also avoids making the test
-            // itself depend on SQL deadlock victim scheduling.
             ga.FinalRelease.TrySetResult();
-            Assert.True(await a.WaitAsync(h.Token));
-            gb.FinalRelease.TrySetResult();
-            Assert.True(await b.WaitAsync(h.Token));
+            if (scenario == "both-before-persistence")
+            {
+                // Both real apply transactions now contend for the Trip lock.
+                gb.FinalRelease.TrySetResult();
+                Assert.All(await Task.WhenAll(a, b).WaitAsync(h.Token), value => Assert.True(value));
+            }
+            else
+            {
+                Assert.True(await a.WaitAsync(h.Token));
+                gb.FinalRelease.TrySetResult();
+                Assert.True(await b.WaitAsync(h.Token));
+            }
             await using var db = h.NewDb();
             var attempts = await db.RouteCalculationAttempts.Where(x => x.VisitTripId == h.TripId).ToListAsync(h.Token);
             Assert.Equal(3, attempts.Count); // initial failure plus both immutable outcomes
@@ -221,6 +228,7 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             await using var recovered = h.NewDb();
             await h.AssertCountersAndNoApprovals(recovered);
             Assert.Equal(2, await recovered.BackgroundJobs.CountAsync(h.Token));
+            Assert.Equal(3, await recovered.RouteCalculationAttempts.CountAsync(x => x.VisitTripId == h.TripId && x.Status == "Failed", h.Token));
             var recoveredJob = await recovered.BackgroundJobs.AsNoTracking().SingleAsync(x => x.BackgroundJobId == h.JobIds[1], h.Token);
             Assert.Equal("Succeeded", recoveredJob.Status);
             Assert.Equal(1, recoveredJob.SuccessCount);
