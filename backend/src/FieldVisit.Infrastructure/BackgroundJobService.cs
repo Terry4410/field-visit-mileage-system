@@ -392,11 +392,6 @@ public sealed class BackgroundJobService(
                         ActionAt = completedAt
                     });
 
-                    var submittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
-                        .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
-                        .OrderByDescending(x => x.SnapshotVersion)
-                        .Select(x => (long?)x.VisitTripSnapshotId)
-                        .FirstOrDefaultAsync(ct);
                     db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
                     {
                         VisitTripId = tripId,
