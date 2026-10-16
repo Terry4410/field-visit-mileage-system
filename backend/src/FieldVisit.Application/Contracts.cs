@@ -108,7 +108,8 @@ public sealed record ApproveTripRequest(
     string? Comments,
     string? DistanceDecisionSource = null,
     long? RouteCalculationAttemptId = null,
-    string? AdjustmentReason = null);
+    string? AdjustmentReason = null,
+    bool OverlappingTripsAcknowledged = false);
 public sealed record ReturnTripRequest(string Reason, string RowVersion);
 public sealed record BatchApproveItem(
     long VisitTripId,
@@ -116,7 +117,8 @@ public sealed record BatchApproveItem(
     string RowVersion,
     string? DistanceDecisionSource = null,
     long? RouteCalculationAttemptId = null,
-    string? AdjustmentReason = null);
+    string? AdjustmentReason = null,
+    bool OverlappingTripsAcknowledged = false);
 public sealed record BatchApproveRequest(IReadOnlyList<BatchApproveItem> Items);
 public sealed record BatchApproveResult(int Success, int Failed, IReadOnlyList<string> Errors);
 

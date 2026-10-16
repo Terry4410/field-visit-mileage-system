@@ -244,6 +244,16 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal(attemptCountBeforeStaleSelection, await db.RouteCalculationAttempts
                     .CountAsync(x => x.VisitTripId == created.VisitTripId));
 
+                var jobCountBeforeStaleRetry = await db.BackgroundJobs.CountAsync(x => x.JobType == "Mileage");
+                using (var staleRetryJob = await leader.PostAsJsonAsync(
+                    "api/v1/jobs/mileage",
+                    new MileageBatchRequest("Selected", null, null, [created.VisitTripId])))
+                {
+                    Assert.Equal(HttpStatusCode.UnprocessableEntity, staleRetryJob.StatusCode);
+                    Assert.Contains("MILEAGE_BATCH_NO_CURRENT_ROUTE_FAILURE", await staleRetryJob.Content.ReadAsStringAsync());
+                }
+                Assert.Equal(jobCountBeforeStaleRetry, await db.BackgroundJobs.CountAsync(x => x.JobType == "Mileage"));
+
                 var pendingApproval = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{created.VisitTripId}")
                     ?? throw new InvalidOperationException("OPTIONC_TRIP_PENDING_APPROVAL_RESPONSE_MISSING");
                 Assert.Equal("PendingApproval", pendingApproval.Status);
@@ -336,6 +346,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                         $"api/v1/trips/{created.VisitTripId}/approve", approve);
                     await WaitUntilBlockedByAsync(root.ConnectionString, blockerSpid, racedApproval, label);
                     await revokeTransaction.CommitAsync();
+                    await revokeTransaction.DisposeAsync();
                     using var racedResponse = await racedApproval.WaitAsync(TimeSpan.FromSeconds(10));
                     Assert.Equal(HttpStatusCode.Forbidden, racedResponse.StatusCode);
                     await db.Database.ExecuteSqlRawAsync(restoreSql);
@@ -631,7 +642,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                     Content = JsonContent.Create(Draft(fixture.Approved.LocationId, includeSecondStop: false) with
                     {
                         Notes = "returned edit; same route",
-                        Stops = [new TripStopInput(fixture.Approved.LocationId, null, null, "Location", "fixture", "changed route address", "visit", null)]
+                        Stops = [new TripStopInput(fixture.Approved.LocationId, null, null, "Location", "fixture", "address", "visit", null)]
                     })
                 };
                 returnedEdit.Headers.TryAddWithoutValidation("If-Match", returned.RowVersion);
@@ -667,17 +678,42 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 Assert.Equal(HttpStatusCode.UnprocessableEntity, unchangedLeaderAdjusted.StatusCode);
                 Assert.Contains("F_B_LEADER_ADJUSTMENT_NOT_DIFFERENT", await unchangedLeaderAdjusted.Content.ReadAsStringAsync());
             }
+            using (var overlappingDraftResponse = await visitor.PostAsJsonAsync(
+                "api/v1/trips",
+                Draft(fixture.Approved.LocationId, includeSecondStop: true) with { Purpose = "overlap warning case" }))
+            {
+                Assert.True(overlappingDraftResponse.IsSuccessStatusCode, await overlappingDraftResponse.Content.ReadAsStringAsync());
+                var overlappingDraft = await overlappingDraftResponse.Content.ReadFromJsonAsync<TripDto>()
+                    ?? throw new InvalidOperationException("OPTIONC_OVERLAP_DRAFT_MISSING");
+                Assert.True(overlappingDraft.HasTimeOverlapWarning);
+                Assert.False(overlappingDraft.TimeOverlapConfirmed);
+                using var forgedApproval = await leader.PostAsJsonAsync(
+                    $"api/v1/trips/{created.VisitTripId}/approve",
+                    new ApproveTripRequest(11.5m, pendingApproval.RowVersion, null, "LeaderAdjusted", attempt.RouteCalculationAttemptId,
+                        "Travel time differs due to dispatch conditions."));
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, forgedApproval.StatusCode);
+                Assert.Contains("TRIP_OVERLAP_ACKNOWLEDGEMENT_REQUIRED", await forgedApproval.Content.ReadAsStringAsync());
+            }
             using var approved = await leader.PostAsJsonAsync(
                 $"api/v1/trips/{created.VisitTripId}/approve",
                 new ApproveTripRequest(12.5m, pendingApproval.RowVersion,
-                    "overlap confirmation remains separate", "LeaderAdjusted", attempt.RouteCalculationAttemptId));
+                    "overlap confirmation remains separate", "LeaderAdjusted", attempt.RouteCalculationAttemptId,
+                    OverlappingTripsAcknowledged: true));
             Assert.Equal(HttpStatusCode.UnprocessableEntity, approved.StatusCode);
             Assert.Contains("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED", await approved.Content.ReadAsStringAsync());
+            using (var genericReason = await leader.PostAsJsonAsync(
+                $"api/v1/trips/{created.VisitTripId}/approve",
+                new ApproveTripRequest(11.5m, pendingApproval.RowVersion, null, "LeaderAdjusted",
+                    attempt.RouteCalculationAttemptId, "aaaaaaaaaa", OverlappingTripsAcknowledged: true)))
+            {
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, genericReason.StatusCode);
+                Assert.Contains("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED", await genericReason.Content.ReadAsStringAsync());
+            }
             using var approvedWithReason = await leader.PostAsJsonAsync(
                 $"api/v1/trips/{created.VisitTripId}/approve",
                 new ApproveTripRequest(11.5m, pendingApproval.RowVersion,
                     null, "LeaderAdjusted", attempt.RouteCalculationAttemptId,
-                    "Travel time differs due to dispatch conditions."));
+                    "Travel time differs due to dispatch conditions.", OverlappingTripsAcknowledged: true));
             Assert.True(approvedWithReason.IsSuccessStatusCode, await approvedWithReason.Content.ReadAsStringAsync());
             var approvedTrip = await approvedWithReason.Content.ReadFromJsonAsync<TripDto>()
                 ?? throw new InvalidOperationException("OPTIONC_PROVIDER_APPROVED_RESPONSE_MISSING");
@@ -691,6 +727,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
             var approvalAudit = await db.AuditLogs.SingleAsync(x => x.EntityId == created.VisitTripId.ToString() && x.Action == "TripApprove");
             Assert.Contains("LeaderAdjusted", approvalAudit.NewValues);
             Assert.Contains("Travel time differs due to dispatch conditions", approvalAudit.NewValues);
+            Assert.Contains("OverlappingTripsAcknowledged\":true", approvalAudit.NewValues);
             Assert.Equal(attemptsBeforeApproval, await db.RouteCalculationAttempts.CountAsync(x => x.VisitTripId == created.VisitTripId));
             Assert.Equal(jobsBeforeApproval, await db.BackgroundJobItems.CountAsync(x => x.EntityType == "VisitTrip" && x.EntityId == created.VisitTripId.ToString()));
 
@@ -719,12 +756,29 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 return (pending, previewResult.RouteCalculationAttemptId);
             }
 
+            var normalCandidate = await CreateBatchCandidate(new DateOnly(2026, 10, 17), "normal non-overlap adjustment");
+            using (var normalAdjusted = await leader.PostAsJsonAsync(
+                $"api/v1/trips/{normalCandidate.Trip.VisitTripId}/approve",
+                new ApproveTripRequest(11.5m, normalCandidate.Trip.RowVersion, null,
+                    "LeaderAdjusted", normalCandidate.AttemptId, "Dispatch route conditions require this adjustment.")))
+            {
+                Assert.True(normalAdjusted.IsSuccessStatusCode, await normalAdjusted.Content.ReadAsStringAsync());
+                var normalApproved = await normalAdjusted.Content.ReadFromJsonAsync<TripDto>()
+                    ?? throw new InvalidOperationException("OPTIONC_NORMAL_LEADER_ADJUSTED_MISSING");
+                Assert.Equal(11.5m, normalApproved.ApprovedDistanceKm);
+                Assert.Equal(34.5m, normalApproved.ApprovedAmount);
+                var normalAudit = await db.AuditLogs.SingleAsync(x =>
+                    x.EntityId == normalCandidate.Trip.VisitTripId.ToString() && x.Action == "TripApprove");
+                Assert.Contains("Dispatch route conditions require this adjustment", normalAudit.NewValues);
+            }
+
             var batchOne = await CreateBatchCandidate(new DateOnly(2026, 10, 16), "batch adjustment one");
-            var batchTwo = await CreateBatchCandidate(new DateOnly(2026, 10, 17), "batch adjustment two");
+            var batchTwo = await CreateBatchCandidate(new DateOnly(2026, 10, 16), "batch adjustment two");
             using (var partialBatch = await leader.PostAsJsonAsync("api/v1/trips/batch-approve", new BatchApproveRequest([
-                new BatchApproveItem(batchOne.Trip.VisitTripId, 11.5m, batchOne.Trip.RowVersion, "LeaderAdjusted", batchOne.AttemptId),
+                new BatchApproveItem(batchOne.Trip.VisitTripId, 11.5m, batchOne.Trip.RowVersion, "LeaderAdjusted", batchOne.AttemptId,
+                    "aaaaaaaaaa", OverlappingTripsAcknowledged: true),
                 new BatchApproveItem(batchTwo.Trip.VisitTripId, 13.5m, batchTwo.Trip.RowVersion, "LeaderAdjusted", batchTwo.AttemptId,
-                    "Traffic conditions required this specific route adjustment.")
+                    "Traffic conditions required this specific route adjustment.", OverlappingTripsAcknowledged: true)
             ])))
             {
                 Assert.True(partialBatch.IsSuccessStatusCode, await partialBatch.Content.ReadAsStringAsync());
@@ -736,7 +790,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
             }
             using (var completeBatch = await leader.PostAsJsonAsync("api/v1/trips/batch-approve", new BatchApproveRequest([
                 new BatchApproveItem(batchOne.Trip.VisitTripId, 11.5m, batchOne.Trip.RowVersion, "LeaderAdjusted", batchOne.AttemptId,
-                    "Dispatch timing required this individual adjustment.")
+                    "Dispatch timing required this individual adjustment.", OverlappingTripsAcknowledged: true)
             ])))
             {
                 Assert.True(completeBatch.IsSuccessStatusCode, await completeBatch.Content.ReadAsStringAsync());
@@ -752,16 +806,6 @@ public sealed class V180TripMileageHttpSqlE2ETests
             Assert.Equal(2, batchAudits.Count);
             Assert.Contains(batchAudits, x => x.NewValues.Contains("Dispatch timing required this individual adjustment"));
             Assert.Contains(batchAudits, x => x.NewValues.Contains("Traffic conditions required this specific route adjustment"));
-            using (var overlappingDraftResponse = await visitor.PostAsJsonAsync(
-                "api/v1/trips",
-                Draft(fixture.Approved.LocationId, includeSecondStop: true) with { Purpose = "overlap warning case" }))
-            {
-                Assert.True(overlappingDraftResponse.IsSuccessStatusCode, await overlappingDraftResponse.Content.ReadAsStringAsync());
-                var overlappingDraft = await overlappingDraftResponse.Content.ReadFromJsonAsync<TripDto>()
-                    ?? throw new InvalidOperationException("OPTIONC_OVERLAP_DRAFT_MISSING");
-                Assert.True(overlappingDraft.HasTimeOverlapWarning);
-                Assert.False(overlappingDraft.TimeOverlapConfirmed);
-            }
         }
         finally
         {

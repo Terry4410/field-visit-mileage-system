@@ -17,6 +17,17 @@ public sealed class V180MileageApprovalGovernanceTests
     }
 
     [Fact]
+    public void Leader_adjustment_reason_must_contain_meaningful_individual_content()
+    {
+        Assert.Equal("Dispatch timing required this adjustment.",
+            V180MileageGovernanceRules.RequireLeaderAdjustmentReason(" Dispatch timing required this adjustment. "));
+        Assert.Throws<InvalidOperationException>(
+            () => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("aaaaaaaaaa"));
+        Assert.Throws<InvalidOperationException>(
+            () => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("batch approve"));
+    }
+
+    [Fact]
     public void Correction_distance_decision_excludes_leader_adjusted()
     {
         Assert.Equal("ProviderSuggested", V180MileageGovernanceRules.RequireCorrectionDecisionSource("ProviderSuggested"));
@@ -66,6 +77,7 @@ public sealed class V180MileageApprovalGovernanceTests
         var failed = new RouteCalculationAttempt
         {
             VisitTripId = 10,
+            Provider = "GoogleMapsRoutes-TestStub",
             BasisType = "SubmittedSnapshot",
             BasisVisitTripSnapshotId = snapshot.VisitTripSnapshotId,
             RequestedVehicleType = "Motorcycle",
@@ -77,6 +89,7 @@ public sealed class V180MileageApprovalGovernanceTests
         var currentSuccess = new RouteCalculationAttempt
         {
             VisitTripId = 10,
+            Provider = "GoogleMapsRoutes-TestStub",
             BasisType = "SubmittedSnapshot",
             BasisVisitTripSnapshotId = snapshot.VisitTripSnapshotId,
             RequestedVehicleType = "Motorcycle",

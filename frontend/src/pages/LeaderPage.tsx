@@ -14,6 +14,12 @@ import{tripRouteSummary}from"../components/TripRouteDisplay";
 import{hasMinimumVisitStops}from"../trip-submit-rules";
 import{partitionLeaderMileageQueues,isLeaderMileageCalculable}from"../leader-mileage-filter";
 
+const isMeaningfulAdjustmentReason=(value:string)=>{
+ const normalized=value.trim().toLocaleLowerCase();
+ const letters=[...normalized].filter(c=>/[\p{L}\p{N}]/u.test(c));
+ return normalized.length>=8&&normalized.length<=500&&new Set(letters).size>=3
+  &&!['adjusted','batch approve','manual adjustment'].includes(normalized);
+};
 type Props={section:'dashboard'|'review'|'locations'};
 export default function LeaderPage({section}:Props){const[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);useEffect(()=>setMsg(''),[section]);if(section==='dashboard')return <Dashboard setMsg={setMsg} msg={msg}/>;if(section==='locations')return <LeaderLocationTabs setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>;return <Review setMsg={setMsg} msg={msg} busy={busy} setBusy={setBusy}/>}
 function LeaderLocationTabs({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;busy:boolean;setBusy:(v:boolean)=>void}){
@@ -102,7 +108,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    try{payload=approvalPayload(t)}catch(e){return setMsg(e instanceof Error?e.message:'核定資料不完整')}
    if(payload.distanceDecisionSource==='LeaderAdjusted'){
      const reason=adjustmentReasons[t.visitTripId]?.trim()||'';
-     if(reason.length<8||reason.length>500||['adjusted','batch approve','manual adjustment'].includes(reason.toLowerCase()))return setMsg(`${t.tripNo}：請填寫 8 至 500 字的具體里程調整原因。`);
+     if(!isMeaningfulAdjustmentReason(reason))return setMsg(`${t.tripNo}：請填寫 8 至 500 字、包含具體內容的個別里程調整原因。`);
      payload={...payload,adjustmentReason:reason};
    }
    const overlapMessage=leaderOverlapConfirmMessage(t,rows);
@@ -110,7 +116,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    const comments=overlapMessage?(t.timeOverlapConfirmed?'時間重疊；外訪員已確認，小組長確認仍核准。':'時間重疊；小組長確認仍核准。'):null;
    setBusy(true);
    try{
-     await api(`/trips/${t.visitTripId}/approve`,{method:'POST',body:JSON.stringify({...payload,comments})});
+     await api(`/trips/${t.visitTripId}/approve`,{method:'POST',body:JSON.stringify({...payload,comments,overlappingTripsAcknowledged:Boolean(overlapMessage)})});
      setMsg(`已核准 ${t.tripNo}`);await load();
    }catch(e){setMsg(e instanceof Error?e.message:'核准失敗')}finally{setBusy(false)}
  };
@@ -123,13 +129,14 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
      const item=approvalPayload(t);
      if(item.distanceDecisionSource==='LeaderAdjusted'){
        const reason=adjustmentReasons[t.visitTripId]?.trim()||'';
-       if(reason.length<8||reason.length>500||['adjusted','batch approve','manual adjustment'].includes(reason.toLowerCase()))throw new Error(`${t.tripNo}：請填寫 8 至 500 字的具體里程調整原因。`);
+       if(!isMeaningfulAdjustmentReason(reason))throw new Error(`${t.tripNo}：請填寫 8 至 500 字、包含具體內容的個別里程調整原因。`);
        return{...item,adjustmentReason:reason};
      }
      return item;
    })}catch(e){return setMsg(e instanceof Error?e.message:'批次核定資料不完整')}
    const overlapCount=targets.filter(t=>hasLeaderTimeOverlap(t,rows)).length;
    if(overlapCount>0&&!window.confirm(`選取行程中有 ${overlapCount} 筆存在時間重疊提醒，是否仍要批次核准？`))return;
+   items=items.map(item=>({...item,overlappingTripsAcknowledged:hasLeaderTimeOverlap(targets.find(t=>t.visitTripId===item.visitTripId)!,rows)}));
    if(!window.confirm(`確認批次核准 ${targets.length} 筆行程？`))return;
    setBusy(true);
    try{

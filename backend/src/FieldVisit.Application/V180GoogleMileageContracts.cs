@@ -120,7 +120,8 @@ public static class V180MileageGovernanceRules
         if (string.IsNullOrWhiteSpace(reason) || reason.Length < 8 || reason.Length > 500
             || reason.Equals("batch approve", StringComparison.OrdinalIgnoreCase)
             || reason.Equals("adjusted", StringComparison.OrdinalIgnoreCase)
-            || reason.Equals("manual adjustment", StringComparison.OrdinalIgnoreCase))
+            || reason.Equals("manual adjustment", StringComparison.OrdinalIgnoreCase)
+            || reason.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).Distinct().Take(3).Count() < 3)
             throw new InvalidOperationException("F_B_LEADER_ADJUSTMENT_REASON_REQUIRED：每筆里程調整必須填寫 8 至 500 字的具體原因。");
         return reason;
     }

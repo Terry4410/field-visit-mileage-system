@@ -140,6 +140,14 @@ public sealed class LeaderService(
             throw new UnauthorizedAccessException("TRIP_SELF_APPROVAL_DENIED：小組長不得核准自己的行程。");
         EnsureRowVersion(trip.RowVersion, request.RowVersion);
 
+        var overlaps = trip.StartTime.HasValue && trip.EndTime.HasValue
+            ? await trips.FindOverlapsAsync(trip.UserId, trip.VisitDate, trip.StartTime.Value,
+                trip.EndTime.Value, trip.VisitTripId, ct)
+            : new List<VisitTrip>();
+        if (overlaps.Count > 0 && !request.OverlappingTripsAcknowledged)
+            throw new InvalidOperationException(
+                "TRIP_OVERLAP_ACKNOWLEDGEMENT_REQUIRED：目前仍有時間重疊行程，須由小組長明確確認後才能核准。");
+
         V170TripMileageRules.EnsureReadyForApproval(trip.Stops.Count);
 
         if (request.ApprovedDistanceKm is null or <= 0)
@@ -287,6 +295,8 @@ public sealed class LeaderService(
                 ApprovedDistanceKm = request.ApprovedDistanceKm,
                 DecisionSource = decisionSource,
                 AdjustmentReason = adjustmentReason,
+                OverlappingTripsAcknowledged = request.OverlappingTripsAcknowledged,
+                OverlappingTripIds = overlaps.Select(x => x.VisitTripId).OrderBy(x => x).ToArray(),
                 RatePerKm = rate.RatePerKm,
                 calc.ApprovedAmount
             }), ct);
@@ -373,7 +383,8 @@ public sealed class LeaderService(
                         null,
                         item.DistanceDecisionSource,
                         item.RouteCalculationAttemptId,
-                        item.AdjustmentReason),
+                        item.AdjustmentReason,
+                        item.OverlappingTripsAcknowledged),
                     ct);
                 success++;
             }
