@@ -43,9 +43,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             builder.UseSetting("BackgroundJobs:RecoverOnStartup","false");
         });
         using var admin=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
-        admin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin"));
+        admin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin",1,1));
         using var response=await admin.GetAsync("api/v1/admin/query-exports/personnel-full.xlsx?keyword=E2&employmentStatus=Active");
-        Assert.Equal(System.Net.HttpStatusCode.OK,response.StatusCode);
+        Assert.True(response.StatusCode==System.Net.HttpStatusCode.OK,$"HTTP {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
         Assert.StartsWith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",response.Content.Headers.ContentType?.ToString());
         await using var stream=await response.Content.ReadAsStreamAsync();
         using var workbook=new XSSFWorkbook(stream);
@@ -2540,7 +2540,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         if(fullCanonicalChain)
         {
             using var mergeAdmin=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
-            mergeAdmin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin"));
+            mergeAdmin.DefaultRequestHeaders.Authorization=new("Bearer",Token(2,"E2","admin",1,1));
             var sourceVersionBefore=await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10");
             var survivorVersionBefore=await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=11");
             var refsBefore=await h.Scalar("SELECT CONCAT((SELECT ProjectLocationId,LocationId FROM dbo.ProjectLocations WHERE LocationId IN(10,11) ORDER BY ProjectLocationId FOR JSON PATH),N'|',(SELECT UserFavoriteLocationId,LocationId FROM dbo.UserFavoriteLocations WHERE LocationId IN(10,11) ORDER BY UserFavoriteLocationId FOR JSON PATH),N'|',(SELECT VisitTripStopId,LocationId FROM dbo.VisitTripStops WHERE LocationId IN(10,11) ORDER BY VisitTripStopId FOR JSON PATH),N'|',(SELECT VisitTripSnapshotStopId,LocationId FROM dbo.VisitTripSnapshotStops WHERE LocationId IN(10,11) ORDER BY VisitTripSnapshotStopId FOR JSON PATH))");
