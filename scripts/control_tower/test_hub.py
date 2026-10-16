@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 import hub
 import publish
+import baseline
 import schema
 
 STAMP = '2026-10-16T09:00:00Z'
@@ -270,6 +271,33 @@ class BaselineTests(unittest.TestCase):
     def test_schema_and_validator_lanes_agree(self):
         value=schema.load_schema();self.assertEqual(set(value['required']),hub.FIELDS)
         self.assertEqual(set(value['properties']['Lane']['enum']),set(hub.LANES))
+
+class BaselineSelectionTests(unittest.TestCase):
+    def fake(self):
+        class Source:
+            def get(self,path):
+                return {'workflow_runs':[
+                    {'id':id,'event':'push','head_branch':branch,'status':'completed','conclusion':'success',
+                     'head_sha':'a'*40,'repository':{'full_name':hub.REPO}}
+                    for id,branch in ((10,hub.BRANCH),(9,'wrong'),(8,hub.BRANCH))]}
+            def pages(self,path,key=None):
+                return [{'name':name,'expired':False,'workflow_run':{'head_sha':'a'*40}}
+                        for name in ('control-tower-state-8-1','control-tower-state-8-2','control-tower-state-99-9','evil\nkey=value')] 
+        return Source()
+    def test_prior_success_latest_attempt_and_no_untrusted_output(self):
+        self.assertEqual(baseline.select(self.fake(),10),('8','control-tower-state-8-2'))
+    def test_expired_or_wrong_source_baselines_do_not_count(self):
+        fake=self.fake();fake.pages=lambda *a,**k:[{'name':'control-tower-state','expired':True,'workflow_run':{'head_sha':'a'*40}}]
+        self.assertEqual(baseline.select(fake,10),('',''))
+        fake.pages=lambda *a,**k:[{'name':'control-tower-state','expired':False,'workflow_run':{'head_sha':'b'*40}}]
+        self.assertEqual(baseline.select(fake,10),('',''))
+    def test_legacy_baseline_supported(self):
+        fake=self.fake();fake.pages=lambda *a,**k:[{'name':'control-tower-state','expired':False,'workflow_run':{'head_sha':'a'*40}}]
+        self.assertEqual(baseline.select(fake,10),('8','control-tower-state'))
+    def test_artifact_names_are_immutable_per_attempt(self):
+        text=Path('.github/workflows/control-tower-hub.yml').read_text()
+        self.assertIn('name: control-tower-state-${{ github.run_id }}-${{ github.run_attempt }}',text)
+        self.assertNotIn('overwrite:',text)
 
 class EventTests(unittest.TestCase):
     def environment(self):

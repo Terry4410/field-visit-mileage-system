@@ -36,7 +36,7 @@ jobs:
       - name: Publish exact-source validation evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: control-tower-validation
+          name: control-tower-validation-${{ github.run_id }}-${{ github.run_attempt }}
           path: hub-validation/validation.json
           if-no-files-found: error
           retention-days: 30
@@ -63,7 +63,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           run-id: ${{ steps.baseline.outputs.run_id }}
-          name: control-tower-state
+          name: ${{ steps.baseline.outputs.artifact_name }}
           path: hub-previous
       - name: Collect fixed GitHub metadata and delta audit queue
         env:
@@ -81,7 +81,7 @@ jobs:
       - name: Publish sanitized dashboard and delta notification artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: control-tower-state
+          name: control-tower-state-${{ github.run_id }}-${{ github.run_attempt }}
           path: hub-output/
           if-no-files-found: error
           retention-days: 30
