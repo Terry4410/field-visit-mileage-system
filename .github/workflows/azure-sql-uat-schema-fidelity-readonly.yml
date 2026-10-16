@@ -1,0 +1,128 @@
+name: Azure SQL UAT schema fidelity inventory (SELECT-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: azure-sql-uat-schema-fidelity-readonly
+  cancel-in-progress: false
+
+env:
+  EXPECTED_RESOURCE_GROUP: rg-fieldvisit-uat
+  EXPECTED_SERVER_NAME: sql-fieldvisit-jpe-uat
+  EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
+  EXPECTED_DATABASE: db-fieldvisit-uat
+  INVENTORY_SQL_SHA256: e83552d4b1472e677f61a5e44973b80321d2874322f4a5954c070b8f3fd2c232
+  EVIDENCE_VALIDATOR_SHA256: f2953d17ea364e1191a5cddcbcf797251f9e97b109007aa89607f109875b3b15
+
+jobs:
+  branch-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce protected source and repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = "Terry4410/field-visit-mileage-system"
+          test "${GITHUB_REF}" = "refs/heads/post-uat/v1.8.0" || {
+            echo "::error::Schema fidelity inventory may only run from post-uat/v1.8.0."
+            exit 1
+          }
+          test "${GITHUB_SHA}" != "" && test "${#GITHUB_SHA}" -eq 40
+
+  metadata-only-inventory:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact protected dispatch SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact source and immutable reviewed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          sql="docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql"
+          validator="scripts/ci/uat_schema_fidelity_evidence.ps1"
+          test -f "$sql" && test -f "$validator"
+          test "$(sha256sum "$sql" | cut -d' ' -f1)" = "$INVENTORY_SQL_SHA256" || {
+            echo "::error::Reviewed inventory SQL SHA-256 mismatch."
+            exit 1
+          }
+          test "$(sha256sum "$validator" | cut -d' ' -f1)" = "$EVIDENCE_VALIDATOR_SHA256" || {
+            echo "::error::Reviewed evidence validator SHA-256 mismatch."
+            exit 1
+          }
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify fixed Azure target metadata
+        env:
+          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIGURED_SERVER_NAME" = "$EXPECTED_SERVER_NAME"
+          test "$CONFIGURED_DATABASE" = "$EXPECTED_DATABASE"
+          test "$(az group show --name "$EXPECTED_RESOURCE_GROUP" --query name -o tsv)" = "$EXPECTED_RESOURCE_GROUP"
+          test "$(az sql server show --resource-group "$EXPECTED_RESOURCE_GROUP" --name "$EXPECTED_SERVER_NAME" --query fullyQualifiedDomainName -o tsv)" = "$EXPECTED_SERVER"
+          test "$(az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "$EXPECTED_SERVER_NAME" --name "$EXPECTED_DATABASE" --query name -o tsv)" = "$EXPECTED_DATABASE"
+
+      - name: Install pinned SQL Server PowerShell module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+
+      - name: Execute and normalize metadata-only inventory
+        id: inventory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/uat_schema_fidelity_evidence.ps1')
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'STOP: Azure SQL access token unavailable.' }
+          Write-Output "::add-mask::$token"
+          $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql'
+          $output = Join-Path $env:RUNNER_TEMP 'uat-schema-fidelity-inventory.json'
+          try {
+            $data = Invoke-Sqlcmd -ServerInstance $env:EXPECTED_SERVER -Database $env:EXPECTED_DATABASE -AccessToken $token -ApplicationIntent ReadOnly -ConnectionTimeout 120 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -InputFile $sql
+          } catch {
+            throw 'STOP: metadata-only SQL inventory failed; raw SQL error suppressed.'
+          }
+          $summary = Write-UatSchemaInventory $data $env:EXPECTED_SERVER $env:EXPECTED_DATABASE $env:GITHUB_SHA $env:INVENTORY_SQL_SHA256 $output
+          "artifact_path=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "### UAT schema fidelity metadata inventory" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "- Result: normalized inventory captured; comparison remains a separate gate" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "- Source SHA: $($summary.SourceSha)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "- SQL SHA-256: $($summary.SqlSha256)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "- Latest schema: $($summary.LatestVersion)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "- Metadata rows: columns=$($summary.ColumnCount), index-columns=$($summary.IndexColumnCount), FK-columns=$($summary.ForeignKeyColumnCount), checks=$($summary.CheckCount)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Upload normalized metadata evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-schema-fidelity-${{ github.sha }}
+          path: ${{ steps.inventory.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Sign out of Azure
+        if: always()
+        run: az logout

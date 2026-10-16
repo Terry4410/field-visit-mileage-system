@@ -1,0 +1,53 @@
+name: UAT schema fidelity protected proposal (nondeploy)
+
+on:
+  push:
+    branches:
+      - work/uat-schema-fidelity-protected-proposal-20261016
+  pull_request:
+    branches:
+      - post-uat/v1.8.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uat-schema-fidelity-proposal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  static-and-comparator-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact proposal SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Enforce nondeploy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          workflow=.github/workflows/uat-schema-fidelity-proposal-nondeploy.yml
+          grep -Fxq "permissions:" "$workflow"
+          grep -Fxq "  contents: read" "$workflow"
+          forbidden_azure="azure/""login"
+          forbidden_environment="environment:""[[:space:]]*uat"
+          forbidden_oidc="id-token:""[[:space:]]*write"
+          forbidden_sql="Invoke-""Sqlcmd"
+          for pattern in "$forbidden_azure" "$forbidden_environment" "$forbidden_oidc" "$forbidden_sql"; do
+            if grep -Eq "$pattern" "$workflow"; then
+              echo "Forbidden protected-access capability detected in proposal CI." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run fail-closed proposal tests
+        run: python3 -m unittest -v scripts/ci/test_uat_schema_fidelity_proposal.py
+
+      - name: Compile comparator
+        run: python3 -m py_compile scripts/ci/compare_uat010_schema_inventory.py
