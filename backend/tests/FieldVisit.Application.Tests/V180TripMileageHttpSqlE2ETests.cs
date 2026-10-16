@@ -746,7 +746,7 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 var currentDraft = await visitor.GetFromJsonAsync<TripDto>($"api/v1/trips/{createdBatch.VisitTripId}")
                     ?? throw new InvalidOperationException("OPTIONC_BATCH_REFRESH_MISSING");
                 using var submitRequest = new HttpRequestMessage(HttpMethod.Post, $"api/v1/trips/{createdBatch.VisitTripId}/submit")
-                { Content = JsonContent.Create(new SubmitTripRequest(false)) };
+                { Content = JsonContent.Create(new SubmitTripRequest(true)) };
                 submitRequest.Headers.TryAddWithoutValidation("If-Match", currentDraft.RowVersion);
                 using var submitResponse = await visitor.SendAsync(submitRequest);
                 Assert.True(submitResponse.IsSuccessStatusCode, await submitResponse.Content.ReadAsStringAsync());
