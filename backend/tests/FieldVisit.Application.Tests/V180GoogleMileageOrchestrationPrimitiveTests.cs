@@ -188,6 +188,31 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     }
 
     [Fact]
+    public async Task Leader_retry_is_blocked_when_current_route_has_any_success()
+    {
+        var fixture = Fixture.Leader();
+        var failed = fixture.Governance.RouteAttempts.Single();
+        fixture.Governance.RouteAttempts.Add(new RouteCalculationAttempt
+        {
+            RouteCalculationAttemptId = 901,
+            VisitTripId = failed.VisitTripId,
+            BasisType = failed.BasisType,
+            BasisVisitTripSnapshotId = failed.BasisVisitTripSnapshotId,
+            RequestedVehicleType = failed.RequestedVehicleType,
+            TravelMode = failed.TravelMode,
+            Provider = failed.Provider,
+            RequestBasisHash = failed.RequestBasisHash,
+            Status = "Succeeded"
+        });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.RetryRouteAsync(fixture.Trip.VisitTripId, default));
+
+        Assert.Contains("F_B_RETRY_EVIDENCE_REQUIRED", error.Message);
+        Assert.Equal(0, fixture.RouteProvider.CallCount);
+    }
+
+    [Fact]
     public async Task Visitor_cannot_preview_another_visitors_trip()
     {
         var fixture = Fixture.Visitor("Car");
@@ -318,7 +343,22 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         public static Fixture Leader()
         {
             var user = UserDto("leader");
-            return new Fixture(user, TripEntity(2, TripStatuses.Submitted, "Car"), Snapshot());
+            var fixture = new Fixture(user, TripEntity(2, TripStatuses.Submitted, "Car"), Snapshot());
+            fixture.Governance.RouteAttempts.Add(new RouteCalculationAttempt
+            {
+                RouteCalculationAttemptId = 900,
+                VisitTripId = fixture.Trip.VisitTripId,
+                BasisType = "SubmittedSnapshot",
+                BasisVisitTripSnapshotId = fixture.SubmittedSnapshot.VisitTripSnapshotId,
+                RequestedVehicleType = "Car",
+                TravelMode = "DRIVE",
+                Provider = "GoogleMapsRoutes-TestStub",
+                RequestBasisHash = V180MileageCanonicalization.HashRoute(
+                    V180MileageCanonicalization.BuildSubmittedSnapshotBasis(fixture.SubmittedSnapshot)),
+                Status = "Failed",
+                ErrorCode = "PROVIDER_UNAVAILABLE"
+            });
+            return fixture;
         }
 
         private static CurrentUserDto UserDto(string role) => new(

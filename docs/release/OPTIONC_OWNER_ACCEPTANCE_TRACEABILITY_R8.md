@@ -158,4 +158,15 @@ Exact code evidence: 07392072e97ff14f6f939bf94e85e51be63faca0 / CI 38889522855 S
 
 ### Tally correction
 
+### WORK A P1 hardening — post-audit 6215934840
+
+| Control | Implementation / test evidence | Disposition |
+|---|---|---|
+| Candidate route retry evidence | Candidate-only `leader/trips/{id}/route-retry` now calls the same `HasRetryEvidence` predicate as queue/job selection; any current authoritative success blocks retry before provider I/O. Primitive coverage includes failure-only allow and success-plus-failure deny. | Isolated PASS pending exact CI; UAT/flags HOLD |
+| Atomic Waiting→Processing claim | `BackgroundJobService.ProcessNextAsync` uses one conditional `ExecuteUpdateAsync` claim; concurrent SQL worker scopes assert exactly one claim per Waiting job. | Isolated SQL PASS pending exact CI |
+| Provider in-flight / revocation | Existing post-provider live team, submitted snapshot and mileage-state rechecks remain inside the serializable apply transaction. Route-change and role/team revocation remain negative paths. | Partial PASS; specialized second-success/deadlock audit HOLD |
+| SQL 1205 / 1222 | API maps SQL deadlock and lock-timeout to safe 409 diagnostic codes; job failure mapping uses `SQL_DEADLOCK_1205` / `SQL_LOCK_TIMEOUT_1222`; transaction disposal rolls back failed work. | Isolated PASS pending exact CI |
+| Raw background exception suppression | Persisted job/item/governance failure fields now contain fixed diagnostic codes only; raw exception text is not persisted. | Isolated PASS pending exact CI |
+| Real Browser→API→same canonical DB | Trusted genuine 001–010 baseline is unavailable in this lane; browser remains API-mocked and SQL uses disposable candidate databases. | HOLD / no UAT GO |
+
 The original R8 tally of 26 rows applies only to the R8 engineering trace above. The frozen AUDIT set has 30 rows and is reconciled here. Do not reuse R8 SHA/CI as evidence for R9. R9 implementation evidence at `fbac09e1798a009ad5642856f575f834051f66d9` is Exact-SHA CI `38844433349` **SUCCESS**: backend 765/765, frontend 115/115, API-mocked Playwright 3/3, disposable Historical fingerprint PASS, Option C HTTP/DI/SQL PASS, and canonical 011/012/014/015–020 rehearsal PASS. This verifies the implementation in disposable CI only; synthetic 010 remains non-equivalent to the UAT catalog. Protected/UAT deployed and Owner runtime verified remain **0 PASS / 30 HOLD** until separately authorized release/runtime evidence exists.

@@ -63,6 +63,10 @@ public sealed class V180GoogleMileageOrchestrationService(
 
         var submitted = await snapshots.GetLatestAsync(tripId, "Submitted", ct)
             ?? throw new InvalidOperationException("SUBMITTED_SNAPSHOT_REQUIRED：路線重試必須使用最新 Submitted Snapshot。");
+        var attempts = await governance.GetRouteCalculationAttemptsAsync(tripId, ct);
+        if (!V180MileageCanonicalization.HasRetryEvidence(submitted, attempts))
+            throw new InvalidOperationException(
+                "F_B_RETRY_EVIDENCE_REQUIRED：只有目前 Submitted 路線具 authoritative Google failure 且沒有成功證據時才可重試。");
         var basis = V180MileageCanonicalization.BuildSubmittedSnapshotBasis(submitted);
         return await CalculateRouteAsync(
             trip, basis, "SubmittedSnapshot", submitted.VisitTripSnapshotId,

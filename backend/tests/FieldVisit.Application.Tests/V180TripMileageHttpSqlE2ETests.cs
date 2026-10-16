@@ -236,8 +236,14 @@ public sealed class V180TripMileageHttpSqlE2ETests
                         .SingleAsync(x => x.UserId == fixture.Leader.UserId && x.RoleId == leaderRoleId);
                     revokedLeaderAssignment.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
                     await db.SaveChangesAsync();
-                    var backgroundJobs = scope.ServiceProvider.GetRequiredService<IBackgroundJobService>();
-                    Assert.True(await backgroundJobs.ProcessNextAsync(CancellationToken.None));
+                    using var workerScopeA = factory.Services.CreateScope();
+                    using var workerScopeB = factory.Services.CreateScope();
+                    var workerA = workerScopeA.ServiceProvider.GetRequiredService<IBackgroundJobService>();
+                    var workerB = workerScopeB.ServiceProvider.GetRequiredService<IBackgroundJobService>();
+                    var claimResults = await Task.WhenAll(
+                        workerA.ProcessNextAsync(CancellationToken.None),
+                        workerB.ProcessNextAsync(CancellationToken.None));
+                    Assert.Equal(1, claimResults.Count(x => x));
                     var processedJob = await db.BackgroundJobs.AsNoTracking()
                         .SingleAsync(x => x.BackgroundJobId == createdJob.BackgroundJobId);
                     Assert.Equal("Failed", processedJob.Status);

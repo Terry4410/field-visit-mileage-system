@@ -4,6 +4,7 @@ using FieldVisit.Application;
 using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 
 namespace FieldVisit.Infrastructure;
@@ -104,17 +105,28 @@ public sealed class BackgroundJobService(
 
     public async Task<bool> ProcessNextAsync(CancellationToken ct)
     {
-        var job = await db.BackgroundJobs
+        var candidate = await db.BackgroundJobs.AsNoTracking()
             .OrderBy(x => x.CreatedAt)
-            .FirstOrDefaultAsync(x => x.Status == "Waiting", ct);
-        if (job is null) return false;
+            .Where(x => x.Status == "Waiting")
+            .Select(x => new { x.BackgroundJobId })
+            .FirstOrDefaultAsync(ct);
+        if (candidate is null) return false;
 
+        // Claim is a single conditional UPDATE. Two workers may observe the
+        // same Waiting row, but only one can transition it to Processing.
+        var claimedAt = DateTime.UtcNow;
+        var claimed = await db.BackgroundJobs
+            .Where(x => x.BackgroundJobId == candidate.BackgroundJobId && x.Status == "Waiting")
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, "Processing")
+                .SetProperty(x => x.StartedAt, claimedAt)
+                .SetProperty(x => x.ErrorMessage, (string?)null), ct);
+        if (claimed != 1) return false;
+
+        var job = await db.BackgroundJobs
+            .SingleAsync(x => x.BackgroundJobId == candidate.BackgroundJobId, ct);
         var jobId = job.BackgroundJobId;
         var jobType = job.JobType;
-        job.Status = "Processing";
-        job.StartedAt = DateTime.UtcNow;
-        job.ErrorMessage = null;
-        await db.SaveChangesAsync(ct);
 
         try
         {
@@ -151,7 +163,7 @@ public sealed class BackgroundJobService(
             var failedJob = await db.BackgroundJobs
                 .SingleAsync(x => x.BackgroundJobId == jobId, ct);
             failedJob.Status = "Failed";
-            failedJob.ErrorMessage = ex.Message;
+            failedJob.ErrorMessage = BackgroundJobFailureCodes.FromException(ex);
             failedJob.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
@@ -415,13 +427,13 @@ public sealed class BackgroundJobService(
             }
             catch (Exception ex)
             {
-                var errorMessage = ex.Message;
                 db.ChangeTracker.Clear();
                 var failedItem = await db.BackgroundJobItems.SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
                 var durableJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == jobId, ct);
                 failedItem.Status = "Failed";
-                failedItem.ErrorCode = "MILEAGE_JOB_FAILED";
-                failedItem.ErrorMessage = errorMessage;
+                var safeCode = BackgroundJobFailureCodes.FromException(ex);
+                failedItem.ErrorCode = safeCode;
+                failedItem.ErrorMessage = safeCode;
                 failedItem.CompletedAt = DateTime.UtcNow;
                 durableJob.FailedCount++;
 
@@ -435,8 +447,8 @@ public sealed class BackgroundJobService(
                     VisitTripId = tripId,
                     VisitTripSnapshotId = failedTripSnapshotId,
                     EventType = "CalculationFailed",
-                    ReasonCode = "MILEAGE_JOB_FAILED",
-                    Message = errorMessage.Length <= 1000 ? errorMessage : errorMessage[..1000],
+                    ReasonCode = safeCode,
+                    Message = safeCode,
                     CorrelationId = Guid.NewGuid(),
                     OccurredAt = DateTime.UtcNow,
                     ActorUserId = durableJob.RequestedByUserId
@@ -596,7 +608,8 @@ public sealed class BackgroundJobService(
             catch (Exception ex)
             {
                 // Preserve existing Approved/Active status on a failed re-geocode.
-                location.GeocodingStatus = "Failed"; item.Status = "Failed"; item.ErrorCode = "GEOCODING_JOB_FAILED"; item.ErrorMessage = ex.Message; job.FailedCount++;
+                var safeCode = BackgroundJobFailureCodes.FromException(ex);
+                location.GeocodingStatus = "Failed"; item.Status = "Failed"; item.ErrorCode = safeCode; item.ErrorMessage = safeCode; job.FailedCount++;
             }
             item.CompletedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -774,4 +787,47 @@ public sealed class BackgroundJobService(
     private void AddAudit(int userId, string entityType, string? entityId, string action, object value) => db.AuditLogs.Add(new AuditLog { UserId = userId, EntityType = entityType, EntityId = entityId, Action = action, NewValues = JsonSerializer.Serialize(value, JsonOptions), CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow });
     private static string NewLocationCode() => $"LOC-{DateTime.UtcNow:yyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
 
+}
+
+internal static class BackgroundJobFailureCodes
+{
+    public static string FromException(Exception exception)
+    {
+        var root = exception.GetBaseException();
+        var explicitCode = root.Message.Split(':', 2)[0].Trim();
+        if (IsSafeCode(explicitCode)) return explicitCode;
+        if (root is SqlException sql)
+        {
+            return FromSqlNumber(sql.Number);
+        }
+
+        return root switch
+        {
+            OperationCanceledException => "BACKGROUND_JOB_CANCELLED",
+            UnauthorizedAccessException => "BACKGROUND_JOB_AUTHORIZATION_REVOKED",
+            InvalidOperationException => "BACKGROUND_JOB_STATE_REJECTED",
+            _ => "BACKGROUND_JOB_FAILED"
+        };
+    }
+
+    private static bool IsSafeCode(string value) => value.Length is > 0 and <= 100
+        && value.Contains('_')
+        && (value.StartsWith("F_", StringComparison.Ordinal)
+            || value.StartsWith("MILEAGE_", StringComparison.Ordinal)
+            || value.StartsWith("BACKGROUND_", StringComparison.Ordinal)
+            || value.StartsWith("SQL_", StringComparison.Ordinal)
+            || value.StartsWith("OPTIONC_", StringComparison.Ordinal)
+            || value.StartsWith("TRIP_", StringComparison.Ordinal)
+            || value.StartsWith("PROVIDER_", StringComparison.Ordinal)
+            || value.StartsWith("GEOCODING_", StringComparison.Ordinal)
+            || value.StartsWith("SUBMITTED_", StringComparison.Ordinal)
+            || value.StartsWith("LOCATION_", StringComparison.Ordinal))
+        && value.All(ch => char.IsUpper(ch) || char.IsDigit(ch) || ch == '_');
+
+    internal static string FromSqlNumber(int number) => number switch
+    {
+        1205 => "SQL_DEADLOCK_1205",
+        1222 => "SQL_LOCK_TIMEOUT_1222",
+        _ => "SQL_OPERATION_FAILED"
+    };
 }

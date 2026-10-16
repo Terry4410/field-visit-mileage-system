@@ -1,5 +1,6 @@
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
+using FieldVisit.Infrastructure;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -61,6 +62,25 @@ public sealed class V180MileageApprovalGovernanceTests
         Assert.Contains("MILEAGE_JOB_LEADER_ROLE_REVOKED", job);
         Assert.Contains("IsolationLevel.Serializable", job);
         Assert.Contains("MILEAGE_JOB_POST_PROVIDER_STATE_STALE", job);
+        Assert.Contains("ExecuteUpdateAsync", job);
+        Assert.Contains("Status == \"Waiting\"", job);
+    }
+
+    [Fact]
+    public void Retry_route_and_job_failures_use_safe_diagnostic_codes()
+    {
+        var routeSource = ReadRepositoryFile("backend/src/FieldVisit.Application/V180GoogleMileageOrchestrationService.cs");
+        Assert.Contains("HasRetryEvidence", routeSource);
+        Assert.Contains("F_B_RETRY_EVIDENCE_REQUIRED", routeSource);
+        Assert.Equal("MILEAGE_JOB_LEADER_ROLE_REVOKED",
+            BackgroundJobFailureCodes.FromException(new UnauthorizedAccessException("MILEAGE_JOB_LEADER_ROLE_REVOKED：scope")));
+        Assert.Equal("BACKGROUND_JOB_STATE_REJECTED",
+            BackgroundJobFailureCodes.FromException(new InvalidOperationException("raw database details")));
+        Assert.DoesNotContain("raw database details",
+            BackgroundJobFailureCodes.FromException(new InvalidOperationException("raw database details")));
+        Assert.Equal("SQL_DEADLOCK_1205", BackgroundJobFailureCodes.FromSqlNumber(1205));
+        Assert.Equal("SQL_LOCK_TIMEOUT_1222", BackgroundJobFailureCodes.FromSqlNumber(1222));
+        Assert.Equal("SQL_OPERATION_FAILED", BackgroundJobFailureCodes.FromSqlNumber(50000));
     }
 
     [Fact]
