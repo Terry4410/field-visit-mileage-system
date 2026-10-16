@@ -2549,7 +2549,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             using var useExisting=await mergeAdmin.PostAsJsonAsync("api/v1/locations/10/merge",
                 new V170LocationMergeRequest(11,"published duplicate review",await h.LocationRowVersionBase64(10),true,
                     await h.LocationRowVersionBase64(11),"UseExisting",null));
-            Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,useExisting.StatusCode);
+            Assert.True(useExisting.StatusCode==System.Net.HttpStatusCode.UnprocessableEntity,$"HTTP {(int)useExisting.StatusCode} {await useExisting.Content.ReadAsStringAsync()}");
             Assert.Contains("LOCATION_PUBLISHED_USE_EXISTING_REQUIRES_CANONICAL_REVIEW",await useExisting.Content.ReadAsStringAsync());
             Assert.Equal(sourceVersionBefore,await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10"));
             Assert.Equal(survivorVersionBefore,await h.Scalar("SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=11"));
