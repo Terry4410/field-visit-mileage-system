@@ -417,6 +417,11 @@ public sealed class V180TripMileageHttpSqlE2ETests
                 await db.UserTeamAssignments
                     .Where(x => x.UserId == fixture.Leader.UserId && x.TeamId == fixture.Team.TeamId)
                     .ExecuteUpdateAsync(s => s.SetProperty(x => x.EffectiveTo, (DateOnly?)null));
+                await db.EmploymentStatusPeriods
+                    .Where(x => x.EmploymentId == leaderEmployment.EmploymentId)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(x => x.EmploymentStatus, EmploymentStatuses.Active)
+                        .SetProperty(x => x.EffectiveTo, (DateOnly?)null));
                 db.ChangeTracker.Clear();
                 await db.VisitTrips
                     .Where(x => x.VisitTripId == created.VisitTripId)
