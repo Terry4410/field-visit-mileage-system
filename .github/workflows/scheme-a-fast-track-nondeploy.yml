@@ -224,6 +224,12 @@ jobs:
               executed = int(counters.attrib.get('executed', '0'))
               failed = int(counters.attrib.get('failed', '0'))
               lines.append(f'TRX_{os.path.basename(path)}_TOTAL={total}_EXECUTED={executed}_FAILED={failed}')
+              if os.path.basename(path) == 'worker-security-sql.trx':
+                for node in root.iter():
+                  if node.tag.endswith('StdOut'):
+                    for line in (node.text or '').splitlines():
+                      if line.startswith(('SQL_WORKER_', 'SQL_PROVIDER_', 'REAL_SQL_', 'SENSITIVE_PROVIDER_', 'LIVENESS_HOLD=')):
+                        lines.append(line)
             except Exception:
               lines.append(f'TRX_{os.path.basename(path)}=UNREADABLE')
           path = 'artifacts/work-a-p0-evidence/summary.txt'

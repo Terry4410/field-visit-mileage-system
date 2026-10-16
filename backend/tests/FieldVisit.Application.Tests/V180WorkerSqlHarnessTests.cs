@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -49,6 +50,7 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             var gb = await h.Control.Arrived(1, h.Token);
             var gates = new[] { ga, gb };
             ga.Success = aSucceeds;
+            gb.Distance = 99.75m; // detect an incorrect competing overwrite
             gates[first].ProviderRelease.TrySetResult();
             await gates[first].AtFinal.Task.WaitAsync(h.Token);
             if (scenario == "one-applies-before-second-completes")
@@ -74,8 +76,10 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             Assert.Equal(3, attempts.Count); // initial failure plus both immutable outcomes
             Assert.Equal(aSucceeds ? 2 : 1, attempts.Count(x => x.Status == "Succeeded"));
             Assert.DoesNotContain(attempts, x => x.Status == "Pending");
+            var workerAttempts = attempts.OrderBy(x => x.RouteCalculationAttemptId).Skip(1).ToArray();
+            Assert.True(workerAttempts[first].CompletedAt <= workerAttempts[1 - first].CompletedAt);
             var applications = await db.VisitTripStatusHistories.CountAsync(x => x.VisitTripId == h.TripId && x.Action == "GoogleMapsMileageCalculated", h.Token);
-            Assert.Equal(scenario == "one-applies-before-second-completes" ? 1 : 0, applications);
+            Assert.Equal(scenario is "one-applies-before-second-completes" or "failure-vs-success" ? 1 : 0, applications);
             var items = await db.BackgroundJobItems.OrderBy(x => x.BackgroundJobItemId).ToListAsync(h.Token);
             Assert.Equal(2, items.Count);
             Assert.All(items, x => Assert.Contains(x.Status, new[] { "Failed", "Succeeded" }));
@@ -84,7 +88,7 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
                 Assert.All(items, x => Assert.Equal("MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS", x.ErrorCode));
                 Assert.Null(await db.MileageCalculations.Where(x => x.VisitTripId == h.TripId).Select(x => x.SystemDistanceKm).SingleAsync(h.Token));
             }
-            else Assert.Equal(12.5m, await db.MileageCalculations.Where(x => x.VisitTripId == h.TripId).Select(x => x.SystemDistanceKm).SingleAsync(h.Token));
+            else Assert.Equal(scenario == "failure-vs-success" ? 99.75m : 12.5m, await db.MileageCalculations.Where(x => x.VisitTripId == h.TripId).Select(x => x.SystemDistanceKm).SingleAsync(h.Token));
             await h.AssertCountersAndNoApprovals(db);
             Assert.Equal(history, await h.History());
             using var retry = await h.Leader.PostAsJsonAsync("api/v1/jobs/mileage", new MileageBatchRequest("Selected", null, null, [h.TripId]), h.Token);
@@ -197,6 +201,8 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
                 Assert.Equal(number == 1205 ? "SQL_DEADLOCK_1205" : "SQL_LOCK_TIMEOUT_1222", item.ErrorCode);
                 Assert.Equal(item.ErrorCode, item.ErrorMessage);
                 Assert.Null(await db.MileageCalculations.Where(x => x.VisitTripId == h.TripId).Select(x => x.SystemDistanceKm).SingleAsync(h.Token));
+                Assert.Equal("Submitted", (await db.VisitTrips.AsNoTracking().SingleAsync(x => x.VisitTripId == h.TripId, h.Token)).Status);
+                Assert.Equal(0, await db.VisitTripStatusHistories.CountAsync(x => x.VisitTripId == h.TripId && x.Action == "GoogleMapsFailedManualFallback", h.Token));
                 await h.AssertCountersAndNoApprovals(db);
                 await using var check = new SqlConnection(h.ConnectionString);
                 await check.OpenAsync(h.Token);
@@ -215,6 +221,10 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             await using var recovered = h.NewDb();
             await h.AssertCountersAndNoApprovals(recovered);
             Assert.Equal(2, await recovered.BackgroundJobs.CountAsync(h.Token));
+            var recoveredJob = await recovered.BackgroundJobs.AsNoTracking().SingleAsync(x => x.BackgroundJobId == h.JobIds[1], h.Token);
+            Assert.Equal("Succeeded", recoveredJob.Status);
+            Assert.Equal(1, recoveredJob.SuccessCount);
+            Assert.Equal(1, await recovered.VisitTripStatusHistories.CountAsync(x => x.VisitTripId == h.TripId && x.Action == "GoogleMapsFailedManualFallback", h.Token));
             Assert.DoesNotContain(await recovered.BackgroundJobs.ToListAsync(h.Token), x => x.Status is "Waiting" or "Processing");
             harnessOutput.WriteLine($"REAL_SQL_ERROR={number}; rollback=PASS; durable_worker_error=SAFE_CODE; recovery=PASS; HTTP409=NOT_APPLICABLE_BACKGROUND_WORKER");
         });
@@ -282,18 +292,18 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             var cs = new SqlConnectionStringBuilder(root.ConnectionString) { InitialCatalog = name }.ConnectionString;
             await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
-                builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                foreach (var setting in new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:DefaultConnection"] = cs,
                     ["Auth:Mode"] = "Demo", ["Auth:JwtKey"] = "test-key-that-is-at-least-32-characters-long",
                     ["OptionC:Candidate:Enabled"] = "true", ["Providers:Route"] = "Google",
                     ["GoogleMaps:ApiKey"] = "synthetic-unused-controlled-provider",
                     ["BackgroundJobs:WorkerEnabled"] = "false", ["BackgroundJobs:RecoverOnStartup"] = "false"
-                }));
+                }) builder.UseSetting(setting.Key, setting.Value);
                 builder.ConfigureTestServices(services =>
                 {
                     services.AddScoped<IV180RouteProvider>(sp => new WorkerProvider(control, sp.GetRequiredService<AppDbContext>()));
-                    services.AddDbContext<AppDbContext>(options => options.AddInterceptors(new WorkerInterceptor(control)));
+                    services.AddDbContext<AppDbContext>(options => options.UseSqlServer(cs).AddInterceptors(new WorkerInterceptor(control), new WorkerFaultInterceptor(control)));
                 });
             });
             using var seedScope = factory.Services.CreateScope();
@@ -369,6 +379,9 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             Assert.Equal(0, await db.ApprovalRecords.CountAsync(x => x.VisitTripId == tripId, token));
             Assert.Equal(0, await db.MileageGovernanceEvents.CountAsync(x => x.VisitTripId == tripId && (x.EventType == "Approved" || x.EventType == "ManualFallback"), token));
             Assert.Equal(0, await db.VisitTripSnapshots.CountAsync(x => x.VisitTripId == tripId && x.SnapshotType == "Approved", token));
+            var governance = await db.MileageGovernanceEvents.Where(x => x.VisitTripId == tripId && x.RouteCalculationAttemptId != null).ToListAsync(token);
+            Assert.All(governance.GroupBy(x => new { x.RouteCalculationAttemptId, x.EventType }), group => Assert.Single(group));
+            Assert.Equal(JobIds.Count, await db.AuditLogs.CountAsync(x => x.EntityType == "BackgroundJob" && x.Action == "MileageJobEnqueued", token));
         }
     }
 
@@ -378,6 +391,7 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
         public TaskCompletionSource AtFinal { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource FinalRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Success { get; set; } = true;
+        public decimal Distance { get; set; } = 12.5m;
         public string Payload { get; set; } = "synthetic provider failure";
     }
     private sealed class WorkerControl
@@ -407,7 +421,7 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             if (!control.Armed) return new(false, null, null, null, "PROVIDER_UNAVAILABLE", "synthetic initial failure");
             var gate = control.Enter(db.ContextId.InstanceId);
             await gate.ProviderRelease.Task.WaitAsync(ct);
-            return gate.Success ? new(true, 12.5m, 300, "synthetic-polyline", null, null) : new(false, null, null, null, gate.Payload, gate.Payload);
+            return gate.Success ? new(true, gate.Distance, 300, "synthetic-polyline", null, null) : new(false, null, null, null, gate.Payload, gate.Payload);
         }
     }
     private sealed class WorkerInterceptor(WorkerControl control) : DbCommandInterceptor
@@ -417,9 +431,19 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             if (!command.CommandText.Contains("WITH (UPDLOCK, ROWLOCK)", StringComparison.Ordinal) || eventData.Context is null || !control.Contexts.TryGetValue(eventData.Context.ContextId.InstanceId, out var gate)) return result;
             gate.AtFinal.TrySetResult();
             await gate.FinalRelease.Task.WaitAsync(ct);
-            if (control.FaultNumber == 0) return result;
-            var connection = (SqlConnection)command.Connection!;
-            var transaction = (SqlTransaction)command.Transaction!;
+            return result;
+        }
+    }
+    private sealed class WorkerFaultInterceptor(WorkerControl control) : SaveChangesInterceptor
+    {
+        public override async ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken ct = default)
+        {
+            var db = eventData.Context;
+            if (control.FaultNumber == 0 || db?.Database.CurrentTransaction is null || !control.Contexts.ContainsKey(db.ContextId.InstanceId)) return result;
+            // Fault after actual Trip/Mileage/StatusHistory writes have reached
+            // SQL, before their owning application transaction commits.
+            var connection = (SqlConnection)db.Database.GetDbConnection();
+            var transaction = (SqlTransaction)db.Database.CurrentTransaction.GetDbTransaction();
             await using var prepare = new SqlCommand("SET DEADLOCK_PRIORITY LOW; SET LOCK_TIMEOUT 1500; UPDATE dbo.WorkerFaultProbe WITH (ROWLOCK) SET Value=Value+1 WHERE Id=1", connection, transaction);
             if (control.FaultNumber == 1205) prepare.CommandText = prepare.CommandText.Replace("1500", "20000");
             await prepare.ExecuteNonQueryAsync(ct);
