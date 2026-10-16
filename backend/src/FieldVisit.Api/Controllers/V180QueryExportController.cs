@@ -105,8 +105,9 @@ public sealed class V180QueryExportController(
     public async Task<IActionResult> VisitTypes(CancellationToken ct)
     {
         await AuthorizeAdminExportAsync(ct);
-        throw new InvalidOperationException(
-            "REPORT_EXPORT_VISIT_TYPES_SCOPE_HOLD：目前主檔查詢沒有組織範圍，待確認其全域或組織歸屬後再開放匯出。");
+        // Visit-type ownership has not been classified as global or organization-owned.
+        // Deny the export with a stable, sanitized response rather than an unhandled 500.
+        return StatusCode(403, new { code = "REPORT_EXPORT_VISIT_TYPES_SCOPE_HOLD" });
     }
 
 
