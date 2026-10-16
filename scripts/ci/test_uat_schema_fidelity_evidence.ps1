@@ -102,14 +102,17 @@ function New-SyntheticSqlException([int]$Number, [byte]$State = 1, [byte]$Class 
   $createMethod = @($exceptionType.GetMethods([System.Reflection.BindingFlags]'Static,NonPublic') |
     Where-Object { $_.Name -eq 'CreateException' -and $_.GetParameters()[0].ParameterType -eq $collectionType } |
     Sort-Object { $_.GetParameters().Count })[0]
-  $createArguments = @($createMethod.GetParameters() | ForEach-Object {
-    if ($_.ParameterType -eq $collectionType) { Write-Output -NoEnumerate $collection }
-    elseif ($_.ParameterType -eq [string]) { 'synthetic-version' }
-    elseif ($_.ParameterType -eq [Guid]) { [Guid]::Empty }
-    elseif ($_.ParameterType -eq [System.Exception]) { $null }
-    elseif ($_.ParameterType -eq [bool]) { $false }
-    else { $null }
-  })
+  $createParameters = @($createMethod.GetParameters())
+  $createArguments = [object[]]::new($createParameters.Count)
+  for ($index = 0; $index -lt $createParameters.Count; $index++) {
+    $parameter = $createParameters[$index]
+    $createArguments[$index] = if ($parameter.ParameterType -eq $collectionType) { $collection }
+      elseif ($parameter.ParameterType -eq [string]) { 'synthetic-version' }
+      elseif ($parameter.ParameterType -eq [Guid]) { [Guid]::Empty }
+      elseif ($parameter.ParameterType -eq [System.Exception]) { $null }
+      elseif ($parameter.ParameterType -eq [bool]) { $false }
+      else { $null }
+  }
   return $createMethod.Invoke($null, $createArguments)
 }
 
