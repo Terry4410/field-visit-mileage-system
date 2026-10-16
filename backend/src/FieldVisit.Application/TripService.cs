@@ -369,10 +369,12 @@ public sealed class TripService(
                     trip,
                     new V180DeploymentSiteBasis(start.SiteCode, start.Address),
                     new V180DeploymentSiteBasis(end.SiteCode, end.Address)));
-            var successfulDraftAttempt = await mileageGovernance.GetLatestSuccessfulRouteCalculationAttemptAsync(
-                trip.VisitTripId, null, ct);
-            if (successfulDraftAttempt is { BasisType: "Draft", Status: "Succeeded" }
-                && successfulDraftAttempt.RequestBasisHash.SequenceEqual(submittedHash)
+            var routeAttempts = await mileageGovernance.GetRouteCalculationAttemptsAsync(trip.VisitTripId, ct);
+            var successfulDraftAttempt = routeAttempts.FirstOrDefault(attempt =>
+                attempt.BasisType == "Draft"
+                && attempt.Status == "Succeeded"
+                && attempt.RequestBasisHash.SequenceEqual(submittedHash));
+            if (successfulDraftAttempt is not null
                 && calc?.SystemDistanceKm is > 0
                 && calc.SelectedRouteCalculationAttemptId == successfulDraftAttempt.RouteCalculationAttemptId)
             {
