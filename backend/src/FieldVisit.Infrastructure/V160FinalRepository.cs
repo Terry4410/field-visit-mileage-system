@@ -700,6 +700,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             q = q.Where(x => x.OrganizationId == user.OrganizationId
                 && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
         }
+        else if (IsLeaderDraftActor(user)) q = await LeaderDraftReadScopeAsync(user, ct);
         else q = ApplyLocationScope(q, user);
         if (!includeInactive) q = q.Where(x => x.IsActive);
         var rows = await q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
@@ -738,6 +739,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             q = visible.Where(x => x.OrganizationId == user.OrganizationId
                 && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
         }
+        else if (IsLeaderDraftActor(user)) q = await LeaderDraftReadScopeAsync(user, ct);
         else q = ApplyLocationScope(visible, user);
 
         if (!string.IsNullOrWhiteSpace(request.Q))
