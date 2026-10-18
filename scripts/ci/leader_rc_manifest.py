@@ -1,7 +1,7 @@
 """Create one exact-source candidate preflight manifest; never authorizes release."""
 import hashlib,json,os,re,subprocess
 from pathlib import Path
-BRANCH='refs/heads/work/leader-uat010-minimal-rc-20261016'
+BRANCH='refs/heads/work/ac-controlled-integration-20261017'
 PROTECTED='7f0cf0cb55467916fb0f57239301a8787fd5cb69'
 
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
