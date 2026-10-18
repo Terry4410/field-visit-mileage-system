@@ -802,12 +802,15 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         await V180OptionCCreateReservationGuard.RequireCanonicalCreateAsync(
             db, request.LocationType, ct);
         await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
-        V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
-            string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
         if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
         {
             var teams = await EnsureVisitorCurrentAsync(user, ct);
             V180VisitorLocationRules.EnsureCreate(user, request.TeamId, request.LocationType, request.IsActive, teams);
+        }
+        else
+        {
+            V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
+                string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
         }
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var orgId = RequireOrganization(user);
