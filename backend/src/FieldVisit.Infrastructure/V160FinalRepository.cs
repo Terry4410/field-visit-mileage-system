@@ -847,7 +847,13 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         EnsureLocationWriteScope(row, user);
         if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
             V180VisitorLocationRules.EnsureRequiredRowVersion(row.RowVersion, request.RowVersion);
-        else EnsureRowVersion(row.RowVersion, request.RowVersion);
+        else
+        {
+            if (HasRole(user, "leader") && !HasRole(user, "admin")
+                && string.IsNullOrWhiteSpace(request.RowVersion))
+                throw new InvalidOperationException("ROWVERSION_REQUIRED");
+            EnsureRowVersion(row.RowVersion, request.RowVersion);
+        }
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;
         row.LocationName = request.LocationName.Trim();
