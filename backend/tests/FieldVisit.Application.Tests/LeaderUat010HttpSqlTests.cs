@@ -36,7 +36,7 @@ public sealed class LeaderUat010HttpSqlTests
         try{
         await using var seed=Db();await seed.Database.EnsureCreatedAsync();
         // This is explicitly a protected-model fixture, not a reconstructed true migration chain.
-        await using(var c=new SqlConnection(cs)){await c.OpenAsync();await using var cmd=c.CreateCommand();cmd.CommandText="SELECT COUNT(*) FROM sys.tables WHERE name IN ('ChangeRequests','ChangeRequestEvents','LocationPublishedVersions','LocationPublicationStages')";Assert.Equal(0,Convert.ToInt32(await cmd.ExecuteScalarAsync()));}
+        await using(var c=new SqlConnection(cs)){await c.OpenAsync();await using var cmd=c.CreateCommand();cmd.CommandText="SELECT name FROM sys.tables WHERE name IN ('ChangeRequests','ChangeRequestEvents','LocationPublishedVersions','LocationPublicationStages') ORDER BY name";var actualCandidateTables=new List<string>();await using(var reader=await cmd.ExecuteReaderAsync()){while(await reader.ReadAsync())actualCandidateTables.Add(reader.GetString(0));}Assert.Equal(new[]{"ChangeRequestEvents","ChangeRequests"},actualCandidateTables);}
         var now=DateTime.UtcNow;var since=new DateOnly(2020,1,1);
         var org=new Organization{OrganizationCode="RC",OrganizationName="Synthetic RC",IsActive=true,CreatedAt=now};
         var otherOrg=new Organization{OrganizationCode="OUT",OrganizationName="Other synthetic org",IsActive=true,CreatedAt=now};seed.AddRange(org,otherOrg);await seed.SaveChangesAsync();
