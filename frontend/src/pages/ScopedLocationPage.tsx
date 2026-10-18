@@ -51,7 +51,8 @@ export default function ScopedLocationPage({role="visitor"}:{role?:"visitor"|"le
     const proposal={locationName:form.locationName.trim(),city:form.city.trim()||null,district:form.district.trim()||null,address:form.address.trim(),plusCode:form.plusCode.trim()||null,taxId:form.taxId.trim()||null,masterNote:form.masterNote.trim()||null};
     const submitted=await api<OptionCRequest>("/optionc-candidate/locations",{method:"POST",body:JSON.stringify({teamId:Number(form.teamId),reason:"新增客戶地點，請進行獨立初審與高風險複審",proposed:proposal})});
     setMessage(`新增地點已提交獨立審查（${submitted.requestPublicId.slice(0,8)}），目前不可用於行程或里程計算。`);
-    if(role==="leader")setLeaderTab("drafts");\n    reset();await Promise.all([load(),loadOwn()]);
+    if(role==="leader")setLeaderTab("drafts");
+    reset();await Promise.all([load(),loadOwn()]);
    }else{
     await api(edit?`/managed-locations/${edit.locationId}`:"/managed-locations",{method:edit?"PUT":"POST",body:JSON.stringify({teamId:Number(form.teamId),locationName:form.locationName.trim(),locationType:"Customer",city:form.city.trim()||null,district:form.district.trim()||null,address:form.address.trim()||null,plusCode:form.plusCode.trim()||null,taxId:form.taxId.trim()||null,masterNote:form.masterNote.trim()||null,isActive:false,rowVersion:edit?.rowVersion||null})});
     setMessage("已儲存 Pending／未啟用的 Customer 草稿；這不代表正式發布。");reset();await load();
