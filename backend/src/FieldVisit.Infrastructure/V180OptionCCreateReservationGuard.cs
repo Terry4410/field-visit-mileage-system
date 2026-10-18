@@ -20,20 +20,34 @@ internal static class V180OptionCCreateReservationGuard
         await db.Database.OpenConnectionAsync(ct);
         var sql = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_RESERVATION_SQLSERVER_REQUIRED");
-        await using var check = new SqlCommand("""
-            SELECT CASE
-              WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NOT NULL
-                AND EXISTS (SELECT 1 FROM dbo.SchemaVersions
-                            WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THEN 1
-              WHEN OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NULL
-                AND NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions
-                                WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THEN 0
-              ELSE -1 END
-            """, sql);
-        var schemaState = Convert.ToInt32(await check.ExecuteScalarAsync(ct));
-        if (schemaState < 0)
+        // Legacy/protected disposable fixtures may not contain SchemaVersions.
+        // Do not turn that absence into HTTP 500; only a partial additive
+        // reservation installation is schema drift.
+        async Task<bool> TableExistsAsync(string name)
+        {
+            await using var tableCheck = new SqlCommand(
+                "SELECT CASE WHEN OBJECT_ID(@table,N'U') IS NOT NULL THEN 1 ELSE 0 END", sql);
+            tableCheck.Parameters.AddWithValue("@table", "dbo." + name);
+            return Convert.ToInt32(await tableCheck.ExecuteScalarAsync(ct)) == 1;
+        }
+        var hasReservations = await TableExistsAsync("LocationCreateReservations");
+        var hasSchemaVersions = await TableExistsAsync("SchemaVersions");
+        if (!hasReservations && !hasSchemaVersions) return false;
+        if (hasReservations && !hasSchemaVersions)
             throw new InvalidOperationException("OPTIONC_CREATE_RESERVATION_SCHEMA_DRIFT");
-        return schemaState == 1;
+        await using var check = new SqlCommand(
+            "SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=@version) THEN 1 ELSE 0 END", sql);
+        check.Parameters.AddWithValue("@version", "1.8.0-CREATE-LOWRISK");
+        var schemaState = Convert.ToInt32(await check.ExecuteScalarAsync(ct));
+        if (!hasReservations)
+        {
+            if (schemaState != 0)
+                throw new InvalidOperationException("OPTIONC_CREATE_RESERVATION_SCHEMA_DRIFT");
+            return false;
+        }
+        if (schemaState == 0)
+            throw new InvalidOperationException("OPTIONC_CREATE_RESERVATION_SCHEMA_DRIFT");
+        return true;
     }
 
     /// <summary>
