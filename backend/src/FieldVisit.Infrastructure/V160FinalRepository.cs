@@ -837,14 +837,17 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
             db, locationId, ct);
-        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
-            row, user, request.TeamId,
-            string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType,
-            request.IsActive);
         if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
         {
             var teams = await EnsureVisitorCurrentAsync(user, ct);
             V180VisitorLocationRules.EnsureUpdate(user, row, request.TeamId, request.LocationType, request.IsActive, teams);
+        }
+        else
+        {
+            V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
+                row, user, request.TeamId,
+                string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType,
+                request.IsActive);
         }
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         EnsureLocationWriteScope(row, user);
