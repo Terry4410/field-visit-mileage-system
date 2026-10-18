@@ -25,6 +25,8 @@ jobs:
     env:
       LEADER_RC_REQUIRED: '1'
       LEADER_RC_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
+      E1_R1_REQUIRED: '1'
+      E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
     steps:
       - uses: actions/checkout@v4
         with:

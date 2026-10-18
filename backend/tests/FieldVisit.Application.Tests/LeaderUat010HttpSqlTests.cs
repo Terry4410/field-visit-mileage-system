@@ -136,7 +136,11 @@ public sealed class LeaderUat010HttpSqlTests
         var reservationSearch=await client.GetFromJsonAsync<PagedResult<ManagedLocationDto>>("/api/v1/managed-locations/search?q=ReservedPending&includeInactive=true");
         Assert.DoesNotContain(reservationSearch!.Items,x=>x.LocationId==reserved.LocationId);
         await using (var partial=Db()) await partial.Database.ExecuteSqlRawAsync("DROP TABLE dbo.SchemaVersions");
-        Assert.Equal(HttpStatusCode.InternalServerError,(await client.GetAsync("/api/v1/managed-locations?includeInactive=true")).StatusCode);
+        var partialResponse=await client.GetAsync("/api/v1/managed-locations?includeInactive=true");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity,partialResponse.StatusCode);
+        var partialBody=await partialResponse.Content.ReadFromJsonAsync<JsonDocument>();
+        Assert.Contains("OPTIONC_CREATE_RESERVATION_SCHEMA_DRIFT",partialBody!.RootElement.GetProperty("detail").GetString());
+        Assert.DoesNotContain("ReservedPending",partialBody.RootElement.GetRawText());
         await using (var cleanup=Db()) await cleanup.Database.ExecuteSqlRawAsync("DROP TABLE dbo.LocationCreateReservations");
         var legacyList=await client.GetFromJsonAsync<List<ManagedLocationDto>>("/api/v1/managed-locations?includeInactive=true");
         Assert.Contains(legacyList!,x=>x.LocationId==reserved.LocationId);
