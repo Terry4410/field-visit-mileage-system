@@ -11,9 +11,12 @@ public sealed partial class V160FinalRepository
         actor.Roles.Any(r => r.Equals("leader", StringComparison.OrdinalIgnoreCase))
         && !actor.Roles.Any(r => r.Equals("admin", StringComparison.OrdinalIgnoreCase));
 
-    private async Task<IQueryable<FieldVisit.Domain.Entities.Location>> LeaderDraftReadScopeAsync(CurrentUserDto actor, CancellationToken ct)
+    private async Task<IQueryable<FieldVisit.Domain.Entities.Location>> LeaderDraftReadScopeAsync(
+        CurrentUserDto actor,
+        IQueryable<FieldVisit.Domain.Entities.Location> baseQuery,
+        CancellationToken ct)
     {
-        var query = db.Locations.AsNoTracking().AsQueryable();
+        var query = baseQuery;
         if (IsVisitorOnlyActor(actor))
         {
             var teams = await EnsureVisitorCurrentAsync(actor, ct);

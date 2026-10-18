@@ -64,7 +64,7 @@ public sealed class LeaderUat010HttpSqlTests
         var visitorStatus=new UserEmploymentPeriod{UserId=creator.UserId,EmploymentStatus=EmploymentStatuses.Active,EffectiveFrom=since,SourceType="Synthetic",CreatedAt=now};
         seed.AddRange(visitorRoleAssignment,visitorMembership,visitorStatus,new UserRole{UserId=creator.UserId,RoleId=visitorRole.RoleId,AssignedAt=now});await seed.SaveChangesAsync();
         Location Row(string label,int orgId,int teamId,bool published=false)=>new(){OrganizationId=orgId,TeamId=teamId,LocationCode=label,LocationName=label,LocationType="Customer",Address=label+" Test Road",ApprovalStatus=published?"Approved":"Pending",IsActive=published,GeocodingStatus="Pending",CreatedByUserId=creator.UserId,CreatedAt=now};
-        var draft=Row("OtherOwnerDraft",org.OrganizationId,team.TeamId);var published=Row("Published",org.OrganizationId,team.TeamId,true);var outside=Row("OtherTeamDraft",org.OrganizationId,otherTeam.TeamId);var foreign=Row("OtherOrgDraft",otherOrg.OrganizationId,foreignTeam.TeamId);seed.AddRange(draft,published,outside,foreign);await seed.SaveChangesAsync();
+        var draft=Row("OtherOwnerDraft",org.OrganizationId,team.TeamId);var published=Row("Published",org.OrganizationId,team.TeamId,true);var reserved=Row("ReservedPending",org.OrganizationId,team.TeamId);var outside=Row("OtherTeamDraft",org.OrganizationId,otherTeam.TeamId);var foreign=Row("OtherOrgDraft",otherOrg.OrganizationId,foreignTeam.TeamId);seed.AddRange(draft,published,reserved,outside,foreign);await seed.SaveChangesAsync();
         await using var factory=new WebApplicationFactory<Program>().WithWebHostBuilder(b=>{b.UseSetting("ConnectionStrings:DefaultConnection",cs);b.UseSetting("Auth:JwtKey",Key);b.UseSetting("Auth:Mode","Demo");b.UseSetting("BackgroundJobs:WorkerEnabled","false");b.UseSetting("BackgroundJobs:RecoverOnStartup","false");});
         using var client=factory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});
         string Token(string currentRole="leader",int? tokenOrg=null,int? tokenTeam=null,int? tokenUser=null){var claims=new[]{new Claim(ClaimTypes.NameIdentifier,(tokenUser??(currentRole=="admin"?adminAccount.UserId:currentRole=="supervisor"?unauthorizedAccount.UserId:leader.UserId)).ToString()),new Claim(ClaimTypes.Name,"Synthetic Leader"),new Claim("employee_no","LRC"),new Claim(ClaimTypes.Role,currentRole),new Claim("organization_id",(tokenOrg??org.OrganizationId).ToString()),new Claim("team_id",(tokenTeam??team.TeamId).ToString())};return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken("FieldVisit.UAT","FieldVisit.UAT.Users",claims,expires:DateTime.UtcNow.AddMinutes(20),signingCredentials:new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Key)),SecurityAlgorithms.HmacSha256)));}
@@ -117,6 +117,29 @@ public sealed class LeaderUat010HttpSqlTests
         appointment.EffectiveTo=BusinessTime.Today.AddDays(-1);await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);appointment.EffectiveTo=null;await seed.SaveChangesAsync();
         team.IsActive=false;await seed.SaveChangesAsync();await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);team.IsActive=true;await seed.SaveChangesAsync();
         Login(o:otherOrg.OrganizationId);await Denied(await client.PostAsJsonAsync("/api/v1/managed-locations",Input(label:"ForbiddenAttempt")),HttpStatusCode.Forbidden);Login();
+        // Reservation visibility regression: the Leader scope must retain the
+        // canonical reservation-filtered query for both list and search.
+        await using (var reservationDb=Db())
+        {
+            await reservationDb.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(40) NOT NULL PRIMARY KEY,Description nvarchar(500) NULL,AppliedAt datetime2(3) NOT NULL,AppliedBy nvarchar(200) NULL);
+                CREATE TABLE dbo.LocationCreateReservations(LocationCreateReservationId bigint IDENTITY PRIMARY KEY,LocationId int NOT NULL,ReservationStatus nvarchar(30) NOT NULL,ChangeRequestId bigint NULL);
+                INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.8.0-CREATE-LOWRISK',N'disposable leader reservation regression',SYSUTCDATETIME(),N'test');
+                """);
+            await reservationDb.Database.ExecuteSqlInterpolatedAsync($"INSERT dbo.LocationCreateReservations(LocationId,ReservationStatus) VALUES ({reserved.LocationId},N'Pending')");
+        }
+        Login();
+        var reservationList=await client.GetFromJsonAsync<List<ManagedLocationDto>>("/api/v1/managed-locations?includeInactive=true");
+        Assert.DoesNotContain(reservationList!,x=>x.LocationId==reserved.LocationId);
+        Assert.Contains(reservationList!,x=>x.LocationId==published.LocationId);
+        Assert.DoesNotContain(reservationList!,x=>x.LocationId==outside.LocationId||x.LocationId==foreign.LocationId);
+        var reservationSearch=await client.GetFromJsonAsync<PagedResult<ManagedLocationDto>>("/api/v1/managed-locations/search?q=ReservedPending&includeInactive=true");
+        Assert.DoesNotContain(reservationSearch!.Items,x=>x.LocationId==reserved.LocationId);
+        await using (var partial=Db()) await partial.Database.ExecuteSqlRawAsync("DROP TABLE dbo.SchemaVersions");
+        Assert.Equal(HttpStatusCode.InternalServerError,(await client.GetAsync("/api/v1/managed-locations?includeInactive=true")).StatusCode);
+        await using (var cleanup=Db()) await cleanup.Database.ExecuteSqlRawAsync("DROP TABLE dbo.LocationCreateReservations");
+        var legacyList=await client.GetFromJsonAsync<List<ManagedLocationDto>>("/api/v1/managed-locations?includeInactive=true");
+        Assert.Contains(legacyList!,x=>x.LocationId==reserved.LocationId);
         // Old alternate endpoints must not turn the new draft wave into published writes.
         await Denied(await client.PutAsJsonAsync($"/api/v1/locations/{published.LocationId}/maintenance",new{city="Changed",address="Changed",rowVersion=Convert.ToBase64String(published.RowVersion)}),HttpStatusCode.Forbidden);
         await Denied(await client.PostAsJsonAsync("/api/v1/jobs/geocoding",new{mode="AllPending"}),HttpStatusCode.Forbidden);
