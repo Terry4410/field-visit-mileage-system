@@ -1,0 +1,710 @@
+{
+  "contract": "clean-handover-source-ledger-v1",
+  "protectedSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+  "protectedTree": "780003abb1750b36806832bf1f90745c2cd1af7c",
+  "acceptedAcSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+  "acceptedPr47Sha": "8a6949bd3555f99bb42958f13ff0335513d24780",
+  "cleanBuildDecision": "CLEAN_BUILD_HOLD_WITH_EXACT_MISSING_EVIDENCE",
+  "disposableCleanBuildExecuted": false,
+  "sharedSqlExecuted": false,
+  "historical150BaselineProvenance": "NOT_FOUND_IN_REVIEWED_INPUTS",
+  "reservedMigration": "1.8.0-013",
+  "candidateSteps": [
+    "011",
+    "012",
+    "014",
+    "015",
+    "016",
+    "017",
+    "018",
+    "019",
+    "020"
+  ],
+  "archiveEntries": [],
+  "files": [
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": ".github/workflows/leader-uat010-rc-nondeploy.yml",
+      "sha256": "b6ae6b147ec5c22bb329d12bcc5654a7590f6a4eed64a8a11077594359537be1",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "backend/src/FieldVisit.Infrastructure/AppDbContext.cs",
+      "sha256": "dcbc2fc34c091310d49005c5280a9fb07de32312056b1757a5b88b746c6e1377",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "backend/src/FieldVisit.Infrastructure/WorkbookImportService.cs",
+      "sha256": "9b50a26b96fb901317dcf50ca75a5d6961b046cba144d573927b00311c0d60a6",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "backend/tests/FieldVisit.Application.Tests/V180WorkerSqlHarnessTests.cs",
+      "sha256": "db7e954bbdf30a1487307232cc435ac7903b95a5ac83efb50de73d6dbd964ff6",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/OPTIONC_CANONICAL_SCHEMA_GAP_MATRIX_R4.md",
+      "sha256": "754750e74e2942a7aa611a494af0f0b3bcd63afc5e09884f54cfd65eaaf26ad4",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/leader-uat010-rc/CROSS-LANE-READINESS.md",
+      "sha256": "4ef0c649d970d7053b931460a5c24616a3f6093a7a4907c9f84fb6b2359b5cd7",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/leader-uat010-rc/ROLLBACK-READINESS.md",
+      "sha256": "860159361f965e198fc46f3030151ed8975077205ff459aa309465176f487742",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/leader-uat010-rc/evidence/existing-uat-observations.json",
+      "sha256": "32f64db023c25a6a7e63ccabf52e047c5ce6f11876358906fbf2e682d9541d78",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/leader-uat010-rc/release-gates.json",
+      "sha256": "05f45fd3d43a182d6451a9fa028f46b91e55bc88b7ef0adf3aa23aaa5488fc06",
+      "kind": "accepted-ac-reference"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Preflight.sql",
+      "sha256": "5552c502fdae46ad42a210d9e44aa457a96d489c6b36fd1a8289aa6d3ecb87fe",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Up.sql",
+      "sha256": "cdb85749fee47f7480c410792879a6cf885ac2aae5107dfefd3418bc8fa2fd6a",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Verify.sql",
+      "sha256": "de9375da5e97aa92ab9779e8a02535597c8a52f02174ca86ad1c4b657343a281",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Preflight.sql",
+      "sha256": "e6e62a9f4d4cfce976ea8ddca558cc5b8eb616c1a812b6ff33c3e8e9a2685737",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Up.sql",
+      "sha256": "84905dc6efccd0a711878e37f0688e011f259b64cb37799967219d7df7d7c7e7",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Verify.sql",
+      "sha256": "87726cd3fee1c80e342c8a05135a1cd91675aaa8d9925a4e12dc6543ececfc72",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql",
+      "sha256": "b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Preflight.sql",
+      "sha256": "c5d8b0cd1ccb583ed674aaf7b19eea3a7e55fe7bf59f5572500bd1f891c653c2",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Up.sql",
+      "sha256": "2ced64461913036b77a1416caadf1bdb68460adba2eaf95adeb47e08fc37d69e",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Verify.sql",
+      "sha256": "972aeb530436adc66be57f8407a7ef1404747725e267e104a442bbdae836d55c",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Preflight.sql",
+      "sha256": "ddac2676c505434248d1dd1f278b8b095c670222be8b8176a2d4639e8a330603",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Up.sql",
+      "sha256": "9e49451c35395d2402c0d10964ac707f1462ae481a0978c3693f0088e2b1d75d",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Verify.sql",
+      "sha256": "c1687d4e7e8cd9fee4f5c046cde018a7749673ca879bf76962e218f8b157b173",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Preflight.sql",
+      "sha256": "e8fe6c3f594fb4bbb6dcfdac9d5580a9cb560ea43e7c5f8ec105176b41700683",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Up.sql",
+      "sha256": "a3f7d28dac6425547eec9c36ebb915dd34d91f09c98e49da21e888b7e489d057",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Verify.sql",
+      "sha256": "05c49d367edba4ec73fd6664eb9f42ca662cb5af3e01f94d044e8165db3b2991",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Preflight.sql",
+      "sha256": "6b2b94227ae7719c3bb9335dea8af96f3423cd989deee99073f662eb59de1428",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql",
+      "sha256": "59d9363b59aacad362c9dd41ca0ed0c7111d1f550972e1aae7544fd3a61abd3a",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Verify.sql",
+      "sha256": "6b0a424052d1d067654ea9feaeac1db467683365693ae7b81d760fc8a801f7e0",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Preflight.sql",
+      "sha256": "4fa3c5e2c3a978ffd14d93002a91ae53d47f2f5b12f6aa7978f7db260b54d609",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Up.sql",
+      "sha256": "3b80b40f8cbeeecbd21db746ab6788f4b94500a5c69f372b254a52c42a1c0d55",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Verify.sql",
+      "sha256": "72a3e4e0fea0c3e5e0ccd15ff599cb8f871554d304098d1fb10b3705eddc666f",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Preflight.sql",
+      "sha256": "fc13313d0d347d55daa994762a231dabfb8e92258616c6b6e1294d231e2cef27",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Up.sql",
+      "sha256": "c27ecce42d5af777c6553648a9e11ef6261d76d52f8dfc4815b50f56a551f6c4",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Verify.sql",
+      "sha256": "bf7236d1463619fe4f104095c86a1336011c7dc2d41fb9b8fead692d2722d540",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Preflight.sql",
+      "sha256": "a9ae1e6b72917a56340086088c7d5c518c8438b1f93c9d110ae99e42545cce6e",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql",
+      "sha256": "6bbad476386d8c7353496ea850c636371ebeb9501c98cc2505ef7f4c1bf1ab53",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "138cd8352ab180254ed83bce4a77acb3fdfc948f",
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Verify.sql",
+      "sha256": "9126ab4dfd9be6f694cc529567ebe4d8c0acf8b0b17641ec31c201ae4e6c9664",
+      "kind": "ac-candidate-disposable-contract"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": ".github/workflows/api-azure.yml",
+      "sha256": "5728f6927a216302ab872c404fcf7cc62a7218fe8b761eadd45657edf5c8ebe2",
+      "kind": "existing-workflow-boundary"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": ".github/workflows/azure-sql-uat-schema-fidelity-readonly.yml",
+      "sha256": "d0010f3331d79e327a438f4f4c17daa44f861969aaafb2d9c504478dcf4c970b",
+      "kind": "existing-workflow-boundary"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": ".github/workflows/frontend-pages.yml",
+      "sha256": "8f8859f423feaa8da971a233ca49f31692e6f351f478d0513f1dfd67d0dca4ec",
+      "kind": "existing-workflow-boundary"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": ".github/workflows/r3-private-uat-execution.yml",
+      "sha256": "d684b108897f0eab075622400ccebb9cc9da98070fe4c4173e0a68c627dd7415",
+      "kind": "existing-workflow-boundary"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": ".github/workflows/run17-residual-application-cleanup.yml",
+      "sha256": "011f9b5e791ca056d98de9f11c3015fff7af05ceb10f70c15f8244871cd154a0",
+      "kind": "existing-workflow-boundary"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Api/Auth.cs",
+      "sha256": "0725871e23cbacd7d78669b427a9ba2c202eb6bff10daca3b953ab9a429fd584",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Api/Controllers/AuthController.cs",
+      "sha256": "622df77a1bcc0a0ea9c0215345dbdcb7a61e1f5cb923c5ac684aee25261d6cb3",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Api/Controllers/V170PeopleAdminController.cs",
+      "sha256": "2c266c2533ce2588df691eccf9c4adaaf396d112e67145cee23f3cf90969dde0",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Application/AuthService.cs",
+      "sha256": "9d3c17c6313e8705efce3909d09e1964d0a3cf370419e1af397a55064590ce10",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Infrastructure/AppDbContext.cs",
+      "sha256": "5cb95ec0088f6ff75886e955f74ce84d3ac172dace584f42ea41c6b4869cb929",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Infrastructure/V170PeopleBulkWorkbookService.cs",
+      "sha256": "28500725c0c575a82de3c942fb97e8dd60acda418435fcdccb4acd1f91cda3ba",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Infrastructure/V180MasterDataBulkWorkbookService.cs",
+      "sha256": "8fcd97a02f47a8ae8ede40326343de1825e37cf64c3d2803c8d4ac16d59ec362",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Infrastructure/V180PersonnelBulkService.cs",
+      "sha256": "f80e10bb9eb5f47df8aa0eff8b16d02e56208f8f6542ffa45b0f316a019cdbf4",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipBulkService.cs",
+      "sha256": "64d2adfcf62bfdf8ddebcd7dee2d9a45948b6ce1f6ed6be6fb8d0ee5b64da772",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/src/FieldVisit.Infrastructure/WorkbookImportService.cs",
+      "sha256": "b81a3383f1525ec2ffe1857177e84f69b70770e9bc502599d157412505db9d08",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "backend/tests/FieldVisit.Application.Tests/V180QueryExportTests.cs",
+      "sha256": "18845eca074bd53bfa356e35aac86e1f9408e6e6d456a580110973007067281d",
+      "kind": "application-or-test-source"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/015_schema_v1_5_verify.sql",
+      "sha256": "f43e23c8201cc651464f8aa95bcf9de160d84866273df209d47082c0fa12fc63",
+      "kind": "baseline-or-excluded-seed"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/020_uat_demo_seed.sql",
+      "sha256": "ea099406d21d97a613f841f8eea5779439060eb30a16532f6a41fa05a1eb9068",
+      "kind": "baseline-or-excluded-seed"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/030_uat_sample_transactions.sql",
+      "sha256": "51e176bf4eed807f2ab7f2f8507c3afa386ecd9704b1d5e351bdb1ab6a259f4d",
+      "kind": "baseline-or-excluded-seed"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1600_001_foundation/Rollback.sql",
+      "sha256": "a4725989bcdc8c4de930258f1cd1fe4ac4bcc2a3f8d4aadac10676d7ec94dd53",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1600_001_foundation/Up.sql",
+      "sha256": "2b6716eadb38ac94ffa4c0fcbc8330a84910e38fc480c530430125245bfca43b",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1600_001_foundation/Verify.sql",
+      "sha256": "45459488b90e9c188ac14cdb0f9c40f734de306a50f0070dab43b81e41912235",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1600_002_final/Rollback.sql",
+      "sha256": "5327c42a4fc499f8032c84d9dc4060ce1cc379425d74a36f2930f0097cb6331b",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1600_002_final/Up.sql",
+      "sha256": "0d2d8c29ea62a606941be0e1f1412a7b3aa85e4630ca62d5445c9b5cbbbd1ccc",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1600_002_final/Verify.sql",
+      "sha256": "3e6f349156e88de898375f6037328662f2f319c279ac249ba0578e93c8166ce5",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_001_identity_access/Up.sql",
+      "sha256": "7b16705c874f775f0900f923e22ec8da78de04611f6ad18b84b8d84053d9eb2b",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_001_identity_access/Verify.sql",
+      "sha256": "1f0ffb9d18d57bb067ef3ce3d33a81f25c050a79ba0da4207dbe9f0251321beb",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_002_location_scale/Up.sql",
+      "sha256": "a06af85c60ce364c5aa96e0abbddc3a4de30d3babd561cd223a730a0d7a8eb36",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_002_location_scale/Verify.sql",
+      "sha256": "3fca267be4350b0b19785fd11d873cbe0884d2f55f6da56e076f9d8fd161598c",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_003_auth_people_bulk/Up.sql",
+      "sha256": "cbee9d0c1b49c4e334366dbb776934275f71a4a6391aa143d1f601884d820f09",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_003_auth_people_bulk/Verify.sql",
+      "sha256": "e4500c458cd45045a5ccdc5aa2c4641fba31b54fc5a345e1ce7bfc3cf7c37af2",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_004_legacy_supervisor_normalization/Up.sql",
+      "sha256": "d0702d70915ec29c5f3205268e6e57b1a9e3c97610c4d189ec6c8ba409d3f716",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_004_legacy_supervisor_normalization/Verify.sql",
+      "sha256": "3598064a06f9a4e9f87be84f05636e9388383b5dcbbd06298c354a4f6a95ad57",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_005_people_bulk_confirm_claim/Up.sql",
+      "sha256": "567dfdbf0864183c94b0276ffe7542ee1ad2969bf4efe2e5e2176edb642f7b2e",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_005_people_bulk_confirm_claim/Verify.sql",
+      "sha256": "b438aa1b6a018a24a9c0d2c930a24c6feb515e5a2d187946ebc099f53d4d07d6",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_006_legacy_uat_supervisor_export/Up.sql",
+      "sha256": "5241cd36f9583fea3a2ecbfaec20d2f3d14679a956dc77159794eabe21456f7a",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_006_legacy_uat_supervisor_export/Verify.sql",
+      "sha256": "cbe7bb8f2c54c3b796479fa2bc41d3c013d0de49893140e0bc4f2f4d405caa06",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_007_orphan_temporary_location_cleanup/Up.sql",
+      "sha256": "7e38ae64eda8cd12bfe59a6430909b7d97997bfb6d19ea26cb220d01d282b24d",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_007_orphan_temporary_location_cleanup/Verify.sql",
+      "sha256": "dcfcc98b6b110c7f3e4822608fba32a94b5bc855d4c247ab398089ee8ace1c84",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_008_location_promotion_history_action/Up.sql",
+      "sha256": "8ac2b3316f417934496f5e801bd6143a43af99000e8cc49b81cd37b5474d4a98",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1700_008_location_promotion_history_action/Verify.sql",
+      "sha256": "727b48f0e0582576e38e9501b74cab2e375bebea260ebe5733ee06f9d22e5ed5",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_001_organization_center_team_lifecycle/Up.sql",
+      "sha256": "8e21073a1cd8bf239ad20504e670ea8c0df69cf02f630bb92f473465fbd6726c",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql",
+      "sha256": "4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_002_person_employment_role_membership/Up.sql",
+      "sha256": "82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_002_person_employment_role_membership/Verify.sql",
+      "sha256": "f153ff787a160682e3e965cdc14c4e886adf3d9044d7194bf99a150a54d00358",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_003_deployment_sites/Up.sql",
+      "sha256": "e8dea828f29dc64c99b59a042be75580c08c4dfbc9f681223d30950dad3f4aab",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_003_deployment_sites/Verify.sql",
+      "sha256": "ac779a839918fc41c70eb6f8e7a005d397b87770d388c2b518811959e534f597",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_004_location_governance/Up.sql",
+      "sha256": "f7ab917e9fd0c10f5e88a5cd6534f5f91c27bb372615ad733e7b7c1fc22d9cb6",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_004_location_governance/Verify.sql",
+      "sha256": "250997d5ec4a3f185d35c664af48bc347f527ff2c4e3427542cab858b12f8d9f",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql",
+      "sha256": "4a78f8d53f77111b1c445bf9669274cbc70824ca589b0d8322367e5257551d10",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_005_project_visit_rate_lifecycle/Verify.sql",
+      "sha256": "fe4a264fa98100dd07d228d5984f112095f1f5dd8b806fe43d5a89fc4231f8ae",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_006_notification_framework/Up.sql",
+      "sha256": "69f3b864e91131ef0ffbc95e515aeac29ad1b1c2b48d9eb8e66cdb737eabcd56",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_006_notification_framework/Verify.sql",
+      "sha256": "df93b3580eb70a03260859e76c5df2478bc34bae3c8b967f69c3ce2623bb14d8",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_007_mileage_google_governance/Up.sql",
+      "sha256": "d89a061c15c95427a0cb1793b762a7fce306cd8019f276bb26664f617ffa364d",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_007_mileage_google_governance/Verify.sql",
+      "sha256": "c27e43aa0311be1c8f2c7f8a424ca8fff80faaac7a311335d56f69b0a72e395e",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_008_rate_manual_effective_dates/Up.sql",
+      "sha256": "d5d13d242898bbefa9a5adafcfd90487514a621631eeb4c2ee83b0bf3754e4fd",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_008_rate_manual_effective_dates/Verify.sql",
+      "sha256": "3d326c8df9c39dcf4a450dd0179e7f2cbb39dba80e304105806216795a5a5143",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_009_one_stop_route_attempt_constraint/Up.sql",
+      "sha256": "2a43a20be088887c082721b8facaf153a655b488fc2c6566c1e4d5ccad17f625",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_009_one_stop_route_attempt_constraint/Verify.sql",
+      "sha256": "68c8d1b2595bbc4724c02b8bedc20d605498715eaf3ddcecb500f399f036df38",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_010_background_mileage_reason_constraint/Up.sql",
+      "sha256": "aa56e3c1f847e252b089b572ab35a0aede65dc9dbd6d1d657ebc4c0ae6e775c8",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "database/migrations/1800_010_background_mileage_reason_constraint/Verify.sql",
+      "sha256": "24443315adf01b8f55d9882e7db164abecc3d9a63c83b57f9a58ae7d09a74a42",
+      "kind": "protected-migration"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/DEPLOYMENT_ZH-TW.md",
+      "sha256": "42e4bda257888ff8d909f4a7ba07b5eba6ab87adc448de63cb804feaab373e9b",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/release/POST-UAT-v1.8.0-1800-001-RECOVERY-GATE.md",
+      "sha256": "885a275bd8bf1ba7caa67acccb3aa685228ef180b0fe6c741c3df31ffdbe2a80",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/release/POST-UAT-v1.8.0-EPIC-F-GOOGLE-IMPACT.md",
+      "sha256": "536e71f76e45395b2201177e76761c9e1c635f0647d95bc72f49031cd38a6f98",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/release/POST-UAT-v1.8.0-MIGRATION-EXECUTION-DESIGN.md",
+      "sha256": "f82290fa53e4c47a476db0a7f223bd6345b431bb69a36ffd9e517855ab94a308",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/release/POST-UAT-v1.8.0-MIGRATION-SAFETY-REVIEW.md",
+      "sha256": "77235674e482d8bf4e48f525406ebcb0d0dbb17b01dac242bce5f6ae08d0693d",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/release/POST-UAT-v1.8.0-PHASE0.md",
+      "sha256": "ece7049b46353a397847f7b072571cf7890fb4386b7ff5dc513d25ac09709ba4",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/release/POST-UAT-v1.8.0-UAT-MASTER-DATA-READINESS.md",
+      "sha256": "86b84259c4d7ce280e1db6c43a3dc2cc846c0904d52edf3d829ea2e54fffdefd",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md",
+      "sha256": "f8c84430bce8f50b24718a168189334d5575e41854fa51df2dcd2deb1d70f67b",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/uat/BUSINESS-UAT-SIGNOFF-v1.8.0.md",
+      "sha256": "a0fdee9336682e5389dd57dfe4b1b21ca24fb0b095b70a2af363248e7ac95ce7",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/uat/BUSINESS-UAT-TEST-CASES-v1.8.0.md",
+      "sha256": "21b3710d4192eccf8d20408a1fc548fe764ff07126cfe325eca1963410c333ef",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "docs/uat/OWNER-PRE-UAT-IT-HANDOFF-v1.8.0.md",
+      "sha256": "b7fc4ef0baaec3826225b501af9f74654b6adb1fdb7277092d904e8895794a0e",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "scripts/ci/uat_schema_r3.hashes.json",
+      "sha256": "74585811a86adc6c4b1f578ea4f8d26eacbdb1cf4fa5148137c958409737a829",
+      "kind": "existing-workflow-boundary"
+    },
+    {
+      "sourceSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+      "path": "templates/POST-UAT-v1.8.0-UAT-MASTER-DATA-SEED-TEMPLATE.xlsx",
+      "sha256": "6f8cb1c9c1851ab7e9cd2f04a1378290c5b77f483630569fa8b0fda4cc925d50",
+      "kind": "historical-doc-or-template"
+    },
+    {
+      "sourceSha": "8a6949bd3555f99bb42958f13ff0335513d24780",
+      "path": "docs/release/full-schema-fidelity/RELEASE-GATE.md",
+      "sha256": "7f71e5b72150730915623f831e6ee782f602a7307424b7b32a003cec4189e68f",
+      "kind": "accepted-pr47-unmerged-reference"
+    },
+    {
+      "sourceSha": "8a6949bd3555f99bb42958f13ff0335513d24780",
+      "path": "docs/release/full-schema-fidelity/protected-inputs.json",
+      "sha256": "900a410efea1df415b29030d39386821e7acbddfff05f9bcbc59616ebf2d86a3",
+      "kind": "accepted-pr47-unmerged-reference"
+    },
+    {
+      "sourceSha": "8a6949bd3555f99bb42958f13ff0335513d24780",
+      "path": "scripts/ci/full_fidelity/hashes.json",
+      "sha256": "c7e6b28b9bc21800cc17e375aeb5be774d97e0f6dea319ca45a15ecd637dd57e",
+      "kind": "accepted-pr47-unmerged-reference"
+    }
+  ]
+}

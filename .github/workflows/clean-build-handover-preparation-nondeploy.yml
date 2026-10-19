@@ -1,0 +1,67 @@
+name: Clean build handover source assessment (NONDEPLOY)
+on:
+  push:
+    branches: [work/minimal-clean-build-it-handover-20261019]
+  pull_request:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - 'docs/release/clean-build-it-handover/**'
+      - '.github/workflows/clean-build-handover-preparation-nondeploy.yml'
+permissions:
+  contents: read
+jobs:
+  source-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      APPROVED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact source and immutable reviewed input bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_SHA"
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          ledger=json.loads(Path('docs/release/clean-build-it-handover/source-ledger.json').read_text())
+          protected='4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc'
+          assert ledger['protectedSha']==protected
+          assert ledger['protectedTree']=='780003abb1750b36806832bf1f90745c2cd1af7c'
+          assert subprocess.check_output(['git','rev-parse',protected+'^{tree}']).decode().strip()==ledger['protectedTree']
+          assert ledger['acceptedAcSha']=='138cd8352ab180254ed83bce4a77acb3fdfc948f'
+          assert ledger['acceptedPr47Sha']=='8a6949bd3555f99bb42958f13ff0335513d24780'
+          allowed={protected,ledger['acceptedAcSha'],ledger['acceptedPr47Sha']}
+          seen=set()
+          for entry in ledger['files']:
+              key=(entry['sourceSha'],entry['path'])
+              assert entry['sourceSha'] in allowed and key not in seen
+              seen.add(key)
+              raw=subprocess.check_output(['git','show',entry['sourceSha']+':'+entry['path']])
+              assert hashlib.sha256(raw).hexdigest()==entry['sha256']
+          changed=subprocess.check_output(['git','diff','--name-only',protected,'HEAD']).decode().splitlines()
+          assert set(changed)=={'docs/release/clean-build-it-handover/RELEASE-GATES.md','docs/release/clean-build-it-handover/source-ledger.json','.github/workflows/clean-build-handover-preparation-nondeploy.yml'}
+          print('Exact source / reviewed input bytes / documentation-only scope: PASS')
+          print('Clean Build: HOLD — no approved creation baseline; no SQL rehearsal executed')
+          PY
+      - name: Package documents and hashes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/clean-handover-evidence"
+          cp docs/release/clean-build-it-handover/RELEASE-GATES.md docs/release/clean-build-it-handover/source-ledger.json "$RUNNER_TEMP/clean-handover-evidence/"
+          cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$RUNNER_TEMP/clean-handover-evidence/"
+          git rev-parse HEAD HEAD^ HEAD^{tree} > "$RUNNER_TEMP/clean-handover-evidence/source.txt"
+          cd "$RUNNER_TEMP/clean-handover-evidence"
+          sha256sum RELEASE-GATES.md source-ledger.json clean-build-handover-preparation-nondeploy.yml source.txt > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clean-handover-nondeploy-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/clean-handover-evidence/
+          retention-days: 30
+          if-no-files-found: error
