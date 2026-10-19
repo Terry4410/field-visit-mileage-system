@@ -4,7 +4,7 @@ Import-Module SqlServer -RequiredVersion 22.4.5.1
 . (Join-Path $PSScriptRoot '../uat_schema_fidelity_evidence.ps1')
 $root=Split-Path (Split-Path (Split-Path $PSScriptRoot))
 $sql=Join-Path $root 'docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql'
-$sqlHash='67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734'
+$sqlHash='fcd35b6dc7df5f18e5cea09c9110e3d4efdeb82dee7dbb0291a57ffdedacf8df'
 $validatorHash='5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653'
 if($env:GITHUB_ACTIONS -cne 'true' -or [string]::IsNullOrWhiteSpace($env:FIDELITY_FIXTURE_PASSWORD)){throw 'STOP: disposable prerequisites.'}
 if((Get-FileHash $sql).Hash.ToLowerInvariant() -cne $sqlHash -or (Get-FileHash (Join-Path $PSScriptRoot '../uat_schema_fidelity_evidence.ps1')).Hash.ToLowerInvariant() -cne $validatorHash){throw 'STOP: original hash mismatch.'}
@@ -43,7 +43,8 @@ CREATE LOGIN FullRestricted WITH PASSWORD=N'Disposable_Restricted_2026!Only';
 CREATE USER FullRestricted FOR LOGIN FullRestricted;
 '@
 Write-Output '::add-mask::Disposable_Restricted_2026!Only'
-Case 'original-exact-seven-result-sets' {
+Case 'original-unquoted-rowcount-syntax-rejected' {Reject {Inventory ((Get-Content $sql -Raw).Replace('AS [RowCount]','AS RowCount'))} 'SqlSyntaxOrCompatibility'}
+Case 'exact-seven-result-sets' {
  $script:phase='SqlExecution'
  $script:data=Inventory
  $script:phase='DatasetShape'

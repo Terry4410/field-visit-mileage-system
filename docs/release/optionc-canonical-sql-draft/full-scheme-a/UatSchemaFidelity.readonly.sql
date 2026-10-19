@@ -95,7 +95,7 @@ JOIN sys.schemas AS s ON s.schema_id=t.schema_id
 WHERE t.is_ms_shipped=0
 ORDER BY s.name,t.name,cc.name;
 
-SELECT N'VisitTrips' AS HistoricalTable,COUNT_BIG(*) AS RowCount,
+SELECT N'VisitTrips' AS HistoricalTable,COUNT_BIG(*) AS [RowCount],
        MAX(VisitTripId) AS HighWatermark FROM dbo.VisitTrips
 UNION ALL
 SELECT N'VisitTripStops',COUNT_BIG(*),MAX(VisitTripStopId) FROM dbo.VisitTripStops
