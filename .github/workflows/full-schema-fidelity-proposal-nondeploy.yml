@@ -1,0 +1,32 @@
+name: Full schema fidelity preparation (NONDEPLOY)
+on:
+  push:
+    branches: [work/full-schema-fidelity-preparation-20261019]
+  pull_request:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - 'scripts/ci/full_fidelity/**'
+      - 'scripts/ci/compare_uat010_schema_inventory.py'
+      - '.github/workflows/full-schema-fidelity-*.yml'
+      - 'docs/release/full-schema-fidelity/**'
+permissions:
+  contents: read
+jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    outputs:
+      password: ${{ steps.fixture.outputs.password }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: fixture
+        run: python3 scripts/ci/test_r3_login_privacy.py --generate-fixture
+  verify:
+    needs: fixture
+    permissions:
+      contents: read
+    uses: ./.github/workflows/full-schema-fidelity-worker-nondeploy.yml
+    secrets:
+      fixture_password: ${{ needs.fixture.outputs.password }}

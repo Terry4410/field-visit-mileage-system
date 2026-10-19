@@ -1,0 +1,57 @@
+name: Full Inventory isolated SQL contract proof
+on:
+  workflow_call:
+    secrets:
+      fixture_password:
+        required: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        options: --hostname sql-fieldvisit-jpe-uat
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: ${{ secrets.fixture_password }}
+        ports: ['1433:1433']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Mask disposable labels before fixture logs
+        run: |
+          echo '::add-mask::sa'
+          echo '::add-mask::FullRestricted'
+      - name: Original Full Inventory contracts on real SQL Server 2022
+        shell: pwsh
+        env:
+          FIDELITY_FIXTURE_PASSWORD: ${{ secrets.fixture_password }}
+        run: |
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber
+          ./scripts/ci/full_fidelity/test_full_inventory.ps1
+      - name: Original validator contracts (no R3 rerun)
+        shell: pwsh
+        run: ./scripts/ci/test_uat_schema_fidelity_evidence.ps1
+      - name: Comparator and privacy boundary regression
+        run: python3 -m unittest -v scripts/ci/full_fidelity/test_comparator.py
+      - name: Package source and sanitized results only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/full-fidelity-evidence"
+          git rev-parse HEAD HEAD^ HEAD^{tree} > "$RUNNER_TEMP/full-fidelity-evidence/source.txt"
+          git archive --format=zip HEAD > "$RUNNER_TEMP/full-fidelity-evidence/exact-source.zip"
+          sha256sum "$RUNNER_TEMP/full-fidelity-evidence/exact-source.zip" > "$RUNNER_TEMP/full-fidelity-evidence/exact-source.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: full-fidelity-nondeploy-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/full-fidelity-evidence/
+          retention-days: 7
+          if-no-files-found: error
