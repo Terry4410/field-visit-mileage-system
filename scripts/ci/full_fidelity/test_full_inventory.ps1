@@ -19,7 +19,7 @@ function Inventory([string]$Query='',[string]$User='sa'){
 }
 function Normalize($Data){Convert-UatSchemaInventory -DataSet $Data -ExpectedServer 'sql-fieldvisit-jpe-uat' -ExpectedDatabase 'db-fieldvisit-uat' -SourceSha $env:GITHUB_SHA -SqlSha256 $sqlHash}
 function Case([string]$Name,[scriptblock]$Body){
- try{$script:phase='CaseBody';& $Body;$script:passed++;Write-Output "PASS FullInventory case: $Name"}catch{Write-Output "STOP FullInventory case: $Name; Phase=$script:phase; details suppressed.";exit 1}
+ try{$script:phase='CaseBody';& $Body;$script:passed++;Write-Output "PASS FullInventory case: $Name"}catch{$safe=Get-SanitizedUatInventoryFailure $_;Write-Output $safe;Write-Output "STOP FullInventory case: $Name; Phase=$script:phase; details suppressed.";exit 1}
 }
 function Reject([scriptblock]$Body,[string]$Class=''){
  $stopped=$false
@@ -46,6 +46,7 @@ Write-Output '::add-mask::Disposable_Restricted_2026!Only'
 Case 'original-exact-seven-result-sets' {
  $script:phase='SqlExecution'
  $script:data=Inventory
+ $script:phase='DatasetShape'
  if($data.Tables.Count -ne 7){throw 'shape'}
  $script:phase='Normalize'
  Write-Output ('ContractSevenTables=' + ($data.Tables.Count -eq 7))
