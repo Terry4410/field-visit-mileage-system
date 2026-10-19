@@ -1,5 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Write-Output '::add-mask::R3Restricted'
+Write-Output '::add-mask::Disposable_Restricted_2026!Only'
 Import-Module SqlServer -RequiredVersion 22.4.5.1
 . (Join-Path $PSScriptRoot 'uat_schema_r3.ps1')
 if ($env:GITHUB_ACTIONS -cne 'true' -or $env:SCHEMA_TEST_SQL_SERVER -cne 'localhost,1433' -or
@@ -40,6 +42,7 @@ $script:before = $null
 function Invoke-Sqlcmd {
  param($ServerInstance,$Database,$Username,$Password,$AccessToken,$ApplicationIntent,$ConnectionTimeout,$QueryTimeout,
        $AbortOnError,$OutputSqlErrors,$ErrorAction,$WarningAction,$Verbose,$Debug,$TrustServerCertificate,$InputFile,$Variable,$OutputAs)
+ if($ConnectionTimeout -ne 120 -or $QueryTimeout -ne 30 -or -not $AbortOnError -or $OutputSqlErrors){throw 'STOP: diagnostic command bounds changed.'}
  $arguments=@{}+$PSBoundParameters
  [void]$script:calls.Add([IO.Path]::GetFileNameWithoutExtension($InputFile))
  if ($null -ne $script:before) { & $script:before $script:calls.Count }

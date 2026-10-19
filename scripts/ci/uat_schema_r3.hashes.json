@@ -3,6 +3,7 @@
   "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/HistoricalAccess.sql": "ef9c80d209612b710e77c77139b87b2fe6bdfb54e6a58a46a7e6c54d4c4cfd8d",
   "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/HistoricalAggregates.sql": "c7f8af609fc2a6d0d4c1f833e8d42b6981b0a583ea057eda7ee2c07293d0ba87",
   "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/IdentityVersion.sql": "a7f5dad3e306ff29e8b32753f3287604f3c3973d8fd2b62f3f946ed017e5d292",
+  "scripts/ci/r3_login_privacy.py": "e491ac107dd539a4e893f0209df46078414969a616d176c0b0af4fa07a30f8ef",
   "scripts/ci/uat_schema_fidelity_evidence.ps1": "5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653",
-  "scripts/ci/uat_schema_r3.ps1": "5b39626a3fd89999927689543cc75b8e5769c6f0c85238a31bc36f0b6e861f68"
+  "scripts/ci/uat_schema_r3.ps1": "0f5bcc91f2e732ff1de7477d2f55fcf1f73cfa7cb33cdbaca58fa11d301a8929"
 }

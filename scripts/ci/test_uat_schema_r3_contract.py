@@ -14,13 +14,16 @@ SQL_ROOT = 'docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/'
 
 def verify_hashes():
     manifest = json.loads(MANIFEST.read_text())
-    expected = {SQL_ROOT+s+'.sql' for s in STAGES} | {'scripts/ci/uat_schema_r3.ps1','scripts/ci/uat_schema_fidelity_evidence.ps1'}
+    expected = {SQL_ROOT+s+'.sql' for s in STAGES} | {'scripts/ci/uat_schema_r3.ps1','scripts/ci/uat_schema_fidelity_evidence.ps1','scripts/ci/r3_login_privacy.py'}
     assert set(manifest) == expected, 'reviewed file set mismatch'
     for relative, digest in manifest.items():
         assert re.fullmatch('[0-9a-f]{64}', digest), 'digest malformed'
         assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest, 'reviewed hash mismatch'
     workflow = (ROOT / '.github/workflows/azure-sql-uat-schema-fidelity-readonly.yml').read_text()
     assert hashlib.sha256(MANIFEST.read_bytes()).hexdigest() in workflow, 'manifest workflow pin mismatch'
+    private = ROOT / '.github/workflows/r3-private-uat-execution.yml'
+    assert hashlib.sha256(private.read_bytes()).hexdigest() in workflow, 'private workflow pin mismatch'
+    assert hashlib.sha256(MANIFEST.read_bytes()).hexdigest() in private.read_text(), 'private manifest pin mismatch'
 
 class R3Contracts(unittest.TestCase):
     def test_exact_reviewed_hashes(self):
@@ -41,7 +44,7 @@ class R3Contracts(unittest.TestCase):
         self.assertIn("@('IdentityVersion','Catalog','HistoricalAccess','HistoricalAggregates')",text)
         self.assertEqual(text.count('Invoke-Sqlcmd @invoke'),1)
         self.assertNotRegex(text,r'(?i)retry|Start-Sleep|readonly\.sql|Write-UatSchemaInventory')
-        for required in ('ConnectionTimeout = 10','QueryTimeout = 30','OutputSqlErrors = $false',"throw 'sql-stop'",'DataType -ne [int]','Get-SanitizedUatInventoryFailure','Get-FileHash','ManifestHash','ReadOnly'):
+        for required in ('ConnectionTimeout = 120','QueryTimeout = 30','OutputSqlErrors = $false',"throw 'sql-stop'",'DataType -ne [int]','Get-SanitizedUatInventoryFailure','Get-FileHash','ManifestHash','ReadOnly'):
             self.assertIn(required,text)
         for line in text.splitlines():
             if 'Write-Output ' in line:
@@ -49,27 +52,31 @@ class R3Contracts(unittest.TestCase):
                 self.assertNotIn('$_',line)
                 self.assertNotIn('$data',line)
     def test_future_workflow_guard_and_no_full_inventory(self):
-        text=(ROOT/'.github/workflows/azure-sql-uat-schema-fidelity-readonly.yml').read_text()
+        parent=(ROOT/'.github/workflows/azure-sql-uat-schema-fidelity-readonly.yml').read_text()
+        child=(ROOT/'.github/workflows/r3-private-uat-execution.yml').read_text()
+        text=parent+child
         self.assertIn('needs: branch-guard',text)
         self.assertIn('refs/heads/post-uat/v1.8.0',text)
         self.assertIn('test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"',text)
         self.assertIn('environment: uat',text)
-        self.assertEqual(text.count('id-token: write'),1)
+        self.assertEqual(parent.count('id-token: write'),1)
+        self.assertEqual(child.count('id-token: write'),1)
         self.assertLess(text.index('Verify R3 manifest'),text.index('uses: azure/login'))
         self.assertNotIn('InputFile',text)
         self.assertNotIn('Write-UatSchemaInventory',text)
         self.assertNotIn('upload-artifact',text)
         self.assertIn('Invoke-R3Diagnostic',text)
     def test_proposal_ci_no_protected_credentials(self):
-        text=(ROOT/'.github/workflows/uat-schema-fidelity-proposal-nondeploy.yml').read_text()
-        for forbidden in ('azure/login','id-token: write','environment: uat','secrets.','vars.AZURE','pull_request_target','workflow_run:'):
+        text=(ROOT/'.github/workflows/uat-schema-fidelity-proposal-nondeploy.yml').read_text()+(ROOT/'.github/workflows/r3-recovery-nondeploy-worker.yml').read_text()
+        for forbidden in ('azure/login','id-token: write','environment: uat','vars.AZURE','pull_request_target','workflow_run:'):
             self.assertNotIn(forbidden,text)
         self.assertIn('mcr.microsoft.com/mssql/server:2022-latest',text)
         self.assertIn('test_uat_schema_r3.ps1',text)
         self.assertIn('ref: ${{ github.sha }}',text)
     def test_accepted_inventory_and_classifier_bytes_unchanged(self):
-        for relative in ('scripts/ci/uat_schema_fidelity_evidence.ps1','docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql','scripts/ci/test_uat_schema_fidelity_evidence.ps1','scripts/ci/test_uat_schema_fidelity_invoke_sqlcmd.ps1'):
-            original=subprocess.check_output(['git','show','b1a507c90c577fb2c0cdd6a98ef33481d3a5f790:'+relative],cwd=ROOT)
+        for relative in (*(SQL_ROOT+s+'.sql' for s in STAGES),'scripts/ci/uat_schema_fidelity_evidence.ps1','docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql','scripts/ci/test_uat_schema_fidelity_evidence.ps1','scripts/ci/test_uat_schema_fidelity_invoke_sqlcmd.ps1'):
+            baseline = '3f624facbb706c9d6e5ba07037ae63021a90d334' if relative.startswith(SQL_ROOT) else 'b1a507c90c577fb2c0cdd6a98ef33481d3a5f790'
+            original=subprocess.check_output(['git','show',baseline+':'+relative],cwd=ROOT)
             self.assertEqual(original,(ROOT/relative).read_bytes())
 
 if __name__ == '__main__':

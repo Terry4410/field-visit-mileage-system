@@ -16,7 +16,8 @@ env:
   EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
   EXPECTED_DATABASE: db-fieldvisit-uat
   INVENTORY_SQL_SHA256: 67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734
-  R3_MANIFEST_SHA256: 7c2aa45a9a2446bd73fbaaff76e7a2380921cc547f5ad7368e166f133a6b34c9
+  R3_PRIVATE_WORKFLOW_SHA256: 5f583a9337f4eaf6a88e4907e20ad3b2e1290e1cef48c7e83b6b76558b12ad51
+  R3_MANIFEST_SHA256: 0a5c552554868d837c473f6a3ed9f33d39056f0f9e5a18292268e2dc88c7abe5
   EVIDENCE_VALIDATOR_SHA256: 5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653
 
 jobs:
@@ -24,6 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
+      - name: Checkout exact protected source for pre-identity pins
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
       - name: Enforce protected source and repository
         shell: bash
         run: |
@@ -35,84 +42,41 @@ jobs:
           }
           test "${GITHUB_SHA}" != "" && test "${#GITHUB_SHA}" -eq 40
 
-  metadata-only-inventory:
-    needs: branch-guard
-    runs-on: ubuntu-latest
-    environment: uat
-    permissions:
-      contents: read
-      id-token: write
-    timeout-minutes: 15
-    steps:
-      - name: Checkout exact protected dispatch SHA
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-
-      - name: Verify exact source and immutable reviewed files
+      - name: Verify exact source and private workflow before identity handoff
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          sql="docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql"
-          validator="scripts/ci/uat_schema_fidelity_evidence.ps1"
-          test -f "$sql" && test -f "$validator"
-          test "$(sha256sum "$sql" | cut -d' ' -f1)" = "$INVENTORY_SQL_SHA256" || {
-            echo "::error::Reviewed inventory SQL SHA-256 mismatch."
-            exit 1
-          }
-          test "$(sha256sum "$validator" | cut -d' ' -f1)" = "$EVIDENCE_VALIDATOR_SHA256" || {
-            echo "::error::Reviewed evidence validator SHA-256 mismatch."
-            exit 1
-          }
-
-      - name: Verify R3 manifest and all reviewed file hashes before Azure access
-        shell: bash
-        run: |
-          set -euo pipefail
+          test "$(sha256sum .github/workflows/r3-private-uat-execution.yml | cut -d' ' -f1)" = "$R3_PRIVATE_WORKFLOW_SHA256"
           test "$(sha256sum scripts/ci/uat_schema_r3.hashes.json | cut -d' ' -f1)" = "$R3_MANIFEST_SHA256"
           python3 scripts/ci/test_uat_schema_r3_contract.py --verify-hashes
 
-      - name: Sign in to Azure with OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Verify fixed Azure target metadata
-        env:
-          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
-          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+  identity-handoff:
+    needs: branch-guard
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: none
+    timeout-minutes: 2
+    outputs:
+      client: ${{ job.status == 'success' && vars.AZURE_CLIENT_ID || '' }}
+      tenant: ${{ job.status == 'success' && vars.AZURE_TENANT_ID || '' }}
+      subscription: ${{ job.status == 'success' && vars.AZURE_SUBSCRIPTION_ID || '' }}
+    steps:
+      - name: Refuse debug disclosure before evaluating identity outputs
         shell: bash
         run: |
           set -euo pipefail
-          test "$CONFIGURED_SERVER_NAME" = "$EXPECTED_SERVER_NAME"
-          test "$CONFIGURED_DATABASE" = "$EXPECTED_DATABASE"
-          test "$(az group show --name "$EXPECTED_RESOURCE_GROUP" --query name -o tsv)" = "$EXPECTED_RESOURCE_GROUP"
-          test "$(az sql server show --resource-group "$EXPECTED_RESOURCE_GROUP" --name "$EXPECTED_SERVER_NAME" --query fullyQualifiedDomainName -o tsv)" = "$EXPECTED_SERVER"
-          test "$(az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "$EXPECTED_SERVER_NAME" --name "$EXPECTED_DATABASE" --query name -o tsv)" = "$EXPECTED_DATABASE"
+          test "${RUNNER_DEBUG:-}" != "1" || { echo 'STOP: debug logging is not permitted.'; exit 1; }
+          echo 'PASS: identity handoff prerequisites.'
 
-      - name: Install pinned SQL Server PowerShell module
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
-
-      - name: Execute four staged diagnostics only (future separate Owner authorization required)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/uat_schema_r3.ps1')
-          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv 2>$null
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'STOP: Azure SQL access token unavailable.' }
-          Write-Output "::add-mask::$token"
-          try {
-            $connection = @{ServerInstance=$env:EXPECTED_SERVER;Database=$env:EXPECTED_DATABASE;AccessToken=$token}
-            Invoke-R3Diagnostic -Connection $connection -SourceSha $env:GITHUB_SHA -ExpectedServer $env:EXPECTED_SERVER_NAME -ExpectedDatabase $env:EXPECTED_DATABASE -ManifestHash $env:R3_MANIFEST_SHA256
-          } finally { $token = $null; $connection = $null }
-
-      - name: Sign out of Azure
-        if: always()
-        run: az logout
+  metadata-only-inventory:
+    needs: [branch-guard, identity-handoff]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/r3-private-uat-execution.yml
+    secrets:
+      r3_client_value: ${{ needs.identity-handoff.outputs.client }}
+      r3_tenant_value: ${{ needs.identity-handoff.outputs.tenant }}
+      r3_subscription_value: ${{ needs.identity-handoff.outputs.subscription }}
