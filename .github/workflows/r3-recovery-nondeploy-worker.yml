@@ -15,7 +15,7 @@ permissions:
 jobs:
   static-and-comparator-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -77,7 +77,13 @@ jobs:
         run: ./scripts/ci/test_uat_schema_fidelity_invoke_sqlcmd.ps1
 
       - name: Verify staged diagnostic contracts
-        run: python3 -m unittest -v scripts/ci/test_uat_schema_r3_contract.py scripts/ci/test_r3_login_privacy.py
+        run: python3 -m unittest -v scripts/ci/test_uat_schema_r3_contract.py scripts/ci/test_r3_login_privacy.py scripts/ci/test_r3_serverless_readiness.py
+
+      - name: Verify connection-only wake provider surface without Azure access
+        shell: pwsh
+        env:
+          SCHEMA_TEST_SQL_PASSWORD: ${{ secrets.fixture_sql_password }}
+        run: ./scripts/ci/test_r3_connection_only_wake.ps1
 
       - name: Run R3 real disposable SQL positive and negative cases
         shell: pwsh
@@ -93,7 +99,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/r3-evidence"
           git rev-parse HEAD HEAD^ HEAD^{tree} > "${RUNNER_TEMP}/r3-evidence/source.txt"
           cp scripts/ci/uat_schema_r3.hashes.json "${RUNNER_TEMP}/r3-evidence/"
-          git diff --stat 3f624facbb706c9d6e5ba07037ae63021a90d334 HEAD > "${RUNNER_TEMP}/r3-evidence/impact.txt"
+          git diff --stat f1f41f5611b2e844289c26b2604d201daa8501a6 HEAD > "${RUNNER_TEMP}/r3-evidence/impact.txt"
           git archive --format=zip HEAD > "${RUNNER_TEMP}/r3-evidence/exact-source.zip"
           sha256sum "${RUNNER_TEMP}/r3-evidence/exact-source.zip" > "${RUNNER_TEMP}/r3-evidence/exact-source.sha256"
 

@@ -8,6 +8,7 @@ on:
       - work/uat-schema-r2-unknown-failure-diagnostic-20261016
       - work/r3-staged-diagnostic-20261019
       - work/c1-r3-timeout-privacy-recovery-20261019
+      - work/c1-r3-coldstart-subject-recovery-20261019
   pull_request:
     branches:
       - post-uat/v1.8.0
