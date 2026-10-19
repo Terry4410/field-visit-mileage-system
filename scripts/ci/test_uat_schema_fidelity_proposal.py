@@ -122,7 +122,7 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertIn("refs/heads/post-uat/v1.8.0", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
         self.assertIn("test \"$(git rev-parse HEAD)\" = \"${GITHUB_SHA}\"", workflow)
-        self.assertIn("ApplicationIntent ReadOnly", workflow)
+        self.assertIn("$invoke.ApplicationIntent = 'ReadOnly'", (ROOT / "scripts/ci/uat_schema_r3.ps1").read_text())
         self.assertIn("environment: uat", workflow)
         self.assertIn("id-token: write", workflow)
         self.assertIn(SQL_SHA, workflow)
@@ -223,7 +223,8 @@ class SchemaFidelityProposalTests(unittest.TestCase):
             "UnclassifiedSqlFailure",
         ):
             self.assertIn(classification, text)
-        self.assertIn("Throw-SanitizedUatInventoryFailure", WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("Invoke-R3Diagnostic", WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("Get-SanitizedUatInventoryFailure", (ROOT / "scripts/ci/uat_schema_r3.ps1").read_text())
 
     def test_comparator_detects_full_facet_and_010_drift(self):
         comparator = load_comparator()

@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: azure-sql-uat-schema-fidelity-readonly
@@ -17,6 +16,7 @@ env:
   EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
   EXPECTED_DATABASE: db-fieldvisit-uat
   INVENTORY_SQL_SHA256: 67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734
+  R3_MANIFEST_SHA256: 392e491b72dab6a0ed7756e9446ec646bf76c742a96e9289c1e2d5169490e2a1
   EVIDENCE_VALIDATOR_SHA256: 5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653
 
 jobs:
@@ -39,6 +39,9 @@ jobs:
     needs: branch-guard
     runs-on: ubuntu-latest
     environment: uat
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 15
     steps:
       - name: Checkout exact protected dispatch SHA
@@ -63,6 +66,13 @@ jobs:
             echo "::error::Reviewed evidence validator SHA-256 mismatch."
             exit 1
           }
+
+      - name: Verify R3 manifest and all reviewed file hashes before Azure access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum scripts/ci/uat_schema_r3.hashes.json | cut -d' ' -f1)" = "$R3_MANIFEST_SHA256"
+          python3 scripts/ci/test_uat_schema_r3_contract.py --verify-hashes
 
       - name: Sign in to Azure with OIDC
         uses: azure/login@v2
@@ -90,38 +100,18 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
 
-      - name: Execute and normalize metadata-only inventory
-        id: inventory
+      - name: Execute four staged diagnostics only (future separate Owner authorization required)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/uat_schema_fidelity_evidence.ps1')
-          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv
+          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/uat_schema_r3.ps1')
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv 2>$null
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'STOP: Azure SQL access token unavailable.' }
           Write-Output "::add-mask::$token"
-          $sql = Join-Path $env:GITHUB_WORKSPACE 'docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql'
-          $output = Join-Path $env:RUNNER_TEMP 'uat-schema-fidelity-inventory.json'
           try {
-            $data = Invoke-Sqlcmd -ServerInstance $env:EXPECTED_SERVER -Database $env:EXPECTED_DATABASE -AccessToken $token -ApplicationIntent ReadOnly -ConnectionTimeout 120 -QueryTimeout 120 -AbortOnError -OutputSqlErrors $false -OutputAs DataSet -InputFile $sql
-          } catch {
-            Throw-SanitizedUatInventoryFailure $_
-          }
-          $summary = Write-UatSchemaInventory $data $env:EXPECTED_SERVER $env:EXPECTED_DATABASE $env:GITHUB_SHA $env:INVENTORY_SQL_SHA256 $output
-          "artifact_path=$output" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "### UAT schema fidelity metadata inventory" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- Result: normalized inventory captured; comparison remains a separate gate" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- Source SHA: $($summary.SourceSha)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- SQL SHA-256: $($summary.SqlSha256)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- Latest schema: $($summary.LatestVersion)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "- Metadata rows: columns=$($summary.ColumnCount), index-columns=$($summary.IndexColumnCount), FK-columns=$($summary.ForeignKeyColumnCount), checks=$($summary.CheckCount)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-
-      - name: Upload normalized metadata evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: uat-schema-fidelity-${{ github.sha }}
-          path: ${{ steps.inventory.outputs.artifact_path }}
-          if-no-files-found: error
-          retention-days: 7
+            $connection = @{ServerInstance=$env:EXPECTED_SERVER;Database=$env:EXPECTED_DATABASE;AccessToken=$token}
+            Invoke-R3Diagnostic -Connection $connection -SourceSha $env:GITHUB_SHA -ExpectedServer $env:EXPECTED_SERVER_NAME -ExpectedDatabase $env:EXPECTED_DATABASE -ManifestHash $env:R3_MANIFEST_SHA256
+          } finally { $token = $null; $connection = $null }
 
       - name: Sign out of Azure
         if: always()
