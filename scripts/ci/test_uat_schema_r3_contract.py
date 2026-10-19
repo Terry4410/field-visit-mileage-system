@@ -25,6 +25,8 @@ def verify_hashes():
 class R3Contracts(unittest.TestCase):
     def test_exact_reviewed_hashes(self):
         verify_hashes()
+        first = hashlib.sha256((ROOT / (SQL_ROOT+'IdentityVersion.sql')).read_bytes()).hexdigest()
+        self.assertIn("$hash = '"+first+"'", (ROOT/'scripts/ci/uat_schema_r3.ps1').read_text())
     def test_select_only_no_sensitive_output(self):
         for stage in STAGES:
             sql = (ROOT / (SQL_ROOT+stage+'.sql')).read_text()

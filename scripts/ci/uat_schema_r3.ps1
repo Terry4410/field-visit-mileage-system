@@ -15,7 +15,7 @@ function Invoke-R3Diagnostic {
   $safeSource = if ($env:GITHUB_SHA -cmatch '^[0-9a-f]{40}$') { $env:GITHUB_SHA } else { '0' * 40 }
   $stages = @('IdentityVersion','Catalog','HistoricalAccess','HistoricalAggregates')
   $stage = $stages[0]
-  $hash = '0' * 64
+  $hash = 'a7f5dad3e306ff29e8b32753f3287604f3c3973d8fd2b62f3f946ed017e5d292' # Reviewed first-stage hash, even when preflight stops before SQL.
   $classification = 'PrerequisiteRejected'
   $provider = 'Suppressed'
   try {
