@@ -46,7 +46,6 @@ jobs:
         run: |
           echo '::add-mask::sa'
           echo '::add-mask::FullRestricted'
-          echo '::add-mask::Disposable_Restricted_2026!Only'
       - name: Original Full Inventory contracts on real SQL Server 2022
         shell: pwsh
         env:

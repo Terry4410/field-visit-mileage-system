@@ -39,10 +39,11 @@ CREATE TABLE dbo.CatalogOnly(CatalogId bigint PRIMARY KEY);
 CREATE TABLE dbo.RouteCalculationAttempts(RouteCalculationAttemptId bigint PRIMARY KEY,CalculationReason nvarchar(40),CONSTRAINT CK_RouteCalculationAttempts_Reason CHECK(CalculationReason IN(N'VisitorCalculate',N'LeaderRetry',N'CorrectionRecalculate',N'BackgroundMileageJob')));
 CREATE INDEX IX_Full_StopTrip ON dbo.VisitTripStops(VisitTripId) INCLUDE(VisitTripStopId);
 INSERT dbo.VisitTrips(VisitTripId) VALUES(123456789);
-CREATE LOGIN FullRestricted WITH PASSWORD=N'Disposable_Restricted_2026!Only';
-CREATE USER FullRestricted FOR LOGIN FullRestricted;
+
+
 '@
-Write-Output '::add-mask::Disposable_Restricted_2026!Only'
+$escapedFixturePassword=$env:FIDELITY_FIXTURE_PASSWORD.Replace("'","''")
+Fixture "CREATE LOGIN FullRestricted WITH PASSWORD=N'$escapedFixturePassword'; CREATE USER FullRestricted FOR LOGIN FullRestricted;"
 Case 'original-unquoted-rowcount-syntax-rejected' {Reject {Inventory ((Get-Content $sql -Raw).Replace('AS [RowCount]','AS RowCount'))} 'SqlSyntaxOrCompatibility'}
 Case 'exact-seven-result-sets' {
  $script:phase='SqlExecution'
@@ -71,7 +72,7 @@ Case 'wrong-version' {Fixture "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8
 Case 'missing-required-column' {Fixture 'ALTER TABLE dbo.SchemaVersions DROP COLUMN AppliedAt';Reject {Inventory} 'MissingObjectOrColumn';Fixture 'ALTER TABLE dbo.SchemaVersions ADD AppliedAt datetime2 NULL'}
 Case 'missing-required-table' {Fixture 'DROP TABLE dbo.VisitTripSnapshotStops';Reject {Inventory} '(HistoricalSelectOrObjectUnavailable|MissingObjectOrColumn)';Fixture 'CREATE TABLE dbo.VisitTripSnapshotStops(VisitTripSnapshotStopId bigint PRIMARY KEY)'}
 Case 'missing-permissions' {
- $old=$conn.Password;$conn.Password='Disposable_Restricted_2026!Only'
+ $old=$conn.Password;$conn.Password=$env:FIDELITY_FIXTURE_PASSWORD
  try {Reject {Inventory -User 'FullRestricted'} '(HistoricalSelectOrObjectUnavailable|RequiredObjectMissing|SqlPermissionDenied|MissingObjectOrColumn)'}finally{$conn.Password=$old}
 }
 Case 'unexpected-result-set' { $copy=$data.Copy();$null=$copy.Tables.Add('Extra');Reject {Normalize $copy};$copy.Dispose() }
@@ -90,7 +91,7 @@ Case 'unsupported-provider-suppressed' {
 Case 'altered-facets-visible' {Fixture 'ALTER TABLE dbo.VisitTrips ADD Drift int NULL';$changed=Normalize (Inventory);if($changed.Columns.Count -ne $normalized.Columns.Count+1){throw 'drift'};Fixture 'ALTER TABLE dbo.VisitTrips DROP COLUMN Drift'}
 Case 'partial-metadata-visibility-characterized' {
  Fixture 'GRANT SELECT ON dbo.RouteCalculationAttempts TO FullRestricted; GRANT SELECT ON dbo.SchemaVersions TO FullRestricted; GRANT SELECT ON dbo.VisitTrips TO FullRestricted; GRANT SELECT ON dbo.VisitTripStops TO FullRestricted; GRANT SELECT ON dbo.VisitTripSnapshots TO FullRestricted; GRANT SELECT ON dbo.VisitTripSnapshotStops TO FullRestricted;'
- $old=$conn.Password;$conn.Password='Disposable_Restricted_2026!Only'
+ $old=$conn.Password;$conn.Password=$env:FIDELITY_FIXTURE_PASSWORD
  try {$partial=Normalize (Inventory -User 'FullRestricted');if($partial.Columns.Count -ge $normalized.Columns.Count){throw 'partial fixture not hidden'}}finally{$conn.Password=$old}
  # This PASS characterizes a coverage gap: validator shape alone does not prove catalog visibility.
 }
