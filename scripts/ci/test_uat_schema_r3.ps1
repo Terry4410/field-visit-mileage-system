@@ -55,6 +55,12 @@ function Run-Case([string]$Name,[int]$Calls,[string]$StopStage,[string]$Classifi
  $caught=$false
  $records=@(try { Invoke-R3Diagnostic @argsR3 } catch { $caught=$true; 'SANITIZED_TERMINATION' })
  $text=$records -join "`n"
+ # Print only already-sanitized stage lines, including when a harness assertion fails.
+ foreach($record in $records){
+   if($record -cmatch '^Stage=(IdentityVersion|Catalog|HistoricalAccess|HistoricalAggregates); Status=(PASS|STOP); (Classification=[A-Za-z]+; ProviderCode=(Suppressed|-?[0-9]+); )?SourceSha=[0-9a-f]{40}; SqlSha256=[0-9a-f]{64};$'){Write-Output $record}
+ }
+ if($text -match 'Classification=(UnclassifiedSqlFailure|UnknownSqlFailure); ProviderCode=(?!Suppressed;)'){throw "STOP: unsupported provider suppression failed: $Name"}
+
  if ($script:calls.Count -ne $Calls) { throw "STOP: call count mismatch: $Name" }
  $order=@('IdentityVersion','Catalog','HistoricalAccess','HistoricalAggregates')
  for($i=0;$i -lt $Calls;$i++){if($script:calls[$i] -cne $order[$i]){throw "STOP: order mismatch: $Name"}}
