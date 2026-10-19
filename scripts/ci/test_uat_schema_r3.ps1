@@ -118,6 +118,7 @@ Run-Case 'unknown-provider-suppressed' 2 'Catalog' 'UnclassifiedSqlFailure' (New
 Run-Case 'query-timeout' 2 'Catalog' 'TimeoutOrTransient' (New-MutatedRoot 'Catalog' "WAITFOR DELAY '00:00:35'; SELECT CAST(1 AS int) AS StagePass;")
 Run-Case 'sql-hash-tamper-before-connect' 0 'IdentityVersion' 'PrerequisiteRejected' (New-MutatedRoot 'Catalog' 'SELECT 1;' -BadHash)
 Run-Case 'manifest-hash-tamper' 0 'IdentityVersion' 'PrerequisiteRejected' @{ManifestHash=('0'*64)}
+Run-Case 'source-sha-mismatch' 0 'IdentityVersion' 'PrerequisiteRejected' @{SourceSha=('c'*40)}
 Run-Case 'source-sha-malformed' 0 'IdentityVersion' 'PrerequisiteRejected' @{SourceSha=('b'*40+'z')}
 # Data-plane database guard, same runner-local database and a deliberately rehashed test SQL.
 $identitySql=Get-Content (Join-Path $root 'docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/IdentityVersion.sql') -Raw

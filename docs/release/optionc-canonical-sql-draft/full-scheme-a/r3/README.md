@@ -25,6 +25,8 @@ Only stage, PASS/STOP, approved classification/provider code, source SHA and SQL
 
 Workflow keeps the existing identity and protected ref/repository guard. OIDC permission is restricted to the UAT job after guard; hash checks run before Azure login. Manifest pins all four SQL files, runner and unchanged classifier; its digest is pinned in the workflow. Existing full inventory/validator hash checks remain, but the workflow no longer invokes or exports the full inventory. There is no path from four PASS results to full inventory. Any future full inventory needs a new reviewed change and separate explicit Owner authorization, including successful prerequisites.
 
+The initial disposable positive run reached stage four and sanitized SQL syntax code 156. R3 now delimits the reserved `[RowCount]` alias. This does not establish the cause of historical R2 failure; the accepted full inventory remains unchanged and must receive its own SQL syntax review before any future authorized execution.
+
 ## Changed files and impact
 
 | Files | Impact |
@@ -41,7 +43,7 @@ No application, RBAC, database migrations, main, Protected, accepted A/C, authen
 
 ## Integrated validation and evidence binding
 
-CI runs 11 existing Python contracts + 6 new contracts; 11 existing DataSet/classifier cases; 3 existing real Invoke-Sqlcmd negatives; and 20 R3 real disposable cases (one four-stage positive, 19 negatives). Counts are expectations until successful exact-SHA CI and logs are independently checked. Instrumentation records each real-provider stage invocation and requires exact expected count/order and PASS prefix; all actual results/errors come from SqlServer/Invoke-Sqlcmd. No later stage or inventory can execute after STOP. Unknown wrapper tests remain in the accepted suite.
+CI runs 11 existing Python contracts + 6 new contracts; 11 existing DataSet/classifier cases; 3 existing real Invoke-Sqlcmd negatives; and 21 R3 real disposable cases (one four-stage positive, 20 negatives). Counts are expectations until successful exact-SHA CI and logs are independently checked. Instrumentation records each real-provider stage invocation and requires exact expected count/order and PASS prefix; all actual results/errors come from SqlServer/Invoke-Sqlcmd. No later stage or inventory can execute after STOP. Unknown wrapper tests remain in the accepted suite.
 
 The artifact `r3-nondeploy-<exact SHA>-<run>-<attempt>` includes exact source archive, manifest, commit/parent/tree and impact. GitHub job logs hold the test results. Delivery PR binds exact SHA, run, totals, artifact ID and GitHub archive SHA-256 after CI; these are not pre-invented in source. Independent audit must retrieve both logs and archive, checking GitHub artifact digest rather than substituting the inner source ZIP digest. Unchanged Protected/main refs are checked at delivery.
 
@@ -56,7 +58,7 @@ Protected migration 001–010 requirements remain independent normative inputs, 
 - Verify exact Protected baseline, proposal parent chain/tree, changed-file scope and unmodified accepted classifier/inventory/tests; no A/C or auth changes.
 - Read all four SQL files; verify SELECT-only scope, exact target/010 guards, required keys and aggregate-only access. Check catalog PASS limitations.
 - Verify manifest digest in workflow and each reviewed file digest, exact checkout SHA, isolated CI credentials/permissions, Protected guard and job-scoped OIDC.
-- Inspect first real positive case and all 19 negatives: wrong targets, version/columns/tables, SELECT denial, syntax, unknown provider, timeout/connection, tampering, extra/empty results. Verify call counts/order stop at each failing stage.
+- Inspect first real positive case and all 20 negatives: wrong targets, version/columns/tables, SELECT denial, syntax, unknown provider, timeout/connection, tampering, extra/empty results. Verify call counts/order stop at each failing stage.
 - Confirm original 11 DataSet and 3 real-provider negative tests still pass; bounded classifier and unsupported suppression unchanged.
 - Inspect output contract and absence of identities, counts, keys, secrets/raw SQL errors; artifact contains only repository source/provenance, no SQL results.
 - Check no automatic inventory invocation or UAT dispatch, and no main/Protected/other-lane changes. Inspect live CI exact SHA/artifact digest and remaining HOLDs.

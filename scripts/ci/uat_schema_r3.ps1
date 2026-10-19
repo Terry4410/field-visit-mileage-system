@@ -19,7 +19,7 @@ function Invoke-R3Diagnostic {
   $classification = 'PrerequisiteRejected'
   $provider = 'Suppressed'
   try {
-    if ($SourceSha -cnotmatch '^[0-9a-f]{40}$' -or $ManifestHash -cnotmatch '^[0-9a-f]{64}$') { throw 'guard' }
+    if ($SourceSha -cne $env:GITHUB_SHA -or $SourceSha -cnotmatch '^[0-9a-f]{40}$' -or $ManifestHash -cnotmatch '^[0-9a-f]{64}$') { throw 'guard' }
     if ($ExpectedServer -cnotmatch '^[A-Za-z0-9_.-]{1,128}$' -or $ExpectedDatabase -cnotmatch '^[A-Za-z0-9_-]{1,128}$') { throw 'guard' }
     if ($Mode -eq 'Uat') {
       if ($ExpectedServer -cne 'sql-fieldvisit-jpe-uat' -or $ExpectedDatabase -cne 'db-fieldvisit-uat' -or
