@@ -16,6 +16,7 @@ privacy=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(privacy)
 # Synthetic, generated inside the invoked script (not interpolated into workflow logs).
 IDS=tuple(f'{n:08x}-1111-4222-8333-444444444444' for n in (101,102,103))
+FIXTURE_ONLY_MASKS=('sa','R3Restricted','Disposable_Restricted_2026!Only')
 
 def render_runner_log(masks, text):
     # Models runner registration before with/env/action rendering.
@@ -93,6 +94,12 @@ class LoginPrivacyTests(unittest.TestCase):
         fixture=(ROOT/'.github/workflows/r3-recovery-nondeploy-worker.yml').read_text()
         self.assertIn('MSSQL_SA_PASSWORD: ${{ secrets.fixture_sql_password }}',fixture)
         self.assertNotIn('Disposable_SQL_2026!Only',fixture)
+    def test_disposable_database_identity_is_masked_before_negative_cases(self):
+        sample='SCHEMA_TEST_SQL_USER: sa\nSQL Trace started by login "sa"'
+        rendered=render_runner_log(FIXTURE_ONLY_MASKS,sample)
+        self.assertNotIn(': sa',rendered)
+        self.assertNotIn('"sa"',rendered)
+        self.assertIn("privacy.emit_masks([*masks,*FIXTURE_ONLY_MASKS],sys.stdout)",Path(__file__).read_text())
     def test_public_failure_does_not_include_bad_input_or_traceback(self):
         env={**os.environ,'GITHUB_ACTIONS':'true','R3_CLIENT_ID':'SYNTHETIC_IDENTITY_MUST_NOT_LEAK'}
         result=subprocess.run([sys.executable,str(ROOT/'scripts/ci/r3_login_privacy.py')],env=env,capture_output=True,text=True)
@@ -115,7 +122,7 @@ def runner_fixture():
     ids=tuple(os.environ.get(k,'') for k in ('R3_CLIENT_ID','R3_TENANT_ID','R3_SUBSCRIPTION_ID'))
     if ids!=IDS:raise RuntimeError('fixture values rejected')
     masks=privacy.reviewed_masks(ids)
-    privacy.emit_masks(masks,sys.stdout)
+    privacy.emit_masks([*masks,*FIXTURE_ONLY_MASKS],sys.stdout)
     # GitHub's actual runner must redact this action-like synthetic output.
     print(sample_log(ids))
     print('PASS: synthetic runner masking fixture emitted.')

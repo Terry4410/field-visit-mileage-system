@@ -37,7 +37,7 @@ The execution body is moved, not redesigned. All four SQL files, full Inventory 
 | uat_schema_r3.ps1 | Only operational line changes ConnectionTimeout 10 → 120 |
 | uat_schema_r3.hashes.json | Updated runner hash and new privacy helper pin; SQL/classifier hashes preserved |
 | r3_login_privacy.py | Closed mask registration, validation, escaped commands and generic failure |
-| test_r3_login_privacy.py | Ten synthetic/static regressions plus actual GitHub runner fixture producer/consumer |
+| test_r3_login_privacy.py | Eleven synthetic/static regressions plus actual GitHub runner fixture producer/consumer |
 | test_uat_schema_r3.ps1 | Assert 120/30 on every real invocation; pre-mask restricted disposable fixture label/password |
 | test_uat_schema_r3_contract.py | Follow guarded parent/child wiring, private-workflow/manifest pins; assert all accepted SQL bytes unchanged |
 | test_uat_schema_fidelity_proposal.py | Follow moved execution/nondeploy worker while preserving original eleven test cases and SQL/classifier contracts |
@@ -47,9 +47,9 @@ Exact parent/tree/head, final CI IDs and artifact archive digest are bound in th
 
 ## Verification and limits
 
-Integrated nondeploy CI contains no Azure login/OIDC grant, no UAT environment, and no real Azure variable/secret reference. Its only secret inputs are generated synthetic fixture values. The SQL Server 2022 password is also carried as a transient secret so the runner's service/step rendering does not print it. Legacy public fixture definitions remain preserved in historical source, not logged in the current run.
+Integrated nondeploy CI contains no Azure login/OIDC grant, no UAT environment, and no real Azure variable/secret reference. Its only secret inputs are generated synthetic fixture values. The disposable default login label is explicitly masked before negative-case steps and service-log collection. The SQL Server 2022 password is also carried as a transient secret so the runner's service/step rendering does not print it. Legacy public fixture definitions remain preserved in historical source, not logged in the current run.
 
-Expected gates: original Python 11 + R3 contracts 6 + privacy tests 10 = 27; accepted PowerShell/DataSet 11; accepted real provider negatives 3; real disposable R3 21 (one four-stage positive and 20 negatives). Actual GitHub runner fixture prints synthetic `with`, `env` and action-like federation messages after initial secret registration and explicit masks. Delivery must inspect **actual completed job logs**, not merely the synthetic masker model, and confirm fixture IDs/password/claim values are absent. Unit output includes only fixed test names, never rejected synthetic values. The artifact contains source, hashes and safe test summaries; no SQL results or raw login logs.
+Expected gates: original Python 11 + R3 contracts 6 + privacy tests 11 = 28; accepted PowerShell/DataSet 11; accepted real provider negatives 3; real disposable R3 21 (one four-stage positive and 20 negatives). Actual GitHub runner fixture prints synthetic `with`, `env` and action-like federation messages after initial secret registration and explicit masks. Delivery must inspect **actual completed job logs**, not merely the synthetic masker model, and confirm fixture IDs/password/claim values are absent. Unit output includes only fixed test names, never rejected synthetic values. The artifact contains source, hashes and safe test summaries; no SQL results or raw login logs.
 
 These checks prove unchanged SQL semantics, preserved execution bounds and synthetic masking behavior. They do not prove Azure OIDC login success under the new reusable workflow, actual UAT connectivity, 120-second sufficiency, all possible third-party error formats, or resolution of -2. Known action info surfaces are covered at the pinned action revision; future action changes require review. Historical C1 logs are neither edited nor deleted.
 
