@@ -104,7 +104,7 @@ class ReadinessTests(unittest.TestCase):
         source=(ROOT/'scripts/ci/r3_connection_only_wake.ps1').read_text()
         self.assertEqual(source.count('$connection.Open()'),1)
         for forbidden in ('Invoke-Sqlcmd','CommandText','CreateCommand','ExecuteReader','ExecuteNonQuery','SELECT '):self.assertNotIn(forbidden,source)
-        for required in ('ConnectRetryCount=0','ConnectTimeout=120','Pooling=$false','TrustServerCertificate=$false','R3_ACCEPT_CHARGES',"ProviderCode=40613;"):
+        for required in ("['ConnectRetryCount']=0","['Connect Timeout']=120","['Pooling']=$false","['Trust Server Certificate']=$false",'R3_ACCEPT_CHARGES',"ProviderCode=40613;"):
             self.assertIn(required,source)
         self.assertNotIn('Start-Sleep',source)
 

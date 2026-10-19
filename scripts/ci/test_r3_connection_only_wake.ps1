@@ -14,16 +14,16 @@ try {
   $phase='SingleOpen'
   if(@($ast.FindAll({param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Value -ceq 'Open'},$true)).Count -ne 1){throw 'count'}
   $phase='Bounds'
-  foreach($required in ('$builder.ConnectTimeout=120','$builder.ConnectRetryCount=0','$builder.Pooling=$false','$builder.TrustServerCertificate=$false')){
+  foreach($required in ("`$builder['Connect Timeout']=120","`$builder['ConnectRetryCount']=0","`$builder['Pooling']=`$false","`$builder['Trust Server Certificate']=`$false")){
     if(-not $text.Contains($required)){throw 'bounds'}
   }
   $phase='Builder'
   $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new()
-  $b.DataSource='localhost,1433'; $b.InitialCatalog='master'
-  $b.UserID='sa'; $b.Password=$env:SCHEMA_TEST_SQL_PASSWORD
-  $b.ConnectTimeout=120; $b.ConnectRetryCount=0; $b.Pooling=$false
-  $b['Encrypt']='True'; $b.TrustServerCertificate=$true # Disposable TLS certificate only.
-  $b.ApplicationIntent=[Microsoft.Data.SqlClient.ApplicationIntent]::ReadOnly
+  $b['Data Source']='localhost,1433'; $b['Initial Catalog']='master'
+  $b['User ID']='sa'; $b['Password']=$env:SCHEMA_TEST_SQL_PASSWORD
+  $b['Connect Timeout']=120; $b['ConnectRetryCount']=0; $b['Pooling']=$false
+  $b['Encrypt']='True'; $b['Trust Server Certificate']=$true # Disposable TLS certificate only.
+  $b['Application Intent']=[Microsoft.Data.SqlClient.ApplicationIntent]::ReadOnly
   $c=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
   $phase='ProviderOpen'
   $c.Open()

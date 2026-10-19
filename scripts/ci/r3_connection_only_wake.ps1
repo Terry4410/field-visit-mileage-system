@@ -14,14 +14,14 @@ try {
   $token=az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv 2>$null
   if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)){throw 'guard'}
   $builder=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new()
-  $builder.DataSource='tcp:sql-fieldvisit-jpe-uat.database.windows.net,1433'
-  $builder.InitialCatalog='db-fieldvisit-uat'
-  $builder.ConnectTimeout=120
-  $builder.ConnectRetryCount=0
-  $builder.Pooling=$false
+  $builder['Data Source']='tcp:sql-fieldvisit-jpe-uat.database.windows.net,1433'
+  $builder['Initial Catalog']='db-fieldvisit-uat'
+  $builder['Connect Timeout']=120
+  $builder['ConnectRetryCount']=0
+  $builder['Pooling']=$false
   $builder['Encrypt']='True'
-  $builder.TrustServerCertificate=$false
-  $builder.ApplicationIntent=[Microsoft.Data.SqlClient.ApplicationIntent]::ReadOnly
+  $builder['Trust Server Certificate']=$false
+  $builder['Application Intent']=[Microsoft.Data.SqlClient.ApplicationIntent]::ReadOnly
   $connection=[Microsoft.Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
   $connection.AccessToken=$token
   try {
