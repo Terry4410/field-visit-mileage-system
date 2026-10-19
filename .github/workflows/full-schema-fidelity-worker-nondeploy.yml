@@ -10,6 +10,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      FIDELITY_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -22,13 +24,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify exact source and immutable Full Inventory pins
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$FIDELITY_SOURCE_SHA"
+          python3 - <<'PYCODE'
+          import hashlib,json
+          from pathlib import Path
+          manifest=Path('scripts/ci/full_fidelity/hashes.json')
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest() == 'c7e6b28b9bc21800cc17e375aeb5be774d97e0f6dea319ca45a15ecd637dd57e'
+          pins=json.loads(manifest.read_text())
+          assert set(pins) == {'docs/release/full-schema-fidelity/UatSchemaFidelity.release-gate.readonly.sql','scripts/ci/uat_schema_fidelity_evidence.ps1','scripts/ci/compare_uat010_schema_inventory.py'}
+          for path,digest in pins.items():
+              assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest
+          print('Full Inventory source and immutable pins: PASS')
+          PYCODE
       - name: Mask disposable labels before fixture logs
         run: |
           echo '::add-mask::sa'
           echo '::add-mask::FullRestricted'
+          echo '::add-mask::Disposable_Restricted_2026!Only'
       - name: Original Full Inventory contracts on real SQL Server 2022
         shell: pwsh
         env:
@@ -40,7 +58,20 @@ jobs:
         shell: pwsh
         run: ./scripts/ci/test_uat_schema_fidelity_evidence.ps1
       - name: Comparator and privacy boundary regression
-        run: python3 -m unittest -v scripts/ci/full_fidelity/test_comparator.py
+        run: |
+          python3 - <<'PYCODE'
+          import json,os,unittest
+          from pathlib import Path
+          suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName(name) for name in ('scripts.ci.full_fidelity.test_comparator','scripts.ci.test_uat_schema_fidelity_proposal'))
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          out=Path(os.environ['RUNNER_TEMP'])/'full-fidelity-evidence'/'comparator-results.json'
+          out.write_text(json.dumps({'SourceSha':os.environ['FIDELITY_SOURCE_SHA'],'Passed':result.testsRun-len(result.failures)-len(result.errors),'Failed':len(result.failures)+len(result.errors),'Scope':'synthetic comparator and preserved proposal contracts'})+'\n')
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PYCODE
+      - name: Remove synthetic private evidence on every outcome
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP/full-fidelity-private"
       - name: Package source and sanitized results only
         shell: bash
         run: |

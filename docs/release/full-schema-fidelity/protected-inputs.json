@@ -1,0 +1,111 @@
+{
+  "ReviewedProtectedSha": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+  "ReviewedProtectedTree": "780003abb1750b36806832bf1f90745c2cd1af7c",
+  "ApprovedHistorical15CreateBaselineFound": false,
+  "Files": [
+    {
+      "Path": "backend/src/FieldVisit.Infrastructure/AppDbContext.cs",
+      "Sha256": "5cb95ec0088f6ff75886e955f74ce84d3ac172dace584f42ea41c6b4869cb929"
+    },
+    {
+      "Path": "database/015_schema_v1_5_verify.sql",
+      "Sha256": "f43e23c8201cc651464f8aa95bcf9de160d84866273df209d47082c0fa12fc63"
+    },
+    {
+      "Path": "docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql",
+      "Sha256": "67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734"
+    },
+    {
+      "Path": "scripts/ci/compare_uat010_schema_inventory.py",
+      "Sha256": "0630cad60f8be3fe4f2b58440daea8c8365381a20e90b73ae4d2f4aa0ca98b00"
+    },
+    {
+      "Path": "scripts/ci/uat_schema_fidelity_evidence.ps1",
+      "Sha256": "5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653"
+    },
+    {
+      "Path": "\u5916\u8a2a\u884c\u7a0b\u91cc\u7a0b\u7ba1\u7406\u7cfb\u7d71_Gate1_\u8a2d\u8a08\u7c3d\u6838\u5305_v1.0.zip",
+      "Sha256": "14feb2c7ce800b31a68821b2596344aa4273a617211674268a065914f5287a4b"
+    },
+    {
+      "Path": "database/migrations/1800_001_organization_center_team_lifecycle/Up.sql",
+      "Sha256": "8e21073a1cd8bf239ad20504e670ea8c0df69cf02f630bb92f473465fbd6726c"
+    },
+    {
+      "Path": "database/migrations/1800_001_organization_center_team_lifecycle/Verify.sql",
+      "Sha256": "4dfa7f571c1946e6a034bcb9acb9a3e7504cfd050bcfdfbb6426a091a12e1026"
+    },
+    {
+      "Path": "database/migrations/1800_002_person_employment_role_membership/Up.sql",
+      "Sha256": "82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87"
+    },
+    {
+      "Path": "database/migrations/1800_002_person_employment_role_membership/Verify.sql",
+      "Sha256": "f153ff787a160682e3e965cdc14c4e886adf3d9044d7194bf99a150a54d00358"
+    },
+    {
+      "Path": "database/migrations/1800_003_deployment_sites/Up.sql",
+      "Sha256": "e8dea828f29dc64c99b59a042be75580c08c4dfbc9f681223d30950dad3f4aab"
+    },
+    {
+      "Path": "database/migrations/1800_003_deployment_sites/Verify.sql",
+      "Sha256": "ac779a839918fc41c70eb6f8e7a005d397b87770d388c2b518811959e534f597"
+    },
+    {
+      "Path": "database/migrations/1800_004_location_governance/Up.sql",
+      "Sha256": "f7ab917e9fd0c10f5e88a5cd6534f5f91c27bb372615ad733e7b7c1fc22d9cb6"
+    },
+    {
+      "Path": "database/migrations/1800_004_location_governance/Verify.sql",
+      "Sha256": "250997d5ec4a3f185d35c664af48bc347f527ff2c4e3427542cab858b12f8d9f"
+    },
+    {
+      "Path": "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql",
+      "Sha256": "4a78f8d53f77111b1c445bf9669274cbc70824ca589b0d8322367e5257551d10"
+    },
+    {
+      "Path": "database/migrations/1800_005_project_visit_rate_lifecycle/Verify.sql",
+      "Sha256": "fe4a264fa98100dd07d228d5984f112095f1f5dd8b806fe43d5a89fc4231f8ae"
+    },
+    {
+      "Path": "database/migrations/1800_006_notification_framework/Up.sql",
+      "Sha256": "69f3b864e91131ef0ffbc95e515aeac29ad1b1c2b48d9eb8e66cdb737eabcd56"
+    },
+    {
+      "Path": "database/migrations/1800_006_notification_framework/Verify.sql",
+      "Sha256": "df93b3580eb70a03260859e76c5df2478bc34bae3c8b967f69c3ce2623bb14d8"
+    },
+    {
+      "Path": "database/migrations/1800_007_mileage_google_governance/Up.sql",
+      "Sha256": "d89a061c15c95427a0cb1793b762a7fce306cd8019f276bb26664f617ffa364d"
+    },
+    {
+      "Path": "database/migrations/1800_007_mileage_google_governance/Verify.sql",
+      "Sha256": "c27e43aa0311be1c8f2c7f8a424ca8fff80faaac7a311335d56f69b0a72e395e"
+    },
+    {
+      "Path": "database/migrations/1800_008_rate_manual_effective_dates/Up.sql",
+      "Sha256": "d5d13d242898bbefa9a5adafcfd90487514a621631eeb4c2ee83b0bf3754e4fd"
+    },
+    {
+      "Path": "database/migrations/1800_008_rate_manual_effective_dates/Verify.sql",
+      "Sha256": "3d326c8df9c39dcf4a450dd0179e7f2cbb39dba80e304105806216795a5a5143"
+    },
+    {
+      "Path": "database/migrations/1800_009_one_stop_route_attempt_constraint/Up.sql",
+      "Sha256": "2a43a20be088887c082721b8facaf153a655b488fc2c6566c1e4d5ccad17f625"
+    },
+    {
+      "Path": "database/migrations/1800_009_one_stop_route_attempt_constraint/Verify.sql",
+      "Sha256": "68c8d1b2595bbc4724c02b8bedc20d605498715eaf3ddcecb500f399f036df38"
+    },
+    {
+      "Path": "database/migrations/1800_010_background_mileage_reason_constraint/Up.sql",
+      "Sha256": "aa56e3c1f847e252b089b572ab35a0aede65dc9dbd6d1d657ebc4c0ae6e775c8"
+    },
+    {
+      "Path": "database/migrations/1800_010_background_mileage_reason_constraint/Verify.sql",
+      "Sha256": "24443315adf01b8f55d9882e7db164abecc3d9a63c83b57f9a58ae7d09a74a42"
+    }
+  ]
+}

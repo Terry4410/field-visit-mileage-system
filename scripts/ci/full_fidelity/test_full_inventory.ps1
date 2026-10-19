@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 Import-Module SqlServer -RequiredVersion 22.4.5.1
 . (Join-Path $PSScriptRoot '../uat_schema_fidelity_evidence.ps1')
 $root=Split-Path (Split-Path (Split-Path $PSScriptRoot))
-$sql=Join-Path $root 'docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql'
+$sql=Join-Path $root 'docs/release/full-schema-fidelity/UatSchemaFidelity.release-gate.readonly.sql'
 $sqlHash='fcd35b6dc7df5f18e5cea09c9110e3d4efdeb82dee7dbb0291a57ffdedacf8df'
 $validatorHash='5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653'
 if($env:GITHUB_ACTIONS -cne 'true' -or [string]::IsNullOrWhiteSpace($env:FIDELITY_FIXTURE_PASSWORD)){throw 'STOP: disposable prerequisites.'}
@@ -17,7 +17,7 @@ function Inventory([string]$Query='',[string]$User='sa'){
  if($Query){return Invoke-Sqlcmd @argsSql -Query $Query -OutputAs DataSet}
  return Invoke-Sqlcmd @argsSql -InputFile $sql -OutputAs DataSet
 }
-function Normalize($Data){Convert-UatSchemaInventory -DataSet $Data -ExpectedServer 'sql-fieldvisit-jpe-uat' -ExpectedDatabase 'db-fieldvisit-uat' -SourceSha $env:GITHUB_SHA -SqlSha256 $sqlHash}
+function Normalize($Data){Convert-UatSchemaInventory -DataSet $Data -ExpectedServer 'sql-fieldvisit-jpe-uat' -ExpectedDatabase 'db-fieldvisit-uat' -SourceSha $env:FIDELITY_SOURCE_SHA -SqlSha256 $sqlHash}
 function Case([string]$Name,[scriptblock]$Body){
  try{$script:phase='CaseBody';& $Body;$script:passed++;Write-Output "PASS FullInventory case: $Name"}catch{$safe=Get-SanitizedUatInventoryFailure $_;Write-Output $safe;Write-Output "STOP FullInventory case: $Name; Phase=$script:phase; details suppressed.";exit 1}
 }
@@ -58,13 +58,14 @@ Case 'exact-seven-result-sets' {
  $dir=Join-Path $env:RUNNER_TEMP 'full-fidelity-private';$null=New-Item $dir -ItemType Directory -Force
  $script:privateFile=Join-Path $dir 'fixture.json'
  $script:phase='WriteNormalized'
- $null=Write-UatSchemaInventory $data 'sql-fieldvisit-jpe-uat' 'db-fieldvisit-uat' $env:GITHUB_SHA $sqlHash $privateFile
+ $null=Write-UatSchemaInventory $data 'sql-fieldvisit-jpe-uat' 'db-fieldvisit-uat' $env:FIDELITY_SOURCE_SHA $sqlHash $privateFile
 }
 Case 'column-default-index-fk-check-and-aggregates' {
  if(-not @($normalized.Columns|Where-Object {$_.DefaultDefinition -like '*fixture  value*'}).Count){throw 'default'}
  if(-not @($normalized.Indexes|Where-Object {$_.IsIncluded}).Count){throw 'included index'}
  if($normalized.HistoricalAggregates.Count -ne 4 -or $normalized.HistoricalAggregates[0].RowCount -ne 1){throw 'aggregate'}
 }
+Case 'wrong-server' {Reject {Inventory ((Get-Content $sql -Raw).Replace("@ExpectedServer sysname=N'sql-fieldvisit-jpe-uat'","@ExpectedServer sysname=N'wrong-fixture'"))} 'TargetGuardRejected'}
 Case 'wrong-database' { $old=$conn.Database;$conn.Database='master';try{Reject {Inventory} 'TargetGuardRejected'}finally{$conn.Database=$old} }
 Case 'wrong-version' {Fixture "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-009'";Reject {Normalize (Inventory)};Fixture "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-010'"}
 Case 'missing-required-column' {Fixture 'ALTER TABLE dbo.SchemaVersions DROP COLUMN AppliedAt';Reject {Inventory} 'MissingObjectOrColumn';Fixture 'ALTER TABLE dbo.SchemaVersions ADD AppliedAt datetime2 NULL'}
@@ -77,7 +78,7 @@ Case 'unexpected-result-set' { $copy=$data.Copy();$null=$copy.Tables.Add('Extra'
 Case 'unexpected-column' {$copy=$data.Copy();$null=$copy.Tables[2].Columns.Add('Extra',[string]);Reject {Normalize $copy};$copy.Dispose()}
 Case 'missing-result-set' {$copy=$data.Copy();$copy.Tables.RemoveAt(6);Reject {Normalize $copy};$copy.Dispose()}
 Case 'wrong-source-format' {Reject {Convert-UatSchemaInventory $data 'sql-fieldvisit-jpe-uat' 'db-fieldvisit-uat' 'bad' $sqlHash}}
-Case 'wrong-sql-hash-format' {Reject {Convert-UatSchemaInventory $data 'sql-fieldvisit-jpe-uat' 'db-fieldvisit-uat' $env:GITHUB_SHA 'bad'}}
+Case 'wrong-sql-hash-format' {Reject {Convert-UatSchemaInventory $data 'sql-fieldvisit-jpe-uat' 'db-fieldvisit-uat' $env:FIDELITY_SOURCE_SHA 'bad'}}
 Case 'syntax-classified' {Reject {Inventory 'SELECT FROM SYNTHETIC_RAW'} 'SqlSyntaxOrCompatibility'}
 Case 'compatibility-classified' {Reject {Inventory 'SELECT SYNTHETIC_RAW(1)'} '(SqlSyntaxOrCompatibility|UnclassifiedSqlFailure)'}
 Case 'unsupported-provider-suppressed' {
@@ -93,7 +94,13 @@ Case 'partial-metadata-visibility-characterized' {
  try {$partial=Normalize (Inventory -User 'FullRestricted');if($partial.Columns.Count -ge $normalized.Columns.Count){throw 'partial fixture not hidden'}}finally{$conn.Password=$old}
  # This PASS characterizes a coverage gap: validator shape alone does not prove catalog visibility.
 }
+Case 'normalized-real-provider-evidence-binding' {
+ $digest=(Get-FileHash $privateFile).Hash.ToLowerInvariant()
+ $output=& python3 (Join-Path $root 'scripts/ci/compare_uat010_schema_inventory.py') --expected $privateFile --actual $privateFile --expected-source-sha $env:FIDELITY_SOURCE_SHA --actual-source-sha $env:FIDELITY_SOURCE_SHA --expected-sha256 $digest --actual-sha256 $digest
+ if($LASTEXITCODE -ne 0 -or $output -cne 'SCHEMA_FIDELITY_COMPARISON_MATCH'){throw 'binding'}
+ # Same-file synthetic fixture validates serialization/interoperability only, never reference provenance.
+}
 $null=Remove-Item $privateFile -Force
 $dir=Join-Path $env:RUNNER_TEMP 'full-fidelity-evidence';$null=New-Item $dir -ItemType Directory -Force
-@{SourceSha=$env:GITHUB_SHA;SqlSha256=$sqlHash;ValidatorSha256=$validatorHash;RealSqlServer2022=$true;Passed=$script:passed;Failed=0;PartialMetadataVisibilityGap=$true}|ConvertTo-Json|Set-Content (Join-Path $dir 'contract-results.json')
+@{SourceSha=$env:FIDELITY_SOURCE_SHA;SqlSha256=$sqlHash;ValidatorSha256=$validatorHash;RealSqlServer2022=$true;Passed=$script:passed;Failed=0;PartialMetadataVisibilityGap=$true}|ConvertTo-Json|Set-Content (Join-Path $dir 'contract-results.json')
 Write-Output "Full Inventory disposable contracts: $script:passed passed, 0 failed"

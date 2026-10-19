@@ -1,0 +1,5 @@
+{
+  "docs/release/full-schema-fidelity/UatSchemaFidelity.release-gate.readonly.sql": "fcd35b6dc7df5f18e5cea09c9110e3d4efdeb82dee7dbb0291a57ffdedacf8df",
+  "scripts/ci/uat_schema_fidelity_evidence.ps1": "5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653",
+  "scripts/ci/compare_uat010_schema_inventory.py": "eef183e2e37f3b76631059d4da86cc7e2ad6f1293f7b21ab77892e2ed609089c"
+}
