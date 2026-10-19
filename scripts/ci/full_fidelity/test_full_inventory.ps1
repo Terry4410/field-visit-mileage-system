@@ -10,6 +10,7 @@ if($env:GITHUB_ACTIONS -cne 'true' -or [string]::IsNullOrWhiteSpace($env:FIDELIT
 if((Get-FileHash $sql).Hash.ToLowerInvariant() -cne $sqlHash -or (Get-FileHash (Join-Path $PSScriptRoot '../uat_schema_fidelity_evidence.ps1')).Hash.ToLowerInvariant() -cne $validatorHash){throw 'STOP: original hash mismatch.'}
 $conn=@{ServerInstance='localhost,1433';Database='master';Username='sa';Password=$env:FIDELITY_FIXTURE_PASSWORD;TrustServerCertificate=$true;ConnectionTimeout=10;QueryTimeout=30;AbortOnError=$true;OutputSqlErrors=$false;ErrorAction='Stop';WarningAction='SilentlyContinue'}
 $script:passed=0
+$script:phase='CaseBody'
 function Fixture([string]$Query){try{$null=Invoke-Sqlcmd @conn -Query $Query -OutputAs DataSet}catch{throw 'STOP: fixture setup suppressed.'}}
 function Inventory([string]$Query='',[string]$User='sa'){
  $argsSql=@{}+$conn;$argsSql.Username=$User
@@ -18,7 +19,7 @@ function Inventory([string]$Query='',[string]$User='sa'){
 }
 function Normalize($Data){Convert-UatSchemaInventory -DataSet $Data -ExpectedServer 'sql-fieldvisit-jpe-uat' -ExpectedDatabase 'db-fieldvisit-uat' -SourceSha $env:GITHUB_SHA -SqlSha256 $sqlHash}
 function Case([string]$Name,[scriptblock]$Body){
- try{& $Body;$script:passed++;Write-Output "PASS FullInventory case: $Name"}catch{Write-Output "STOP FullInventory case: $Name; details suppressed.";exit 1}
+ try{$script:phase='CaseBody';& $Body;$script:passed++;Write-Output "PASS FullInventory case: $Name"}catch{Write-Output "STOP FullInventory case: $Name; Phase=$script:phase; details suppressed.";exit 1}
 }
 function Reject([scriptblock]$Body,[string]$Class=''){
  $stopped=$false
@@ -43,12 +44,18 @@ CREATE USER FullRestricted FOR LOGIN FullRestricted;
 '@
 Write-Output '::add-mask::Disposable_Restricted_2026!Only'
 Case 'original-exact-seven-result-sets' {
+ $script:phase='SqlExecution'
  $script:data=Inventory
  if($data.Tables.Count -ne 7){throw 'shape'}
+ $script:phase='Normalize'
+ Write-Output ('ContractSevenTables=' + ($data.Tables.Count -eq 7))
+ Write-Output ('ContractServerMatch=' + ([string]$data.Tables[0].Rows[0]['ServerName'] -ceq 'sql-fieldvisit-jpe-uat'))
  $script:normalized=Normalize $data
+ $script:phase='FacetAssertions'
  if($normalized.SchemaVersion.Latest -cne '1.8.0-010' -or $normalized.Columns.Count -lt 6 -or $normalized.Checks.Count -lt 1 -or $normalized.ForeignKeys.Count -lt 1){throw 'facets'}
  $dir=Join-Path $env:RUNNER_TEMP 'full-fidelity-private';$null=New-Item $dir -ItemType Directory -Force
  $script:privateFile=Join-Path $dir 'fixture.json'
+ $script:phase='WriteNormalized'
  $null=Write-UatSchemaInventory $data 'sql-fieldvisit-jpe-uat' 'db-fieldvisit-uat' $env:GITHUB_SHA $sqlHash $privateFile
 }
 Case 'column-default-index-fk-check-and-aggregates' {
