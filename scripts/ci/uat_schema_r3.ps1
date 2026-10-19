@@ -41,7 +41,7 @@ function Invoke-R3Diagnostic {
     }
     $invoke = $Connection.Clone()
     $invoke.ApplicationIntent = 'ReadOnly'
-    $invoke.ConnectionTimeout = 10
+    $invoke.ConnectionTimeout = 120
     $invoke.QueryTimeout = 30
     $invoke.AbortOnError = $true
     $invoke.OutputSqlErrors = $false

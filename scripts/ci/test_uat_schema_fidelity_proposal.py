@@ -118,7 +118,7 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertIn("BackgroundMileageJob", migration_010)
 
     def test_workflow_is_fixed_target_hash_pinned_and_fail_closed(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
+        workflow = (WORKFLOW.read_text(encoding="utf-8") + (ROOT / ".github/workflows/r3-private-uat-execution.yml").read_text())
         self.assertIn("refs/heads/post-uat/v1.8.0", workflow)
         self.assertIn("ref: ${{ github.sha }}", workflow)
         self.assertIn("test \"$(git rev-parse HEAD)\" = \"${GITHUB_SHA}\"", workflow)
@@ -133,7 +133,7 @@ class SchemaFidelityProposalTests(unittest.TestCase):
 
     def test_dry_routing_default_main_refuses_and_protected_runs_guard_first(self):
         stub = REGISTRATION_STUB.read_text(encoding="utf-8")
-        protected = WORKFLOW.read_text(encoding="utf-8")
+        protected = (WORKFLOW.read_text(encoding="utf-8") + (ROOT / ".github/workflows/r3-private-uat-execution.yml").read_text())
         expected_name = "name: Azure SQL UAT schema fidelity inventory (SELECT-only)"
         self.assertIn(expected_name, stub)
         self.assertIn(expected_name, protected)
@@ -182,7 +182,7 @@ class SchemaFidelityProposalTests(unittest.TestCase):
 
     def test_disposable_invoke_sqlcmd_tests_are_runner_local_and_nondeploy(self):
         source = INVOKE_SQLCMD_TEST.read_text(encoding="utf-8")
-        workflow = (ROOT / ".github/workflows/uat-schema-fidelity-proposal-nondeploy.yml").read_text(encoding="utf-8")
+        workflow = ((ROOT / ".github/workflows/uat-schema-fidelity-proposal-nondeploy.yml").read_text(encoding="utf-8") + (ROOT / ".github/workflows/r3-recovery-nondeploy-worker.yml").read_text())
         for required in (
             "localhost,1433", "master", "SqlServer -RequiredVersion 22.4.5.1",
             "AbortOnError = $true", "OutputSqlErrors = $false", "-OutputAs DataSet",
@@ -223,7 +223,7 @@ class SchemaFidelityProposalTests(unittest.TestCase):
             "UnclassifiedSqlFailure",
         ):
             self.assertIn(classification, text)
-        self.assertIn("Invoke-R3Diagnostic", WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn("Invoke-R3Diagnostic", (WORKFLOW.read_text(encoding="utf-8") + (ROOT / ".github/workflows/r3-private-uat-execution.yml").read_text()))
         self.assertIn("Get-SanitizedUatInventoryFailure", (ROOT / "scripts/ci/uat_schema_r3.ps1").read_text())
 
     def test_comparator_detects_full_facet_and_010_drift(self):

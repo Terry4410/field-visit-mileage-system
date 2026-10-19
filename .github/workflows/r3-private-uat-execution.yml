@@ -1,0 +1,113 @@
+name: R3 private UAT execution (call only)
+on:
+  workflow_call:
+    secrets:
+      r3_client_value:
+        required: true
+      r3_tenant_value:
+        required: true
+      r3_subscription_value:
+        required: true
+permissions:
+  contents: read
+env:
+  AZURE_CORE_OUTPUT: none
+  AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
+  EXPECTED_RESOURCE_GROUP: rg-fieldvisit-uat
+  EXPECTED_SERVER_NAME: sql-fieldvisit-jpe-uat
+  EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
+  EXPECTED_DATABASE: db-fieldvisit-uat
+  INVENTORY_SQL_SHA256: 67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734
+  R3_MANIFEST_SHA256: 0a5c552554868d837c473f6a3ed9f33d39056f0f9e5a18292268e2dc88c7abe5
+  EVIDENCE_VALIDATOR_SHA256: 5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653
+
+jobs:
+  metadata-only-inventory:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/post-uat/v1.8.0' && github.event_name == 'workflow_dispatch' && github.workflow_ref == 'Terry4410/field-visit-mileage-system/.github/workflows/azure-sql-uat-schema-fidelity-readonly.yml@refs/heads/post-uat/v1.8.0'
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact protected dispatch SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Verify exact source and immutable reviewed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          sql="docs/release/optionc-canonical-sql-draft/full-scheme-a/UatSchemaFidelity.readonly.sql"
+          validator="scripts/ci/uat_schema_fidelity_evidence.ps1"
+          test -f "$sql" && test -f "$validator"
+          test "$(sha256sum "$sql" | cut -d' ' -f1)" = "$INVENTORY_SQL_SHA256" || {
+            echo "::error::Reviewed inventory SQL SHA-256 mismatch."
+            exit 1
+          }
+          test "$(sha256sum "$validator" | cut -d' ' -f1)" = "$EVIDENCE_VALIDATOR_SHA256" || {
+            echo "::error::Reviewed evidence validator SHA-256 mismatch."
+            exit 1
+          }
+
+      - name: Verify R3 manifest and all reviewed file hashes before Azure access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum scripts/ci/uat_schema_r3.hashes.json | cut -d' ' -f1)" = "$R3_MANIFEST_SHA256"
+          python3 scripts/ci/test_uat_schema_r3_contract.py --verify-hashes
+
+      - name: Register identifier and federation masks before login
+        shell: bash
+        env:
+          R3_CLIENT_ID: ${{ secrets.r3_client_value }}
+          R3_TENANT_ID: ${{ secrets.r3_tenant_value }}
+          R3_SUBSCRIPTION_ID: ${{ secrets.r3_subscription_value }}
+        run: python3 scripts/ci/r3_login_privacy.py
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # same v2.3.1 observed in C1
+        with:
+          client-id: ${{ secrets.r3_client_value }}
+          tenant-id: ${{ secrets.r3_tenant_value }}
+          subscription-id: ${{ secrets.r3_subscription_value }}
+
+      - name: Verify fixed Azure target metadata
+        env:
+          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIGURED_SERVER_NAME" = "$EXPECTED_SERVER_NAME"
+          test "$CONFIGURED_DATABASE" = "$EXPECTED_DATABASE"
+          test "$(az group show --name "$EXPECTED_RESOURCE_GROUP" --query name -o tsv 2>/dev/null)" = "$EXPECTED_RESOURCE_GROUP"
+          test "$(az sql server show --resource-group "$EXPECTED_RESOURCE_GROUP" --name "$EXPECTED_SERVER_NAME" --query fullyQualifiedDomainName -o tsv 2>/dev/null)" = "$EXPECTED_SERVER"
+          test "$(az sql db show --resource-group "$EXPECTED_RESOURCE_GROUP" --server "$EXPECTED_SERVER_NAME" --name "$EXPECTED_DATABASE" --query name -o tsv 2>/dev/null)" = "$EXPECTED_DATABASE"
+
+      - name: Install pinned SQL Server PowerShell module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+
+      - name: Execute four staged diagnostics only (future separate Owner authorization required)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/uat_schema_r3.ps1')
+          $token = az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'STOP: Azure SQL access token unavailable.' }
+          Write-Output "::add-mask::$token"
+          try {
+            $connection = @{ServerInstance=$env:EXPECTED_SERVER;Database=$env:EXPECTED_DATABASE;AccessToken=$token}
+            Invoke-R3Diagnostic -Connection $connection -SourceSha $env:GITHUB_SHA -ExpectedServer $env:EXPECTED_SERVER_NAME -ExpectedDatabase $env:EXPECTED_DATABASE -ManifestHash $env:R3_MANIFEST_SHA256
+          } finally { $token = $null; $connection = $null }
+
+      - name: Sign out of Azure
+        if: always()
+        run: az logout --output none 2>/dev/null

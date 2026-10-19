@@ -7,6 +7,7 @@ on:
       - work/uat-schema-inventory-failure-diagnostic-20261016
       - work/uat-schema-r2-unknown-failure-diagnostic-20261016
       - work/r3-staged-diagnostic-20261019
+      - work/c1-r3-timeout-privacy-recovery-20261019
   pull_request:
     branches:
       - post-uat/v1.8.0
@@ -20,89 +21,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  static-and-comparator-tests:
+  synthetic-handoff:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: Y
-          MSSQL_PID: Developer
-          MSSQL_SA_PASSWORD: Disposable_SQL_2026!Only
-        ports:
-          - 1433:1433
+    timeout-minutes: 2
+    outputs:
+      client: ${{ steps.fixture.outputs.client }}
+      tenant: ${{ steps.fixture.outputs.tenant }}
+      subscription: ${{ steps.fixture.outputs.subscription }}
+      password: ${{ steps.fixture.outputs.password }}
     steps:
-      - name: Checkout exact proposal SHA
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Enforce nondeploy boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          workflow=.github/workflows/uat-schema-fidelity-proposal-nondeploy.yml
-          grep -Fxq "permissions:" "$workflow"
-          grep -Fxq "  contents: read" "$workflow"
-          forbidden_azure="azure/""login"
-          forbidden_environment="environment:""[[:space:]]*uat"
-          forbidden_oidc="id-token:""[[:space:]]*write"
-          for pattern in "$forbidden_azure" "$forbidden_environment" "$forbidden_oidc"; do
-            if grep -Eq "$pattern" "$workflow"; then
-              echo "Forbidden protected-access capability detected in proposal CI." >&2
-              exit 1
-            fi
-          done
-
-      - name: Run fail-closed proposal tests
-        run: python3 -m unittest -v scripts/ci/test_uat_schema_fidelity_proposal.py
-
-      - name: Run PowerShell seven-result-set DataSet contract tests
-        shell: pwsh
-        run: |
-          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
-          ./scripts/ci/test_uat_schema_fidelity_evidence.ps1
-
-      - name: Run disposable SQL Invoke-Sqlcmd negative tests
-        shell: pwsh
-        env:
-          SCHEMA_TEST_SQL_SERVER: localhost,1433
-          SCHEMA_TEST_SQL_DATABASE: master
-          SCHEMA_TEST_SQL_USER: sa
-          SCHEMA_TEST_SQL_PASSWORD: Disposable_SQL_2026!Only
-        run: ./scripts/ci/test_uat_schema_fidelity_invoke_sqlcmd.ps1
-
-      - name: Verify staged diagnostic contracts
-        run: python3 -m unittest -v scripts/ci/test_uat_schema_r3_contract.py
-
-      - name: Run R3 real disposable SQL positive and negative cases
-        shell: pwsh
-        env:
-          SCHEMA_TEST_SQL_SERVER: localhost,1433
-          SCHEMA_TEST_SQL_DATABASE: master
-          SCHEMA_TEST_SQL_PASSWORD: Disposable_SQL_2026!Only
-        run: ./scripts/ci/test_uat_schema_r3.ps1
-
-      - name: Package exact-source nondeploy evidence
-        shell: bash
-        run: |
-          mkdir -p "${RUNNER_TEMP}/r3-evidence"
-          git rev-parse HEAD HEAD^ HEAD^{tree} > "${RUNNER_TEMP}/r3-evidence/source.txt"
-          cp scripts/ci/uat_schema_r3.hashes.json "${RUNNER_TEMP}/r3-evidence/"
-          git diff --stat b1a507c90c577fb2c0cdd6a98ef33481d3a5f790 HEAD > "${RUNNER_TEMP}/r3-evidence/impact.txt"
-          git archive --format=zip HEAD > "${RUNNER_TEMP}/r3-evidence/exact-source.zip"
-          sha256sum "${RUNNER_TEMP}/r3-evidence/exact-source.zip" > "${RUNNER_TEMP}/r3-evidence/exact-source.sha256"
-
-      - name: Upload nondeploy source and verification binding
-        uses: actions/upload-artifact@v4
-        with:
-          name: r3-nondeploy-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/r3-evidence/
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Compile comparator
-        run: python3 -m py_compile scripts/ci/compare_uat010_schema_inventory.py
+          persist-credentials: false
+      - name: Generate synthetic fixture outputs without printing their values
+        id: fixture
+        run: python3 scripts/ci/test_r3_login_privacy.py --generate-fixture
+  static-and-comparator-tests:
+    needs: synthetic-handoff
+    permissions:
+      contents: read
+    uses: ./.github/workflows/r3-recovery-nondeploy-worker.yml
+    secrets:
+      fixture_client: ${{ needs.synthetic-handoff.outputs.client }}
+      fixture_tenant: ${{ needs.synthetic-handoff.outputs.tenant }}
+      fixture_subscription: ${{ needs.synthetic-handoff.outputs.subscription }}
+      fixture_sql_password: ${{ needs.synthetic-handoff.outputs.password }}

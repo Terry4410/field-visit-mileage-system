@@ -1,0 +1,109 @@
+name: R3 recovery isolated proof (call only)
+on:
+  workflow_call:
+    secrets:
+      fixture_client:
+        required: true
+      fixture_tenant:
+        required: true
+      fixture_subscription:
+        required: true
+      fixture_sql_password:
+        required: true
+permissions:
+  contents: read
+jobs:
+  static-and-comparator-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: ${{ secrets.fixture_sql_password }}
+        ports:
+          - 1433:1433
+    steps:
+      - name: Checkout exact proposal SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Exercise runner secret masking with synthetic values only
+        shell: bash
+        env:
+          R3_CLIENT_ID: ${{ secrets.fixture_client }}
+          R3_TENANT_ID: ${{ secrets.fixture_tenant }}
+          R3_SUBSCRIPTION_ID: ${{ secrets.fixture_subscription }}
+        run: python3 scripts/ci/test_r3_login_privacy.py --runner-fixture
+
+      - name: Enforce nondeploy boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          workflow=.github/workflows/uat-schema-fidelity-proposal-nondeploy.yml
+          grep -Fxq "permissions:" "$workflow"
+          grep -Fxq "  contents: read" "$workflow"
+          forbidden_azure="azure/""login"
+          forbidden_environment="environment:""[[:space:]]*uat"
+          forbidden_oidc="id-token:""[[:space:]]*write"
+          for pattern in "$forbidden_azure" "$forbidden_environment" "$forbidden_oidc"; do
+            if grep -Eq "$pattern" "$workflow"; then
+              echo "Forbidden protected-access capability detected in proposal CI." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run fail-closed proposal tests
+        run: python3 -m unittest -v scripts/ci/test_uat_schema_fidelity_proposal.py
+
+      - name: Run PowerShell seven-result-set DataSet contract tests
+        shell: pwsh
+        run: |
+          Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+          ./scripts/ci/test_uat_schema_fidelity_evidence.ps1
+
+      - name: Run disposable SQL Invoke-Sqlcmd negative tests
+        shell: pwsh
+        env:
+          SCHEMA_TEST_SQL_SERVER: localhost,1433
+          SCHEMA_TEST_SQL_DATABASE: master
+          SCHEMA_TEST_SQL_USER: sa
+          SCHEMA_TEST_SQL_PASSWORD: ${{ secrets.fixture_sql_password }}
+        run: ./scripts/ci/test_uat_schema_fidelity_invoke_sqlcmd.ps1
+
+      - name: Verify staged diagnostic contracts
+        run: python3 -m unittest -v scripts/ci/test_uat_schema_r3_contract.py scripts/ci/test_r3_login_privacy.py
+
+      - name: Run R3 real disposable SQL positive and negative cases
+        shell: pwsh
+        env:
+          SCHEMA_TEST_SQL_SERVER: localhost,1433
+          SCHEMA_TEST_SQL_DATABASE: master
+          SCHEMA_TEST_SQL_PASSWORD: ${{ secrets.fixture_sql_password }}
+        run: ./scripts/ci/test_uat_schema_r3.ps1
+
+      - name: Package exact-source nondeploy evidence
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/r3-evidence"
+          git rev-parse HEAD HEAD^ HEAD^{tree} > "${RUNNER_TEMP}/r3-evidence/source.txt"
+          cp scripts/ci/uat_schema_r3.hashes.json "${RUNNER_TEMP}/r3-evidence/"
+          git diff --stat 3f624facbb706c9d6e5ba07037ae63021a90d334 HEAD > "${RUNNER_TEMP}/r3-evidence/impact.txt"
+          git archive --format=zip HEAD > "${RUNNER_TEMP}/r3-evidence/exact-source.zip"
+          sha256sum "${RUNNER_TEMP}/r3-evidence/exact-source.zip" > "${RUNNER_TEMP}/r3-evidence/exact-source.sha256"
+
+      - name: Upload nondeploy source and verification binding
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3-nondeploy-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/r3-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Compile comparator
+        run: python3 -m py_compile scripts/ci/compare_uat010_schema_inventory.py
