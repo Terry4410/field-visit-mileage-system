@@ -48,6 +48,7 @@ function Invoke-Sqlcmd {
 $manifestRelative='scripts/ci/uat_schema_r3.hashes.json'
 $manifestHash=(Get-FileHash (Join-Path $root $manifestRelative)).Hash.ToLowerInvariant()
 $script:passed=0
+$script:caseNames=[System.Collections.Generic.List[string]]::new()
 function Run-Case([string]$Name,[int]$Calls,[string]$StopStage,[string]$Classification,[hashtable]$Overrides=@{}) {
  $script:calls.Clear()
  $argsR3=@{Connection=$connection;SourceSha=$env:GITHUB_SHA;ExpectedServer=$expected;ExpectedDatabase='R3Fixture';Mode='Disposable';Root=$root;ManifestHash=$manifestHash}
@@ -75,6 +76,7 @@ function Run-Case([string]$Name,[int]$Calls,[string]$StopStage,[string]$Classifi
    if($record -cne 'SANITIZED_TERMINATION' -and $record -cnotmatch '^Stage=(IdentityVersion|Catalog|HistoricalAccess|HistoricalAggregates); Status=(PASS|STOP); (Classification=[A-Za-z]+; ProviderCode=(Suppressed|-?[0-9]+); )?SourceSha=[0-9a-f]{40}; SqlSha256=[0-9a-f]{64};$'){throw "STOP: output contract: $Name"}
  }
  if($text -match '123456789|DISPOSABLE_SECRET|R3Restricted|ServerName|localhost|SqlException|SELECT |Password|AccessToken' -or $text.Contains($expected)){throw "STOP: privacy contract: $Name"}
+ [void]$script:caseNames.Add($Name)
  $script:passed++
  Write-Output "PASS R3 disposable case: $Name"
 }
@@ -133,3 +135,8 @@ if($LASTEXITCODE -ne 0){throw 'STOP: disposable shutdown failed.'}
 # SqlServer module may surface a nonallowlisted provider number: classification must remain suppressed or approved connectivity.
 Run-Case 'connection-stopped-service' 1 'IdentityVersion' '(ConnectivityFailure|TimeoutOrTransient|UnclassifiedSqlFailure|UnknownSqlFailure)'
 Write-Output "R3 disposable SQL tests: $script:passed passed, 0 failed"
+
+if($script:passed -ne 21){throw 'STOP: expected complete R3 case set was not executed.'}
+$evidenceDir=Join-Path $env:RUNNER_TEMP 'r3-evidence'
+$null=New-Item $evidenceDir -ItemType Directory -Force
+@{SourceSha=$env:GITHUB_SHA;Positive=1;Negative=20;Passed=$script:passed;Failed=0;RealProvider=$true;Cases=@($script:caseNames)} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidenceDir 'r3-tests.json')

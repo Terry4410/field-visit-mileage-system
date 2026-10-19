@@ -12,7 +12,7 @@ function Invoke-R3Diagnostic {
     [string]$Root = (Split-Path (Split-Path $PSScriptRoot)),
     [string]$ManifestHash
   )
-  $safeSource = if ($SourceSha -cmatch '^[0-9a-f]{40}$') { $SourceSha } else { '0' * 40 }
+  $safeSource = if ($env:GITHUB_SHA -cmatch '^[0-9a-f]{40}$') { $env:GITHUB_SHA } else { '0' * 40 }
   $stages = @('IdentityVersion','Catalog','HistoricalAccess','HistoricalAggregates')
   $stage = $stages[0]
   $hash = '0' * 64

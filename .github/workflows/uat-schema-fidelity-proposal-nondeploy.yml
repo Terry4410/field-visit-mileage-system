@@ -92,7 +92,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/r3-evidence"
           git rev-parse HEAD HEAD^ HEAD^{tree} > "${RUNNER_TEMP}/r3-evidence/source.txt"
           cp scripts/ci/uat_schema_r3.hashes.json "${RUNNER_TEMP}/r3-evidence/"
-          git diff --stat HEAD^ HEAD > "${RUNNER_TEMP}/r3-evidence/impact.txt"
+          git diff --stat b1a507c90c577fb2c0cdd6a98ef33481d3a5f790 HEAD > "${RUNNER_TEMP}/r3-evidence/impact.txt"
           git archive --format=zip HEAD > "${RUNNER_TEMP}/r3-evidence/exact-source.zip"
           sha256sum "${RUNNER_TEMP}/r3-evidence/exact-source.zip" > "${RUNNER_TEMP}/r3-evidence/exact-source.sha256"
 

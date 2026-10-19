@@ -4,5 +4,5 @@
   "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/HistoricalAggregates.sql": "c7f8af609fc2a6d0d4c1f833e8d42b6981b0a583ea057eda7ee2c07293d0ba87",
   "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/IdentityVersion.sql": "a7f5dad3e306ff29e8b32753f3287604f3c3973d8fd2b62f3f946ed017e5d292",
   "scripts/ci/uat_schema_fidelity_evidence.ps1": "5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653",
-  "scripts/ci/uat_schema_r3.ps1": "b60b2e777dd210b03d1c81ccfeb8fe144b5dda1c5abd6bbeb4635c6623f19ef6"
+  "scripts/ci/uat_schema_r3.ps1": "7ea9e09c51d267f05ebf58f9b35be4dda7ec6081f25cff936a1b54bcd0679e52"
 }
