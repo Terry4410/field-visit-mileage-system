@@ -16,12 +16,17 @@ PRIVATE = '.github/workflows/r3-private-uat-execution.yml'
 def escape_command(value):
     return value.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
 
-def reviewed_masks(identifiers, repository=REPOSITORY, ref=REF):
+def reviewed_masks(identifiers, repository=REPOSITORY, ref=REF, owner_id=None, repository_id=None):
     if len(identifiers) != 3 or any(not GUID.fullmatch(v) for v in identifiers):
         raise ValueError('invalid identifiers')
     if repository != REPOSITORY or ref != REF:
         raise ValueError('wrong source')
     masks = []
+    if owner_id is not None or repository_id is not None:
+        if any(not isinstance(v,str) or not re.fullmatch(r'[1-9][0-9]{0,19}',v) for v in (owner_id,repository_id)):
+            raise ValueError('invalid repository context')
+        owner,name=repository.split('/')
+        masks.append('repo:'+owner+'@'+owner_id+'/'+name+'@'+repository_id+':environment:uat')
     for value in identifiers:
         masks.extend((value, value.lower(), value.upper()))
     masks.extend((
@@ -37,7 +42,9 @@ def environment_masks(environment):
     if environment.get('RUNNER_DEBUG') == '1' or environment.get('GITHUB_ACTIONS') != 'true':
         raise ValueError('unsafe runner')
     ids = [environment.get(k,'') for k in ('R3_CLIENT_ID','R3_TENANT_ID','R3_SUBSCRIPTION_ID')]
-    return reviewed_masks(ids, environment.get('GITHUB_REPOSITORY',''), environment.get('GITHUB_REF',''))
+    owner_id=environment.get('GITHUB_REPOSITORY_OWNER_ID','')
+    repository_id=environment.get('GITHUB_REPOSITORY_ID','')
+    return reviewed_masks(ids, environment.get('GITHUB_REPOSITORY',''), environment.get('GITHUB_REF',''),owner_id,repository_id)
 
 def emit_masks(values, stream):
     # A GitHub command channel, not an ordinary-value log. Runner consumes these.

@@ -1,6 +1,16 @@
 name: R3 private UAT execution (call only)
 on:
   workflow_call:
+    inputs:
+      approved_source_sha:
+        required: true
+        type: string
+      authorize_coldstart:
+        required: true
+        type: boolean
+      accept_compute_charges:
+        required: true
+        type: boolean
     secrets:
       r3_client_value:
         required: true
@@ -18,7 +28,7 @@ env:
   EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
   EXPECTED_DATABASE: db-fieldvisit-uat
   INVENTORY_SQL_SHA256: 67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734
-  R3_MANIFEST_SHA256: 0a5c552554868d837c473f6a3ed9f33d39056f0f9e5a18292268e2dc88c7abe5
+  R3_MANIFEST_SHA256: 74585811a86adc6c4b1f578ea4f8d26eacbdb1cf4fa5148137c958409737a829
   EVIDENCE_VALIDATOR_SHA256: 5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653
 
 jobs:
@@ -29,7 +39,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout exact protected dispatch SHA
         uses: actions/checkout@v4
@@ -94,6 +104,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+
+      - name: Bounded Serverless readiness before any R3 SQL
+        timeout-minutes: 6
+        shell: bash
+        env:
+          R3_APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          R3_AUTHORIZE_WAKE: ${{ inputs.authorize_coldstart && 'true' || 'false' }}
+          R3_ACCEPT_CHARGES: ${{ inputs.accept_compute_charges && 'true' || 'false' }}
+          R3_SUBSCRIPTION_ID: ${{ secrets.r3_subscription_value }}
+        run: python3 scripts/ci/r3_serverless_readiness.py
 
       - name: Execute four staged diagnostics only (future separate Owner authorization required)
         shell: pwsh

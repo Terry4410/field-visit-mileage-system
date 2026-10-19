@@ -127,7 +127,9 @@ class SchemaFidelityProposalTests(unittest.TestCase):
         self.assertIn("id-token: write", workflow)
         self.assertIn(SQL_SHA, workflow)
         self.assertIn(VALIDATOR_SHA, workflow)
-        self.assertNotRegex(workflow, r"workflow_dispatch:\s*\n\s+inputs:")
+        # Inputs now bind exact Owner SHA and separately gate billable connection-only wake.
+        for required in ('approved_source_sha:', 'authorize_coldstart:', 'accept_compute_charges:', 'default: false'):
+            self.assertIn(required, workflow)
         self.assertNotIn("database/migrations/", workflow)
         self.assertNotIn("dotnet ef database update", workflow.lower())
 

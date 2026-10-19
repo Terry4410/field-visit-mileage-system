@@ -2,6 +2,21 @@ name: Azure SQL UAT schema fidelity inventory (SELECT-only)
 
 on:
   workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: 'Exact Protected SHA separately authorized by Owner'
+        required: true
+        type: string
+      authorize_coldstart:
+        description: 'Separate Owner authorization for one connection-only wake if Paused'
+        required: true
+        type: boolean
+        default: false
+      accept_compute_charges:
+        description: 'Owner accepts free-credit consumption and possible overage billing'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,8 +31,8 @@ env:
   EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
   EXPECTED_DATABASE: db-fieldvisit-uat
   INVENTORY_SQL_SHA256: 67551978bf16266ef8f38c018be87b7aadc321ee3db84d6d94b52a1538204734
-  R3_PRIVATE_WORKFLOW_SHA256: 5f583a9337f4eaf6a88e4907e20ad3b2e1290e1cef48c7e83b6b76558b12ad51
-  R3_MANIFEST_SHA256: 0a5c552554868d837c473f6a3ed9f33d39056f0f9e5a18292268e2dc88c7abe5
+  R3_PRIVATE_WORKFLOW_SHA256: d684b108897f0eab075622400ccebb9cc9da98070fe4c4173e0a68c627dd7415
+  R3_MANIFEST_SHA256: 74585811a86adc6c4b1f578ea4f8d26eacbdb1cf4fa5148137c958409737a829
   EVIDENCE_VALIDATOR_SHA256: 5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653
 
 jobs:
@@ -32,6 +47,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - name: Enforce protected source and repository
+        env:
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -41,6 +58,7 @@ jobs:
             exit 1
           }
           test "${GITHUB_SHA}" != "" && test "${#GITHUB_SHA}" -eq 40
+          test "$APPROVED_SHA" = "$GITHUB_SHA"
 
       - name: Verify exact source and private workflow before identity handoff
         shell: bash
@@ -76,6 +94,10 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/r3-private-uat-execution.yml
+    with:
+      approved_source_sha: ${{ inputs.approved_source_sha }}
+      authorize_coldstart: ${{ inputs.authorize_coldstart }}
+      accept_compute_charges: ${{ inputs.accept_compute_charges }}
     secrets:
       r3_client_value: ${{ needs.identity-handoff.outputs.client }}
       r3_tenant_value: ${{ needs.identity-handoff.outputs.tenant }}

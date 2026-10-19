@@ -14,7 +14,7 @@ SQL_ROOT = 'docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/'
 
 def verify_hashes():
     manifest = json.loads(MANIFEST.read_text())
-    expected = {SQL_ROOT+s+'.sql' for s in STAGES} | {'scripts/ci/uat_schema_r3.ps1','scripts/ci/uat_schema_fidelity_evidence.ps1','scripts/ci/r3_login_privacy.py'}
+    expected = {SQL_ROOT+s+'.sql' for s in STAGES} | {'scripts/ci/uat_schema_r3.ps1','scripts/ci/uat_schema_fidelity_evidence.ps1','scripts/ci/r3_login_privacy.py','scripts/ci/r3_serverless_readiness.py','scripts/ci/r3_connection_only_wake.ps1'}
     assert set(manifest) == expected, 'reviewed file set mismatch'
     for relative, digest in manifest.items():
         assert re.fullmatch('[0-9a-f]{64}', digest), 'digest malformed'
