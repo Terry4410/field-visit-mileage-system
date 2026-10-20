@@ -1,0 +1,16 @@
+{
+  "contract": "g1-a-stage-offline-proposal-v1",
+  "base": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+  "rc": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "acceptedPreparation": "c12451700b619897afe0e4c5dc9ae2862e259d2f",
+  "files": {
+    "scripts/ci/a_stage_management.py": "c2f4e7d34675560485f03952d29ac3917100301dffbe336d4a53ab3a5c8fba15",
+    "scripts/ci/test_a_stage_management.py": "e92c429eae48957a8dde9ee4282a22914022c339afbc15820649c13039d8bfa4",
+    "docs/release/G1-A-STAGE-CHANNEL.md": "3513683f3b1badbd2d2a75a58ed9f0d6a59091602901692a31543a89c2f2bec6"
+  },
+  "offlineTests": 16,
+  "liveCalls": 0,
+  "execution": "HOLD_PENDING_REVIEWED_OIDC_HOST_AND_PRIVATE_BINDING",
+  "maxGets": 20,
+  "maxSeconds": 600
+}
