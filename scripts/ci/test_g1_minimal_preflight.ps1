@@ -1,8 +1,10 @@
 # Disposable SQL2022 only. Accepted collector/SQL are copied, never edited in place.
+param([switch]$FirstStopOnly)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $case='Client';$admin=$null;$db=$null;$temp=$null;$setup=$null;$script:failed=$false
 $repo=(Resolve-Path "$PSScriptRoot/../..").Path
 $results=[Collections.Generic.List[object]]::new()
+$diagnosis='HARNESS_FAILURE_OTHER'
 function Assert([bool]$ok){if(-not $ok){throw 'G1_TEST_STOP'}}
 function Exec($c,[string]$sql){$q=$c.CreateCommand();try{$q.CommandTimeout=90;$q.CommandText=$sql;[void]$q.ExecuteNonQuery()}finally{$q.Dispose()}}
 function Rows($c,[string]$sql,[string]$requirements='',[string]$reference=''){
@@ -78,16 +80,24 @@ try{
  $old=[IO.File]::ReadAllText((Join-Path $repo 'scripts/ci/run_full_candidate_migration.ps1'))
  $matches=[regex]::Matches($old,"(?s)\`$boot=@'\r?\n(.*?)\r?\n'@");Assert ($matches.Count -eq 1);Exec $setup $matches[0].Groups[1].Value
  $requirements=[IO.File]::ReadAllText((Join-Path $package 'requirements.json'));$reference=[IO.File]::ReadAllText((Join-Path $package 'necessary-reference.json'));$catalog=[IO.File]::ReadAllText((Join-Path $package '03-catalog.sql'))
+ if(-not $FirstStopOnly){
  $case='NoSqlCmdExpansion';foreach($f in @('01-target.sql','02-marker.sql','03-catalog.sql','04-permissions.sql')){Assert (-not ([IO.File]::ReadAllText((Join-Path $package $f)) -match '\$\('))};Pass $case
  $case='UnmodifiedTargetSqlRejectsDisposable';$rows=Rows $setup ([IO.File]::ReadAllText((Join-Path $package '01-target.sql')));Assert ((Status $rows 'TARGET') -ceq 'FAIL');Pass $case
  $case='UnmodifiedCollectorRejectsLoopbackBeforeOpen';$c=NewConnection;$global:LASTEXITCODE=0
  $output=@(& (Join-Path $package 'collect.ps1') -ExecuteAuthorized -ApplicationConnection $c -ExpectedManifestSha256 '63c81e16359aa82112d4f19f6e6eb3cdcaeece136e93196b11f12731cda3947b' -EvidenceFile (Join-Path $temp 'forbidden.json') 2>&1)
  Assert ($LASTEXITCODE -ne 0 -and $c.State -eq [Data.ConnectionState]::Closed -and -not (Test-Path (Join-Path $temp 'forbidden.json')));$c.Dispose();Pass $case
+ }
  $case='Collector010FindingsStillCollectPermissions';$copy=TestCopy $case;$run=RunCopy $copy
- Assert ($run.exit -eq 0 -and ($run.trace -join ',') -ceq '01-target.sql,02-marker.sql,03-catalog.sql,04-permissions.sql')
+ $diagnosis='COLLECTOR_EXIT_UNEXPECTED';Assert ($run.exit -eq 0)
+ $diagnosis='EXPECTED_STAGE_SEQUENCE_MISMATCH';Assert (($run.trace -join ',') -ceq '01-target.sql,02-marker.sql,03-catalog.sql,04-permissions.sql')
+ $diagnosis='EVIDENCE_MISSING_OR_INVALID';Assert (Test-Path -LiteralPath $copy.evidence)
  $e=Get-Content $copy.evidence -Raw|ConvertFrom-Json;Assert ($e.groups.Count -eq 4)
+ $diagnosis='CATALOG_ASSERTION_MISMATCH'
  Assert ((Status $e.groups[2] 'REQUIRED_COLUMNS') -ceq 'FAIL' -and (Status $e.groups[2] 'COMPLETE_FACET_EQUIVALENCE') -ceq 'UNKNOWN')
+ $diagnosis='PERMISSIONS_ASSERTION_MISMATCH'
  Assert ((Status $e.groups[3] 'API_PRINCIPAL_BINDING') -ceq 'UNKNOWN');Pass $case
+ $diagnosis='NONE'
+ if(-not $FirstStopOnly){
  $case='MarkerStopBeforeCatalog';Exec $setup "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-009'";$copy=TestCopy $case;$run=RunCopy $copy
  Assert ($run.exit -eq 0 -and ($run.trace -join ',') -ceq '01-target.sql,02-marker.sql');Exec $setup "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-010'";Pass $case
  $case='MissingVersionObjectStops';Exec $setup 'EXEC sys.sp_rename N''dbo.SchemaVersions'',N''G1HeldVersions'';';$copy=TestCopy $case;$run=RunCopy $copy
@@ -136,7 +146,10 @@ try{
   Assert ((Status $rows 'API_PRINCIPAL_BINDING') -ceq 'UNKNOWN')
  }finally{Exec $setup 'REVERT;'};Pass $case
  $case='Complete';Assert ($results.Count -eq 18)
+ }else{$case='DiagnosticComplete'}
 }catch{
+ if($diagnosis -notin @('COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER')){$diagnosis='HARNESS_FAILURE_OTHER'}
+ Write-Output "PreflightDiagnostic=$diagnosis;"
  Write-Output "PreflightCase=$case; Status=STOP; Details=SUPPRESSED;"
  # Diagnostic line number only, never exception text or SQL metadata.
  Write-Output "PreflightHarnessLine=$($_.InvocationInfo.ScriptLineNumber);"
@@ -150,6 +163,6 @@ try{
  }
  if($temp){Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue}
  $artifact=Join-Path $repo 'artifacts';New-Item -ItemType Directory -Force $artifact|Out-Null
- @{contract='g1-minimal-preflight-disposable-v1';source=$env:GITHUB_SHA;base='88c21921860888f531a0962867f916c307452bbc';cases=$results.ToArray();passed=($case -ceq 'Complete' -and -not $script:failed);provider='SQL_SERVER_2022_DEVELOPER_LOCAL';testOnlyTargetAndTimeoutDerivatives=$true;apiPrincipalBinding='UNKNOWN';liveSql=$false;acceptedSuiteRerun=$false}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $artifact 'preflight-sql.json') -Encoding utf8
+ @{contract='g1-minimal-preflight-disposable-v1';source=$env:GITHUB_SHA;base='88c21921860888f531a0962867f916c307452bbc';cases=$results.ToArray();passed=($case -in @('Complete','DiagnosticComplete') -and -not $script:failed);diagnosticOnly=[bool]$FirstStopOnly;diagnosis=$diagnosis;provider='SQL_SERVER_2022_DEVELOPER_LOCAL';testOnlyTargetAndTimeoutDerivatives=$true;apiPrincipalBinding='UNKNOWN';liveSql=$false;acceptedSuiteRerun=$false}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $artifact 'preflight-sql.json') -Encoding utf8
 }
 if($script:failed){exit 1}

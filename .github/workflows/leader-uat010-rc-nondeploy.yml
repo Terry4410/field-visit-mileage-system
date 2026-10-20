@@ -80,10 +80,8 @@ jobs:
           $ErrorActionPreference='Stop'
           try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop | Out-Null }
           catch { Write-Output 'PreflightClient=STOP; Details=SUPPRESSED;'; exit 1 }
-      - name: Targeted real PowerShell and SQL only
-        run: python3 scripts/ci/g1_preflight_verify.py test
-      - name: Frozen EF requirements without SQL connection
-        run: python3 scripts/ci/g1_preflight_verify.py model
+      - name: First STOP sanitized diagnosis only
+        run: python3 scripts/ci/g1_preflight_verify.py diagnose
       - name: Stop local disposable SQL
         if: always()
         run: docker rm -f g1-preflight-sql >/dev/null 2>&1 || true

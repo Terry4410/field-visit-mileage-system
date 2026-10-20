@@ -2,12 +2,14 @@
 import hashlib,json,os,pathlib,re,secrets,subprocess,sys,time
 P=pathlib.Path('docs/release/g1-minimal-preflight')
 BASE='88c21921860888f531a0962867f916c307452bbc'
+DIAGNOSTIC_BASE='b093160434a0314bca1f0d7a2d40cc25021a2b84'
 RC='f29affb3299828f45b1f131321779e8bea2f86a8'
 def sha(b):return hashlib.sha256(b).hexdigest()
 def git(*args):return subprocess.check_output(['git',*args]).decode().strip()
 def check():
  assert os.environ['GITHUB_SHA']==git('rev-parse','HEAD')
- assert git('rev-parse','HEAD^')==BASE
+ assert git('rev-parse','HEAD^')==DIAGNOSTIC_BASE
+ assert set(git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD').splitlines())=={'.github/workflows/leader-uat010-rc-nondeploy.yml','scripts/ci/g1_preflight_verify.py','scripts/ci/test_g1_minimal_preflight.ps1'}
  assert os.environ['GITHUB_REPOSITORY']=='Terry4410/field-visit-mileage-system'
  assert os.environ['GITHUB_REF']=='refs/heads/work/g1-uat-migration-readiness-20261020'
  assert os.environ['GITHUB_EVENT_NAME']=='push'
@@ -59,6 +61,19 @@ def model():
  for line in r.stdout.splitlines():
   if line in ('PreflightModel=PASS; ConnectionOpened=FALSE; ActualSchema=UNKNOWN;','PreflightModel=STOP; Details=SUPPRESSED;'):print(line)
  assert r.returncode==0
+def diagnose():
+ check()
+ r=subprocess.run(['pwsh','-NoProfile','-File','scripts/ci/test_g1_minimal_preflight.ps1','-FirstStopOnly'],capture_output=True,text=True,timeout=240)
+ allowed={'COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER'}
+ for line in r.stdout.splitlines():
+  if line.startswith('PreflightDiagnostic=') and line.removeprefix('PreflightDiagnostic=').removesuffix(';') in allowed:print(line)
+  if line in ('PreflightCase=Collector010FindingsStillCollectPermissions; Status=PASS;','PreflightCase=Collector010FindingsStillCollectPermissions; Status=STOP; Details=SUPPRESSED;'):print(line)
+ report=json.loads(pathlib.Path('artifacts/preflight-sql.json').read_text(encoding='utf-8-sig'))
+ assert report['source']==os.environ['GITHUB_SHA'] and report['diagnosticOnly'] is True
+ assert report['diagnosis'] in allowed|{'NONE'} and len(report['cases'])<=1
+ assert report['liveSql'] is False and report['apiPrincipalBinding']=='UNKNOWN'
+ # A classified STOP is retained as a failed test, never converted to suite PASS.
+ assert r.returncode==0 and report['passed']
 if __name__=='__main__':
- try:{'check':check,'provider':provider,'test':test,'model':model}[sys.argv[1]]()
+ try:{'check':check,'provider':provider,'test':test,'model':model,'diagnose':diagnose}[sys.argv[1]]()
  except Exception:raise SystemExit('PreflightVerification=STOP; Details=SUPPRESSED;') from None
