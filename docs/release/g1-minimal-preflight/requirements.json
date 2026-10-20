@@ -1,0 +1,342 @@
+[
+  {
+    "table": "ChangeRequestEvents",
+    "column": "ActorUserId"
+  },
+  {
+    "table": "ChangeRequestEvents",
+    "column": "ChangeRequestEventId"
+  },
+  {
+    "table": "ChangeRequestEvents",
+    "column": "ChangeRequestId"
+  },
+  {
+    "table": "ChangeRequestEvents",
+    "column": "CorrelationId"
+  },
+  {
+    "table": "ChangeRequestEvents",
+    "column": "DecisionKey"
+  },
+  {
+    "table": "ChangeRequestEvents",
+    "column": "DetailsJson"
+  },
+  {
+    "table": "ChangeRequestEvents",
+    "column": "EventType"
+  },
+  {
+    "table": "ChangeRequestEvents",
+    "column": "OccurredAt"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "ChangeRequestId"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "ChangeRequestLeaderReviewId"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "DecisionKey"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "EvidenceJson"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "Reason"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "ReviewStage"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "ReviewedAt"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "ReviewerUserId"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "RowVersion"
+  },
+  {
+    "table": "ChangeRequestLeaderReviews",
+    "column": "Status"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "AppliedAt"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "BeforeJson"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "ChangeRequestId"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "EntityId"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "EntityKind"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "EvidenceJson"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "ExpectedEntityRowVersion"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "OperationCode"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "OrganizationId"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "ProposedJson"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "RequestPublicId"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "RequestedByUserId"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "ReviewReason"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "ReviewedAt"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "ReviewedByUserId"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "RiskCode"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "RowVersion"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "Status"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "SubmittedAt"
+  },
+  {
+    "table": "ChangeRequests",
+    "column": "TeamId"
+  },
+  {
+    "table": "ImportBatchItems",
+    "column": "ImportBatchItemId"
+  },
+  {
+    "table": "ImportBatches",
+    "column": "ImportBatchId"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "ChangeRequestId"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "CreatedAt"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "LocationId"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "OrganizationId"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "ReservationStatus"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "ReservedLocationRowVersion"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "RowVersion"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "TeamId"
+  },
+  {
+    "table": "LocationCreateReservations",
+    "column": "UpdatedAt"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "ChangeRequestId"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "CreatedAt"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "DuplicateEvidenceSha256"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "DuplicateReviewStatus"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "ExpectedLocationRowVersion"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "GeocodeAddressSha256"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "GeocodeStatus"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "Latitude"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "LocationId"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "Longitude"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "OrganizationId"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "ProposedJson"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "ProposedSha256"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "RowVersion"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "StageStatus"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "TeamId"
+  },
+  {
+    "table": "LocationPublicationStages",
+    "column": "UpdatedAt"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "ChangeRequestId"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "IsCurrent"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "LocationId"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "LocationPublishedVersionId"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "PublishedAt"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "PublishedByUserId"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "PublishedJson"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "PublishedSha256"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "SourceLocationRowVersion"
+  },
+  {
+    "table": "LocationPublishedVersions",
+    "column": "VersionNumber"
+  },
+  {
+    "table": "Locations",
+    "column": "LocationId"
+  },
+  {
+    "table": "Locations",
+    "column": "RowVersion"
+  },
+  {
+    "table": "Organizations",
+    "column": "OrganizationId"
+  },
+  {
+    "table": "Teams",
+    "column": "TeamId"
+  },
+  {
+    "table": "Users",
+    "column": "UserId"
+  },
+  {
+    "table": "VisitTripSnapshotStops",
+    "column": "VisitTripSnapshotStopId"
+  },
+  {
+    "table": "VisitTripSnapshots",
+    "column": "VisitTripSnapshotId"
+  },
+  {
+    "table": "VisitTripStops",
+    "column": "VisitTripStopId"
+  },
+  {
+    "table": "VisitTrips",
+    "column": "VisitTripId"
+  }
+]

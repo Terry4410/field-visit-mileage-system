@@ -1,0 +1,10 @@
+{
+  "source": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "inputs": {
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Up.sql": "cdb85749fee47f7480c410792879a6cf885ac2aae5107dfefd3418bc8fa2fd6a",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Up.sql": "2ced64461913036b77a1416caadf1bdb68460adba2eaf95adeb47e08fc37d69e",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Up.sql": "a3f7d28dac6425547eec9c36ebb915dd34d91f09c98e49da21e888b7e489d057",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql": "59d9363b59aacad362c9dd41ca0ed0c7111d1f550972e1aae7544fd3a61abd3a"
+  },
+  "scope": "MINIMUM_NECESSARY_COLUMNS_ONLY_NOT_COMPLETE_FACET_REFERENCE"
+}

@@ -4,8 +4,6 @@ on:
   push:
     branches: [work/g1-uat-migration-readiness-20261020]
     paths:
-      - .github/workflows/leader-uat010-rc-nondeploy.yml
-      - .github/workflows/g1-sql-lock-root-cause-diagnostic.yml
       - scripts/ci/g1_sql_lock_root_cause_diagnostic.ps1
 
 permissions:

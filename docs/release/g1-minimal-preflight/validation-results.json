@@ -1,0 +1,38 @@
+{
+  "decision": "HOLD_WITH_EXACT_MISSING_EVIDENCE",
+  "source": "88c21921860888f531a0962867f916c307452bbc",
+  "parent": "dbf5f2d1fa1bf7182918540f992c58629eac78ba",
+  "tree": "36e5e1b1359641e2dea2608de9fa25fc53245e86",
+  "newCommit": null,
+  "changedFilesAgainstAcceptedZip": [
+    "03-catalog.sql",
+    "GAP-CLOSURE.md",
+    "README.md",
+    "collect.ps1",
+    "derive_reference.py",
+    "manifest.json",
+    "necessary-reference.json",
+    "test_contract.py",
+    "test_phase_separation.py",
+    "test_reference.py",
+    "validate.py",
+    "validation-results.json",
+    "SHA256SUMS.txt"
+  ],
+  "targetedOfflineTests": {
+    "phase": 8,
+    "reference": 6,
+    "affectedAcceptedCase": 1,
+    "passed": 15
+  },
+  "acceptedOffline14": "REUSED; one dependent final-completeness case updated and rerun",
+  "powershellExecution": "NOT_EXECUTED",
+  "realSql2022": "NOT_EXECUTED",
+  "referenceInputsByteMatched": 22,
+  "referenceReproduction": "PASS",
+  "apiPrincipalBinding": "UNKNOWN",
+  "originalMigrationEdits": false,
+  "GitHubWrites": false,
+  "AzureOrSharedSqlAccess": false,
+  "collectorPhase": "IMPLEMENTED_NOT_PROVIDER_VERIFIED"
+}

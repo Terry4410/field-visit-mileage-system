@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   isolated:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && !startsWith(github.event.head_commit.message, 'test(g1-preflight):')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -56,4 +56,43 @@ jobs:
         with:
           name: g1-migration-preparation-${{ github.sha }}
           path: artifacts/
+          retention-days: 7
+  minimal-preflight:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && startsWith(github.event.head_commit.message, 'test(g1-preflight):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve accepted delta and frozen source
+        run: python3 scripts/ci/g1_preflight_verify.py check
+      - name: Start local disposable SQL Server 2022
+        run: python3 scripts/ci/g1_preflight_verify.py provider
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Existing pinned SQL client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop | Out-Null }
+          catch { Write-Output 'PreflightClient=STOP; Details=SUPPRESSED;'; exit 1 }
+      - name: Targeted real PowerShell and SQL only
+        run: python3 scripts/ci/g1_preflight_verify.py test
+      - name: Frozen EF requirements without SQL connection
+        run: python3 scripts/ci/g1_preflight_verify.py model
+      - name: Stop local disposable SQL
+        if: always()
+        run: docker rm -f g1-preflight-sql >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: g1-minimal-preflight-${{ github.sha }}
+          path: |
+            artifacts/preflight-sql.json
+            artifacts/preflight-model.json
+          if-no-files-found: warn
           retention-days: 7

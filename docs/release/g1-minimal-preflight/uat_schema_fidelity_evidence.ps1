@@ -1,0 +1,236 @@
+Set-StrictMode -Version Latest
+
+function Get-ApprovedUatFailureExceptions([object]$Failure) {
+  $approvedWrappers = @(
+    'Microsoft.SqlServer.Management.PowerShell.SqlPowerShellSqlExecutionException',
+    'System.Management.Automation.ActionPreferenceStopException',
+    'System.Management.Automation.CmdletInvocationException',
+    'System.Management.Automation.MethodInvocationException',
+    'System.Management.Automation.ParentContainsErrorRecordException',
+    'System.Management.Automation.ProviderInvocationException',
+    'System.Management.Automation.RuntimeException',
+    'System.Reflection.TargetInvocationException'
+  )
+  $initial = if ($Failure -is [System.Management.Automation.ErrorRecord]) {
+    $Failure.Exception
+  } elseif ($Failure -is [System.Exception]) {
+    $Failure
+  } else {
+    $null
+  }
+  if ($null -eq $initial) { return @() }
+
+  $queue = [System.Collections.Generic.Queue[object]]::new()
+  $queue.Enqueue([pscustomobject]@{ Exception = $initial; Depth = 0 })
+  $visited = [System.Collections.Generic.HashSet[System.Exception]]::new()
+  $approved = [System.Collections.Generic.List[System.Exception]]::new()
+
+  while ($queue.Count -gt 0) {
+    $item = $queue.Dequeue()
+    $exception = $item.Exception
+    if ($exception -isnot [System.Exception] -or -not $visited.Add($exception)) { continue }
+    [void]$approved.Add($exception)
+    if ($item.Depth -ge 3 -or $approvedWrappers -notcontains $exception.GetType().FullName) { continue }
+
+    if ($exception.InnerException -is [System.Exception]) {
+      $queue.Enqueue([pscustomobject]@{ Exception = $exception.InnerException; Depth = $item.Depth + 1 })
+    }
+    if ($exception -is [System.Management.Automation.RuntimeException] -and
+        $null -ne $exception.ErrorRecord -and
+        $exception.ErrorRecord.Exception -is [System.Exception] -and
+        -not [object]::ReferenceEquals($exception.ErrorRecord.Exception, $exception)) {
+      $queue.Enqueue([pscustomobject]@{ Exception = $exception.ErrorRecord.Exception; Depth = $item.Depth + 1 })
+    }
+  }
+  return @($approved)
+}
+
+function Get-SanitizedUatInventoryFailure([object]$Failure) {
+  $sqlTypes = @(
+    'Microsoft.Data.SqlClient.SqlException',
+    'System.Data.SqlClient.SqlException'
+  )
+  $exceptions = @(Get-ApprovedUatFailureExceptions $Failure)
+  $providerCode = 'Suppressed'
+  $classification = 'UnknownSqlFailure'
+  foreach ($exception in $exceptions) {
+    $runtimeType = $exception.GetType().FullName
+    if ($runtimeType -eq 'System.TimeoutException') {
+      $classification = 'TimeoutOrTransient'
+      break
+    }
+    if ($runtimeType -eq 'System.Net.Sockets.SocketException') {
+      $classification = 'ConnectivityFailure'
+      break
+    }
+    if ($sqlTypes -contains $runtimeType) {
+      $number = [int]$exception.Number
+      $classification = switch ($number) {
+        { $_ -in 51990,51991 } { 'TargetGuardRejected'; break }
+        51992 { 'RequiredObjectMissing'; break }
+        51993 { 'HistoricalSelectOrObjectUnavailable'; break }
+        { $_ -in 229,230,262 } { 'SqlPermissionDenied'; break }
+        { $_ -in 207,208 } { 'MissingObjectOrColumn'; break }
+        { $_ -in 102,156,319 } { 'SqlSyntaxOrCompatibility'; break }
+        { $_ -in 916,18456,4060 } { 'AuthenticationOrDatabaseAccess'; break }
+        { $_ -in -2,1205,40197,40501,40613,49918,49919,49920 } { 'TimeoutOrTransient'; break }
+        { $_ -in 2,20,53,64,233,10053,10054,10060,10061,11001 } { 'ConnectivityFailure'; break }
+        default { 'UnclassifiedSqlFailure' }
+      }
+      if ($classification -ne 'UnclassifiedSqlFailure') { $providerCode = [string]$number }
+      break
+    }
+  }
+  return "STOP: metadata-only SQL inventory failed. Classification=$classification; ProviderCode=$providerCode; raw SQL error suppressed."
+}
+
+function Throw-SanitizedUatInventoryFailure([object]$Failure) {
+  throw (Get-SanitizedUatInventoryFailure $Failure)
+}
+
+function Get-UatInventoryTables([object]$DataSet) {
+  if ($DataSet -is [System.Data.DataSet]) {
+    return @($DataSet.Tables | ForEach-Object { Write-Output -NoEnumerate $_ })
+  }
+  throw 'STOP: schema inventory did not return a DataSet.'
+}
+
+function Get-UatInventoryColumnNames([System.Data.DataTable]$Table) {
+  return @($Table.Columns | ForEach-Object { $_.ColumnName })
+}
+
+function Assert-UatInventoryColumns(
+  [System.Data.DataTable]$Table,
+  [string]$Kind,
+  [string[]]$Expected
+) {
+  $actual = @(Get-UatInventoryColumnNames $Table)
+  if ($actual.Count -ne $Expected.Count) {
+    throw "STOP: $Kind result columns were missing or unexpected."
+  }
+  for ($index = 0; $index -lt $Expected.Count; $index++) {
+    if ($actual[$index] -cne $Expected[$index]) {
+      throw "STOP: $Kind result columns were missing, reordered or unexpected."
+    }
+  }
+}
+
+function Convert-UatInventoryValue([object]$Value) {
+  if ($Value -is [System.DBNull]) { return $null }
+  if ($Value -is [datetime]) { return $Value.ToUniversalTime().ToString('o') }
+  if ($Value -is [byte[]]) { return [Convert]::ToHexString($Value) }
+  return $Value
+}
+
+function Convert-UatInventoryRows([System.Data.DataTable]$Table) {
+  $columns = @(Get-UatInventoryColumnNames $Table)
+  return @($Table.Rows | ForEach-Object {
+    $row = [ordered]@{}
+    foreach ($column in $columns) {
+      $row[$column] = Convert-UatInventoryValue $_[$column]
+    }
+    [pscustomobject]$row
+  })
+}
+
+function Assert-NonEmptyMetadata([System.Data.DataTable]$Table, [string]$Kind) {
+  if ($Table.Rows.Count -lt 1) { throw "STOP: $Kind metadata was empty." }
+}
+
+function Convert-UatSchemaInventory(
+  [object]$DataSet,
+  [string]$ExpectedServer,
+  [string]$ExpectedDatabase,
+  [string]$SourceSha,
+  [string]$SqlSha256
+) {
+  if ($SourceSha -notmatch '^[0-9a-f]{40}$') { throw 'STOP: source SHA evidence was malformed.' }
+  if ($SqlSha256 -notmatch '^[0-9a-f]{64}$') { throw 'STOP: SQL SHA-256 evidence was malformed.' }
+
+  $tables = @(Get-UatInventoryTables $DataSet)
+  if ($tables.Count -ne 7) { throw 'STOP: schema inventory returned an unexpected result-set count.' }
+
+  $signatures = @(
+    @('ServerName','DatabaseName','EvidenceMode'),
+    @('SchemaVersionCount','LatestVersion'),
+    @('SchemaName','TableName','Ordinal','ColumnName','SqlType','MaxLengthBytesOrCharacters','NumericPrecision','NumericScale','IsNullable','IsIdentity','IsComputed','IsRowVersion','DefaultDefinition'),
+    @('SchemaName','TableName','IndexName','IndexType','IsPrimaryKey','IsUniqueConstraint','IsUnique','IsDisabled','HasFilter','FilterDefinition','KeyOrdinal','IsIncluded','ColumnName','IsDescending'),
+    @('SchemaName','TableName','ForeignKeyName','ParentColumn','ReferencedSchema','ReferencedTable','ReferencedColumn','ColumnOrdinal','DeleteAction','UpdateAction','IsDisabled','IsNotTrusted'),
+    @('SchemaName','TableName','CheckConstraintName','Definition','IsDisabled','IsNotTrusted'),
+    @('HistoricalTable','RowCount','HighWatermark')
+  )
+  $kinds = @('identity','schemaVersion','columns','indexes','foreignKeys','checks','historicalAggregates')
+  for ($index = 0; $index -lt $tables.Count; $index++) {
+    Assert-UatInventoryColumns $tables[$index] $kinds[$index] $signatures[$index]
+  }
+
+  foreach ($index in 0,1,2,3,4,5,6) { Assert-NonEmptyMetadata $tables[$index] $kinds[$index] }
+  if ($tables[0].Rows.Count -ne 1) { throw 'STOP: target identity result must contain exactly one row.' }
+  $identity = $tables[0].Rows[0]
+  $actualServer = [string]$identity['ServerName']
+  if ($actualServer -ne $ExpectedServer -and $actualServer -ne ($ExpectedServer -replace '\.database\.windows\.net$','')) {
+    throw 'STOP: schema inventory server identity did not match the fixed target.'
+  }
+  if ([string]$identity['DatabaseName'] -ne $ExpectedDatabase) { throw 'STOP: schema inventory database identity did not match the fixed target.' }
+  if ([string]$identity['EvidenceMode'] -ne 'METADATA_ONLY_NO_ROW_VALUES') { throw 'STOP: schema inventory evidence mode was invalid.' }
+
+  if ($tables[1].Rows.Count -ne 1) { throw 'STOP: schema version result must contain exactly one row.' }
+  $version = $tables[1].Rows[0]
+  if ([int64]$version['SchemaVersionCount'] -lt 1) { throw 'STOP: SchemaVersions was empty.' }
+  if ([string]$version['LatestVersion'] -ne '1.8.0-010') { throw 'STOP: UAT is not at the exact reviewed 1.8.0-010 predecessor.' }
+
+  $expectedHistorical = @('VisitTrips','VisitTripStops','VisitTripSnapshots','VisitTripSnapshotStops')
+  if ($tables[6].Rows.Count -ne $expectedHistorical.Count) { throw 'STOP: historical aggregate result did not contain exactly four rows.' }
+  $seen = @($tables[6].Rows | ForEach-Object { [string]$_['HistoricalTable'] })
+  if ((@($seen | Sort-Object) -join '|') -ne (@($expectedHistorical | Sort-Object) -join '|')) {
+    throw 'STOP: historical aggregate table names were missing or unexpected.'
+  }
+  foreach ($row in $tables[6].Rows) {
+    if ([int64]$row['RowCount'] -lt 0) { throw 'STOP: historical aggregate row count was invalid.' }
+  }
+
+  return [pscustomobject][ordered]@{
+    ContractVersion = 'uat-schema-fidelity-v1'
+    SourceSha = $SourceSha
+    SqlSha256 = $SqlSha256
+    Target = [pscustomobject][ordered]@{
+      ServerName = $actualServer
+      DatabaseName = [string]$identity['DatabaseName']
+      EvidenceMode = [string]$identity['EvidenceMode']
+    }
+    SchemaVersion = [pscustomobject][ordered]@{
+      Count = [int64]$version['SchemaVersionCount']
+      Latest = [string]$version['LatestVersion']
+    }
+    Columns = @(Convert-UatInventoryRows $tables[2])
+    Indexes = @(Convert-UatInventoryRows $tables[3])
+    ForeignKeys = @(Convert-UatInventoryRows $tables[4])
+    Checks = @(Convert-UatInventoryRows $tables[5])
+    HistoricalAggregates = @(Convert-UatInventoryRows $tables[6])
+    CapturedUtc = [DateTime]::UtcNow.ToString('o')
+  }
+}
+
+function Write-UatSchemaInventory(
+  [object]$DataSet,
+  [string]$ExpectedServer,
+  [string]$ExpectedDatabase,
+  [string]$SourceSha,
+  [string]$SqlSha256,
+  [string]$OutputPath
+) {
+  $evidence = Convert-UatSchemaInventory $DataSet $ExpectedServer $ExpectedDatabase $SourceSha $SqlSha256
+  $json = $evidence | ConvertTo-Json -Depth 20
+  [System.IO.File]::WriteAllText($OutputPath, $json, [System.Text.UTF8Encoding]::new($false))
+  return [pscustomobject]@{
+    ContractVersion = $evidence.ContractVersion
+    SourceSha = $evidence.SourceSha
+    SqlSha256 = $evidence.SqlSha256
+    LatestVersion = $evidence.SchemaVersion.Latest
+    ColumnCount = $evidence.Columns.Count
+    IndexColumnCount = $evidence.Indexes.Count
+    ForeignKeyColumnCount = $evidence.ForeignKeys.Count
+    CheckCount = $evidence.Checks.Count
+    HistoricalAggregateCount = $evidence.HistoricalAggregates.Count
+  }
+}
