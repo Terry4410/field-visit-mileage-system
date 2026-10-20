@@ -54,12 +54,27 @@ public sealed class G1ReportExportHttpSqlTests
                 var claims=new[]{new Claim(ClaimTypes.NameIdentifier,user.UserId.ToString()),new Claim(ClaimTypes.Role,selected),new Claim("employee_no","G1"),new Claim("organization_id",(claimedOrg??org.OrganizationId).ToString()),new Claim("team_id",team.TeamId.ToString())};
                 client.DefaultRequestHeaders.Authorization=new("Bearer",new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(issuer:"FieldVisit.UAT",audience:"FieldVisit.UAT.Users",claims:claims,expires:DateTime.UtcNow.AddMinutes(10),signingCredentials:new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Key)),SecurityAlgorithms.HmacSha256))));
             }
-            Token();using(var response=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+            Token();using(var missingHr=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,missingHr.StatusCode);
+            var hrState=new UserEmploymentPeriod{UserId=user.UserId,EmploymentStatus=EmploymentStatuses.Active,EffectiveFrom=new DateOnly(2020,1,1),SourceType="Synthetic",CreatedAt=now};
+            db.Add(hrState);await db.SaveChangesAsync();
+            using(var response=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.OK,response.StatusCode);
             user.IsActive=false;await db.SaveChangesAsync();using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
-            user.IsActive=true;role.IsActive=false;await db.SaveChangesAsync();using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            user.IsActive=true;await db.SaveChangesAsync();
+            hrState.EmploymentStatus=EmploymentStatuses.Leave;await db.SaveChangesAsync();using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            hrState.EmploymentStatus=EmploymentStatuses.Active;await db.SaveChangesAsync();
+            var expiredRole=new UserRoleAssignment{UserId=user.UserId,RoleId=role.RoleId,EffectiveFrom=BusinessTime.Today.AddDays(-2),EffectiveTo=BusinessTime.Today.AddDays(-1),CreatedAt=now};
+            db.Add(expiredRole);await db.SaveChangesAsync();using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            db.Remove(expiredRole);await db.SaveChangesAsync();
+            role.IsActive=false;await db.SaveChangesAsync();using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             role.IsActive=true;await db.SaveChangesAsync();Token(claimedOrg:otherOrg.OrganizationId);using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             foreach(var selected in new[]{"visitor","leader","hr"}){Token(selected);using var r=await client.GetAsync("api/v1/admin/query-exports/personnel-full.xlsx");Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);}
             Token();using(var r=await client.GetAsync("api/v1/admin/query-exports/visit-types.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            role.RoleCode="leader";await db.SaveChangesAsync();Token("leader");
+            using(var r=await client.GetAsync("api/v1/query/trips/export.xlsx")){
+                Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+                Assert.Contains("REPORT_EXPORT_HISTORICAL_TEAM_POLICY_HOLD",await r.Content.ReadAsStringAsync());
+            }
+            role.RoleCode="admin";await db.SaveChangesAsync();Token();
             // Inner test-only filter revokes after workbook generation, before the outer G1 recheck.
             await using var raceFactory=factory.WithWebHostBuilder(b=>b.ConfigureServices(s=>s.Configure<MvcOptions>(o=>o.Filters.Add(new RevokeAfterAction(async()=>{
                 await using var change=Db();await change.Users.Where(x=>x.UserId==user.UserId).ExecuteUpdateAsync(x=>x.SetProperty(v=>v.IsActive,false));
