@@ -48,6 +48,10 @@ def derive(root):
    alters=list(re.finditer(r'ALTER TABLE dbo\.(\w+)',text[:pos]))
    if not alters:raise ValueError('unbound')
    return alters[-1][1]
+  # A final-state reference must retire constraints explicitly removed by the
+  # next migration, including renamed/replaced constraints with different names.
+  for m in re.finditer(r'ALTER TABLE dbo\.(\w+)\s+DROP CONSTRAINT\s+(\w+)',text,re.I):
+   out['checks'].pop(m[1]+'.'+m[2],None)
   for m in re.finditer(r'CONSTRAINT\s+(\w+)\s+CHECK\s*\(',text,re.I):
    start=m.end()-1;end=endparen(text,start);table=table_at(m.start())
    out['checks'][table+'.'+m[1]]=dict(table=table,name=m[1],definition=text[start:end+1],migration=mid)

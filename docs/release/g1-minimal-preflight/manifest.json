@@ -9,13 +9,13 @@
     "GAP-CLOSURE.md": "47ab3f25b33066d36b76cd25d01f8ba169234ac8d299b94c20e9da7c942345e8",
     "README.md": "c325734e865645700003d7098ecd0e695e515913367309b09b4aec23585fb5f6",
     "collect.ps1": "7041fffd85ab42cbbe8f2cfdd365599d8134d158a2fcddd645f05dd5526e41cf",
-    "derive_reference.py": "e00b6254640d297851e12b3c84bfe94ba548483bd4361c85bb9b488d5580c75f",
-    "necessary-reference.json": "b7f74f7914f895f9e9c7eb3fdd990c7a24eef749d43c30a5bfcdafa589f0f5f2",
+    "derive_reference.py": "d8294b6946810ea63d99b8248df3e40529b2665c47d5e5641594653e74df232c",
+    "necessary-reference.json": "f86a42ad88230411b2351a59cd9c1bb40ad2586076631ab249949fce13e91eb7",
     "provenance.json": "77327ac1fbce1f0cc5c688ba4077facf39d6e41ad0f4902e993a5d652e48e380",
     "requirements.json": "870b751876d84d829995f39d73289fe5b93e35528b6d8a4c9026851ffbf1f6f4",
     "test_contract.py": "3403564fbec217370f38ed992ba1f5d6ca0524fb1866800d4846a7be282b3e64",
     "test_phase_separation.py": "1734ec8d119044fad68bdea3407c724f99c1360057f05ce8ce593b0aa2c6ca17",
-    "test_reference.py": "5ea25fd62a9653ed359a4a5fc979d344732beba1775bbe10e5cbc6176b286df2",
+    "test_reference.py": "46a39cd6cba5a13f97d3add823b05206d4345f8e7c7280dc2a822d92e24895db",
     "uat_schema_fidelity_evidence.ps1": "5b71d40b58c6119fc1d694f3b934f89745ee4633c873da8dfd50fa1bd3309653",
     "validate.py": "278be23ba15d7283bb8bee649ff9e321f054f0c11b916adc47a08258a2795a8e"
   }

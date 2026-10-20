@@ -2,14 +2,15 @@
 import hashlib,json,os,pathlib,re,secrets,subprocess,sys,time
 P=pathlib.Path('docs/release/g1-minimal-preflight')
 BASE='88c21921860888f531a0962867f916c307452bbc'
-DIAGNOSTIC_BASE='184aeffb1c75f8bd30ff91863e68970a14423ec1'
+DIAGNOSTIC_BASE='ac0b14688c21f6b02a53a0f933e5779daaacd735'
 RC='f29affb3299828f45b1f131321779e8bea2f86a8'
 def sha(b):return hashlib.sha256(b).hexdigest()
 def git(*args):return subprocess.check_output(['git',*args]).decode().strip()
 def check():
  assert os.environ['GITHUB_SHA']==git('rev-parse','HEAD')
  assert git('rev-parse','HEAD^')==DIAGNOSTIC_BASE
- assert set(git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD').splitlines())=={'scripts/ci/g1_preflight_verify.py','scripts/ci/test_g1_minimal_preflight.ps1',str(P/'collect.ps1'),str(P/'manifest.json'),str(P/'SHA256SUMS.txt')}
+ assert set(git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD').splitlines())=={'scripts/ci/g1_preflight_verify.py','scripts/ci/test_g1_minimal_preflight.ps1',*(str(P/n) for n in ('derive_reference.py','necessary-reference.json','test_reference.py','manifest.json','SHA256SUMS.txt'))}
+ assert not git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD','--',str(P/'collect.ps1'),str(P/'01-target.sql'),str(P/'02-marker.sql'),str(P/'03-catalog.sql'),str(P/'04-permissions.sql'),str(P/'uat_schema_fidelity_evidence.ps1'))
  assert os.environ['GITHUB_REPOSITORY']=='Terry4410/field-visit-mileage-system'
  assert os.environ['GITHUB_REF']=='refs/heads/work/g1-uat-migration-readiness-20261020'
  assert os.environ['GITHUB_EVENT_NAME']=='push'
@@ -19,8 +20,8 @@ def check():
  files=git('diff','--name-only',BASE,'HEAD').splitlines()
  assert files and all(f in permitted or f.startswith(str(P)+'/') or f.startswith('scripts/ci/g1-preflight-model/') for f in files)
  assert not git('diff','--name-only',BASE,'HEAD','--','backend','frontend','database','docs/release/optionc-canonical-sql-draft','docs/release/g1-execution/promotion')
- assert sha((P/'manifest.json').read_bytes())=='dac732f5badec6a0a26190f674beb3c7d1e32e7b235daab82b49cce5a0f9e608'
- assert sha((P/'SHA256SUMS.txt').read_bytes())=='6cc146e803d99e37490d29a8739d51bcaffb4a04152e172f66e00c1ee87125e0'
+ assert sha((P/'manifest.json').read_bytes())=='7742024b9bb790acef0821d0dd10361dd284f4a44311d8045464d1a7f1db686f'
+ assert sha((P/'SHA256SUMS.txt').read_bytes())=='0fabc62fdde4c9cbd938d7016b59f9f668a04cb40905942c25d78ff526781335'
  for line in (P/'SHA256SUMS.txt').read_text().splitlines():
   h,n=line.split('  ',1);assert pathlib.PurePosixPath(n).name==n and sha((P/n).read_bytes())==h
  reference=json.loads((P/'necessary-reference.json').read_text())
@@ -63,9 +64,10 @@ def model():
  assert r.returncode==0
 def diagnose():
  check()
- r=subprocess.run(['pwsh','-NoProfile','-File','scripts/ci/test_g1_minimal_preflight.ps1'],capture_output=True,text=True,timeout=900)
+ r=subprocess.run(['pwsh','-NoProfile','-File','scripts/ci/test_g1_minimal_preflight.ps1','-ReferenceOnly'],capture_output=True,text=True,timeout=900)
  allowed={'COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER'}
  for line in r.stdout.splitlines():
+  if re.fullmatch(r'ReferencePhase=(NOT_STARTED|MIGRATION_FIXTURE|PARAMETER_BINDING|SQL_EXECUTION|RESULT_SET_CONTRACT|RETIRED_CHECK_REFERENCE_NEGATIVE|REQUIRED_COLUMNS|SCOPED_COLUMN_FACETS|SCOPED_FK_MAPPINGS|SCOPED_INDEX_KEYS|SCOPED_CHECK_DEFINITIONS|COMPLETE_FACET_UNKNOWN|COMPLETE);',line):print(line)
   if line=='RetryProviderProbe=PASS; Getter=RETURNED; Default=BUILTIN_NONE; Fixture=BUILTIN_NONE; ExplicitProvider=ABSENT; ConnectRetryCount=ZERO; SqlOpen=FALSE;':print(line)
   if re.fullmatch(r'PreflightCase=[A-Za-z0-9_]+; Status=(PASS|STOP);(?: Details=SUPPRESSED;)?',line):print(line)
   safe=safe_collector_diagnostic(line)
@@ -73,12 +75,14 @@ def diagnose():
   if line.startswith('PreflightDiagnostic=') and line.removeprefix('PreflightDiagnostic=').removesuffix(';') in allowed:print(line)
  report=json.loads(pathlib.Path('artifacts/preflight-sql.json').read_text(encoding='utf-8-sig'))
  assert report['source']==os.environ['GITHUB_SHA'] and report['diagnosticOnly'] is False
- assert report['diagnosis'] in allowed|{'NONE'} and len(report['cases'])<=19
+ assert report['diagnosis'] in allowed|{'NONE'} and len(report['cases'])<=6
  assert report['liveSql'] is False and report['apiPrincipalBinding']=='UNKNOWN'
  for key,label in [('collectorStopPhase','CollectorStopPhase'),('collectorFailureClassification','CollectorFailureClassification'),('collectorReturn','CollectorReturn'),('collectorGuard','CollectorGuard')]:
   assert safe_collector_diagnostic(label+'='+report[key]+';')
  # A classified STOP is retained as a failed test, never converted to suite PASS.
- assert r.returncode==0 and report['passed'] and len(report['cases'])==19
+ assert r.returncode==0 and report['passed'] and len(report['cases'])==6
+ assert {x['case'] for x in report['cases']}=={'RealReferenceParameterFacetsAndKeys','DisabledConstraintFails','MissingIndexFails','ColumnFacetDriftFails','RestrictedMetadataStops','DeniedDdlRegistryObservedConnectedOnly'}
+ print('PreflightReferenceEvidence=PASS; Accepted13=REUSED; G1=HOLD;')
 def safe_collector_diagnostic(line):
  allowed={
   'CollectorGuard':{'GUARD_UNAVAILABLE'}|{f'G{i:02}' for i in range(1,23)},

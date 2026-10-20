@@ -976,18 +976,6 @@
   "checks": [
     {
       "table": "ChangeRequests",
-      "name": "CK_B3_ChangeRequests_KnownCodes",
-      "definition": "(EntityKind=N'Location' AND\n          ((OperationCode=N'CreateLocation' AND RiskCode=N'High')\n           OR (OperationCode=N'UpdatePublishedLocation'\n               AND RiskCode IN(N'Low',N'High'))))",
-      "migration": "017"
-    },
-    {
-      "table": "ChangeRequests",
-      "name": "CK_B3_ChangeRequests_KnownStatus",
-      "definition": "([Status] IN(N'Pending',N'Rejected',N'Applied'))",
-      "migration": "012"
-    },
-    {
-      "table": "ChangeRequests",
       "name": "CK_B3_ChangeRequests_ExpectedLocationVersion",
       "definition": "([ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=8)",
       "migration": "011"
@@ -999,28 +987,16 @@
       "migration": "011"
     },
     {
-      "table": "ChangeRequests",
-      "name": "CK_B3_ChangeRequests_ReviewState",
-      "definition": "((Status=N'Pending' AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL\n    AND ReviewReason IS NULL AND AppliedAt IS NULL)\n OR (Status=N'Rejected' AND ReviewedByUserId IS NOT NULL\n    AND ReviewedByUserId<>RequestedByUserId AND ReviewedAt IS NOT NULL\n    AND ReviewedAt>=SubmittedAt AND ReviewReason IS NOT NULL\n    AND LEN(LTRIM(RTRIM(ReviewReason)))>0 AND AppliedAt IS NULL)\n OR (Status=N'Applied' AND\n    ((ReviewedByUserId IS NOT NULL AND ReviewedByUserId<>RequestedByUserId\n      AND ReviewedAt IS NOT NULL AND ReviewedAt>=SubmittedAt)\n     OR\n     (OperationCode=N'UpdatePublishedLocation' AND RiskCode=N'Low'\n      AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL\n      AND ISJSON(EvidenceJson)=1\n      AND JSON_VALUE(EvidenceJson,N'$.PublicationMode')=N'DirectLowRisk'))\n    AND ReviewReason IS NOT NULL AND LEN(LTRIM(RTRIM(ReviewReason)))>0\n    AND AppliedAt IS NOT NULL AND AppliedAt>=SubmittedAt))",
-      "migration": "018"
-    },
-    {
-      "table": "ChangeRequestEvents",
-      "name": "CK_B3_ChangeRequestEvents_EventType",
-      "definition": "(EventType IN(N'Submitted',N'Rejected',N'Approved',N'Applied',\n    N'GeocodeEvidenceRecorded',N'DuplicateReviewEvidenceRecorded',\n    N'LeaderApproved',N'LeaderRejected',N'DirectLowRiskApplied'))",
-      "migration": "018"
-    },
-    {
       "table": "ChangeRequestEvents",
       "name": "CK_B3_ChangeRequestEvents_DetailsJson",
       "definition": "([DetailsJson] IS NULL OR ISJSON([DetailsJson])=1)",
       "migration": "011"
     },
     {
-      "table": "ChangeRequestEvents",
-      "name": "CK_B3_ChangeRequestEvents_DecisionState",
-      "definition": "(ActorUserId IS NOT NULL AND ActorUserId>0\n  AND CorrelationId<>'00000000-0000-0000-0000-000000000000'\n  AND ((EventType IN(N'Submitted',N'Applied') AND DecisionKey IS NULL)\n    OR (EventType IN(N'Rejected',N'Approved',N'GeocodeEvidenceRecorded',\n         N'DuplicateReviewEvidenceRecorded',N'LeaderApproved',N'LeaderRejected',\n         N'DirectLowRiskApplied')\n        AND DecisionKey IS NOT NULL\n        AND DecisionKey<>'00000000-0000-0000-0000-000000000000')))",
-      "migration": "018"
+      "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_KnownStatus",
+      "definition": "([Status] IN(N'Pending',N'Rejected',N'Applied'))",
+      "migration": "012"
     },
     {
       "table": "LocationPublicationStages",
@@ -1101,18 +1077,6 @@
       "migration": "014"
     },
     {
-      "table": "LocationPublishedVersions",
-      "name": "CK_OptionC_Published_Origin",
-      "definition": "(VersionNumber=1 OR\n              (VersionNumber>1 AND ChangeRequestId IS NOT NULL))",
-      "migration": "017"
-    },
-    {
-      "table": "ChangeRequestEvents",
-      "name": "CK_B3_ChangeRequestEvents_StageEvidenceEventType",
-      "definition": "(\n            [ActorUserId] IS NOT NULL\n            AND [CorrelationId] <> N'00000000-0000-0000-0000-000000000000'\n            AND\n            (\n                ([EventType] IN(N'Submitted',N'Applied') AND [DecisionKey] IS NULL)\n                OR\n                ([EventType] IN(N'Rejected',N'Approved',\n                                N'GeocodeEvidenceRecorded',\n                                N'DuplicateReviewEvidenceRecorded')\n                 AND [DecisionKey] IS NOT NULL\n                 AND [DecisionKey] <> N'00000000-0000-0000-0000-000000000000')\n            )\n        )",
-      "migration": "015"
-    },
-    {
       "table": "ChangeRequestLeaderReviews",
       "name": "CK_OptionC_LeaderReview_Stage",
       "definition": "(ReviewStage=N'LeaderFirstLevel')",
@@ -1132,8 +1096,20 @@
     },
     {
       "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_KnownCodes",
+      "definition": "(EntityKind=N'Location' AND\n          ((OperationCode=N'CreateLocation' AND RiskCode=N'High')\n           OR (OperationCode=N'UpdatePublishedLocation'\n               AND RiskCode IN(N'Low',N'High'))))",
+      "migration": "017"
+    },
+    {
+      "table": "ChangeRequests",
       "name": "CK_OptionC_CreateLowRisk_BeforeImage",
       "definition": "((OperationCode=N'CreateLocation' AND BeforeJson IS NULL)\n           OR (OperationCode=N'UpdatePublishedLocation'\n               AND BeforeJson IS NOT NULL AND ISJSON(BeforeJson)=1))",
+      "migration": "017"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "CK_OptionC_Published_Origin",
+      "definition": "(VersionNumber=1 OR\n              (VersionNumber>1 AND ChangeRequestId IS NOT NULL))",
       "migration": "017"
     },
     {
@@ -1141,6 +1117,24 @@
       "name": "CK_OptionC_CreateReservation_Status",
       "definition": "(ReservationStatus IN(N'Pending',N'Published',N'Abandoned'))",
       "migration": "017"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_ReviewState",
+      "definition": "((Status=N'Pending' AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL\n    AND ReviewReason IS NULL AND AppliedAt IS NULL)\n OR (Status=N'Rejected' AND ReviewedByUserId IS NOT NULL\n    AND ReviewedByUserId<>RequestedByUserId AND ReviewedAt IS NOT NULL\n    AND ReviewedAt>=SubmittedAt AND ReviewReason IS NOT NULL\n    AND LEN(LTRIM(RTRIM(ReviewReason)))>0 AND AppliedAt IS NULL)\n OR (Status=N'Applied' AND\n    ((ReviewedByUserId IS NOT NULL AND ReviewedByUserId<>RequestedByUserId\n      AND ReviewedAt IS NOT NULL AND ReviewedAt>=SubmittedAt)\n     OR\n     (OperationCode=N'UpdatePublishedLocation' AND RiskCode=N'Low'\n      AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL\n      AND ISJSON(EvidenceJson)=1\n      AND JSON_VALUE(EvidenceJson,N'$.PublicationMode')=N'DirectLowRisk'))\n    AND ReviewReason IS NOT NULL AND LEN(LTRIM(RTRIM(ReviewReason)))>0\n    AND AppliedAt IS NOT NULL AND AppliedAt>=SubmittedAt))",
+      "migration": "018"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "CK_B3_ChangeRequestEvents_EventType",
+      "definition": "(EventType IN(N'Submitted',N'Rejected',N'Approved',N'Applied',\n    N'GeocodeEvidenceRecorded',N'DuplicateReviewEvidenceRecorded',\n    N'LeaderApproved',N'LeaderRejected',N'DirectLowRiskApplied'))",
+      "migration": "018"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "CK_B3_ChangeRequestEvents_DecisionState",
+      "definition": "(ActorUserId IS NOT NULL AND ActorUserId>0\n  AND CorrelationId<>'00000000-0000-0000-0000-000000000000'\n  AND ((EventType IN(N'Submitted',N'Applied') AND DecisionKey IS NULL)\n    OR (EventType IN(N'Rejected',N'Approved',N'GeocodeEvidenceRecorded',\n         N'DuplicateReviewEvidenceRecorded',N'LeaderApproved',N'LeaderRejected',\n         N'DirectLowRiskApplied')\n        AND DecisionKey IS NOT NULL\n        AND DecisionKey<>'00000000-0000-0000-0000-000000000000')))",
+      "migration": "018"
     },
     {
       "table": "LocationMergeDetails",

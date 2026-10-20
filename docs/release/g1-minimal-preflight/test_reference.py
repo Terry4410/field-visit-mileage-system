@@ -18,4 +18,8 @@ class Reference(unittest.TestCase):
   self.assertEqual((c['columns'],c['referencedTable'],c['referencedColumns']),(['ChangeRequestId'],'ChangeRequests',['ChangeRequestId']))
  def test_no_ledger_prerequisite(self):
   self.assertNotIn('FieldVisitMigrationLedger',json.dumps(self.r))
+ def test_dropped_015_constraint_not_required_after_016(self):
+  self.assertNotIn('CK_B3_ChangeRequestEvents_StageEvidenceEventType',{x['name'] for x in self.r['checks']})
+  c=next(x for x in self.r['checks'] if x['name']=='CK_B3_ChangeRequestEvents_DecisionState')
+  self.assertEqual(c['migration'],'018')
 if __name__=='__main__':unittest.main()
