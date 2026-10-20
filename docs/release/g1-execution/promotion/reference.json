@@ -1,51 +1,51 @@
 {
-  "initial": "",
+  "originRc": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "fixture": "SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE",
+  "initial": "B53E33323668F16BA7D3C05BECEA2E64A42345AFDBB9A49B0A91FCBD59D0B20A",
+  "emptyLedger": "573B6F21CEFAA6EAACE213F950D469EBE9C080FB073261522B6A3E7ADBF78380",
   "steps": [
     {
-      "catalog": "",
-      "id": 11
+      "id": 11,
+      "catalog": "3CAFFEE23251E45A1E1E3E90A1003256CF0AD0BE29AB8EEB23BBD5076C4E6405"
     },
     {
-      "catalog": "",
-      "id": 12
+      "id": 12,
+      "catalog": "D46BE3BB81F8B4645C5732A68B20BD58F6B16125EEBA6C0FCE1051EBB6DD135A"
     },
     {
-      "catalog": "",
-      "id": 14
+      "id": 14,
+      "catalog": "89672CBD083BDCA08DF15F38D9EB7AD8F67CA5319CFE94E97A4E60EE22AE34FE"
     },
     {
-      "catalog": "",
-      "id": 15
+      "id": 15,
+      "catalog": "40825212DB9403724893125CDECA4DBE7071D2D6CB25DE623093F0BD67FB8879"
     },
     {
-      "catalog": "",
-      "id": 16
+      "id": 16,
+      "catalog": "538E93637633603DE40410F41BA8DD957C10D01571E7280AA564CBEC5DBDA6F7"
     },
     {
-      "catalog": "",
-      "id": 17
+      "id": 17,
+      "catalog": "DCFF6FCB1095204E8A2B1E7BEBB9FC8B5A7F3950794B2BE71E6B54DFB90B6205"
     },
     {
-      "catalog": "",
-      "id": 18
+      "id": 18,
+      "catalog": "D619301F85B9061FDAF16BD3DA22C1FE37E71088D53EED0ABDE0FFE679662033"
     },
     {
-      "catalog": "",
-      "id": 19
+      "id": 19,
+      "catalog": "E168885F8F9B9482791B20A2CF301E771380C514C0334D13B904C78E403C558E"
     },
     {
-      "catalog": "",
-      "id": 20
+      "id": 20,
+      "catalog": "CFAAAE20BDE78DA8EA1327FEF077ABECA48B7D4579303BF2CB7B62DDDA22BD66"
     }
   ],
-  "emptyLedger": "",
-  "originRc": "f29affb3299828f45b1f131321779e8bea2f86a8",
   "contract": "g1-scoped-promotion-reference-v1",
-  "fixture": "SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE",
   "provenance": {
-    "runId": 39362993662,
-    "artifactId": 12237084997,
-    "zipSha256": "d278243dfc53ac6e253da93cca546f1d749b83d87f3dc84cc42df2f169ca980c",
-    "source": "6ac7aabc611170c26e03b0eba14acc9dd61fd9a2"
+    "runId": 39364868473,
+    "artifactId": 12238668390,
+    "zipSha256": "e5b3971ac863e99542f464c6ff01967bbc2cc596964cba0d2d83839e1c985cd0",
+    "source": "feb0c9e1302a37d6a8faedd3f02aa99ddc1c54c9"
   }
 }
