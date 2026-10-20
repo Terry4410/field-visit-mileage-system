@@ -73,6 +73,23 @@ def manifest():
  (ART/'release-manifest.json').write_text(json.dumps(doc,indent=2)+'\n')
  print('G1_IMMUTABLE_BUILD_MANIFEST_CREATED deployment=NOT_AUTHORIZED')
 
+def sanitized_trx(raw):
+ import xml.etree.ElementTree as ET
+ original=ET.fromstring(raw);ns='http://microsoft.com/schemas/VisualStudio/TeamTest/2010'
+ root=ET.Element('{'+ns+'}TestRun')
+ results=ET.SubElement(root,'{'+ns+'}Results')
+ for row in original.iter():
+  if row.tag.endswith('UnitTestResult'):
+   # Parameter values can contain intentionally sensitive provider canaries.
+   # Keep method identity/outcome/duration, never values, errors or stdout.
+   attrs={k:row.attrib[k] for k in ('outcome','duration','testId') if k in row.attrib}
+   attrs['testName']=row.attrib.get('testName','').split('(')[0]
+   ET.SubElement(results,'{'+ns+'}UnitTestResult',attrs)
+ counters=next(x for x in original.iter() if x.tag.endswith('Counters'))
+ summary=ET.SubElement(root,'{'+ns+'}ResultSummary')
+ ET.SubElement(summary,'{'+ns+'}Counters',counters.attrib)
+ return ET.tostring(root,encoding='utf-8',xml_declaration=True)
+
 def finalize():
  import xml.etree.ElementTree as ET
  source();counts={}
@@ -84,7 +101,10 @@ def finalize():
  # Existing acceptance reader verifies two real browser flows and their separate SQL probe.
  subprocess.run([sys.executable,'scripts/ci/leader_rc_acceptance.py'],check=True)
  p=ART/'release-manifest.json';d=json.loads(p.read_text());d['testCounts']=counts;d['realBrowserScenarios']=2
- d['decision']='G1_RC_NONDEPLOY_READY_FOR_INDEPENDENT_AUDIT';p.write_text(json.dumps(d,indent=2)+'\n')
+ d['decision']='G1_RC_NONDEPLOY_READY_FOR_INDEPENDENT_AUDIT'
+ for trx in (ART/'test-results').glob('*.trx'):trx.write_bytes(sanitized_trx(trx.read_bytes()))
+ d['evidenceFilesSha256']={str(f.relative_to(ART)):digest(f.read_bytes()) for f in ART.rglob('*') if f.is_file() and f!=p}
+ p.write_text(json.dumps(d,indent=2)+'\n')
  print('G1_RC_NONDEPLOY_READY_FOR_INDEPENDENT_AUDIT release=HOLD sharedSql=NOT_EXECUTED')
 
 if __name__=='__main__':

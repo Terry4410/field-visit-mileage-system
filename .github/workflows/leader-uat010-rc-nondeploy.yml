@@ -23,7 +23,7 @@ jobs:
       - name: Verify semantic source closure and OFF boundaries
         run: |
           python3 scripts/ci/g1_rc_evidence.py verify
-          python3 -m unittest scripts/ci/test_leader_rc_preflight.py scripts/ci/test_r6_schema_fidelity.py
+          python3 -m unittest scripts/ci/test_leader_rc_preflight.py scripts/ci/test_r6_schema_fidelity.py scripts/ci/test_g1_rc_evidence.py
       - name: Start isolated SQL Server 2022 with masked ephemeral fixture credentials
         run: python3 scripts/ci/g1_rc_evidence.py sql
       - uses: actions/setup-node@v4
@@ -98,7 +98,7 @@ jobs:
         if: always()
         run: docker rm -f g1-disposable-sql >/dev/null 2>&1 || true
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: g1-rc-nondeploy-${{ github.sha }}
           path: |
