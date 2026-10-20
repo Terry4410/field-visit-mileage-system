@@ -2,7 +2,7 @@
 import hashlib,json,os,pathlib,re,secrets,subprocess,sys,time
 P=pathlib.Path('docs/release/g1-minimal-preflight')
 BASE='88c21921860888f531a0962867f916c307452bbc'
-DIAGNOSTIC_BASE='ab5087d3a37c3c2ab5abd262cf2d9a06c47977a7'
+DIAGNOSTIC_BASE='805199c3af604d5068b77cb43dcb4b845d5b307d'
 RC='f29affb3299828f45b1f131321779e8bea2f86a8'
 def sha(b):return hashlib.sha256(b).hexdigest()
 def git(*args):return subprocess.check_output(['git',*args]).decode().strip()
@@ -74,16 +74,17 @@ def diagnose():
  assert report['source']==os.environ['GITHUB_SHA'] and report['diagnosticOnly'] is True
  assert report['diagnosis'] in allowed|{'NONE'} and len(report['cases'])<=1
  assert report['liveSql'] is False and report['apiPrincipalBinding']=='UNKNOWN'
- for key,label in [('collectorStopPhase','CollectorStopPhase'),('collectorFailureClassification','CollectorFailureClassification'),('collectorReturn','CollectorReturn')]:
+ for key,label in [('collectorStopPhase','CollectorStopPhase'),('collectorFailureClassification','CollectorFailureClassification'),('collectorReturn','CollectorReturn'),('collectorGuard','CollectorGuard')]:
   assert safe_collector_diagnostic(label+'='+report[key]+';')
  # A classified STOP is retained as a failed test, never converted to suite PASS.
  assert r.returncode==0 and report['passed']
 def safe_collector_diagnostic(line):
  allowed={
+  'CollectorGuard':{'GUARD_UNAVAILABLE'}|{f'G{i:02}' for i in range(1,23)},
   'CollectorStopPhase':{'PRE_SQL_GUARDS','CONNECTION_OPEN','TARGET_OR_MARKER','CATALOG_COLLECTION','PERMISSIONS_COLLECTION','FINAL_EVIDENCE_VALIDATION','STOP_PHASE_UNAVAILABLE'},
   'CollectorFailureClassification':{'UnknownSqlFailure','UnclassifiedSqlFailure','TargetGuardRejected','RequiredObjectMissing','HistoricalSelectOrObjectUnavailable','SqlPermissionDenied','MissingObjectOrColumn','SqlSyntaxOrCompatibility','AuthenticationOrDatabaseAccess','TimeoutOrTransient','ConnectivityFailure','APPROVED_CLASSIFICATION_NOT_PRESENT'},
   'CollectorReturn':{'COLLECTOR_ZERO_EXIT','COLLECTOR_NONZERO_EXIT','HARNESS_EXCEPTION_BEFORE_COLLECTOR_RETURN','HARNESS_FAILURE_OTHER','COLLECTOR_NOT_INVOKED'}}
- m=re.fullmatch(r'(CollectorStopPhase|CollectorFailureClassification|CollectorReturn)=([A-Za-z_]+);',line)
+ m=re.fullmatch(r'(CollectorStopPhase|CollectorFailureClassification|CollectorReturn|CollectorGuard)=([A-Za-z_0-9]+);',line)
  return line if m and m[2] in allowed[m[1]] else None
 if __name__=='__main__':
  try:{'check':check,'provider':provider,'test':test,'model':model,'diagnose':diagnose}[sys.argv[1]]()

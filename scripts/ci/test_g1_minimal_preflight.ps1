@@ -8,7 +8,13 @@ $diagnosis='HARNESS_FAILURE_OTHER'
 $script:collectorStopPhase='STOP_PHASE_UNAVAILABLE'
 $script:collectorFailureClassification='APPROVED_CLASSIFICATION_NOT_PRESENT'
 $script:collectorReturn='COLLECTOR_NOT_INVOKED'
+$script:collectorGuard='GUARD_UNAVAILABLE'
 function CaptureSafePhase($copy){
+ $script:collectorGuard='GUARD_UNAVAILABLE'
+ if(Test-Path -LiteralPath $copy.guard){
+  $id=[IO.File]::ReadAllText($copy.guard)
+  if($id -cmatch '^G(?:0[1-9]|1[0-9]|2[0-2])$'){$script:collectorGuard=$id}
+ }
  $script:collectorStopPhase='STOP_PHASE_UNAVAILABLE'
  if(Test-Path -LiteralPath $copy.phase){
   $phase=[IO.File]::ReadAllText($copy.phase)
@@ -51,6 +57,45 @@ function TestCopy([string]$id,[string]$replaceCatalog=''){
  Assert ($collector.Contains($needle))
  $trace=Join-Path $d 'trace.txt'
  $phase=Join-Path $d 'phase.txt'
+ $guard=Join-Path $d 'guard.txt'
+ # Mark the next original pre-SQL statement BEFORE argument evaluation.
+ # Fixed IDs only; no expression values and no changes to original behavior.
+ $anchors=@(
+  ' Guard ($ExpectedManifestSha256',
+  ' Guard ((Get-FileHash $mp',
+  ' $m=Get-Content $mp',
+  ' Guard ($m.source',
+  '  Guard ([IO.Path]::GetFileName',
+  '  Guard ((Get-FileHash (Join-Path',
+  ' Guard ($null -ne $ApplicationConnection)',
+  ' Guard (-not [string]::IsNullOrWhiteSpace',
+  ' Guard (-not (Test-Path',
+  ' Guard ($ApplicationConnection.GetType()',
+  ' Guard ($ApplicationConnection.State',
+  ' $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]',
+  ' Guard ($b.DataSource',
+  ' Guard (-not $b.TrustServerCertificate',
+  ' Guard ($null -eq $ApplicationConnection.RetryLogicProvider)',
+  " `$b['Encrypt']=",
+  " `$b['ApplicationIntent']=",
+  ' $ApplicationConnection.ConnectionString=',
+  " . (Join-Path `$root 'uat_schema_fidelity_evidence.ps1')",
+  ' $groups=[Collections.Generic.List[object]]',
+  ' $ApplicationConnection.Open();',
+  ' $root=$PSScriptRoot;'
+ )
+ $lines=$collector -split "`n";$observed=@{}
+ $collector=($lines|ForEach-Object{
+  $line=$_
+  for($i=0;$i -lt $anchors.Count;$i++){
+   if($line.StartsWith($anchors[$i])){
+    Assert (-not $observed.ContainsKey($i));$observed[$i]=$true
+    " [IO.File]::WriteAllText('$guard','G$('{0:00}' -f ($i+1))')"
+   }
+  }
+  $line
+ }) -join "`n"
+ Assert ($observed.Count -eq $anchors.Count)
  # Temporary-copy observation only: six fixed phases, no values or guard changes.
  Assert ($collector.Contains('$opened=$false') -and $collector.Contains(' $ApplicationConnection.Open();') -and $collector.Contains(' $e=[ordered]@'))
  $collector=$collector.Replace('$opened=$false',('$opened=$false'+"`n[IO.File]::WriteAllText('$phase','PRE_SQL_GUARDS')"))
@@ -67,7 +112,7 @@ function TestCopy([string]$id,[string]$replaceCatalog=''){
  [IO.File]::WriteAllText((Join-Path $d '01-target.sql'),$identity)
  if($replaceCatalog){[IO.File]::WriteAllText((Join-Path $d '03-catalog.sql'),$replaceCatalog)}
  $pin=Rehash $d
- return @{directory=$d;trace=$trace;phase=$phase;pin=$pin;evidence=(Join-Path $d 'evidence.json')}
+ return @{directory=$d;trace=$trace;phase=$phase;guard=$guard;pin=$pin;evidence=(Join-Path $d 'evidence.json')}
 }
 function RunCopy($copy){
  $c=NewConnection;$global:LASTEXITCODE=0;$returned=$false
@@ -183,6 +228,7 @@ try{
  Write-Output "CollectorStopPhase=$script:collectorStopPhase;"
  Write-Output "CollectorFailureClassification=$script:collectorFailureClassification;"
  Write-Output "CollectorReturn=$script:collectorReturn;"
+ Write-Output "CollectorGuard=$script:collectorGuard;"
  Write-Output "PreflightCase=$case; Status=STOP; Details=SUPPRESSED;"
  # Diagnostic line number only, never exception text or SQL metadata.
  Write-Output "PreflightHarnessLine=$($_.InvocationInfo.ScriptLineNumber);"
@@ -196,6 +242,6 @@ try{
  }
  if($temp){Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue}
  $artifact=Join-Path $repo 'artifacts';New-Item -ItemType Directory -Force $artifact|Out-Null
- @{contract='g1-minimal-preflight-disposable-v1';source=$env:GITHUB_SHA;base='88c21921860888f531a0962867f916c307452bbc';cases=$results.ToArray();passed=($case -in @('Complete','DiagnosticComplete') -and -not $script:failed);diagnosticOnly=[bool]$FirstStopOnly;diagnosis=$diagnosis;collectorStopPhase=$script:collectorStopPhase;collectorFailureClassification=$script:collectorFailureClassification;collectorReturn=$script:collectorReturn;provider='SQL_SERVER_2022_DEVELOPER_LOCAL';testOnlyTargetAndTimeoutDerivatives=$true;apiPrincipalBinding='UNKNOWN';liveSql=$false;acceptedSuiteRerun=$false}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $artifact 'preflight-sql.json') -Encoding utf8
+ @{contract='g1-minimal-preflight-disposable-v1';source=$env:GITHUB_SHA;base='88c21921860888f531a0962867f916c307452bbc';cases=$results.ToArray();passed=($case -in @('Complete','DiagnosticComplete') -and -not $script:failed);diagnosticOnly=[bool]$FirstStopOnly;diagnosis=$diagnosis;collectorStopPhase=$script:collectorStopPhase;collectorFailureClassification=$script:collectorFailureClassification;collectorReturn=$script:collectorReturn;collectorGuard=$script:collectorGuard;provider='SQL_SERVER_2022_DEVELOPER_LOCAL';testOnlyTargetAndTimeoutDerivatives=$true;apiPrincipalBinding='UNKNOWN';liveSql=$false;acceptedSuiteRerun=$false}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $artifact 'preflight-sql.json') -Encoding utf8
 }
 if($script:failed){exit 1}
