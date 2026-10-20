@@ -6,7 +6,7 @@ def digest(b):return hashlib.sha256(b).hexdigest()
 def run(mode):
  r=subprocess.run(['pwsh','-NoProfile','-File','scripts/ci/test_g1_promotion.ps1','-Mode',mode],capture_output=True,text=True,timeout=900)
  for line in r.stdout.splitlines():
-  if re.fullmatch(r'PromotionCase=[A-Za-z0-9_]+; Status=(PASS|STOP);(?: Details=SUPPRESSED;)?',line) or re.fullmatch(r'HarnessDiagnostic=STOP; Line=[0-9]+; ProviderCode=-?[0-9]+;',line):print(line)
+  if re.fullmatch(r'PromotionCase=[A-Za-z0-9_]+; Status=(PASS|STOP);(?: Details=SUPPRESSED;)?',line) or re.fullmatch(r'HarnessDiagnostic=STOP; Line=[0-9]+; ProviderCode=-?[0-9]+;',line) or re.fullmatch(r'RefusalDiagnostic=STOP; Guard=(G1_[A-Z0-9_]+|SUPPRESSED); ProviderCode=([0-9]+|SUPPRESSED);',line):print(line)
  assert r.returncode==0
 # Deterministic source builder. Original disposable files are never written.
 IDS=[11,12,14,15,16,17,18,19,20]
@@ -93,7 +93,7 @@ def build():
   sql+=f'-- G1_STEP_{n:03d}_BEGIN\n'+marker_state(previous,52012)+(dynamic(payload(n,'Up'))+('-- G1_BACKFILL_BEGIN\n'+dynamic(payload(n,'Backfill')) if n==14 else ''))+marker_state(n,52012)
   if n==14:
    sql+=dynamic("IF EXISTS(SELECT 1 FROM dbo.Locations l WHERE l.ApprovalStatus=N'Approved' AND l.IsActive=1 AND NOT EXISTS(SELECT 1 FROM dbo.LocationPublishedVersions v WHERE v.LocationId=l.LocationId AND v.VersionNumber=1 AND v.IsCurrent=1 AND v.ChangeRequestId IS NULL AND v.SourceLocationRowVersion=l.RowVersion AND v.PublishedSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),v.PublishedJson)))) OR (SELECT COUNT_BIG(*) FROM dbo.LocationPublishedVersions)<>(SELECT COUNT_BIG(*) FROM dbo.Locations WHERE ApprovalStatus=N'Approved' AND IsActive=1) THROW 52015,N'G1_BACKFILL_COMPLETION_STOP',1;")
-  sql+=hash_call(catalog,'@G1Hash')+f"IF @G1Hash IS NULL OR LOWER(@G1Hash)<>{lit(expected[n])} THROW 52013,N'G1_POSTCONDITION_STOP',1;\n"
+  sql+=hash_call(catalog,'@G1Hash')+f"IF @G1Hash IS NULL OR LOWER(@G1Hash)<>{lit(expected[n])} THROW 52013,N'G1_POSTCONDITION_{n:03d}_STOP',1;\n"
   sql+=hash_call(marker_query(n),'@G1After')+dynamic(f"INSERT dbo.FieldVisitMigrationLedger(VersionNumber,PackageId,PayloadSha256,CatalogSha256,MarkersSha256,AppliedAt) VALUES({lit(f'1.8.0-{n:03d}')},0x{package},0x{hashes[n]},0x{expected[n]},CONVERT(binary(32),@mh,2),SYSUTCDATETIME());").replace(';\n',",N'@mh varchar(64)',@mh=@G1After;\n",1)
   sql+=f'-- G1_STEP_{n:03d}_END\n';previous=n
  sql+=hash_call(history,'@G1After')+"IF @G1History IS NULL OR @G1After IS NULL OR @G1History<>@G1After THROW 52016,N'G1_HISTORY_STOP',1;\n"+final+"COMMIT TRANSACTION; SELECT N'G1_PROMOTION_COMPLETE' AS Status;\n"+catch

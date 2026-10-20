@@ -5,7 +5,7 @@ function Assert([bool]$ok){if(-not $ok){throw 'ASSERT_STOP'}}
 function Exec($c,[string]$sql){$cmd=$c.CreateCommand();try{$cmd.CommandTimeout=120;$cmd.CommandText=$sql;[void]$cmd.ExecuteNonQuery()}finally{$cmd.Dispose()}}
 function Scalar($c,[string]$sql){$cmd=$c.CreateCommand();try{$cmd.CommandTimeout=30;$cmd.CommandText=$sql;return [string]$cmd.ExecuteScalar()}finally{$cmd.Dispose()}}
 function Code($e){while($null -ne $e){if($e -is [Microsoft.Data.SqlClient.SqlException]){return [int]$e.Number};$e=$e.InnerException};return -99999}
-function Refuse($c,[string]$sql,[int[]]$codes){try{Exec $c $sql}catch{Assert ((Code $_.Exception) -in $codes);return};throw 'EXPECTED_STOP_MISSING'}
+function Refuse($c,[string]$sql,[int[]]$codes){try{Exec $c $sql}catch{$actual=Code $_.Exception;if($actual -notin $codes){$tag=[regex]::Match($_.Exception.Message,'\bG1_[A-Z0-9_]+\b').Value;if(-not $tag){$tag='SUPPRESSED'};$safe=if($actual -in @(52001,52002,52003,52004,52005,52010,52011,52012,52013,52014,52015,52016,52020,52090,52990)){$actual}else{'SUPPRESSED'};Write-Output "RefusalDiagnostic=STOP; Guard=$tag; ProviderCode=$safe;"};Assert ($actual -in $codes);return};throw 'EXPECTED_STOP_MISSING'}
 function Pass([string]$id){$results.Add(@{case=$id;result='PASS'});Write-Output "PromotionCase=$id; Status=PASS;"}
 try{
  $case='Client';Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
