@@ -9,6 +9,7 @@ import {isProjectAvailableOn} from "../project-date-rules";
 import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
 import {shouldHydrateTripOnEdit} from "../visitor-draft-transition";
 import type {Project,RoutePreviewResult,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
+import{tripLocationAssignment}from"../trip-location-assignment";
 
 type ModalKind="stop"|"endpoint"|"submit"|null;
 type EndpointKind="start"|"end";
@@ -61,7 +62,7 @@ export default function VisitorPage(){
   const [stopPurpose,setStopPurpose]=useState("");
 
   const [projectId,setProjectId]=useState(""),[visitTypeId,setVisitTypeId]=useState("");
-  const [tempName,setTempName]=useState(""),[tempAddress,setTempAddress]=useState("");
+  const [tempName,setTempName]=useState(""),[tempAddress,setTempAddress]=useState(""),[tempTaxId,setTempTaxId]=useState(""),[tempMasterNote,setTempMasterNote]=useState("");
 
   useEffect(()=>{
     if(!editId&&user?.teamId)
@@ -133,6 +134,8 @@ export default function VisitorPage(){
       setStopPurpose("");
       setTempName("");
       setTempAddress("");
+      setTempTaxId("");
+      setTempMasterNote("");
       setModal(null);
       setTeamAccessWarning(teamResolution.warning||"");
       setMsg(
@@ -289,7 +292,7 @@ export default function VisitorPage(){
     setStopPurpose("");
     setProjectId("");
     setVisitTypeId("");
-    setTempName("");setTempAddress("");
+    setTempName("");setTempAddress("");setTempTaxId("");setTempMasterNote("");
   };
 
   const openNewStop=()=>{
@@ -343,11 +346,15 @@ export default function VisitorPage(){
 
       setTempName("");
       setTempAddress("");
+      setTempTaxId("");
+      setTempMasterNote("");
     }else{
       setLocationMethod("temporary");
       setSelectedExistingLocation(null);
       setTempName(stop.locationName||"");
       setTempAddress(stop.address||"");
+      setTempTaxId(stop.taxId||"");
+      setTempMasterNote(stop.masterNote||"");
     }
 
     setModal("stop");
@@ -415,6 +422,8 @@ export default function VisitorPage(){
       &&editingTemporary.locationId
       &&editingTemporary.locationName===tempName.trim()
       &&(editingTemporary.address||"")===tempAddress.trim()
+      &&(editingTemporary.taxId||"")===tempTaxId.trim()
+      &&(editingTemporary.masterNote||"")===tempMasterNote.trim()
         ?editingTemporary.locationId
         :undefined;
     commitStop({
@@ -424,6 +433,8 @@ export default function VisitorPage(){
       sourceType:"Temporary",
       locationName:tempName.trim(),
       address:tempAddress.trim(),
+      taxId:tempTaxId.trim()||undefined,
+      masterNote:tempMasterNote.trim()||undefined,
       visitPurpose:stopPurpose.trim()||undefined,
       notes:selectedProjectId?"專案臨時地點":"臨時公務地點"
     });
@@ -544,7 +555,7 @@ export default function VisitorPage(){
       <div className="grid cols-2">
         <div className="field"><label>行程日期</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
         <div className="field">
-          <label>行程歸屬小組</label>
+          <label>本次行程小組</label>
           {teamScopes.length>1
             ?<select
               value={tripTeamId}
@@ -570,6 +581,7 @@ export default function VisitorPage(){
             </div>
           }
         </div>
+        <div className="field"><label>地點歸屬</label><input value={tripLocationAssignment(tripContext)} disabled aria-label="地點歸屬派駐地點"/><div className="hint">依人員派駐資料顯示；不隨本次拜訪地點或行程小組名稱變更。</div></div>
         <div className="field"><label>交通工具</label><select value={vehicleType} onChange={e=>setVehicleType(e.target.value)}><option value="Motorcycle">機車</option><option value="Car">汽車</option></select><div className="hint">預設機車；交通工具會決定適用的里程補助費率。</div></div>
         <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
         <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
@@ -719,8 +731,8 @@ export default function VisitorPage(){
           </div>
 
           <div className="field">
-            <label>行程歸屬小組</label>
-            <input value={selectedTripTeam?.teamName||""} disabled/>
+            <label>地點歸屬</label>
+            <input value={tripLocationAssignment(tripContext)} disabled/>
           </div>
 
           <SmartLocationPicker
@@ -760,6 +772,8 @@ export default function VisitorPage(){
           </div>
           <div className="field"><label>地點名稱</label><input value={tempName} onChange={e=>setTempName(e.target.value)} placeholder="例如：客戶 D"/></div>
           <div className="field"><label>地址或 Plus Code</label><input value={tempAddress} onChange={e=>setTempAddress(e.target.value)} placeholder="請輸入完整地址或 Plus Code"/></div>
+          <div className="field"><label>統一編號 <span className="optional">選填</span></label><input value={tempTaxId} maxLength={20} onChange={e=>setTempTaxId(e.target.value)} /></div>
+          <div className="field"><label>地點備註 <span className="optional">選填</span></label><textarea value={tempMasterNote} maxLength={1000} onChange={e=>setTempMasterNote(e.target.value)} /></div>
         </>}
 
         <div className="field stop-purpose-field">

@@ -1,11 +1,21 @@
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace FieldVisit.Infrastructure;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
 {
+    public async Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct)
+        => new UnitOfWorkTransaction(await Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct));
+
+    private sealed class UnitOfWorkTransaction(IDbContextTransaction transaction) : IUnitOfWorkTransaction
+    {
+        public Task CommitAsync(CancellationToken ct) => transaction.CommitAsync(ct);
+        public ValueTask DisposeAsync() => transaction.DisposeAsync();
+    }
+
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<User> Users => Set<User>();
@@ -13,6 +23,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<LocationApprovalHistory> LocationApprovalHistories => Set<LocationApprovalHistory>();
+    public DbSet<V180B3ChangeRequest> ChangeRequests => Set<V180B3ChangeRequest>();
+    public DbSet<V180B3ChangeEvent> ChangeRequestEvents => Set<V180B3ChangeEvent>();
+    public DbSet<V180OptionCLeaderReview> LeaderReviews => Set<V180OptionCLeaderReview>();
     public DbSet<TeamLocationNote> TeamLocationNotes => Set<TeamLocationNote>();
     public DbSet<TeamLocationNoteHistory> TeamLocationNoteHistories => Set<TeamLocationNoteHistory>();
     public DbSet<Project> Projects => Set<Project>();
@@ -85,6 +98,102 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasOne<GeocodingAttempt>().WithMany().HasForeignKey(x => x.SelectedGeocodingAttemptId).OnDelete(DeleteBehavior.NoAction);
         });
         b.Entity<LocationApprovalHistory>(e => { e.ToTable("LocationApprovalHistory"); e.HasKey(x => x.LocationApprovalHistoryId); e.Property(x => x.LocationApprovalHistoryId).ValueGeneratedOnAdd(); });
+        // Candidate schema only; B3 feature flag is false until approved migration.
+        b.Entity<V180B3ChangeRequest>(e =>
+        {
+            // Candidate model only: NO migration or DB execution authorized.
+            e.ToTable("ChangeRequests",table =>
+            {
+                table.HasCheckConstraint("CK_B3_ChangeRequests_KnownCodes", "[EntityKind]=N'Location' AND [OperationCode]=N'UpdatePublishedLocation' AND [RiskCode]=N'High'");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_KnownStatus", "[Status] IN (N'Pending',N'Rejected')");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_ExpectedLocationVersion", "[ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=8");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_ProposedJson", "ISJSON([ProposedJson])=1");
+                table.HasCheckConstraint("CK_B3_ChangeRequests_ReviewState", "([Status]<>N'Pending' OR ([ReviewedByUserId] IS NULL AND [ReviewedAt] IS NULL AND [ReviewReason] IS NULL AND [AppliedAt] IS NULL)) AND ([Status]<>N'Rejected' OR ([ReviewedByUserId] IS NOT NULL AND [ReviewedByUserId]<>[RequestedByUserId] AND [ReviewedAt] IS NOT NULL AND [ReviewReason] IS NOT NULL AND LEN(LTRIM(RTRIM([ReviewReason])))>0 AND [AppliedAt] IS NULL))");
+            });
+            e.HasKey(x => x.ChangeRequestId);
+            e.Property(x => x.ChangeRequestId).ValueGeneratedOnAdd();
+            e.Property(x => x.EntityKind).HasMaxLength(40).IsRequired();
+            e.Property(x => x.EntityId).HasMaxLength(80).IsRequired();
+            e.Property(x => x.OperationCode).HasMaxLength(80).IsRequired();
+            e.Property(x => x.RiskCode).HasMaxLength(20).IsRequired();
+            e.Property(x => x.ExpectedEntityRowVersion).HasMaxLength(8);
+            e.Property(x => x.BeforeJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.ProposedJson).HasColumnType("nvarchar(max)").IsRequired();
+            e.Property(x => x.EvidenceJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.SubmittedAt).HasPrecision(3);
+            e.Property(x => x.Status).HasMaxLength(30).IsRequired();
+            e.Property(x => x.ReviewedAt).HasPrecision(3);
+            e.Property(x => x.ReviewReason).HasMaxLength(1000);
+            e.Property(x => x.AppliedAt).HasPrecision(3);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+
+            // Audited request identity must never cascade-delete historical rows.
+            e.HasOne<Organization>().WithMany()
+                .HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Team>().WithMany()
+                .HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany()
+                .HasForeignKey(x => x.RequestedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany()
+                .HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.NoAction);
+
+            e.HasIndex(x => x.RequestPublicId).IsUnique()
+                .HasDatabaseName(V180B3SqlSafetyRules.RequestPublicIdIndex);
+            e.HasIndex(x => new {x.OrganizationId,x.EntityKind,x.EntityId})
+                .IsUnique().HasFilter("[Status] = 'Pending'")
+                .HasDatabaseName(V180B3SqlSafetyRules.PendingRequestIndex);
+            e.HasIndex(x => new {x.OrganizationId,x.Status,x.SubmittedAt})
+                .HasDatabaseName("IX_B3_ChangeRequests_Org_Status_SubmittedAt");
+            e.HasIndex(x => new {x.RequestedByUserId,x.SubmittedAt})
+                .HasDatabaseName("IX_B3_ChangeRequests_Requester_SubmittedAt");
+        });
+        b.Entity<V180OptionCLeaderReview>(e =>
+        {
+            e.ToTable("ChangeRequestLeaderReviews", table => table.UseSqlOutputClause(false));
+            e.HasKey(x => x.ChangeRequestLeaderReviewId);
+            e.Property(x => x.ChangeRequestLeaderReviewId).ValueGeneratedOnAdd();
+            e.Property(x => x.ReviewStage).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Reason).HasMaxLength(1000);
+            e.Property(x => x.EvidenceJson).HasColumnType("nvarchar(max)");
+            e.Property(x => x.ReviewedAt).HasPrecision(3);
+            e.Property(x => x.RowVersion).IsRowVersion().IsConcurrencyToken();
+            e.HasIndex(x => new { x.ChangeRequestId, x.ReviewStage }).IsUnique()
+                .HasDatabaseName("UX_OptionC_LeaderReview_Request_Stage");
+            e.HasIndex(x => x.DecisionKey).IsUnique()
+                .HasFilter("[DecisionKey] IS NOT NULL")
+                .HasDatabaseName("UX_OptionC_LeaderReview_DecisionKey");
+            e.HasOne<V180B3ChangeRequest>().WithMany().HasForeignKey(x => x.ChangeRequestId)
+                .OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ReviewerUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        b.Entity<V180B3ChangeEvent>(e =>
+        {
+            e.ToTable("ChangeRequestEvents",table =>
+            {
+                table.HasCheckConstraint("CK_B3_ChangeRequestEvents_EventType", "[EventType] IN (N'Submitted',N'Rejected')");
+                table.HasCheckConstraint("CK_B3_ChangeRequestEvents_DetailsJson", "[DetailsJson] IS NULL OR ISJSON([DetailsJson])=1");
+                table.HasCheckConstraint("CK_B3_ChangeRequestEvents_DecisionState", "([EventType]=N'Submitted' AND [DecisionKey] IS NULL AND [ActorUserId] IS NOT NULL) OR ([EventType]=N'Rejected' AND [DecisionKey] IS NOT NULL AND [ActorUserId] IS NOT NULL)");
+            });
+            e.HasKey(x => x.ChangeRequestEventId);
+            e.Property(x => x.ChangeRequestEventId).ValueGeneratedOnAdd();
+            e.Property(x => x.EventType).HasMaxLength(40).IsRequired();
+            e.Property(x => x.OccurredAt).HasPrecision(3);
+            e.Property(x => x.DetailsJson).HasColumnType("nvarchar(max)");
+            e.HasOne<V180B3ChangeRequest>().WithMany()
+                .HasForeignKey(x => x.ChangeRequestId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany()
+                .HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.DecisionKey).IsUnique()
+                .HasFilter("[DecisionKey] IS NOT NULL")
+                .HasDatabaseName(V180B3SqlSafetyRules.DecisionKeyIndex);
+            e.HasIndex(x => new {x.ChangeRequestId,x.OccurredAt,x.ChangeRequestEventId})
+                .HasDatabaseName("IX_B3_ChangeRequestEvents_Request_OccurredAt");
+            e.HasIndex(x => x.CorrelationId)
+                .HasDatabaseName("IX_B3_ChangeRequestEvents_CorrelationId");
+        });
         b.Entity<TeamLocationNote>(e =>
         {
             e.ToTable("TeamLocationNotes"); e.HasKey(x => x.TeamLocationNoteId); e.Property(x => x.TeamLocationNoteId).ValueGeneratedOnAdd();

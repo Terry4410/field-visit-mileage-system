@@ -15,6 +15,32 @@ namespace FieldVisit.Infrastructure;
 public sealed class V170AccessControl(AppDbContext db)
     : IV170AccessControl
 {
+    public async Task<bool> HasEffectiveRoleAsync(
+        int userId,
+        string roleCode,
+        CancellationToken ct)
+    {
+        var today = BusinessTime.Today;
+        var hasEffectiveDatedRows = await db.UserRoleAssignments.AsNoTracking()
+            .AnyAsync(x => x.UserId == userId, ct);
+        if (hasEffectiveDatedRows)
+            return await (
+            from assignment in db.UserRoleAssignments.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
+            where assignment.UserId == userId
+                && role.IsActive
+                && role.RoleCode == roleCode
+                && assignment.EffectiveFrom <= today
+                && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+            select assignment.UserRoleAssignmentId).AnyAsync(ct);
+
+        return await (
+            from assignment in db.UserRoles.AsNoTracking()
+            join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
+            where assignment.UserId == userId && role.IsActive && role.RoleCode == roleCode
+            select assignment.UserRoleId).AnyAsync(ct);
+    }
+
     public async Task<V170LoginEligibility> EvaluateLoginAsync(
         int userId,
         bool adminEnabled,

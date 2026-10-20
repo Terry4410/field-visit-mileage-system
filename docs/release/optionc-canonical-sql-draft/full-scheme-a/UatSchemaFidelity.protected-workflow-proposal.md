@@ -13,13 +13,14 @@ feature activation.
 - Query: `UatSchemaFidelity.readonly.sql`
 - Reviewed content: the R7 metadata inventory; the protected proposal adds a final
   newline, so its immutable SHA-256 is
-  `e83552d4b1472e677f61a5e44973b80321d2874322f4a5954c070b8f3fd2c232`.
+  `c00a269a310222550626544a053ed343a3b55a6c71aad1f128668b6b4d2aabc0`.
 - Fixed target: `sql-fieldvisit-jpe-uat.database.windows.net / db-fieldvisit-uat`.
 - Result scope: target marker; SchemaVersions aggregate; columns and SQL facets;
   indexes and PK/unique facets; FK mappings/actions/trust; CHECK definitions/trust;
   four historical-table counts and high-watermarks.
 - Excluded: business row values, login/user identity, `AppliedBy`, connection strings,
   access tokens and raw SQL exception text.
+- Integration source A supplies this exact query hash. The query remains a proposal and was not executed against UAT; actual 001–010/schema/EF comparison is still HOLD.
 
 The existing protected smoke run `38835570403` used
 `UAT_ReadOnly_Preflight.sql` SHA-256

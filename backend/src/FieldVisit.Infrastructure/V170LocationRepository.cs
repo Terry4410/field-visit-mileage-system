@@ -723,6 +723,22 @@ public sealed class V170LocationRepository(
         if(nextTax is {Length:>20})throw new InvalidOperationException("統一編號不可超過 20 個字元。");
         if(nextMasterNote is {Length:>1000})throw new InvalidOperationException("主檔備註不可超過 1000 個字元。");
 
+        // Legacy direct maintenance derives accessibility from read scope and
+        // is not the frozen-policy LowRisk transaction. HighRisk must enter
+        // independent Admin approval; note-only LowRisk must use the candidate
+        // live-write-authorized atomic direct-save route. Neither may mutate
+        // here or invalidate a pending transaction's RowVersion.
+        var published = !row.IsTemporary && row.ApprovalStatus == "Approved";
+        V180OptionCLocationMaintenanceRisk.RequireApprovalForPublishedHighRiskChange(
+            isPublished: published,
+            hasHighRiskChange: V180OptionCLocationMaintenanceRisk.HasHighRiskChange(
+                row.City,row.District,row.Address,row.PlusCode,row.TaxId,
+                nextCity,nextDistrict,nextAddress,nextPlus,nextTax));
+        V180OptionCLocationMaintenanceRisk.RequireAuthorizedCandidateForPublishedLowRiskChange(
+            isPublished: published,
+            hasLowRiskChange: !string.Equals(
+                row.MasterNote, nextMasterNote, StringComparison.Ordinal));
+
         var addressChanged=!string.Equals(row.Address,nextAddress,StringComparison.Ordinal)
             ||!string.Equals(row.PlusCode,nextPlus,StringComparison.Ordinal);
 
@@ -1060,8 +1076,29 @@ public sealed class V170LocationRepository(
     public async Task MergeAsync(
         CurrentUserDto admin,int sourceLocationId,V170LocationMergeRequest request,CancellationToken ct)
     {
+        if(sourceLocationId==request.SurvivorLocationId)
+            throw new InvalidOperationException("來源地點與保留地點不可相同。");
+        var organizationId=admin.OrganizationId
+            ??throw new UnauthorizedAccessException("管理者缺少 Organization scope。");
+        var scopedRows=await db.Locations.AsNoTracking()
+            .Where(x=>x.OrganizationId==organizationId
+                &&(x.LocationId==sourceLocationId||x.LocationId==request.SurvivorLocationId))
+            .Select(x=>new{x.LocationId,x.IsTemporary,x.ApprovalStatus})
+            .ToListAsync(ct);
+        if(scopedRows.Count!=2)
+            throw new KeyNotFoundException("找不到來源地點或保留地點。");
+        var published=scopedRows.Any(x=>!x.IsTemporary&&x.ApprovalStatus=="Approved");
+        if(published&&request.Mode=="UseExisting")
+            throw new InvalidOperationException("LOCATION_PUBLISHED_USE_EXISTING_REQUIRES_CANONICAL_REVIEW");
+
         var preview=await PreviewMergeAsync(admin,sourceLocationId,request.SurvivorLocationId,ct);
         if(!preview.CanMerge)throw new InvalidOperationException(preview.BlockingReason??"此地點目前不可合併。");
+
+        if(request.Mode=="MergeFields")
+        {
+            V180OptionCLocationMaintenanceRisk.RequireApprovalForPublishedHighRiskChange(
+                published,hasHighRiskChange:true);
+        }
 
         await using var tx=await db.Database.BeginTransactionAsync(ct);
         var source=await db.Locations.SingleAsync(x=>x.LocationId==sourceLocationId,ct);
