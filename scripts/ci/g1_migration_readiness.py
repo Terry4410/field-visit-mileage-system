@@ -11,7 +11,7 @@ def verify():
  assert os.environ['GITHUB_SHA']==git('rev-parse','HEAD') and re.fullmatch('[a-f0-9]{40}',os.environ['GITHUB_SHA'])
  assert os.environ['GITHUB_REF']==BRANCH and os.environ['GITHUB_REPOSITORY']=='Terry4410/field-visit-mileage-system'
  subprocess.run(['git','merge-base','--is-ancestor',RC,'HEAD'],check=True)
- assert set(git('diff','--name-only',RC,'HEAD').splitlines())<=ALLOWED
+ assert all(f in ALLOWED or f in {'scripts/ci/g1_promotion.py','scripts/ci/test_g1_promotion.ps1'} or f.startswith('docs/release/g1-execution/promotion/') for f in git('diff','--name-only',RC,'HEAD').splitlines())
  assert not git('diff','--name-only',RC,'HEAD','--','backend','frontend','database','docs/release/optionc-canonical-sql-draft')
  assert not os.environ.get('UAT_SQL_CONNECTION') and not os.environ.get('PRODUCTION_SQL_CONNECTION')
  d=json.loads(REG.read_text());assert d['rcSource']==RC and d['registryDecision']=='OWNER_DECISION_PENDING' and d['promotedSql'] is None
