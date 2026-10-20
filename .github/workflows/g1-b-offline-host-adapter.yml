@@ -39,3 +39,13 @@ jobs:
       - name: Actual unopened SqlClient guard tests
         shell: pwsh
         run: ./scripts/ci/g1_b_host/test_adapter.ps1
+      - name: Disposable SQL Server provider verification
+        env:
+          G1_TEST_ONLY: '1'
+          G1_DISPOSABLE_PASSWORD: 'Synthetic_Only_G1_2026!'
+        run: |
+          set -euo pipefail
+          docker run -d --name g1-provider-sql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$G1_DISPOSABLE_PASSWORD" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f g1-provider-sql >/dev/null 2>&1 || true' EXIT
+          pwsh -NoProfile -File scripts/ci/g1_b_host/provider_test.ps1
+          python3 scripts/ci/g1_b_host/supervisor_provider.py
