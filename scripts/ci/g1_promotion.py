@@ -6,7 +6,7 @@ def digest(b):return hashlib.sha256(b).hexdigest()
 def run(mode):
  r=subprocess.run(['pwsh','-NoProfile','-File','scripts/ci/test_g1_promotion.ps1','-Mode',mode],capture_output=True,text=True,timeout=900)
  for line in r.stdout.splitlines():
-  if re.fullmatch(r'PromotionCase=[A-Za-z0-9_]+; Status=(PASS|STOP);(?: Details=SUPPRESSED;)?',line) or re.fullmatch(r'HarnessDiagnostic=STOP; Line=[0-9]+; ProviderCode=-?[0-9]+;',line) or re.fullmatch(r'RefusalDiagnostic=STOP; Guard=(G1_[A-Z0-9_]+|SUPPRESSED); ProviderCode=([0-9]+|SUPPRESSED);',line):print(line)
+  if re.fullmatch(r'PromotionCase=[A-Za-z0-9_]+; Status=(PASS|STOP);(?: Details=SUPPRESSED;)?',line) or re.fullmatch(r'HarnessDiagnostic=STOP; Line=[0-9]+; ProviderCode=-?[0-9]+;',line) or re.fullmatch(r'RefusalDiagnostic=STOP; Guard=(G1_[A-Z0-9_]+|SUPPRESSED); ProviderCode=([0-9]+|SUPPRESSED);',line) or re.fullmatch(r'ContractDiagnostic=STOP; Actual=[a-fA-F0-9]{64}; Expected=[a-fA-F0-9]{64};',line):print(line)
  assert r.returncode==0
 # Deterministic source builder. Original disposable files are never written.
 IDS=[11,12,14,15,16,17,18,19,20]
