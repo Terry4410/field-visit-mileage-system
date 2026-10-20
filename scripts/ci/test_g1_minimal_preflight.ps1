@@ -1,5 +1,5 @@
 # Disposable SQL2022 only. Accepted collector/SQL are copied, never edited in place.
-param([switch]$FirstStopOnly,[switch]$ReferenceOnly)
+param([switch]$FirstStopOnly,[switch]$ReferenceOnly,[switch]$PermissionOnly)
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $case='Client';$admin=$null;$db=$null;$temp=$null;$setup=$null;$script:failed=$false
 $repo=(Resolve-Path "$PSScriptRoot/../..").Path
@@ -10,6 +10,7 @@ $script:collectorFailureClassification='APPROVED_CLASSIFICATION_NOT_PRESENT'
 $script:collectorReturn='COLLECTOR_NOT_INVOKED'
 $script:collectorGuard='GUARD_UNAVAILABLE'
 $script:referencePhase='NOT_STARTED'
+$script:permissionPhase='PERMISSION_SETUP'
 function CaptureSafePhase($copy){
  $script:collectorGuard='GUARD_UNAVAILABLE'
  if(Test-Path -LiteralPath $copy.guard){
@@ -146,7 +147,7 @@ function RunCopy($copy,$retryProvider=$null){
 }
 try{
  Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
- if(-not $ReferenceOnly){
+ if(-not $ReferenceOnly -and -not $PermissionOnly){
  # Same loaded assembly and host as Collector; no SQL Open in this experiment.
  $case='RetryProviderUnopenedRootCause'
  $fresh=[Microsoft.Data.SqlClient.SqlConnection]::new()
@@ -166,7 +167,7 @@ try{
  Assert ($base.DataSource -ceq 'localhost,1433' -and $base.InitialCatalog -ceq 'master' -and $base.UserID -ceq 'sa')
  $base['Pooling']=$false;$base['ConnectRetryCount']=0
  $db='master'
- if(-not $ReferenceOnly){
+ if(-not $ReferenceOnly -and -not $PermissionOnly){
  $probe=NewConnection
  try{
   Assert ($null -eq $field.GetValue($probe))
@@ -188,6 +189,7 @@ try{
  $old=[IO.File]::ReadAllText((Join-Path $repo 'scripts/ci/run_full_candidate_migration.ps1'))
  $matches=[regex]::Matches($old,"(?s)\`$boot=@'\r?\n(.*?)\r?\n'@");Assert ($matches.Count -eq 1);Exec $setup $matches[0].Groups[1].Value
  $requirements=[IO.File]::ReadAllText((Join-Path $package 'requirements.json'));$reference=[IO.File]::ReadAllText((Join-Path $package 'necessary-reference.json'));$catalog=[IO.File]::ReadAllText((Join-Path $package '03-catalog.sql'))
+ if(-not $PermissionOnly){
  if(-not $ReferenceOnly){
  if(-not $FirstStopOnly){
  $case='NoSqlCmdExpansion';foreach($f in @('01-target.sql','02-marker.sql','03-catalog.sql','04-permissions.sql')){Assert (-not ([IO.File]::ReadAllText((Join-Path $package $f)) -match '\$\('))};Pass $case
@@ -264,13 +266,32 @@ try{
  try{$rows=Rows $setup $catalog $requirements $reference;Assert ((Status $rows 'SCOPED_COLUMN_FACETS') -ceq 'FAIL')}finally{Exec $setup 'ROLLBACK TRANSACTION;'};Pass $case
  $case='RestrictedMetadataStops';Exec $setup 'CREATE USER G1SyntheticRestricted WITHOUT LOGIN;GRANT SELECT ON SCHEMA::dbo TO G1SyntheticRestricted;DENY VIEW DEFINITION TO G1SyntheticRestricted;EXECUTE AS USER=N''G1SyntheticRestricted'';'
  try{$rows=Rows $setup ([IO.File]::ReadAllText((Join-Path $package '01-target.sql')));Assert ((Status $rows 'VISIBILITY') -ceq 'UNKNOWN')}finally{Exec $setup 'REVERT;'};Pass $case
- $case='DeniedDdlRegistryObservedConnectedOnly';Exec $setup 'GRANT VIEW DEFINITION TO G1SyntheticRestricted;DENY CONTROL,ALTER,CREATE TABLE TO G1SyntheticRestricted;DENY ALTER ON SCHEMA::dbo TO G1SyntheticRestricted;DENY INSERT,UPDATE,DELETE ON dbo.SchemaVersions TO G1SyntheticRestricted;EXECUTE AS USER=N''G1SyntheticRestricted'';'
+ }
+ }
+ if(-not $FirstStopOnly){
+ $case='DeniedDdlRegistryObservedConnectedOnly';$script:permissionPhase='PERMISSION_SETUP';$diagnosis='NONE'
+ if($PermissionOnly){Exec $setup 'CREATE USER G1SyntheticRestricted WITHOUT LOGIN;GRANT SELECT ON SCHEMA::dbo TO G1SyntheticRestricted;'}
+ # DENY CONTROL also denies CONNECT. Do not grant CONTROL; test effective
+ # absence of CONTROL while allowing this disposable principal to run SELECT.
+ Exec $setup 'GRANT VIEW DEFINITION TO G1SyntheticRestricted;DENY ALTER,CREATE TABLE TO G1SyntheticRestricted;DENY ALTER ON SCHEMA::dbo TO G1SyntheticRestricted;DENY INSERT,UPDATE,DELETE ON dbo.SchemaVersions TO G1SyntheticRestricted;'
+ $rows=Rows $setup "SELECT N'IDENTITY_RESTORED' AS code,CASE WHEN USER_ID()=DATABASE_PRINCIPAL_ID(N'dbo') THEN N'PASS' ELSE N'FAIL' END AS status"
+ Assert ((Status $rows 'IDENTITY_RESTORED') -ceq 'PASS')
+ $impersonated=$false
  try{
+  Exec $setup 'EXECUTE AS USER=N''G1SyntheticRestricted'';';$impersonated=$true
+  $script:permissionPhase='PERMISSION_QUERY_ASSERTION'
   $rows=Rows $setup ([IO.File]::ReadAllText((Join-Path $package '04-permissions.sql')))
   foreach($code in @('NO_DATABASE_CONTROL','NO_DATABASE_ALTER','NO_CREATE_TABLE','NO_SCHEMA_ALTER','NO_REGISTRY_INSERT','NO_REGISTRY_UPDATE','NO_REGISTRY_DELETE')){Assert ((Status $rows $code) -ceq 'PASS')}
   Assert ((Status $rows 'API_PRINCIPAL_BINDING') -ceq 'UNKNOWN')
- }finally{Exec $setup 'REVERT;'};Pass $case
- $case='Complete';Assert ($results.Count -eq $(if($ReferenceOnly){6}else{19}))
+  Assert ((Status $rows 'API_OPERATION_PERMISSION_MATRIX') -ceq 'UNKNOWN')
+ }finally{
+  $previousPhase=$script:permissionPhase;$script:permissionPhase='IDENTITY_RESTORE'
+  if($impersonated){Exec $setup 'REVERT;'}
+  $restored=Rows $setup "SELECT N'IDENTITY_RESTORED' AS code,CASE WHEN USER_ID()=DATABASE_PRINCIPAL_ID(N'dbo') THEN N'PASS' ELSE N'FAIL' END AS status"
+  Assert ((Status $restored 'IDENTITY_RESTORED') -ceq 'PASS')
+  $script:permissionPhase=$previousPhase
+ };Pass $case
+ $case='Complete';Assert ($results.Count -eq $(if($PermissionOnly){1}elseif($ReferenceOnly){6}else{19}))
  }else{$case='DiagnosticComplete'}
 }catch{
  if($diagnosis -notin @('COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER')){$diagnosis='HARNESS_FAILURE_OTHER'}
@@ -279,6 +300,7 @@ try{
  Write-Output "CollectorFailureClassification=$script:collectorFailureClassification;"
  Write-Output "CollectorReturn=$script:collectorReturn;"
  Write-Output "CollectorGuard=$script:collectorGuard;"
+ if($script:permissionPhase -in @('PERMISSION_SETUP','PERMISSION_QUERY_ASSERTION','IDENTITY_RESTORE')){Write-Output "PermissionPhase=$script:permissionPhase;"}
  if($script:referencePhase -in @('NOT_STARTED','MIGRATION_FIXTURE','PARAMETER_BINDING','SQL_EXECUTION','RESULT_SET_CONTRACT','RETIRED_CHECK_REFERENCE_NEGATIVE','REQUIRED_COLUMNS','SCOPED_COLUMN_FACETS','SCOPED_FK_MAPPINGS','SCOPED_INDEX_KEYS','SCOPED_CHECK_DEFINITIONS','COMPLETE_FACET_UNKNOWN','COMPLETE')){Write-Output "ReferencePhase=$script:referencePhase;"}
  Write-Output "PreflightCase=$case; Status=STOP; Details=SUPPRESSED;"
  # Diagnostic line number only, never exception text or SQL metadata.
