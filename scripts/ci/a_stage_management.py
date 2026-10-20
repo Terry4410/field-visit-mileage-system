@@ -17,8 +17,16 @@ import urllib.request
 
 REPO = 'Terry4410/field-visit-mileage-system'
 RC = 'f29affb3299828f45b1f131321779e8bea2f86a8'
-ARTIFACT = 12236590943
-DIGEST = 'sha256:6a604b212e88fb6039c449f9a6701d8aa0c68d7c8feec9e7b1e2600a4ddedb7b'
+ARCHIVE_EVIDENCE = {
+    'repository': 'Terry4410/field-visit-rc-archive-private',
+    'releaseTag': 'rc-f29affb3-20261020',
+    'source': RC,
+    'sourceRun': 39357993766,
+    'sourceArtifact': 12236590943,
+    'size': 68631380,
+    'sha256': '6a604b212e88fb6039c449f9a6701d8aa0c68d7c8feec9e7b1e2600a4ddedb7b',
+    'decision': 'OWNER_ACCEPTED_PRIVATE_ARCHIVE',
+}
 MAX_BYTES = 2 * 1024 * 1024
 GUID = re.compile(r'^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$')
 
@@ -40,8 +48,13 @@ def endpoints(subscription):
         'DATABASE': ('https://management.azure.com' + db + '?api-version=2023-08-01', db),
         'PITR': ('https://management.azure.com' + db + '/backupShortTermRetentionPolicies/default?api-version=2023-08-01', db + '/backupShortTermRetentionPolicies/default'),
         'PAGES': ('https://api.github.com/repos/' + REPO + '/pages', None),
-        'RC_ARTIFACT': ('https://api.github.com/repos/' + REPO + '/actions/runs/39357993766/artifacts?per_page=100', None),
     }
+
+def archive_binding(evidence):
+    # Frozen accepted evidence only. No archive/API read, expiry check or claim
+    # that current private-repository visibility/retention was revalidated.
+    require(type(evidence) is dict and evidence == ARCHIVE_EVIDENCE)
+    return 'PASS'
 
 def secret_free(value):
     if isinstance(value, dict):
@@ -134,7 +147,8 @@ def _network_get(url, bearer, timeout):
     with response:
         return response.code, {k.lower(): v for k, v in response.headers.items()}, response.read(MAX_BYTES + 1)
 
-def collect(subscription, tokens, transport, clock=time.monotonic):
+def collect(subscription, tokens, transport, clock=time.monotonic, accepted_archive=None):
+    archive_status = archive_binding(ARCHIVE_EVIDENCE if accepted_archive is None else accepted_archive)
     plan = endpoints(subscription)
     budget = Budget([v[0] for v in plan.values()], transport, clock)
     output = {}
@@ -167,12 +181,7 @@ def collect(subscription, tokens, transport, clock=time.monotonic):
             require(data.get('html_url') == 'https://terry4410.github.io/field-visit-mileage-system/')
             output['PAGES_TARGET'] = 'PASS'
             output['FRONTEND_PACKAGE_ALIGNMENT'] = 'UNKNOWN'
-        elif name == 'RC_ARTIFACT':
-            require(data.get('total_count') == 1 and isinstance(data.get('artifacts'), list) and len(data['artifacts']) == 1)
-            artifact = data['artifacts'][0]
-            require(artifact.get('id') == ARTIFACT and artifact.get('digest') == DIGEST and artifact.get('expired') is False)
-            require(artifact.get('workflow_run', {}).get('head_sha') == RC)
-            output['RC_ARTIFACT_METADATA'] = 'PASS'
+    output['RC_ARCHIVE_ACCEPTED_BINDING'] = archive_status
     output.update(API_PRINCIPAL_BINDING='UNKNOWN', RECOVERY_PAIR='UNKNOWN', G1='HOLD')
     require(all(v in ('PASS', 'HOLD', 'UNKNOWN') for v in output.values()))
     return output

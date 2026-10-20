@@ -23,8 +23,6 @@ def fixture():
         p['PITR'][0]: response(dict(id=p['PITR'][1], name='default', properties={'retentionDays': 7})),
         p['DEPLOYMENTS'][0]: response({'value': []}),
         p['PAGES'][0]: response({'html_url': 'https://terry4410.github.io/field-visit-mileage-system/'}),
-        p['RC_ARTIFACT'][0]: response({'total_count': 1, 'artifacts': [{'id': a.ARTIFACT, 'digest': a.DIGEST,
-            'expired': False, 'workflow_run': {'head_sha': a.RC}}]}),
     }
 
 class Channel(unittest.TestCase):
@@ -38,9 +36,11 @@ class Channel(unittest.TestCase):
             return values[url]
         return a.collect(SUB, TOKENS, get), calls
 
-    def test_positive_six_gets_still_hold(self):
+    def test_positive_five_gets_archive_binding_still_hold(self):
         result, calls = self.run_fixture()
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(result['RC_ARCHIVE_ACCEPTED_BINDING'], 'PASS')
+        self.assertFalse(any('/artifacts' in url or 'archive-private' in url for url in calls))
         self.assertEqual(result['G1'], 'HOLD')
         self.assertEqual(result['API_PRINCIPAL_BINDING'], 'UNKNOWN')
         self.assertEqual(result['RECOVERY_PAIR'], 'UNKNOWN')
@@ -99,9 +99,27 @@ class Channel(unittest.TestCase):
                 a.Budget([url], lambda *args: reply).get(url, TOKENS)
 
     def test_unknown_package(self):
-        data = fixture();url = a.endpoints(SUB)['RC_ARTIFACT'][0]
-        data[url] = response({'total_count': 1, 'artifacts': [{'id': 999}]})
-        with self.assertRaises(a.Stop): self.run_fixture(data)
+        wrong = dict(a.ARCHIVE_EVIDENCE);wrong['sha256'] = '0' * 64
+        with self.assertRaises(a.Stop): a.archive_binding(wrong)
+
+    def test_archive_source_mismatch_before_network(self):
+        wrong = dict(a.ARCHIVE_EVIDENCE);wrong['source'] = '0' * 40
+        with patch.object(a, 'network_get', side_effect=AssertionError('NETWORK_FORBIDDEN')) as send:
+            with self.assertRaises(a.Stop): a.collect(SUB, TOKENS, send, accepted_archive=wrong)
+            send.assert_not_called()
+
+    def test_archive_tag_or_unknown_fields_rejected(self):
+        for key, value in [('releaseTag', 'UNKNOWN'), ('extra', 'UNKNOWN'), ('decision', 'UNVERIFIED')]:
+            wrong = dict(a.ARCHIVE_EVIDENCE);wrong[key] = value
+            with self.subTest(), self.assertRaises(a.Stop): a.archive_binding(wrong)
+
+    def test_untrusted_branch_not_made_executable(self):
+        env = {'A_STAGE_AUTHORIZATION': 'ONE_A_STAGE_MANAGEMENT_GET',
+               'GITHUB_REPOSITORY': a.REPO, 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+               'GITHUB_REF': 'refs/heads/work/g1-a-stage-management-channel-20261021'}
+        with patch.object(a, 'network_get') as send:
+            with self.assertRaises(a.Stop): a.main(env)
+            send.assert_not_called()
 
     def test_missing_authenticated_identity(self):
         with self.assertRaises(a.Stop): a.identity('', TENANT, CLIENT, 0)
@@ -125,7 +143,7 @@ class Channel(unittest.TestCase):
         data[url] = response(dict(id=resource, name='db-fieldvisit-uat', properties={'status': 'Paused'}))
         result, calls = self.run_fixture(data)
         self.assertEqual(result['SQL_OPERATIONAL'], 'HOLD')
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 5)
 
     def test_unauthorized_entry_never_sends(self):
         with patch.object(a, 'network_get', side_effect=AssertionError('NETWORK_FORBIDDEN')) as send:

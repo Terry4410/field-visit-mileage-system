@@ -4,13 +4,22 @@
   "rc": "f29affb3299828f45b1f131321779e8bea2f86a8",
   "acceptedPreparation": "c12451700b619897afe0e4c5dc9ae2862e259d2f",
   "files": {
-    "scripts/ci/a_stage_management.py": "0614e3cc5a3fbe41dffd6d98b91bd3cfea881a3d4f8c2b11295af042d30dff7e",
-    "scripts/ci/test_a_stage_management.py": "15089efe0d5861a389d6eafe768a224fee1c1fc2ed4bcd795f5cce2f88d6e806",
-    "docs/release/G1-A-STAGE-CHANNEL.md": "3513683f3b1badbd2d2a75a58ed9f0d6a59091602901692a31543a89c2f2bec6"
+    "scripts/ci/a_stage_management.py": "ac6b99321f6160446f0e1361f33200d06aa8d8b21cb72ba84d95e3a0cc9d0e20",
+    "scripts/ci/test_a_stage_management.py": "acc457093c6d9a25191ed7d0b707aac407f2687ef1bbcd2dc53144dbe7c066dc",
+    "docs/release/G1-A-STAGE-CHANNEL.md": "e18d726a2ecd3742b0e24512dd3b0fc853b51f8b148c7cc858da9101f664f7ce"
   },
-  "offlineTests": 17,
   "liveCalls": 0,
   "execution": "HOLD_PENDING_REVIEWED_OIDC_HOST_AND_PRIVATE_BINDING",
   "maxGets": 20,
-  "maxSeconds": 600
+  "maxSeconds": 600,
+  "acceptedCollectorSource": "107315e9e2708b11a6b2f7d5c27d8b087e71f015",
+  "offlineBaselineTestsReused": 17,
+  "targetedTestsThisDelta": 6,
+  "archiveEvidence": {
+    "repository": "Terry4410/field-visit-rc-archive-private",
+    "releaseTag": "rc-f29affb3-20261020",
+    "source": "f29affb3299828f45b1f131321779e8bea2f86a8",
+    "sha256": "6a604b212e88fb6039c449f9a6701d8aa0c68d7c8feec9e7b1e2600a4ddedb7b",
+    "status": "ACCEPTED_REUSED_NO_REMOTE_READ"
+  }
 }
