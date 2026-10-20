@@ -15,7 +15,7 @@ try {
  $case='LocalTargetGuard'
  $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($env:E1_R1_SQL_CONNECTION)
  Assert ($env:GITHUB_ACTIONS -eq 'true' -and $b.DataSource -in @('localhost,1433','127.0.0.1,1433') -and $b.InitialCatalog -eq 'master' -and $b.UserID -eq 'sa' -and -not $b.IntegratedSecurity)
- $b.Pooling=$false;$b.ConnectTimeout=5;$b.ConnectRetryCount=0
+ $b['Pooling']=$false;$b['Connect Timeout']=5;$b['ConnectRetryCount']=0
  $admin=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString);$admin.Open()
  $repo=(Resolve-Path "$PSScriptRoot/../..").Path
  $root=Join-Path $repo 'docs/release/optionc-canonical-sql-draft/candidate'
@@ -23,7 +23,7 @@ try {
  $old=Get-Content (Join-Path $PSScriptRoot 'run_full_candidate_migration.ps1') -Raw
  $matches=[regex]::Matches($old,"(?s)\`$boot=@'\r?\n(.*?)\r?\n'@")
  Assert ($matches.Count -eq 1);$boot=$matches[0].Groups[1].Value
- function OpenDb([string]$name) { Assert ($name -match '^(OptionCIsolated_G1_|G1Denied_)[0-9a-f]{32}$');$x=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($b.ConnectionString);$x.InitialCatalog=$name;$c=[Microsoft.Data.SqlClient.SqlConnection]::new($x.ConnectionString);$c.Open();$connections.Add($c);return $c }
+ function OpenDb([string]$name) { Assert ($name -match '^(OptionCIsolated_G1_|G1Denied_)[0-9a-f]{32}$');$x=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($b.ConnectionString);$x['Initial Catalog']=$name;$c=[Microsoft.Data.SqlClient.SqlConnection]::new($x.ConnectionString);$c.Open();$connections.Add($c);return $c }
  function Fixture([string]$prefix='OptionCIsolated_G1_') { $name=$prefix+[guid]::NewGuid().ToString('N');$databases.Add($name);Exec $admin "CREATE DATABASE [$name]";$c=OpenDb $name;Exec $c $boot;return $c }
  function Sql([int]$n,[string]$phase) { return [IO.File]::ReadAllText((Join-Path $root ('1800_{0:000}/{1}.sql' -f $n,$phase))) }
  function Apply($c,[int]$n) { Exec $c (Sql $n 'Preflight');Exec $c (Sql $n 'Up');if($n -eq 14){Exec $c (Sql $n 'Backfill')};Exec $c (Sql $n 'Verify') }
