@@ -1,0 +1,100 @@
+{
+  "contract": "g1-fixed-target-promotion-v1",
+  "approval": "PROPOSED_NOT_AUTHORIZED",
+  "rcSource": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "acceptedPreparation": "8e4d3dc72a63e324b69253dff9e0cc1d7fef2273",
+  "packageId": "90b88b7f74e848cf5048039d4bdf514d05c3d38ae0db65c96c891c5265bd0b91",
+  "server": "sql-fieldvisit-jpe-uat",
+  "database": "db-fieldvisit-uat",
+  "transaction": "ALL_NINE_STEPS_AND_BACKFILL_ATOMIC",
+  "reserved013": "UNCHANGED_ABSENT",
+  "offlineTestGuard": "SQL2022_Developer_only;OptionCIsolated_GUID;explicit_session_context;caller_localhost_only",
+  "sourceHashes": {
+    "scripts/ci/g1_promotion.py": "ae423fe3dd9c5fa9ffd6caa610509a0d0653a62484e00e6fab2af13cac70d4b2",
+    "docs/release/g1-execution/promotion/reference.json": "1e69152cd7f46160ec125f4399f437cede5e4b2e7a11dae6c5182ff4659a57e8",
+    "docs/release/g1-execution/promotion/CatalogContract.sql": "6424d86b8c678a70ee02bea8d8ed506e328a8385e06067ee35f846b0fa70702b",
+    "docs/release/g1-execution/promotion/HistoryContract.sql": "4def6fe8e2a20b7c25cc07b6302cf62458a18811e7c93744a0dc4c49f46808bb",
+    "docs/release/g1-execution/promotion/LedgerContract.sql": "e6b15309cd77c5a94492de5d575cfb7e13f60c71666009185c390703d37287a0"
+  },
+  "steps": [
+    {
+      "proposedId": "1.8.0-011",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "b55ed30e002541a17bc0600667d1d1629b6544d3279b6fd5763a2a45109253ca",
+      "postCatalogSha256": "",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-012",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "50812ed02e784d7140cfa7d1fe04b92d4fdfb4ea013c04272ef1f39f4d8d3ac4",
+      "postCatalogSha256": "",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-014",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "b99a9ec9e59364eb039d0ccc01c538dfbba3c6241d015c708ffb3e3a8a813e37",
+      "postCatalogSha256": "",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-015",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "ae07dd70550c00eaac15c3664d15d557739ef14d681cafb9a472fab256188f7d",
+      "postCatalogSha256": "",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-016",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "f7be77add8fcab7f0b4c7c798817f2d399ad1dac4ccf87f335ed69d25de05f94",
+      "postCatalogSha256": "",
+      "aliases": [
+        "1.8.0-LEADER-REVIEW"
+      ]
+    },
+    {
+      "proposedId": "1.8.0-017",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "a90f97ff90dd634e2c57a53db5aec06ee1754d4e7da4beabaf27f4a5a3cc6c89",
+      "postCatalogSha256": "",
+      "aliases": [
+        "1.8.0-CREATE-LOWRISK"
+      ]
+    },
+    {
+      "proposedId": "1.8.0-018",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "0787be84c88f841831fdea94a32e678cc204c24218729540d8e36895dcf700c7",
+      "postCatalogSha256": "",
+      "aliases": [
+        "1.8.0-LOWRISK-DIRECT"
+      ]
+    },
+    {
+      "proposedId": "1.8.0-019",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "e30b1dfa3563fb706e1d1358fb5b42807b2c86ac6494902dc7e2ecb1b492e46b",
+      "postCatalogSha256": "",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-020",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "992eb565487f8c24535fd89b3dbdbb28ad292b62120e42287538f940c31c64a7",
+      "postCatalogSha256": "",
+      "aliases": [
+        "1.8.0-EXCEL-CANONICAL-STATUS"
+      ]
+    }
+  ],
+  "files": {
+    "docs/release/g1-execution/promotion/Promotion.sql": "4bde382c69e6ad5a9a24b4702d80294c5295a1076502293860821d1d37782f6e",
+    "docs/release/g1-execution/promotion/Verify.sql": "1447c74318c5e0c462d4cc8afb716cefa9a2baeb039e424fa20af0fc16b2d026",
+    "docs/release/g1-execution/promotion/CatalogContract.sql": "6424d86b8c678a70ee02bea8d8ed506e328a8385e06067ee35f846b0fa70702b",
+    "docs/release/g1-execution/promotion/HistoryContract.sql": "4def6fe8e2a20b7c25cc07b6302cf62458a18811e7c93744a0dc4c49f46808bb",
+    "docs/release/g1-execution/promotion/LedgerContract.sql": "e6b15309cd77c5a94492de5d575cfb7e13f60c71666009185c390703d37287a0",
+    "docs/release/g1-execution/promotion/reference.json": "1e69152cd7f46160ec125f4399f437cede5e4b2e7a11dae6c5182ff4659a57e8"
+  }
+}

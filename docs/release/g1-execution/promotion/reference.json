@@ -1,0 +1,51 @@
+{
+  "initial": "",
+  "steps": [
+    {
+      "catalog": "",
+      "id": 11
+    },
+    {
+      "catalog": "",
+      "id": 12
+    },
+    {
+      "catalog": "",
+      "id": 14
+    },
+    {
+      "catalog": "",
+      "id": 15
+    },
+    {
+      "catalog": "",
+      "id": 16
+    },
+    {
+      "catalog": "",
+      "id": 17
+    },
+    {
+      "catalog": "",
+      "id": 18
+    },
+    {
+      "catalog": "",
+      "id": 19
+    },
+    {
+      "catalog": "",
+      "id": 20
+    }
+  ],
+  "emptyLedger": "",
+  "originRc": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "contract": "g1-scoped-promotion-reference-v1",
+  "fixture": "SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE",
+  "provenance": {
+    "runId": 39362993662,
+    "artifactId": 12237084997,
+    "zipSha256": "d278243dfc53ac6e253da93cca546f1d749b83d87f3dc84cc42df2f169ca980c",
+    "source": "6ac7aabc611170c26e03b0eba14acc9dd61fd9a2"
+  }
+}

@@ -31,8 +31,63 @@ try{
  }else{
   $reference=Get-Content (Join-Path $p 'reference.json') -Raw | ConvertFrom-Json
   $promotion=[IO.File]::ReadAllText((Join-Path $p 'Promotion.sql'));$verify=[IO.File]::ReadAllText((Join-Path $p 'Verify.sql'))
-  # TEST_CASES
+  function BadInitial([string]$id,[string]$change,[int[]]$codes){$script:case=$id;$d=Fixture;if($change){Exec $d $change};$h=Scalar $d $history;Refuse $d $promotion $codes;Assert ((Scalar $d $history) -eq $h);Assert ((Scalar $d "SELECT COUNT(*) FROM sys.tables WHERE name=N'FieldVisitMigrationLedger'") -eq '0');Pass $id}
+  function BadFinal([string]$id,[string]$change){$script:case=$id;$d=Fixture;Exec $d $promotion;Exec $d $change;Refuse $d $verify @(52014);Refuse $d $promotion @(52014);Pass $id}
+  $case='WrongTarget_NoOfflineOptIn';$d=Fixture 'OptionCIsolated_' $false;Refuse $d $promotion @(52001);Pass $case
+  $case='WrongDatabase_WithOfflineOptIn';$d=Fixture 'G1Denied_';Refuse $d $promotion @(52001);Pass $case
+  BadInitial 'MissingVersionTable' 'DROP TABLE dbo.SchemaVersions;' @(52010)
+  BadInitial 'NullEmptyPredecessor' 'DELETE dbo.SchemaVersions;' @(52011)
+  BadInitial 'Missing010Predecessor' "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-009';" @(52011)
+  BadInitial 'UnknownPredecessor' "INSERT dbo.SchemaVersions VALUES(N'1.8.0-999',N'Synthetic',DATEADD(day,1,SYSUTCDATETIME()),N'test');" @(52011)
+  BadInitial 'Reserved013Refused' "INSERT dbo.SchemaVersions VALUES(N'1.8.0-013',N'Synthetic',DATEADD(day,1,SYSUTCDATETIME()),N'test');" @(52011)
+  BadInitial 'ObjectsWithoutMarker' 'CREATE TABLE dbo.LocationMergeDetails(Id int NOT NULL);' @(52013)
+  BadInitial 'ChangedImportContract' "ALTER TABLE dbo.ImportBatches DROP CONSTRAINT CK_ImportBatches_Status; ALTER TABLE dbo.ImportBatches ADD CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(N'Previewed'));" @(52013)
+  BadInitial 'AmbiguousBackfillRollback' "UPDATE dbo.Locations SET LocationName=N'' WHERE LocationId=10;" @(52090)
+  foreach($n in @(11,12,14,15,16,17,18,19,20)){
+   $case="Rollback_$n";$d=Fixture;$h=Scalar $d $history;$fault=$promotion.Replace(('-- G1_STEP_{0:000}_END' -f $n),("THROW 52990,N'G1_SYNTHETIC_FAILURE',1;"))
+   Assert ($fault -ne $promotion);Refuse $d $fault @(52990);Pristine $d;Assert ((Scalar $d $history) -eq $h);Pass $case
+  }
+  $case='014FailureBeforeBackfillNoCompletion';$d=Fixture;$fault=$promotion.Replace('-- G1_BACKFILL_BEGIN',"THROW 52990,N'G1_SYNTHETIC_FAILURE',1;");Assert ($fault -ne $promotion);Refuse $d $fault @(52990);Pristine $d;Pass $case
+  foreach($resource in @('FieldVisit.SchemaMigration','FieldVisit.OptionC014.Backfill')){
+   $case=if($resource -eq 'FieldVisit.SchemaMigration'){'MigrationLockDeniedBeforeDDL'}else{'014BackfillLockDeniedAtomicRollback'}
+   $d=Fixture;$peer=OpenDb $d.Database
+   Exec $d "DECLARE @r int;EXEC @r=sys.sp_getapplock @Resource=N'$resource',@LockMode=N'Exclusive',@LockOwner=N'Session',@LockTimeout=0;IF @r<0 THROW 52991,N'TEST_LOCK_STOP',1;"
+   try{Refuse $peer $promotion @(52003)}finally{Exec $d "EXEC sys.sp_releaseapplock @Resource=N'$resource',@LockOwner=N'Session';"}
+   Pristine $peer;Pass $case
+  }
+  foreach($kind in @('Ddl','Metadata')){
+   $case="Permission${kind}Denied";$d=Fixture
+   Exec $d 'CREATE USER G1Restricted WITHOUT LOGIN; GRANT SELECT ON SCHEMA::dbo TO G1Restricted; GRANT VIEW DEFINITION TO G1Restricted;'
+   if($kind -eq 'Ddl'){Exec $d 'DENY CREATE TABLE TO G1Restricted;'}else{Exec $d 'DENY VIEW DEFINITION TO G1Restricted;'}
+   Exec $d "EXECUTE AS USER=N'G1Restricted';";try{Refuse $d $promotion @(52005)}finally{Exec $d 'REVERT;'};Pristine $d;Pass $case
+  }
   $case='PositiveAtomicChain';$c=Fixture;$before=Scalar $c $history;Exec $c $promotion;Exec $c $verify;Assert ((Scalar $c $history) -eq $before);Pass $case
+  $case='ReplayVerifiedAndRefused';Refuse $c $promotion @(52020);Exec $c $verify;Pass $case
+  $case='UnknownCommitFreshVerificationNoRetry';$peer=OpenDb $c.Database;Exec $peer $verify;Assert ((Scalar $peer "SELECT COUNT(*) FROM dbo.FieldVisitMigrationLedger") -eq '9');Pass $case
+  BadFinal '020MissingMarkerNoRepair' "DELETE dbo.FieldVisitMigrationLedger WHERE VersionNumber=N'1.8.0-020'; DELETE dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-020';"
+  BadFinal 'ChecksumDriftRefused' "UPDATE dbo.FieldVisitMigrationLedger SET PayloadSha256=0x00 WHERE VersionNumber=N'1.8.0-020';"
+  BadFinal 'PackageDriftRefused' "UPDATE dbo.FieldVisitMigrationLedger SET PackageId=0x00 WHERE VersionNumber=N'1.8.0-015';"
+  BadFinal 'MarkerContentDriftRefused' "UPDATE dbo.SchemaVersions SET Description=N'Synthetic drift' WHERE VersionNumber=N'1.8.0-016';"
+  BadFinal 'EmptyLedgerRefused' 'DELETE dbo.FieldVisitMigrationLedger;'
+  BadFinal 'IndexDriftRefused' 'DROP INDEX IX_B3_ChangeRequests_Requester_SubmittedAt ON dbo.ChangeRequests;'
+  BadFinal 'ConstraintDriftRefused' 'ALTER TABLE dbo.ChangeRequests NOCHECK CONSTRAINT CK_B3_ChangeRequests_KnownStatus;'
+  BadFinal 'ColumnDriftRefused' 'ALTER TABLE dbo.LocationMergeDetails DROP CONSTRAINT CK_OptionC_MergeDetails_Teams; ALTER TABLE dbo.LocationMergeDetails DROP COLUMN SourceTeamId;'
+  BadFinal 'TriggerDriftRefused' 'CREATE TRIGGER dbo.G1SyntheticTrigger ON dbo.ChangeRequests AFTER UPDATE AS BEGIN SET NOCOUNT ON; END;'
+  $case='ApplicationPrincipalCannotMutateRegistryOrDdl';$d=Fixture;Exec $d $promotion
+  Exec $d 'CREATE USER G1Application WITHOUT LOGIN; GRANT SELECT ON dbo.ChangeRequests TO G1Application; DENY INSERT,UPDATE,DELETE ON dbo.FieldVisitMigrationLedger TO G1Application; DENY INSERT,UPDATE,DELETE ON dbo.SchemaVersions TO G1Application; DENY CREATE TABLE TO G1Application; DENY ALTER ON SCHEMA::dbo TO G1Application;'
+  Exec $d "EXECUTE AS USER=N'G1Application';";try{Refuse $d 'DELETE dbo.FieldVisitMigrationLedger;' @(229);Refuse $d "UPDATE dbo.SchemaVersions SET Description=N'Synthetic unauthorized';" @(229);Refuse $d 'CREATE TABLE dbo.G1Unauthorized(Id int);' @(262,2760,229)}finally{Exec $d 'REVERT;'};Exec $d $verify;Pass $case
+  $case='AmbientTransactionRefused';$d=Fixture;Exec $d 'BEGIN TRANSACTION;';try{Refuse $d $promotion @(52002)}finally{Exec $d 'IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;'};Pristine $d;Pass $case
+  $case='WriteQuiescenceBlocksConcurrentChange';$d=Fixture;$name=$d.Database;$h=Scalar $d $history;$spid=Scalar $d 'SELECT @@SPID';$peer=OpenDb $name
+  $cmd=$d.CreateCommand();$cmd.CommandTimeout=120;$cmd.CommandText=$promotion.Replace('-- G1_STEP_014_END',"WAITFOR DELAY '00:00:03';")
+  try{
+   $task=$cmd.ExecuteNonQueryAsync();$waiting=$false
+   for($i=0;$i -lt 200;$i++){if((Scalar $peer "SELECT COUNT(*) FROM sys.dm_exec_requests WHERE session_id=$spid AND wait_type=N'WAITFOR'") -eq '1'){$waiting=$true;break};if($task.IsCompleted){break};Start-Sleep -Milliseconds 20}
+   Assert $waiting;Refuse $peer "SET LOCK_TIMEOUT 0; UPDATE dbo.Locations SET MasterNote=N'Synthetic concurrent' WHERE LocationId=10;" @(1222)
+   [void]$task.GetAwaiter().GetResult();Exec $peer $verify;Assert ((Scalar $peer $history) -eq $h);Assert ((Scalar $peer "SELECT COALESCE(MasterNote,N'') FROM dbo.Locations WHERE LocationId=10") -eq '');Pass $case
+  }finally{$cmd.Dispose()}
+  $case='TimeoutDisposeFreshRollbackNoRetry';$d=Fixture;$name=$d.Database;$cmd=$d.CreateCommand();$cmd.CommandTimeout=1;$cmd.CommandText=$promotion.Replace('-- G1_STEP_014_END',"WAITFOR DELAY '00:00:10';")
+  try{$failed=$false;try{[void]$cmd.ExecuteNonQuery()}catch{Assert ((Code $_.Exception) -eq -2);$failed=$true};Assert $failed}finally{$cmd.Dispose();$d.Dispose()}
+  $peer=OpenDb $name;Pristine $peer;Pass $case
   @{contract='g1-promotion-real-sql-v1';sourceSha=$env:GITHUB_SHA;rcSource='f29affb3299828f45b1f131321779e8bea2f86a8';cases=$results;uatExecuted=$false;automaticRetry=$false} | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $repo 'artifacts/promotion-cases.json')
  }
 }catch{Write-Output "PromotionCase=$case; Status=STOP; Details=SUPPRESSED;";$line=$_.InvocationInfo.ScriptLineNumber;$code=Code $_.Exception;Write-Output "HarnessDiagnostic=STOP; Line=$line; ProviderCode=$code;";exit 1}

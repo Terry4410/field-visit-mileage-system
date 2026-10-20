@@ -34,10 +34,16 @@ jobs:
           $ErrorActionPreference='Stop'
           try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop | Out-Null }
           catch { Write-Output 'DisposableClient=STOP; Details=SUPPRESSED;'; exit 1 }
-      - name: Capture scoped migration source contract on disposable SQL only
+      - name: Verify deterministic fixed-target promotion source
+        run: python3 scripts/ci/g1_promotion.py verify
+      - name: Real SQL promotion boundary regression
         run: |
           mkdir -p artifacts
-          python3 scripts/ci/g1_promotion.py reference
+          python3 scripts/ci/g1_promotion.py test
+      - name: Accepted writer assertions against the new promotion SQL
+        run: python3 scripts/ci/g1_promotion.py compatibility
+      - name: Bind sanitized promotion evidence
+        run: python3 scripts/ci/g1_promotion.py finalize
       - name: Stop disposable provider
         if: always()
         run: docker rm -f g1-preparation-sql >/dev/null 2>&1 || true
