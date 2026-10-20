@@ -65,6 +65,7 @@ def payload(n,phase):
 def build():
  ref=json.loads((ROOT/'reference.json').read_text());catalog=(ROOT/'CatalogContract.sql').read_text();history=(ROOT/'HistoryContract.sql').read_text();ledger=(ROOT/'LedgerContract.sql').read_text()
  assert [x['id'] for x in ref['steps']]==IDS
+ assert all(re.fullmatch('[a-fA-F0-9]{64}',v) for v in [ref['initial'],ref['emptyLedger']]+[x['catalog'] for x in ref['steps']])
  expected={x['id']:x['catalog'].lower() for x in ref['steps']}
  bodies={n:payload(n,'Up')+(payload(n,'Backfill') if n==14 else '') for n in IDS}
  hashes={n:digest(bodies[n].encode()) for n in IDS}

@@ -22,10 +22,10 @@ try{
  function DraftSql([int]$n,[string]$phase){return [IO.File]::ReadAllText((Join-Path $draft ('1800_{0:000}/{1}.sql' -f $n,$phase)))}
  function Pristine($c){Assert ((Scalar $c $catalog) -eq $reference.initial);Assert ((Scalar $c "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber<>N'1.8.0-010'") -eq '0');Assert ((Scalar $c "SELECT COUNT(*) FROM sys.tables WHERE name=N'FieldVisitMigrationLedger'") -eq '0');Assert ((Scalar $c "SELECT APPLOCK_TEST(N'public',N'FieldVisit.SchemaMigration',N'Exclusive',N'Session')") -eq '1')}
  if($Mode -eq 'Reference'){
-  $case='ReferenceBootstrap';$c=Fixture;$h=Scalar $c $history;$initial=Scalar $c $catalog;Exec $c $ledger;$emptyLedger=Scalar $c $catalog;$steps=@()
+  $case='ReferenceBootstrap';$c=Fixture;Assert ((Scalar $c "SELECT N'G1_SCALAR_CONTROL'") -eq 'G1_SCALAR_CONTROL');$h=Scalar $c $history;$initial=Scalar $c $catalog;Assert ($h -match '^[A-Fa-f0-9]{64}$' -and $initial -match '^[A-Fa-f0-9]{64}$');Exec $c $ledger;$emptyLedger=Scalar $c $catalog;Assert ($emptyLedger -match '^[A-Fa-f0-9]{64}$');$steps=@()
   foreach($n in @(11,12,14,15,16,17,18,19,20)){
    $case="Reference$n";Exec $c (DraftSql $n 'Preflight');Exec $c (DraftSql $n 'Up');if($n -eq 14){Exec $c (DraftSql $n 'Backfill')};Exec $c (DraftSql $n 'Verify')
-   Assert ((Scalar $c $history) -eq $h);$steps+=@{id=$n;catalog=Scalar $c $catalog};Pass $case
+   Assert ((Scalar $c $history) -eq $h);$ch=Scalar $c $catalog;Assert ($ch -match '^[A-Fa-f0-9]{64}$');$steps+=@{id=$n;catalog=$ch};Pass $case
   }
   @{contract='g1-scoped-promotion-reference-v1';originRc='f29affb3299828f45b1f131321779e8bea2f86a8';fixture='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE';initial=$initial;emptyLedger=$emptyLedger;steps=$steps} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $repo 'artifacts/observed-reference.json')
  }else{
