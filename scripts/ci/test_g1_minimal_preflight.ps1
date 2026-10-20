@@ -5,6 +5,16 @@ $case='Client';$admin=$null;$db=$null;$temp=$null;$setup=$null;$script:failed=$f
 $repo=(Resolve-Path "$PSScriptRoot/../..").Path
 $results=[Collections.Generic.List[object]]::new()
 $diagnosis='HARNESS_FAILURE_OTHER'
+$script:collectorStopPhase='STOP_PHASE_UNAVAILABLE'
+$script:collectorFailureClassification='APPROVED_CLASSIFICATION_NOT_PRESENT'
+$script:collectorReturn='COLLECTOR_NOT_INVOKED'
+function CaptureSafePhase($copy){
+ $script:collectorStopPhase='STOP_PHASE_UNAVAILABLE'
+ if(Test-Path -LiteralPath $copy.phase){
+  $phase=[IO.File]::ReadAllText($copy.phase)
+  if(@('PRE_SQL_GUARDS','CONNECTION_OPEN','TARGET_OR_MARKER','CATALOG_COLLECTION','PERMISSIONS_COLLECTION','FINAL_EVIDENCE_VALIDATION') -ccontains $phase){$script:collectorStopPhase=$phase}
+ }
+}
 function Assert([bool]$ok){if(-not $ok){throw 'G1_TEST_STOP'}}
 function Exec($c,[string]$sql){$q=$c.CreateCommand();try{$q.CommandTimeout=90;$q.CommandText=$sql;[void]$q.ExecuteNonQuery()}finally{$q.Dispose()}}
 function Rows($c,[string]$sql,[string]$requirements='',[string]$reference=''){
@@ -40,6 +50,14 @@ function TestCopy([string]$id,[string]$replaceCatalog=''){
  $needle='   $reader=$cmd.ExecuteReader()'
  Assert ($collector.Contains($needle))
  $trace=Join-Path $d 'trace.txt'
+ $phase=Join-Path $d 'phase.txt'
+ # Temporary-copy observation only: six fixed phases, no values or guard changes.
+ Assert ($collector.Contains('$opened=$false') -and $collector.Contains(' $ApplicationConnection.Open();') -and $collector.Contains(' $e=[ordered]@'))
+ $collector=$collector.Replace('$opened=$false',('$opened=$false'+"`n[IO.File]::WriteAllText('$phase','PRE_SQL_GUARDS')"))
+ $collector=$collector.Replace(' $ApplicationConnection.Open();'," [IO.File]::WriteAllText('$phase','CONNECTION_OPEN')`n"+' $ApplicationConnection.Open();')
+ $collector=$collector.Replace(' $e=[ordered]@'," [IO.File]::WriteAllText('$phase','FINAL_EVIDENCE_VALIDATION')`n"+' $e=[ordered]@')
+ $phaseTrace="   [IO.File]::WriteAllText('$phase',`$(switch(`$file){'01-target.sql'{'TARGET_OR_MARKER'} '02-marker.sql'{'TARGET_OR_MARKER'} '03-catalog.sql'{'CATALOG_COLLECTION'} '04-permissions.sql'{'PERMISSIONS_COLLECTION'}}))`n"
+ $collector=$collector.Replace($needle,$phaseTrace+$needle)
  $collector=$collector.Replace($needle,"   [IO.File]::AppendAllText('$trace',`$file+[Environment]::NewLine)`n"+$needle)
  [IO.File]::WriteAllText((Join-Path $d 'collect.ps1'),$collector)
  $identity=[IO.File]::ReadAllText((Join-Path $d '01-target.sql'))
@@ -49,18 +67,30 @@ function TestCopy([string]$id,[string]$replaceCatalog=''){
  [IO.File]::WriteAllText((Join-Path $d '01-target.sql'),$identity)
  if($replaceCatalog){[IO.File]::WriteAllText((Join-Path $d '03-catalog.sql'),$replaceCatalog)}
  $pin=Rehash $d
- return @{directory=$d;trace=$trace;pin=$pin;evidence=(Join-Path $d 'evidence.json')}
+ return @{directory=$d;trace=$trace;phase=$phase;pin=$pin;evidence=(Join-Path $d 'evidence.json')}
 }
 function RunCopy($copy){
- $c=NewConnection;$global:LASTEXITCODE=0
+ $c=NewConnection;$global:LASTEXITCODE=0;$returned=$false
+ $script:collectorFailureClassification='APPROVED_CLASSIFICATION_NOT_PRESENT'
  try{
   $output=@(& (Join-Path $copy.directory 'collect.ps1') -ExecuteAuthorized -ApplicationConnection $c -ExpectedManifestSha256 $copy.pin -EvidenceFile $copy.evidence 2>&1)
+  $returned=$true
   $exit=$LASTEXITCODE
+  $script:collectorReturn=if($exit -eq 0){'COLLECTOR_ZERO_EXIT'}else{'COLLECTOR_NONZERO_EXIT'}
+  CaptureSafePhase $copy
   $text=$output -join "`n"
+  # Match only the existing approved Collector line, never arbitrary exception text.
+  $approved='UnknownSqlFailure|UnclassifiedSqlFailure|TargetGuardRejected|RequiredObjectMissing|HistoricalSelectOrObjectUnavailable|SqlPermissionDenied|MissingObjectOrColumn|SqlSyntaxOrCompatibility|AuthenticationOrDatabaseAccess|TimeoutOrTransient|ConnectivityFailure'
+  $matches=[regex]::Matches($text,"(?m)^Collection=STOP; (?:STOP: metadata-only SQL inventory failed\. )?Classification=($approved); ProviderCode=(?:Suppressed|-?[0-9]+);(?: raw SQL error suppressed\.)?`r?$")
+  if($matches.Count -eq 1){$script:collectorFailureClassification=$matches[0].Groups[1].Value}
   Assert (-not $text.Contains('G1_SYNTHETIC_PRIVATE_CANARY'))
   Assert (-not $text.Contains($script:base.Password))
   Assert (-not $text.Contains('Server=') -and -not $text.Contains('System.Management.Automation'))
   return @{exit=$exit;output=$text;trace=if(Test-Path $copy.trace){@(Get-Content $copy.trace)}else{@()}}
+ }catch{
+  $script:collectorReturn=if($returned){'HARNESS_FAILURE_OTHER'}else{'HARNESS_EXCEPTION_BEFORE_COLLECTOR_RETURN'}
+  CaptureSafePhase $copy
+  throw
  }finally{$c.Dispose()}
 }
 try{
@@ -150,6 +180,9 @@ try{
 }catch{
  if($diagnosis -notin @('COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER')){$diagnosis='HARNESS_FAILURE_OTHER'}
  Write-Output "PreflightDiagnostic=$diagnosis;"
+ Write-Output "CollectorStopPhase=$script:collectorStopPhase;"
+ Write-Output "CollectorFailureClassification=$script:collectorFailureClassification;"
+ Write-Output "CollectorReturn=$script:collectorReturn;"
  Write-Output "PreflightCase=$case; Status=STOP; Details=SUPPRESSED;"
  # Diagnostic line number only, never exception text or SQL metadata.
  Write-Output "PreflightHarnessLine=$($_.InvocationInfo.ScriptLineNumber);"
@@ -163,6 +196,6 @@ try{
  }
  if($temp){Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue}
  $artifact=Join-Path $repo 'artifacts';New-Item -ItemType Directory -Force $artifact|Out-Null
- @{contract='g1-minimal-preflight-disposable-v1';source=$env:GITHUB_SHA;base='88c21921860888f531a0962867f916c307452bbc';cases=$results.ToArray();passed=($case -in @('Complete','DiagnosticComplete') -and -not $script:failed);diagnosticOnly=[bool]$FirstStopOnly;diagnosis=$diagnosis;provider='SQL_SERVER_2022_DEVELOPER_LOCAL';testOnlyTargetAndTimeoutDerivatives=$true;apiPrincipalBinding='UNKNOWN';liveSql=$false;acceptedSuiteRerun=$false}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $artifact 'preflight-sql.json') -Encoding utf8
+ @{contract='g1-minimal-preflight-disposable-v1';source=$env:GITHUB_SHA;base='88c21921860888f531a0962867f916c307452bbc';cases=$results.ToArray();passed=($case -in @('Complete','DiagnosticComplete') -and -not $script:failed);diagnosticOnly=[bool]$FirstStopOnly;diagnosis=$diagnosis;collectorStopPhase=$script:collectorStopPhase;collectorFailureClassification=$script:collectorFailureClassification;collectorReturn=$script:collectorReturn;provider='SQL_SERVER_2022_DEVELOPER_LOCAL';testOnlyTargetAndTimeoutDerivatives=$true;apiPrincipalBinding='UNKNOWN';liveSql=$false;acceptedSuiteRerun=$false}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $artifact 'preflight-sql.json') -Encoding utf8
 }
 if($script:failed){exit 1}
