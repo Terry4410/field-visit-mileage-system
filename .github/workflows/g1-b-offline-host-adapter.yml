@@ -1,0 +1,41 @@
+name: G1-B offline host adapter safety only
+on:
+  push:
+    branches: [work/g1-b-offline-host-adapter-20261021]
+    paths:
+      - scripts/ci/g1_b_host/**
+      - docs/release/g1-b-host/**
+      - .github/workflows/g1-b-offline-host-adapter.yml
+permissions:
+  contents: read
+concurrency:
+  group: g1-b-offline-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  offline:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-b-offline-host-adapter-20261021'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source and accepted bytes
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          python3 scripts/ci/g1_b_host/verify_inputs.py
+      - name: Synthetic process safety
+        run: python3 scripts/ci/g1_b_host/test_supervisor.py
+      - name: Pinned existing SQL client dependency only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+          try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop *> $null }
+          catch { Write-Output 'Dependency=STOP; Details=Suppressed';exit 1 }
+      - name: Actual unopened SqlClient guard tests
+        shell: pwsh
+        run: ./scripts/ci/g1_b_host/test_adapter.ps1
