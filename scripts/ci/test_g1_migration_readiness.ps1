@@ -73,9 +73,9 @@ SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',CONVERT(varbinary(max),
  $case='CommittedState_FreshConnection_NoReplay';$peer=OpenDb $c.Database;Assert ((Scalar $peer $state) -eq (Scalar $c $state));Exec $peer (Sql 20 'Verify');Refuse $peer (Sql 20 'Preflight') @(51903);Pass $case
  $case='ObjectWithoutMarker_PreflightGap';Exec $c 'BEGIN TRANSACTION; DELETE dbo.SchemaVersions WHERE VersionNumber=N''1.8.0-020'';'
  try { Exec $c (Sql 20 'Preflight');Gap '020_OBJECTS_WITHOUT_MARKER_PREFLIGHT_ACCEPTS' } finally {Exec $c 'IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;'}
- $case='AlteredColumn_VerifyRefuses';Exec $c "BEGIN TRANSACTION; EXEC sys.sp_rename N'dbo.LocationMergeDetails.SourceTeamId',N'G1MissingColumn',N'COLUMN';"
+ $case='AlteredColumn_VerifyRefuses';Exec $c "BEGIN TRANSACTION; ALTER TABLE dbo.LocationMergeDetails DROP CONSTRAINT CK_OptionC_MergeDetails_Teams; ALTER TABLE dbo.LocationMergeDetails DROP COLUMN SourceTeamId;"
  try {Refuse $c (Sql 19 'Verify') @(51913);Pass $case}finally{Exec $c 'IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;'}
- $case='MissingTable_VerifyRefuses';Exec $c "BEGIN TRANSACTION; EXEC sys.sp_rename N'dbo.LocationMergeDetails',N'G1MissingTable';"
+ $case='MissingTable_VerifyRefuses';Exec $c "BEGIN TRANSACTION; DROP TABLE dbo.LocationMergeDetails;"
  try {Refuse $c (Sql 19 'Verify') @(51911);Pass $case}finally{Exec $c 'IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;'}
  $case='Permissions_DdlDenied_NoPartialState';$p=Fixture;Exec $p 'CREATE USER G1Restricted WITHOUT LOGIN; GRANT SELECT ON SCHEMA::dbo TO G1Restricted; DENY CREATE TABLE TO G1Restricted; DENY ALTER ON SCHEMA::dbo TO G1Restricted;'
  $before=Scalar $p $state;Exec $p "EXECUTE AS USER=N'G1Restricted';"
