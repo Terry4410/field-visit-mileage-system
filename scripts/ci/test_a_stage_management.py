@@ -132,4 +132,10 @@ class Channel(unittest.TestCase):
             with self.assertRaises(a.Stop): a.main({})
             send.assert_not_called()
 
+    def test_request_wall_timer_cleanup_without_network(self):
+        with patch.object(a, '_network_get', side_effect=TimeoutError()) as send:
+            with self.assertRaises(TimeoutError): a.network_get('SYNTHETIC', 'SYNTHETIC', 1)
+            send.assert_called_once()
+        self.assertEqual(a.signal.getitimer(a.signal.ITIMER_REAL), (0.0, 0.0))
+
 if __name__ == '__main__': unittest.main()

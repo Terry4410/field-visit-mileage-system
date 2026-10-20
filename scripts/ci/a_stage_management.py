@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import sys
 import time
 import urllib.error
@@ -107,6 +108,21 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 def network_get(url, bearer, timeout):
+    # Socket timeouts alone reset on each read. A real wall-clock alarm bounds
+    # the complete request/body read, including a slowly streaming response.
+    require(hasattr(signal, 'setitimer') and 0 < timeout <= 10)
+    require(signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0))
+    def expired(*args):
+        raise Stop()
+    previous = signal.signal(signal.SIGALRM, expired)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, timeout)
+        return _network_get(url, bearer, timeout)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+def _network_get(url, bearer, timeout):
     # No SDK, proxy credentials, redirect following, retry handler or cookie jar.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + bearer,
