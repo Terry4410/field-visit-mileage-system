@@ -3,14 +3,14 @@
   "approval": "PROPOSED_NOT_AUTHORIZED",
   "rcSource": "f29affb3299828f45b1f131321779e8bea2f86a8",
   "acceptedPreparation": "8e4d3dc72a63e324b69253dff9e0cc1d7fef2273",
-  "packageId": "48f9ac14ff70f48a8412b95fe68f965d3c9057bb712e3bd8611f3cff561a31c0",
+  "packageId": "21041135dbde331ba01a09482efcda50752d8070918408844907fac09eb11d1b",
   "server": "sql-fieldvisit-jpe-uat",
   "database": "db-fieldvisit-uat",
   "transaction": "ALL_NINE_STEPS_AND_BACKFILL_ATOMIC",
   "reserved013": "UNCHANGED_ABSENT",
   "offlineTestGuard": "SQL2022_Developer_only;OptionCIsolated_GUID;explicit_session_context;caller_localhost_only",
   "sourceHashes": {
-    "scripts/ci/g1_promotion.py": "98ff83eca7b0b3363a45123d3fe672516d64b6343acf68f04a870b49afff42cb",
+    "scripts/ci/g1_promotion.py": "2393fc0fa2c20603bdb1fe7b1604a6d365c2c379a28b3cdbfa5e0d315d452cea",
     "docs/release/g1-execution/promotion/reference.json": "e598c81c8de029e4bb9ef105814201f89cee27ad0a1fa6c667462ed6b14c9b1b",
     "docs/release/g1-execution/promotion/CatalogContract.sql": "569b6286426d51d3cc023e3cc879f377da66760750e92a1deeffe4ddf0dfbd52",
     "docs/release/g1-execution/promotion/HistoryContract.sql": "43edb0823340f78340c5d28733a0acea92f7087a3ac74fb7baa704a9fccb4dd8",
@@ -121,8 +121,8 @@
     }
   ],
   "files": {
-    "docs/release/g1-execution/promotion/Promotion.sql": "f448da604dc2b5a84c3bb8997a6d139b517fd47aa797e95c74206eb84ebf7e32",
-    "docs/release/g1-execution/promotion/Verify.sql": "3b5a11558982658ec6fdbdd60f24414b5c540b80fd062934ab031f581b3c0b40",
+    "docs/release/g1-execution/promotion/Promotion.sql": "91b4efaa20bfc21e730466efa0a32e6a6ab8916b3003c8c35fc9c15978bdb84a",
+    "docs/release/g1-execution/promotion/Verify.sql": "8bcc6e3001c6ad3fc0bad264e1122a2416088c08877e1bbd4a39742909355d12",
     "docs/release/g1-execution/promotion/CatalogContract.sql": "569b6286426d51d3cc023e3cc879f377da66760750e92a1deeffe4ddf0dfbd52",
     "docs/release/g1-execution/promotion/HistoryContract.sql": "43edb0823340f78340c5d28733a0acea92f7087a3ac74fb7baa704a9fccb4dd8",
     "docs/release/g1-execution/promotion/LedgerContract.sql": "e6b15309cd77c5a94492de5d575cfb7e13f60c71666009185c390703d37287a0",

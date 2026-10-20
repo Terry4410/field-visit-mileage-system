@@ -73,9 +73,9 @@ def build():
  package=digest(json.dumps({'sources':sources,'payloads':hashes},sort_keys=True).encode())
  approve=f"IF @G1Offline=0 AND (TRY_CONVERT(binary(32),SESSION_CONTEXT(N'FieldVisit.G1.OwnerApprovedContract')) IS NULL OR TRY_CONVERT(binary(32),SESSION_CONTEXT(N'FieldVisit.G1.OwnerApprovedContract'))<>0x{package}) THROW 52004,N'G1_AUTHORIZATION_STOP',1;\n"
  header='-- NONDEPLOY REVIEW CANDIDATE. No execution or registry assignment authorized.\n'+target_guard()+approve+"IF @@TRANCOUNT<>0 THROW 52002,N'G1_AMBIENT_TRANSACTION_STOP',1;\nSET XACT_ABORT ON; SET LOCK_TIMEOUT 0; SET DEADLOCK_PRIORITY LOW;\n"
+ header+="IF COALESCE(HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'VIEW DEFINITION'),0)<>1 THROW 52005,N'G1_PERMISSION_STOP',1;\n"
  for name in ['SchemaVersions','Organizations','Teams','Users','Locations','VisitTrips','VisitTripStops','VisitTripSnapshots','VisitTripSnapshotStops','ImportBatches','ImportBatchItems']:
   header+=f"IF OBJECT_ID(N'dbo.{name}',N'U') IS NULL THROW 52010,N'G1_PREREQUISITE_STOP',1;\n"
- header+="IF COALESCE(HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'VIEW DEFINITION'),0)<>1 THROW 52005,N'G1_PERMISSION_STOP',1;\n"
  # Reconcile only fully committed, hash/marker/catalog-equivalent packages.
  final=marker_state(20,52014)+hash_call(catalog,'@G1Hash')+f"IF @G1Hash IS NULL OR LOWER(@G1Hash)<>{lit(expected[20])} THROW 52014,N'G1_CATALOG_STOP',1;\n"
  rows=','.join(f"({lit(f'1.8.0-{n:03d}')},0x{package},0x{hashes[n]},0x{expected[n]})" for n in IDS)
