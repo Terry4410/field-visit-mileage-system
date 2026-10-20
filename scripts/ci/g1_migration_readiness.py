@@ -42,6 +42,7 @@ def faults():
  verify()
  r=subprocess.run(['pwsh','-NoProfile','-File','scripts/ci/test_g1_migration_readiness.ps1'],capture_output=True,text=True,timeout=900)
  for line in r.stdout.splitlines():
+  if re.fullmatch(r'HarnessDiagnostic=STOP; Line=[0-9]+; ProviderCode=-?[0-9]+;',line):print(line)
   if re.fullmatch(r'MigrationCase=[A-Za-z0-9_]+; Status=(PASS|KNOWN_PROMOTION_GAP|STOP);(?: Details=SUPPRESSED;)?',line):print(line)
  assert r.returncode==0
 def finalize():

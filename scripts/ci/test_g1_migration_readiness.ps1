@@ -10,13 +10,16 @@ function Refuse($c,[string]$sql,[int[]]$codes) { try{Exec $c $sql}catch{Assert (
 function Pass([string]$id,[string]$outcome='PASS') { $results.Add(@{case=$id;result=$outcome});Write-Output "MigrationCase=$id; Status=$outcome;" }
 function Gap([string]$id) { $gaps.Add($id);Pass $id 'KNOWN_PROMOTION_GAP' }
 try {
+ $case='ClientModule'
  Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
+ $case='LocalTargetGuard'
  $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($env:E1_R1_SQL_CONNECTION)
  Assert ($env:GITHUB_ACTIONS -eq 'true' -and $b.DataSource -in @('localhost,1433','127.0.0.1,1433') -and $b.InitialCatalog -eq 'master' -and $b.UserID -eq 'sa' -and -not $b.IntegratedSecurity)
  $b.Pooling=$false;$b.ConnectTimeout=5;$b.ConnectRetryCount=0
  $admin=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString);$admin.Open()
  $repo=(Resolve-Path "$PSScriptRoot/../..").Path
  $root=Join-Path $repo 'docs/release/optionc-canonical-sql-draft/candidate'
+ $case='FixtureSource'
  $old=Get-Content (Join-Path $PSScriptRoot 'run_full_candidate_migration.ps1') -Raw
  $matches=[regex]::Matches($old,"(?s)\`$boot=@'\r?\n(.*?)\r?\n'@")
  Assert ($matches.Count -eq 1);$boot=$matches[0].Groups[1].Value
@@ -41,7 +44,7 @@ SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',CONVERT(varbinary(max),
  (SELECT * FROM dbo.VisitTripSnapshots ORDER BY VisitTripSnapshotId FOR JSON PATH,INCLUDE_NULL_VALUES)+
  (SELECT * FROM dbo.VisitTripSnapshotStops ORDER BY VisitTripSnapshotStopId FOR JSON PATH,INCLUDE_NULL_VALUES))),2)
 '@
- $c=Fixture;$historyBefore=Scalar $c $history
+ $case='FixtureBootstrap';$c=Fixture;$case='HistoryBaseline';$historyBefore=Scalar $c $history
  foreach($n in @(11,12,14,15,16,17,18,19,20)) {
   $case="Step${n}_Preflight";Exec $c (Sql $n 'Preflight')
   $before=Scalar $c $state;$up=Sql $n 'Up';$at=$up.LastIndexOf('COMMIT TRANSACTION;',[StringComparison]::OrdinalIgnoreCase);Assert ($at -gt 0)
@@ -89,7 +92,7 @@ SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',CONVERT(varbinary(max),
  foreach($n in @(14,15,16,17,18,19,20)){Refuse $denied (Sql $n 'Preflight') @(51400,51900);Pass "Step${n}_DisposableGuardRefused"}
  $case='Final_HistoryUnchanged';Assert ((Scalar $c $history) -eq $historyBefore);Pass $case
  @{contract='g1-migration-disposable-v1';sourceSha=$env:GITHUB_SHA;rcSource='f29affb3299828f45b1f131321779e8bea2f86a8';sqlServer='DISPOSABLE_SQL_SERVER_2022';fixture='ACCEPTED_SYNTHETIC_010_NOT_UAT_OR_G3_BASELINE';cases=$results;knownPromotionGaps=$gaps;automaticRetry=$false;uatSqlExecuted=$false;decision='HOLD_UAT_PROMOTION'} | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $repo 'artifacts/migration-cases.json')
-} catch { Write-Output "MigrationCase=$case; Status=STOP; Details=SUPPRESSED;";exit 1 }
+} catch { Write-Output "MigrationCase=$case; Status=STOP; Details=SUPPRESSED;"; $line=$_.InvocationInfo.ScriptLineNumber; $provider=Code $_.Exception; Write-Output "HarnessDiagnostic=STOP; Line=$line; ProviderCode=$provider;"; exit 1 }
 finally {
  foreach($c in $connections){$c.Dispose()}
  if($null -ne $admin){foreach($db in $databases){try{Exec $admin "ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db];"}catch{Write-Output 'DisposableCleanup=STOP; Details=SUPPRESSED;'}};$admin.Dispose()}
