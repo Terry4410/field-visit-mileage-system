@@ -25,7 +25,15 @@ try{
  $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($ApplicationConnection.ConnectionString)
  Guard ($b.DataSource -ceq 'tcp:sql-fieldvisit-jpe-uat.database.windows.net,1433' -and $b.InitialCatalog -ceq 'db-fieldvisit-uat')
  Guard (-not $b.TrustServerCertificate -and -not $b.IntegratedSecurity -and -not $b.AttachDBFilename -and -not $b.FailoverPartner)
- Guard ($null -eq $ApplicationConnection.RetryLogicProvider)
+ # SqlClient lazily returns a non-null built-in no-retry provider. Accept only
+ # the exact SDK implementation/logic/enumerator produced by its public factory.
+ $retry=$ApplicationConnection.RetryLogicProvider
+ if($null -ne $retry){
+  $none=[Microsoft.Data.SqlClient.SqlConfigurableRetryFactory]::CreateNoneRetryProvider()
+  Guard ($retry.GetType() -eq $none.GetType() -and $null -ne $retry.RetryLogic)
+  Guard ($retry.RetryLogic.GetType() -eq $none.RetryLogic.GetType() -and $null -ne $retry.RetryLogic.RetryIntervalEnumerator)
+  Guard ($retry.RetryLogic.RetryIntervalEnumerator.GetType() -eq $none.RetryLogic.RetryIntervalEnumerator.GetType())
+ }
  $b['Encrypt']=$true;$b['Connect Timeout']=120;$b['ConnectRetryCount']=0;$b['Pooling']=$false
  $b['ApplicationIntent']='ReadOnly';$b['MultiSubnetFailover']=$false
  $ApplicationConnection.ConnectionString=$b.ConnectionString

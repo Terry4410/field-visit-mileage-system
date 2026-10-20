@@ -75,7 +75,7 @@ function TestCopy([string]$id,[string]$replaceCatalog=''){
   ' $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]',
   ' Guard ($b.DataSource',
   ' Guard (-not $b.TrustServerCertificate',
-  ' Guard ($null -eq $ApplicationConnection.RetryLogicProvider)',
+  ' $retry=$ApplicationConnection.RetryLogicProvider',
   " `$b['Encrypt']=",
   " `$b['ApplicationIntent']=",
   ' $ApplicationConnection.ConnectionString=',
@@ -114,8 +114,9 @@ function TestCopy([string]$id,[string]$replaceCatalog=''){
  $pin=Rehash $d
  return @{directory=$d;trace=$trace;phase=$phase;guard=$guard;pin=$pin;evidence=(Join-Path $d 'evidence.json')}
 }
-function RunCopy($copy){
+function RunCopy($copy,$retryProvider=$null){
  $c=NewConnection;$global:LASTEXITCODE=0;$returned=$false
+ if($null -ne $retryProvider){$c.RetryLogicProvider=$retryProvider}
  $script:collectorFailureClassification='APPROVED_CLASSIFICATION_NOT_PRESENT'
  try{
   $output=@(& (Join-Path $copy.directory 'collect.ps1') -ExecuteAuthorized -ApplicationConnection $c -ExpectedManifestSha256 $copy.pin -EvidenceFile $copy.evidence 2>&1)
@@ -140,14 +141,37 @@ function RunCopy($copy){
 }
 try{
  Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
+ # Same loaded assembly and host as Collector; no SQL Open in this experiment.
+ $case='RetryProviderUnopenedRootCause'
+ $fresh=[Microsoft.Data.SqlClient.SqlConnection]::new()
+ try{
+  $field=$fresh.GetType().GetField('_retryLogicProvider',[Reflection.BindingFlags]'Instance,NonPublic')
+  Assert ($null -ne $field -and $null -eq $field.GetValue($fresh))
+  $provider=$fresh.RetryLogicProvider
+  $none=[Microsoft.Data.SqlClient.SqlConfigurableRetryFactory]::CreateNoneRetryProvider()
+  Assert ($null -ne $provider -and $provider.GetType() -eq $none.GetType())
+  Assert ($provider.RetryLogic.GetType() -eq $none.RetryLogic.GetType())
+  Assert ($provider.RetryLogic.RetryIntervalEnumerator.GetType() -eq $none.RetryLogic.RetryIntervalEnumerator.GetType())
+  Assert ($fresh.State -eq [Data.ConnectionState]::Closed)
+ }finally{$fresh.Dispose()}
  Assert ($env:GITHUB_ACTIONS -eq 'true' -and $env:GITHUB_REPOSITORY -eq 'Terry4410/field-visit-mileage-system')
  $base=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($env:E1_R1_SQL_CONNECTION)
  Assert ($base.DataSource -ceq 'localhost,1433' -and $base.InitialCatalog -ceq 'master' -and $base.UserID -ceq 'sa')
  $base['Pooling']=$false;$base['ConnectRetryCount']=0
+ $db='master'
+ $probe=NewConnection
+ try{
+  Assert ($null -eq $field.GetValue($probe))
+  $provider=$probe.RetryLogicProvider
+  Assert ($null -ne $provider -and $provider.GetType() -eq $none.GetType())
+  Assert ($provider.RetryLogic.RetryIntervalEnumerator.GetType() -eq $none.RetryLogic.RetryIntervalEnumerator.GetType())
+  Assert ($base.ConnectRetryCount -eq 0 -and $probe.State -eq [Data.ConnectionState]::Closed)
+  Write-Output 'RetryProviderProbe=PASS; Getter=RETURNED; Default=BUILTIN_NONE; Fixture=BUILTIN_NONE; ExplicitProvider=ABSENT; ConnectRetryCount=ZERO; SqlOpen=FALSE;'
+ }finally{$probe.Dispose()}
  $admin=[Microsoft.Data.SqlClient.SqlConnection]::new($base.ConnectionString);$admin.Open()
  $repo=(Resolve-Path "$PSScriptRoot/../..").Path
  $package=Join-Path $repo 'docs/release/g1-minimal-preflight'
- Assert ((Get-FileHash (Join-Path $package 'manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant() -eq '63c81e16359aa82112d4f19f6e6eb3cdcaeece136e93196b11f12731cda3947b')
+ Assert ((Get-FileHash (Join-Path $package 'manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant() -eq 'dac732f5badec6a0a26190f674beb3c7d1e32e7b235daab82b49cce5a0f9e608')
  $temp=Join-Path $env:RUNNER_TEMP ('g1-preflight-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory $temp|Out-Null
  $db='OptionCIsolated_'+[guid]::NewGuid().ToString('N');Assert ($db -cmatch '^OptionCIsolated_[0-9a-f]{32}$')
  Exec $admin "CREATE DATABASE [$db]"
@@ -159,7 +183,7 @@ try{
  $case='NoSqlCmdExpansion';foreach($f in @('01-target.sql','02-marker.sql','03-catalog.sql','04-permissions.sql')){Assert (-not ([IO.File]::ReadAllText((Join-Path $package $f)) -match '\$\('))};Pass $case
  $case='UnmodifiedTargetSqlRejectsDisposable';$rows=Rows $setup ([IO.File]::ReadAllText((Join-Path $package '01-target.sql')));Assert ((Status $rows 'TARGET') -ceq 'FAIL');Pass $case
  $case='UnmodifiedCollectorRejectsLoopbackBeforeOpen';$c=NewConnection;$global:LASTEXITCODE=0
- $output=@(& (Join-Path $package 'collect.ps1') -ExecuteAuthorized -ApplicationConnection $c -ExpectedManifestSha256 '63c81e16359aa82112d4f19f6e6eb3cdcaeece136e93196b11f12731cda3947b' -EvidenceFile (Join-Path $temp 'forbidden.json') 2>&1)
+ $output=@(& (Join-Path $package 'collect.ps1') -ExecuteAuthorized -ApplicationConnection $c -ExpectedManifestSha256 'dac732f5badec6a0a26190f674beb3c7d1e32e7b235daab82b49cce5a0f9e608' -EvidenceFile (Join-Path $temp 'forbidden.json') 2>&1)
  Assert ($LASTEXITCODE -ne 0 -and $c.State -eq [Data.ConnectionState]::Closed -and -not (Test-Path (Join-Path $temp 'forbidden.json')));$c.Dispose();Pass $case
  }
  $case='Collector010FindingsStillCollectPermissions';$copy=TestCopy $case;$run=RunCopy $copy
@@ -173,6 +197,11 @@ try{
  Assert ((Status $e.groups[3] 'API_PRINCIPAL_BINDING') -ceq 'UNKNOWN');Pass $case
  $diagnosis='NONE'
  if(-not $FirstStopOnly){
+ $case='ConfiguredRetryRejectedBeforeOpen';$copy=TestCopy $case
+ $option=[Microsoft.Data.SqlClient.SqlRetryLogicOption]::new();$option.NumberOfTries=2
+ $retryProvider=[Microsoft.Data.SqlClient.SqlConfigurableRetryFactory]::CreateFixedRetryProvider($option)
+ $run=RunCopy $copy $retryProvider
+ Assert ($run.exit -ne 0 -and $run.trace.Count -eq 0 -and -not (Test-Path $copy.evidence) -and $script:collectorStopPhase -ceq 'PRE_SQL_GUARDS');Pass $case
  $case='MarkerStopBeforeCatalog';Exec $setup "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-009'";$copy=TestCopy $case;$run=RunCopy $copy
  Assert ($run.exit -eq 0 -and ($run.trace -join ',') -ceq '01-target.sql,02-marker.sql');Exec $setup "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-010'";Pass $case
  $case='MissingVersionObjectStops';Exec $setup 'EXEC sys.sp_rename N''dbo.SchemaVersions'',N''G1HeldVersions'';';$copy=TestCopy $case;$run=RunCopy $copy
@@ -220,7 +249,7 @@ try{
   foreach($code in @('NO_DATABASE_CONTROL','NO_DATABASE_ALTER','NO_CREATE_TABLE','NO_SCHEMA_ALTER','NO_REGISTRY_INSERT','NO_REGISTRY_UPDATE','NO_REGISTRY_DELETE')){Assert ((Status $rows $code) -ceq 'PASS')}
   Assert ((Status $rows 'API_PRINCIPAL_BINDING') -ceq 'UNKNOWN')
  }finally{Exec $setup 'REVERT;'};Pass $case
- $case='Complete';Assert ($results.Count -eq 18)
+ $case='Complete';Assert ($results.Count -eq 19)
  }else{$case='DiagnosticComplete'}
 }catch{
  if($diagnosis -notin @('COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER')){$diagnosis='HARNESS_FAILURE_OTHER'}
