@@ -85,7 +85,7 @@ try{
    $task=$cmd.ExecuteNonQueryAsync();$waiting=$false
    for($i=0;$i -lt 300;$i++){if((Scalar $peer "SELECT COUNT(*) FROM sys.dm_exec_requests WHERE session_id=$spid AND blocking_session_id=$peerSpid") -eq '1'){$waiting=$true;break};if($task.IsCompleted){break};Start-Sleep -Milliseconds 20}
    $case='QuiescenceGateObserved';Assert $waiting
-   $case='QuiescenceObjectLockObserved';Assert ((Scalar $peer "SELECT COUNT(*) FROM sys.dm_tran_locks WHERE request_session_id=$spid AND resource_type=N'OBJECT' AND resource_associated_entity_id=$locationObjectId AND request_mode=N'X' AND request_status=N'GRANT'") -ge 1)
+   $case='QuiescenceBlockingObjectLockObserved';Assert ((Scalar $peer "SELECT COUNT(*) FROM sys.dm_tran_locks WHERE request_session_id=$spid AND resource_type=N'OBJECT' AND resource_associated_entity_id=$locationObjectId AND request_mode IN(N'X',N'Sch-M') AND request_status=N'GRANT'") -ge 1)
    $case='QuiescenceConcurrentDmlDenied';Refuse $peer "SET LOCK_TIMEOUT 0; UPDATE dbo.Locations SET MasterNote=N'Synthetic concurrent' WHERE LocationId=10;" @(1222)
   }finally{Exec $peer "EXEC sys.sp_releaseapplock @Resource=N'G1.Test.QuiescenceGate',@LockOwner=N'Session';"}
   [void]$task.GetAwaiter().GetResult();$cmd.Dispose();Exec $peer $verify;Assert ((Scalar $peer $history) -eq $h);Assert ((Scalar $peer "SELECT COALESCE(MasterNote,N'') FROM dbo.Locations WHERE LocationId=10") -eq '');Pass 'WriteQuiescenceBlocksConcurrentChange'
