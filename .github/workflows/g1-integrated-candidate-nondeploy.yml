@@ -82,3 +82,120 @@ jobs:
       - name: Remove disposable SQL Server
         if: always()
         run: docker rm -f g1-report-disposable >/dev/null 2>&1 || true
+
+  package-candidate:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-single-uat-integration-20261021'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      api_sha: ${{ steps.hash.outputs.api_sha }}
+      frontend_off_sha: ${{ steps.hash.outputs.frontend_off_sha }}
+      frontend_candidate_sha: ${{ steps.hash.outputs.frontend_candidate_sha }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build API deployment package
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-cjk
+          dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore -o "$RUNNER_TEMP/api-publish"
+          mkdir -p "$RUNNER_TEMP/api-publish/fonts" out
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc "$RUNNER_TEMP/api-publish/fonts/NotoSansCJK-Regular.ttc"
+          test -s "$RUNNER_TEMP/api-publish/fonts/NotoSansCJK-Regular.ttc"
+          python3 - <<'PY'
+          import json,os,pathlib
+          c=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'api-publish/appsettings.json').read_text())
+          assert c['OptionC']['Candidate']['Enabled'] is False
+          assert c['OptionC']['Approval']['Enabled'] is False
+          assert c['ConnectionStrings']['DefaultConnection']=='SET-IN-AZURE-APP-SERVICE'
+          print('API_DEFAULT_OFF_VERIFIED')
+          PY
+          (cd "$RUNNER_TEMP/api-publish" && zip -qr "$GITHUB_WORKSPACE/out/api.zip" .)
+          dotnet list backend/src/FieldVisit.Api/FieldVisit.Api.csproj package --include-transitive > out/api-dependencies.txt
+      - name: Build default OFF and marked candidate frontend packages
+        shell: bash
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+          if grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist; then exit 1; fi
+          (cd dist && zip -qr "$GITHUB_WORKSPACE/out/frontend-off.zip" .)
+          npm run build:optionc-candidate
+          grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist
+          (cd dist && zip -qr "$GITHUB_WORKSPACE/out/frontend-candidate.zip" .)
+          sha256sum package-lock.json > "$GITHUB_WORKSPACE/out/frontend-lock.sha256"
+      - name: Bind source, dependencies and package digests
+        id: hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          p=pathlib.Path('out')
+          names=['api.zip','frontend-off.zip','frontend-candidate.zip','api-dependencies.txt','frontend-lock.sha256']
+          digests={n:hashlib.sha256((p/n).read_bytes()).hexdigest() for n in names}
+          manifest={'schema':1,'source_sha':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],'packages':digests,'status':'BUILT_NOT_DEPLOYED','api_default_optionc':'OFF','frontend_modes':['OFF','NONDEPLOY_CANDIDATE']}
+          (p/'manifest.json').write_text(json.dumps(manifest,sort_keys=True,indent=2)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              for k,n in [('api_sha','api.zip'),('frontend_off_sha','frontend-off.zip'),('frontend_candidate_sha','frontend-candidate.zip')]:
+                  f.write(k+'='+digests[n]+'\n')
+          print('PACKAGE_SOURCE_AND_DIGESTS_BOUND')
+          PY
+      - name: Upload nondeploy packages
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-deploy-packages-${{ github.sha }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+  verify-packages:
+    needs: package-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Independently download exact artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: g1-deploy-packages-${{ github.sha }}
+          path: retrieved
+      - name: Verify package bytes and exact source
+        env:
+          EXPECTED_API: ${{ needs.package-candidate.outputs.api_sha }}
+          EXPECTED_OFF: ${{ needs.package-candidate.outputs.frontend_off_sha }}
+          EXPECTED_CANDIDATE: ${{ needs.package-candidate.outputs.frontend_candidate_sha }}
+          ARTIFACT_ID: ${{ needs.package-candidate.outputs.artifact_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,re
+          p=pathlib.Path('retrieved')
+          m=json.loads((p/'manifest.json').read_text())
+          assert m['source_sha']==os.environ['GITHUB_SHA'] and m['run_id']==os.environ['GITHUB_RUN_ID']
+          assert m['run_attempt']==os.environ['GITHUB_RUN_ATTEMPT'] and m['status']=='BUILT_NOT_DEPLOYED'
+          assert re.fullmatch(r'[0-9]+',os.environ['ARTIFACT_ID'])
+          expected={'api.zip':os.environ['EXPECTED_API'],'frontend-off.zip':os.environ['EXPECTED_OFF'],'frontend-candidate.zip':os.environ['EXPECTED_CANDIDATE']}
+          assert set(m['packages'])==set(expected)|{'api-dependencies.txt','frontend-lock.sha256'}
+          for name,digest in m['packages'].items():
+              assert re.fullmatch(r'[0-9a-f]{64}',digest)
+              assert hashlib.sha256((p/name).read_bytes()).hexdigest()==digest
+              if name in expected: assert digest==expected[name]
+          print('INDEPENDENT_DOWNLOAD_HASH_VERIFIED source='+m['source_sha']+' artifact='+os.environ['ARTIFACT_ID'])
+          for name,digest in expected.items(): print('PACKAGE_SHA256 '+name+' '+digest)
+          PY
