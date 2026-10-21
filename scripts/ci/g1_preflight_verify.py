@@ -8,7 +8,7 @@ def sha(b):return hashlib.sha256(b).hexdigest()
 def git(*args):return subprocess.check_output(['git',*args]).decode().strip()
 def check():
  assert os.environ['GITHUB_SHA']==git('rev-parse','HEAD')
- assert git('rev-parse','HEAD^')==DIAGNOSTIC_BASE
+ assert git('merge-base',DIAGNOSTIC_BASE,'HEAD')==DIAGNOSTIC_BASE
  assert set(git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD').splitlines())=={'scripts/ci/g1_preflight_verify.py'}
  assert not git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD','--',str(P/'collect.ps1'),str(P/'01-target.sql'),str(P/'02-marker.sql'),str(P/'03-catalog.sql'),str(P/'04-permissions.sql'),str(P/'uat_schema_fidelity_evidence.ps1'))
  assert os.environ['GITHUB_REPOSITORY']=='Terry4410/field-visit-mileage-system'
@@ -93,5 +93,5 @@ def safe_collector_diagnostic(line):
  m=re.fullmatch(r'(CollectorStopPhase|CollectorFailureClassification|CollectorReturn|CollectorGuard)=([A-Za-z_0-9]+);',line)
  return line if m and m[2] in allowed[m[1]] else None
 if __name__=='__main__':
- try:{'check':check,'provider':provider,'test':test,'model':model,'diagnose':test}[sys.argv[1]]()
+ try:{'check':check,'provider':provider,'test':test,'model':model,'diagnose':diagnose}[sys.argv[1]]()
  except Exception:raise SystemExit('PreflightVerification=STOP; Details=SUPPRESSED;') from None
