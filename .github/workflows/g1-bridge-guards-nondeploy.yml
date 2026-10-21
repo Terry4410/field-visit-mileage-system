@@ -32,3 +32,25 @@ jobs:
         run: python3 scripts/ci/g1_bridge_guard.py
       - name: Negative and positive offline contract tests
         run: python3 -m unittest discover -s scripts/ci -p test_g1_bridge_guard.py -v
+      - name: Install pinned SqlClient PowerShell provider (no Azure)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try {
+            Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop | Out-Null
+            Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force -ErrorAction Stop
+            if((Get-Module SqlServer).Version.ToString() -cne '22.4.5.1'){throw 'PIN'}
+            Write-Output 'ProviderModule=PASS; AzureAccess=FALSE;'
+          } catch { Write-Output 'ProviderModule=STOP; Details=SUPPRESSED;'; exit 1 }
+      - name: Execute real closed SqlClient builder and candidate (no Open)
+        shell: pwsh
+        env:
+          BRIDGE_MANIFEST_SHA: '7742024b9bb790acef0821d0dd10361dd284f4a44311d8045464d1a7f1db686f'
+        run: |
+          $ErrorActionPreference='Stop'
+          $evidence=Join-Path $env:RUNNER_TEMP 'g1-bridge-not-created.json'
+          if(Test-Path $evidence){throw 'EVIDENCE_PRESENT'}
+          $output=@(& (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_bridge_connection_candidate.ps1') -ExecuteIsolated -ReviewedManifestSha256 $env:BRIDGE_MANIFEST_SHA -ReviewedSourceSha $env:GITHUB_SHA -DiagnosticAccessToken 'SYNTHETIC_NON_AUTHENTICATING_TOKEN' -EvidenceFile $evidence)
+          if($LASTEXITCODE -ne 0 -or $output.Count -ne 1 -or $output[0] -cne 'BridgeConnection=PREPARED_ONLY; SqlOpened=FALSE; ApiPrincipal=UNKNOWN; G1=HOLD;'){throw 'CANDIDATE_REJECTED'}
+          if(Test-Path $evidence){throw 'EVIDENCE_UNEXPECTED'}
+          Write-Output 'ClosedSqlClient=PASS; SqlOpened=FALSE; G1=HOLD;'
