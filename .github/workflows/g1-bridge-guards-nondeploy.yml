@@ -3,6 +3,7 @@ on:
   push:
     branches: [work/g1-readonly-bridge-nondeploy-20261021]
     paths:
+      - '.github/workflows/g1-bridge-guards-nondeploy.yml'
       - 'scripts/ci/g1_bridge_guard.py'
       - 'scripts/ci/test_g1_bridge_guard.py'
   workflow_dispatch:
@@ -23,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Exact SHA / source / identity separation guards
         env:
