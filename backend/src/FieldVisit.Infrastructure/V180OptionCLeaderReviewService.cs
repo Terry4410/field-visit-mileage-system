@@ -42,7 +42,7 @@ public sealed class V180OptionCLeaderReviewService(
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
         if (connection.State != ConnectionState.Open)
             await connection.OpenAsync(ct);
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);
         await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
         try
         {

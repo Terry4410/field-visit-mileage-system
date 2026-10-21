@@ -21,7 +21,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
     {
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);
         // Database naming is not schema evidence. Verify every required
         // Stage/Ledger object, column, unique index and trusted constraint
         // before opening the write transaction.

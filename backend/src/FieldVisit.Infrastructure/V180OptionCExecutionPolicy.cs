@@ -13,6 +13,26 @@ public static class V180OptionCExecutionPolicy
     public const string ModeVariable = "OPTIONC_EXECUTION_MODE";
     public const string IsolatedSqlTestMode = "IsolatedSqlTest";
 
+    // UAT has no trusted provider yet: the reviewed target boundary always denies.
+    // A mode value can select a stricter denial path, never authorize UAT.
+    public static void RequireExecutionTarget(SqlConnection connection)
+        => RequireExecutionTarget(connection, Environment.GetEnvironmentVariable(ModeVariable));
+
+    public static void RequireExecutionTarget(SqlConnection connection, string? executionMode)
+    {
+        if (string.Equals(executionMode, "Uat", StringComparison.Ordinal))
+        {
+            V180OptionCUatTargetBoundary.RequireUat(connection);
+            return;
+        }
+        if (string.Equals(executionMode, "Production", StringComparison.Ordinal))
+        {
+            RequireProduction();
+            return;
+        }
+        RequireIsolatedSqlTest(connection, executionMode);
+    }
+
     public static void RequireIsolatedSqlTest(SqlConnection connection)
         => RequireIsolatedSqlTest(connection,
             Environment.GetEnvironmentVariable(ModeVariable));

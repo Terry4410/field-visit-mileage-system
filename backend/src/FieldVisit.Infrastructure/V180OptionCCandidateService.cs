@@ -43,7 +43,7 @@ public sealed class V180OptionCCandidateService(
         await db.Database.OpenConnectionAsync(ct);
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);
         await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
         return connection;
     }

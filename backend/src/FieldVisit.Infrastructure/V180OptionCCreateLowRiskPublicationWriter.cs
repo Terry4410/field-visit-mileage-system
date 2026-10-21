@@ -25,7 +25,7 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
             || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim()
             || reason.Length > 1000)
             throw new InvalidOperationException("OPTIONC_CREATE_LOW_ATOMIC_DENIED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);
 
         const string sql = """
             SET XACT_ABORT ON;

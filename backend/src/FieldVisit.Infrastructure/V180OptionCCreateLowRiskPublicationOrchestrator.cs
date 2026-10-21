@@ -28,7 +28,7 @@ internal sealed class V180OptionCCreateLowRiskPublicationOrchestrator(
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
         if (connection.State != ConnectionState.Open)
             await connection.OpenAsync(ct);
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);
         await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
         await using var tx = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable, ct);

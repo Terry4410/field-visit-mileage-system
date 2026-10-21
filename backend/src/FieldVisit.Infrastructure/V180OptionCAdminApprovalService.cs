@@ -184,7 +184,7 @@ internal sealed class V180OptionCAdminApprovalService(
             || reviewerUserId <= 0 || decisionKey == Guid.Empty
             || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim())
             throw new InvalidOperationException("OPTIONC_ADMIN_TRANSACTION_REQUIRED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);
     }
 
     private static void RequireEvidence(LockedRequest request, int reviewer,

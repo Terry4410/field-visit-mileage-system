@@ -21,6 +21,64 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
+    public async Task G1_untrusted_uat_rejects_http_writes_before_business_changes()
+    {
+        Assert.Equal("Uat", Environment.GetEnvironmentVariable("OPTIONC_EXECUTION_MODE"));
+        await using var h = await Harness.TryCreateAsync();
+        Assert.NotNull(h);
+        var policy = Assert.Throws<InvalidOperationException>(() =>
+            V180OptionCExecutionPolicy.RequireExecutionTarget(h!.Db, "Uat"));
+        Assert.Equal("OPTIONC_UAT_TARGET_DENIED", policy.Message);
+        Assert.Equal("OPTIONC_PRODUCTION_EXECUTION_NOT_AUTHORIZED",
+            Assert.Throws<InvalidOperationException>(() =>
+                V180OptionCExecutionPolicy.RequireExecutionTarget(h!.Db, "Production")).Message);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(h!.Db, "IsolatedSqlTest");
+        var before = await h.Scalar("SELECT CONCAT((SELECT COUNT(*) FROM dbo.ChangeRequests),N'|',(SELECT COUNT(*) FROM dbo.ChangeRequestEvents),N'|',(SELECT COUNT(*) FROM dbo.LocationPublishedVersions),N'|',(SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10))");
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
+            builder.UseSetting("Auth:Mode", "Demo");
+            builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+        });
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        client.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        var version = Convert.ToBase64String((byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync())!);
+        try
+        {
+            using var response = await client.PostAsJsonAsync(
+                "api/v1/optionc-candidate/locations/10/low-risk-direct",
+                new V180OptionCLowRiskDirectUpdate(version, "Synthetic", "Synthetic", Guid.NewGuid()));
+            Assert.False(response.IsSuccessStatusCode);
+        }
+        catch (InvalidOperationException e)
+        {
+            Assert.Equal("OPTIONC_UAT_TARGET_DENIED", e.Message);
+        }
+        var batch = Guid.NewGuid();
+        var requests = new[] {
+            "api/v1/optionc-candidate/imports/" + batch + "/submit-creates-for-review",
+            "api/v1/optionc-candidate/imports/" + batch + "/submit-updates-for-review"
+        };
+        foreach (var uri in requests)
+        {
+            try
+            {
+                using var response = await client.PostAsync(uri, null);
+                Assert.False(response.IsSuccessStatusCode);
+            }
+            catch (InvalidOperationException e)
+            {
+                Assert.Equal("OPTIONC_UAT_TARGET_DENIED", e.Message);
+            }
+        }
+        var after = await h.Scalar("SELECT CONCAT((SELECT COUNT(*) FROM dbo.ChangeRequests),N'|',(SELECT COUNT(*) FROM dbo.ChangeRequestEvents),N'|',(SELECT COUNT(*) FROM dbo.LocationPublishedVersions),N'|',(SELECT CONVERT(varchar(18),RowVersion,1) FROM dbo.Locations WHERE LocationId=10))");
+        Assert.Equal(before, after);
+    }
+
+    [Fact]
     public async Task R9_personnel_full_export_returns_filtered_five_sheet_history_only_to_admin()
     {
         await using var h=await Harness.TryCreateAsync(fullCanonicalChain:true);

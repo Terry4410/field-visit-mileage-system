@@ -16,7 +16,7 @@ internal static class V180OptionCMergePublicationWriter
             || reviewer <= 0 || decisionKey == Guid.Empty
             || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim())
             throw new InvalidOperationException("OPTIONC_MERGE_AUTHORIZATION_REQUIRED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(db);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(db);
         const string sql = """
         SET XACT_ABORT ON;
         DECLARE @request bigint,@source int,@survivor int,@org int,@team int,@requester int,

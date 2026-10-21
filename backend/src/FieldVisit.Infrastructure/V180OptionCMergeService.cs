@@ -27,7 +27,7 @@ public sealed class V180OptionCMergeService(
         await db.Database.OpenConnectionAsync(ct);
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);
         await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
         await using var command = new SqlCommand(
             "IF OBJECT_ID(N'dbo.LocationMergeDetails',N'U') IS NULL THROW 51463,N'OPTIONC_MERGE_SCHEMA_NOT_VERIFIED',1;",
