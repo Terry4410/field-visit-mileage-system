@@ -1,0 +1,32 @@
+name: G1 bridge isolation guards NONDEPLOY
+on:
+  push:
+    branches: [work/g1-readonly-bridge-nondeploy-20261021]
+    paths:
+      - 'scripts/ci/g1_bridge_guard.py'
+      - 'scripts/ci/test_g1_bridge_guard.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: g1-bridge-guards-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  offline:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-readonly-bridge-nondeploy-20261021'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: none
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Exact SHA / source / identity separation guards
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/g1_bridge_guard.py
+      - name: Negative and positive offline contract tests
+        run: python3 -m unittest discover -s scripts/ci -p test_g1_bridge_guard.py -v
