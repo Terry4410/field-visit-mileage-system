@@ -102,6 +102,22 @@ public sealed class G1ReportExportHttpSqlTests
             Assert.Equal("SYN-LOCAL",scoped.Items[0].TripNo);
             var noOrg=actor with { OrganizationId=null };
             Assert.Empty((await queryRepo.QueryTripsAsync(noOrg,new TripQueryRequest(),false,default)).Items);
+            var localTrip=await db.VisitTrips.SingleAsync(x=>x.TripNo=="SYN-LOCAL");
+            var snapshot=new VisitTripSnapshot { VisitTripId=localTrip.VisitTripId, SnapshotVersion=1,
+                TripNo=localTrip.TripNo, UserId=user.UserId, OrganizationId=org.OrganizationId,
+                TeamId=team.TeamId, VisitDate=BusinessTime.Today, CreatedAt=now };
+            db.VisitTripSnapshots.Add(snapshot);await db.SaveChangesAsync();
+            var correction=new CorrectionRequest { VisitTripId=localTrip.VisitTripId,
+                BaseSnapshotId=snapshot.VisitTripSnapshotId, RequestedByUserId=user.UserId,
+                RequestedAt=now, Reason="Synthetic" };
+            db.CorrectionRequests.Add(correction);await db.SaveChangesAsync();
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>queryRepo.ReviewCorrectionAsync(actor,
+                correction.CorrectionRequestId,new ReviewCorrectionRequest(true,null,""),default));
+            correction.Status="PendingAdminClose";await db.SaveChangesAsync();
+            var adminActor=actor with { Roles=new[]{"admin"} };
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>queryRepo.CloseCorrectionAsync(adminActor,
+                correction.CorrectionRequestId,new CloseCorrectionRequest(true,null,""),default));
+            Assert.Equal("PendingAdminClose",correction.Status);
             using(var r=await client.GetAsync("api/v1/query/trips/export.xlsx")){
                 Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
                 Assert.Contains("REPORT_EXPORT_HISTORICAL_TEAM_POLICY_HOLD",await r.Content.ReadAsStringAsync());
