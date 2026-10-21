@@ -62,8 +62,44 @@ def model():
  for line in r.stdout.splitlines():
   if line in ('PreflightModel=PASS; ConnectionOpened=FALSE; ActualSchema=UNKNOWN;','PreflightModel=STOP; Details=SUPPRESSED;'):print(line)
  assert r.returncode==0
+def builder_probe():
+ # Reproduce the retired disposable prototype's setter sequence only.
+ # This test creates no SqlConnection and contains no credential.
+ script=r"""
+$ErrorActionPreference='Stop'
+$phase='MODULE'
+try {
+ Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
+ $phase='NEW'
+ $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new()
+ $phase='DATASOURCE';$b.DataSource='127.0.0.1,1433'
+ $phase='CATALOG';$b.InitialCatalog='master'
+ $phase='USER';$b.UserID='sa'
+ $phase='PASSWORD';$b.Password='SYNTHETIC_NOT_A_SECRET'
+ $phase='ENCRYPT';$b.Encrypt=$false
+ $phase='CERTIFICATE';$b.TrustServerCertificate=$true
+ $phase='POOLING';$b.Pooling=$false
+ $phase='CONNECT_RETRY';$b.ConnectRetryCount=0
+ $phase='CONNECT_TIMEOUT';$b.ConnectTimeout=2
+ if($b.DataSource -cne '127.0.0.1,1433' -or $b.ConnectRetryCount -ne 0){throw 'STOP'}
+ Write-Output 'BuilderSynthetic=PASS; ConnectionOpened=FALSE;'
+}catch {
+ if($phase -cnotin @('MODULE','NEW','DATASOURCE','CATALOG','USER','PASSWORD','ENCRYPT','CERTIFICATE','POOLING','CONNECT_RETRY','CONNECT_TIMEOUT')){$phase='UNKNOWN'}
+ Write-Output "BuilderSynthetic=STOP; Phase=$phase; Details=SUPPRESSED;"
+ exit 1
+}
+"""
+ p=subprocess.run(['pwsh','-NoProfile','-NonInteractive','-Command',script],capture_output=True,text=True,timeout=60)
+ lines=p.stdout.strip().splitlines()
+ allowed=['BuilderSynthetic=PASS; ConnectionOpened=FALSE;']
+ for line in lines:
+  if re.fullmatch(r'BuilderSynthetic=STOP; Phase=(MODULE|NEW|DATASOURCE|CATALOG|USER|PASSWORD|ENCRYPT|CERTIFICATE|POOLING|CONNECT_RETRY|CONNECT_TIMEOUT|UNKNOWN); Details=SUPPRESSED;',line):print(line)
+ if p.returncode!=0 or lines!=allowed:raise ValueError('synthetic builder failed')
+ print(lines[0])
+
 def diagnose():
  check()
+ builder_probe()
  r=subprocess.run(['pwsh','-NoProfile','-File','scripts/ci/test_g1_minimal_preflight.ps1','-PermissionOnly'],capture_output=True,text=True,timeout=240)
  allowed={'COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER'}
  for line in r.stdout.splitlines():
