@@ -6,6 +6,7 @@ on:
       - '.github/workflows/g1-bridge-guards-nondeploy.yml'
       - 'scripts/ci/g1_bridge_guard.py'
       - 'scripts/ci/test_g1_bridge_guard.py'
+      - 'scripts/ci/g1_bridge_handoff_nondeploy.ps1'
   workflow_dispatch:
 permissions:
   contents: read
@@ -59,3 +60,26 @@ jobs:
           }
           if(Test-Path $evidence){throw 'EVIDENCE_UNEXPECTED'}
           Write-Output 'ClosedSqlClient=PASS; SqlOpened=FALSE; G1=HOLD;'
+      - name: Exercise isolated real SqlClient handoff without SQL Open
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -Force -ErrorAction Stop
+          . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_bridge_handoff_nondeploy.ps1')
+          $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new()
+          $b['Data Source']='127.0.0.1,1433'
+          $b['Initial Catalog']='master'
+          $b['Pooling']=$false
+          $b['ConnectRetryCount']=0
+          $b['Trust Server Certificate']=$true
+          $conn=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+          $callback={ param($c) if($c.State -ne [Data.ConnectionState]::Closed){throw 'STOP'}; 'ISOLATED_COLLECTOR_SIMULATED' }
+          $result=@(Invoke-G1IsolatedHandoff -Connection $conn -TestCollector $callback -SourceSha $env:GITHUB_SHA)
+          if($result.Count -ne 1 -or $result[0] -cne 'IsolatedHandoff=PASS; LiveExecution=FALSE; ApiPrincipal=UNKNOWN;'){throw 'STOP'}
+          if($conn.State -ne [Data.ConnectionState]::Closed){throw 'STOP'}
+          $b['Data Source']='tcp:sql-fieldvisit-jpe-uat.database.windows.net,1433'
+          $bad=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+          $rejected=$false
+          try { $null=Invoke-G1IsolatedHandoff -Connection $bad -TestCollector $callback -SourceSha $env:GITHUB_SHA } catch { $rejected=$true }
+          if(-not $rejected){throw 'STOP'}
+          Write-Output 'IsolatedHandoffHarness=PASS; SqlOpened=FALSE; LiveTargetRejected=TRUE;'
