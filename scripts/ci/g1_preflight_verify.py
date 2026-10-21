@@ -4,10 +4,16 @@ P=pathlib.Path('docs/release/g1-minimal-preflight')
 BASE='88c21921860888f531a0962867f916c307452bbc'
 DIAGNOSTIC_BASE='c12451700b619897afe0e4c5dc9ae2862e259d2f'
 RC='f29affb3299828f45b1f131321779e8bea2f86a8'
+ACCEPTED_RC='9d431ea318fcec34f04f3cc36a8fb6d01d00c48a'
 def sha(b):return hashlib.sha256(b).hexdigest()
 def git(*args):return subprocess.check_output(['git',*args]).decode().strip()
 def check():
  assert os.environ['GITHUB_SHA']==git('rev-parse','HEAD')
+ # Accepted newer RC has the exact same database migration, canonical SQL and EF-model bytes.
+ # Application/runtime source is NOT asserted equivalent and remains separately gated.
+ assert git('merge-base',RC,ACCEPTED_RC)==RC
+ assert not git('diff','--name-only',RC,ACCEPTED_RC,'--','database','docs/release/optionc-canonical-sql-draft/full-scheme-a','backend/src/FieldVisit.Infrastructure/AppDbContext.cs')
+ print('PreflightRcSqlContract=PASS; AcceptedRcRuntime=NOT_VERIFIED;')
  assert git('merge-base',DIAGNOSTIC_BASE,'HEAD')==DIAGNOSTIC_BASE
  assert set(git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD').splitlines())=={'scripts/ci/g1_preflight_verify.py'}
  assert not git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD','--',str(P/'collect.ps1'),str(P/'01-target.sql'),str(P/'02-marker.sql'),str(P/'03-catalog.sql'),str(P/'04-permissions.sql'),str(P/'uat_schema_fidelity_evidence.ps1'))
