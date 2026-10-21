@@ -10,7 +10,8 @@ BRANCH = "refs/heads/work/g1-readonly-bridge-nondeploy-20261021"
 BASE = "be4d25e2c788c78cb108d2f7c819118f036d674d"
 ALLOWED = {".github/workflows/g1-bridge-guards-nondeploy.yml",
            "scripts/ci/g1_bridge_guard.py", "scripts/ci/test_g1_bridge_guard.py",
-           "scripts/ci/g1_bridge_connection_candidate.ps1"}
+           "scripts/ci/g1_bridge_connection_candidate.ps1",
+           "scripts/ci/g1_bridge_handoff_nondeploy.ps1"}
 
 class Stop(Exception):
     pass
