@@ -1075,13 +1075,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             var teamIds =
                 user.TeamIds;
 
-            return teamIds.Count == 0
-                ? q.Where(x => false)
-                : q.Where(
-                    x =>
-                        x.TeamId.HasValue
-                        && teamIds.Contains(
-                            x.TeamId.Value));
+            if (!user.OrganizationId.HasValue || teamIds.Count == 0)
+                return q.Where(x => false);
+            var leaderOrg = user.OrganizationId.Value;
+            return q.Where(x => x.OrganizationId == leaderOrg
+                && x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
         }
 
         if (HasRole(user, "visitor"))

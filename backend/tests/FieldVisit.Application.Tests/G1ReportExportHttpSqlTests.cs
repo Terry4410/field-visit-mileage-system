@@ -86,6 +86,22 @@ public sealed class G1ReportExportHttpSqlTests
                 Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             }
             role.RoleCode="leader";await db.SaveChangesAsync();Token("leader");
+            // Inconsistent cross-organization test data must not leak merely because
+            // a trip has an allowed team id. This uses the real SQL query path.
+            db.VisitTrips.AddRange(
+                new VisitTrip { TripNo="SYN-LOCAL", UserId=user.UserId, OrganizationId=org.OrganizationId,
+                    TeamId=team.TeamId, VisitDate=BusinessTime.Today, CreatedAt=now, CreatedByUserId=user.UserId },
+                new VisitTrip { TripNo="SYN-OTHER", UserId=user.UserId, OrganizationId=otherOrg.OrganizationId,
+                    TeamId=team.TeamId, VisitDate=BusinessTime.Today, CreatedAt=now, CreatedByUserId=user.UserId });
+            await db.SaveChangesAsync();
+            var actor=new CurrentUserDto(user.UserId,"G1","Synthetic",null,org.OrganizationId,team.TeamId,
+                "Synthetic Team",new[]{"leader"},new[]{new TeamScopeDto(team.TeamId,"Synthetic Team",true)});
+            var queryRepo=new V160FinalRepository(db,new V170AccessControl(db));
+            var scoped=await queryRepo.QueryTripsAsync(actor,new TripQueryRequest(),false,default);
+            Assert.Single(scoped.Items);
+            Assert.Equal("SYN-LOCAL",scoped.Items[0].TripNo);
+            var noOrg=actor with { OrganizationId=null };
+            Assert.Empty((await queryRepo.QueryTripsAsync(noOrg,new TripQueryRequest(),false,default)).Items);
             using(var r=await client.GetAsync("api/v1/query/trips/export.xlsx")){
                 Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
                 Assert.Contains("REPORT_EXPORT_HISTORICAL_TEAM_POLICY_HOLD",await r.Content.ReadAsStringAsync());
