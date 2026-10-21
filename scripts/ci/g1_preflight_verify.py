@@ -72,15 +72,15 @@ try {
  Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
  $phase='NEW'
  $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new()
- $phase='DATASOURCE';$b.DataSource='127.0.0.1,1433'
- $phase='CATALOG';$b.InitialCatalog='master'
- $phase='USER';$b.UserID='sa'
- $phase='PASSWORD';$b.Password='SYNTHETIC_NOT_A_SECRET'
- $phase='ENCRYPT';$b.Encrypt=$false
- $phase='CERTIFICATE';$b.TrustServerCertificate=$true
- $phase='POOLING';$b.Pooling=$false
- $phase='CONNECT_RETRY';$b.ConnectRetryCount=0
- $phase='CONNECT_TIMEOUT';$b.ConnectTimeout=2
+ $phase='DATASOURCE';$b['Data Source']='127.0.0.1,1433'
+ $phase='CATALOG';$b['Initial Catalog']='master'
+ $phase='USER';$b['User ID']='sa'
+ $phase='PASSWORD';$b['Password']='SYNTHETIC_NOT_A_SECRET'
+ $phase='ENCRYPT';$b['Encrypt']=$false
+ $phase='CERTIFICATE';$b['Trust Server Certificate']=$true
+ $phase='POOLING';$b['Pooling']=$false
+ $phase='CONNECT_RETRY';$b['ConnectRetryCount']=0
+ $phase='CONNECT_TIMEOUT';$b['Connect Timeout']=2
  if($b.DataSource -cne '127.0.0.1,1433' -or $b.ConnectRetryCount -ne 0){throw 'STOP'}
  Write-Output 'BuilderSynthetic=PASS; ConnectionOpened=FALSE;'
 }catch {
