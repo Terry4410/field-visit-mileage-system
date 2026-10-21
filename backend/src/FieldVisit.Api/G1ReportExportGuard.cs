@@ -19,8 +19,6 @@ public sealed class G1ReportExportGuard(
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
         if (!adminReport && !tripReport) { await next(); return; }
-        if (path.EndsWith("/visit-types.xlsx", StringComparison.OrdinalIgnoreCase))
-        { context.Result = Denied("REPORT_EXPORT_VISIT_TYPE_POLICY_HOLD"); return; }
         ActionExecutedContext? executed = null;
         void Stop(ObjectResult result) { context.Result = result; if (executed is not null) executed.Result = result; }
         try

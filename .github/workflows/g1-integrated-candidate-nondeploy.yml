@@ -1,0 +1,73 @@
+name: G1 integrated UAT candidate NONDEPLOY
+on:
+  push:
+    branches: [work/g1-single-uat-integration-20261021]
+permissions:
+  contents: read
+jobs:
+  focused:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-single-uat-integration-20261021'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact source and accepted histories
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor df03f8176f756cc5e243cd0593947b931ff7d3ce HEAD
+          git merge-base --is-ancestor 1a1db58e8dfa2e6162f11a882f39e7bc41234952 HEAD
+          git merge-base --is-ancestor 32f01677d0a0e25913d69443876089aff6a72cc9 HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Verify default OFF and activated candidate interfaces
+        working-directory: frontend
+        run: |
+          npm test -- src/optionc-default-build.test.ts src/optionc-approval-ui.test.ts src/optionc-leader-review-ui.test.ts src/location-ownership-ui.test.ts src/optionc-excel-import-ui.test.ts src/optionc-activation-candidate.test.tsx
+          npm run build
+          if grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist; then exit 1; fi
+          npm run build:optionc-candidate
+          grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Start isolated SQL Server 2022
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, secrets, subprocess, time
+          from pathlib import Path
+          password=secrets.token_urlsafe(30)+'!A9a'
+          connection='Server=localhost,1433;Database=master;User Id=sa;Password='+password+';Encrypt=False;TrustServerCertificate=True;Connect Timeout=5'
+          print('::add-mask::'+password,flush=True)
+          print('::add-mask::'+connection,flush=True)
+          env=Path(os.environ['RUNNER_TEMP'])/'g1-report-fixture.env'
+          env.write_text('ACCEPT_EULA=Y\nMSSQL_PID=Developer\nMSSQL_SA_PASSWORD='+password+'\n')
+          env.chmod(0o600)
+          try:
+              subprocess.run(['docker','run','-d','--name','g1-report-disposable','-p','127.0.0.1:1433:1433','--env-file',str(env),'mcr.microsoft.com/mssql/server:2022-latest'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+          finally: env.unlink(missing_ok=True)
+          for _ in range(18):
+              try:
+                  probe=subprocess.run(['docker','exec','-e','SQLCMDPASSWORD='+password,'g1-report-disposable','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-C','-l','3','-Q','SELECT 1'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
+                  if probe.returncode == 0: break
+              except subprocess.TimeoutExpired: pass
+              time.sleep(5)
+          else: raise SystemExit('DISPOSABLE_SQL_NOT_READY')
+          with open(os.environ['GITHUB_ENV'],'a') as f: f.write('E1_R1_SQL_CONNECTION='+connection+'\n')
+          print('DISPOSABLE_SQL_READY')
+          PY
+      - name: Run focused real HTTP and SQL security regression
+        env:
+          E1_R1_REQUIRED: '1'
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~G1ReportExportHttpSqlTests|FullyQualifiedName~V180OptionCUatTargetBoundaryTests' --verbosity quiet
+      - name: Remove disposable SQL Server
+        if: always()
+        run: docker rm -f g1-report-disposable >/dev/null 2>&1 || true

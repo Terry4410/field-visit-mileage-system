@@ -372,7 +372,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         if (row.Status != "PendingLeaderReview") throw new InvalidOperationException("此更正申請目前不可由小組長審核。");
         EnsureRowVersion(row.RowVersion, request.RowVersion);
         var trip = await db.VisitTrips.AsNoTracking().FirstAsync(x => x.VisitTripId == row.VisitTripId, ct);
-        if (!trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value)) throw new UnauthorizedAccessException("無權審核未授權小組資料。");
+        if (!user.OrganizationId.HasValue || trip.OrganizationId != user.OrganizationId.Value
+            || !trip.TeamId.HasValue || !user.TeamIds.Contains(trip.TeamId.Value))
+            throw new UnauthorizedAccessException("無權審核未授權小組資料。");
+        if (row.RequestedByUserId == user.UserId || trip.UserId == user.UserId)
+            throw new UnauthorizedAccessException("更正申請須由獨立人員審核。");
 
         row.LeaderReviewedByUserId = user.UserId;
         row.LeaderReviewedAt = DateTime.UtcNow;
@@ -413,8 +417,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
         var trip = await db.VisitTrips.AsNoTracking()
             .FirstAsync(x => x.VisitTripId == row.VisitTripId, ct);
-        if (user.OrganizationId.HasValue && trip.OrganizationId != user.OrganizationId.Value)
+        if (!user.OrganizationId.HasValue || trip.OrganizationId != user.OrganizationId.Value)
             throw new UnauthorizedAccessException("無權處理其他 Organization 資料。");
+        if (row.RequestedByUserId == user.UserId || trip.UserId == user.UserId
+            || row.LeaderReviewedByUserId == user.UserId)
+            throw new UnauthorizedAccessException("更正申請須由獨立人員結案。");
 
         var transitionAt = DateTime.UtcNow;
         row.AdminClosedByUserId = user.UserId;
@@ -1075,13 +1082,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             var teamIds =
                 user.TeamIds;
 
-            return teamIds.Count == 0
-                ? q.Where(x => false)
-                : q.Where(
-                    x =>
-                        x.TeamId.HasValue
-                        && teamIds.Contains(
-                            x.TeamId.Value));
+            if (!user.OrganizationId.HasValue || teamIds.Count == 0)
+                return q.Where(x => false);
+            var leaderOrg = user.OrganizationId.Value;
+            return q.Where(x => x.OrganizationId == leaderOrg
+                && x.TeamId.HasValue && teamIds.Contains(x.TeamId.Value));
         }
 
         if (HasRole(user, "visitor"))

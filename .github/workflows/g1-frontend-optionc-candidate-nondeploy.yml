@@ -1,0 +1,48 @@
+name: G1 frontend Option C activation candidate nondeploy
+on:
+  push:
+    branches: [work/g1-frontend-activation-candidate-20261021]
+permissions:
+  contents: read
+jobs:
+  frontend:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-frontend-activation-candidate-20261021'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Verify default OFF and existing guards
+        working-directory: frontend
+        run: npm test -- src/optionc-default-build.test.ts src/optionc-approval-ui.test.ts src/optionc-leader-review-ui.test.ts src/location-ownership-ui.test.ts src/optionc-excel-import-ui.test.ts
+      - name: Verify candidate enabled UI and role restrictions
+        working-directory: frontend
+        run: npm test -- src/optionc-activation-candidate.test.tsx
+      - name: Build normal default OFF
+        working-directory: frontend
+        run: |
+          npm run build
+          if grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist; then exit 1; fi
+      - name: Build explicitly marked candidate
+        working-directory: frontend
+        run: |
+          npm run build:optionc-candidate
+          grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > candidate-file-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: optionc-frontend-nondeploy-${{ github.sha }}
+          path: |
+            frontend/dist/
+            frontend/candidate-file-sha256.txt
+          retention-days: 7
