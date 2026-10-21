@@ -2,14 +2,14 @@
 import hashlib,json,os,pathlib,re,secrets,subprocess,sys,time
 P=pathlib.Path('docs/release/g1-minimal-preflight')
 BASE='88c21921860888f531a0962867f916c307452bbc'
-DIAGNOSTIC_BASE='15bea4544515151d0e375253c1fdb397199a00c9'
+DIAGNOSTIC_BASE='c12451700b619897afe0e4c5dc9ae2862e259d2f'
 RC='f29affb3299828f45b1f131321779e8bea2f86a8'
 def sha(b):return hashlib.sha256(b).hexdigest()
 def git(*args):return subprocess.check_output(['git',*args]).decode().strip()
 def check():
  assert os.environ['GITHUB_SHA']==git('rev-parse','HEAD')
  assert git('rev-parse','HEAD^')==DIAGNOSTIC_BASE
- assert set(git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD').splitlines())=={'scripts/ci/g1_preflight_verify.py','scripts/ci/test_g1_minimal_preflight.ps1'}
+ assert set(git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD').splitlines())=={'scripts/ci/g1_preflight_verify.py'}
  assert not git('diff','--name-only',DIAGNOSTIC_BASE,'HEAD','--',str(P/'collect.ps1'),str(P/'01-target.sql'),str(P/'02-marker.sql'),str(P/'03-catalog.sql'),str(P/'04-permissions.sql'),str(P/'uat_schema_fidelity_evidence.ps1'))
  assert os.environ['GITHUB_REPOSITORY']=='Terry4410/field-visit-mileage-system'
  assert os.environ['GITHUB_REF']=='refs/heads/work/g1-uat-migration-readiness-20261020'
@@ -52,7 +52,7 @@ def test():
   if re.fullmatch(r'PreflightCase=[A-Za-z0-9_]+; Status=(PASS|STOP);(?: Details=SUPPRESSED;)?',line) or re.fullmatch(r'PreflightHarnessLine=[0-9]+;',line) or line=='PreflightCleanup=STOP; Details=SUPPRESSED;':print(line)
  assert r.returncode==0
  report=json.loads(pathlib.Path('artifacts/preflight-sql.json').read_text(encoding='utf-8-sig'))
- assert report['source']==os.environ['GITHUB_SHA'] and report['passed'] and len(report['cases'])==18
+ assert report['source']==os.environ['GITHUB_SHA'] and report['passed'] and len(report['cases'])==19
  assert all(x['result']=='PASS' for x in report['cases'])
  assert report['liveSql'] is False and report['apiPrincipalBinding']=='UNKNOWN'
  print('PreflightEvidence=PASS; LiveExecution=NOT_AUTHORIZED; G1=HOLD;')
@@ -93,5 +93,5 @@ def safe_collector_diagnostic(line):
  m=re.fullmatch(r'(CollectorStopPhase|CollectorFailureClassification|CollectorReturn|CollectorGuard)=([A-Za-z_0-9]+);',line)
  return line if m and m[2] in allowed[m[1]] else None
 if __name__=='__main__':
- try:{'check':check,'provider':provider,'test':test,'model':model,'diagnose':diagnose}[sys.argv[1]]()
+ try:{'check':check,'provider':provider,'test':test,'model':model,'diagnose':test}[sys.argv[1]]()
  except Exception:raise SystemExit('PreflightVerification=STOP; Details=SUPPRESSED;') from None
