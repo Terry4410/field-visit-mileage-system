@@ -8,7 +8,7 @@ jobs:
   focused:
     if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-single-uat-integration-20261021'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,6 +21,20 @@ jobs:
           git merge-base --is-ancestor df03f8176f756cc5e243cd0593947b931ff7d3ce HEAD
           git merge-base --is-ancestor 1a1db58e8dfa2e6162f11a882f39e7bc41234952 HEAD
           git merge-base --is-ancestor 32f01677d0a0e25913d69443876089aff6a72cc9 HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Verify default OFF and activated candidate interfaces
+        working-directory: frontend
+        run: |
+          npm test -- src/optionc-default-build.test.ts src/optionc-approval-ui.test.ts src/optionc-leader-review-ui.test.ts src/location-ownership-ui.test.ts src/optionc-excel-import-ui.test.ts src/optionc-activation-candidate.test.tsx
+          npm run build
+          if grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist; then exit 1; fi
+          npm run build:optionc-candidate
+          grep -R -q 'NONDEPLOY OPTION C ACTIVATION CANDIDATE' dist
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -54,12 +68,17 @@ jobs:
         env:
           E1_R1_REQUIRED: '1'
           OPTIONC_EXECUTION_MODE: Uat
-        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~G1_untrusted_uat_rejects_http_writes_before_business_changes' --verbosity quiet
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~G1_untrusted_uat_rejects_http_writes_before_business_changes|FullyQualifiedName~G1_http_write_endpoints_reach_guard_and_leave_no_partial_writes' --verbosity quiet
       - name: Isolated SQL low-risk writer regression
         env:
           E1_R1_REQUIRED: '1'
           OPTIONC_EXECUTION_MODE: IsolatedSqlTest
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit' --verbosity quiet
+      - name: RBAC and report focused real HTTP SQL regression
+        env:
+          E1_R1_REQUIRED: '1'
+          OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~G1ReportExportHttpSqlTests' --verbosity quiet
       - name: Remove disposable SQL Server
         if: always()
         run: docker rm -f g1-report-disposable >/dev/null 2>&1 || true

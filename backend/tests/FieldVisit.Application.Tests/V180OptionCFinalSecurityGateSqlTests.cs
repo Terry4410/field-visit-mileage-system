@@ -79,6 +79,79 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     }
 
     [Fact]
+    public async Task G1_http_write_endpoints_reach_guard_and_leave_no_partial_writes()
+    {
+        Assert.Equal("Uat", Environment.GetEnvironmentVariable("OPTIONC_EXECUTION_MODE"));
+        await using var h = await Harness.TryCreateAsync();
+        Assert.NotNull(h);
+        await h!.Exec("""
+            CREATE TABLE dbo.AuditLogs(
+                AuditLogId bigint IDENTITY PRIMARY KEY,UserId int NULL,
+                EntityType nvarchar(100) NOT NULL,EntityId nvarchar(100) NULL,
+                Action nvarchar(120) NOT NULL,OldValues nvarchar(max) NULL,
+                NewValues nvarchar(max) NULL,IpAddress nvarchar(100) NULL,
+                CorrelationId uniqueidentifier NULL,CreatedAt datetime2 NOT NULL);
+            """);
+        const string snapshot = """
+            SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',CONVERT(varbinary(max),
+              COALESCE((SELECT * FROM dbo.Locations FOR JSON PATH),N'[]')+N'|'+
+              COALESCE((SELECT * FROM dbo.ChangeRequests FOR JSON PATH),N'[]')+N'|'+
+              COALESCE((SELECT * FROM dbo.ChangeRequestEvents FOR JSON PATH),N'[]')+N'|'+
+              COALESCE((SELECT * FROM dbo.LocationPublicationStages FOR JSON PATH),N'[]')+N'|'+
+              COALESCE((SELECT * FROM dbo.LocationPublishedVersions FOR JSON PATH),N'[]')+N'|'+
+              COALESCE((SELECT * FROM dbo.AuditLogs FOR JSON PATH),N'[]'))),2)
+            """;
+        var before = await h.Scalar(snapshot);
+        var version = Convert.ToBase64String((byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync())!);
+        var survivorVersion = Convert.ToBase64String((byte[])(await new SqlCommand(
+            "SELECT RowVersion FROM dbo.Locations WHERE LocationId=11", h.Db).ExecuteScalarAsync())!);
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
+            builder.UseSetting("OptionC:Candidate:Enabled", "true");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", h.ConnectionString);
+            builder.UseSetting("Auth:Mode", "Demo");
+            builder.UseSetting("Auth:JwtKey", "test-key-that-is-at-least-32-characters-long");
+            builder.UseSetting("BackgroundJobs:WorkerEnabled", "false");
+            builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
+        });
+        HttpClient Client(int id, string employee, string role)
+        {
+            var c = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+            c.DefaultRequestHeaders.Authorization = new("Bearer", Token(id, employee, role));
+            return c;
+        }
+        using var visitor=Client(1,"E1","visitor");
+        using var leader=Client(1,"E1","leader");
+        using var admin=Client(2,"E2","admin");
+        using var anonymous=factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        using (var rejected = await anonymous.PostAsJsonAsync("api/v1/optionc-candidate/locations", new V180OptionCCreateLocation(
+            1,"Synthetic",new V180B3LocationFields("Synthetic","Taipei","Xinyi","Synthetic address",null,null,null))))
+            Assert.Equal(System.Net.HttpStatusCode.Unauthorized,rejected.StatusCode);
+        async Task Check(string name, HttpResponseMessage response)
+        {
+            using (response)
+            {
+                Assert.Equal(System.Net.HttpStatusCode.UnprocessableEntity,response.StatusCode);
+                var body=await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+                Assert.Equal("OPTIONC_UAT_TARGET_DENIED",body.GetProperty("detail").GetString());
+                Assert.Equal(before,await h.Scalar(snapshot));
+                Console.WriteLine("G1_GUARD_REACHED_" + name + "_PASS");
+            }
+        }
+        var fields=new V180B3LocationFields("Synthetic","Taipei","Xinyi","Synthetic address",null,null,"Synthetic note");
+        await Check("CREATE",await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations",new V180OptionCCreateLocation(1,"Synthetic",fields)));
+        await Check("HIGH_RISK",await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/10/changes",new V180B3SubmitLocation(10,version,"Synthetic",fields)));
+        await Check("LOW_RISK",await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/10/low-risk-direct",new V180OptionCLowRiskDirectUpdate(version,"Synthetic","Synthetic",Guid.NewGuid())));
+        var request=Guid.NewGuid();
+        await Check("LEADER_REVIEW",await leader.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request}/leader-review",new V180OptionCLeaderReviewDecision(version,Guid.NewGuid(),"Synthetic",true)));
+        await Check("ADMIN_APPROVAL",await admin.PostAsJsonAsync($"api/v1/optionc-candidate/requests/{request}/approve",new V180B3Review(version,Guid.NewGuid(),"Synthetic")));
+        await Check("MERGE",await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/merge-fields",new V180OptionCMergeSubmit(10,11,version,survivorVersion,"Synthetic",fields)));
+        var batch=Guid.NewGuid();
+        await Check("EXCEL_CREATE",await admin.PostAsync($"api/v1/optionc-candidate/imports/{batch}/submit-creates-for-review",null));
+        await Check("EXCEL_UPDATE",await admin.PostAsync($"api/v1/optionc-candidate/imports/{batch}/submit-updates-for-review",null));
+    }
+
+    [Fact]
     public async Task R9_personnel_full_export_returns_filtered_five_sheet_history_only_to_admin()
     {
         await using var h=await Harness.TryCreateAsync(fullCanonicalChain:true);
