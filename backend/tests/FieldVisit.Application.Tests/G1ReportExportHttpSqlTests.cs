@@ -68,7 +68,23 @@ public sealed class G1ReportExportHttpSqlTests
             role.IsActive=false;await db.SaveChangesAsync();using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             role.IsActive=true;await db.SaveChangesAsync();Token(claimedOrg:otherOrg.OrganizationId);using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             foreach(var selected in new[]{"visitor","leader","hr"}){Token(selected);using var r=await client.GetAsync("api/v1/admin/query-exports/personnel-full.xlsx");Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);}
-            Token();using(var r=await client.GetAsync("api/v1/admin/query-exports/visit-types.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            // Visit types are global reference data and the workbook exposes only the
+            // explicitly reviewed reference columns; live admin checks still bracket export.
+            Token();using(var r=await client.GetAsync("api/v1/admin/query-exports/visit-types.xlsx"))
+            {
+                Assert.Equal(HttpStatusCode.OK,r.StatusCode);
+                using var workbook=new NPOI.XSSF.UserModel.XSSFWorkbook(await r.Content.ReadAsStreamAsync());
+                var sheets=Enumerable.Range(0,workbook.NumberOfSheets).Select(workbook.GetSheetAt).ToList();
+                Assert.Contains(sheets, sheet => {
+                    var row=sheet.GetRow(0);
+                    return row is not null && Enumerable.Range(0,5).Select(i=>row.GetCell(i)?.StringCellValue)
+                        .SequenceEqual(new[]{"代碼","名稱","說明","排序","啟用"});
+                });
+            }
+            foreach(var selected in new[]{"visitor","leader","hr"}) { Token(selected);
+                using var r=await client.GetAsync("api/v1/admin/query-exports/visit-types.xlsx");
+                Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            }
             role.RoleCode="leader";await db.SaveChangesAsync();Token("leader");
             using(var r=await client.GetAsync("api/v1/query/trips/export.xlsx")){
                 Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
@@ -81,7 +97,7 @@ public sealed class G1ReportExportHttpSqlTests
             })))));
             using var race=raceFactory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});race.DefaultRequestHeaders.Authorization=client.DefaultRequestHeaders.Authorization;
             using(var r=await race.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
-            Console.WriteLine("G1_REPORT_HTTP_SQL_PASS positive=PASS preAndPostRevocation=DENIED roleOrg=DENIED unapprovedRoles=DENIED visitType=DENIED");
+            Console.WriteLine("G1_REPORT_HTTP_SQL_PASS positive=PASS preAndPostRevocation=DENIED roleOrg=DENIED unapprovedRoles=DENIED visitTypeAdmin=PASS visitTypeOtherRoles=DENIED");
         }
         finally{await using var cmd=admin.CreateCommand();cmd.CommandText=$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];";await cmd.ExecuteNonQueryAsync();}
     }
