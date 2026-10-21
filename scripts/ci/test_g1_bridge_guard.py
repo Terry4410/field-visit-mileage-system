@@ -46,5 +46,16 @@ class Guards(unittest.TestCase):
                 with self.assertRaises(bridge.Stop):
                     bridge.verify_source(*case)
 
+    def test_connection_candidate_remains_nonexecuting(self):
+        script = p.with_name("g1_bridge_connection_candidate.ps1").read_text()
+        self.assertIn("SqlOpened=FALSE", script)
+        self.assertIn("ApiPrincipal=UNKNOWN", script)
+        self.assertIn("ConnectionState]::Closed", script)
+        self.assertIn("$connection.Dispose()", script)
+        self.assertIn("ConnectRetryCount", script)
+        self.assertNotIn("$connection.Open(", script)
+        self.assertNotIn("Invoke-R3Diagnostic", script)
+        self.assertNotIn("ExecuteAuthorized", script)
+
 if __name__ == "__main__":
     unittest.main()
