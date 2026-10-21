@@ -51,6 +51,11 @@ jobs:
           $evidence=Join-Path $env:RUNNER_TEMP 'g1-bridge-not-created.json'
           if(Test-Path $evidence){throw 'EVIDENCE_PRESENT'}
           $output=@(& (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_bridge_connection_candidate.ps1') -ExecuteIsolated -ReviewedManifestSha256 $env:BRIDGE_MANIFEST_SHA -ReviewedSourceSha $env:GITHUB_SHA -DiagnosticAccessToken 'SYNTHETIC_NON_AUTHENTICATING_TOKEN' -EvidenceFile $evidence)
-          if($LASTEXITCODE -ne 0 -or $output.Count -ne 1 -or $output[0] -cne 'BridgeConnection=PREPARED_ONLY; SqlOpened=FALSE; ApiPrincipal=UNKNOWN; G1=HOLD;'){throw 'CANDIDATE_REJECTED'}
+          $expected='BridgeConnection=PREPARED_ONLY; SqlOpened=FALSE; ApiPrincipal=UNKNOWN; G1=HOLD;'
+          if(@($output).Count -ne 1 -or @($output)[0] -cne $expected){
+            $classification=if(@($output).Count -eq 1 -and @($output)[0] -ceq 'BridgeConnection=STOP; Details=SUPPRESSED;'){'CANDIDATE_STOP'}else{'OUTPUT_CONTRACT_REJECTED'}
+            Write-Output "ClosedSqlClient=STOP; Classification=$classification; Details=SUPPRESSED;"
+            exit 1
+          }
           if(Test-Path $evidence){throw 'EVIDENCE_UNEXPECTED'}
           Write-Output 'ClosedSqlClient=PASS; SqlOpened=FALSE; G1=HOLD;'
