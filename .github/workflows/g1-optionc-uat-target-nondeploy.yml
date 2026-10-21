@@ -1,0 +1,23 @@
+name: G1 Option C UAT target boundary nondeploy
+on:
+  push:
+    branches: [work/g1-uat-optionc-boundary-20261021]
+permissions:
+  contents: read
+jobs:
+  target-boundary:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-optionc-boundary-20261021'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check exact source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run focused nondeploy tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCUatTargetBoundaryTests' --logger 'console;verbosity=minimal'
