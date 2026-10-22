@@ -33,6 +33,20 @@ function Read-Statuses([System.Data.DataTable]$table,[string[]]$expected) {
  foreach($key in $expected) {if (-not $found.ContainsKey($key)) {throw 'missing-code'}}
  return $found
 }
+function Read-Indicators([System.Data.DataTable]$table,[string[]]$expected) {
+ if ($table.Columns.Count -ne 2 -or $table.Columns[0].ColumnName -cne 'code' -or
+     $table.Columns[1].ColumnName -cne 'state' -or $table.Rows.Count -ne $expected.Count) {throw 'invalid-indicator-shape'}
+ $found=@{}
+ foreach($row in $table.Rows) {
+  $code=[string]$row.code
+  $state=[string]$row.state
+  if($code -cnotmatch '^[A-Z0-9_]+$' -or $state -cnotin @('PRESENT','ABSENT') -or $found.ContainsKey($code)) {throw 'invalid-indicator'}
+  $found[$code]=$state
+ }
+ foreach($code in $expected){if(-not $found.ContainsKey($code)){throw 'missing-indicator'}}
+ if (@($found.Keys | Where-Object {$_ -cnotin $expected}).Count -gt 0){throw 'unexpected-indicator'}
+ return $found
+}
 try {
  if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne 'Terry4410/field-visit-mileage-system' -or
      $env:GITHUB_REF -cne 'refs/heads/post-uat/v1.8.0' -or
@@ -45,7 +59,8 @@ try {
  $catalog=Join-Path $root 'docs/release/g1-execution/promotion/CatalogContract.sql'
  $reference=Join-Path $root 'docs/release/g1-execution/promotion/reference.json'
  $preflight=Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_uat_prerequisite_readonly.sql'
- foreach($p in @($target,$catalog,$reference,$preflight)) {
+ $categorize=Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_uat_authority_catalog_categories_readonly.sql'
+ foreach($p in @($target,$catalog,$reference,$preflight,$categorize)) {
   if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {Stop-G1Preflight 'PrerequisiteRejected'}
  }
  $ref=Get-Content -LiteralPath $reference -Raw | ConvertFrom-Json
@@ -94,6 +109,17 @@ SELECT code,status FROM (VALUES
   $value=[string]$statuses[$code]
   Write-Output "PreflightCheck=$code; Status=$value;"
   if($value -ne 'PASS') {$bad=$true}
+ }
+
+ $stage='AUTHORITY_CATALOG_CLASSIFY'
+ $indicatorCodes=@('014_ORG_NULL','014_ORG_DANGLING','014_TEAM_NULL','014_TEAM_DANGLING',
+   '014_CREATOR_NULL','014_CREATOR_DANGLING','014_TEAM_ORG_MISMATCH','014_CREATOR_ORG_MISMATCH',
+   'CATALOG_LOCATION_DEPLOYMENT_TRIGGER','CATALOG_LOCATION_GEOCODE_TRIGGER',
+   'CATALOG_IMPORT_TRIGGERS','CATALOG_IMPORT_CHECK_MISSING',
+   'CATALOG_IMPORT_CHECK_UNTRUSTED','CATALOG_MERGE_DETAILS_OBJECT')
+ $indicators=Read-Indicators (Query-Table $conn (Get-Content -LiteralPath $categorize -Raw)) $indicatorCodes
+ foreach($code in $indicatorCodes) {
+  Write-Output "PreflightIndicator=$code; State=$($indicators[$code]);"
  }
 
  $stage='BASE_CATALOG'
