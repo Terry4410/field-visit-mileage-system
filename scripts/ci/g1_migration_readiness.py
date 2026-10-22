@@ -4,22 +4,40 @@ from pathlib import Path
 RC='f29affb3299828f45b1f131321779e8bea2f86a8'
 BRANCH='refs/heads/work/g1-uat-migration-readiness-20261020'
 REG=Path('docs/release/g1-execution/registry.json')
-ALLOWED={'.github/workflows/leader-uat010-rc-nondeploy.yml','scripts/ci/g1_migration_readiness.py','scripts/ci/test_g1_migration_readiness.ps1','docs/release/g1-execution/registry.json','docs/release/g1-execution/READINESS.md','docs/release/g1-execution/AUTHORIZATION-DRAFT.md','.github/workflows/g1-sql-lock-root-cause-diagnostic.yml','docs/release/g1-minimal-preflight/01-target.sql','docs/release/g1-minimal-preflight/02-marker.sql','docs/release/g1-minimal-preflight/03-catalog.sql','docs/release/g1-minimal-preflight/04-permissions.sql','docs/release/g1-minimal-preflight/GAP-CLOSURE.md','docs/release/g1-minimal-preflight/README.md','docs/release/g1-minimal-preflight/SCHEMA010-AND-VERIFICATION.md','docs/release/g1-minimal-preflight/SHA256SUMS.txt','docs/release/g1-minimal-preflight/collect.ps1','docs/release/g1-minimal-preflight/derive_reference.py','docs/release/g1-minimal-preflight/manifest.json','docs/release/g1-minimal-preflight/necessary-reference.json','docs/release/g1-minimal-preflight/provenance.json','docs/release/g1-minimal-preflight/requirements.json','docs/release/g1-minimal-preflight/test_contract.py','docs/release/g1-minimal-preflight/test_phase_separation.py','docs/release/g1-minimal-preflight/test_reference.py','docs/release/g1-minimal-preflight/uat_schema_fidelity_evidence.ps1','docs/release/g1-minimal-preflight/validate.py','docs/release/g1-minimal-preflight/validation-results.json','scripts/ci/g1-preflight-model/G1PreflightModel.csproj','scripts/ci/g1-preflight-model/Program.cs','scripts/ci/g1_preflight_verify.py','scripts/ci/g1_sql_lock_root_cause_diagnostic.ps1','scripts/ci/test_g1_minimal_preflight.ps1'}
+ALLOWED={'docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql','scripts/ci/run_full_candidate_migration.ps1','scripts/ci/test_g1_promotion.ps1','.github/workflows/leader-uat010-rc-nondeploy.yml','scripts/ci/g1_migration_readiness.py','scripts/ci/test_g1_migration_readiness.ps1','docs/release/g1-execution/registry.json','docs/release/g1-execution/READINESS.md','docs/release/g1-execution/AUTHORIZATION-DRAFT.md','.github/workflows/g1-sql-lock-root-cause-diagnostic.yml','docs/release/g1-minimal-preflight/01-target.sql','docs/release/g1-minimal-preflight/02-marker.sql','docs/release/g1-minimal-preflight/03-catalog.sql','docs/release/g1-minimal-preflight/04-permissions.sql','docs/release/g1-minimal-preflight/GAP-CLOSURE.md','docs/release/g1-minimal-preflight/README.md','docs/release/g1-minimal-preflight/SCHEMA010-AND-VERIFICATION.md','docs/release/g1-minimal-preflight/SHA256SUMS.txt','docs/release/g1-minimal-preflight/collect.ps1','docs/release/g1-minimal-preflight/derive_reference.py','docs/release/g1-minimal-preflight/manifest.json','docs/release/g1-minimal-preflight/necessary-reference.json','docs/release/g1-minimal-preflight/provenance.json','docs/release/g1-minimal-preflight/requirements.json','docs/release/g1-minimal-preflight/test_contract.py','docs/release/g1-minimal-preflight/test_phase_separation.py','docs/release/g1-minimal-preflight/test_reference.py','docs/release/g1-minimal-preflight/uat_schema_fidelity_evidence.ps1','docs/release/g1-minimal-preflight/validate.py','docs/release/g1-minimal-preflight/validation-results.json','scripts/ci/g1-preflight-model/G1PreflightModel.csproj','scripts/ci/g1-preflight-model/Program.cs','scripts/ci/g1_preflight_verify.py','scripts/ci/g1_sql_lock_root_cause_diagnostic.ps1','scripts/ci/test_g1_minimal_preflight.ps1'}
 def git(*a):return subprocess.check_output(['git',*a]).decode().strip()
 def sha(b):return hashlib.sha256(b).hexdigest()
 def verify():
  assert os.environ['GITHUB_SHA']==git('rev-parse','HEAD') and re.fullmatch('[a-f0-9]{40}',os.environ['GITHUB_SHA'])
  assert os.environ['GITHUB_REF']==BRANCH and os.environ['GITHUB_REPOSITORY']=='Terry4410/field-visit-mileage-system'
  subprocess.run(['git','merge-base','--is-ancestor',RC,'HEAD'],check=True)
- assert all(f in ALLOWED or f in {'scripts/ci/g1_promotion.py','scripts/ci/test_g1_promotion.ps1'} or f.startswith('docs/release/g1-execution/promotion/') for f in git('diff','--name-only',RC,'HEAD').splitlines())
- assert not git('diff','--name-only',RC,'HEAD','--','backend','frontend','database','docs/release/optionc-canonical-sql-draft')
+ changed=set(git('diff','--name-only',RC,'HEAD').splitlines())
+ assert all(f in ALLOWED or f=='scripts/ci/g1_promotion.py' or f.startswith('docs/release/g1-execution/promotion/') for f in changed)
+ staged_backfill='docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql'
+ candidate_changes={f for f in changed if f.startswith('docs/release/optionc-canonical-sql-draft/')}
+ assert candidate_changes <= {staged_backfill}
+ assert not git('diff','--name-only',RC,'HEAD','--','backend','frontend','database')
+ pins={
+  staged_backfill:'8ef320c4539742017c39908221bdb1b4312024f3b2f5eb0ab172b2a62c52056f',
+  'scripts/ci/run_full_candidate_migration.ps1':'638eaf356fe389d8fdca2d1350b878cdcb5b38d5fe1333516447331981affa31',
+  'scripts/ci/test_g1_promotion.ps1':'f63e0b729a3e740799696f1d552da6378844375c3579fdfe39b15625162d9efc'
+ }
+ assert all(sha(Path(path).read_bytes())==expected for path,expected in pins.items())
+ assert len([f for f in changed if f.startswith('docs/release/optionc-canonical-sql-draft/')]) in (0,1)
  assert not os.environ.get('UAT_SQL_CONNECTION') and not os.environ.get('PRODUCTION_SQL_CONNECTION')
  d=json.loads(REG.read_text());assert d['rcSource']==RC and d['registryDecision']=='OWNER_DECISION_PENDING' and d['promotedSql'] is None
+ override='docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql'
+ override_count=0
  for entry in d['sequence']:
   assert entry['approval']=='PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE'
-  for f in entry['files']:assert sha(Path(f['path']).read_bytes())==f['sha256']
+  for f in entry['files']:
+   if f['path']==override:
+    override_count+=1
+    assert f['sha256']=='b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed'
+   else:assert sha(Path(f['path']).read_bytes())==f['sha256']
+ assert override_count==1
  f=d['reusedFixture'];assert sha(Path(f['path']).read_bytes())==f['sha256']
- print('PreparationSource=PASS; Application=UNCHANGED; CandidateSql=UNCHANGED; UatExecution=NOT_AUTHORIZED;')
+ print('PreparationSource=PASS; Application=UNCHANGED; CandidateOverride=ONE_REVIEWED_014_BACKFILL; MigrationSources=UNCHANGED; UatExecution=NOT_AUTHORIZED;')
 def sql():
  verify();assert os.environ.get('GITHUB_ACTIONS')=='true'
  password=secrets.token_urlsafe(30)+'!G1a9'

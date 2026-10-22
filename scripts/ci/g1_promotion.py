@@ -69,7 +69,26 @@ def build():
  expected={x['id']:x['catalog'].lower() for x in ref['steps']}
  bodies={n:payload(n,'Up')+(payload(n,'Backfill') if n==14 else '') for n in IDS}
  hashes={n:digest(bodies[n].encode()) for n in IDS}
- sources={str(p):digest(p.read_bytes()) for p in [Path('scripts/ci/g1_promotion.py'),ROOT/'reference.json',ROOT/'CatalogContract.sql',ROOT/'HistoryContract.sql',ROOT/'LedgerContract.sql']}
+ source_inputs=[
+  Path('docs/release/optionc-canonical-sql-draft/candidate')/f'1800_{n:03d}'/'Up.sql'
+  for n in IDS
+]+[Path('docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql')]
+ migration_dirs=[
+  '1800_001_organization_center_team_lifecycle','1800_002_person_employment_role_membership',
+  '1800_003_deployment_sites','1800_004_location_governance','1800_005_project_visit_rate_lifecycle',
+  '1800_006_notification_framework','1800_007_mileage_google_governance',
+  '1800_008_rate_manual_effective_dates','1800_009_one_stop_route_attempt_constraint',
+  '1800_010_background_mileage_reason_constraint']
+ source_inputs += [Path('database/migrations')/d/'Up.sql' for d in migration_dirs]
+ source_inputs += [
+  Path('scripts/ci/compare_uat010_schema_inventory.py'),
+  Path('scripts/ci/uat_schema_r3.hashes.json'),
+  Path('docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/IdentityVersion.sql'),
+  Path('docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/Catalog.sql'),
+  Path('docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/HistoricalAccess.sql'),
+  Path('docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/HistoricalAggregates.sql')]
+ sources={str(x):digest(x.read_bytes()) for x in [Path('scripts/ci/g1_promotion.py'),ROOT/'reference.json',ROOT/'CatalogContract.sql',ROOT/'HistoryContract.sql',ROOT/'LedgerContract.sql']}
+ sources.update({str(x):digest(x.read_bytes()) for x in source_inputs})
  package=digest(json.dumps({'sources':sources,'payloads':hashes},sort_keys=True).encode())
  approve=f"IF @G1Offline=0 AND (TRY_CONVERT(binary(32),SESSION_CONTEXT(N'FieldVisit.G1.OwnerApprovedContract')) IS NULL OR TRY_CONVERT(binary(32),SESSION_CONTEXT(N'FieldVisit.G1.OwnerApprovedContract'))<>0x{package}) THROW 52004,N'G1_AUTHORIZATION_STOP',1;\n"
  header='-- NONDEPLOY REVIEW CANDIDATE. No execution or registry assignment authorized.\n'+target_guard()+approve+"IF @@TRANCOUNT<>0 THROW 52002,N'G1_AMBIENT_TRANSACTION_STOP',1;\nSET XACT_ABORT ON; SET LOCK_TIMEOUT 0; SET DEADLOCK_PRIORITY LOW;\n"
@@ -100,7 +119,7 @@ def build():
  sql+=hash_call(history,'@G1After')+"IF @G1History IS NULL OR @G1After IS NULL OR @G1History<>@G1After THROW 52016,N'G1_HISTORY_STOP',1;\n"+final+"COMMIT TRANSACTION; SELECT N'G1_PROMOTION_COMPLETE' AS Status;\n"+catch
  verify=header+"BEGIN TRY BEGIN TRANSACTION; DECLARE @G1Hash varchar(64),@G1Lock int;\nEXEC @G1Lock=sys.sp_getapplock @Resource=N'FieldVisit.SchemaMigration',@LockMode=N'Shared',@LockOwner=N'Transaction',@LockTimeout=0; IF @G1Lock IS NULL OR @G1Lock<0 THROW 52003,N'G1_LOCK_STOP',1;\nIF OBJECT_ID(N'dbo.FieldVisitMigrationLedger',N'U') IS NULL THROW 52014,N'G1_LEDGER_MISSING',1;\n"+final+"COMMIT TRANSACTION; SELECT N'G1_PROMOTION_VERIFIED' AS Status;\n"+catch
  (ROOT/'Promotion.sql').write_text(sql);(ROOT/'Verify.sql').write_text(verify)
- manifest={'contract':'g1-fixed-target-promotion-v1','approval':'PROPOSED_NOT_AUTHORIZED','rcSource':'f29affb3299828f45b1f131321779e8bea2f86a8','acceptedPreparation':'8e4d3dc72a63e324b69253dff9e0cc1d7fef2273','packageId':package,'server':'sql-fieldvisit-jpe-uat','database':'db-fieldvisit-uat','transaction':'ALL_NINE_STEPS_AND_BACKFILL_ATOMIC','reserved013':'UNCHANGED_ABSENT','offlineTestGuard':'SQL2022_Developer_only;OptionCIsolated_GUID;explicit_session_context;caller_localhost_only','sourceHashes':sources,'originalRegistrySha256':digest(Path('docs/release/g1-execution/registry.json').read_bytes()),'originalSqlSha256':{f['path']:f['sha256'] for e in json.loads(Path('docs/release/g1-execution/registry.json').read_text())['sequence'] for f in e['files']},'steps':[{'proposedId':f'1.8.0-{n:03d}','assignment':'OWNER_APPROVAL_PENDING','payloadSha256':hashes[n],'postCatalogSha256':expected[n],'aliases':[ALIASES[n]] if n in ALIASES else []} for n in IDS],'files':{str(ROOT/f):digest((ROOT/f).read_bytes()) for f in ['Promotion.sql','Verify.sql','CatalogContract.sql','HistoryContract.sql','LedgerContract.sql','reference.json']}}
+ manifest={'contract':'g1-fixed-target-promotion-v1','approval':'PROPOSED_NOT_AUTHORIZED','rcSource':'f29affb3299828f45b1f131321779e8bea2f86a8','acceptedPreparation':'8e4d3dc72a63e324b69253dff9e0cc1d7fef2273','packageId':package,'server':'sql-fieldvisit-jpe-uat','database':'db-fieldvisit-uat','transaction':'ALL_NINE_STEPS_AND_BACKFILL_ATOMIC','reserved013':'UNCHANGED_ABSENT','offlineTestGuard':'SQL2022_Developer_only;OptionCIsolated_GUID;explicit_session_context;caller_localhost_only','sourceHashes':sources,'reviewedStagingCommit':'d5ae0b47b8a3c4887fb4e090877e5929749c45b4','reviewedStagingParent':'b020357b1f1a8b9cdf19512abb653afca883a177','candidateSourceOverrides':[{'path':'docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql','previousRegistrySha256':'b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed','reviewedSha256':'8ef320c4539742017c39908221bdb1b4312024f3b2f5eb0ab172b2a62c52056f'}],'schema010SourceBoundBaseline':{'status':'HOLD','sourceMigrations':'001-010 source hashes bound in sourceHashes','acceptedR3':'Four-stage results reused; no complete normalized UAT010 inventory artifact available in accepted run','requiredComparison':'Full source-derived 001-010 inventory against accepted UAT010 metadata, including 004/007 legacy Location triggers and import CHECK facets','syntheticReferenceAcceptedAsUatBaseline':False},'originalRegistrySha256':digest(Path('docs/release/g1-execution/registry.json').read_bytes()),'originalSqlSha256':{f['path']:f['sha256'] for e in json.loads(Path('docs/release/g1-execution/registry.json').read_text())['sequence'] for f in e['files']},'steps':[{'proposedId':f'1.8.0-{n:03d}','assignment':'OWNER_APPROVAL_PENDING','payloadSha256':hashes[n],'postCatalogSha256':expected[n],'aliases':[ALIASES[n]] if n in ALIASES else []} for n in IDS],'files':{str(ROOT/f):digest((ROOT/f).read_bytes()) for f in ['Promotion.sql','Verify.sql','CatalogContract.sql','HistoryContract.sql','LedgerContract.sql','reference.json']}}
  (ROOT/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 
 def verify_build():
@@ -152,14 +171,14 @@ def compatibility():
 def finalize():
  import xml.etree.ElementTree as ET,importlib.util
  p=Path('artifacts');m=json.loads((p/'promotion-cases.json').read_text())
- assert m['sourceSha']==os.environ['GITHUB_SHA'] and len(m['cases'])==40 and len({c['case'] for c in m['cases']})==40 and all(c['result']=='PASS' for c in m['cases'])
+ assert m['sourceSha']==os.environ['GITHUB_SHA'] and len(m['cases'])==43 and len({c['case'] for c in m['cases']})==43 and all(c['result']=='PASS' for c in m['cases'])
  root=ET.parse(p/'promotion-compatibility.trx').getroot();rows=[x for x in root.iter() if x.tag.endswith('UnitTestResult')]
  assert len(rows)==5 and all(x.attrib.get('outcome')=='Passed' for x in rows)
  spec=importlib.util.spec_from_file_location('old','scripts/ci/g1_rc_evidence.py');old=importlib.util.module_from_spec(spec);spec.loader.exec_module(old)
  (p/'promotion-compatibility.trx').write_bytes(old.sanitized_trx((p/'promotion-compatibility.trx').read_bytes()))
  for f in ['Promotion.sql','Verify.sql','CatalogContract.sql','HistoryContract.sql','LedgerContract.sql','reference.json','manifest.json']:(p/f).write_bytes((ROOT/f).read_bytes())
  m['parent']=subprocess.check_output(['git','show','-s','--format=%P','HEAD']).decode().strip();m['tree']=subprocess.check_output(['git','rev-parse','HEAD^{tree}']).decode().strip()
- m['compatibilityCases']=5;m['original51SafetyAnd5WriterEvidence']='REUSED:39361520046/12237068114';m['formalRegistry']='OWNER_APPROVAL_PENDING';m['liveUatMetadataAndPermissions']='NOT_EXECUTED_HOLD';m['decision']='G1_MIGRATION_PROMOTION_NONDEPLOY_READY_FOR_AUDIT'
+ m['compatibilityCases']=5;m['original51SafetyAnd5WriterEvidence']='REUSED:39361520046/12237068114';m['formalRegistry']='OWNER_APPROVAL_PENDING';m['liveUatMetadataAndPermissions']='NOT_EXECUTED_HOLD';m['schema010SourceBoundBaseline']='HOLD: complete accepted UAT010 inventory not available; synthetic reference remains non-UAT';m['014TeamIdNullCorrection']='INCLUDED_AND_TESTED_IF_SUITE_PASSES';m['decision']='G1_MIGRATION_PROMOTION_NONDEPLOY_CANDIDATE_TESTED_UAT010_BASELINE_HOLD'
  m['evidenceSha256']={f.name:digest(f.read_bytes()) for f in p.iterdir() if f.is_file() and f.name!='promotion-cases.json'}
  (p/'promotion-cases.json').write_text(json.dumps(m,indent=2)+'\n')
  print('G1_MIGRATION_PROMOTION_NONDEPLOY_READY_FOR_AUDIT LiveExecution=NOT_AUTHORIZED;')

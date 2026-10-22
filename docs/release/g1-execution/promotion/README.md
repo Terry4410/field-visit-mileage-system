@@ -59,3 +59,10 @@ The five independent operation choices in AUTHORIZATION-DRAFT.md remain DRAFT/NO
 6. Review remaining actual schema/permissions/privacy/registry/runtime/flags/recovery authority. No live action, merge, dispatch or rerun under the audit.
 
 After delivery return to CHAT for this independent exact-byte audit. No further WORK starts automatically. This is not Schema Fidelity PASS, migration execution authority, deployment authority or Business UAT GO.
+
+
+## 2026-10-22 reviewed 014 TeamId=NULL correction — NONDEPLOY candidate
+
+The reviewed staging delta at `d5ae0b47b8a3c4887fb4e090877e5929749c45b4` is carried into this PR only for the 014 Backfill and disposable regression path. A valid Approved+Active Location may retain `TeamId=NULL`; Organization and Creator must still resolve within the same organization, and any non-null Team must resolve within that organization. The test contract adds one teamless positive chain and three real SQL rejection cases. The finalizer requires 43 unique PASS cases plus five writer-compatibility cases.
+
+The builder pins the reviewed candidate inputs, all 001–010 source Up files, and the accepted R3 SQL/comparator source hashes. This is source provenance, not a full Schema 010 equivalence result. The existing `reference.json` remains explicitly synthetic and is not rewritten from UAT hashes. No complete accepted normalized UAT010 inventory is present in the accepted run artifacts, so the baseline including the 004/007 legacy Location triggers and Import CHECK facets remains **HOLD**. The generated package is NONDEPLOY and not migration authorization.
