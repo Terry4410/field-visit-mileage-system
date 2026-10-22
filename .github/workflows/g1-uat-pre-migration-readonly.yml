@@ -36,7 +36,7 @@ env:
   EXPECTED_DATABASE: db-fieldvisit-uat
   CANDIDATE_SHA: be4d25e2c788c78cb108d2f7c819118f036d674d
   PREFLIGHT_SQL_BLOB: cba2322100f67a716aaee697edce398de42efe9a
-  PREFLIGHT_SCRIPT_BLOB: b0dd3521ba58bd1dafc98bed81cab0a0972c58ef
+  PREFLIGHT_SCRIPT_BLOB: dbdd22ed37dff66464139e522bb4c85ad6771e43
   BASE_CATALOG_BLOB: 33a423f36728ef63acd431f9674fd0269ecce41e
   BASE_REFERENCE_BLOB: 414973fe3f1d2a810024ab2a980a0aab7b3a4fed
 jobs:
@@ -67,7 +67,15 @@ jobs:
           foreach($v in @('BASE_OBJECTS','LATEST_PREDECESSOR_010','UNASSIGNED_MARKERS','NEW_MANAGED_OBJECTS_ABSENT','014_PUBLISHED_SOURCE','014_AUTHORITY_REFERENCES','020_IMPORT_EXISTING_ROWS','020_IMPORT_STATUS_WIDTH')){
             if(-not $sql.Contains("N'$v'")){throw 'PREFLIGHT_CODE_MISSING'}
           }
-          Write-Output 'G1PreflightOffline=PASS; SqlWriteVerbs=NONE; PowerShellSyntax=PASS; Azure=NOT_ACCESSED;'
+          $reader=Get-Content 'scripts/ci/g1_uat_prerequisite_readonly.ps1' -Raw
+          $pre=$reader.IndexOf(" `$stage='PRECHECK'")
+          $baseline=$reader.IndexOf(" `$stage='BASE_CATALOG'")
+          $reject=$reader.IndexOf("if(`$bad){Stop-G1Preflight 'BaselineRejected'}")
+          if ($pre -lt 0 -or $baseline -le $pre -or $reject -le $baseline) {
+            throw 'Preflight order or final fail-closed rejection invalid'
+          }
+          if (-not $reader.Contains("PreflightCheck=SCOPED_INITIAL_CATALOG; Status=FAIL;")) { throw 'Baseline rejection missing' }
+          Write-Output 'G1PreflightOffline=PASS; SqlWriteVerbs=NONE; PowerShellSyntax=PASS; Order=PRECHECK_BEFORE_CATALOG; Azure=NOT_ACCESSED;'
   guard:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
