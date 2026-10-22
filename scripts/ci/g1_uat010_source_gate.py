@@ -20,6 +20,7 @@ STAGING_PARENT = "b020357b1f1a8b9cdf19512abb653afca883a177"
 RC = "f29affb3299828f45b1f131321779e8bea2f86a8"
 MANIFEST = "docs/release/g1-execution/promotion/manifest.json"
 NECESSARY = "docs/release/g1-minimal-preflight/necessary-reference.json"
+PROMOTION_REFERENCE = "docs/release/g1-execution/promotion/reference.json"
 BACKFILL = "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql"
 CATALOG = "docs/release/g1-execution/promotion/CatalogContract.sql"
 
@@ -66,7 +67,7 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def validate_reference(manifest: Mapping, necessary: Mapping) -> None:
+def validate_reference(manifest: Mapping, promotion_reference: Mapping, necessary: Mapping) -> None:
     if manifest.get("contract") != "g1-fixed-target-promotion-v1" or manifest.get("rcSource") != RC:
         raise GateError("manifest")
     if manifest.get("reviewedStagingCommit") != STAGING or manifest.get("reviewedStagingParent") != STAGING_PARENT:
@@ -75,7 +76,7 @@ def validate_reference(manifest: Mapping, necessary: Mapping) -> None:
         raise GateError("necessary-reference")
     if manifest.get("approval") != "PROPOSED_NOT_AUTHORIZED":
         raise GateError("authorization-state")
-    if manifest.get("fixture", "").find("SYNTHETIC") < 0:
+    if promotion_reference.get("originRc") != RC or "SYNTHETIC" not in promotion_reference.get("fixture", ""):
         raise GateError("synthetic-fixture-label")
     baseline = manifest.get("schema010SourceBoundBaseline", {})
     if baseline.get("status") != "HOLD" or baseline.get("syntheticReferenceAcceptedAsUatBaseline") is not False:
@@ -181,8 +182,9 @@ def sanitized_result(source_sha: str, contract: str = "PASS") -> dict[str, str]:
 
 def run(root: Path, enforce_parent: bool = False) -> dict[str, str]:
     manifest = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
+    promotion_reference = json.loads((root / PROMOTION_REFERENCE).read_text(encoding="utf-8"))
     necessary = json.loads((root / NECESSARY).read_text(encoding="utf-8"))
-    validate_reference(manifest, necessary)
+    validate_reference(manifest, promotion_reference, necessary)
     verify_source_files(root, manifest, necessary)
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
