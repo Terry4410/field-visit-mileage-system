@@ -42,7 +42,7 @@ def check_shape(doc):
             if not isinstance(r, dict) or any(k not in r for k in keys):
                 raise Hold("SHAPE")
             identity = tuple(r[k] for k in keys)
-            if any(type(k) not in (str, int) or k == "" for k in identity):
+            if any(type(k) not in (str, int, bool) or k == "" for k in identity):
                 raise Hold("SHAPE")
             if identity in seen:
                 raise Hold("SHAPE")
