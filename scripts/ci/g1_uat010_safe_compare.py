@@ -15,6 +15,27 @@ SECTIONS = {
     "Checks": ("SchemaName", "TableName", "CheckConstraintName"),
     "Triggers": ("SchemaName", "TableName", "TriggerName"),
 }
+# Required names on BOTH expected and actual; missing facets must never compare equal.
+# The old seven-result-set collector lacks CollationName and Triggers and is
+# intentionally incompatible with this stricter *unwired* v2 contract.
+REQUIRED = {
+    "Columns": ("SqlType", "MaxLengthBytesOrCharacters", "NumericPrecision",
+                "NumericScale", "IsNullable", "IsIdentity", "IsComputed",
+                "IsRowVersion", "DefaultDefinition", "CollationName"),
+    "Indexes": ("IndexType", "IsPrimaryKey", "IsUniqueConstraint", "IsUnique",
+                "IsDisabled", "HasFilter", "FilterDefinition", "IsDescending"),
+    "ForeignKeys": ("ReferencedSchema", "ReferencedTable", "ReferencedColumn",
+                    "DeleteAction", "UpdateAction", "IsDisabled", "IsNotTrusted"),
+    "Checks": ("Definition", "IsDisabled", "IsNotTrusted"),
+    "Triggers": ("DefinitionSha256", "Events", "IsDisabled", "IsInsteadOfTrigger"),
+}
+MANDATORY_CHECKS = {
+    ("dbo", "RouteCalculationAttempts", "CK_RouteCalculationAttempts_Reason"),
+    ("dbo", "ImportBatches", "CK_ImportBatches_Status"),
+    ("dbo", "ImportBatchItems", "CK_ImportBatchItems_Status"),
+}
+REQUIRED_TRIGGER_NAMES = {"TR_Locations_ProtectCurrentDeploymentSiteLocations",
+                          "TR_Locations_SelectedGeocodingAttempt"}
 TRIGGER_RE = re.compile(r"\bCREATE\s+(?:OR\s+ALTER\s+)?TRIGGER\s+(?:\[?dbo\]?\.)?\[?([A-Za-z_][A-Za-z_0-9]*)\]?", re.I)
 HEX40 = re.compile("^[0-9a-f]{40}$")
 HEX64 = re.compile("^[0-9a-f]{64}$")
@@ -39,8 +60,23 @@ def check_shape(doc):
             raise Hold("SHAPE")
         seen = set()
         for r in rows:
-            if not isinstance(r, dict) or any(k not in r for k in keys):
+            if not isinstance(r, dict) or any(k not in r for k in keys + REQUIRED[section]):
                 raise Hold("SHAPE")
+            # A NULL default/filter/collation is valid only when the facet is
+            # actually present; absence is not equivalent to NULL.
+            if section == "Columns":
+                if not isinstance(r["SqlType"], str) or not r["SqlType"]:
+                    raise Hold("SHAPE")
+                if not isinstance(r["IsNullable"], bool) and r["IsNullable"] not in (0, 1):
+                    raise Hold("SHAPE")
+            if section == "Checks":
+                if not isinstance(r["Definition"], str) or not r["Definition"]:
+                    raise Hold("CHECK_VISIBILITY")
+                if r["IsDisabled"] not in (False, 0) or r["IsNotTrusted"] not in (False, 0):
+                    raise Hold("CHECK_STATE")
+            if section == "ForeignKeys":
+                if r["IsDisabled"] not in (False, 0) or r["IsNotTrusted"] not in (False, 0):
+                    raise Hold("FK_STATE")
             identity = tuple(r[k] for k in keys)
             if any(type(k) not in (str, int, bool) or k == "" for k in identity):
                 raise Hold("SHAPE")
@@ -55,6 +91,12 @@ def check_shape(doc):
                     raise Hold("TRIGGER_STATE")
                 if not isinstance(r.get("Events"), str) or not r["Events"]:
                     raise Hold("TRIGGER_STATE")
+    checks = {(r["SchemaName"], r["TableName"], r["CheckConstraintName"]) for r in doc["Checks"]}
+    if not MANDATORY_CHECKS.issubset(checks):
+        raise Hold("CHECK_SCOPE")
+    present_triggers = {r["TriggerName"] for r in doc["Triggers"]}
+    if not REQUIRED_TRIGGER_NAMES.issubset(present_triggers):
+        raise Hold("TRIGGER_SCOPE")
 
 def check_reference(root, expected):
     provenance = expected.get("Provenance")
