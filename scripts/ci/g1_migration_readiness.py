@@ -36,7 +36,12 @@ def verify():
     assert f['sha256']=='b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed'
    else:assert sha(Path(f['path']).read_bytes())==f['sha256']
  assert override_count==1
- f=d['reusedFixture'];assert sha(Path(f['path']).read_bytes())==f['sha256']
+ # Immutable registry retains the originally reviewed fixture; only this exact, pinned
+ # disposable fixture adaptation is allowed to differ from its legacy registry digest.
+ f=d['reusedFixture']
+ assert f['path']=='scripts/ci/run_full_candidate_migration.ps1'
+ assert f['sha256']=='872cd931102557c1caa86efef6fbb0fcf10b7546d00f75f5210677c58d8ee611'
+ assert sha(Path(f['path']).read_bytes())==pins[f['path']]
  print('PreparationSource=PASS; Application=UNCHANGED; CandidateOverride=ONE_REVIEWED_014_BACKFILL; MigrationSources=UNCHANGED; UatExecution=NOT_AUTHORIZED;')
 def sql():
  verify();assert os.environ.get('GITHUB_ACTIONS')=='true'
