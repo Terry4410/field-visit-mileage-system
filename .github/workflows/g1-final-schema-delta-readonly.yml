@@ -1,0 +1,35 @@
+# Inert registration on default branch only. The real reviewed SQL execution exists
+# ONLY on protected post-uat/v1.8.0. This file has no Azure, OIDC or SQL actions.
+name: G1 final UAT schema delta inventory (SELECT-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Exact protected execution SHA approved by Owner
+        required: true
+        type: string
+      authorize_coldstart:
+        description: Owner authorizes one connection-only Serverless wake
+        required: true
+        type: boolean
+        default: false
+      accept_compute_charges:
+        description: Owner accepts bounded UAT SQL compute charges
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  inert-default-branch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reject dispatch on main; use protected branch only
+        run: |
+          echo "::error::Registration only; select post-uat/v1.8.0 to run reviewed protected SQL."
+          exit 1
