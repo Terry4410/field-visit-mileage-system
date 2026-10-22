@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/g1-uat-pre-migration-readonly.yml
       - scripts/ci/g1_uat_prerequisite_readonly.sql
+      - scripts/ci/g1_uat_authority_catalog_categories_readonly.sql
       - scripts/ci/g1_uat_prerequisite_readonly.ps1
   workflow_dispatch:
     inputs:
@@ -36,7 +37,8 @@ env:
   EXPECTED_DATABASE: db-fieldvisit-uat
   CANDIDATE_SHA: be4d25e2c788c78cb108d2f7c819118f036d674d
   PREFLIGHT_SQL_BLOB: cba2322100f67a716aaee697edce398de42efe9a
-  PREFLIGHT_SCRIPT_BLOB: dbdd22ed37dff66464139e522bb4c85ad6771e43
+  PREFLIGHT_SCRIPT_BLOB: c2e6f5b6c681b6345a8fa3d96cc53ee65edbaa70
+  CATEGORY_SQL_BLOB: de82b0e4989ec9bf10b9925fbb0f38aeec8dddce
   BASE_CATALOG_BLOB: 33a423f36728ef63acd431f9674fd0269ecce41e
   BASE_REFERENCE_BLOB: 414973fe3f1d2a810024ab2a980a0aab7b3a4fed
 jobs:
@@ -76,6 +78,24 @@ jobs:
           }
           if (-not $reader.Contains("PreflightCheck=SCOPED_INITIAL_CATALOG; Status=FAIL;")) { throw 'Baseline rejection missing' }
           Write-Output 'G1PreflightOffline=PASS; SqlWriteVerbs=NONE; PowerShellSyntax=PASS; Order=PRECHECK_BEFORE_CATALOG; Azure=NOT_ACCESSED;'
+          $categories=Get-Content 'scripts/ci/g1_uat_authority_catalog_categories_readonly.sql' -Raw
+          $categoryScan=[regex]::Replace($categories,'(?m)^\s*--.*$','')
+          $categoryScan=[regex]::Replace($categoryScan,'(?s)/\*.*?\*/','')
+          $categoryScan=[regex]::Replace($categoryScan,"N?'(?:''|[^'])*'","''")
+          if($categoryScan -match '(?i)\b(INSERT|UPDATE|DELETE|MERGE|ALTER|CREATE|DROP|TRUNCATE|EXEC(?:UTE)?|GRANT|REVOKE|DENY|WAITFOR|OPENROWSET|OPENDATASOURCE)\b'){throw 'CATEGORIES_SQL_WRITE_VERB_STOP'}
+          foreach($v in @('014_ORG_NULL','014_ORG_DANGLING','014_TEAM_NULL','014_TEAM_DANGLING',
+             '014_CREATOR_NULL','014_CREATOR_DANGLING','014_TEAM_ORG_MISMATCH','014_CREATOR_ORG_MISMATCH',
+             'CATALOG_LOCATION_DEPLOYMENT_TRIGGER','CATALOG_LOCATION_GEOCODE_TRIGGER',
+             'CATALOG_IMPORT_TRIGGERS','CATALOG_IMPORT_CHECK_MISSING',
+             'CATALOG_IMPORT_CHECK_UNTRUSTED','CATALOG_MERGE_DETAILS_OBJECT')){
+            if(-not $categories.Contains("N'$v'") -or -not $reader.Contains("'$v'")){throw 'CATEGORY_CODE_MISMATCH_STOP'}
+          }
+          if(-not $reader.Contains("Read-Indicators (Query-Table $([char]36)conn") -or
+             $reader.IndexOf(" $([char]36)stage='AUTHORITY_CATALOG_CLASSIFY'") -lt 0 -or
+             $reader.IndexOf(" $([char]36)stage='BASE_CATALOG'") -le $reader.IndexOf(" $([char]36)stage='AUTHORITY_CATALOG_CLASSIFY'")){
+             throw 'CATEGORIES_READER_ORDER_STOP'
+          }
+          Write-Output 'G1CategoriesOffline=PASS; Flags=14; SqlWriteVerbs=NONE; Azure=NOT_ACCESSED;'
   guard:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -103,6 +123,7 @@ jobs:
           test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
           test "$(git hash-object scripts/ci/g1_uat_prerequisite_readonly.sql)" = "$PREFLIGHT_SQL_BLOB"
           test "$(git hash-object scripts/ci/g1_uat_prerequisite_readonly.ps1)" = "$PREFLIGHT_SCRIPT_BLOB"
+          test "$(git hash-object scripts/ci/g1_uat_authority_catalog_categories_readonly.sql)" = "$CATEGORY_SQL_BLOB"
           test "$(git -C candidate hash-object docs/release/g1-execution/promotion/CatalogContract.sql)" = "$BASE_CATALOG_BLOB"
           test "$(git -C candidate hash-object docs/release/g1-execution/promotion/reference.json)" = "$BASE_REFERENCE_BLOB"
           test -z "${UAT_SQL_CONNECTION:-}"
