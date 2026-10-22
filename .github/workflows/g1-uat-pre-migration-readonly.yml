@@ -36,7 +36,7 @@ env:
   EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
   EXPECTED_DATABASE: db-fieldvisit-uat
   CANDIDATE_SHA: be4d25e2c788c78cb108d2f7c819118f036d674d
-  PREFLIGHT_SQL_BLOB: cba2322100f67a716aaee697edce398de42efe9a
+  PREFLIGHT_SQL_BLOB: 147d8ce2c211c5751b45af35d18ed6cf39d50b84
   PREFLIGHT_SCRIPT_BLOB: c2e6f5b6c681b6345a8fa3d96cc53ee65edbaa70
   CATEGORY_SQL_BLOB: de82b0e4989ec9bf10b9925fbb0f38aeec8dddce
   BASE_CATALOG_BLOB: 33a423f36728ef63acd431f9674fd0269ecce41e
@@ -77,6 +77,23 @@ jobs:
             throw 'Preflight order or final fail-closed rejection invalid'
           }
           if (-not $reader.Contains("PreflightCheck=SCOPED_INITIAL_CATALOG; Status=FAIL;")) { throw 'Baseline rejection missing' }
+          # Known legitimate UAT010 condition: Approved+Active TeamId=NULL is
+          # org-visible. Reject invalid/dangling or cross-organization references.
+          # These are readonly source guards; real SQL 014 safety is already
+          # covered by frozen PR50 43+5 and must not be rerun in this PR.
+          $authority = [regex]::Match($sql,"(?s)\(N'014_AUTHORITY_REFERENCES'.*?\),\s*\(N'020_IMPORT_EXISTING_ROWS'")
+          if(-not $authority.Success){throw 'AUTHORITY_CONTRACT_SECTION_STOP'}
+          $source = $authority.Value
+          foreach($required in @('l.TeamId IS NOT NULL','t.TeamId IS NULL',
+                                  't.OrganizationId IS NULL','t.OrganizationId<>l.OrganizationId',
+                                  'u.OrganizationId IS NULL','u.OrganizationId<>l.OrganizationId',
+                                  'o.OrganizationId IS NULL','u.UserId IS NULL')) {
+            if(-not $source.Contains($required)){throw 'AUTHORITY_CONTRACT_REQUIREMENT_STOP'}
+          }
+          if($source -match '(?i)OR\s+t\.TeamId\s+IS\s+NULL\s+OR\s+u\.UserId') {
+            throw 'TEAMLESS_FALSE_REJECTION_STOP'
+          }
+          Write-Output 'G1AuthorityOffline=PASS; TeamlessWithinOrg=ALLOWED; NonNullTeam/CreatorScope=STRICT; LiveSql=NOT_EXECUTED;'
           Write-Output 'G1PreflightOffline=PASS; SqlWriteVerbs=NONE; PowerShellSyntax=PASS; Order=PRECHECK_BEFORE_CATALOG; Azure=NOT_ACCESSED;'
           $categories=Get-Content 'scripts/ci/g1_uat_authority_catalog_categories_readonly.sql' -Raw
           $categoryScan=[regex]::Replace($categories,'(?m)^\s*--.*$','')
