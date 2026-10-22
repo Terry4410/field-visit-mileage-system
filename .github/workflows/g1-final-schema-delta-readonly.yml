@@ -46,7 +46,7 @@ env:
 
 jobs:
   source-guard:
-    if: ${{ github.event_name != 'push' || github.event.head_commit.message == 'g1-final-schema-delta-live-once-20261022' }}
+    if: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'g1-final-schema-delta-live-once-2-20261022') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -74,8 +74,8 @@ jobs:
           test "$APPROVED_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            test "$(git rev-parse HEAD^)" = "2a7cd5165401bcf8ac859f60cc9174dc84483504"
-            test "$(git log -1 --pretty=%s)" = "g1-final-schema-delta-live-once-20261022"
+            test "$(git rev-parse HEAD^)" = "806f6f4571f6a7d9024cf0d28ac78b22e47a398b"
+            test "$(git log -1 --pretty=%s)" = "g1-final-schema-delta-live-once-2-20261022"
             test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/g1-final-schema-delta-readonly.yml"
           fi
           test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
