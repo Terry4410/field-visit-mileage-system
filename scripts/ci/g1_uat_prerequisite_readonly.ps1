@@ -85,15 +85,6 @@ SELECT code,status FROM (VALUES
  $permission=Read-Statuses $p @('LOCATIONS','REFERENCES','IMPORT','VERSIONS')
  foreach($code in @('LOCATIONS','REFERENCES','IMPORT','VERSIONS')) {if ($permission[$code] -ne 'PASS') {Stop-G1Preflight 'PermissionRejected'}}
  Write-Output 'PreflightReadPermissions=PASS; PrincipalRole=DIAGNOSTIC_ONLY;'
- $stage='BASE_CATALOG'
- $hash=Query-Table $conn (Get-Content -LiteralPath $catalog -Raw)
- if ($hash.Rows.Count -ne 1 -or $hash.Columns.Count -ne 1) {Stop-G1Preflight 'ResultRejected'}
- if ([string]$hash.Rows[0][0] -cnotmatch '^[0-9a-fA-F]{64}$' -or
-     ([string]$hash.Rows[0][0]).ToUpperInvariant() -cne $ref.initial) {
-  Write-Output 'PreflightCheck=SCOPED_INITIAL_CATALOG; Status=FAIL;'
-  Stop-G1Preflight 'BaselineRejected'
- }
- Write-Output 'PreflightCheck=SCOPED_INITIAL_CATALOG; Status=PASS;'
  $stage='PRECHECK'
  $expected=@('BASE_OBJECTS','LATEST_PREDECESSOR_010','UNASSIGNED_MARKERS','NEW_MANAGED_OBJECTS_ABSENT',
              '014_PUBLISHED_SOURCE','014_AUTHORITY_REFERENCES','020_IMPORT_EXISTING_ROWS','020_IMPORT_STATUS_WIDTH')
@@ -104,6 +95,16 @@ SELECT code,status FROM (VALUES
   Write-Output "PreflightCheck=$code; Status=$value;"
   if($value -ne 'PASS') {$bad=$true}
  }
+
+ $stage='BASE_CATALOG'
+ $hash=Query-Table $conn (Get-Content -LiteralPath $catalog -Raw)
+ if ($hash.Rows.Count -ne 1 -or $hash.Columns.Count -ne 1) {Stop-G1Preflight 'ResultRejected'}
+ if ([string]$hash.Rows[0][0] -cnotmatch '^[0-9a-fA-F]{64}$' -or
+     ([string]$hash.Rows[0][0]).ToUpperInvariant() -cne $ref.initial) {
+  Write-Output 'PreflightCheck=SCOPED_INITIAL_CATALOG; Status=FAIL;'
+  Stop-G1Preflight 'BaselineRejected'
+ }
+ Write-Output 'PreflightCheck=SCOPED_INITIAL_CATALOG; Status=PASS;'
  if($bad){Stop-G1Preflight 'BaselineRejected'}
  Write-Output "G1Preflight=PASS; SourceSha=$($env:GITHUB_SHA); CandidateSha=$($env:G1_CANDIDATE_SHA); PrincipalMigration=UNKNOWN; PrincipalAPI=UNKNOWN;"
 } catch {
