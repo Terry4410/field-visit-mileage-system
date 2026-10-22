@@ -53,7 +53,11 @@ SELECT code,status FROM (VALUES
     LEFT JOIN dbo.Teams t ON t.TeamId=l.TeamId
     LEFT JOIN dbo.Users u ON u.UserId=l.CreatedByUserId
     WHERE l.ApprovalStatus=N'Approved' AND l.IsActive=1
-      AND (o.OrganizationId IS NULL OR t.TeamId IS NULL OR u.UserId IS NULL))
+      AND (o.OrganizationId IS NULL OR u.UserId IS NULL
+           OR u.OrganizationId IS NULL OR u.OrganizationId<>l.OrganizationId
+           OR (l.TeamId IS NOT NULL
+               AND (t.TeamId IS NULL OR t.OrganizationId IS NULL
+                    OR t.OrganizationId<>l.OrganizationId))))
  THEN N'PASS' ELSE N'FAIL' END),
  (N'020_IMPORT_EXISTING_ROWS', CASE WHEN NOT EXISTS (
     SELECT 1 FROM dbo.ImportBatches WHERE Status NOT IN
