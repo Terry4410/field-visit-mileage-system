@@ -169,7 +169,7 @@ def main():
     except Exception:
         result = "INVALID"
     if result == "PASS":
-        print("G1Evidence=PASS; Scope=SOURCE_REPLAY_METADATA; LiveAuthorization=NONE;")
+        print("G1OfflineParity=PASS; ReleaseGate=HOLD; LiveAuthorization=NONE;")
         return 0
     print(f"G1Evidence=HOLD; Class={result}; Details=SUPPRESSED;")
     return 1
