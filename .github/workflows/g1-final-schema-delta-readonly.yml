@@ -1,0 +1,44 @@
+name: G1 final UAT schema delta inventory (SELECT-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Exact protected execution SHA approved by Owner
+        required: true
+        type: string
+      authorize_coldstart:
+        description: Owner authorizes one connection-only Serverless wake
+        required: true
+        type: boolean
+        default: false
+      accept_compute_charges:
+        description: Owner accepts bounded UAT SQL compute charges
+        required: true
+        type: boolean
+        default: false
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/g1-final-schema-delta-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  registration-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: none
+    steps:
+      - name: Inert default-branch registration guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "::error::Registration stub only; select the protected post-uat/v1.8.0 branch to execute the separately reviewed G1 workflow."
+            exit 1
+          fi
+          echo 'Registration-only workflow: no Azure, no SQL, no deployment.'
