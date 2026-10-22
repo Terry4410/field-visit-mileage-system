@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   isolated:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && !startsWith(github.event.head_commit.message, 'test(g1-preflight):')
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && !startsWith(github.event.head_commit.message, 'test(g1-preflight):') && !startsWith(github.event.head_commit.message, 'test(g1-u010-source):')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -94,3 +94,22 @@ jobs:
             artifacts/preflight-model.json
           if-no-files-found: warn
           retention-days: 7
+
+  uat010-source-closure:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && startsWith(github.event.head_commit.message, 'test(g1-u010-source):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Exact parent and offline source closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = b18ced16aec934dedc6dcb8cdc90b5679c0e6f68
+          python3 -m unittest -v scripts/ci/test_g1_uat010_source_gate.py
+          python3 scripts/ci/g1_uat010_source_gate.py
