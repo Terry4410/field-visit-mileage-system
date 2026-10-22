@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Only synthetic local metadata. Zero Azure/SQL connections."""
 import copy
+import contextlib
+import io
+import sys
+from unittest.mock import patch
 import hashlib
 import importlib.util
 import json
@@ -109,6 +113,23 @@ class G1PrivateContractTests(unittest.TestCase):
     def test_collation_value_drift(self):self.assertEqual(self.trial(change=lambda x:x["Columns"][0].update(CollationName="Latin1_General_BIN2")),"METADATA_DRIFT")
     def test_missing_expected_facet(self):self.assertEqual(self.trial(change_ref=lambda x:x["Indexes"][0].pop("IndexType")),"SHAPE")
     def test_import_check_trust_deviation(self):self.assertEqual(self.trial(change=lambda x:x["Checks"][1].update(IsDisabled=True)),"CHECK_STATE")
+    def test_cli_never_presents_synthetic_parity_as_release_go(self):
+        ref=self.root/"approved-reference.json"
+        actual=self.root/"synthetic-actual.json"
+        ref.write_text(json.dumps(self.expected))
+        actual.write_text(json.dumps(self.actual))
+        argv=["offline-compare", "--reference",str(ref), "--actual",str(actual),
+              "--repo-root",str(self.root), "--protected-sha","c"*40,
+              "--reference-sha256",digest(ref.read_bytes())]
+        output=io.StringIO()
+        with patch.object(sys,"argv",argv), contextlib.redirect_stdout(output):
+            code=safe.main()
+        self.assertEqual(code,0)
+        result=output.getvalue().strip()
+        self.assertEqual(result,"G1OfflineParity=PASS; ReleaseGate=HOLD; LiveAuthorization=NONE;")
+        self.assertNotIn("G1Evidence=PASS",result)
+        self.assertNotIn("Locations",result)
+
     def test_sql_is_not_live_wired_or_mutating(self):
         path=Path(__file__).with_name("g1_uat010_triggers_readonly.sql")
         sql=path.read_text()
