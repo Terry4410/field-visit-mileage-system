@@ -83,9 +83,13 @@ try {
     $stage = 'TARGET'
     $target = Invoke-Table $connection (Get-Content -LiteralPath $paths.target -Raw)
     $targetStatus = Read-CodeStatus $target
+    $targetRejected = $false
     foreach ($required in @('TARGET','VISIBILITY','VERSION_SHAPE')) {
-        if (-not $targetStatus.ContainsKey($required) -or $targetStatus[$required] -ne 'PASS') { Stop-G1 'TargetRejected' }
+        $observed = if ($targetStatus.ContainsKey($required)) { [string]$targetStatus[$required] } else { 'UNKNOWN' }
+        Write-Output "TargetCheck=$required; Status=$observed;"
+        if ($observed -ne 'PASS') { $targetRejected = $true }
     }
+    if ($targetRejected) { Stop-G1 'TargetRejected' }
     Write-Output 'Stage=Target; Status=PASS;'
 
     $stage = 'LEDGER'
