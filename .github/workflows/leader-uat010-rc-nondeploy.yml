@@ -110,6 +110,6 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = b18ced16aec934dedc6dcb8cdc90b5679c0e6f68
+          test "$(git rev-parse HEAD^)" = bd6c6ca7e6f30b2a8e9d5a6ff560eafa7fe274d5
           python3 -m unittest -v scripts/ci/test_g1_uat010_source_gate.py
           python3 scripts/ci/g1_uat010_source_gate.py
