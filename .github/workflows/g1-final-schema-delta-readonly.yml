@@ -1,6 +1,12 @@
 name: G1 final UAT schema delta inventory (SELECT-only)
 
 on:
+  pull_request:
+    branches:
+      - post-uat/v1.8.0
+    paths:
+      - scripts/ci/g1_final_schema_delta_live.ps1
+      - .github/workflows/g1-final-schema-delta-readonly.yml
   push:
     branches:
       - post-uat/v1.8.0
@@ -45,8 +51,36 @@ env:
   LIVE_SCRIPT_SHA256: 5c0d5e122c682d4b2fb8cec065a33e2a5cf275142a66ccef483f7109f1590566
 
 jobs:
+  catalog-json-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout exact PR commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise empty, singleton and multiple JSON requirements (no Azure or SQL)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Get-Content -LiteralPath scripts/ci/g1_final_schema_delta_live.ps1 -Raw
+          if (-not $src.Contains('(ConvertTo-Json -InputObject $requirements -Depth 10 -Compress)')) {
+              throw 'Catalog serialization source contract rejected'
+          }
+          $cases = @(
+              @{ Value = [object[]]@(); Expected = '[]' },
+              @{ Value = [object[]]@([ordered]@{table='T';column='C'}); Expected = '[{"table":"T","column":"C"}]' },
+              @{ Value = [object[]]@([ordered]@{table='T';column='C'},[ordered]@{table='U';column='D'}); Expected = '[{"table":"T","column":"C"},{"table":"U","column":"D"}]' }
+          )
+          foreach ($case in $cases) {
+              $actual = ConvertTo-Json -InputObject $case.Value -Depth 10 -Compress
+              if ($actual -cne $case.Expected) { throw 'Catalog JSON array contract rejected' }
+          }
+          Write-Output 'CatalogJSON=PASS; Cases=3; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;'
+
   source-guard:
-    if: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'g1-final-schema-delta-live-once-3-20261022') }}
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'g1-final-schema-delta-live-once-3-20261022')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
