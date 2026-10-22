@@ -1,0 +1,35 @@
+# INERT REGISTRATION ONLY on default main. No Azure/OIDC/SQL capabilities.
+# The reviewed read-only execution exists ONLY at protected post-uat/v1.8.0.
+name: G1 pre-migration 010 compatibility SELECT-only (Owner dispatch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Exact protected Git SHA approved for single read-only preflight
+        required: true
+        type: string
+      authorize_coldstart:
+        description: Owner approves at most one bounded serverless wake
+        required: true
+        type: boolean
+        default: false
+      accept_compute_charges:
+        description: Owner accepts UAT serverless compute and auto-pause tail cost
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  inert-default-registration:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Refuse default branch execution
+        run: |
+          echo "::error::Registration only. Select post-uat/v1.8.0 to run the reviewed protected SELECT-only preflight."
+          exit 1
