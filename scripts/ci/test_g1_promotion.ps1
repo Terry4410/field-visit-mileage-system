@@ -61,6 +61,9 @@ try{
   BadInitial 'ObjectsWithoutMarker' 'CREATE TABLE dbo.LocationMergeDetails(Id int NOT NULL);' @(52013)
   BadInitial 'ChangedImportContract' "ALTER TABLE dbo.ImportBatches DROP CONSTRAINT CK_ImportBatches_Status; ALTER TABLE dbo.ImportBatches ADD CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(N'Previewed'));" @(52013)
   BadInitial 'AmbiguousBackfillRollback' "UPDATE dbo.Locations SET LocationName=N'' WHERE LocationId=10;" @(52090)
+  BadInitial '014NonNullDanglingTeamDenied' "UPDATE dbo.Locations SET TeamId=999 WHERE LocationId=10;" @(52090)
+  BadInitial '014CrossOrganizationTeamDenied' "UPDATE dbo.Locations SET TeamId=2 WHERE LocationId=10;" @(52090)
+  BadInitial '014CrossOrganizationCreatorDenied' "UPDATE dbo.Users SET OrganizationId=2 WHERE UserId=1;" @(52090)
   foreach($n in @(11,12,14,15,16,17,18,19,20)){
    $case="Rollback_$n";$d=Fixture;$h=Scalar $d $history;$fault=$promotion.Replace(('-- G1_STEP_{0:000}_END' -f $n),("THROW 52990,N'G1_SYNTHETIC_FAILURE',1;"))
    Assert ($fault -ne $promotion);Refuse $d $fault @(52990);Pristine $d;Assert ((Scalar $d $history) -eq $h);Pass $case
@@ -79,7 +82,7 @@ try{
    if($kind -eq 'Ddl'){Exec $d 'DENY CREATE TABLE TO G1Restricted;'}else{Exec $d 'DENY VIEW DEFINITION TO G1Restricted;'}
    Exec $d "EXECUTE AS USER=N'G1Restricted';";try{Refuse $d $promotion @(52005)}finally{Exec $d 'REVERT;'};Pristine $d;Pass $case
   }
-  $case='PositiveAtomicChain';$c=Fixture;$before=Scalar $c $history;Exec $c $promotion;Exec $c $verify;Assert ((Scalar $c $history) -eq $before);Pass $case
+  $case='PositiveAtomicChain';$c=Fixture;$before=Scalar $c $history;Exec $c $promotion;Exec $c $verify;Assert ((Scalar $c $history) -eq $before);Assert ((Scalar $c "SELECT COUNT(*) FROM dbo.LocationPublishedVersions v WHERE v.LocationId=11 AND v.VersionNumber=1 AND v.IsCurrent=1 AND EXISTS(SELECT 1 FROM OPENJSON(v.PublishedJson) j WHERE j.[key]=N'TeamId' AND j.[type]=0)") -eq '1');Assert ((Scalar $c "SELECT COUNT(*) FROM dbo.Locations WHERE LocationId=11 AND TeamId IS NULL") -eq '1');Pass $case
   $case='ReplayVerifiedAndRefused';Refuse $c $promotion @(52020);Exec $c $verify;Pass $case
   $case='UnknownCommitFreshVerificationNoRetry';$peer=OpenDb $c.Database;Exec $peer $verify;Assert ((Scalar $peer "SELECT COUNT(*) FROM dbo.FieldVisitMigrationLedger") -eq '9');Pass $case
   BadFinal '020MissingMarkerNoRepair' "DELETE dbo.FieldVisitMigrationLedger WHERE VersionNumber=N'1.8.0-020'; DELETE dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-020';"

@@ -152,7 +152,7 @@ def compatibility():
 def finalize():
  import xml.etree.ElementTree as ET,importlib.util
  p=Path('artifacts');m=json.loads((p/'promotion-cases.json').read_text())
- assert m['sourceSha']==os.environ['GITHUB_SHA'] and len(m['cases'])==40 and len({c['case'] for c in m['cases']})==40 and all(c['result']=='PASS' for c in m['cases'])
+ assert m['sourceSha']==os.environ['GITHUB_SHA'] and len(m['cases'])==43 and len({c['case'] for c in m['cases']})==40 and all(c['result']=='PASS' for c in m['cases'])
  root=ET.parse(p/'promotion-compatibility.trx').getroot();rows=[x for x in root.iter() if x.tag.endswith('UnitTestResult')]
  assert len(rows)==5 and all(x.attrib.get('outcome')=='Passed' for x in rows)
  spec=importlib.util.spec_from_file_location('old','scripts/ci/g1_rc_evidence.py');old=importlib.util.module_from_spec(spec);spec.loader.exec_module(old)
