@@ -61,7 +61,9 @@ jobs:
           $sql=Get-Content 'scripts/ci/g1_uat_prerequisite_readonly.sql' -Raw
           $sql=[regex]::Replace($sql,'(?m)^\s*--.*$','')
           $sql=[regex]::Replace($sql,'(?s)/\*.*?\*/','')
-          if($sql -match '(?i)\b(INSERT|UPDATE|DELETE|MERGE|ALTER|CREATE|DROP|TRUNCATE|EXEC(?:UTE)?|GRANT|REVOKE|DENY|WAITFOR|OPENROWSET|OPENDATASOURCE)\b'){throw 'PREFLIGHT_SQL_WRITE_VERB_STOP'}
+          # Ignore T-SQL string literals only for static write-verb scanning; still reject executable SQL verbs.
+          $verbScan=[regex]::Replace($sql,"N?'(?:''|[^'])*'","''")
+          if($verbScan -match '(?i)\b(INSERT|UPDATE|DELETE|MERGE|ALTER|CREATE|DROP|TRUNCATE|EXEC(?:UTE)?|GRANT|REVOKE|DENY|WAITFOR|OPENROWSET|OPENDATASOURCE)\b'){throw 'PREFLIGHT_SQL_WRITE_VERB_STOP'}
           foreach($v in @('BASE_OBJECTS','LATEST_PREDECESSOR_010','UNASSIGNED_MARKERS','NEW_MANAGED_OBJECTS_ABSENT','014_PUBLISHED_SOURCE','014_AUTHORITY_REFERENCES','020_IMPORT_EXISTING_ROWS','020_IMPORT_STATUS_WIDTH')){
             if(-not $sql.Contains("N'$v'")){throw 'PREFLIGHT_CODE_MISSING'}
           }
