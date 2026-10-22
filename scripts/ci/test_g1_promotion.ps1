@@ -6,6 +6,24 @@ function Exec($c,[string]$sql){$cmd=$c.CreateCommand();try{$cmd.CommandTimeout=1
 function Scalar($c,[string]$sql){$cmd=$c.CreateCommand();try{$cmd.CommandTimeout=30;$cmd.CommandText=$sql;return [string]$cmd.ExecuteScalar()}finally{$cmd.Dispose()}}
 function Code($e){while($null -ne $e){if($e -is [Microsoft.Data.SqlClient.SqlException]){return [int]$e.Number};$e=$e.InnerException};return -99999}
 function Refuse($c,[string]$sql,[int[]]$codes){try{Exec $c $sql}catch{$actual=Code $_.Exception;if($actual -notin $codes){$tag=[regex]::Match($_.Exception.Message,'\bG1_[A-Z0-9_]+\b').Value;if(-not $tag){$tag='SUPPRESSED'};$safe=if($actual -in @(52001,52002,52003,52004,52005,52010,52011,52012,52013,52014,52015,52016,52020,52090,52990)){$actual}else{'SUPPRESSED'};Write-Output "RefusalDiagnostic=STOP; Guard=$tag; ProviderCode=$safe;";if($actual -eq 52013){$now=Scalar $c $catalog;$expected=$reference.initial;if($now -match '^[A-Fa-f0-9]{64}$' -and $expected -match '^[A-Fa-f0-9]{64}$'){Write-Output "ContractDiagnostic=STOP; Actual=$now; Expected=$expected;"}}};Assert ($actual -in $codes);return};throw 'EXPECTED_STOP_MISSING'}
+function RefuseDml($c,[string]$sql,[int[]]$codes){
+ $cmd=$c.CreateCommand()
+ try{
+  $cmd.CommandTimeout=120;$cmd.CommandText=$sql
+  $completed=$false;$affected=-1;$actual=-99999
+  try{$affected=[int]$cmd.ExecuteNonQuery();$completed=$true}catch{$actual=Code $_.Exception}
+  if($completed){
+   $kind=if($affected -eq 0){'NORMAL_ZERO'}elseif($affected -eq 1){'NORMAL_ONE'}else{'NORMAL_UNEXPECTED'}
+   Write-Output "RefusalDiagnostic=STOP; Guard=G1_QUIESCENCE_WRITER_$kind; ProviderCode=SUPPRESSED;"
+   Assert $false
+  }
+  if($actual -notin $codes){
+   $safe=if($actual -ge 0){[string]$actual}else{'SUPPRESSED'}
+   Write-Output "RefusalDiagnostic=STOP; Guard=G1_QUIESCENCE_WRITER_EXCEPTION; ProviderCode=$safe;"
+  }
+  Assert ($actual -in $codes)
+ }finally{$cmd.Dispose()}
+}
 function Pass([string]$id){$results.Add(@{case=$id;result='PASS'});Write-Output "PromotionCase=$id; Status=PASS;"}
 try{
  $case='Client';Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
@@ -88,7 +106,7 @@ try{
    $case='QuiescenceGateObserved';Assert $waiting
    $case='QuiescenceTransactionObserved';Assert ((Scalar $control "SELECT COUNT(*) FROM sys.dm_tran_session_transactions st JOIN sys.dm_tran_database_transactions dt ON dt.transaction_id=st.transaction_id WHERE st.session_id=$spid AND dt.database_id=$dbid") -ge 1)
    $case='QuiescenceBlockingObjectLockObserved';Assert ((Scalar $control "SELECT COUNT(*) FROM sys.dm_tran_locks WHERE request_session_id=$spid AND resource_database_id=$dbid AND resource_type=N'OBJECT' AND resource_associated_entity_id=$locationObjectId AND request_mode IN(N'X',N'Sch-M') AND request_status=N'GRANT'") -ge 1)
-   $case='QuiescenceConcurrentDmlDenied';Refuse $writer "SET LOCK_TIMEOUT 0; UPDATE dbo.Locations SET MasterNote=N'Synthetic concurrent' WHERE LocationId=10;" @(1222)
+   $case='QuiescenceConcurrentDmlDenied';RefuseDml $writer "SET LOCK_TIMEOUT 0; UPDATE dbo.Locations SET MasterNote=N'Synthetic concurrent' WHERE LocationId=10;" @(1222)
   }finally{Exec $control "EXEC sys.sp_releaseapplock @Resource=N'G1.Test.QuiescenceGate',@LockOwner=N'Session';"}
   [void]$task.GetAwaiter().GetResult();$cmd.Dispose();Exec $writer $verify;Assert ((Scalar $writer $history) -eq $h);Assert ((Scalar $writer "SELECT COALESCE(MasterNote,N'') FROM dbo.Locations WHERE LocationId=10") -eq '');Pass 'WriteQuiescenceBlocksConcurrentChange'
   $case='TimeoutDisposeFreshRollbackNoRetry';$d=Fixture;$name=$d.Database;$cmd=$d.CreateCommand();$cmd.CommandTimeout=1;$cmd.CommandText=$promotion.Replace('-- G1_STEP_014_END',"WAITFOR DELAY '00:00:10';")
