@@ -24,7 +24,7 @@ function Invoke-Table([object]$conn, [string]$sql, [hashtable]$parameters = @{})
     try {
         $reader = $cmd.ExecuteReader()
         try { $table.Load($reader) } finally { $reader.Dispose() }
-        return $table
+        return ,$table
     } finally {
         $cmd.Dispose()
     }
