@@ -1,86 +1,132 @@
-name: Azure OIDC UAT smoke test
+name: G1-A Azure UAT ARM metadata-only one-time verification
 
+# Reuses an existing GitHub Actions workflow PATH registered on the default
+# branch; ONLY the reviewed protected-branch push may access UAT management.
+# Never use the old manual smoke workflow from main for this G1-A authorization.
 on:
-  workflow_dispatch:
+  pull_request:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - .github/workflows/azure-oidc-uat-smoke.yml
+      - scripts/ci/g1_arm_management_only.py
+      - scripts/ci/test_g1_arm_management_only.py
+  push:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - .github/workflows/azure-oidc-uat-smoke.yml
 
 permissions:
   contents: read
-  id-token: write
-
 concurrency:
-  group: azure-oidc-uat-smoke
+  group: g1a-20261023-fixed-management-read
   cancel-in-progress: false
 
+env:
+  AZURE_CORE_OUTPUT: none
+  AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
+  PYTHONDONTWRITEBYTECODE: '1'
+
 jobs:
-  branch-guard:
+  offline-contract:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Enforce post-uat/v1.8.0 dispatch branch
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: G1-A fixed ARM allowlist, target, privacy and STOP tests (NO Azure)
+        run: python3 -m unittest -q scripts/ci/test_g1_arm_management_only.py
+      - name: Validate action/verb source boundary (NO Azure)
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
-            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
-            exit 1
-          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          t=Path('.github/workflows/azure-oidc-uat-smoke.yml').read_text()
+          assert "github.event_name == 'pull_request'" in t
+          assert "github.event_name == 'push'" in t
+          assert 'g1a-management-read-once-20261023' in t
+          assert 'r3_login_privacy.py' in t
+          assert 'azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6' in t
+          for forbidden in ('Invoke-Sqlcmd','azure/webapps-deploy','actions/deploy-pages',
+                            'az sql','az webapp', 'sqlcmd','actions/upload-artifact',
+                            'curl -X POST','pull_request_target:', 'contents: write',
+                            'secrets: inherit'):
+            assert forbidden not in t, 'unsafe interface'
+          print('G1AWorkflowStatic=PASS; Identity=NOT_ACCESSED;')
+          PY
 
-  oidc-smoke:
-    needs: branch-guard
+  source-guard:
+    # A squash-merge of the exact three-file PR produces ONE trusted push event.
+    # All other pushes and every pull_request event skip this job completely.
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'g1a-management-read-once-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Review exact protected parent, event, diff and Git blobs before OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'Terry4410/field-visit-mileage-system'
+          test "$GITHUB_REF" = 'refs/heads/post-uat/v1.8.0'
+          test "$GITHUB_EVENT_NAME" = 'push'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = 'd150f6078aa36528ea43e5e35ad9d84fd568a364'
+          test "$(git log -1 --format=%s)" = 'g1a-management-read-once-20261023'
+          test "$(git hash-object scripts/ci/g1_arm_management_only.py)" = 'c934e27e5c6b5b3fc7082a174f635df6a7ab2581'
+          test "$(git hash-object scripts/ci/test_g1_arm_management_only.py)" = '5279c6766a7c4c0eb4152aa818d27bf14747fa32'
+          expected=$'.github/workflows/azure-oidc-uat-smoke.yml\nscripts/ci/g1_arm_management_only.py\nscripts/ci/test_g1_arm_management_only.py'
+          test "$(git diff --name-only HEAD^ HEAD)" = "$expected"
+          test "${RUNNER_DEBUG:-}" != '1'
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          python3 -m unittest -q scripts/ci/test_g1_arm_management_only.py
+          echo 'G1ASourceGuard=PASS; SQL=NOT_ACCESSED; Management=NOT_ACCESSED;'
+
+  management-only:
+    if: github.event_name == 'push'
+    needs: [source-guard]
     runs-on: ubuntu-latest
     environment: uat
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Sign in to Azure with OIDC
-        uses: azure/login@v2
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Register existing UAT OIDC masks before authentication
+        env:
+          R3_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          R3_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          R3_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: python3 scripts/ci/r3_login_privacy.py
+      - name: Authenticate with accepted existing UAT OIDC (NO Azure resource changes)
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Verify Azure subscription
+      - name: At most six allowlisted Azure ARM GET, no SQL or raw response output
         env:
-          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$EXPECTED_SUBSCRIPTION_ID"
-          az account show \
-            --query '{id:id,name:name,tenantId:tenantId,state:state,isDefault:isDefault}' \
-            --output json
-          actual_subscription_id="$(az account show --query id --output tsv)"
-          test "$actual_subscription_id" = "$EXPECTED_SUBSCRIPTION_ID"
-
-      - name: Verify UAT resource group exists
-        env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: rg-fieldvisit-uat
+          AZURE_SQL_SERVER_NAME: sql-fieldvisit-jpe-uat
+          AZURE_SQL_DATABASE: db-fieldvisit-uat
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$AZURE_RESOURCE_GROUP"
-          az group show \
-            --name "$AZURE_RESOURCE_GROUP" \
-            --subscription "$AZURE_SUBSCRIPTION_ID" \
-            --query '{name:name,id:id,location:location}' \
-            --output json
-
-      - name: Verify UAT SQL server exists
-        env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$AZURE_SQL_SERVER_NAME"
-          az sql server show \
-            --name "$AZURE_SQL_SERVER_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --subscription "$AZURE_SUBSCRIPTION_ID" \
-            --query '{name:name,id:id,resourceGroup:resourceGroup,location:location,state:state,fullyQualifiedDomainName:fullyQualifiedDomainName}' \
-            --output json
-
-      - name: Sign out of Azure
+          timeout --signal=TERM --kill-after=5s 480s python3 scripts/ci/g1_arm_management_only.py
+      - name: Logout of Azure and clear ephemeral identity
         if: always()
-        run: az logout
+        shell: bash
+        run: |
+          az logout --output none 2>/dev/null || true
