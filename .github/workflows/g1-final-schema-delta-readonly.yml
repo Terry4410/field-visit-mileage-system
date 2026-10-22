@@ -1,0 +1,215 @@
+name: G1 final UAT schema delta inventory (SELECT-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Exact protected execution SHA approved by Owner
+        required: true
+        type: string
+      authorize_coldstart:
+        description: Owner authorizes one connection-only Serverless wake
+        required: true
+        type: boolean
+        default: false
+      accept_compute_charges:
+        description: Owner accepts bounded UAT SQL compute charges
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-final-uat-schema-delta-readonly
+  cancel-in-progress: false
+
+env:
+  AZURE_CORE_OUTPUT: none
+  AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
+  EXPECTED_RESOURCE_GROUP: rg-fieldvisit-uat
+  EXPECTED_SERVER_NAME: sql-fieldvisit-jpe-uat
+  EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
+  EXPECTED_DATABASE: db-fieldvisit-uat
+  CANDIDATE_SHA: be4d25e2c788c78cb108d2f7c819118f036d674d
+  ACCEPTED_RC_SHA: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+  TARGET_SHA256: 51973808865a3ff42e7cad4258d32257b154c1a9c87578131165521a8c63feee
+  CATALOG_SHA256: c7cecd9db98a172d050089cc10bfed948f4db69e7a8152309b1fd2f55cb6e00c
+  PERMISSIONS_SHA256: af528981bc0e619c183e28a473b9cdbb15b5d0df10153f0b1ba33b3c67024d6b
+  REQUIREMENTS_SHA256: 870b751876d84d829995f39d73289fe5b93e35528b6d8a4c9026851ffbf1f6f4
+  REFERENCE_SHA256: f86a42ad88230411b2351a59cd9c1bb40ad2586076631ab249949fce13e91eb7
+  LIVE_SCRIPT_SHA256: fc57632cf2f907144f135186878ea6fe669f6d3cb434ddc2c85cf5ddc2760b21
+
+jobs:
+  source-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout exact protected execution source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout exact accepted PR50 contract source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Enforce repository, protected ref, source and file pins
+        env:
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "Terry4410/field-visit-mileage-system"
+          test "$GITHUB_REF" = "refs/heads/post-uat/v1.8.0"
+          test "$APPROVED_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          base=candidate/docs/release/g1-minimal-preflight
+          test "$(sha256sum "$base/01-target.sql" | cut -d' ' -f1)" = "$TARGET_SHA256"
+          test "$(sha256sum "$base/03-catalog.sql" | cut -d' ' -f1)" = "$CATALOG_SHA256"
+          test "$(sha256sum "$base/04-permissions.sql" | cut -d' ' -f1)" = "$PERMISSIONS_SHA256"
+          test "$(sha256sum "$base/requirements.json" | cut -d' ' -f1)" = "$REQUIREMENTS_SHA256"
+          test "$(sha256sum "$base/necessary-reference.json" | cut -d' ' -f1)" = "$REFERENCE_SHA256"
+          test "$(sha256sum scripts/ci/g1_final_schema_delta_live.ps1 | cut -d' ' -f1)" = "$LIVE_SCRIPT_SHA256"
+          python3 - <<'PY'
+          import json, os
+          p='candidate/docs/release/g1-minimal-preflight/necessary-reference.json'
+          d=json.load(open(p,encoding='utf-8'))
+          assert d['rc']=='f29affb3299828f45b1f131321779e8bea2f86a8'
+          assert os.environ['ACCEPTED_RC_SHA']=='9d431ea318fcec34f04f3cc36a8fb6d01d00c48a'
+          assert set(x['migration'] for k in ('columns','checks','indexes','foreignKeys') for x in d[k]) <= {'011','012','014','016','017','018','019','020'}
+          PY
+          echo "SourceGuard=PASS; SourceSha=$GITHUB_SHA; CandidateSha=$CANDIDATE_SHA;"
+
+  identity-handoff:
+    needs: source-guard
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: none
+    timeout-minutes: 2
+    outputs:
+      client: ${{ job.status == 'success' && vars.AZURE_CLIENT_ID || '' }}
+      tenant: ${{ job.status == 'success' && vars.AZURE_TENANT_ID || '' }}
+      subscription: ${{ job.status == 'success' && vars.AZURE_SUBSCRIPTION_ID || '' }}
+    steps:
+      - name: Refuse debug disclosure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${RUNNER_DEBUG:-}" != "1"
+          echo 'IdentityHandoff=PASS; Details=SUPPRESSED;'
+
+  select-only-delta:
+    needs: [source-guard, identity-handoff]
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact protected execution source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout exact accepted PR50 contract source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Register identifier masks before OIDC login
+        env:
+          R3_CLIENT_ID: ${{ needs.identity-handoff.outputs.client }}
+          R3_TENANT_ID: ${{ needs.identity-handoff.outputs.tenant }}
+          R3_SUBSCRIPTION_ID: ${{ needs.identity-handoff.outputs.subscription }}
+        shell: bash
+        run: python3 scripts/ci/r3_login_privacy.py
+      - name: Sign in to Azure with existing UAT OIDC
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ needs.identity-handoff.outputs.client }}
+          tenant-id: ${{ needs.identity-handoff.outputs.tenant }}
+          subscription-id: ${{ needs.identity-handoff.outputs.subscription }}
+      - name: Verify fixed Azure management target
+        env:
+          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIGURED_SERVER_NAME" = "$EXPECTED_SERVER_NAME"
+          test "$CONFIGURED_DATABASE" = "$EXPECTED_DATABASE"
+          test "$(az group show -n "$EXPECTED_RESOURCE_GROUP" --query name -o tsv 2>/dev/null)" = "$EXPECTED_RESOURCE_GROUP"
+          test "$(az sql server show -g "$EXPECTED_RESOURCE_GROUP" -n "$EXPECTED_SERVER_NAME" --query fullyQualifiedDomainName -o tsv 2>/dev/null)" = "$EXPECTED_SERVER"
+          test "$(az sql db show -g "$EXPECTED_RESOURCE_GROUP" -s "$EXPECTED_SERVER_NAME" -n "$EXPECTED_DATABASE" --query name -o tsv 2>/dev/null)" = "$EXPECTED_DATABASE"
+          echo 'TargetMetadata=PASS;'
+      - name: Install pinned SQL client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null }
+          catch { Write-Output 'SqlClient=STOP; Classification=DependencyRejected; Details=SUPPRESSED;'; exit 1 }
+      - name: Bounded Serverless readiness
+        timeout-minutes: 6
+        env:
+          R3_APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          R3_AUTHORIZE_WAKE: ${{ inputs.authorize_coldstart && 'true' || 'false' }}
+          R3_ACCEPT_CHARGES: ${{ inputs.accept_compute_charges && 'true' || 'false' }}
+          R3_SUBSCRIPTION_ID: ${{ needs.identity-handoff.outputs.subscription }}
+        run: python3 scripts/ci/r3_serverless_readiness.py
+      - name: Execute one neutral SELECT-only delta with 240-second hard boundary
+        shell: bash
+        env:
+          G1_CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+          G1_EXPECTED_SERVER: ${{ env.EXPECTED_SERVER }}
+          G1_EXPECTED_DATABASE: ${{ env.EXPECTED_DATABASE }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          token="$(az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv 2>/dev/null)"
+          test -n "$token" || { echo 'G1Delta=STOP; Stage=TOKEN; Classification=PrerequisiteRejected; Details=SUPPRESSED;'; exit 1; }
+          echo "::add-mask::$token"
+          export G1_SQL_ACCESS_TOKEN="$token"
+          set +e
+          timeout --signal=TERM --kill-after=10s 240s pwsh -NoProfile -NonInteractive -File scripts/ci/g1_final_schema_delta_live.ps1 2>/dev/null | tee artifacts/g1-schema-delta-summary.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          unset token G1_SQL_ACCESS_TOKEN
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo 'G1Delta=STOP; Stage=SUPERVISOR; Classification=DeadlineExceeded; Details=SUPPRESSED;'
+            exit 1
+          fi
+          exit "$rc"
+      - name: Validate sanitized output only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s artifacts/g1-schema-delta-summary.txt
+          ! grep -Eqi '(password|access.?token|connection.?string|principal.?id|tenant.?id|subscription.?id|server=tcp|data source=|exception|stack trace|select |from |where )' artifacts/g1-schema-delta-summary.txt
+          test "$(grep -c '^Migration=' artifacts/g1-schema-delta-summary.txt)" -eq 10
+          grep -qx 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
+          grep -Eq '^G1Delta=PASS; SourceSha=[0-9a-f]{40}; CandidateSha=[0-9a-f]{40};$' artifacts/g1-schema-delta-summary.txt
+          echo 'EvidencePrivacy=PASS;'
+      - name: Upload sanitized evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-final-schema-delta-${{ github.sha }}
+          path: artifacts/g1-schema-delta-summary.txt
+          retention-days: 7
+      - name: Sign out and clean temporary evidence
+        if: always()
+        shell: bash
+        run: |
+          az logout --output none 2>/dev/null || true
+          unset G1_SQL_ACCESS_TOKEN
