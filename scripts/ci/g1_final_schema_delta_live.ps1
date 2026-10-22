@@ -65,15 +65,15 @@ try {
 
     Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
     $builder = [Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new()
-    $builder.DataSource = $env:G1_EXPECTED_SERVER
-    $builder.InitialCatalog = $env:G1_EXPECTED_DATABASE
-    $builder.Encrypt = [Microsoft.Data.SqlClient.SqlConnectionEncryptOption]::Mandatory
-    $builder.TrustServerCertificate = $false
+    $builder['Data Source'] = "tcp:$($env:G1_EXPECTED_SERVER),1433"
+    $builder['Initial Catalog'] = $env:G1_EXPECTED_DATABASE
+    $builder['Encrypt'] = $true
+    $builder['TrustServerCertificate'] = $false
     $builder['ApplicationIntent'] = 'ReadOnly'
-    $builder.ConnectTimeout = 120
-    $builder.Pooling = $false
-    $builder.ConnectRetryCount = 0
-    $builder.ConnectRetryInterval = 1
+    $builder['Connect Timeout'] = 120
+    $builder['Pooling'] = $false
+    $builder['ConnectRetryCount'] = 0
+    $builder['MultiSubnetFailover'] = $false
     $connection = [Microsoft.Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
     $connection.AccessToken = $env:G1_SQL_ACCESS_TOKEN
     $stage = 'OPEN'
