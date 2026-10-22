@@ -190,9 +190,11 @@ def run(root: Path, enforce_parent: bool = False) -> dict[str, str]:
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise GateError("git-sha")
     if enforce_parent:
-        parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], cwd=root, text=True).strip()
-        if parent != BASE:
-            raise GateError("parent-sha")
+        try:
+            subprocess.check_call(["git", "merge-base", "--is-ancestor", BASE, sha], cwd=root,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError as exc:
+            raise GateError("base-ancestry") from exc
     return sanitized_result(sha)
 
 
