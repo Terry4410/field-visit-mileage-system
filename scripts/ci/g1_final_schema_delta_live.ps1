@@ -136,7 +136,7 @@ GROUP BY e.MigrationId ORDER BY e.MigrationId;
         }
         $requirements = @($subset.columns | ForEach-Object { [ordered]@{table=$_.table;column=$_.column} })
         $table = Invoke-Table $connection $catalogSql @{
-            '@requirements' = ($requirements | ConvertTo-Json -Depth 10 -Compress -AsArray)
+            '@requirements' = (ConvertTo-Json -InputObject $requirements -Depth 10 -Compress)
             '@reference' = ($subset | ConvertTo-Json -Depth 100 -Compress)
         }
         $status = Read-CodeStatus $table
