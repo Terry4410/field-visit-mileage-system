@@ -1,0 +1,227 @@
+name: G1 pre-migration 010 compatibility SELECT-only (Owner dispatch)
+on:
+  pull_request:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - .github/workflows/g1-uat-pre-migration-readonly.yml
+      - scripts/ci/g1_uat_prerequisite_readonly.sql
+      - scripts/ci/g1_uat_prerequisite_readonly.ps1
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Exact protected Git SHA approved for single read-only preflight
+        required: true
+        type: string
+      authorize_coldstart:
+        description: Owner approves at most one bounded serverless wake
+        required: true
+        type: boolean
+        default: false
+      accept_compute_charges:
+        description: Owner accepts UAT serverless compute and auto-pause tail cost
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: g1-single-uat-pre-migration-readonly
+  cancel-in-progress: false
+env:
+  AZURE_CORE_OUTPUT: none
+  AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
+  EXPECTED_RESOURCE_GROUP: rg-fieldvisit-uat
+  EXPECTED_SERVER_NAME: sql-fieldvisit-jpe-uat
+  EXPECTED_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
+  EXPECTED_DATABASE: db-fieldvisit-uat
+  CANDIDATE_SHA: be4d25e2c788c78cb108d2f7c819118f036d674d
+  PREFLIGHT_SQL_BLOB: cba2322100f67a716aaee697edce398de42efe9a
+  PREFLIGHT_SCRIPT_BLOB: b0dd3521ba58bd1dafc98bed81cab0a0972c58ef
+  BASE_CATALOG_BLOB: 33a423f36728ef63acd431f9674fd0269ecce41e
+  BASE_REFERENCE_BLOB: 414973fe3f1d2a810024ab2a980a0aab7b3a4fed
+jobs:
+  offline-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Reject unapproved SQL verbs and invalid PowerShell parser
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null
+          $parseErrors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/ci/g1_uat_prerequisite_readonly.ps1').Path,
+            [ref]$tokens,[ref]$parseErrors)
+          if(@($parseErrors).Count -ne 0){throw 'PREFLIGHT_PWSH_SYNTAX_STOP'}
+          $sql=Get-Content 'scripts/ci/g1_uat_prerequisite_readonly.sql' -Raw
+          $sql=[regex]::Replace($sql,'(?m)^\s*--.*$','')
+          $sql=[regex]::Replace($sql,'(?s)/\*.*?\*/','')
+          # Ignore T-SQL string literals only for static write-verb scanning; still reject executable SQL verbs.
+          $verbScan=[regex]::Replace($sql,"N?'(?:''|[^'])*'","''")
+          if($verbScan -match '(?i)\b(INSERT|UPDATE|DELETE|MERGE|ALTER|CREATE|DROP|TRUNCATE|EXEC(?:UTE)?|GRANT|REVOKE|DENY|WAITFOR|OPENROWSET|OPENDATASOURCE)\b'){throw 'PREFLIGHT_SQL_WRITE_VERB_STOP'}
+          foreach($v in @('BASE_OBJECTS','LATEST_PREDECESSOR_010','UNASSIGNED_MARKERS','NEW_MANAGED_OBJECTS_ABSENT','014_PUBLISHED_SOURCE','014_AUTHORITY_REFERENCES','020_IMPORT_EXISTING_ROWS','020_IMPORT_STATUS_WIDTH')){
+            if(-not $sql.Contains("N'$v'")){throw 'PREFLIGHT_CODE_MISSING'}
+          }
+          Write-Output 'G1PreflightOffline=PASS; SqlWriteVerbs=NONE; PowerShellSyntax=PASS; Azure=NOT_ACCESSED;'
+  guard:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+      - name: Verify fixed branch, exact Owner SHA and source Git blobs
+        env:
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "Terry4410/field-visit-mileage-system"
+          test "$GITHUB_REF" = "refs/heads/post-uat/v1.8.0"
+          test "$GITHUB_SHA" = "$APPROVED_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object scripts/ci/g1_uat_prerequisite_readonly.sql)" = "$PREFLIGHT_SQL_BLOB"
+          test "$(git hash-object scripts/ci/g1_uat_prerequisite_readonly.ps1)" = "$PREFLIGHT_SCRIPT_BLOB"
+          test "$(git -C candidate hash-object docs/release/g1-execution/promotion/CatalogContract.sql)" = "$BASE_CATALOG_BLOB"
+          test "$(git -C candidate hash-object docs/release/g1-execution/promotion/reference.json)" = "$BASE_REFERENCE_BLOB"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          test "${RUNNER_DEBUG:-}" != 1
+          echo 'G1PreflightSourceGuard=PASS;'
+  identity:
+    if: github.event_name == 'workflow_dispatch'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: none
+    timeout-minutes: 2
+    outputs:
+      client: ${{ job.status == 'success' && vars.AZURE_CLIENT_ID || '' }}
+      tenant: ${{ job.status == 'success' && vars.AZURE_TENANT_ID || '' }}
+      subscription: ${{ job.status == 'success' && vars.AZURE_SUBSCRIPTION_ID || '' }}
+    steps:
+      - name: Fail closed on debug
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${RUNNER_DEBUG:-}" != "1"
+          echo 'G1PreflightIdentityHandoff=PASS; Details=SUPPRESSED;'
+  preflight:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [guard, identity]
+    runs-on: ubuntu-latest
+    environment: uat
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+      - name: Register existing UAT identifier masks
+        env:
+          R3_CLIENT_ID: ${{ needs.identity.outputs.client }}
+          R3_TENANT_ID: ${{ needs.identity.outputs.tenant }}
+          R3_SUBSCRIPTION_ID: ${{ needs.identity.outputs.subscription }}
+        run: python3 scripts/ci/r3_login_privacy.py
+      - name: Existing UAT OIDC sign in
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ needs.identity.outputs.client }}
+          tenant-id: ${{ needs.identity.outputs.tenant }}
+          subscription-id: ${{ needs.identity.outputs.subscription }}
+      - name: Verify exact Azure management target
+        env:
+          CONFIGURED_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
+          CONFIGURED_DATABASE: ${{ vars.AZURE_SQL_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIGURED_SERVER_NAME" = "$EXPECTED_SERVER_NAME"
+          test "$CONFIGURED_DATABASE" = "$EXPECTED_DATABASE"
+          test "$(az group show -n "$EXPECTED_RESOURCE_GROUP" --query name -o tsv 2>/dev/null)" = "$EXPECTED_RESOURCE_GROUP"
+          test "$(az sql server show -g "$EXPECTED_RESOURCE_GROUP" -n "$EXPECTED_SERVER_NAME" --query fullyQualifiedDomainName -o tsv 2>/dev/null)" = "$EXPECTED_SERVER"
+          test "$(az sql db show -g "$EXPECTED_RESOURCE_GROUP" -s "$EXPECTED_SERVER_NAME" -n "$EXPECTED_DATABASE" --query name -o tsv 2>/dev/null)" = "$EXPECTED_DATABASE"
+          echo 'G1PreflightManagementTarget=PASS;'
+      - name: Install existing pinned SQL client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null }
+          catch { Write-Output 'G1PreflightClient=STOP; Details=SUPPRESSED;'; exit 1 }
+      - name: Reuse accepted bounded Serverless readiness
+        timeout-minutes: 6
+        env:
+          R3_APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          R3_AUTHORIZE_WAKE: ${{ inputs.authorize_coldstart && 'true' || 'false' }}
+          R3_ACCEPT_CHARGES: ${{ inputs.accept_compute_charges && 'true' || 'false' }}
+          R3_SUBSCRIPTION_ID: ${{ needs.identity.outputs.subscription }}
+        run: python3 scripts/ci/r3_serverless_readiness.py
+      - name: Run pinned SELECT-only scan with hard 240 second ceiling
+        shell: bash
+        env:
+          G1_CANDIDATE_SHA: ${{ env.CANDIDATE_SHA }}
+          G1_EXPECTED_SERVER: ${{ env.EXPECTED_SERVER }}
+          G1_EXPECTED_DATABASE: ${{ env.EXPECTED_DATABASE }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          token="$(az account get-access-token --resource https://database.windows.net/ --query accessToken -o tsv 2>/dev/null)"
+          test -n "$token" || { echo 'G1Preflight=STOP; Stage=TOKEN; Class=PrerequisiteRejected; Details=SUPPRESSED;'; exit 1; }
+          echo "::add-mask::$token"
+          export G1_SQL_ACCESS_TOKEN="$token"
+          set +e
+          timeout --signal=TERM --kill-after=10s 240s pwsh -NoProfile -NonInteractive -File scripts/ci/g1_uat_prerequisite_readonly.ps1 2>/dev/null | tee artifacts/g1-uat-pre-migration-summary.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          unset token G1_SQL_ACCESS_TOKEN
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo 'G1Preflight=STOP; Stage=SUPERVISOR; Class=DeadlineExceeded; Details=SUPPRESSED;'
+            exit 1
+          fi
+          exit "$rc"
+      - name: Validate allowlisted statuses
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=artifacts/g1-uat-pre-migration-summary.txt
+          test -s "$f"
+          test "$(grep -c '^PreflightCheck=' "$f")" -eq 9
+          grep -qx 'PreflightTarget=PASS;' "$f"
+          grep -qx 'PreflightReadPermissions=PASS; PrincipalRole=DIAGNOSTIC_ONLY;' "$f"
+          grep -Eq '^G1Preflight=PASS; SourceSha=[0-9a-f]{40}; CandidateSha=[0-9a-f]{40}; PrincipalMigration=UNKNOWN; PrincipalAPI=UNKNOWN;$' "$f"
+          ! grep -Eqi '(password|access.?token|connection.?string|principal.?id|tenant.?id|subscription.?id|server=tcp|data source=|exception|stack trace|select |from |where )' "$f"
+          echo 'G1PreflightEvidencePrivacy=PASS;'
+      - name: Upload sanitized statuses (7-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-uat-pre-migration-${{ github.sha }}
+          path: artifacts/g1-uat-pre-migration-summary.txt
+          retention-days: 7
+      - name: Logout and dispose transient identity
+        if: always()
+        shell: bash
+        run: |
+          az logout --output none 2>/dev/null || true
+          unset G1_SQL_ACCESS_TOKEN
