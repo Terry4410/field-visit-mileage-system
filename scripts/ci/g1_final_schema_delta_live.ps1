@@ -125,7 +125,9 @@ GROUP BY e.MigrationId ORDER BY e.MigrationId;
     $reference = Get-Content -LiteralPath $paths.reference -Raw | ConvertFrom-Json -Depth 100
     $catalogSql = Get-Content -LiteralPath $paths.catalog -Raw
     $decisions = @{}
+    $catalogMigration = 'NONE'
     foreach ($id in @('011','012','014','016','017','018','019','020')) {
+        $catalogMigration = $id
         $subset = [ordered]@{
             columns = @($reference.columns | Where-Object migration -eq $id)
             checks = @($reference.checks | Where-Object migration -eq $id)
@@ -183,6 +185,18 @@ SELECT code,status FROM (VALUES
     Write-Output 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;'
     Write-Output "G1Delta=PASS; SourceSha=$($env:GITHUB_SHA); CandidateSha=$($env:G1_CANDIDATE_SHA);"
 } catch {
+    if ($stage -eq 'CATALOG') {
+        $kind = 'RUNTIME'
+        if ($_.Exception -is [Microsoft.Data.SqlClient.SqlException]) {
+            $kind = 'SQL_OTHER'
+            if ($_.Exception.Number -in @(102,156,207,208,4104)) { $kind = 'SQL_SYNTAX_BINDING' }
+            elseif ($_.Exception.Number -in @(13607,13609)) { $kind = 'SQL_JSON' }
+            elseif ($_.Exception.Number -in @(229,297)) { $kind = 'SQL_PERMISSION' }
+            elseif ($_.Exception.Number -in @(1205,1222,-2)) { $kind = 'SQL_TRANSIENT_OR_TIMEOUT' }
+        }
+        $id = if ($catalogMigration -in @('011','012','014','016','017','018','019','020')) { $catalogMigration } else { 'NONE' }
+        Write-Output "CatalogFailure=STOP; Migration=$id; Class=$kind; Details=SUPPRESSED;"
+    }
     Stop-G1 'ProviderFailure'
 } finally {
     if ($null -ne $connection) {
