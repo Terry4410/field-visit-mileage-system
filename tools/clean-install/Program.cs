@@ -599,6 +599,32 @@ try
             Action = "Created", CreatedAt = now
         });
         await businessDb.SaveChangesAsync();
+        // Real SQL2022 check: one-stop calculation and background-job reasons
+        // survive source-derived CHECK/trigger contracts. Reject an invalid
+        // reason at the database boundary; never treat this as API RBAC proof.
+        var visitorAttempt = new RouteCalculationAttempt
+        {
+            VisitTripId = trip.VisitTripId, BasisType = "Draft",
+            CalculationReason = "VisitorCalculate", RequestedVehicleType = "Car",
+            TravelMode = "DRIVE", Provider = "SyntheticProvider",
+            StopCount = 1, RequestBasisHash = new byte[32],
+            Status = "Pending", CorrelationId = Guid.NewGuid(),
+            RequestedAt = now, RequestedByUserId = visitor.UserId
+        };
+        var workerAttempt = new RouteCalculationAttempt
+        {
+            VisitTripId = trip.VisitTripId, BasisType = "Draft",
+            CalculationReason = "BackgroundMileageJob", RequestedVehicleType = "Car",
+            TravelMode = "DRIVE", Provider = "SyntheticProvider",
+            StopCount = 1, RequestBasisHash = new byte[32],
+            Status = "Pending", CorrelationId = Guid.NewGuid(),
+            RequestedAt = now, RequestedByUserId = leader.UserId
+        };
+        businessDb.RouteCalculationAttempts.AddRange(visitorAttempt, workerAttempt);
+        await businessDb.SaveChangesAsync();
+        if (await businessDb.RouteCalculationAttempts.CountAsync(x =>
+                x.VisitTripId == trip.VisitTripId && x.StopCount == 1) != 2)
+            throw new InvalidOperationException("SYNTHETIC_ONESTOP_ROUTE_SQL_SMOKE_FAIL");
         if (!await businessDb.VisitTrips.AnyAsync(x => x.VisitTripId == trip.VisitTripId &&
                                                         x.UserId == visitor.UserId &&
                                                         x.TeamId == team.TeamId &&
@@ -607,6 +633,19 @@ try
                                                     x.EntityId == trip.VisitTripId.ToString() &&
                                                     x.Action == "Created"))
             throw new InvalidOperationException("SYNTHETIC_TRIP_AUDIT_SQL_SMOKE_FAIL");
+        var invalidReasonDenied = false;
+        try
+        {
+            var invalidReason = "InvalidReasonMustFail";
+            await businessDb.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE dbo.RouteCalculationAttempts SET CalculationReason={invalidReason} WHERE RouteCalculationAttemptId={visitorAttempt.RouteCalculationAttemptId}");
+        }
+        catch (SqlException error) when (error.Number == 547)
+        {
+            invalidReasonDenied = true;
+        }
+        if (!invalidReasonDenied)
+            throw new InvalidOperationException("SYNTHETIC_ROUTE_INVALID_REASON_WAS_ALLOWED");
         await businessTx.RollbackAsync();
     }
     await using (var emptyBusiness = new AppDbContext(options))
@@ -663,6 +702,7 @@ try
     Status("SQL_ONLY_EXTRA_INDEXES_SQL2022_PASS");
     Status("SCOPED_CANDIDATE_69_TABLE_CATALOG_PASS");
     Status("SYNTHETIC_VISITOR_TRIP_AUDIT_EF_SQL_SMOKE_PASS");
+    Status("SYNTHETIC_ONESTOP_ROUTE_REASON_NEGATIVE_SQL2022_PASS");
     Status("FULL_V180_INSTALL_HOLD_OTHER_OBJECTS_APP_COMPAT");
     Console.WriteLine($"MAPPED_TABLES={expectedTables.Length}");
     Console.WriteLine($"MAPPED_COLUMNS={expectedColumns.Values.Sum(x => x.Count)}");
