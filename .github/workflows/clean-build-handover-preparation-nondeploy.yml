@@ -104,10 +104,20 @@ jobs:
           set -euo pipefail
           runtime_context="$RC_SOURCE_ROOT/backend/src/FieldVisit.Infrastructure/AppDbContext.cs"
           original_context="$RUNNER_TEMP/AppDbContext.cs.accepted"
+          runtime_guard="$RC_SOURCE_ROOT/backend/src/FieldVisit.Infrastructure/V180OptionCCreateReservationGuard.cs"
+          runtime_repositories="$RC_SOURCE_ROOT/backend/src/FieldVisit.Infrastructure/Repositories.cs"
+          original_guard="$RUNNER_TEMP/ReservationGuard.cs.accepted"
+          original_repositories="$RUNNER_TEMP/Repositories.cs.accepted"
           cp "$runtime_context" "$original_context"
+          cp "$runtime_guard" "$original_guard"
+          cp "$runtime_repositories" "$original_repositories"
+          guard_source_sha="$(sha256sum "$original_guard" | awk '{print $1}')"
+          repositories_source_sha="$(sha256sum "$original_repositories" | awk '{print $1}')"
           restore_context() {
             cp "$original_context" "$runtime_context"
-            rm -f "$original_context"
+            cp "$original_guard" "$runtime_guard"
+            cp "$original_repositories" "$runtime_repositories"
+            rm -f "$original_context" "$original_guard" "$original_repositories"
           }
           trap restore_context EXIT
           python3 scripts/ci/clean_install/apply_rc_runtime_candidate.py \
@@ -126,6 +136,8 @@ jobs:
           trap - EXIT
           test "$(sha256sum "$runtime_context" | awk '{print $1}')" = \
             "dcbc2fc34c091310d49005c5280a9fb07de32312056b1757a5b88b746c6e1377"
+          test "$(sha256sum "$runtime_guard" | awk '{print $1}')" = "$guard_source_sha"
+          test "$(sha256sum "$runtime_repositories" | awk '{print $1}')" = "$repositories_source_sha"
           echo "CLEAN_INSTALL=ACCEPTED_RC_SOURCE_RESTORED_AFTER_CANDIDATE_BUILD_PASS"
       - name: Wait for isolated SQL Server 2022
         shell: bash
@@ -227,6 +239,49 @@ jobs:
           cp docs/release/clean-build-it-handover/RELEASE-GATES.md "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp docs/release/clean-build-it-handover/source-ledger.json "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp database/clean-install/v180/README.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/00_schema_versions.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/20_route_reason_check.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp docs/release/clean-build-it-handover/IT-INSTALL-RECOVERY-SOP.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os
+          out=Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])
+          source=json.loads((out/"model-baseline-manifest.json").read_text())
+          ordered=[
+              "model-baseline.sql","00_schema_versions.sql",
+              "sql-only-core-tables.sql","effective-source-triggers.sql",
+              "optionc-sql-only-candidates.sql","sql-only-extra-indexes.sql",
+              "20_route_reason_check.sql","007_source_checks.sql",
+              "001_004_source_checks.sql","optionc-final-target-checks.sql",
+              "40_clean_install_017_capability.sql"]
+          digest=lambda name:hashlib.sha256((out/name).read_bytes()).hexdigest()
+          for name in ordered:
+              if not (out/name).is_file() or (out/name).stat().st_size==0:
+                  raise SystemExit("CLEAN_INSTALL_ORDER_MISSING_SOURCE")
+          if (digest("00_schema_versions.sql")!=source["newSchemaVersionLedgerSha256"]
+              or digest("20_route_reason_check.sql")!=source["sourceDerivedRouteChecksSqlSha256"]
+              or digest("40_clean_install_017_capability.sql")!=source["cleanInstall017CapabilityReplaySqlSha256"]):
+              raise SystemExit("CLEAN_INSTALL_ORDER_SOURCE_DIGEST_MISMATCH")
+          plan={
+              "format":"field-visit-v180-nondeploy-sql-install-order-v1",
+              "status":"NONDEPLOY_SOURCE_BOUND_SCOPE_ONLY_NOT_FINAL_IT_INSTALLER",
+              "acceptedRcSha":"9d431ea318fcec34f04f3cc36a8fb6d01d00c48a",
+              "historicalMigrationsApplied":False,
+              "reservedMigration013":"RESERVED_NOT_REPLAYED",
+              "sqlServerMajorVersion":16,
+              "sequence":[{"step":i+1,"file":n,"sha256":digest(n)}
+                          for i,n in enumerate(ordered)],
+              "requiredGatesBeforeITExecution":[
+                  "Complete 011-020 runtime schema contract",
+                  "Independent clean install replay and full schema verify",
+                  "Least privilege SQL runtime identity and app configuration",
+                  "Frontend release match and recovery exercise",
+                  "Separate explicit environment-specific Owner authorization"]
+          }
+          (out/"it-sql-install-order.json").write_text(
+              json.dumps(plan,indent=2,sort_keys=True)+"\n")
+          print("CLEAN_INSTALL=SOURCE_BOUND_SQL_REPLAY_ORDER_PACKAGE_PASS")
+          PY
           cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$CLEAN_INSTALL_OUTPUT_DIR/"
           git rev-parse HEAD HEAD^ HEAD^{tree} > "$CLEAN_INSTALL_OUTPUT_DIR/source.txt"
           (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt api-candidate-nondeploy.zip > checksums.sha256)

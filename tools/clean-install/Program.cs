@@ -782,6 +782,7 @@ try
     }.Select(x => x.Key + "=" + x.Value));
     var capabilitySha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(capabilityContract)))
         .ToLowerInvariant();
+    var capabilityReplaySha = "";
     await using (var capabilityConnection = new SqlConnection(installBuilder.ConnectionString))
     {
         await capabilityConnection.OpenAsync();
@@ -1026,16 +1027,24 @@ try
                      AND (is_disabled=1 OR is_not_trusted=1))
                 THROW 56101,N'CLEAN_CREATE_CAPABILITY_CONTRACT_INVALID',1;
             """, capabilityConnection) { CommandTimeout = 10 };
-        await prove.ExecuteNonQueryAsync();
         var capabilityDescription = "Clean-install capability: verified 017 CreateLocation contract; not historical migration execution. Contract SHA-256=" + capabilitySha;
-        await using var record = new SqlCommand("""
-            INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy)
-            VALUES(N'1.8.0-CREATE-LOWRISK',@description,SYSUTCDATETIME(),N'clean-install-v180');
-            SELECT CONVERT(int,@@ROWCOUNT);
-            """, capabilityConnection) { CommandTimeout = 10 };
-        record.Parameters.AddWithValue("@description", capabilityDescription);
-        if (Convert.ToInt32(await record.ExecuteScalarAsync()) != 1)
-            throw new InvalidOperationException("CREATE_CAPABILITY_RECORD_MISSING");
+        // Emit the *same executable SQL* that the disposable runner applies,
+        // including source-scoped 017 catalog proof and a single atomic marker.
+        // No 001-020 historical migration entries are inserted or claimed.
+        var replayDescription = capabilityDescription.Replace("'", "''", StringComparison.Ordinal);
+        var replaySql = "SET XACT_ABORT ON;\nBEGIN TRANSACTION;\n" + prove.CommandText
+            + "\nINSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy)\n"
+            + "VALUES(N'1.8.0-CREATE-LOWRISK',N'" + replayDescription
+            + "',SYSUTCDATETIME(),N'clean-install-v180');\n"
+            + "IF @@ROWCOUNT<>1 THROW 56102,N'CLEAN_CREATE_CAPABILITY_WRITE_FAILED',1;\n"
+            + "COMMIT TRANSACTION;\n";
+        var replayBytes = new UTF8Encoding(false).GetBytes(replaySql);
+        capabilityReplaySha = Convert.ToHexString(SHA256.HashData(replayBytes)).ToLowerInvariant();
+        await File.WriteAllBytesAsync(
+            Path.Combine(output, "40_clean_install_017_capability.sql"), replayBytes);
+        await using var record = new SqlCommand(replaySql, capabilityConnection)
+            { CommandTimeout = 20 };
+        await record.ExecuteNonQueryAsync();
         await using var verify = new SqlCommand("""
             SELECT COUNT_BIG(*) FROM dbo.SchemaVersions
             WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK'
@@ -1226,6 +1235,7 @@ try
         newSchemaVersionLedgerSha256 = ledgerSqlSha,
         versionLedgerStatus = "NEW_BASELINE_CAPABILITY_ONLY_NO_HISTORICAL_MIGRATION_MARKERS",
         optioncCreateCapabilitySha256 = capabilitySha,
+        cleanInstall017CapabilityReplaySqlSha256 = capabilityReplaySha,
         optioncCreateCapabilitySourceSha256 = reservationSourceSha,
         sourceDerivedRouteChecksSqlSha256 = reasonDdlSha,
         trustedRouteCheckCount = routeCheckNames.Count,
