@@ -205,6 +205,73 @@ jobs:
           dotnet run --no-build --no-restore --project tools/clean-install/ModelBaselineRunner.csproj \
             -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release -- \
             --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Independently replay the source SQL using sqlcmd against new disposable SQL2022 (NONDEPLOY)
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          database=OptionCIsolated_FieldVisitV180Replay
+          created=0
+          cleanup_replay() {
+            local prior=$?
+            trap - EXIT
+            if [ "$created" = "1" ]; then
+              if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d master \
+                -Q "IF DB_ID(N'$database') IS NOT NULL BEGIN
+                    ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [$database]; END;" >/dev/null 2>&1; then
+                echo "CLEAN_INSTALL=REPLAY_DISPOSABLE_DB_CLEANUP_PASS"
+              else
+                echo "CLEAN_INSTALL=REPLAY_DISPOSABLE_DB_CLEANUP_FAIL"
+                prior=1
+              fi
+            fi
+            exit "$prior"
+          }
+          trap cleanup_replay EXIT
+          if ! docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d master \
+            -Q "IF DB_ID(N'$database') IS NOT NULL THROW 56520,N'REPLAY_TARGET_EXISTS',1;
+                CREATE DATABASE [$database];" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=REPLAY_TARGET_CREATE_FAIL"
+            exit 1
+          fi
+          created=1
+          cp database/clean-install/v180/00_schema_versions.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/20_route_reason_check.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/50_scoped_clean_install_verify.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          ordered=(
+            model-baseline.sql
+            00_schema_versions.sql
+            sql-only-core-tables.sql
+            effective-source-triggers.sql
+            optionc-sql-only-candidates.sql
+            sql-only-extra-indexes.sql
+            20_route_reason_check.sql
+            007_source_checks.sql
+            001_004_source_checks.sql
+            optionc-final-target-checks.sql
+            40_clean_install_017_capability.sql
+          )
+          for file in "${ordered[@]}"; do
+            test -s "$CLEAN_INSTALL_OUTPUT_DIR/$file"
+            if ! timeout 60s docker exec -i fieldvisit-clean-install-sql \
+              /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+              -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
+              < "$CLEAN_INSTALL_OUTPUT_DIR/$file" >/dev/null 2>&1; then
+              echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_REPLAY_FAIL; STEP=$file; DETAILS=SUPPRESSED"
+              exit 1
+            fi
+          done
+          if ! timeout 30s docker exec -i fieldvisit-clean-install-sql \
+            /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+            -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
+            < "$CLEAN_INSTALL_OUTPUT_DIR/50_scoped_clean_install_verify.sql" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_REPLAY_VERIFY_FAIL; DETAILS=SUPPRESSED"
+            exit 1
+          fi
+          echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_69_TABLE_REPLAY_SCOPED_VERIFY_PASS"
       - name: Remove disposable SQL Server 2022 container
         if: always()
         shell: bash
@@ -333,6 +400,7 @@ jobs:
               "acceptedRcSha":"9d431ea318fcec34f04f3cc36a8fb6d01d00c48a",
               "historicalMigrationsApplied":False,
               "reservedMigration013":"RESERVED_NOT_REPLAYED",
+              "verificationSql":{"file":"50_scoped_clean_install_verify.sql","sha256":digest("50_scoped_clean_install_verify.sql")},
               "sqlServerMajorVersion":16,
               "sequence":[{"step":i+1,"file":n,"sha256":digest(n)}
                           for i,n in enumerate(ordered)],
