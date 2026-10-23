@@ -175,7 +175,7 @@ internal static class CleanInstallHttpProbe
                 GRANT CONNECT TO [fieldvisit_disposable_runtime];
                 DECLARE @permissions nvarchar(max)=N'';
                 SELECT @permissions=@permissions+
-                    N'GRANT SELECT, INSERT, UPDATE, DELETE ON OBJECT::'+
+                    N'GRANT SELECT, INSERT, UPDATE, DELETE, VIEW DEFINITION ON OBJECT::'+
                     QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+
                     N' TO [fieldvisit_disposable_runtime];'
                 FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo');
@@ -196,6 +196,11 @@ internal static class CleanInstallHttpProbe
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE TABLE')=0
                 AND HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'UPDATE')=0
                 AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'UPDATE')=0
+                AND (SELECT COUNT(*) FROM sys.indexes WHERE
+                  object_id IN (OBJECT_ID(N'dbo.LocationPublicationStages'),
+                                OBJECT_ID(N'dbo.LocationPublishedVersions'))
+                  AND name IN (N'UX_OptionC_Stages_OpenLocation',N'UX_OptionC_Published_Current',
+                               N'UX_OptionC_Published_Request') AND filter_definition IS NOT NULL)=3
               THEN 1 ELSE 0 END;
             """, runtime) { CommandTimeout = 10 };
         if (Convert.ToInt32(await inspect.ExecuteScalarAsync()) != 1)
