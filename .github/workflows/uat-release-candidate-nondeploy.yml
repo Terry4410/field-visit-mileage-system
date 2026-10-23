@@ -62,6 +62,7 @@ jobs:
           python3 -m compileall -q scripts/ci/uat_release
           dotnet build tools/uat-release-candidate/ReleaseProbe.csproj -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release --nologo
           dotnet publish "$RC_SOURCE_ROOT/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" -c Release --output "$RELEASE_API_ROOT" --nologo
+          dotnet build-server shutdown >/dev/null
       - name: Build the same normal-mode Frontend with runtime gate DEFAULT OFF
         timeout-minutes: 8
         shell: bash
@@ -85,7 +86,7 @@ jobs:
           echo "::add-mask::$password"
           printf 'CLEAN_INSTALL_SQL_PASSWORD=%s\n' "$password" >> "$GITHUB_ENV"
           export CLEAN_INSTALL_SQL_PASSWORD="$password"
-          docker run -d --name fieldvisit-uat-rc-sql --publish 127.0.0.1:1433:1433 --env ACCEPT_EULA=Y --env MSSQL_PID=Developer --env "MSSQL_SA_PASSWORD=$password" mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          docker run -d --name fieldvisit-uat-rc-sql --memory 3g --env MSSQL_MEMORY_LIMIT_MB=2048 --publish 127.0.0.1:1433:1433 --env ACCEPT_EULA=Y --env MSSQL_PID=Developer --env "MSSQL_SA_PASSWORD=$password" mcr.microsoft.com/mssql/server:2022-latest >/dev/null
           for attempt in $(seq 1 60); do
             if docker exec -e SQLCMDPASSWORD="$password" fieldvisit-uat-rc-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -I -b -l 2 -Q 'SELECT 1' >/dev/null 2>&1; then break; fi
             sleep 2

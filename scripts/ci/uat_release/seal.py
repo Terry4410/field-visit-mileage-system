@@ -47,7 +47,7 @@ else:
  subprocess.run([sys.executable,str(out/'install.py'),'--root',str(out),'--target','fixture'],check=True)
 
  shutil.copyfile(accepted/'source-code-immutable-rc.zip',out/'source-code-immutable-rc.zip')
- subprocess.run(['git','archive','--format=zip','--output='+str(out/'release-source-delta.zip'),os.environ['GITHUB_SHA'],'tools/uat-release-candidate','scripts/ci/uat_release','docs/release/uat-release-candidate','.github/workflows/uat-release-candidate-nondeploy.yml'],check=True)
+ subprocess.run(['git','archive','--format=zip','--output='+str(out/'release-source-delta.zip'),os.environ['GITHUB_SHA'],'tools/uat-release-candidate','tools/clean-install','scripts/ci/uat_release','scripts/ci/clean_install','docs/release/uat-release-candidate','.github/workflows/uat-release-candidate-nondeploy.yml'],check=True)
  browser=json.loads((out/'browser-evidence.json').read_text());observed={x['case'] for x in browser['cases']}
  source_cases=(runtime/'docs/release/SCHEME_A_BUSINESS_UAT_ROLE_CASES_NONDEPLOY.md').read_text()
  import re

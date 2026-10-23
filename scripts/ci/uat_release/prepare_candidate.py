@@ -1,18 +1,35 @@
 """Source-pinned release delta. Preserves accepted RC and accepted install inputs."""
-import argparse,hashlib,json,os,re,subprocess,sys
+import argparse,hashlib,json,os,re,subprocess,sys,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'scripts/ci/clean_install'))
 from build_007_checks import extract_balanced_check
+import apply_rc_runtime_candidate as base_overlay
 
 def digest(b): return hashlib.sha256(b).hexdigest()
 def main():
- p=argparse.ArgumentParser();p.add_argument('--runtime',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--runtime',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--rc-archive',type=Path);a=p.parse_args()
  rc=a.runtime; out=a.output;out.mkdir(parents=True,exist_ok=True)
- assert subprocess.check_output(['git','-C',str(rc),'rev-parse','HEAD'],text=True).strip()=='9d431ea318fcec34f04f3cc36a8fb6d01d00c48a'
+ if (rc/'.git').exists():
+  assert subprocess.check_output(['git','-C',str(rc),'rev-parse','HEAD'],text=True).strip()=='9d431ea318fcec34f04f3cc36a8fb6d01d00c48a'
+ else:
+  assert a.rc_archive and digest(a.rc_archive.read_bytes())=='334ee1068d4bb6ec470b6148885324f9b665bf3ff3f5d933d6e8ecd7baa4b426','IMMUTABLE_SOURCE_ARCHIVE_REQUIRED'
+  with zipfile.ZipFile(a.rc_archive) as archive:
+   expected={x for x in archive.namelist() if not x.endswith('/')}
+   actual={x.relative_to(rc).as_posix() for x in rc.rglob('*') if x.is_file()}
+   assert actual==expected,'IMMUTABLE_SOURCE_ARCHIVE_FILE_SET'
+   for name in expected:assert digest((rc/name).read_bytes())==digest(archive.read(name)),'IMMUTABLE_SOURCE_ARCHIVE_CONTENT'
+
  source=os.environ['GITHUB_SHA'];assert re.fullmatch('[0-9a-f]{40}',source)
- subprocess.run([sys.executable,str(ROOT/'scripts/ci/clean_install/apply_rc_runtime_candidate.py'),'--rc-root',str(rc),'--output',str(out)],check=True)
  changes=[]
+ context=rc/base_overlay.SOURCE_PATH;guard=rc/base_overlay.GUARD_PATH;repository=rc/base_overlay.REPOSITORY_PATH
+ original_context=context.read_bytes();original_guard=guard.read_bytes();original_repository=repository.read_bytes()
+ candidate_context=base_overlay.rewrite_source(original_context,base_overlay.EXPECTED_SOURCE_SHA256)
+ assert digest(candidate_context)==base_overlay.EXPECTED_CANDIDATE_SHA256
+ candidate_guard,candidate_repository=base_overlay.rewrite_operational_guards(original_guard,original_repository)
+ for path,old,raw in [(context,original_context,candidate_context),(guard,original_guard,candidate_guard),(repository,original_repository,candidate_repository)]:
+  path.write_bytes(raw);changes.append({'path':path.relative_to(rc).as_posix(),'beforeSha256':digest(old),'afterSha256':digest(raw)})
+
  def write(rel,new):
   path=rc/rel;old=path.read_bytes() if path.exists() else b'';raw=new.encode() if isinstance(new,str) else new
   path.write_bytes(raw);changes.append({'path':rel,'beforeSha256':digest(old),'afterSha256':digest(raw)})

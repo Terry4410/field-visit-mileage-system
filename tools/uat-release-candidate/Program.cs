@@ -107,7 +107,7 @@ try
  var node=new ProcessStartInfo(string.IsNullOrEmpty(image)?(Environment.GetEnvironmentVariable("NODE_BINARY")??"node"):"docker"){UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};
  if(!string.IsNullOrEmpty(image)) {
   var workspace=Environment.GetEnvironmentVariable("GITHUB_WORKSPACE")!;var temporary=Environment.GetEnvironmentVariable("RUNNER_TEMP")!;
-  foreach(var argument in new[]{"run","--rm","--network","host","--ipc","host","-v",workspace+":"+workspace,"-v",temporary+":"+temporary,"-w",workspace,"-e","RELEASE_FIXTURE","-e","RC_SOURCE_ROOT","-e","RELEASE_OUTPUT","-e","GITHUB_SHA",image,"node"})node.ArgumentList.Add(argument);
+  foreach(var argument in new[]{"run","--rm","--memory","2g","--network","host","--ipc","host","-v",workspace+":"+workspace,"-v",temporary+":"+temporary,"-w",workspace,"-e","RELEASE_FIXTURE","-e","RC_SOURCE_ROOT","-e","RELEASE_OUTPUT","-e","GITHUB_SHA",image,"node"})node.ArgumentList.Add(argument);
  }
  node.ArgumentList.Add(Path.Combine(Environment.GetEnvironmentVariable("GITHUB_WORKSPACE")??Directory.GetCurrentDirectory(),"tools/uat-release-candidate/browser.mjs"));
  node.Environment["RELEASE_FIXTURE"]=JsonSerializer.Serialize(new {actors=actors.Append(publisher).ToDictionary(x=>x.Role,x=>new{account=x.Account,id=x.UserId}),password=demo,teamCode,fixture.TeamId,fixture.OtherTeamId,fixture.LocationId});
@@ -119,6 +119,8 @@ try
   try{await browser.WaitForExitAsync(deadline.Token);}catch{browser.Kill(true);throw;}
   var result=(await stdout).Trim();var privateError=await stderr;
   if(browser.ExitCode!=0){
+   Console.WriteLine("UAT_RC_BROWSER_EXIT_"+browser.ExitCode);
+   foreach(var known in new[]{"ERR_MODULE_NOT_FOUND","MODULE_NOT_FOUND","ERR_INVALID_ARG_TYPE","EADDRINUSE","ENOENT","EACCES","ECONNREFUSED"}) if(privateError.Contains(known,StringComparison.Ordinal))Console.WriteLine("UAT_RC_BROWSER_RUNTIME_"+known);
    var code=System.Text.RegularExpressions.Regex.Match(result,@"UAT_RC_BROWSER_FAIL_[A-Z0-9_]+");
    Console.WriteLine(code.Success?code.Value:privateError.Contains("Cannot find module",StringComparison.Ordinal)?"UAT_RC_BROWSER_FAIL_BOOT_MODULE":privateError.Contains("Executable doesn't exist",StringComparison.Ordinal)?"UAT_RC_BROWSER_FAIL_BOOT_ENGINE":"UAT_RC_BROWSER_FAIL_BOOT_SUPPRESSED");
    throw new InvalidOperationException("BROWSER_FAILURE");

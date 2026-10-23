@@ -2,11 +2,8 @@ import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {resolve,extname} from 'node:path';
-const require=createRequire(resolve(process.env.RC_SOURCE_ROOT,'uat/package.json'));
-const {chromium,webkit,expect}=require('@playwright/test');
-const fixture=JSON.parse(process.env.RELEASE_FIXTURE);
-const root=resolve(process.env.RC_SOURCE_ROOT,'frontend/dist');
-let step='INIT', browser, server;
+let chromium,webkit,expect,fixture,root;
+let step='BOOTSTRAP_REQUIRE', browser, server;
 const evidence={sourceSha:process.env.GITHUB_SHA,environment:'NONDEPLOY_LOOPBACK_REAL_API_SQL',hardware:'Chromium mobile viewport and WebKit; not physical iPhone',cases:[]};
 const pass=(id)=>evidence.cases.push({case:id,status:'PASS'});
 const guardContext=async c=>{await c.route('**/*',route=>{const u=new URL(route.request().url());return ['127.0.0.1','localhost'].includes(u.hostname)?route.continue():route.abort();});};
@@ -18,6 +15,9 @@ async function leaderDecision(page,locationId,approve){await go(page,'/leader/lo
 async function finalPublish(page,id,isCreate){await go(page,'/admin/locations/approvals');const row=page.locator('tbody tr').filter({has:page.locator('td:first-child').getByText(String(id),{exact:true})});await row.getByRole('button',{name:'審查',exact:true}).click();await page.locator('textarea').last().fill('Independent Excel publication');await page.locator('.field').filter({hasText:'緯度'}).locator('input').fill('25.05');await page.locator('.field').filter({hasText:'經度'}).locator('input').fill('121.5');await clickJson(page,page.getByRole('button',{name:'記錄 Geocode 證據',exact:true}),'/geocode-evidence');await clickJson(page,page.getByRole('button',{name:'確認非重複',exact:true}),'/duplicate-evidence');await clickJson(page,page.getByRole('button',{name:isCreate?'獨立核准並發布新地點':'獨立核准',exact:true}),isCreate?'/publish-reviewed':'/approve');}
 async function preview(page,rows){await page.locator('input[type=file]').setInputFiles({name:'locations.csv',mimeType:'text/csv',buffer:Buffer.from('\ufeffLocationCode,TeamCode,LocationName,City,District,Address,PlusCode,Status\r\n'+rows.join('\r\n')+'\r\n')});return clickJson(page,page.getByRole('button',{name:'預覽與驗證',exact:true}),'/imports/locations/preview');}
 try{
+ const require=createRequire(resolve(process.env.RC_SOURCE_ROOT,'uat/package.json'));
+ ({chromium,webkit,expect}=require('@playwright/test'));
+ step='BOOTSTRAP_FIXTURE';fixture=JSON.parse(process.env.RELEASE_FIXTURE);root=resolve(process.env.RC_SOURCE_ROOT,'frontend/dist');step='INIT';
  server=createServer(async(req,res)=>{try{
   if(req.url.startsWith('/api/')){const target=new URL(req.url,'http://127.0.0.1:18376');const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=Buffer.concat(chunks);const headers={...req.headers};delete headers.host;delete headers['content-length'];const response=await fetch(target,{method:req.method,headers,body:body.length?body:undefined});res.writeHead(response.status,{'Content-Type':response.headers.get('content-type')||'application/json'});res.end(Buffer.from(await response.arrayBuffer()));return;}
   if(req.url==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript'});res.end('window.APP_CONFIG='+JSON.stringify({API_BASE_URL:'http://127.0.0.1:18377/api/v1',AUTH_MODE:'Demo',OPTIONC_RELEASE:{enabled:true,sourceSha:process.env.GITHUB_SHA}})+';');return;}
