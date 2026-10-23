@@ -90,6 +90,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/g1_necessary_010_source_contract.py --candidate-root candidate
+      - name: Validate source-derived PRE-010 invariant boundaries (nondeploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1_pre010_source_contract.py
+          python3 scripts/ci/g1_pre010_source_contract.py --candidate-root candidate
+          echo 'Pre010PrivateRead=NOT_EXECUTED; ActualUatSchema=UNKNOWN;'
       - name: Assert explicit owner-dispatch gate and no automatic push authorization
         shell: python
         run: |
