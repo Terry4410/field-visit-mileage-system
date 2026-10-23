@@ -11,4 +11,14 @@ Offline validation: `python3 -m unittest scripts/ci/test_g1_uat010_safe_compare.
 
 **Next single release-evidence batch after independent review (separate Owner approval mandatory):** establish a genuinely reconstructable, independent approved 1.5→010 expected reference and full comparator input (including collations, Import CHECK facets, 004/007 trigger source); run fixed-target/private schema checks with exact source pins without public raw results; obtain distinct migration and actual API principal permission evidence; fixed API/Pages runtime and nonsecret settings identity; matched previous package archives plus DB/PITR recovery feasibility or explicit fail-closed HOLD. Bound one owner-approved set of Azure management GETs (max 20/10min) and separately approved SQL (one connection, connect120s/query30s, total10min, no retry); SQL may resume serverless and cause cost including tail. Live management, SQL, migration, grants, restore, app deployment and feature activation remain NOT AUTHORIZED.
 
+## Current bounded source/contract status — 2026-10-23
+
+Owner-approved G1 acceptance uses **ObservedCurrentUat010 plus a reviewed Migration Contract/Application Model**; reconstructing the complete historical 1.5 CREATE baseline is not a prerequisite. The current candidate JSON is still explicitly `CANDIDATE_NECESSARY_CONTRACT_NOT_OBSERVED_UAT`; source hashes and count checks cannot be represented as observed UAT parity.
+
+Pinned candidate arithmetic is **86 columns / 34 CHECK / 19 FK / 15 indexes**. Excluding migration 019 yields **74 / 29 / 18 / 15** (the earlier 74 / 30 / 18 / 15 documentation is incorrect). The frozen 25-case matrix contains no Location Merge case. Migration 019 creates the candidate `LocationMergeDetails` table, so 019 is **NOT REQUIRED for the current frozen 25 cases**; it remains out of scope unless Owner changes the UAT case set.
+
+The offline provenance guard verifies the pinned Necessary Reference inputs and the 25-case scope only. It does not construct a complete necessary 010 schema baseline or prove Live parity. Trigger source-to-`OBJECT_DEFINITION` encoding/hash equivalence, complete necessary CHECK/FK/index/import facets, and historical-preservation preconditions remain UNKNOWN until a reviewed source-derived contract and private live comparison are wired. Partial catalog visibility must remain HOLD. The existing comparator's independent 1.5 replay requirement is not accepted as a substitute for the Owner-approved acceptance method.
+
+Migration OIDC permissions must be checked as the diagnostic SQL principal. The API's actual DefaultConnection principal requires a separate check on the API's own opened connection; neither identity substitutes for the other. Current deployed binary identity and a matched API/Pages/DB recovery path also remain unproven.
+
 Do not modify or rerun accepted PR #50 43+5 SQL tests, approved RC archive, existing Visitor/Leader/Admin login, or planned IT Entra scope.

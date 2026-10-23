@@ -75,6 +75,21 @@ jobs:
               if ($actual -cne $case.Expected) { throw 'Catalog JSON array contract rejected' }
           }
           Write-Output 'CatalogJSON=PASS; Cases=3; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;'
+      - name: Checkout fixed PR50 candidate contract source
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          repository: Terry4410/field-visit-mileage-system
+          ref: be4d25e2c788c78cb108d2f7c819118f036d674d
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify source pins and frozen necessary-scope arithmetic (not Live parity)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/g1_necessary_010_source_contract.py --candidate-root candidate
       - name: Assert explicit owner-dispatch gate and no automatic push authorization
         shell: python
         run: |
@@ -86,8 +101,12 @@ jobs:
           assert event_header not in text
           assert commit_subject not in text
           assert "github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410'" in text
-          assert "R3_AUTHORIZE_WAKE: ${{ inputs.authorize_coldstart && 'true' || 'false' }}" in text
-          assert "R3_ACCEPT_CHARGES: ${{ inputs.accept_compute_charges && 'true' || 'false' }}" in text
+          expr_open = "$" + "{{"
+          expr_close = "}}"
+          wake_expr = "R3_AUTHORIZE_WAKE: " + expr_open + " inputs.authorize_coldstart && 'true' || 'false' " + expr_close
+          charge_expr = "R3_ACCEPT_CHARGES: " + expr_open + " inputs.accept_compute_charges && 'true' || 'false' " + expr_close
+          assert wake_expr in text
+          assert charge_expr in text
           assert push_true not in text
           assert text.count('default: false') >= 2
           print('OwnerDispatchOnly=PASS; PushAuthorization=ABSENT; WakeConsent=EXPLICIT; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;')
