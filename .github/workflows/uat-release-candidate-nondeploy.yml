@@ -18,8 +18,6 @@ jobs:
       ACCEPTED_SHA: 39c86f03cc8d66881a78a800ded974b2f338cf07
       ACCEPTED_RUN: '39981135659'
       RC_SOURCE_ROOT: ${{ github.workspace }}/runtime-source
-      RELEASE_OUTPUT: ${{ runner.temp }}/release-output
-      RELEASE_API_ROOT: ${{ runner.temp }}/release-api
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0, persist-credentials: false}
@@ -46,7 +44,9 @@ jobs:
           assert files and all(p=='.github/workflows/uat-release-candidate-nondeploy.yml' or p.startswith(allowed) for p in files)
           print('UAT_RC=ACCEPTED_INPUTS_UNCHANGED_MINIMAL_DELTA_PASS')
           PY
-          mkdir -p "$RELEASE_OUTPUT"
+          echo "RELEASE_OUTPUT=$RUNNER_TEMP/release-output" >> "$GITHUB_ENV"
+          echo "RELEASE_API_ROOT=$RUNNER_TEMP/release-api" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/release-output"
       - uses: actions/download-artifact@v4
         with:
           name: clean-install-model-baseline-39c86f03cc8d66881a78a800ded974b2f338cf07-39981135659

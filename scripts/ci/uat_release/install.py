@@ -25,6 +25,7 @@ def main():
  server,database=(SERVER,DATABASE) if a.target=='uat' else ('localhost,1433','OptionCIsolated_FieldVisitV180CleanInstall')
  args=['sqlcmd','-S',server,'-d',database,'-I','-b','-l','10']
  if a.target=='fixture':args+=['-C']
+ else:args+=['-N']
  if os.environ.get('SQLCMDUSER'):args+=['-U',os.environ['SQLCMDUSER']]
  elif a.target=='uat':args+=['-G']
  else:raise ValueError('INSTALLER_IDENTITY_REQUIRED')
