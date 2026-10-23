@@ -94,7 +94,19 @@ try {
     $stage = 'PRE010_PRIVATE'
     . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_collect.ps1')
     $pre010 = Invoke-G1Pre010PrivateCollect -Connection $connection -CandidateRoot (Join-Path $env:GITHUB_WORKSPACE 'candidate') -SourceSha $env:GITHUB_SHA
-    if($pre010 -cne 'PASS'){Stop-G1 'ResultContractRejected'}
+    if($pre010 -cne 'PASS'){
+        $allowlisted=@('BOUNDARY','SQL_EXECUTION','SQL_RESULT','JSON_PARSE',
+            'PRIVATE_WRITE','COMPARATOR_EXECUTION','COMPARATOR_PROTOCOL',
+            'PREDECESSOR','PRIVATE_OUTPUT','PINNED_SOURCE',
+            'METADATA_FORMAT','SCOPED_PARITY','COMPARATOR_REJECTED')
+        $status='UNCLASSIFIED'
+        if($pre010 -is [string] -and $pre010 -cmatch '^STOP:([A-Z_]+)$' -and
+            $Matches[1] -cin $allowlisted) {
+            $status=$Matches[1]
+        }
+        Write-Output "Pre010Private=STOP; Code=$status; Details=SUPPRESSED;"
+        Stop-G1 'ResultContractRejected'
+    }
     Write-Output 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'
 
 

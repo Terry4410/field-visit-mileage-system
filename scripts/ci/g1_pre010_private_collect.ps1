@@ -1,9 +1,26 @@
 # Called only with the SAME already-open fixed-UAT diagnostic SqlConnection.
 # No credentials or raw metadata are printed; no new connection or SQL write.
 Set-StrictMode -Version Latest
+# Translate only predefined comparator error codes into coarse, safe statuses.
+# Raw SQL/metadata/provider exception and unknown comparator text are never printed.
+function Resolve-G1Pre010Stop([string]$Line) {
+    if (-not ($Line -cmatch '^G1Pre010Private=STOP; Class=([A-Z0-9_]{2,60}); Details=SUPPRESSED;$')) {
+        return 'COMPARATOR_PROTOCOL'
+    }
+    $code=[string]$Matches[1]
+    if ($code -ceq 'TARGET_PREDECESSOR') {return 'PREDECESSOR'}
+    if ($code -ceq 'PRIVATE_CAPTURE') {return 'PRIVATE_OUTPUT'}
+    if ($code -cmatch '^(SOURCE|REFERENCE|MIGRATION_|TRIGGER_SQL_SHAPE|TRIGGER_COMPLETENESS|TRIGGER_SUPERSESSION|INDEX_DEFAULT_COUNT|INDEX_DEFAULT_TOTAL|DEFAULT_DUPLICATE|PRE010_CHECK_SOURCE)') {return 'PINNED_SOURCE'}
+    if ($code -cmatch '^(SHAPE|DUPLICATE|COLUMN_SHAPE|CONSTRAINT_SHAPE|FK_ACTION_SHAPE|INDEX_SHAPE|INDEX_DEFAULT_SHAPE|DEFAULT_SHAPE|DEFINITION_VISIBILITY)$') {return 'METADATA_FORMAT'}
+    if ($code -cmatch '^(COLUMN_(?:SCOPE|DRIFT)|FK_(?:SCOPE|STATE|DRIFT|ACTION_DRIFT|REPLICATION_BYPASS)|CHECK_(?:SCOPE|STATE|VISIBILITY)|INDEX_(?:SCOPE|DRIFT|FILTER)|DEFAULT_(?:SCOPE|DRIFT)|PRE010_REASON|REQUIRED_TRIGGER_MISSING|TRIGGER_(?:PARENT|EVENTS|STATE|DEFINITION_DRIFT)|007_DEFINITION_DRIFT)$') {
+        return 'SCOPED_PARITY'
+    }
+    return 'COMPARATOR_REJECTED'
+}
+
 function Invoke-G1Pre010PrivateCollect {
     param([object]$Connection,[string]$CandidateRoot,[string]$SourceSha)
-    $cmd=$null;$private=$null;$reader=$null
+    $cmd=$null;$private=$null;$reader=$null;$phase='BOUNDARY'
     try {
         if($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REF -cne 'refs/heads/post-uat/v1.8.0' -or
            $env:GITHUB_REPOSITORY -cne 'Terry4410/field-visit-mileage-system' -or
@@ -11,7 +28,7 @@ function Invoke-G1Pre010PrivateCollect {
            [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP) -or
            $Connection.GetType().FullName -cne 'Microsoft.Data.SqlClient.SqlConnection' -or
            $Connection.State -ne [Data.ConnectionState]::Open -or
-           -not (Test-Path -LiteralPath $CandidateRoot -PathType Container)) {return 'STOP'}
+           -not (Test-Path -LiteralPath $CandidateRoot -PathType Container)) {return 'STOP:BOUNDARY'}
         $commandText=@'
 SET NOCOUNT ON;
 IF DB_NAME() COLLATE Latin1_General_100_BIN2<>N'db-fieldvisit-uat'
@@ -115,9 +132,11 @@ CASE WHEN EXISTS(
  AND ch.definition LIKE N'%BackgroundMileageJob%')
  THEN N'PASS' ELSE N'UNKNOWN' END AS ReasonCheck;
 '@
+        $phase='SQL_EXECUTION'
         $cmd=$Connection.CreateCommand()
         $cmd.CommandText=$commandText;$cmd.CommandTimeout=30
         $reader=$cmd.ExecuteReader()
+        $phase='SQL_RESULT'
         if(-not $reader.Read() -or $reader.FieldCount -ne 7 -or
            $reader.GetName(0) -cne 'TriggerJson' -or
            $reader.GetName(1) -cne 'ColumnJson' -or
@@ -128,7 +147,7 @@ CASE WHEN EXISTS(
            $reader.GetName(6) -cne 'ReasonCheck' -or
            $reader.IsDBNull(0) -or $reader.IsDBNull(1) -or $reader.IsDBNull(2) -or
            $reader.IsDBNull(3) -or $reader.IsDBNull(4) -or $reader.IsDBNull(5) -or
-           $reader.IsDBNull(6)){return 'STOP'}
+           $reader.IsDBNull(6)){return 'STOP:SQL_RESULT'}
         $rawJson=$reader.GetString(0)
         $columnJson=$reader.GetString(1)
         $fkJson=$reader.GetString(2)
@@ -139,8 +158,9 @@ CASE WHEN EXISTS(
         if($rawJson.Length -gt 220000 -or $columnJson.Length -gt 100000 -or
            $fkJson.Length -gt 100000 -or $ckJson.Length -gt 100000 -or
            $idxJson.Length -gt 100000 -or $defaultJson.Length -gt 40000 -or
-           $reason -cnotin @('PASS','UNKNOWN')){return 'STOP'}
-        if($reader.Read() -or $reader.NextResult()){return 'STOP'}
+           $reason -cnotin @('PASS','UNKNOWN')){return 'STOP:SQL_RESULT'}
+        if($reader.Read() -or $reader.NextResult()){return 'STOP:SQL_RESULT'}
+        $phase='JSON_PARSE'
         $parsed=$rawJson|ConvertFrom-Json -Depth 20
         $parsedColumns=$columnJson|ConvertFrom-Json -Depth 20
         $parsedFks=$fkJson|ConvertFrom-Json -Depth 20
@@ -161,14 +181,27 @@ CASE WHEN EXISTS(
           Indexes=@($parsedIndexes)
           Defaults=@($parsedDefaults)
         }
+        $phase='PRIVATE_WRITE'
         $private=Join-Path $env:RUNNER_TEMP ('g1-uat010-'+[guid]::NewGuid().ToString('N')+'.json')
         [IO.File]::WriteAllText($private,($actual|ConvertTo-Json -Depth 30 -Compress),[Text.UTF8Encoding]::new($false))
+        $phase='COMPARATOR_EXECUTION'
         $result=@(& python3 (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_compare.py') --candidate-root $CandidateRoot --private-actual $private --protected-sha $SourceSha --mode live 2>$null)
         if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or
-           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {return 'STOP'}
+           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {
+            if($result.Count -ne 1){return 'STOP:COMPARATOR_PROTOCOL'}
+            return ('STOP:'+(Resolve-G1Pre010Stop -Line ([string]$result[0])))
+        }
         return 'PASS'
     } catch {
-        return 'STOP'
+        # No exception.Message or provider details cross this boundary.
+        switch($phase) {
+            'SQL_EXECUTION' {return 'STOP:SQL_EXECUTION'}
+            'SQL_RESULT' {return 'STOP:SQL_RESULT'}
+            'JSON_PARSE' {return 'STOP:JSON_PARSE'}
+            'PRIVATE_WRITE' {return 'STOP:PRIVATE_WRITE'}
+            'COMPARATOR_EXECUTION' {return 'STOP:COMPARATOR_EXECUTION'}
+            default {return 'STOP:BOUNDARY'}
+        }
     } finally {
         if($null -ne $reader){try{$reader.Dispose()}catch{}}
         if($null -ne $cmd){try{$cmd.Dispose()}catch{}}
