@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
+using FieldVisit.Application;
 
 /// <summary>
 /// Exercises the RC-derived, explicitly enabled Option C candidate through
@@ -172,6 +173,53 @@ internal static class CleanInstallOptionCCreateApprovalProbe
             throw Fail("PUBLISHED_LOCATION_ID");
 
         await VerifyPublishedStateAsync(cs, successfulId, locationId, fixture);
+
+        // Exercise the real newly published Location, not only a synthetic
+        // pre-approved seed: Visitor create -> Submit -> persisted snapshot/audit.
+        var publishedStop = new TripStopInput(locationId, null, null, "Location",
+            "Synthetic Option C APPROVED", "100 Disposable Test Road APPROVED",
+            "visit", null);
+        var tripInput = new SaveTripRequest(
+            new DateOnly(2026, 10, 15), new TimeOnly(13, 0), new TimeOnly(14, 0),
+            8.5m, "Newly published Location SQL2022 HTTP acceptance",
+            "NONDEPLOY", false, new[] { publishedStop },
+            fixture.TeamId, fixture.SiteId, fixture.SiteId, "Motorcycle");
+        using (var tripResponse = await visitor.PostAsJsonAsync("/api/v1/trips", tripInput))
+        using (var draft = await RequireJsonAsync(tripResponse, HttpStatusCode.OK, "PUBLISHED_LOCATION_TRIP_CREATE"))
+        {
+            var newTripId = draft.RootElement.GetProperty("visitTripId").GetInt64();
+            var newVersion = draft.RootElement.GetProperty("rowVersion").GetString();
+            if (newTripId <= 0 || draft.RootElement.GetProperty("status").GetString() != "Draft"
+                || string.IsNullOrWhiteSpace(newVersion))
+                throw Fail("PUBLISHED_LOCATION_TRIP_DRAFT");
+            using var submit = new HttpRequestMessage(HttpMethod.Post,
+                "/api/v1/trips/" + newTripId + "/submit")
+            { Content = JsonContent.Create(new SubmitTripRequest(false)) };
+            submit.Headers.TryAddWithoutValidation("If-Match", newVersion);
+            using var submitted = await visitor.SendAsync(submit);
+            using var body = await RequireJsonAsync(
+                submitted, HttpStatusCode.OK, "PUBLISHED_LOCATION_TRIP_SUBMIT");
+            if (body.RootElement.GetProperty("status").GetString() != "Submitted")
+                throw Fail("PUBLISHED_LOCATION_TRIP_STATUS");
+            await using var sql = new SqlConnection(cs);
+            await sql.OpenAsync();
+            await using var proof = new SqlCommand("""
+                SELECT COUNT_BIG(*) FROM dbo.VisitTrips t
+                WHERE t.VisitTripId=@trip AND t.Status=N'Submitted'
+                  AND t.UserId=@visitor AND t.TeamId=@team
+                  AND EXISTS (SELECT 1 FROM dbo.VisitTripSnapshots s
+                      WHERE s.VisitTripId=t.VisitTripId AND s.SnapshotType=N'Submitted')
+                  AND EXISTS (SELECT 1 FROM dbo.AuditLogs a
+                      WHERE a.EntityId=CONVERT(nvarchar(40),t.VisitTripId)
+                        AND a.Action=N'TripSubmit');
+                """, sql) { CommandTimeout = 10 };
+            proof.Parameters.AddWithValue("@trip", newTripId);
+            proof.Parameters.AddWithValue("@visitor", fixture.Visitor.UserId);
+            proof.Parameters.AddWithValue("@team", fixture.TeamId);
+            if (Convert.ToInt64(await proof.ExecuteScalarAsync()) != 1)
+                throw Fail("PUBLISHED_LOCATION_TRIP_SQL_SNAPSHOT_AUDIT");
+        }
+        Console.WriteLine("CLEAN_INSTALL=REAL_HTTP_PUBLISHED_LOCATION_TRIP_CREATE_SUBMIT_SNAPSHOT_PASS");
 
         // The Admin may initiate a scoped request but cannot approve their own
         // request. The leader's distinct first-stage approval is not enough to
