@@ -1,6 +1,6 @@
 # Field Visit v1.8.0 — SQL Server 2022 Clean Install (NONDEPLOY candidate)
 
-**Status: PARTIAL. Full v1.8.0 Clean Install / IT Handover / Business UAT = HOLD.**
+**Status: NONDEPLOY CANDIDATE. Full v1.8.0 Clean Install / IT Handover / Business UAT = HOLD.**
 No Azure, Production or shared-UAT database may execute these disposable-only
 candidate fragments. This package does **not** apply historical migrations.
 
@@ -51,83 +51,4 @@ candidate fragments. This package does **not** apply historical migrations.
   source index name, table, key-column order, uniqueness, filtered predicate
   and enabled state. The nine indexes already installed by EF from 011/016
   are **not replayed**. Six SQL-only 014/017 indexes are cross-checked against
-  the existing source-derived DDL. Original 011/014/016/017 file SHA-256
-  is retained in the clean-install manifest; no new migration marker is
-  inserted. This is a scoped index proof, not full 011–020 certification.
-- `build_optionc_final_checks.py`: 15 effective A+C final-state CHECKs
-  sourced from 011/012/016/017/018/020, including the explicit 014→017
-  published-Origin supersession. Only disposable SQL Server 2022 is allowed;
-  source candidates are not approved deployable migrations.
-
-- The accepted RC API is now built in CI before SQL DDL. The same
-  disposable database is then used by the RC API on **loopback-only HTTP**
-  for `/health/live`, `/health/ready` (real EF SQL CanConnect), and
-  anonymous/invalid-token **401** on Visitor/Leader protected routes.
-  The API process is terminated before DB teardown. This only proves
-  boot/readiness/unauthenticated denial on the new database: it **does not**
-  certify valid Visitor/Leader/Admin entitlements, API writes or full UAT.
-
-Every layer writes a SHA-256 manifest, records original RC source paths and
-file digests, refuses missing/duplicate/ambiguous objects, and exports only
-NONDEPLOY evidence under the fixed PR source SHA. All generated SQL files,
-manifests and checksums are in the CI artifact. A successful isolated job
-proves only the explicitly printed PASS stages, never full release readiness.
-
-## Isolated runtime trigger-compatibility candidate
-
-The accepted RC source and artifact remain unchanged. The disposable CI job
-builds a separate source-pinned runtime candidate which changes only the
-`TeamLeaderAssignments` EF mapping to
-`UseSqlOutputClause(false)`. The accepted 1800_002 source installs an enabled
-trigger on this table; SQL Server rejects the trigger-incompatible EF OUTPUT
-form (error 334).
-
-The overlay validates the accepted RC SHA, exact original and candidate file
-SHA-256 values, and exactly one target mapping. The job restores the immutable
-RC checkout after compiling the candidate; its overlay manifest and script are
-retained in the NONDEPLOY artifact. The fresh-database fixture now creates the
-team-leader assignment through EF with the trigger enabled.
-
-This is disposable compatibility evidence only. It does not replace or change
-the accepted RC, establish full API approval flows, complete the full schema,
-authorize deployment, or permit Business UAT.
-
-## Required follow-on engineering (not yet certified)
-
-1. Reconcile **all** application runtime SQL contracts with this consolidated
-   candidate, including missing ALTER/ADD constraints and indexes in source
-   migrations 1600/1700/1800, canonical A+C 011–020 final DDL, any stored
-   modules, trigger behavior, defaults, history and version ledger. 013 stays
-   **reserved**, not silently renumbered or installed. Do not spoof historical
-   SchemaVersion rows.
-2. Verify complete object definitions, FK/CHECK trust and business constraint
-   behavior—not only creation, object counts, names or enabled trigger state. The new scoped 69-table equality and 010 reason CHECK are stronger evidence but are not proof of all final A+C contracts.
-3. Establish explicitly reviewed minimal reference/configuration seed and
-   nonsecret Visitor/Leader/Admin test identity contract, with no real
-   employee/production credentials.
-4. Exercise necessary RC Browser/API/SQL workflows on **this same genuinely
-   clean-installed DB**: Visitor trips and mileage Google/fallback; independent
-   Leader/Admin review and self-approval denial; Location create/merge;
-   snapshot/audit immutability, cross-org/team/ownership denial and role
-   revocation. Existing separately accepted synthetic test suites cannot be
-   relabeled as clean-build compatibility.
-5. Package exact SQL Server 2022 installation and verification commands,
-   least-privilege runtime SQL grants, source and artifact hashes, and
-   installer recovery/partial failure behavior for independent corporate IT
-   execution. Do not infer Production readiness from Azure test environment.
-
-**Release gate stays HOLD until all above proofs exist.**
-
-## Operational boundary
-
-The job starts one disposable SQL Server 2022 container on
-`localhost,1433` with a run-generated password that is registered for log
-masking before container startup and is not stored in source or the artifact.
-It creates only `FieldVisitV180CleanInstall`, refuses a pre-existing database
-target, drops only the database it created, and explicitly removes the
-container in an always-run cleanup step. The password is not a deployment or
-IT credential.
-
-No Azure connection/wake, real UAT SQL, data deletion, migration, production
-permission change, deployment, feature activation or Business UAT GO is
-authorized by this branch or its CI artifact.
+  the existing source-derived
