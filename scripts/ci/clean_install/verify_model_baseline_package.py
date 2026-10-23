@@ -312,7 +312,7 @@ def main() -> int:
         if not control005_sql.is_file() or not control005_manifest.is_file():
             raise ContractError("SOURCE_005_CONTROLS_MISSING")
         c005 = json.loads(control005_manifest.read_text(encoding="utf-8"))
-        src005 = rc_root / "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql"
+        src005 = args.rc_root / "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql"
         if (c005.get("format") != "field-visit-v180-source-005-controls-v1"
                 or c005.get("rcSourceSha") != EXPECTED_RC
                 or c005.get("sourceSha256") != sha256(src005)
