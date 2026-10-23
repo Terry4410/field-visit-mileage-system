@@ -80,7 +80,7 @@ try
         detectedSqlMajorVersion = Convert.ToInt32(await new SqlCommand(
             "SELECT CONVERT(int, SERVERPROPERTY('ProductMajorVersion'))", master)
             { CommandTimeout = 5 }.ExecuteScalarAsync());
-        if (version != sqlMajorVersion) throw new InvalidOperationException("SQL_VERSION_MISMATCH");
+        if (detectedSqlMajorVersion != sqlMajorVersion) throw new InvalidOperationException("SQL_VERSION_MISMATCH");
         var exists = Convert.ToInt32(await new SqlCommand(
             "SELECT COUNT(*) FROM sys.databases WHERE name=@name", master)
             { CommandTimeout = 5 }.AlsoAdd("@name", databaseName).ExecuteScalarAsync());
