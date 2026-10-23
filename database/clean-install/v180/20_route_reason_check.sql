@@ -10,7 +10,9 @@
 SET XACT_ABORT ON;
 SET NOCOUNT ON;
 
-IF DB_NAME() <> N'OptionCIsolated_FieldVisitV180CleanInstall'
+IF DB_NAME() NOT IN
+   (N'OptionCIsolated_FieldVisitV180CleanInstall',
+    N'OptionCIsolated_FieldVisitV180Replay')
     THROW 56040, N'CLEAN_ROUTE_DISPOSABLE_TARGET_REQUIRED', 1;
 IF OBJECT_ID(N'dbo.RouteCalculationAttempts', N'U') IS NULL
    OR COL_LENGTH(N'dbo.RouteCalculationAttempts', N'CalculationReason') IS NULL
