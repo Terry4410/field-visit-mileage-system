@@ -19,7 +19,7 @@ from pathlib import Path
 from build_effective_triggers import dynamic_statements
 from build_sql_only_tables import RC_SHA, SourceContractError, sha256
 
-RC = RC_SHA
+RC_SHA = RC_SHA
 
 SOURCE = "database/migrations/1800_007_mileage_google_governance/Up.sql"
 TABLES = {
@@ -124,7 +124,7 @@ def build(root: Path, output: Path) -> dict:
     (output / "007_source_checks.sql").write_bytes(data)
     result = {
         "format": "field-visit-v180-source-checks-007-v1",
-        "rcSourceSha": RC,
+        "rcSourceSha": RC_SHA,
         "sourcePath": SOURCE,
         "sourceSha256": sha256(raw),
         "checks": manifest,
@@ -151,7 +151,7 @@ def main() -> int:
         sha = subprocess.check_output(
             ["git", "-C", str(a.rc_root), "rev-parse", "HEAD"],
             text=True, stderr=subprocess.DEVNULL).strip()
-        if sha != RC:
+        if sha != RC_SHA:
             raise SourceContractError("SOURCE_RC_MISMATCH")
         m = build(a.rc_root, a.output)
         if m["sqlSha256"] != sha256((a.output / "007_source_checks.sql").read_bytes()):
