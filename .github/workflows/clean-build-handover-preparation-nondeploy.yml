@@ -256,13 +256,27 @@ jobs:
             optionc-final-target-checks.sql
             40_clean_install_017_capability.sql
           )
+          # SQLCMD's defaults differ from SqlClient. 1934 requires all indexed
+          # view/filter index SET options for *each* fresh sqlcmd connection.
+          session_prologue="$RUNNER_TEMP/fieldvisit-sqlcmd-session-options.sql"
+          cat > "$session_prologue" <<'SQL'
+          SET ANSI_NULLS ON;
+          SET ANSI_PADDING ON;
+          SET ANSI_WARNINGS ON;
+          SET ARITHABORT ON;
+          SET CONCAT_NULL_YIELDS_NULL ON;
+          SET QUOTED_IDENTIFIER ON;
+          SET NUMERIC_ROUNDABORT OFF;
+          GO
+          SQL
           diagnostic_file="$RUNNER_TEMP/fieldvisit-replay-sqlcmd-suppressed.log"
           for file in "${ordered[@]}"; do
             test -s "$CLEAN_INSTALL_OUTPUT_DIR/$file"
-            if ! timeout 60s docker exec -i fieldvisit-clean-install-sql \
-              /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+            if ! { cat "$session_prologue"; cat "$CLEAN_INSTALL_OUTPUT_DIR/$file"; } | \
+              timeout 60s docker exec -i fieldvisit-clean-install-sql \
+              /opt/mssql-tools18/bin/sqlcmd -I -S localhost -U sa \
               -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
-              < "$CLEAN_INSTALL_OUTPUT_DIR/$file" >"$diagnostic_file" 2>&1; then
+              >"$diagnostic_file" 2>&1; then
               # Only a numeric SQL Server Msg code can leave this step.
               # Never print SQL, login, server name, raw provider text or data.
               python3 - "$diagnostic_file" <<'PY'
