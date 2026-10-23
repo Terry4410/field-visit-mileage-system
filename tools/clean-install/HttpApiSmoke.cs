@@ -19,6 +19,10 @@ internal static class CleanInstallHttpProbe
         if (!File.Exists(dll))
             throw new InvalidOperationException("RC_API_COMPILED_BINARY_MISSING");
 
+        // These accounts live only in the very same newly installed disposable DB.
+        // Never substitute an EnsureCreated fixture or a shared/UAT database.
+        var roleActors = await CleanInstallRoleProbe.SeedAsync(sameCleanDbConnection);
+        var demoPassword = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         var hostDir = Path.Combine(rcRoot, "backend", "src", "FieldVisit.Api");
         var start = new ProcessStartInfo
         {
@@ -35,6 +39,7 @@ internal static class CleanInstallHttpProbe
         start.Environment["DOTNET_ENVIRONMENT"] = "Production";
         start.Environment["ConnectionStrings__DefaultConnection"] = sameCleanDbConnection;
         start.Environment["Auth__Mode"] = "Demo";
+        start.Environment["Auth__DemoPassword"] = demoPassword;
         start.Environment["Auth__JwtKey"] = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         start.Environment["BackgroundJobs__WorkerEnabled"] = "false";
         start.Environment["BackgroundJobs__RecoverOnStartup"] = "false";
@@ -101,6 +106,12 @@ internal static class CleanInstallHttpProbe
             using var invalidLeader = await client.SendAsync(request);
             if (invalidLeader.StatusCode != HttpStatusCode.Unauthorized)
                 throw new InvalidOperationException("RC_API_LEADER_INVALID_JWT_NOT_DENIED");
+
+            // Actual test-account login issues the signed RC token from SQL-backed
+            // employment, identity and effective-dated roles. Then real HTTP
+            // checks /me and role-specific denial on the same fresh DB.
+            await CleanInstallRoleProbe.VerifyAsync(
+                client, sameCleanDbConnection, roleActors, demoPassword);
         }
         finally
         {
