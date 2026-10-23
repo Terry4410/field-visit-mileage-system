@@ -785,6 +785,109 @@ try
     await using (var capabilityConnection = new SqlConnection(installBuilder.ConnectionString))
     {
         await capabilityConnection.OpenAsync();
+
+        // 56101 previously hid which 017 facet diverged. Read *only*
+        // catalog booleans on the disposal-only database, never raw metadata,
+        // constraint text, SQL provider messages, or actual rows into CI logs.
+        await using (var facetCommand = new SqlCommand("""
+            WITH expectedColumns(name, type_name, max_length, scale, nullable, identity_column) AS
+            (
+              SELECT * FROM (VALUES
+                (N'ChangeRequestId',N'bigint',8,0,0,0),
+                (N'LocationId',N'int',4,0,0,0),
+                (N'OrganizationId',N'int',4,0,0,0),
+                (N'TeamId',N'int',4,0,0,0),
+                (N'ReservedLocationRowVersion',N'binary',8,0,0,0),
+                (N'ReservationStatus',N'nvarchar',40,0,0,0),
+                (N'CreatedAt',N'datetime2',7,3,0,0),
+                (N'UpdatedAt',N'datetime2',7,3,0,0),
+                (N'RowVersion',N'timestamp',8,0,0,0)
+              ) v(name,type_name,max_length,scale,nullable,identity_column)
+            ),
+            expectedFk(name, parent_column, referenced_table, referenced_column) AS
+            (
+              SELECT * FROM (VALUES
+                (N'FK_OptionC_CreateReservation_Request',N'ChangeRequestId',N'ChangeRequests',N'ChangeRequestId'),
+                (N'FK_OptionC_CreateReservation_Location',N'LocationId',N'Locations',N'LocationId'),
+                (N'FK_OptionC_CreateReservation_Org',N'OrganizationId',N'Organizations',N'OrganizationId'),
+                (N'FK_OptionC_CreateReservation_Team',N'TeamId',N'Teams',N'TeamId')
+              ) v(name,parent_column,referenced_table,referenced_column)
+            )
+            SELECT
+              CASE WHEN (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions)=0 THEN 1 ELSE 0 END,
+              CASE WHEN (SELECT COUNT(*) FROM sys.columns
+                 WHERE object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U'))=9
+                AND (SELECT COUNT(*) FROM expectedColumns e
+                  JOIN sys.columns c ON c.object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
+                    AND c.name=e.name AND TYPE_NAME(c.user_type_id)=e.type_name
+                    AND c.max_length=e.max_length AND c.scale=e.scale
+                    AND c.is_nullable=e.nullable AND c.is_identity=e.identity_column)=9
+                AND NOT EXISTS(SELECT 1 FROM sys.columns
+                  WHERE object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
+                    AND (default_object_id<>0 OR is_computed=1))
+                THEN 1 ELSE 0 END,
+              CASE WHEN EXISTS(SELECT 1 FROM sys.key_constraints kc
+                 JOIN sys.index_columns ic ON ic.object_id=kc.parent_object_id
+                   AND ic.index_id=kc.unique_index_id AND ic.key_ordinal=1
+                 JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+                 WHERE kc.parent_object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
+                   AND kc.type='PK' AND kc.name=N'PK_OptionC_CreateReservation'
+                   AND c.name=N'ChangeRequestId'
+                   AND (SELECT COUNT(*) FROM sys.index_columns x
+                      WHERE x.object_id=kc.parent_object_id AND x.index_id=kc.unique_index_id
+                        AND x.key_ordinal>0)=1) THEN 1 ELSE 0 END,
+              CASE WHEN (SELECT COUNT(*) FROM sys.foreign_keys
+                 WHERE parent_object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U'))=4
+                 AND (SELECT COUNT(*) FROM expectedFk e
+                   JOIN sys.foreign_keys f ON f.name=e.name
+                     AND f.parent_object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
+                     AND f.is_disabled=0 AND f.is_not_trusted=0
+                     AND f.is_not_for_replication=0 AND f.delete_referential_action=0
+                   JOIN sys.foreign_key_columns fc ON fc.constraint_object_id=f.object_id
+                   JOIN sys.columns pc ON pc.object_id=fc.parent_object_id
+                      AND pc.column_id=fc.parent_column_id AND pc.name=e.parent_column
+                   JOIN sys.tables rt ON rt.object_id=fc.referenced_object_id
+                      AND rt.name=e.referenced_table AND SCHEMA_NAME(rt.schema_id)=N'dbo'
+                   JOIN sys.columns rc ON rc.object_id=fc.referenced_object_id
+                      AND rc.column_id=fc.referenced_column_id AND rc.name=e.referenced_column)=4
+                  THEN 1 ELSE 0 END,
+              CASE WHEN EXISTS(SELECT 1 FROM sys.check_constraints
+                 WHERE parent_object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
+                   AND name=N'CK_OptionC_CreateReservation_Status'
+                   AND is_disabled=0 AND is_not_trusted=0 AND definition IS NOT NULL)
+                   THEN 1 ELSE 0 END,
+              CASE WHEN EXISTS(SELECT 1 FROM sys.check_constraints
+                 WHERE parent_object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
+                   AND name=N'CK_OptionC_CreateReservation_Status'
+                   AND is_disabled=0 AND is_not_trusted=0
+                   AND LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                       REPLACE(REPLACE(definition,CHAR(10),N''),CHAR(13),N''),
+                       N'[',N''),N']',N''),N' ',N''),N'(',N''),N')',N''))
+                   IN (N'reservationstatusinn''pending'',n''published'',n''abandoned''',
+                       N'reservationstatus=n''pending''orreservationstatus=n''published''orreservationstatus=n''abandoned'''))
+                  THEN 1 ELSE 0 END,
+              CASE WHEN EXISTS(SELECT 1 FROM sys.indexes i
+                 WHERE i.object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
+                   AND i.name=N'UX_OptionC_CreateReservation_Location'
+                   AND i.is_unique=1 AND i.is_disabled=0 AND i.has_filter=0
+                   AND (SELECT COUNT(*) FROM sys.index_columns ic
+                       WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id
+                         AND ic.key_ordinal>0)=1
+                   AND EXISTS(SELECT 1 FROM sys.index_columns ic
+                     JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+                     WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id
+                       AND ic.key_ordinal=1 AND c.name=N'LocationId'))
+                  THEN 1 ELSE 0 END;
+            """, capabilityConnection) { CommandTimeout = 10 })
+        await using (var facets = await facetCommand.ExecuteReaderAsync())
+        {
+            if (!await facets.ReadAsync()) throw new InvalidOperationException("CREATE_FACET_PROBE_EMPTY");
+            var facetLabels = new[] { "LEDGER", "COLUMNS", "PK", "FOREIGN_KEYS",
+                                      "CHECK_TRUST", "CHECK_DEFINITION", "LOCATION_INDEX" };
+            for (var facet = 0; facet < facetLabels.Length; facet++)
+                if (facets.GetInt32(facet) != 1)
+                    Status("CAPABILITY_017_FACET_" + facetLabels[facet] + "_MISMATCH");
+        }
         await using var prove = new SqlCommand("""
             IF (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions)<>0
                 THROW 56100,N'CLEAN_BASELINE_UNEXPECTED_HISTORY',1;
