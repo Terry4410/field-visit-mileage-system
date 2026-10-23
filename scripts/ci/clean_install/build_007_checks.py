@@ -19,6 +19,8 @@ from pathlib import Path
 from build_effective_triggers import dynamic_statements
 from build_sql_only_tables import RC_SHA, SourceContractError, sha256
 
+RC = RC_SHA
+
 SOURCE = "database/migrations/1800_007_mileage_google_governance/Up.sql"
 TABLES = {
     "GeocodingAttempts": (
