@@ -142,6 +142,43 @@ try
             !installedColumns.TryGetValue(pair.Key, out var actual) || !pair.Value.SetEquals(actual)))
         throw new InvalidOperationException("COLUMN_PARITY_FAIL");
 
+    // New consolidated clean-install version ledger, not a replay of original
+    // historical migration versions. Leave it EMPTY until final target-state
+    // acceptance; never fabricate 001–020 applied markers for a fresh build.
+    if (expectedTables.Contains("SchemaVersions", StringComparer.Ordinal))
+        throw new InvalidOperationException("LEDGER_MODEL_SOURCE_COLLISION");
+    var ledgerSqlPath = Path.GetFullPath(
+        Path.Combine("database", "clean-install", "v180", "00_schema_versions.sql"));
+    if (!File.Exists(ledgerSqlPath))
+        throw new InvalidOperationException("CLEAN_LEDGER_SOURCE_MISSING");
+    var ledgerSqlBytes = await File.ReadAllBytesAsync(ledgerSqlPath);
+    var ledgerSqlSha = Convert.ToHexString(SHA256.HashData(ledgerSqlBytes)).ToLowerInvariant();
+    await using (var ledgerConnection = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await ledgerConnection.OpenAsync();
+        await using var createLedger = new SqlCommand(Encoding.UTF8.GetString(ledgerSqlBytes), ledgerConnection)
+        { CommandTimeout = 30 };
+        await createLedger.ExecuteNonQueryAsync();
+        var ledgerColumns = new HashSet<string>(StringComparer.Ordinal);
+        await using (var columns = new SqlCommand("""
+            SELECT name FROM sys.columns
+            WHERE object_id=OBJECT_ID(N'dbo.SchemaVersions', N'U');
+            """, ledgerConnection) { CommandTimeout = 10 })
+        await using (var reader = await columns.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+                ledgerColumns.Add(reader.GetString(0));
+        }
+        if (!ledgerColumns.SetEquals(new[]
+            { "VersionNumber", "Description", "AppliedAt", "AppliedBy" }))
+            throw new InvalidOperationException("CLEAN_LEDGER_COLUMN_SHAPE");
+        await using var emptyLedger = new SqlCommand(
+            "SELECT COUNT_BIG(*) FROM dbo.SchemaVersions", ledgerConnection)
+        { CommandTimeout = 10 };
+        if (Convert.ToInt64(await emptyLedger.ExecuteScalarAsync()) != 0)
+            throw new InvalidOperationException("CLEAN_LEDGER_FAKE_HISTORY");
+    }
+
     // Install only the seven SQL-only table definitions proven by the pinned
     // 1800_001/006 source. This is NOT complete A+C/trigger/schema parity.
     var sqlOnlySqlPath = Path.Combine(output, "sql-only-core-tables.sql");
@@ -427,6 +464,8 @@ try
         appDbContextSha256 = appDbContextSha,
         generatedSqlSha256 = scriptSha,
         sqlOnlyTableSqlSha256 = sqlOnlyHash,
+        newSchemaVersionLedgerSha256 = ledgerSqlSha,
+        versionLedgerStatus = "EMPTY_NEW_BASELINE_NO_HISTORICAL_MARKERS",
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
         installedEffectiveTriggerCount = installedTriggers.Count,
@@ -449,6 +488,7 @@ try
     Status("EF_TABLE_COLUMN_PARITY_PASS");
     Status("MODEL_DDL_CONSTRAINT_TRUST_STATE_PASS");
     Status("EF_SYNTHETIC_WRITE_ROLLBACK_PASS");
+    Status("EMPTY_NEW_SCHEMA_VERSION_LEDGER_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
