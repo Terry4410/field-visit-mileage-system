@@ -33,18 +33,6 @@ IF EXISTS (
 )
     THROW 56042, N'CLEAN_ROUTE_PREEXISTING_CHECK_REQUIRES_REVIEW', 1;
 
--- Final 1.8.0-009 allows one-stop route attempts; the original 007
--- StopCount>=2 rule is intentionally superseded, never installed.
-IF OBJECT_ID(N'dbo.CK_RouteCalculationAttempts_StopCount', N'C') IS NOT NULL
-    THROW 56043, N'CLEAN_STOPCOUNT_EXISTING_CONSTRAINT_REQUIRES_REVIEW', 1;
-
-ALTER TABLE dbo.RouteCalculationAttempts WITH CHECK ADD
-    CONSTRAINT CK_RouteCalculationAttempts_StopCount
-    CHECK (StopCount >= 1);
-
-ALTER TABLE dbo.RouteCalculationAttempts
-    CHECK CONSTRAINT CK_RouteCalculationAttempts_StopCount;
-
 ALTER TABLE dbo.RouteCalculationAttempts WITH CHECK ADD
     CONSTRAINT CK_RouteCalculationAttempts_Basis
     CHECK (
