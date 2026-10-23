@@ -190,6 +190,35 @@ def main() -> int:
                 raise ContractError("EFFECTIVE_TRIGGER_SOURCE_PATH")
             if sha256(args.rc_root / path) != source.get("sha256"):
                 raise ContractError("EFFECTIVE_TRIGGER_SOURCE_HASH")
+        candidate_sql = args.output / "optionc-sql-only-candidates.sql"
+        candidate_path = args.output / "optionc-sql-only-candidates-manifest.json"
+        if not candidate_sql.is_file() or not candidate_path.is_file():
+            raise ContractError("OPTIONC_CANDIDATE_LAYER_MISSING")
+        candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+        if (candidate.get("format") != "field-visit-v180-optionc-sql-only-table-probe-v1"
+                or candidate.get("rcSourceSha") != EXPECTED_RC
+                or candidate.get("disposableCandidateTableCount") != 4
+                or candidate.get("sqlSha256") != sha256(candidate_sql)):
+            raise ContractError("OPTIONC_CANDIDATE_MANIFEST_INVALID")
+        expected_candidates = {
+            "dbo.LocationPublicationStages", "dbo.LocationPublishedVersions",
+            "dbo.LocationCreateReservations", "dbo.LocationMergeDetails"
+        }
+        cand_objects = candidate.get("objects")
+        if not isinstance(cand_objects, list) or len(cand_objects) != 4:
+            raise ContractError("OPTIONC_CANDIDATE_NAMES")
+        if {x.get("name") for x in cand_objects} != expected_candidates:
+            raise ContractError("OPTIONC_CANDIDATE_OBJECT_SET")
+        for item in cand_objects:
+            path = item.get("sourcePath", "")
+            if (not isinstance(path, str) or
+                    not re.fullmatch(
+                        r"docs/release/optionc-canonical-sql-draft/candidate/1800_0(?:14|17|19)/Up\.sql", path)):
+                raise ContractError("OPTIONC_CANDIDATE_SOURCE_PATH")
+            if sha256(args.rc_root / path) != item.get("sourceSha256"):
+                raise ContractError("OPTIONC_CANDIDATE_SOURCE_HASH")
+            if item.get("scope") != "DISPOSABLE_CANDIDATE_NOT_APPROVED_FINAL_SCHEMA":
+                raise ContractError("OPTIONC_CANDIDATE_UNSAFE_SCOPE")
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ContractError):
         print("CLEAN_INSTALL_PACKAGE=FAIL_CLOSED")
         return 1
@@ -198,7 +227,8 @@ def main() -> int:
     print(f"SQL_TRIGGER_DEFINITIONS={result['triggerDefinitionCount']}")
     print("SQL_ONLY_CORE_TABLE_PACKAGE=PASS")
     print("EFFECTIVE_TRIGGER_PACKAGE=PASS")
-    print("FULL_CLEAN_INSTALL=HOLD_OPTIONC_AND_APP_COMPATIBILITY")
+    print("OPTIONC_CANDIDATE_TABLE_PACKAGE=PASS")
+    print("FULL_CLEAN_INSTALL=HOLD_OPTIONC_FINAL_OBJECTS_AND_APP_COMPATIBILITY")
     return 0
 
 
