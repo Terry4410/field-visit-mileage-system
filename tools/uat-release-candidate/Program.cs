@@ -1,0 +1,114 @@
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using FieldVisit.Infrastructure;
+using Microsoft.Data.SqlClient;
+
+var stage="INIT";
+Process? app=null;
+try
+{
+ var output=Environment.GetEnvironmentVariable("RELEASE_OUTPUT")!;
+ var apiRoot=Environment.GetEnvironmentVariable("RELEASE_API_ROOT")!;
+ var password=Environment.GetEnvironmentVariable("CLEAN_INSTALL_SQL_PASSWORD")!;
+ var admin=new SqlConnectionStringBuilder {DataSource="localhost,1433",InitialCatalog="OptionCIsolated_FieldVisitV180CleanInstall",UserID="sa",Password=password,Encrypt=false,TrustServerCertificate=true,Pooling=false}.ConnectionString;
+ stage="FINAL_CAPABILITIES";
+ await using(var sql=new SqlConnection(admin))
+ {
+  await sql.OpenAsync();
+  await using(var command=new SqlCommand(File.ReadAllText(Path.Combine(output,"60_final_functional_capabilities.sql")),sql){CommandTimeout=30}) await command.ExecuteNonQueryAsync();
+  var catalog=V180UatReleaseTrust.CatalogJson(sql);
+  File.WriteAllText(Path.Combine(output,"schema-contract.json"),catalog);
+  var binding=new {candidateSourceSha=UatReleaseIdentity.SourceSha,apiSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(apiRoot,"FieldVisit.Api.dll"))),frontendSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(output,"frontend-release-candidate.zip"))),schemaSha256=V180UatReleaseTrust.Hash(Encoding.UTF8.GetBytes(catalog))};
+  File.WriteAllText(Path.Combine(apiRoot,"release-contract.json"),JsonSerializer.Serialize(binding));
+  File.WriteAllText(Path.Combine(output,"release-contract.json"),JsonSerializer.Serialize(binding));
+ }
+ Console.WriteLine("UAT_RC=FINAL_018_020_SOURCE_PREDICATES_CAPABILITIES_PASS");
+ stage="TRUST_CONTRACT";
+ var now=DateTimeOffset.UtcNow;
+ var hash=new string('a',64);var key=RandomNumberGenerator.GetBytes(32);
+ var facts=new V180UatReleaseTrust.Facts(UatReleaseIdentity.SourceSha,hash,hash,hash,hash,"runtime",V180UatReleaseTrust.Server,V180UatReleaseTrust.Database,5,true,true,V180UatReleaseTrust.Features);
+ var attestation=new V180UatReleaseTrust.Attestation(facts.CandidateSourceSha,hash,hash,hash,hash,"runtime",facts.Server,facts.Database,facts.Features,now.AddMinutes(-1),now.AddHours(1));
+ var payload=JsonSerializer.SerializeToUtf8Bytes(attestation,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+ var signature=Convert.ToHexString(HMACSHA256.HashData(key,payload));
+ V180UatReleaseTrust.Validate(payload,signature,key,facts,now);
+ var negatives=new [] { facts with {Server="unknown"},facts with {Database="production"},facts with {EngineEdition=3},facts with {EncryptedCertificateVerified=false},facts with {NonOwnerNoDdl=false},facts with {ApiSha256=new string('b',64)},facts with {FrontendSha256=new string('b',64)},facts with {SchemaSha256=new string('b',64)},facts with {PrincipalSidSha256=new string('b',64)},facts with {PrincipalName="dbo"},facts with {CandidateSourceSha=new string('b',40)},facts with {Features="all"}};
+ foreach(var bad in negatives) ExpectDenied(()=>V180UatReleaseTrust.Validate(payload,signature,key,bad,now));
+ ExpectDenied(()=>V180UatReleaseTrust.Validate(payload,signature,key,facts,now.AddHours(2)));
+ ExpectDenied(()=>V180UatReleaseTrust.Validate(payload,new string('0',64),key,facts,now));
+ ExpectDenied(()=>V180UatReleaseTrust.Validate(payload,signature,RandomNumberGenerator.GetBytes(32),facts,now));
+ Console.WriteLine("UAT_RC=SIGNED_TRUST_CONTRACT_POSITIVE_AND_15_DENIALS_PASS");
+ stage="ACCEPTED_FIXTURE_SETUP";
+ var actors=await CleanInstallRoleProbe.SeedAsync(admin);
+ var fixture=await CleanInstallBusinessProbe.SeedAsync(admin,actors);
+ var demo=Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+ var runtimePass="Aa7!"+Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+ await using(var sql=new SqlConnection(admin))
+ {
+  await sql.OpenAsync();
+  await using var cmd=new SqlCommand($"""
+    CREATE LOGIN [release_runtime] WITH PASSWORD=N'{runtimePass}', CHECK_POLICY=ON;
+    CREATE USER [release_runtime] FOR LOGIN [release_runtime];
+    GRANT CONNECT TO [release_runtime];
+    DECLARE @permissions nvarchar(max)=N'';
+    SELECT @permissions=@permissions+N'GRANT SELECT,INSERT,UPDATE,DELETE,VIEW DEFINITION ON OBJECT::dbo.'+QUOTENAME(name)+N' TO [release_runtime];' FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo');
+    EXEC sys.sp_executesql @permissions;
+    DENY INSERT,UPDATE,DELETE ON OBJECT::dbo.SchemaVersions TO [release_runtime];
+    DENY INSERT,UPDATE,DELETE ON OBJECT::dbo.SchemaMigrationDataBaselines TO [release_runtime];
+    """,sql){CommandTimeout=10}; await cmd.ExecuteNonQueryAsync();
+ }
+ var runtime=new SqlConnectionStringBuilder(admin){UserID="release_runtime",Password=runtimePass};
+ var start=new ProcessStartInfo("dotnet"){WorkingDirectory=apiRoot,UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};start.ArgumentList.Add(Path.Combine(apiRoot,"FieldVisit.Api.dll"));
+ foreach(var pair in new Dictionary<string,string> {
+  ["ASPNETCORE_URLS"]="http://127.0.0.1:18376",["ASPNETCORE_ENVIRONMENT"]="Production",["DOTNET_ENVIRONMENT"]="Production",
+  ["ConnectionStrings__DefaultConnection"]=runtime.ConnectionString,["Auth__Mode"]="Demo",["Auth__DemoPassword"]=demo,["Auth__JwtKey"]=Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+  ["BackgroundJobs__WorkerEnabled"]="false",["BackgroundJobs__RecoverOnStartup"]="false",["OptionC__Candidate__Enabled"]="true",["OPTIONC_EXECUTION_MODE"]="IsolatedSqlTest",
+  ["Providers__Route"]="Google",["GoogleMaps__ApiKey"]="SYNTHETIC_OFFLINE",["GoogleMaps__RoutesBaseUrl"]="http://127.0.0.1:1",["Logging__LogLevel__Default"]="Critical"}) start.Environment[pair.Key]=pair.Value;
+ app=Process.Start(start) ?? throw new InvalidOperationException("API_START"); app.OutputDataReceived+=(_,_)=>{};app.ErrorDataReceived+=(_,_)=>{};app.BeginOutputReadLine();app.BeginErrorReadLine();
+ stage="BROWSER_SQL";
+ using(var client=new HttpClient()){bool ready=false;for(var i=0;i<80;i++){try{if((await client.GetAsync("http://127.0.0.1:18376/health/ready")).IsSuccessStatusCode){ready=true;break;}}catch(HttpRequestException){}await Task.Delay(250);}if(!ready)throw new InvalidOperationException("API_READY");}
+ string teamCode,locationCode;
+ await using(var lookup=new SqlConnection(admin)) {
+  await lookup.OpenAsync();
+  await using var teamLookup=new SqlCommand("SELECT TeamCode FROM dbo.Teams WHERE TeamId=@id",lookup);teamLookup.Parameters.AddWithValue("@id",fixture.TeamId);teamCode=(string)(await teamLookup.ExecuteScalarAsync())!;
+  await using var locationLookup=new SqlCommand("SELECT LocationCode FROM dbo.Locations WHERE LocationId=@id",lookup);locationLookup.Parameters.AddWithValue("@id",fixture.LocationId);locationCode=(string)(await locationLookup.ExecuteScalarAsync())!;
+ }
+ var node=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_BINARY")??"node"){UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};node.ArgumentList.Add(Path.GetFullPath("tools/uat-release-candidate/browser.mjs"));
+ node.Environment["RELEASE_FIXTURE"]=JsonSerializer.Serialize(new {actors=actors.ToDictionary(x=>x.Role,x=>new{account=x.Account,id=x.UserId}),password=demo,teamCode,locationCode,fixture.TeamId,fixture.OtherTeamId,fixture.LocationId});
+ using(var browser=Process.Start(node)??throw new InvalidOperationException("BROWSER_START"))
+ {
+  var stdout=browser.StandardOutput.ReadToEndAsync();var stderr=browser.StandardError.ReadToEndAsync();
+  using var deadline=new CancellationTokenSource(TimeSpan.FromMinutes(5));
+  try{await browser.WaitForExitAsync(deadline.Token);}catch{browser.Kill(true);throw;}
+  var result=(await stdout).Trim();await stderr;
+  if(browser.ExitCode!=0){Console.WriteLine(System.Text.RegularExpressions.Regex.IsMatch(result,@"\AUAT_RC_BROWSER_FAIL_[A-Z0-9_]+\z")?result:"UAT_RC_BROWSER_FAIL_SUPPRESSED");throw new InvalidOperationException("BROWSER_FAILURE");}
+  var evidence=JsonDocument.Parse(result);File.WriteAllText(Path.Combine(output,"browser-evidence.json"),evidence.RootElement.GetRawText());
+ }
+ stage="SQL_POSTCONDITIONS";
+ await using(var sql=new SqlConnection(admin))
+ {
+  await sql.OpenAsync();
+  await using var cmd=new SqlCommand("""
+   SELECT CASE WHEN
+    EXISTS(SELECT 1 FROM dbo.ChangeRequestEvents WHERE EventType=N'DirectLowRiskApplied')
+    AND EXISTS(SELECT 1 FROM dbo.AuditLogs WHERE Action=N'LocationLowRiskDirectApplied')
+    AND EXISTS(SELECT 1 FROM dbo.ChangeRequests WHERE OperationCode=N'UpdatePublishedLocation' AND RiskCode=N'Low' AND Status=N'Applied' AND ReviewedByUserId IS NULL)
+    AND EXISTS(SELECT 1 FROM dbo.ImportBatchItems WHERE Status=N'SubmittedForReview')
+    AND (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
+    AND NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber LIKE N'1.8.0-0%')
+    THEN 1 ELSE 0 END;
+   """,sql){CommandTimeout=10};
+  if(Convert.ToInt32(await cmd.ExecuteScalarAsync())!=1)throw new InvalidOperationException("FEATURE_SQL_POSTCONDITION");
+ }
+ Console.WriteLine("UAT_RC=BROWSER_THREE_ROLE_LOWRISK_EXCEL_AND_SQL_POSTCONDITIONS_PASS");
+ return 0;
+}
+catch(Exception e)
+{
+ Console.WriteLine("UAT_RC=FAIL_AT_"+stage);
+ if(e is SqlException sql) Console.WriteLine("UAT_RC=SQL_NUMBER_"+Math.Abs(sql.Number));
+ return 1;
+}
+finally{if(app is not null&&!app.HasExited){app.Kill(true);app.WaitForExit(5000);}}
+static void ExpectDenied(Action action){try{action();}catch(InvalidOperationException){return;}throw new InvalidOperationException("TRUST_ACCEPTED_INVALID_PROOF");}
