@@ -1,31 +1,23 @@
-name: G1-A Azure UAT ARM metadata-only one-time verification
-
-# Reuses an existing GitHub Actions workflow PATH registered on the default
-# branch; ONLY the reviewed protected-branch push may access UAT management.
-# Never use the old manual smoke workflow from main for this G1-A authorization.
+name: G1-B one-time actual UAT010 SQL metadata SELECT (Owner authorized)
+# Existing workflow path registered on repository default branch. Do NOT alter main.
 on:
   pull_request:
     branches: [post-uat/v1.8.0]
     paths:
       - .github/workflows/azure-oidc-uat-smoke.yml
-      - scripts/ci/g1_arm_management_only.py
-      - scripts/ci/test_g1_arm_management_only.py
+      - .github/workflows/g1b-private-uat010-once.yml
+      - scripts/ci/g1b_uat010_metadata_once.sql
+      - scripts/ci/g1b_uat010_metadata_once.ps1
+      - scripts/ci/test_g1b_uat010_metadata_once.py
   push:
     branches: [post-uat/v1.8.0]
     paths:
       - .github/workflows/azure-oidc-uat-smoke.yml
-
 permissions:
   contents: read
 concurrency:
-  group: g1a-20261023-fixed-management-read
+  group: g1b-20261023-uat010-one-connection
   cancel-in-progress: false
-
-env:
-  AZURE_CORE_OUTPUT: none
-  AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
-  PYTHONDONTWRITEBYTECODE: '1'
-
 jobs:
   offline-contract:
     if: github.event_name == 'pull_request'
@@ -35,32 +27,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: G1-A fixed ARM allowlist, target, privacy and STOP tests (NO Azure)
-        run: python3 -m unittest -q scripts/ci/test_g1_arm_management_only.py
-      - name: Validate action/verb source boundary (NO Azure)
+      - name: G1-B strict offline safety and source checks
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1b_uat010_metadata_once.py
           python3 - <<'PY'
           from pathlib import Path
-          t=Path('.github/workflows/azure-oidc-uat-smoke.yml').read_text()
-          assert "github.event_name == 'pull_request'" in t
-          assert "github.event_name == 'push'" in t
-          assert 'g1a-management-read-once-20261023' in t
-          assert 'r3_login_privacy.py' in t
-          assert 'azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6' in t
-          for forbidden in ('Invoke'+'-Sqlcmd','azure/'+'webapps-deploy','actions/'+'deploy-pages',
-                            'az '+'sql','az '+'webapp', 'sql'+'cmd','actions/'+'upload-artifact',
-                            'curl -X '+'POST','pull_request_'+'target:', 'contents:'+' write',
-                            'secrets:'+' inherit'):
-            assert forbidden not in t, 'unsafe interface'
-          print('G1AWorkflowStatic=PASS; Identity=NOT_ACCESSED;')
+          c=Path('.github/workflows/azure-oidc-uat-smoke.yml').read_text()
+          p=Path('.github/workflows/g1b-private-uat010-once.yml').read_text()
+          assert 'g1b-sql-select-once-20261023' in c
+          assert "github.event_name == 'push'" in c
+          assert 'workflow_call:' in p and 'secrets:' in p
+          assert 'secrets.client' in p and 'secrets.tenant' in p and 'secrets.subscription' in p
+          assert ('R3_CLIENT_ID: ' + '$' + '{{ secrets.client }}') in p
+          for code in (c,p):
+            for forbid in ('azure/'+'webapps-deploy','actions/'+'deploy-pages','Invoke-'+'Sqlcmd','az '+'sql db resume','secrets: '+'inherit','pull_request_'+'target:', 'contents:'+' write'):
+              assert forbid not in code, 'unsafe source'
+          assert p.count('g1b_uat010_metadata_once.ps1')==1
+          print('G1BOfflineSafety=PASS; SQL=NOT_EXECUTED; Azure=NOT_ACCESSED;')
           PY
-
   source-guard:
-    # A squash-merge of the exact three-file PR produces ONE trusted push event.
-    # All other pushes and every pull_request event skip this job completely.
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'g1a-management-read-once-20261023')
+    # Only one reviewed SHA guarded squash merge may start an Azure job.
+    if: github.event_name == 'push' && github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'g1b-sql-select-once-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -69,64 +58,54 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 2
           persist-credentials: false
-      - name: Review exact protected parent, event, diff and Git blobs before OIDC
+      - name: Exact SHA parent, commit title, five-file boundary and source pins
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = 'Terry4410/field-visit-mileage-system'
           test "$GITHUB_REF" = 'refs/heads/post-uat/v1.8.0'
-          test "$GITHUB_EVENT_NAME" = 'push'
+          test "${GITHUB_RUN_ATTEMPT}" = '1'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = 'd150f6078aa36528ea43e5e35ad9d84fd568a364'
-          test "$(git log -1 --format=%s)" = 'g1a-management-read-once-20261023'
-          test "$(git hash-object scripts/ci/g1_arm_management_only.py)" = 'c934e27e5c6b5b3fc7082a174f635df6a7ab2581'
-          test "$(git hash-object scripts/ci/test_g1_arm_management_only.py)" = '5279c6766a7c4c0eb4152aa818d27bf14747fa32'
-          expected=$'.github/workflows/azure-oidc-uat-smoke.yml\nscripts/ci/g1_arm_management_only.py\nscripts/ci/test_g1_arm_management_only.py'
+          test "$(git rev-parse HEAD^)" = '2a8908e32b25916207a86b6529d9d2b2717cf38e'
+          test "$(git log -1 --format=%s)" = 'g1b-sql-select-once-20261023'
+          expected=$'.github/workflows/azure-oidc-uat-smoke.yml\n.github/workflows/g1b-private-uat010-once.yml\nscripts/ci/g1b_uat010_metadata_once.ps1\nscripts/ci/g1b_uat010_metadata_once.sql\nscripts/ci/test_g1b_uat010_metadata_once.py'
           test "$(git diff --name-only HEAD^ HEAD)" = "$expected"
+          test "$(git hash-object scripts/ci/g1b_uat010_metadata_once.sql)" = 'd2661d72eda502cd998268634705dfa54d8a64fc'
+          test "$(git hash-object scripts/ci/g1b_uat010_metadata_once.ps1)" = 'ae54042cdcab4976f6686daa34fb75de25d53814'
+          test "$(git hash-object scripts/ci/test_g1b_uat010_metadata_once.py)" = '1ac998cb8679fb33595d0ee54d4ca60c1aee6853'
+          test "$(git hash-object .github/workflows/g1b-private-uat010-once.yml)" = '62f4e0aa2bc80812ea41fc41fde0b43b8823e18c'
           test "${RUNNER_DEBUG:-}" != '1'
-          test -z "${UAT_SQL_CONNECTION:-}"
-          test -z "${PRODUCTION_SQL_CONNECTION:-}"
-          python3 -m unittest -q scripts/ci/test_g1_arm_management_only.py
-          echo 'G1ASourceGuard=PASS; SQL=NOT_ACCESSED; Management=NOT_ACCESSED;'
-
-  management-only:
+          python3 -m unittest -q scripts/ci/test_g1b_uat010_metadata_once.py
+          echo 'G1BSourceGuard=PASS; SQL=NOT_ACCESSED; Azure=NOT_ACCESSED;'
+  identity:
+    needs: source-guard
     if: github.event_name == 'push'
-    needs: [source-guard]
     runs-on: ubuntu-latest
     environment: uat
-    timeout-minutes: 10
+    timeout-minutes: 2
     permissions:
-      contents: read
-      id-token: write
+      contents: none
+    outputs:
+      client: ${{ job.status == 'success' && vars.AZURE_CLIENT_ID || '' }}
+      tenant: ${{ job.status == 'success' && vars.AZURE_TENANT_ID || '' }}
+      subscription: ${{ job.status == 'success' && vars.AZURE_SUBSCRIPTION_ID || '' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Register existing UAT OIDC masks before authentication
-        env:
-          R3_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          R3_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          R3_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-        run: python3 scripts/ci/r3_login_privacy.py
-      - name: Authenticate with accepted existing UAT OIDC (NO Azure resource changes)
-        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: At most six allowlisted Azure ARM GET, no SQL or raw response output
-        env:
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          AZURE_RESOURCE_GROUP: rg-fieldvisit-uat
-          AZURE_SQL_SERVER_NAME: sql-fieldvisit-jpe-uat
-          AZURE_SQL_DATABASE: db-fieldvisit-uat
+      - name: Identity handoff only, no echo of raw vars
         shell: bash
         run: |
           set -euo pipefail
-          timeout --signal=TERM --kill-after=5s 480s python3 scripts/ci/g1_arm_management_only.py
-      - name: Logout of Azure and clear ephemeral identity
-        if: always()
-        shell: bash
-        run: |
-          az logout --output none 2>/dev/null || true
+          test "${RUNNER_DEBUG:-}" != '1'
+          echo 'G1BIdentity=READY; Details=SUPPRESSED; Azure=NOT_ACCESSED;'
+  sql-one-shot:
+    needs: [source-guard, identity]
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/g1b-private-uat010-once.yml
+    with:
+      source_sha: ${{ github.sha }}
+    secrets:
+      client: ${{ needs.identity.outputs.client }}
+      tenant: ${{ needs.identity.outputs.tenant }}
+      subscription: ${{ needs.identity.outputs.subscription }}

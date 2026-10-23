@@ -1,0 +1,78 @@
+name: G1-B private UAT010 one-connection SELECT-only runner
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+    secrets:
+      client:
+        required: true
+      tenant:
+        required: true
+      subscription:
+        required: true
+permissions:
+  contents: read
+jobs:
+  one-sql-read:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/post-uat/v1.8.0' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CORE_OUTPUT: none
+      AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
+      G1B_SERVER: sql-fieldvisit-jpe-uat.database.windows.net
+      G1B_DATABASE: db-fieldvisit-uat
+      G1B_EXPECTED_SOURCE: ${{ inputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fail closed source and static tests before Azure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$G1B_EXPECTED_SOURCE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "${RUNNER_DEBUG:-}" != '1'
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          python3 -m unittest -q scripts/ci/test_g1b_uat010_metadata_once.py
+          echo 'G1BPrivateSource=PASS; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;'
+      # Proven reusable-workflow secrets boundary from original R3 run 39233612142.
+      # Unlike G1-A, never map raw GitHub vars to step env before mask registration.
+      - name: Register masks from already-masked workflow_call secrets
+        shell: bash
+        env:
+          R3_CLIENT_ID: ${{ secrets.client }}
+          R3_TENANT_ID: ${{ secrets.tenant }}
+          R3_SUBSCRIPTION_ID: ${{ secrets.subscription }}
+        run: python3 scripts/ci/r3_login_privacy.py
+      - name: Authenticate with existing authorized UAT OIDC identity
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ secrets.client }}
+          tenant-id: ${{ secrets.tenant }}
+          subscription-id: ${{ secrets.subscription }}
+      - name: Install approved SQL client module (does not open SQL)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try { Install-Module -Name SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Repository PSGallery -Force -AllowClobber -ErrorAction Stop | Out-Null }
+          catch { Write-Output 'G1B=STOP; Stage=CLIENT_SETUP; Details=SUPPRESSED; SQL=NOT_ACCESSED;'; exit 1 }
+      - name: Exactly one source-fixed SQL read, one connection, no retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 450s pwsh -NoProfile -NonInteractive -File scripts/ci/g1b_uat010_metadata_once.ps1
+      - name: Logout and clear Azure credentials
+        if: always()
+        shell: bash
+        run: az logout --output none 2>/dev/null || true
