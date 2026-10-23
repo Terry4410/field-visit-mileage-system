@@ -69,6 +69,41 @@ SELECT
  WHERE ss.name=N'dbo' AND pt.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
  N'GeocodingAttempts',N'RouteCalculationAttempts')
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS CheckJson,
+(SELECT sch.name AS SchemaName,t.name AS TableName,i.name AS IndexName,
+ (SELECT STRING_AGG(CONVERT(nvarchar(max),c.name + N':' +
+     CASE WHEN ic.is_descending_key=1 THEN N'DESC' ELSE N'ASC' END),N',')
+     WITHIN GROUP (ORDER BY ic.key_ordinal)
+  FROM sys.index_columns ic JOIN sys.columns c
+    ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+  WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id
+    AND ic.key_ordinal>0 AND ic.is_included_column=0) AS KeyColumns,
+ COALESCE((SELECT STRING_AGG(CONVERT(nvarchar(max),c.name),N',')
+     WITHIN GROUP (ORDER BY c.name)
+  FROM sys.index_columns ic JOIN sys.columns c
+    ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+  WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id
+    AND ic.is_included_column=1),N'') AS IncludeColumns,
+ CONVERT(bit,i.is_unique) AS IsUnique,
+ CONVERT(bit,i.is_primary_key) AS IsPrimaryKey,
+ CONVERT(bit,i.is_unique_constraint) AS IsUniqueConstraint,
+ CONVERT(bit,i.is_disabled) AS IsDisabled,
+ CONVERT(bit,i.has_filter) AS HasFilter,
+ i.filter_definition AS FilterDefinition
+ FROM sys.indexes i JOIN sys.tables t ON t.object_id=i.object_id
+ JOIN sys.schemas sch ON sch.schema_id=t.schema_id
+ WHERE sch.name=N'dbo' AND i.index_id>0 AND i.is_hypothetical=0
+  AND t.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
+                N'GeocodingAttempts',N'RouteCalculationAttempts')
+ FOR JSON PATH,INCLUDE_NULL_VALUES) AS IndexJson,
+(SELECT sch.name AS SchemaName,t.name AS TableName,c.name AS ColumnName,
+ d.name AS DefaultName,d.definition AS Definition
+ FROM sys.default_constraints d
+ JOIN sys.tables t ON t.object_id=d.parent_object_id
+ JOIN sys.schemas sch ON sch.schema_id=t.schema_id
+ JOIN sys.columns c ON c.object_id=d.parent_object_id AND c.column_id=d.parent_column_id
+ WHERE sch.name=N'dbo' AND t.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
+                                   N'GeocodingAttempts',N'RouteCalculationAttempts')
+ FOR JSON PATH,INCLUDE_NULL_VALUES) AS DefaultJson,
 CASE WHEN EXISTS(
  SELECT 1 FROM sys.check_constraints ch
  WHERE ch.parent_object_id=OBJECT_ID(N'dbo.RouteCalculationAttempts')
@@ -80,27 +115,35 @@ CASE WHEN EXISTS(
         $cmd=$Connection.CreateCommand()
         $cmd.CommandText=$commandText;$cmd.CommandTimeout=30
         $reader=$cmd.ExecuteReader()
-        if(-not $reader.Read() -or $reader.FieldCount -ne 5 -or
+        if(-not $reader.Read() -or $reader.FieldCount -ne 7 -or
            $reader.GetName(0) -cne 'TriggerJson' -or
            $reader.GetName(1) -cne 'ColumnJson' -or
            $reader.GetName(2) -cne 'ForeignKeyJson' -or
            $reader.GetName(3) -cne 'CheckJson' -or
-           $reader.GetName(4) -cne 'ReasonCheck' -or
+           $reader.GetName(4) -cne 'IndexJson' -or
+           $reader.GetName(5) -cne 'DefaultJson' -or
+           $reader.GetName(6) -cne 'ReasonCheck' -or
            $reader.IsDBNull(0) -or $reader.IsDBNull(1) -or $reader.IsDBNull(2) -or
-           $reader.IsDBNull(3) -or $reader.IsDBNull(4)){return 'STOP'}
+           $reader.IsDBNull(3) -or $reader.IsDBNull(4) -or $reader.IsDBNull(5) -or
+           $reader.IsDBNull(6)){return 'STOP'}
         $rawJson=$reader.GetString(0)
         $columnJson=$reader.GetString(1)
         $fkJson=$reader.GetString(2)
         $ckJson=$reader.GetString(3)
-        $reason=$reader.GetString(4)
+        $idxJson=$reader.GetString(4)
+        $defaultJson=$reader.GetString(5)
+        $reason=$reader.GetString(6)
         if($rawJson.Length -gt 220000 -or $columnJson.Length -gt 100000 -or
            $fkJson.Length -gt 100000 -or $ckJson.Length -gt 100000 -or
+           $idxJson.Length -gt 100000 -or $defaultJson.Length -gt 40000 -or
            $reason -cnotin @('PASS','UNKNOWN')){return 'STOP'}
         if($reader.Read() -or $reader.NextResult()){return 'STOP'}
         $parsed=$rawJson|ConvertFrom-Json -Depth 20
         $parsedColumns=$columnJson|ConvertFrom-Json -Depth 20
         $parsedFks=$fkJson|ConvertFrom-Json -Depth 20
         $parsedChecks=$ckJson|ConvertFrom-Json -Depth 20
+        $parsedIndexes=$idxJson|ConvertFrom-Json -Depth 20
+        $parsedDefaults=$defaultJson|ConvertFrom-Json -Depth 20
         $actual=[ordered]@{
           ContractVersion='g1-pre010-private-observed-v1'
           SourceSha=$SourceSha
@@ -112,6 +155,8 @@ CASE WHEN EXISTS(
           Columns=@($parsedColumns)
           ForeignKeys=@($parsedFks)
           Checks=@($parsedChecks)
+          Indexes=@($parsedIndexes)
+          Defaults=@($parsedDefaults)
         }
         $private=Join-Path $env:RUNNER_TEMP ('g1-uat010-'+[guid]::NewGuid().ToString('N')+'.json')
         [IO.File]::WriteAllText($private,($actual|ConvertTo-Json -Depth 30 -Compress),[Text.UTF8Encoding]::new($false))

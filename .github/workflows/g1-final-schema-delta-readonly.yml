@@ -46,8 +46,9 @@ env:
   REQUIREMENTS_SHA256: 870b751876d84d829995f39d73289fe5b93e35528b6d8a4c9026851ffbf1f6f4
   REFERENCE_SHA256: f86a42ad88230411b2351a59cd9c1bb40ad2586076631ab249949fce13e91eb7
   LIVE_SCRIPT_SHA256: 02e0aa8919405bdcbd8b4c7615072089cadd8285d2604feec3a9e7da8aea6eea
-  G1_PRE010_COMPARATOR_SHA256: 9a8c1b3d3f2d06114ec0f25b07751468702a3dca15201b607a47f0670f5401dd
-  G1_PRE010_COLLECTOR_SHA256: 4cb4f6d911f45f5d3c2f4de0eaf3c0ec8309041216b9e15b992c42cc30cd0092
+  G1_PRE010_COMPARATOR_SHA256: 90c16553bee28b63a2ff6bfb18d09fa64688f6dabf071cbca9fc2d95ac00f060
+  G1_PRE010_COLLECTOR_SHA256: 71f0a9eb8f12742dc6999bbabfe0a1e118f4b703d2f0ee0649c9a026bba20efc
+  G1_PRE010_INDEX_DEFAULT_SOURCE_SHA256: 92a654760b36895950e7b21029ba4ffe107a0d674d45e23fa4839a01a75d9726
   G1_PRE010_CONSTRAINT_SOURCE_SHA256: e5294b82b7bce6e7f613262b952adc6ee3001e7a41831fb3cec650e6dacd67f3
   G1_PRE010_COLUMN_SOURCE_SHA256: 7f4a316ac835496ca150710b1b977d8c21621502740612514de8b5af6b2c51cd
   G1_PRE010_TRIGGER_DDL_SHA256: f51ea40132f78a8244bd920519619e1d8e86b5e730c6acc2c52ba19a4610a920
@@ -144,6 +145,12 @@ jobs:
               expected_count=2 if f==".github/workflows/g1-final-schema-delta-readonly.yml" else 1
               assert source.count(proof)==expected_count, "private output contract differs"
           print("G1PrivateStatusContract=PASS; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;")
+      - name: Verify pinned PRE-010 new-table indexes and defaults (nondeploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1_pre010_index_defaults.py
+          echo 'Pre010IndexDefault=PASS; Legacy=UNKNOWN; UAT=UNKNOWN; Azure=NOT_ACCESSED;'
       - name: Assert explicit owner-dispatch gate and no automatic push authorization
         shell: python
         run: |
@@ -208,6 +215,7 @@ jobs:
           test "$(sha256sum scripts/ci/g1_pre010_private_collect.ps1 | cut -d' ' -f1)" = "$G1_PRE010_COLLECTOR_SHA256"
           test "$(sha256sum scripts/ci/g1_pre010_created_columns.py | cut -d' ' -f1)" = "$G1_PRE010_COLUMN_SOURCE_SHA256"
           test "$(sha256sum scripts/ci/g1_pre010_created_constraints.py | cut -d' ' -f1)" = "$G1_PRE010_CONSTRAINT_SOURCE_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_created_index_defaults.py | cut -d' ' -f1)" = "$G1_PRE010_INDEX_DEFAULT_SOURCE_SHA256"
           test "$(sha256sum scripts/ci/g1_pre010_trigger_ddl.py | cut -d' ' -f1)" = "$G1_PRE010_TRIGGER_DDL_SHA256"
           python3 - <<'PY'
           import json, os

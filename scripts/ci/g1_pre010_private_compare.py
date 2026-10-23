@@ -22,6 +22,10 @@ column_spec=importlib.util.spec_from_file_location("g1_columns",COL_SOURCE)
 column_module=importlib.util.module_from_spec(column_spec)
 column_spec.loader.exec_module(column_module)
 COLUMN_FIELDS=("SchemaName","TableName","ColumnName","SqlType","MaxLengthBytes","Scale","IsNullable","IsIdentity")
+INDEX_SOURCE=Path(__file__).with_name("g1_pre010_created_index_defaults.py")
+index_spec=importlib.util.spec_from_file_location("g1_index_defaults",INDEX_SOURCE)
+index_module=importlib.util.module_from_spec(index_spec)
+index_spec.loader.exec_module(index_module)
 CONSTRAINT_SOURCE=Path(__file__).with_name("g1_pre010_created_constraints.py")
 constraint_spec=importlib.util.spec_from_file_location("g1_constraints",CONSTRAINT_SOURCE)
 constraint_module=importlib.util.module_from_spec(constraint_spec)
@@ -94,7 +98,53 @@ def check_constraints(observed_fks, observed_checks, expected):
                 if actual_row.get("DefinitionVisible") not in (True,1):
                     raise Stop("CHECK_VISIBILITY")
 
-def compare(actual: dict, sources: dict, mode: str, protected_sha: str, expected_columns=None, expected_constraints=None):
+def check_index_defaults(actual_indexes,actual_defaults,source):
+    if not isinstance(source,dict) or not isinstance(actual_indexes,list) or not isinstance(actual_defaults,list):
+        raise Stop("INDEX_DEFAULT_SHAPE")
+    if len(actual_indexes)>1000 or len(actual_defaults)>1000:raise Stop("INDEX_DEFAULT_SHAPE")
+    found={}
+    fields=("SchemaName","TableName","IndexName","KeyColumns","IncludeColumns",
+            "IsUnique","IsPrimaryKey","IsUniqueConstraint","IsDisabled","HasFilter","FilterDefinition")
+    for row in actual_indexes:
+        if not isinstance(row,dict) or any(k not in row for k in fields):raise Stop("INDEX_SHAPE")
+        key=tuple(row[k] for k in fields[:3])
+        if any(not isinstance(x,str) or not x for x in key) or key in found:raise Stop("INDEX_SHAPE")
+        found[key]=row
+    want={(row["SchemaName"],row["TableName"],row["IndexName"]):row for row in source["Indexes"]}
+    scoped={k:v for k,v in found.items() if k[0]=="dbo" and k[1] in index_module.COUNTS}
+    if set(scoped)!=set(want):raise Stop("INDEX_SCOPE")
+    for key,expected in want.items():
+        row=scoped[key]
+        for field in ("IsUnique","IsPrimaryKey","IsUniqueConstraint","IsDisabled","HasFilter"):
+            value=row[field]
+            if type(value) is not bool and (type(value) is not int or value not in (0,1)):
+                raise Stop("INDEX_SHAPE")
+            if bool(value)!=expected[field]:raise Stop("INDEX_DRIFT")
+        for field in ("KeyColumns","IncludeColumns"):
+            if row[field]!=expected[field]:raise Stop("INDEX_DRIFT")
+        if index_module.normalized(row["FilterDefinition"])!=expected["FilterDefinition"]:
+            raise Stop("INDEX_FILTER")
+    defaults={}
+    for row in actual_defaults:
+        if not isinstance(row,dict) or any(k not in row for k in
+            ("SchemaName","TableName","ColumnName","DefaultName","Definition")):
+            raise Stop("DEFAULT_SHAPE")
+        key=(row["SchemaName"],row["TableName"],row["ColumnName"])
+        if any(not isinstance(x,str) or not x for x in key) or key in defaults:
+            raise Stop("DEFAULT_SHAPE")
+        defaults[key]=row
+    expected_defaults={(row["SchemaName"],row["TableName"],row["ColumnName"]):row
+                       for row in source["Defaults"]}
+    scope={k:v for k,v in defaults.items() if k[0]=="dbo" and k[1] in index_module.COUNTS}
+    if set(scope)!=set(expected_defaults):raise Stop("DEFAULT_SCOPE")
+    for key,want in expected_defaults.items():
+        row=scope[key]
+        if row["DefaultName"]!=want["DefaultName"] or row["Definition"] is None:
+            raise Stop("DEFAULT_DRIFT")
+        if index_module.normalized(row["Definition"])!=want["DefinitionNorm"]:
+            raise Stop("DEFAULT_DRIFT")
+
+def compare(actual: dict, sources: dict, mode: str, protected_sha: str, expected_columns=None, expected_constraints=None, expected_indices=None):
     if not isinstance(actual, dict) or actual.get("ContractVersion") != "g1-pre010-private-observed-v1":
         raise Stop("SHAPE")
     if not re.fullmatch(r"[0-9a-f]{40}", protected_sha) or actual.get("SourceSha") != protected_sha:
@@ -111,6 +161,8 @@ def compare(actual: dict, sources: dict, mode: str, protected_sha: str, expected
         check_columns(actual.get("Columns"), expected_columns)
         if expected_constraints is None:raise Stop("CONSTRAINT_REFERENCE")
         check_constraints(actual.get("ForeignKeys"),actual.get("Checks"),expected_constraints)
+        if expected_indices is None:raise Stop("INDEX_REFERENCE")
+        check_index_defaults(actual.get("Indexes"),actual.get("Defaults"),expected_indices)
 
     elif mode == "disposable":
         if actual.get("Provenance") != "DISPOSABLE_SQL" or actual.get("SchemaVersion") != "DISPOSABLE":
@@ -171,7 +223,8 @@ def main():
         actual = json.loads(args.private_actual.read_text(encoding="utf-8-sig"))
         expected_columns=column_module.derive(args.candidate_root)
         expected_constraints=constraint_module.derive(args.candidate_root)
-        compare(actual, src, args.mode, args.protected_sha, expected_columns, expected_constraints)
+        expected_indices=index_module.derive(args.candidate_root)
+        compare(actual, src, args.mode, args.protected_sha, expected_columns, expected_constraints, expected_indices)
         # Even perfect catalog equality cannot prove pre-1.5 facets, history, API principal or recovery.
         scope = "21_TRIGGERS" if args.mode == "live" else "007_ONLY"
         print(f"G1Pre010Private=PASS; Mode={args.mode.upper()}; StructuralScope={scope}; SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;")
