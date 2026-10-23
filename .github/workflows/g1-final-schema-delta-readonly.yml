@@ -292,23 +292,7 @@ jobs:
           test "$(grep -c '^Migration=' artifacts/g1-schema-delta-summary.txt)" -eq 10
           grep -qx 'Pre010Private=PASS; DefinitionProof=007_ONLY; BaseFacets=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;' artifacts/g1-schema-delta-summary.txt
           grep -qx 'G1ReleaseGate=HOLD; ApiPrincipal=UNKNOWN; Runtime=UNKNOWN; Recovery=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
-          grep -Eq '^Migration=019; Marker=(ABSENT|PRESENT_ONCE); Contract=OUT_OF_SCOPE; Decision=NOT_REQUIRED_FOR_FROZEN_25; PackageCompatibility=HOLD;
-          grep -qx 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
-          grep -Eq '^G1Delta=PASS; SourceSha=[0-9a-f]{40}; CandidateSha=[0-9a-f]{40};$' artifacts/g1-schema-delta-summary.txt
-          echo 'EvidencePrivacy=PASS;'
-      - name: Upload sanitized evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: g1-final-schema-delta-${{ github.sha }}
-          path: artifacts/g1-schema-delta-summary.txt
-          retention-days: 7
-      - name: Sign out and clean temporary evidence
-        if: always()
-        shell: bash
-        run: |
-          az logout --output none 2>/dev/null || true
-          unset G1_SQL_ACCESS_TOKEN
- artifacts/g1-schema-delta-summary.txt
+          grep -Eq '^Migration=019; Marker=(ABSENT|PRESENT_ONCE); Contract=OUT_OF_SCOPE; Decision=NOT_REQUIRED_FOR_FROZEN_25; PackageCompatibility=HOLD;$' artifacts/g1-schema-delta-summary.txt
           grep -qx 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
           grep -Eq '^G1Delta=PASS; SourceSha=[0-9a-f]{40}; CandidateSha=[0-9a-f]{40};$' artifacts/g1-schema-delta-summary.txt
           echo 'EvidencePrivacy=PASS;'
