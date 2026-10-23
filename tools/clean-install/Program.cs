@@ -196,6 +196,64 @@ try
     if (!sqlOnlyExpected.SequenceEqual(actualSqlOnly, StringComparer.Ordinal))
         throw new InvalidOperationException("SQL_ONLY_TABLE_CATALOG_MISMATCH");
 
+    // Replay the 21 *effective* source 010 trigger definitions only after
+    // every EF and SQL-only core table exists. These are not A+C 011–020.
+    var triggerPath = Path.Combine(output, "effective-source-triggers.sql");
+    var triggerManifestPath = Path.Combine(output, "effective-source-triggers-manifest.json");
+    if (!File.Exists(triggerPath) || !File.Exists(triggerManifestPath))
+        throw new InvalidOperationException("EFFECTIVE_TRIGGER_PACKAGE_MISSING");
+    var triggerBytes = await File.ReadAllBytesAsync(triggerPath);
+    var triggerSha = Convert.ToHexString(SHA256.HashData(triggerBytes)).ToLowerInvariant();
+    var expectedTriggerNames = new HashSet<string>(StringComparer.Ordinal);
+    using (var triggerManifest = JsonDocument.Parse(await File.ReadAllTextAsync(triggerManifestPath)))
+    {
+        var root = triggerManifest.RootElement;
+        if (root.GetProperty("format").GetString() != "field-visit-v180-effective-source-triggers-v1"
+            || root.GetProperty("rcSourceSha").GetString() != expectedRc
+            || root.GetProperty("effectiveTriggerCount").GetInt32() != 21
+            || root.GetProperty("sqlSha256").GetString() != triggerSha)
+            throw new InvalidOperationException("EFFECTIVE_TRIGGER_MANIFEST_INVALID");
+        foreach (var entry in root.GetProperty("triggers").EnumerateArray())
+        {
+            var name = entry.GetProperty("name").GetString() ?? "";
+            if (!expectedTriggerNames.Add(name))
+                throw new InvalidOperationException("EFFECTIVE_TRIGGER_DUPLICATE_NAME");
+        }
+    }
+    if (expectedTriggerNames.Count != 21)
+        throw new InvalidOperationException("EFFECTIVE_TRIGGER_SOURCE_COUNT");
+    await using (var triggerConnection = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await triggerConnection.OpenAsync();
+        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(triggerBytes),
+                     "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
+        {
+            await using var command = new SqlCommand(batch, triggerConnection) { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+    var installedTriggers = new HashSet<string>(StringComparer.Ordinal);
+    await using (var triggerVerify = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await triggerVerify.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT t.name, t.is_disabled
+            FROM sys.triggers t
+            JOIN sys.sql_modules m ON m.object_id=t.object_id
+            WHERE t.parent_class=1 AND t.is_ms_shipped=0
+              AND m.definition IS NOT NULL;
+            """, triggerVerify) { CommandTimeout = 10 };
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            if (reader.GetBoolean(1) || !installedTriggers.Add(reader.GetString(0)))
+                throw new InvalidOperationException("EFFECTIVE_TRIGGER_CATALOG_STATE");
+        }
+    }
+    if (!expectedTriggerNames.SetEquals(installedTriggers))
+        throw new InvalidOperationException("EFFECTIVE_TRIGGER_CATALOG_MISMATCH");
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -255,6 +313,8 @@ try
         generatedSqlSha256 = scriptSha,
         sqlOnlyTableSqlSha256 = sqlOnlyHash,
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
+        effective010TriggerSqlSha256 = triggerSha,
+        installedEffectiveTriggerCount = installedTriggers.Count,
         sqlServerMajorVersion = detectedSqlMajorVersion,
         mappedTableCount = expectedTables.Length,
         mappedColumnCount = expectedColumns.Values.Sum(x => x.Count),
@@ -271,7 +331,8 @@ try
     Status("MODEL_DDL_CONSTRAINT_TRUST_STATE_PASS");
     Status("EF_SYNTHETIC_WRITE_ROLLBACK_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
-    Status("FULL_V180_INSTALL_HOLD_TRIGGERS_OPTIONC_APP_COMPAT");
+    Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
+    Status("FULL_V180_INSTALL_HOLD_OPTIONC_APP_COMPAT");
     Console.WriteLine($"MAPPED_TABLES={expectedTables.Length}");
     Console.WriteLine($"MAPPED_COLUMNS={expectedColumns.Values.Sum(x => x.Count)}");
     Console.WriteLine($"MODEL_BASELINE_SHA256={scriptSha}");
