@@ -251,18 +251,32 @@ jobs:
             20_route_reason_check.sql
             007_source_checks.sql
             001_004_source_checks.sql
+            005_indexable_facets.sql
+            005_source_controls.sql
             optionc-final-target-checks.sql
             40_clean_install_017_capability.sql
           )
+          diagnostic_file="$RUNNER_TEMP/fieldvisit-replay-sqlcmd-suppressed.log"
           for file in "${ordered[@]}"; do
             test -s "$CLEAN_INSTALL_OUTPUT_DIR/$file"
             if ! timeout 60s docker exec -i fieldvisit-clean-install-sql \
               /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
               -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
-              < "$CLEAN_INSTALL_OUTPUT_DIR/$file" >/dev/null 2>&1; then
+              < "$CLEAN_INSTALL_OUTPUT_DIR/$file" >"$diagnostic_file" 2>&1; then
+              # Only a numeric SQL Server Msg code can leave this step.
+              # Never print SQL, login, server name, raw provider text or data.
+              python3 - "$diagnostic_file" <<'PY'
+          import re,sys
+          from pathlib import Path
+          raw=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
+          codes=re.findall(r'(?m)^Msg\s+(\d{1,6})\s*,',raw)
+          print("CLEAN_INSTALL=INDEPENDENT_SQLCMD_ERROR_"+(codes[0] if codes else "UNCLASSIFIED"))
+          PY
+              rm -f "$diagnostic_file"
               echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_REPLAY_FAIL; STEP=$file; DETAILS=SUPPRESSED"
               exit 1
             fi
+            rm -f "$diagnostic_file"
           done
           if ! timeout 30s docker exec -i fieldvisit-clean-install-sql \
             /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
