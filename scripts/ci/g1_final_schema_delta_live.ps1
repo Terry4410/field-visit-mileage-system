@@ -91,6 +91,12 @@ try {
     }
     if ($targetRejected) { Stop-G1 'TargetRejected' }
     Write-Output 'Stage=Target; Status=PASS;'
+    $stage = 'PRE010_PRIVATE'
+    . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_collect.ps1')
+    $pre010 = Invoke-G1Pre010PrivateCollect -Connection $connection -CandidateRoot (Join-Path $env:GITHUB_WORKSPACE 'candidate') -SourceSha $env:GITHUB_SHA
+    if($pre010 -cne 'PASS'){Stop-G1 'ResultContractRejected'}
+    Write-Output 'Pre010Private=PASS; DefinitionProof=007_ONLY; BaseFacets=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'
+
 
     $stage = 'LEDGER'
     $ledgerSql = @"

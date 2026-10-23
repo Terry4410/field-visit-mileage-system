@@ -45,7 +45,10 @@ env:
   PERMISSIONS_SHA256: af528981bc0e619c183e28a473b9cdbb15b5d0df10153f0b1ba33b3c67024d6b
   REQUIREMENTS_SHA256: 870b751876d84d829995f39d73289fe5b93e35528b6d8a4c9026851ffbf1f6f4
   REFERENCE_SHA256: f86a42ad88230411b2351a59cd9c1bb40ad2586076631ab249949fce13e91eb7
-  LIVE_SCRIPT_SHA256: 5c0d5e122c682d4b2fb8cec065a33e2a5cf275142a66ccef483f7109f1590566
+  LIVE_SCRIPT_SHA256: edcbf0a5fe19a3006bb136d7b0933b4bf77da53cfdea24377f9f14f7e03bea2e
+  G1_PRE010_COMPARATOR_SHA256: 80e55970bba11524da832ac5b21f81712475bd23c63872297e386c7a00f68565
+  G1_PRE010_COLLECTOR_SHA256: 778e43e09370c2335728c90918af85d8b8836490cd02d3a63839c498ebff39ce
+  G1_PRE010_TRIGGER_DDL_SHA256: f51ea40132f78a8244bd920519619e1d8e86b5e730c6acc2c52ba19a4610a920
 
 jobs:
   catalog-json-contract:
@@ -97,6 +100,12 @@ jobs:
           python3 -m unittest -q scripts/ci/test_g1_pre010_source_contract.py
           python3 scripts/ci/g1_pre010_source_contract.py --candidate-root candidate
           echo 'Pre010PrivateRead=NOT_EXECUTED; ActualUatSchema=UNKNOWN;'
+      - name: Enforce private PRE-010 comparator negative contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1_pre010_private_compare.py
+          echo 'Pre010PrivateTest=PASS; Azure=NOT_ACCESSED; LiveSQL=NOT_ACCESSED;'
       - name: Assert explicit owner-dispatch gate and no automatic push authorization
         shell: python
         run: |
@@ -157,6 +166,9 @@ jobs:
           test "$(sha256sum "$base/requirements.json" | cut -d' ' -f1)" = "$REQUIREMENTS_SHA256"
           test "$(sha256sum "$base/necessary-reference.json" | cut -d' ' -f1)" = "$REFERENCE_SHA256"
           test "$(sha256sum scripts/ci/g1_final_schema_delta_live.ps1 | cut -d' ' -f1)" = "$LIVE_SCRIPT_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_private_compare.py | cut -d' ' -f1)" = "$G1_PRE010_COMPARATOR_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_private_collect.ps1 | cut -d' ' -f1)" = "$G1_PRE010_COLLECTOR_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_trigger_ddl.py | cut -d' ' -f1)" = "$G1_PRE010_TRIGGER_DDL_SHA256"
           python3 - <<'PY'
           import json, os
           p='candidate/docs/release/g1-minimal-preflight/necessary-reference.json'
@@ -278,6 +290,7 @@ jobs:
           test -s artifacts/g1-schema-delta-summary.txt
           ! grep -Eqi '(password|access.?token|connection.?string|principal.?id|tenant.?id|subscription.?id|server=tcp|data source=|exception|stack trace|select |from |where )' artifacts/g1-schema-delta-summary.txt
           test "$(grep -c '^Migration=' artifacts/g1-schema-delta-summary.txt)" -eq 10
+          grep -qx 'Pre010Private=PASS; DefinitionProof=007_ONLY; BaseFacets=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;' artifacts/g1-schema-delta-summary.txt
           grep -qx 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
           grep -Eq '^G1Delta=PASS; SourceSha=[0-9a-f]{40}; CandidateSha=[0-9a-f]{40};$' artifacts/g1-schema-delta-summary.txt
           echo 'EvidencePrivacy=PASS;'
