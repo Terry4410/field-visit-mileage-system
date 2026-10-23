@@ -32,6 +32,16 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Checkout fixed candidate PR50 source for G1-PRE010 disposable proof only
+        if: github.event_name == 'pull_request' && github.head_ref == 'work/g1-executable-gap-closure-20261023'
+        uses: actions/checkout@v4
+        with:
+          repository: Terry4410/field-visit-mileage-system
+          ref: be4d25e2c788c78cb108d2f7c819118f036d674d
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Exercise runner secret masking with synthetic values only
         shell: bash
         env:
@@ -84,6 +94,17 @@ jobs:
         env:
           SCHEMA_TEST_SQL_PASSWORD: ${{ secrets.fixture_sql_password }}
         run: ./scripts/ci/test_r3_connection_only_wake.ps1
+
+      - name: Prove pinned 007 trigger definition hash in disposable SQL Server only
+        if: github.event_name == 'pull_request' && github.head_ref == 'work/g1-executable-gap-closure-20261023'
+        shell: pwsh
+        env:
+          SCHEMA_TEST_SQL_SERVER: localhost,1433
+          SCHEMA_TEST_SQL_DATABASE: master
+          SCHEMA_TEST_SQL_PASSWORD: ${{ secrets.fixture_sql_password }}
+        run: |
+          python3 -m unittest -q scripts/ci/test_g1_pre010_trigger_ddl.py
+          ./scripts/ci/test_g1_pre010_trigger_hash_disposable.ps1
 
       - name: Run R3 real disposable SQL positive and negative cases
         shell: pwsh

@@ -1,39 +1,59 @@
 name: Clean build handover source assessment (NONDEPLOY)
 on:
-  push:
-    branches: [work/minimal-clean-build-it-handover-20261019]
   pull_request:
     branches: [post-uat/v1.8.0]
     paths:
       - 'docs/release/clean-build-it-handover/**'
       - '.github/workflows/clean-build-handover-preparation-nondeploy.yml'
+      - 'database/clean-install/v180/**'
+      - 'tools/clean-install/**'
+      - 'scripts/ci/clean_install/**'
 permissions:
   contents: read
 jobs:
-  source-evidence:
+  clean-install:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: "CleanInstall_Only_2026!Sql"
+        ports:
+          - 1433:1433
     env:
       APPROVED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CLEAN_INSTALL_RC_SHA: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+      CLEAN_INSTALL_SQL_PASSWORD: "CleanInstall_Only_2026!Sql"
+      CLEAN_INSTALL_OUTPUT_DIR: ${{ runner.temp }}/clean-install-output
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify exact source and immutable reviewed input bytes
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Verify exact PR source, current protected base and narrow delta
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_SHA"
+          protected='d919f8a107e3dbaee919b8c4e3b463240674eaf4'
+          test "$(git rev-parse origin/post-uat/v1.8.0)" = "$protected"
+          git merge-base --is-ancestor "$protected" HEAD
           python3 - <<'PY'
           import hashlib,json,subprocess
           from pathlib import Path
           ledger=json.loads(Path('docs/release/clean-build-it-handover/source-ledger.json').read_text())
           protected='4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc'
+          current='d919f8a107e3dbaee919b8c4e3b463240674eaf4'
           assert ledger['protectedSha']==protected
-          assert ledger['protectedTree']=='780003abb1750b36806832bf1f90745c2cd1af7c'
           assert subprocess.check_output(['git','rev-parse',protected+'^{tree}']).decode().strip()==ledger['protectedTree']
+          assert subprocess.check_output(['git','rev-parse',current+'^{tree}']).decode().strip()
           assert ledger['acceptedAcSha']=='138cd8352ab180254ed83bce4a77acb3fdfc948f'
           assert ledger['acceptedPr47Sha']=='8a6949bd3555f99bb42958f13ff0335513d24780'
           allowed={protected,ledger['acceptedAcSha'],ledger['acceptedPr47Sha']}
@@ -44,24 +64,62 @@ jobs:
               seen.add(key)
               raw=subprocess.check_output(['git','show',entry['sourceSha']+':'+entry['path']])
               assert hashlib.sha256(raw).hexdigest()==entry['sha256']
-          changed=subprocess.check_output(['git','diff','--name-only',protected,'HEAD']).decode().splitlines()
-          assert set(changed)=={'docs/release/clean-build-it-handover/RELEASE-GATES.md','docs/release/clean-build-it-handover/source-ledger.json','.github/workflows/clean-build-handover-preparation-nondeploy.yml'}
-          print('Exact source / reviewed input bytes / documentation-only scope: PASS')
-          print('Clean Build: HOLD — no approved creation baseline; no SQL rehearsal executed')
+          changed=set(subprocess.check_output(['git','diff','--name-only',current,'HEAD']).decode().splitlines())
+          allowed_prefixes=('docs/release/clean-build-it-handover/','database/clean-install/v180/','tools/clean-install/','scripts/ci/clean_install/')
+          allowed_exact={'.github/workflows/clean-build-handover-preparation-nondeploy.yml'}
+          assert changed and all(p in allowed_exact or p.startswith(allowed_prefixes) for p in changed), sorted(changed)
+          print('Exact PR source / historical source ledger / narrow clean-install allowlist: PASS')
           PY
-      - name: Package documents and hashes only
+      - name: Checkout immutable accepted runtime source
+        uses: actions/checkout@v4
+        with:
+          ref: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+          path: runtime-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Confirm exact RC source and prepare output
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/clean-handover-evidence"
-          cp docs/release/clean-build-it-handover/RELEASE-GATES.md docs/release/clean-build-it-handover/source-ledger.json "$RUNNER_TEMP/clean-handover-evidence/"
-          cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$RUNNER_TEMP/clean-handover-evidence/"
-          git rev-parse HEAD HEAD^ HEAD^{tree} > "$RUNNER_TEMP/clean-handover-evidence/source.txt"
-          cd "$RUNNER_TEMP/clean-handover-evidence"
-          sha256sum RELEASE-GATES.md source-ledger.json clean-build-handover-preparation-nondeploy.yml source.txt > checksums.sha256
+          test "$(git -C runtime-source rev-parse HEAD)" = "$CLEAN_INSTALL_RC_SHA"
+          test -f runtime-source/backend/src/FieldVisit.Infrastructure/AppDbContext.cs
+          mkdir -p "$CLEAN_INSTALL_OUTPUT_DIR"
+          echo "RC_SOURCE_ROOT=$GITHUB_WORKSPACE/runtime-source" >> "$GITHUB_ENV"
+      - name: Wait for isolated SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if docker ps --format '{{.Image}}' | grep -q '^mcr.microsoft.com/mssql/server:2022'; then
+              if docker exec "$(docker ps --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest --format '{{.ID}}' | head -1)" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then exit 0; fi
+            fi
+            sleep 2
+          done
+          echo 'SQL2022_READY=FAIL' >&2
+          exit 1
+      - name: Build and execute fresh model-baseline install against disposable SQL Server 2022
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/ci/clean_install -p 'test_*.py' -v
+          dotnet run --project tools/clean-install/ModelBaselineRunner.csproj -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release -- \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Verify generator and SQL inputs, package evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/verify_model_baseline_package.py \
+            --rc-sha "$CLEAN_INSTALL_RC_SHA" --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+          cp docs/release/clean-build-it-handover/RELEASE-GATES.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp docs/release/clean-build-it-handover/source-ledger.json "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/README.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$CLEAN_INSTALL_OUTPUT_DIR/"
+          git rev-parse HEAD HEAD^ HEAD^{tree} > "$CLEAN_INSTALL_OUTPUT_DIR/source.txt"
+          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml source.txt > checksums.sha256)
       - uses: actions/upload-artifact@v4
         with:
-          name: clean-handover-nondeploy-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/clean-handover-evidence/
+          name: clean-install-model-baseline-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/clean-install-output/
           retention-days: 30
           if-no-files-found: error

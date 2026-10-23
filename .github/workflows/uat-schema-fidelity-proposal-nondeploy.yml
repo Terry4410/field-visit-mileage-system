@@ -35,6 +35,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: G1 offline private UAT010 trigger and privacy negative contracts
+        run: python3 -m unittest scripts/ci/test_g1_uat010_safe_compare.py -v
       - name: Generate synthetic fixture outputs without printing their values
         id: fixture
         run: python3 scripts/ci/test_r3_login_privacy.py --generate-fixture

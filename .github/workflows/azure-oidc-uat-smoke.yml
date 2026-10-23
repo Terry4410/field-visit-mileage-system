@@ -1,86 +1,111 @@
-name: Azure OIDC UAT smoke test
-
+name: G1-B one-time actual UAT010 SQL metadata SELECT (Owner authorized)
+# Existing workflow path registered on repository default branch. Do NOT alter main.
 on:
-  workflow_dispatch:
-
+  pull_request:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - .github/workflows/azure-oidc-uat-smoke.yml
+      - .github/workflows/g1b-private-uat010-once.yml
+      - scripts/ci/g1b_uat010_metadata_once.sql
+      - scripts/ci/g1b_uat010_metadata_once.ps1
+      - scripts/ci/test_g1b_uat010_metadata_once.py
+  push:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - .github/workflows/azure-oidc-uat-smoke.yml
 permissions:
   contents: read
-  id-token: write
-
 concurrency:
-  group: azure-oidc-uat-smoke
+  group: g1b-20261023-uat010-one-connection
   cancel-in-progress: false
-
 jobs:
-  branch-guard:
+  offline-contract:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Enforce post-uat/v1.8.0 dispatch branch
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: G1-B strict offline safety and source checks
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" != "refs/heads/post-uat/v1.8.0" ]]; then
-            echo "::error::This workflow may only run from post-uat/v1.8.0. Received ${GITHUB_REF}."
-            exit 1
-          fi
-
-  oidc-smoke:
-    needs: branch-guard
+          python3 -m unittest -q scripts/ci/test_g1b_uat010_metadata_once.py
+          python3 - <<'PY'
+          from pathlib import Path
+          c=Path('.github/workflows/azure-oidc-uat-smoke.yml').read_text()
+          p=Path('.github/workflows/g1b-private-uat010-once.yml').read_text()
+          assert 'g1b-sql-select-once-20261023' in c
+          assert "github.event_name == 'push'" in c
+          assert 'workflow_call:' in p and 'secrets:' in p
+          assert 'secrets.client' in p and 'secrets.tenant' in p and 'secrets.subscription' in p
+          assert ('R3_CLIENT_ID: ' + '$' + '{{ secrets.client }}') in p
+          for code in (c,p):
+            for forbid in ('azure/'+'webapps-deploy','actions/'+'deploy-pages','Invoke-'+'Sqlcmd','az '+'sql db resume','secrets: '+'inherit','pull_request_'+'target:', 'contents:'+' write'):
+              assert forbid not in code, 'unsafe source'
+          assert p.count('g1b_uat010_metadata_once.ps1')==1
+          print('G1BOfflineSafety=PASS; SQL=NOT_EXECUTED; Azure=NOT_ACCESSED;')
+          PY
+  source-guard:
+    # Only one reviewed SHA guarded squash merge may start an Azure job.
+    if: github.event_name == 'push' && github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'g1b-sql-select-once-20261023')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Exact SHA parent, commit title, five-file boundary and source pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'Terry4410/field-visit-mileage-system'
+          test "$GITHUB_REF" = 'refs/heads/post-uat/v1.8.0'
+          test "${GITHUB_RUN_ATTEMPT}" = '1'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = '2a8908e32b25916207a86b6529d9d2b2717cf38e'
+          test "$(git log -1 --format=%s)" = 'g1b-sql-select-once-20261023'
+          expected=$'.github/workflows/azure-oidc-uat-smoke.yml\n.github/workflows/g1b-private-uat010-once.yml\nscripts/ci/g1b_uat010_metadata_once.ps1\nscripts/ci/g1b_uat010_metadata_once.sql\nscripts/ci/test_g1b_uat010_metadata_once.py'
+          test "$(git diff --name-only HEAD^ HEAD)" = "$expected"
+          test "$(git hash-object scripts/ci/g1b_uat010_metadata_once.sql)" = 'd2661d72eda502cd998268634705dfa54d8a64fc'
+          test "$(git hash-object scripts/ci/g1b_uat010_metadata_once.ps1)" = 'ae54042cdcab4976f6686daa34fb75de25d53814'
+          test "$(git hash-object scripts/ci/test_g1b_uat010_metadata_once.py)" = '1ac998cb8679fb33595d0ee54d4ca60c1aee6853'
+          test "$(git hash-object .github/workflows/g1b-private-uat010-once.yml)" = '62f4e0aa2bc80812ea41fc41fde0b43b8823e18c'
+          test "${RUNNER_DEBUG:-}" != '1'
+          python3 -m unittest -q scripts/ci/test_g1b_uat010_metadata_once.py
+          echo 'G1BSourceGuard=PASS; SQL=NOT_ACCESSED; Azure=NOT_ACCESSED;'
+  identity:
+    needs: source-guard
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: uat
-    timeout-minutes: 10
+    timeout-minutes: 2
+    permissions:
+      contents: none
+    outputs:
+      client: ${{ job.status == 'success' && vars.AZURE_CLIENT_ID || '' }}
+      tenant: ${{ job.status == 'success' && vars.AZURE_TENANT_ID || '' }}
+      subscription: ${{ job.status == 'success' && vars.AZURE_SUBSCRIPTION_ID || '' }}
     steps:
-      - name: Sign in to Azure with OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Verify Azure subscription
-        env:
-          EXPECTED_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Identity handoff only, no echo of raw vars
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$EXPECTED_SUBSCRIPTION_ID"
-          az account show \
-            --query '{id:id,name:name,tenantId:tenantId,state:state,isDefault:isDefault}' \
-            --output json
-          actual_subscription_id="$(az account show --query id --output tsv)"
-          test "$actual_subscription_id" = "$EXPECTED_SUBSCRIPTION_ID"
-
-      - name: Verify UAT resource group exists
-        env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$AZURE_RESOURCE_GROUP"
-          az group show \
-            --name "$AZURE_RESOURCE_GROUP" \
-            --subscription "$AZURE_SUBSCRIPTION_ID" \
-            --query '{name:name,id:id,location:location}' \
-            --output json
-
-      - name: Verify UAT SQL server exists
-        env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_SQL_SERVER_NAME: ${{ vars.AZURE_SQL_SERVER_NAME }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$AZURE_SQL_SERVER_NAME"
-          az sql server show \
-            --name "$AZURE_SQL_SERVER_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --subscription "$AZURE_SUBSCRIPTION_ID" \
-            --query '{name:name,id:id,resourceGroup:resourceGroup,location:location,state:state,fullyQualifiedDomainName:fullyQualifiedDomainName}' \
-            --output json
-
-      - name: Sign out of Azure
-        if: always()
-        run: az logout
+          test "${RUNNER_DEBUG:-}" != '1'
+          echo 'G1BIdentity=READY; Details=SUPPRESSED; Azure=NOT_ACCESSED;'
+  sql-one-shot:
+    needs: [source-guard, identity]
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/g1b-private-uat010-once.yml
+    with:
+      source_sha: ${{ github.sha }}
+    secrets:
+      client: ${{ needs.identity.outputs.client }}
+      tenant: ${{ needs.identity.outputs.tenant }}
+      subscription: ${{ needs.identity.outputs.subscription }}
