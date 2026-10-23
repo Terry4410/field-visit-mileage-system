@@ -87,16 +87,31 @@ jobs:
           echo "CLEAN_INSTALL_OUTPUT_DIR=$RUNNER_TEMP/clean-install-output" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/clean-install-output"
           echo "RC_SOURCE_ROOT=$GITHUB_WORKSPACE/runtime-source" >> "$GITHUB_ENV"
-      - name: Preflight Python contracts and compile exact-RC .NET runner (before SQL DDL)
+      - name: Build isolated RC-derived runtime candidate for trigger compatibility (NONDEPLOY)
         shell: bash
         run: |
           set -euo pipefail
+          runtime_context="$RC_SOURCE_ROOT/backend/src/FieldVisit.Infrastructure/AppDbContext.cs"
+          original_context="$RUNNER_TEMP/AppDbContext.cs.accepted"
+          cp "$runtime_context" "$original_context"
+          restore_context() {
+            cp "$original_context" "$runtime_context"
+            rm -f "$original_context"
+          }
+          trap restore_context EXIT
+          python3 scripts/ci/clean_install/apply_rc_runtime_candidate.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
           python3 -m compileall -q scripts/ci/clean_install
           python3 -m unittest discover -s scripts/ci/clean_install -p 'test_*.py' -v
           dotnet build tools/clean-install/ModelBaselineRunner.csproj \
             -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release --nologo
           dotnet build "$RC_SOURCE_ROOT/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" \
             -c Release --nologo
+          restore_context
+          trap - EXIT
+          test "$(sha256sum "$runtime_context" | awk '{print $1}')" = \
+            "dcbc2fc34c091310d49005c5280a9fb07de32312056b1757a5b88b746c6e1377"
+          echo "CLEAN_INSTALL=ACCEPTED_RC_SOURCE_RESTORED_AFTER_CANDIDATE_BUILD_PASS"
       - name: Wait for isolated SQL Server 2022
         shell: bash
         run: |
@@ -166,12 +181,13 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/clean_install/verify_model_baseline_package.py \
             --rc-sha "$CLEAN_INSTALL_RC_SHA" --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+          cp scripts/ci/clean_install/apply_rc_runtime_candidate.py "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp docs/release/clean-build-it-handover/RELEASE-GATES.md "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp docs/release/clean-build-it-handover/source-ledger.json "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp database/clean-install/v180/README.md "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$CLEAN_INSTALL_OUTPUT_DIR/"
           git rev-parse HEAD HEAD^ HEAD^{tree} > "$CLEAN_INSTALL_OUTPUT_DIR/source.txt"
-          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml source.txt > checksums.sha256)
+          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt > checksums.sha256)
       - uses: actions/upload-artifact@v4
         with:
           name: clean-install-model-baseline-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}

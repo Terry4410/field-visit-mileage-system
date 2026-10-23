@@ -137,22 +137,21 @@ internal static class CleanInstallBusinessProbe
         };
         db.Centers.Add(center);
         await SaveSeedAsync(db, "S4");
-        // The accepted 1800_002 trigger is present on this clean database,
-        // while immutable RC EF mapping for TeamLeaderAssignments still uses
-        // SQL OUTPUT. Use parameters and preserve the real trigger (never
-        // disable it) for synthetic fixture seeding; runtime CRUD remains P0.
-        try
+        // Exercise the RC-derived EF mapping against the enabled 1800_002
+        // trigger. The disposable candidate applies a pinned OUTPUT-clause
+        // compatibility overlay; no trigger is disabled.
+        db.TeamLeaderAssignments.Add(new TeamLeaderAssignment
         {
-            var effective = new DateTime(2020, 1, 1);
-            await db.Database.ExecuteSqlInterpolatedAsync(
-                $@"INSERT dbo.TeamLeaderAssignments
-                   (TeamId, EmploymentId, EffectiveFrom, CreatedAt)
-                   VALUES ({team.TeamId}, {le.EmploymentId}, {effective}, {now})");
-        }
-        catch (SqlException e)
-        {
-            throw Fail("SEED_LEADER_SQL_" + Math.Abs(e.Number));
-        }
+            TeamId = team.TeamId,
+            EmploymentId = le.EmploymentId,
+            EffectiveFrom = since,
+            CreatedAt = now
+        });
+        await SaveSeedAsync(db, "S4_LEADER_ASSIGNMENT");
+        if (!await db.TeamLeaderAssignments.AnyAsync(x =>
+                x.TeamId == team.TeamId && x.EmploymentId == le.EmploymentId))
+            throw Fail("LEADER_ASSIGNMENT_NOT_PERSISTED");
+        Console.WriteLine("CLEAN_INSTALL=EF_TEAM_LEADER_TRIGGER_OUTPUT_COMPAT_PASS");
 
         db.TeamCenterAssignments.Add(new TeamCenterAssignment
         {

@@ -73,6 +73,25 @@ NONDEPLOY evidence under the fixed PR source SHA. All generated SQL files,
 manifests and checksums are in the CI artifact. A successful isolated job
 proves only the explicitly printed PASS stages, never full release readiness.
 
+## Isolated runtime trigger-compatibility candidate
+
+The accepted RC source and artifact remain unchanged. The disposable CI job
+builds a separate source-pinned runtime candidate which changes only the
+`TeamLeaderAssignments` EF mapping to
+`UseSqlOutputClause(false)`. The accepted 1800_002 source installs an enabled
+trigger on this table; SQL Server rejects the trigger-incompatible EF OUTPUT
+form (error 334).
+
+The overlay validates the accepted RC SHA, exact original and candidate file
+SHA-256 values, and exactly one target mapping. The job restores the immutable
+RC checkout after compiling the candidate; its overlay manifest and script are
+retained in the NONDEPLOY artifact. The fresh-database fixture now creates the
+team-leader assignment through EF with the trigger enabled.
+
+This is disposable compatibility evidence only. It does not replace or change
+the accepted RC, establish full API approval flows, complete the full schema,
+authorize deployment, or permit Business UAT.
+
 ## Required follow-on engineering (not yet certified)
 
 1. Reconcile **all** application runtime SQL contracts with this consolidated
