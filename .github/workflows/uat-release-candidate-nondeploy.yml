@@ -12,7 +12,7 @@ permissions:
   actions: read
 jobs:
   focused-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       ACCEPTED_SHA: 39c86f03cc8d66881a78a800ded974b2f338cf07
@@ -63,6 +63,7 @@ jobs:
           dotnet build tools/uat-release-candidate/ReleaseProbe.csproj -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release --nologo
           dotnet publish "$RC_SOURCE_ROOT/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" -c Release --output "$RELEASE_API_ROOT" --nologo
       - name: Build the same normal-mode Frontend with runtime gate DEFAULT OFF
+        timeout-minutes: 8
         shell: bash
         run: |
           set -euo pipefail
@@ -73,7 +74,9 @@ jobs:
           python3 scripts/ci/uat_release/seal.py frontend
           cd "$RC_SOURCE_ROOT/uat"
           npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium webkit
+          browser_image="mcr.microsoft.com/playwright:v$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")-noble"
+          docker pull "$browser_image" >/dev/null
+          echo "RELEASE_BROWSER_IMAGE=$browser_image" >> "$GITHUB_ENV"
       - name: Instantiate accepted SQL fixture for new-feature tests only
         shell: bash
         run: |

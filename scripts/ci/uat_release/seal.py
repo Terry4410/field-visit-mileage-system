@@ -18,7 +18,7 @@ if sys.argv[1]=='frontend':
  print('UAT_RC=FRONTEND_SAME_SOURCE_RUNTIME_DEFAULT_OFF_BUILD_PASS')
 else:
  contract=json.loads((out/'release-contract.json').read_text());assert contract['candidateSourceSha']==os.environ['GITHUB_SHA']
- assert contract['apiSha256']==sha((api/'FieldVisit.Api.dll').read_bytes())
+ assert contract['apiSha256']==sha(''.join(n+':'+sha((api/n).read_bytes())+'\n' for n in ['FieldVisit.Api.dll','FieldVisit.Application.dll','FieldVisit.Domain.dll','FieldVisit.Infrastructure.dll']).encode())
  assert contract['frontendSha256']==sha((out/'frontend-release-candidate.zip').read_bytes())
  assert contract['schemaSha256']==sha((out/'schema-contract.json').read_bytes())
  for config in api.glob('appsettings*.json'):

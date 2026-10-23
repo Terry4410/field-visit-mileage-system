@@ -25,6 +25,11 @@ public static class V180UatReleaseTrust
     private static InvalidOperationException Denied() => new("OPTIONC_UAT_TRUST_DENIED");
     private static bool Hex(string s,int n) => s.Length==n && s.All(c=>char.IsAsciiHexDigit(c));
     public static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    public static string ApiHash(string root)
+    {
+        var names=new[]{"FieldVisit.Api.dll","FieldVisit.Application.dll","FieldVisit.Domain.dll","FieldVisit.Infrastructure.dll"};
+        return Hash(Encoding.UTF8.GetBytes(string.Concat(names.Select(name=>name+":"+Hash(File.ReadAllBytes(Path.Combine(root,name)))+"\n"))));
+    }
     public static void Validate(byte[] payload, string signature, byte[] key, Facts facts, DateTimeOffset now)
     {
         if (key.Length<32 || payload.Length>16384 || !Hex(signature,64)) throw Denied();
@@ -121,7 +126,7 @@ public static class V180UatReleaseTrust
             engine=rows.GetInt32(0); principal=rows.GetString(1); sid=Hash((byte[])rows[2]); least=rows.GetInt32(3)==1;
         }
         var schema=Hash(Encoding.UTF8.GetBytes(CatalogJson(connection)));
-        var api=Hash(File.ReadAllBytes(Path.Combine(root,"FieldVisit.Api.dll")));
+        var api=ApiHash(root);
         if(schema!=candidate.GetProperty("schemaSha256").GetString() || api!=candidate.GetProperty("apiSha256").GetString()) throw Denied();
         var facts=new Facts(UatReleaseIdentity.SourceSha,api,candidate.GetProperty("frontendSha256").GetString()!,
             schema,sid,principal,connection.DataSource,connection.Database,engine,tls,least,Features);

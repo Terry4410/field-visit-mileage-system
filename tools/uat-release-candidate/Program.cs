@@ -25,7 +25,7 @@ try
   var catalog=V180UatReleaseTrust.CatalogJson(sql);
   File.WriteAllText(Path.Combine(output,"schema-contract.json"),catalog);
   stage="API_FRONTEND_SCHEMA_BINDING";
-  var binding=new {candidateSourceSha=UatReleaseIdentity.SourceSha,apiSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(apiRoot,"FieldVisit.Api.dll"))),frontendSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(output,"frontend-release-candidate.zip"))),schemaSha256=V180UatReleaseTrust.Hash(Encoding.UTF8.GetBytes(catalog))};
+  var binding=new {candidateSourceSha=UatReleaseIdentity.SourceSha,apiSha256=V180UatReleaseTrust.ApiHash(apiRoot),frontendSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(output,"frontend-release-candidate.zip"))),schemaSha256=V180UatReleaseTrust.Hash(Encoding.UTF8.GetBytes(catalog))};
   File.WriteAllText(Path.Combine(apiRoot,"release-contract.json"),JsonSerializer.Serialize(binding));
   File.WriteAllText(Path.Combine(output,"release-contract.json"),JsonSerializer.Serialize(binding));
  }
@@ -94,7 +94,13 @@ try
   await using var teamLookup=new SqlCommand("SELECT TeamCode FROM dbo.Teams WHERE TeamId=@id",lookup);teamLookup.Parameters.AddWithValue("@id",fixture.TeamId);teamCode=(string)(await teamLookup.ExecuteScalarAsync())!;
   await using var locationLookup=new SqlCommand("SELECT LocationCode FROM dbo.Locations WHERE LocationId=@id",lookup);locationLookup.Parameters.AddWithValue("@id",fixture.LocationId);locationCode=(string)(await locationLookup.ExecuteScalarAsync())!;
  }
- var node=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_BINARY")??"node"){UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};node.ArgumentList.Add(Path.GetFullPath("tools/uat-release-candidate/browser.mjs"));
+ var image=Environment.GetEnvironmentVariable("RELEASE_BROWSER_IMAGE");
+ var node=new ProcessStartInfo(string.IsNullOrEmpty(image)?(Environment.GetEnvironmentVariable("NODE_BINARY")??"node"):"docker"){UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};
+ if(!string.IsNullOrEmpty(image)) {
+  var workspace=Environment.GetEnvironmentVariable("GITHUB_WORKSPACE")!;var temporary=Environment.GetEnvironmentVariable("RUNNER_TEMP")!;
+  foreach(var argument in new[]{"run","--rm","--network","host","--ipc","host","-v",workspace+":"+workspace,"-v",temporary+":"+temporary,"-w",workspace,"-e","RELEASE_FIXTURE","-e","RC_SOURCE_ROOT","-e","RELEASE_OUTPUT","-e","GITHUB_SHA",image,"node"})node.ArgumentList.Add(argument);
+ }
+ node.ArgumentList.Add(Path.GetFullPath("tools/uat-release-candidate/browser.mjs"));
  node.Environment["RELEASE_FIXTURE"]=JsonSerializer.Serialize(new {actors=actors.Append(publisher).ToDictionary(x=>x.Role,x=>new{account=x.Account,id=x.UserId}),password=demo,teamCode,locationCode,fixture.TeamId,fixture.OtherTeamId,fixture.LocationId});
  using(var browser=Process.Start(node)??throw new InvalidOperationException("BROWSER_START"))
  {

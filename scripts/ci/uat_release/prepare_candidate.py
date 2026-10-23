@@ -59,6 +59,9 @@ def main():
  old=old.replace('const isCreate=row?.operationCode==="CreateLocation";', 'const isCreate=row?.operationCode==="CreateLocation";const requiresEvidence=isCreate||row?.riskCode==="High";')
  old=old.replace('action==="approve"&&isCreate&&','action==="approve"&&requiresEvidence&&').replace('{isCreate&&stage?.stageStatus', '{requiresEvidence&&stage?.stageStatus').replace('{isCreate&&<div className="actions">','{requiresEvidence&&<div className="actions">').replace('(isCreate&&stage?.stageStatus!==','(requiresEvidence&&stage?.stageStatus!==')
  write(path,old)
+ for path in sorted((rc/'backend/src/FieldVisit.Api').glob('appsettings*.json')):
+  config=json.loads(path.read_text());config.setdefault('App',{}).update({'Version':'1.8.0-uat-rc+'+source[:12],'DbSchemaVersion':'1.8.0-new-baseline-functional-3cap'})
+  write(path.relative_to(rc).as_posix(),json.dumps(config,ensure_ascii=False,indent=2)+'\n')
  # Complete final 018/020 capabilities only after compiling each source
  # predicate on a zero-row temporary shape and matching SQL's actual definition.
  contract={'018':{'ChangeRequests':['CK_B3_ChangeRequests_ReviewState'],'ChangeRequestEvents':['CK_B3_ChangeRequestEvents_EventType','CK_B3_ChangeRequestEvents_DecisionState']},'020':{'ImportBatches':['CK_ImportBatches_Status'],'ImportBatchItems':['CK_ImportBatchItems_Status']}}
