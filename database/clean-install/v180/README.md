@@ -12,6 +12,10 @@ candidate fragments. This package does **not** apply historical migrations.
 - EF Core model source generates the baseline for **57 mapped tables and 664
   mapped columns**. The runner checks table/column parity, FK/CHECK trust state,
   and an Organization insert/read with transaction rollback.
+- `00_schema_versions.sql`: NEW target `dbo.SchemaVersions` DDL. It is
+  deliberately empty on first install: NO fabricated historical migration
+  rows or invented 1.5 provenance. The final consolidated version marker and
+  this newly authored ledger shape still require independent acceptance.
 - `build_sql_only_tables.py`: seven exact source-pinned SQL-only CREATE TABLE
   statements (SchemaMigrationDataBaselines plus six notification/outbox tables).
 - `build_effective_triggers.py`: the **21 effective** v1.8.0-001…010 trigger
