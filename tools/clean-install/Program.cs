@@ -142,6 +142,60 @@ try
             !installedColumns.TryGetValue(pair.Key, out var actual) || !pair.Value.SetEquals(actual)))
         throw new InvalidOperationException("COLUMN_PARITY_FAIL");
 
+    // Install only the seven SQL-only table definitions proven by the pinned
+    // 1800_001/006 source. This is NOT complete A+C/trigger/schema parity.
+    var sqlOnlySqlPath = Path.Combine(output, "sql-only-core-tables.sql");
+    var sqlOnlyManifestPath = Path.Combine(output, "sql-only-core-tables-manifest.json");
+    if (!File.Exists(sqlOnlySqlPath) || !File.Exists(sqlOnlyManifestPath))
+        throw new InvalidOperationException("SQL_ONLY_SOURCE_PACKAGE_MISSING");
+    var sqlOnlyBytes = await File.ReadAllBytesAsync(sqlOnlySqlPath);
+    var sqlOnlyHash = Convert.ToHexString(SHA256.HashData(sqlOnlyBytes)).ToLowerInvariant();
+    using (var sqlOnlyManifest = JsonDocument.Parse(await File.ReadAllTextAsync(sqlOnlyManifestPath)))
+    {
+        var root = sqlOnlyManifest.RootElement;
+        if (root.GetProperty("format").GetString() != "field-visit-v180-sql-only-core-tables-v1"
+            || root.GetProperty("rcSourceSha").GetString() != expectedRc
+            || root.GetProperty("sqlSha256").GetString() != sqlOnlyHash
+            || root.GetProperty("requiredSqlOnlyTableCount").GetInt32() != 7)
+            throw new InvalidOperationException("SQL_ONLY_SOURCE_MANIFEST_MISMATCH");
+    }
+    var sqlOnlyExpected = new[]
+    {
+        "MailDeliveryLogs", "MailOutbox", "NotificationEmailAllowlist",
+        "NotificationEnvironmentPolicies", "NotificationSettingRecipients",
+        "NotificationSettings", "SchemaMigrationDataBaselines"
+    };
+    var sqlOnlyText = Encoding.UTF8.GetString(sqlOnlyBytes);
+    await using (var sqlOnlyConnection = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await sqlOnlyConnection.OpenAsync();
+        foreach (var batch in Regex.Split(sqlOnlyText, "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
+        {
+            await using var command = new SqlCommand(batch, sqlOnlyConnection) { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+    var actualSqlOnly = new List<string>();
+    await using (var sqlOnlyVerify = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await sqlOnlyVerify.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT name FROM sys.tables
+            WHERE schema_id=SCHEMA_ID(N'dbo')
+              AND name IN
+              (N'MailDeliveryLogs',N'MailOutbox',N'NotificationEmailAllowlist',
+               N'NotificationEnvironmentPolicies',N'NotificationSettingRecipients',
+               N'NotificationSettings',N'SchemaMigrationDataBaselines')
+            ORDER BY name;
+            """, sqlOnlyVerify) { CommandTimeout = 10 };
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            actualSqlOnly.Add(reader.GetString(0));
+    }
+    if (!sqlOnlyExpected.SequenceEqual(actualSqlOnly, StringComparer.Ordinal))
+        throw new InvalidOperationException("SQL_ONLY_TABLE_CATALOG_MISMATCH");
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -199,6 +253,8 @@ try
         sourceRcSha = expectedRc,
         appDbContextSha256 = appDbContextSha,
         generatedSqlSha256 = scriptSha,
+        sqlOnlyTableSqlSha256 = sqlOnlyHash,
+        sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         sqlServerMajorVersion = detectedSqlMajorVersion,
         mappedTableCount = expectedTables.Length,
         mappedColumnCount = expectedColumns.Values.Sum(x => x.Count),
@@ -214,7 +270,8 @@ try
     Status("EF_TABLE_COLUMN_PARITY_PASS");
     Status("MODEL_DDL_CONSTRAINT_TRUST_STATE_PASS");
     Status("EF_SYNTHETIC_WRITE_ROLLBACK_PASS");
-    Status("FULL_V180_INSTALL_HOLD_SQL_ONLY_OBJECTS");
+    Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
+    Status("FULL_V180_INSTALL_HOLD_TRIGGERS_OPTIONC_APP_COMPAT");
     Console.WriteLine($"MAPPED_TABLES={expectedTables.Length}");
     Console.WriteLine($"MAPPED_COLUMNS={expectedColumns.Values.Sum(x => x.Count)}");
     Console.WriteLine($"MODEL_BASELINE_SHA256={scriptSha}");
