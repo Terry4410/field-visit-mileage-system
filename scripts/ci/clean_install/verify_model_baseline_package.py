@@ -219,6 +219,30 @@ def main() -> int:
                 raise ContractError("OPTIONC_CANDIDATE_SOURCE_HASH")
             if item.get("scope") != "DISPOSABLE_CANDIDATE_NOT_APPROVED_FINAL_SCHEMA":
                 raise ContractError("OPTIONC_CANDIDATE_UNSAFE_SCOPE")
+        index_sql = args.output / "sql-only-extra-indexes.sql"
+        index_manifest = args.output / "sql-only-extra-indexes-manifest.json"
+        if not index_sql.is_file() or not index_manifest.is_file():
+            raise ContractError("SQL_ONLY_INDEX_LAYER_MISSING")
+        index = json.loads(index_manifest.read_text(encoding="utf-8"))
+        if (index.get("format") != "field-visit-v180-sql-only-index-probe-v1"
+                or index.get("rcSourceSha") != EXPECTED_RC
+                or index.get("indexCount") != 13
+                or index.get("sqlSha256") != sha256(index_sql)):
+            raise ContractError("SQL_ONLY_INDEX_MANIFEST_INVALID")
+        indexes = index.get("indexes")
+        if not isinstance(indexes, list) or len(indexes) != 13:
+            raise ContractError("SQL_ONLY_INDEX_OBJECT_LIST")
+        if len({i.get("name") for i in indexes}) != 13:
+            raise ContractError("SQL_ONLY_INDEX_DUPLICATE")
+        for item in indexes:
+            path = item.get("sourcePath", "")
+            if path not in (
+                    "database/migrations/1800_006_notification_framework/Up.sql",
+                    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Up.sql",
+                    "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql"):
+                raise ContractError("SQL_ONLY_INDEX_PROVENANCE")
+            if sha256(args.rc_root / path) != item.get("sourceSha256"):
+                raise ContractError("SQL_ONLY_INDEX_SOURCE_HASH")
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ContractError):
         print("CLEAN_INSTALL_PACKAGE=FAIL_CLOSED")
         return 1
@@ -228,7 +252,8 @@ def main() -> int:
     print("SQL_ONLY_CORE_TABLE_PACKAGE=PASS")
     print("EFFECTIVE_TRIGGER_PACKAGE=PASS")
     print("OPTIONC_CANDIDATE_TABLE_PACKAGE=PASS")
-    print("FULL_CLEAN_INSTALL=HOLD_OPTIONC_FINAL_OBJECTS_AND_APP_COMPATIBILITY")
+    print("SQL_ONLY_INDEX_PACKAGE=PASS")
+    print("FULL_CLEAN_INSTALL=HOLD_OTHER_OBJECTS_AND_APP_COMPATIBILITY")
     return 0
 
 
