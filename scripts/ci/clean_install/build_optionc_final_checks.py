@@ -89,13 +89,6 @@ def build(rc_root: Path, output: Path) -> dict:
             # 014's source-pinned candidate table carries its older Origin
             # CHECK inline; 017's explicitly reviewed definition supersedes it.
             # No other constraint may be silently replaced.
-            if name == "CK_OptionC_Published_Origin":
-                chunks.append(
-                    "IF OBJECT_ID(N'dbo.CK_OptionC_Published_Origin', N'C') IS NULL\n"
-                    "    THROW 56091, N'CLEAN_OPTIONC_014_PREDECESSOR_ORIGIN_MISSING', 1;\n"
-                    "ALTER TABLE dbo.LocationPublishedVersions "
-                    "DROP CONSTRAINT CK_OptionC_Published_Origin;\nGO\n"
-                )
             if name in REPLACEMENT_NAMES:
                 precheck = (
                     f"IF NOT EXISTS (SELECT 1 FROM sys.check_constraints "

@@ -35,7 +35,7 @@ class OptionCFinalCheckContractTests(unittest.TestCase):
                 ), encoding="utf-8")
             manifest = build(root, out)
             self.assertEqual(manifest["checkCount"], COUNT)
-            self.assertEqual((out / "optionc-final-target-checks.sql").read_text().count("\nGO\n"), COUNT + 1)
+            self.assertEqual((out / "optionc-final-target-checks.sql").read_text().count("\nGO\n"), COUNT)
             self.assertIn("DROP CONSTRAINT CK_OptionC_Published_Origin", (out / "optionc-final-target-checks.sql").read_text())
             self.assertEqual(manifest["fullCleanInstall"].startswith("HOLD_"), True)
 
