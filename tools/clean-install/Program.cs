@@ -16,6 +16,8 @@ const int sqlMajorVersion = 16;
 var masterConnectionString = "";
 var databaseCreated = false;
 var exitCode = 1;
+// Stage identifiers are fixed, synthetic-only and reveal no SQL, identity or data.
+var stage = "INIT";
 
 static string Require(string key) =>
     Environment.GetEnvironmentVariable(key) is { Length: > 0 } value
@@ -71,6 +73,7 @@ try
         .ToArray();
     if (expectedTables.Length == 0) throw new InvalidOperationException("MODEL_EMPTY");
 
+    stage = "EF_MODEL_DDL";
     var createSql = modelContext.Database.GenerateCreateScript();
     var sqlBytes = new UTF8Encoding(false).GetBytes(createSql);
     var sqlPath = Path.Combine(output, "model-baseline.sql");
@@ -150,6 +153,7 @@ try
     // acceptance; never fabricate 001–020 applied markers for a fresh build.
     if (expectedTables.Contains("SchemaVersions", StringComparer.Ordinal))
         throw new InvalidOperationException("LEDGER_MODEL_SOURCE_COLLISION");
+    stage = "CLEAN_LEDGER";
     var ledgerSqlPath = Path.GetFullPath(
         Path.Combine("database", "clean-install", "v180", "00_schema_versions.sql"));
     if (!File.Exists(ledgerSqlPath))
@@ -184,6 +188,7 @@ try
 
     // Install only the seven SQL-only table definitions proven by the pinned
     // 1800_001/006 source. This is NOT complete A+C/trigger/schema parity.
+    stage = "CORE_TABLES";
     var sqlOnlySqlPath = Path.Combine(output, "sql-only-core-tables.sql");
     var sqlOnlyManifestPath = Path.Combine(output, "sql-only-core-tables-manifest.json");
     if (!File.Exists(sqlOnlySqlPath) || !File.Exists(sqlOnlyManifestPath))
@@ -238,6 +243,7 @@ try
 
     // Replay the 21 *effective* source 010 trigger definitions only after
     // every EF and SQL-only core table exists. These are not A+C 011–020.
+    stage = "EFFECTIVE_TRIGGERS";
     var triggerPath = Path.Combine(output, "effective-source-triggers.sql");
     var triggerManifestPath = Path.Combine(output, "effective-source-triggers-manifest.json");
     if (!File.Exists(triggerPath) || !File.Exists(triggerManifestPath))
@@ -296,6 +302,7 @@ try
 
     // Candidate A+C table shapes are exercised against this disposable DB
     // only. Their original Up.sql files explicitly forbid live execution.
+    stage = "OPTIONC_TABLES";
     var optioncPath = Path.Combine(output, "optionc-sql-only-candidates.sql");
     var optioncManifestPath = Path.Combine(output, "optionc-sql-only-candidates-manifest.json");
     if (!File.Exists(optioncPath) || !File.Exists(optioncManifestPath))
@@ -346,6 +353,7 @@ try
 
     // Test 13 secondary indexes sourced from SQL-only 006/014/017 tables.
     // This is a selected source-scoped index set, not all final indexes.
+    stage = "SQL_ONLY_INDEXES";
     var extraIndexPath = Path.Combine(output, "sql-only-extra-indexes.sql");
     var extraIndexManifestPath = Path.Combine(output, "sql-only-extra-indexes-manifest.json");
     if (!File.Exists(extraIndexPath) || !File.Exists(extraIndexManifestPath))
@@ -412,6 +420,7 @@ try
     // Apply all 9 source-backed route governance CHECKs in final 007/009/010
     // target state, with one-stop support and background-job reason.
     // No predecessor migration or artificial historical marker is inserted.
+    stage = "ROUTE_CHECKS";
     var reasonDdlPath = Path.GetFullPath(Path.Combine(
         "database", "clean-install", "v180", "20_route_reason_check.sql"));
     if (!File.Exists(reasonDdlPath))
@@ -470,6 +479,7 @@ try
     // Complement the nine already-installed route checks with the nine
     // independent Geocoding/MileageGovernance/Mileage/Snapshot predicates
     // pinned to 1800_007. Never reinstall overlapping route constraints.
+    stage = "CHECKS_007";
     var check007Path = Path.Combine(output, "007_source_checks.sql");
     var check007ManifestPath = Path.Combine(output, "007_source_checks-manifest.json");
     if (!File.Exists(check007Path) || !File.Exists(check007ManifestPath))
@@ -536,6 +546,7 @@ try
 
     // Replay the 17 source-pinned 001-004 period/deployment/location CHECKs.
     // These complement the 007 and 009/010 scopes without duplicates.
+    stage = "CHECKS_001_004";
     var checks001Path = Path.Combine(output, "001_004_source_checks.sql");
     var checks001ManifestPath = Path.Combine(output, "001_004_source_checks-manifest.json");
     if (!File.Exists(checks001Path) || !File.Exists(checks001ManifestPath))
@@ -600,6 +611,7 @@ try
     // Apply final A+C 011–020 CHECK states on disposable clean SQL2022.
     // Eight EF-origin and one 014 candidate checks are replaced under a
     // source-pinned explicit allowlist, not bypassed or disabled.
+    stage = "OPTIONC_FINAL_CHECKS";
     var optioncChecksPath = Path.Combine(output, "optionc-final-target-checks.sql");
     var optioncChecksManifestPath = Path.Combine(output, "optionc-final-target-checks-manifest.json");
     if (!File.Exists(optioncChecksPath) || !File.Exists(optioncChecksManifestPath))
@@ -736,11 +748,13 @@ try
     // Verify the *actual* 011/014/016/017 source-derived Option C index
     // definitions against real sys.indexes and indexed column order.
     // Nine are EF-mapped (never reinstall); six are in SQL-only DDL layers.
+    stage = "OPTIONC_INDEX_CONTRACT";
     var optioncIndexProof = await CleanInstallOptionCIndexProof.VerifyAsync(
         rcRoot, installBuilder.ConnectionString);
 
     // Bind the capability row to the exact 017 source before validating the
     // complete SQL catalog contract below. This is not a historical marker.
+    stage = "CAPABILITY_017";
     var reservationSourcePath = "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql";
     var reservationSourceBytes = await File.ReadAllBytesAsync(Path.Combine(rcRoot, reservationSourcePath));
     var reservationSourceSha = Convert.ToHexString(SHA256.HashData(reservationSourceBytes)).ToLowerInvariant();
@@ -922,6 +936,7 @@ try
     Status("OPTIONC_017_COMPLETE_SOURCE_BOUND_CAPABILITY_PASS");
 
     // Actual EF SQL write/read compatibility on a synthetic transaction; rollback is explicit.
+    stage = "EF_ROLLBACK";
     await using (var db = new AppDbContext(options))
     await using (var tx = await db.Database.BeginTransactionAsync())
     {
@@ -942,6 +957,7 @@ try
 
     // Scope: actual EF persistence for a synthetic Visitor trip and audit,
     // with a distinct Leader identity. This does NOT prove API RBAC/approval.
+    stage = "EF_SYNTHETIC_TRIP";
     await using (var businessDb = new AppDbContext(options))
     await using (var businessTx = await businessDb.Database.BeginTransactionAsync())
     {
@@ -1061,6 +1077,7 @@ try
 
     // Verify the exact published RC-derived candidate package reaches this
     // newly installed disposable DB via loopback HTTP.
+    stage = "HTTP_API_REAL_SQL";
     try
     {
         var candidateApiRoot = Require("CLEAN_INSTALL_API_CANDIDATE_ROOT");
@@ -1155,8 +1172,18 @@ try
     Console.WriteLine($"MODEL_BASELINE_SHA256={scriptSha}");
     exitCode = 0;
 }
-catch (Exception)
+catch (Exception error)
 {
+    // Fixed-stage and SQL error-number only. Never print raw provider exception,
+    // connection string, SQL statement, user data, HTTP body or credentials.
+    Status("FAIL_AT_" + stage);
+    if (error is SqlException sql)
+        Status("SQL_ERROR_NUMBER_" + Math.Abs((long)sql.Number));
+    else if (error is DbUpdateException { InnerException: SqlException nestedSql })
+        Status("SQL_ERROR_NUMBER_" + Math.Abs((long)nestedSql.Number));
+    else if (error is InvalidOperationException &&
+             Regex.IsMatch(error.Message, @"\A[A-Z][A-Z0-9_]{1,80}\z"))
+        Status("SAFE_CODE_" + error.Message);
     Status("FAIL_DETAILS_SUPPRESSED");
 }
 finally
