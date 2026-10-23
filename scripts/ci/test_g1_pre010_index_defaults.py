@@ -14,8 +14,8 @@ class IndexDefaultTests(unittest.TestCase):
     def defaults(self):return [dict(x,Definition=x["DefinitionNorm"]) for x in self.contract["Defaults"]]
     def test_source_scope(self):
         idx=self.indices()
-        self.assertEqual((len(idx),len(self.defaults())),(12,2))
-        self.assertEqual(sum(x["IsPrimaryKey"] for x in idx),4)
+        self.assertEqual((len(idx),len(self.defaults())),(15,3))
+        self.assertEqual(sum(x["IsPrimaryKey"] for x in idx),5)
         self.assertEqual(sum(x["IsUniqueConstraint"] for x in idx),3)
         self.assertEqual(sum(bool(x["IncludeColumns"]) for x in idx),2)
         f=next(x for x in idx if x["IndexName"]=="IX_RouteCalculationAttempts_BasisSnapshot")

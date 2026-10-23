@@ -98,7 +98,7 @@ FOR JSON PATH,INCLUDE_NULL_VALUES;
     [IO.File]::WriteAllText($privateEvidence,($fixture|ConvertTo-Json -Depth 15 -Compress),[Text.UTF8Encoding]::new($false))
     $observedResult=@(& python3 scripts/ci/g1_pre010_private_compare.py --candidate-root $candidate --private-actual $privateEvidence --protected-sha $env:GITHUB_SHA --mode disposable 2>$null)
     if($LASTEXITCODE -ne 0 -or $observedResult.Count -ne 1 -or
-      $observedResult[0] -cne 'G1Pre010Private=PASS; Mode=DISPOSABLE; StructuralScope=007_ONLY; SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'){throw 'private-positive'}
+      $observedResult[0] -cne 'G1Pre010Private=PASS; Mode=DISPOSABLE; StructuralScope=007_ONLY; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'){throw 'private-positive'}
     $fixture.Triggers[0].DefinitionSha256='0'*64
     [IO.File]::WriteAllText($privateEvidence,($fixture|ConvertTo-Json -Depth 15 -Compress),[Text.UTF8Encoding]::new($false))
     $negativeResult=@(& python3 scripts/ci/g1_pre010_private_compare.py --candidate-root $candidate --private-actual $privateEvidence --protected-sha $env:GITHUB_SHA --mode disposable 2>$null)

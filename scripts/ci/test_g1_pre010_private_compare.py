@@ -60,10 +60,10 @@ class PrivateComparatorTests(unittest.TestCase):
         with self.assertRaises(v.Stop) as e:self.check(lambda d:d["Triggers"].append(dict(d["Triggers"][0])))
         self.assertEqual(e.exception.code,"DUPLICATE")
 
-    def test_47_created_table_facets_source(self):
+    def test_57_created_table_facets_source(self):
         rows=v.column_module.derive(Path("candidate"))
-        self.assertEqual(len(rows),47)
-        self.assertEqual(len({(x["TableName"],x["ColumnName"]) for x in rows}),47)
+        self.assertEqual(len(rows),57)
+        self.assertEqual(len({(x["TableName"],x["ColumnName"]) for x in rows}),57)
         self.assertEqual({r["TableName"] for r in rows},set(v.column_module.SCOPE))
         self.assertEqual(next(r for r in rows if r["TableName"]=="RouteCalculationAttempts" and r["ColumnName"]=="RequestBasisHash")["MaxLengthBytes"],32)
         self.assertEqual(next(r for r in rows if r["TableName"]=="TeamLocationNotes" and r["ColumnName"]=="RowVersion")["SqlType"],"timestamp")

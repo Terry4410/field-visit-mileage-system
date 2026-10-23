@@ -15,8 +15,8 @@ class Pre010ConstraintProof(unittest.TestCase):
         cls.fks=cls.contract["ForeignKeys"]
         cls.checks=cls.contract["Checks"]
     def test_pinned_constraints_and_reason_source(self):
-        self.assertEqual(len(self.fks),13)
-        self.assertEqual(len(self.checks),13)
+        self.assertEqual(len(self.fks),17)
+        self.assertEqual(len(self.checks),14)
         self.assertIn("CK_RouteCalculationAttempts_Reason",{r["CheckConstraintName"] for r in self.checks})
         self.assertEqual(self.contract["CheckDefinitionParity"],"UNKNOWN_NOT_CANONICAL_SQLSERVER_DDL")
     def test_positive_synthetic_only(self):

@@ -227,7 +227,7 @@ def main():
         compare(actual, src, args.mode, args.protected_sha, expected_columns, expected_constraints, expected_indices)
         # Even perfect catalog equality cannot prove pre-1.5 facets, history, API principal or recovery.
         scope = "21_TRIGGERS" if args.mode == "live" else "007_ONLY"
-        print(f"G1Pre010Private=PASS; Mode={args.mode.upper()}; StructuralScope={scope}; SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;")
+        print(f"G1Pre010Private=PASS; Mode={args.mode.upper()}; StructuralScope={scope}; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;")
         return 0
     except Stop as e:
         print(f"G1Pre010Private=STOP; Class={e.code}; Details=SUPPRESSED;")

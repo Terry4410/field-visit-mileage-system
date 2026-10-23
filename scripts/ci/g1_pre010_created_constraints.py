@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source-backed PRE-010 necessary constraints on four 004/007 new tables.
+"""Source-backed PRE-010 necessary constraints on five 004/007 new tables.
 
 Offline only; does not reconstruct pre-existing v1.5 tables or claim check
 definition semantic parity. Derivation fails closed on changed migration inputs.
@@ -18,9 +18,9 @@ FK=re.compile(
     r"\s+REFERENCES\s+dbo\.(\w+)\s*\(\s*(\w+)\s*\)",re.I)
 CK=re.compile(r"^CONSTRAINT\s+(CK_\w+)\s+CHECK\s*\b",re.I)
 EXPECT_FKS={"TeamLocationNotes":4,"TeamLocationNoteHistory":4,
-            "GeocodingAttempts":2,"RouteCalculationAttempts":3}
+            "GeocodingAttempts":2,"RouteCalculationAttempts":3,"MileageGovernanceEvents":4}
 EXPECT_CHECKS={"TeamLocationNotes":1,"TeamLocationNoteHistory":1,
-               "GeocodingAttempts":2,"RouteCalculationAttempts":9}
+               "GeocodingAttempts":2,"RouteCalculationAttempts":9,"MileageGovernanceEvents":1}
 REASON="CK_RouteCalculationAttempts_Reason"
 class SourceStop(Exception):
     def __init__(self,code):self.code=code
@@ -53,9 +53,9 @@ def derive(root:Path)->dict:
     if (src010.count("CONSTRAINT "+REASON)!=3 or "DROP CONSTRAINT "+REASON not in src010
         or "N'BackgroundMileageJob'" not in src010):
         raise SourceStop("REASON_SOURCE")
-    if len(fk)!=13 or len(ck)!=13 or len({(x["TableName"],x["ForeignKeyName"]) for x in fk})!=13:
+    if len(fk)!=17 or len(ck)!=14 or len({(x["TableName"],x["ForeignKeyName"]) for x in fk})!=17:
         raise SourceStop("SOURCE_COUNT")
-    if len({(x["TableName"],x["CheckConstraintName"]) for x in ck})!=13:
+    if len({(x["TableName"],x["CheckConstraintName"]) for x in ck})!=14:
         raise SourceStop("SOURCE_COUNT")
     return {"ForeignKeys":sorted(fk,key=lambda x:(x["TableName"],x["ForeignKeyName"])),
             "Checks":sorted(ck,key=lambda x:(x["TableName"],x["CheckConstraintName"])),

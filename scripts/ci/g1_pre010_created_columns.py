@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Pin and derive 47 exact created-table column facets from 004/007.
+"""Pin and derive 57 exact created-table column facets from 004/007.
 
-Covers only columns in four brand-new tables created by reviewed PRE-010
+Covers only columns in five brand-new tables created by reviewed PRE-010
 migrations. Never invents the preexisting 1.5 base schema and never reads SQL.
 """
 from __future__ import annotations
@@ -19,6 +19,7 @@ SCOPE={
  "TeamLocationNoteHistory":("004",10),
  "GeocodingAttempts":("007",11),
  "RouteCalculationAttempts":("007",17),
+ "MileageGovernanceEvents":("007",10),
 }
 TABLE=re.compile(r"\bCREATE\s+TABLE\s+dbo\.([A-Za-z_]\w*)\s*\(",re.I)
 COLUMN=re.compile(r"^\s*([A-Za-z_]\w*)\s+(BIGINT|INT|NVARCHAR|DATETIME2|VARBINARY|UNIQUEIDENTIFIER|ROWVERSION|BIT)\b(?:\s*\(\s*(\d+)\s*(?:,\s*\d+\s*)?\))?",re.I)
@@ -112,5 +113,5 @@ def derive(root:Path):
             output[table]=rows
     if set(output)!=set(SCOPE):raise SourceStop("TABLE_SOURCE_SCOPE")
     result=[output[t][n] for t in sorted(output) for n in sorted(output[t])]
-    if len(result)!=47:raise SourceStop("SOURCE_COUNT")
+    if len(result)!=57:raise SourceStop("SOURCE_COUNT")
     return result

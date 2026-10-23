@@ -45,7 +45,7 @@ SELECT
  JOIN sys.schemas s ON s.schema_id=t.schema_id
  JOIN sys.types ty ON ty.user_type_id=c.user_type_id
  WHERE s.name=N'dbo' AND t.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
-                                 N'GeocodingAttempts',N'RouteCalculationAttempts')
+                                 N'GeocodingAttempts',N'RouteCalculationAttempts',N'MileageGovernanceEvents')
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS ColumnJson,
 (SELECT ss.name AS SchemaName,pt.name AS TableName,fk.name AS ForeignKeyName,
  pc.name AS ParentColumn,rt.name AS ReferencedTable,rc.name AS ReferencedColumn,
@@ -58,7 +58,7 @@ SELECT
  JOIN sys.tables rt ON rt.object_id=fk.referenced_object_id
  JOIN sys.columns rc ON rc.object_id=fc.referenced_object_id AND rc.column_id=fc.referenced_column_id
  WHERE ss.name=N'dbo' AND pt.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
- N'GeocodingAttempts',N'RouteCalculationAttempts')
+ N'GeocodingAttempts',N'RouteCalculationAttempts',N'MileageGovernanceEvents')
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS ForeignKeyJson,
 (SELECT ss.name AS SchemaName,pt.name AS TableName,ck.name AS CheckConstraintName,
  CONVERT(bit,CASE WHEN ck.definition IS NULL THEN 0 ELSE 1 END) AS DefinitionVisible,
@@ -67,7 +67,7 @@ SELECT
  JOIN sys.tables pt ON pt.object_id=ck.parent_object_id
  JOIN sys.schemas ss ON ss.schema_id=pt.schema_id
  WHERE ss.name=N'dbo' AND pt.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
- N'GeocodingAttempts',N'RouteCalculationAttempts')
+ N'GeocodingAttempts',N'RouteCalculationAttempts',N'MileageGovernanceEvents')
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS CheckJson,
 (SELECT sch.name AS SchemaName,t.name AS TableName,i.name AS IndexName,
  (SELECT STRING_AGG(CONVERT(nvarchar(max),c.name + N':' +
@@ -93,7 +93,7 @@ SELECT
  JOIN sys.schemas sch ON sch.schema_id=t.schema_id
  WHERE sch.name=N'dbo' AND i.index_id>0 AND i.is_hypothetical=0
   AND t.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
-                N'GeocodingAttempts',N'RouteCalculationAttempts')
+                N'GeocodingAttempts',N'RouteCalculationAttempts',N'MileageGovernanceEvents')
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS IndexJson,
 (SELECT sch.name AS SchemaName,t.name AS TableName,c.name AS ColumnName,
  d.name AS DefaultName,d.definition AS Definition
@@ -102,7 +102,7 @@ SELECT
  JOIN sys.schemas sch ON sch.schema_id=t.schema_id
  JOIN sys.columns c ON c.object_id=d.parent_object_id AND c.column_id=d.parent_column_id
  WHERE sch.name=N'dbo' AND t.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
-                                   N'GeocodingAttempts',N'RouteCalculationAttempts')
+                                   N'GeocodingAttempts',N'RouteCalculationAttempts',N'MileageGovernanceEvents')
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS DefaultJson,
 CASE WHEN EXISTS(
  SELECT 1 FROM sys.check_constraints ch
@@ -162,7 +162,7 @@ CASE WHEN EXISTS(
         [IO.File]::WriteAllText($private,($actual|ConvertTo-Json -Depth 30 -Compress),[Text.UTF8Encoding]::new($false))
         $result=@(& python3 (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_compare.py') --candidate-root $CandidateRoot --private-actual $private --protected-sha $SourceSha --mode live 2>$null)
         if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or
-           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {return 'STOP'}
+           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {return 'STOP'}
         return 'PASS'
     } catch {
         return 'STOP'

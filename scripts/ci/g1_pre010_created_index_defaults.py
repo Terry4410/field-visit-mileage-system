@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pinned PRE010 index/default reference for four tables created by 004/007.
+"""Pinned PRE010 index/default reference for five tables created by 004/007.
 
 Source-only; v1.5 legacy schema and live UAT remain UNKNOWN.
 """
@@ -11,7 +11,8 @@ HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location("g1cols",HERE/"g1_pre010_created_columns.py")
 cols=importlib.util.module_from_spec(spec);spec.loader.exec_module(cols)
 COUNTS={"TeamLocationNotes":(3,1),"TeamLocationNoteHistory":(2,1),
-        "GeocodingAttempts":(3,0),"RouteCalculationAttempts":(4,0)}
+        "GeocodingAttempts":(3,0),"RouteCalculationAttempts":(4,0),
+        "MileageGovernanceEvents":(3,1)}
 INDEX=re.compile(r"\bCREATE\s+INDEX\s+(IX_\w+)\s+ON\s+dbo\.(\w+)\s*\(",re.I)
 PRIMARY=re.compile(r"\bCONSTRAINT\s+(PK_\w+)\s+PRIMARY\s+KEY\b",re.I)
 UNIQUE=re.compile(r"^\s*CONSTRAINT\s+(UQ_\w+)\s+UNIQUE\s*\(",re.I)
@@ -80,9 +81,9 @@ def derive(root:Path):
             add(match.group(1),keys(raw[match.end():close]),includes=inc_keys,where=where)
         if (len(ind),len(defs))!=COUNTS[table]:raise SourceStop("INDEX_DEFAULT_COUNT")
         indexes.extend(ind);defaults.extend(defs)
-    if len(indexes)!=12 or len(defaults)!=2 or len({(x["TableName"],x["IndexName"]) for x in indexes})!=12:
+    if len(indexes)!=15 or len(defaults)!=3 or len({(x["TableName"],x["IndexName"]) for x in indexes})!=15:
         raise SourceStop("INDEX_DEFAULT_TOTAL")
-    if len({(x["TableName"],x["ColumnName"]) for x in defaults})!=2:
+    if len({(x["TableName"],x["ColumnName"]) for x in defaults})!=3:
         raise SourceStop("DEFAULT_DUPLICATE")
     return {"Indexes":sorted(indexes,key=lambda x:(x["TableName"],x["IndexName"])),
             "Defaults":sorted(defaults,key=lambda x:(x["TableName"],x["DefaultName"])),
