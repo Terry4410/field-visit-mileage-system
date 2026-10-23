@@ -132,7 +132,7 @@ GROUP BY e.MigrationId ORDER BY e.MigrationId;
     $catalogSql = Get-Content -LiteralPath $paths.catalog -Raw
     $decisions = @{}
     $catalogMigration = 'NONE'
-    foreach ($id in @('011','012','014','016','017','018','019','020')) {
+    foreach ($id in @('011','012','014','016','017','018','020')) {
         $catalogMigration = $id
         $subset = [ordered]@{
             columns = @($reference.columns | Where-Object migration -eq $id)
@@ -175,6 +175,12 @@ SELECT code,status FROM (VALUES
     if ($special['M020'] -eq 'FAIL') { $decisions['020'] = 'FAIL' }
 
     foreach ($id in @('011','012','014','015','016','017','018','019','020')) {
+        if($id -eq '019'){
+            $marker019=$markers['019']
+            if($marker019 -eq 'DUPLICATE'){Stop-G1 'ResultContractRejected'}
+            Write-Output "Migration=019; Marker=$marker019; Contract=OUT_OF_SCOPE; Decision=NOT_REQUIRED_FOR_FROZEN_25; PackageCompatibility=HOLD;"
+            continue
+        }
         $marker = $markers[$id]
         $contract = $decisions[$id]
         $decision = if ($marker -eq 'PRESENT_ONCE' -and $contract -eq 'PASS') {'NOT_REQUIRED'}
@@ -190,6 +196,7 @@ SELECT code,status FROM (VALUES
     }
     Write-Output 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;'
     Write-Output "G1Delta=PASS; SourceSha=$($env:GITHUB_SHA); CandidateSha=$($env:G1_CANDIDATE_SHA);"
+    Write-Output 'G1ReleaseGate=HOLD; ApiPrincipal=UNKNOWN; Runtime=UNKNOWN; Recovery=UNKNOWN;'
 } catch {
     if ($stage -eq 'CATALOG') {
         $kind = 'RUNTIME'

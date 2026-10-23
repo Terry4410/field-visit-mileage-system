@@ -6,6 +6,7 @@ $master=$null
 $db=$null
 $privateDdl=$null
 $dbName=$null
+$privateEvidence=$null
 function SqlCmd([object]$connection,[string]$sql,[object]$sourceDdl=$null) {
     $cmd=$connection.CreateCommand()
     $cmd.CommandText=$sql
@@ -69,6 +70,42 @@ WHERE tr.name=N'TR_Locations_SelectedGeocodingAttempt'
   AND tr.parent_id=OBJECT_ID(N'dbo.Locations');
 '@ $ddl
     if($verdict -cne 'PASS'){throw 'definition'}
+    $stage='PRIVATE_METADATA_FIXTURE'
+    $actualJson=SqlCmd $db @'
+SELECT s.name AS SchemaName,t.name AS TableName,tr.name AS TriggerName,
+ CONVERT(bit,tr.is_disabled) AS IsDisabled,
+ CONVERT(bit,tr.is_instead_of_trigger) AS IsInsteadOfTrigger,
+ CONVERT(varchar(64),HASHBYTES('SHA2_256',
+  CONVERT(varbinary(max),OBJECT_DEFINITION(tr.object_id))),2) AS DefinitionSha256,
+ (SELECT STRING_AGG(CONVERT(nvarchar(30),e.type_desc),N',')
+    WITHIN GROUP(ORDER BY e.type_desc)
+    FROM sys.trigger_events e WHERE e.object_id=tr.object_id) AS Events
+FROM sys.triggers tr
+JOIN sys.tables t ON t.object_id=tr.parent_id
+JOIN sys.schemas s ON s.schema_id=t.schema_id
+WHERE tr.name=N'TR_Locations_SelectedGeocodingAttempt' AND t.name=N'Locations'
+FOR JSON PATH,INCLUDE_NULL_VALUES;
+'@
+    $parsed=@($actualJson | ConvertFrom-Json -Depth 15)
+    $fixture=[ordered]@{
+      ContractVersion='g1-pre010-private-observed-v1'
+      SourceSha=$env:GITHUB_SHA
+      Provenance='DISPOSABLE_SQL'
+      SchemaVersion='DISPOSABLE'
+      Triggers=$parsed
+    }
+    $privateEvidence=Join-Path $env:RUNNER_TEMP ('g1-private-fixture-'+[guid]::NewGuid().ToString('N')+'.json')
+    [IO.File]::WriteAllText($privateEvidence,($fixture|ConvertTo-Json -Depth 15 -Compress),[Text.UTF8Encoding]::new($false))
+    $observedResult=@(& python3 scripts/ci/g1_pre010_private_compare.py --candidate-root $candidate --private-actual $privateEvidence --protected-sha $env:GITHUB_SHA --mode disposable 2>$null)
+    if($LASTEXITCODE -ne 0 -or $observedResult.Count -ne 1 -or
+      $observedResult[0] -cne 'G1Pre010Private=PASS; Mode=DISPOSABLE; StructuralScope=007_ONLY; DefinitionProof=007_ONLY; BaseFacets=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'){throw 'private-positive'}
+    $fixture.Triggers[0].DefinitionSha256='0'*64
+    [IO.File]::WriteAllText($privateEvidence,($fixture|ConvertTo-Json -Depth 15 -Compress),[Text.UTF8Encoding]::new($false))
+    $negativeResult=@(& python3 scripts/ci/g1_pre010_private_compare.py --candidate-root $candidate --private-actual $privateEvidence --protected-sha $env:GITHUB_SHA --mode disposable 2>$null)
+    if($LASTEXITCODE -eq 0 -or $negativeResult.Count -ne 1 -or
+       $negativeResult[0] -cne 'G1Pre010Private=STOP; Class=007_DEFINITION_DRIFT; Details=SUPPRESSED;'){throw 'private-negative'}
+    Write-Output 'G1PrivateMetadataFixture=PASS; Source=PINNED_007; RealSqlToPrivateComparator=PASS; HashTamper=STOP; UAT=NOT_ACCESSED; ReleaseGate=HOLD;'
+
     Write-Output 'G1TriggerSqlServer=PASS; Source=PINNED_007; DefinitionHash=UTF16LE_SQL; Events=PASS; TamperRejected=PASS; Azure=NOT_ACCESSED; ActualUat010=UNKNOWN; ReleaseGate=HOLD;'
 } catch {
     Write-Output "G1TriggerSqlServer=STOP; Stage=$stage; Details=SUPPRESSED;"
@@ -82,5 +119,6 @@ WHERE tr.name=N'TR_Locations_SelectedGeocodingAttempt'
         try{$master.Dispose()}catch{}
     }
     if($null -ne $privateDdl){Remove-Item -LiteralPath $privateDdl -Force -ErrorAction SilentlyContinue}
+    if($null -ne $privateEvidence){Remove-Item -LiteralPath $privateEvidence -Force -ErrorAction SilentlyContinue}
     Remove-Variable ddl -ErrorAction SilentlyContinue
 }
