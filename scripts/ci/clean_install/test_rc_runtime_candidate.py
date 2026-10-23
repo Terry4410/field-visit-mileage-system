@@ -17,9 +17,9 @@ class RuntimeCandidateOverlayTests(unittest.TestCase):
                     OverlayError, "MAPPING_CARDINALITY_MISMATCH"):
                 rewrite_source(source, hashlib.sha256(source).hexdigest())
     def test_operational_published_only_and_legacy_edit_untouched(self):
-        guard = b"using System;\\n    internal static async Task RequireUnreservedDraftAsync(\\n"
-        repo = (b"before RequireUnreservedDraftAsync(db, id, ct);\\n"
-                b"await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(db, id, ct);\\n"
+        guard = b"using System;\n    internal static async Task RequireUnreservedDraftAsync(\n"
+        repo = (b"before RequireUnreservedDraftAsync(db, id, ct);\n"
+                b"await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(db, id, ct);\n"
                 b"        return await db.Locations.AsNoTracking()")
         updated_guard, updated_repo = rewrite_operational_guards(guard, repo)
         self.assertIn(b"ReservationStatus<>N'Published'", updated_guard)
