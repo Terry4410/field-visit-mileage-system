@@ -127,6 +127,22 @@ jobs:
           set -euo pipefail
           python3 -m unittest -q scripts/ci/test_g1_pre010_constraints.py
           echo 'Pre010NewTableConstraints=PASS; Definitions=UNKNOWN; Azure=NOT_ACCESSED;'
+      - name: Reject inconsistent private PRE-010 output contracts before SQL Server tests
+        shell: python
+        run: |
+          from pathlib import Path
+          proof="SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;"
+          files=[
+            "scripts/ci/g1_pre010_private_compare.py",
+            "scripts/ci/g1_pre010_private_collect.ps1",
+            "scripts/ci/g1_final_schema_delta_live.ps1",
+            "scripts/ci/test_g1_pre010_trigger_hash_disposable.ps1",
+            ".github/workflows/g1-final-schema-delta-readonly.yml"
+          ]
+          for f in files:
+              source=Path(f).read_text(encoding="utf-8")
+              assert source.count(proof)==1, "private output contract differs"
+          print("G1PrivateStatusContract=PASS; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;")
       - name: Assert explicit owner-dispatch gate and no automatic push authorization
         shell: python
         run: |
