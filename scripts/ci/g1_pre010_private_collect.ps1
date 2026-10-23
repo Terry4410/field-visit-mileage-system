@@ -49,6 +49,9 @@ SELECT
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS ColumnJson,
 (SELECT ss.name AS SchemaName,pt.name AS TableName,fk.name AS ForeignKeyName,
  pc.name AS ParentColumn,rt.name AS ReferencedTable,rc.name AS ReferencedColumn,
+ fk.delete_referential_action_desc AS DeleteAction,
+ fk.update_referential_action_desc AS UpdateAction,
+ CONVERT(bit,fk.is_not_for_replication) AS IsNotForReplication,
  CONVERT(bit,fk.is_disabled) AS IsDisabled,CONVERT(bit,fk.is_not_trusted) AS IsNotTrusted
  FROM sys.foreign_keys fk
  JOIN sys.tables pt ON pt.object_id=fk.parent_object_id

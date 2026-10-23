@@ -94,6 +94,12 @@ def check_constraints(observed_fks, observed_checks, expected):
             if code=="FK":
                 for name in ("ReferencedTable","ReferencedColumn"):
                     if actual_row.get(name)!=expected_row[name]:raise Stop("FK_DRIFT")
+                for name in ("DeleteAction","UpdateAction"):
+                    if actual_row.get(name)!=expected_row[name]:raise Stop("FK_ACTION_DRIFT")
+                value=actual_row.get("IsNotForReplication")
+                if type(value) is not bool and (type(value) is not int or value not in (0,1)):
+                    raise Stop("FK_ACTION_SHAPE")
+                if bool(value):raise Stop("FK_REPLICATION_BYPASS")
             else:
                 if actual_row.get("DefinitionVisible") not in (True,1):
                     raise Stop("CHECK_VISIBILITY")

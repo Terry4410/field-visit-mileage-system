@@ -38,9 +38,13 @@ def derive(root:Path)->dict:
         for line in cols.split_columns(body):
             f=FK.match(line)
             if f:
+                if re.search(r"\bON\s+(?:DELETE|UPDATE)\b|\bNOT\s+FOR\s+REPLICATION\b",line,re.I):
+                    raise SourceStop("FK_SOURCE_ACTION")
                 name,parent,ref_table,ref_col=f.groups()
                 fk.append({"SchemaName":"dbo","TableName":table,"ForeignKeyName":name,
-                    "ParentColumn":parent,"ReferencedTable":ref_table,"ReferencedColumn":ref_col})
+                    "ParentColumn":parent,"ReferencedTable":ref_table,"ReferencedColumn":ref_col,
+                    "DeleteAction":"NO_ACTION","UpdateAction":"NO_ACTION",
+                    "IsNotForReplication":False})
                 continue
             c=CK.match(line)
             if c:ck.append({"SchemaName":"dbo","TableName":table,"CheckConstraintName":c.group(1)})

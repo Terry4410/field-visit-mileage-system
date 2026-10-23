@@ -31,6 +31,28 @@ class Pre010ConstraintProof(unittest.TestCase):
             vals=self._fks();vals[0][field]=value
             with self.assertRaises(private.Stop) as e:private.check_constraints(vals,self._checks(),self.contract)
             self.assertEqual(e.exception.code,klass)
+    def test_fk_cascade_and_replication_bypass_stop(self):
+        for key,value,code in (
+            ("DeleteAction","CASCADE","FK_ACTION_DRIFT"),
+            ("UpdateAction","CASCADE","FK_ACTION_DRIFT"),
+            ("DeleteAction","SET_NULL","FK_ACTION_DRIFT"),
+            ("IsNotForReplication",True,"FK_REPLICATION_BYPASS"),
+            ("IsNotForReplication",None,"FK_ACTION_SHAPE"),
+        ):
+            observed=self._fks()
+            observed[0][key]=value
+            with self.assertRaises(private.Stop) as stopped:
+                private.check_constraints(observed,self._checks(),self.contract)
+            self.assertEqual(stopped.exception.code,code)
+    def test_live_collector_exposes_referential_action_metadata(self):
+        source=Path(__file__).with_name("g1_pre010_private_collect.ps1").read_text(encoding="utf-8")
+        for needle in (
+            "fk.delete_referential_action_desc AS DeleteAction",
+            "fk.update_referential_action_desc AS UpdateAction",
+            "fk.is_not_for_replication",
+        ):
+            self.assertIn(needle,source)
+
     def test_fk_missing_extra_and_duplicate(self):
         for fun in [lambda v:v.pop(),lambda v:v.append(dict(v[0])),
                     lambda v:v.append(dict(v[0],ForeignKeyName="Fake"))]:
