@@ -118,11 +118,6 @@ internal static class CleanInstallBusinessProbe
                 EmploymentId = le.EmploymentId, TeamId = team.TeamId,
                 IsPrimary = true, EffectiveFrom = since
             });
-        db.TeamLeaderAssignments.Add(new TeamLeaderAssignment
-        {
-            TeamId = team.TeamId, EmploymentId = le.EmploymentId,
-            EffectiveFrom = since, CreatedAt = now
-        });
         db.UserTeamScopes.AddRange(
             new UserTeamScope
             {
@@ -142,6 +137,23 @@ internal static class CleanInstallBusinessProbe
         };
         db.Centers.Add(center);
         await SaveSeedAsync(db, "S4");
+        // The accepted 1800_002 trigger is present on this clean database,
+        // while immutable RC EF mapping for TeamLeaderAssignments still uses
+        // SQL OUTPUT. Use parameters and preserve the real trigger (never
+        // disable it) for synthetic fixture seeding; runtime CRUD remains P0.
+        try
+        {
+            var effective = new DateTime(2020, 1, 1);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $@"INSERT dbo.TeamLeaderAssignments
+                   (TeamId, EmploymentId, EffectiveFrom, CreatedAt)
+                   VALUES ({team.TeamId}, {le.EmploymentId}, {effective}, {now})");
+        }
+        catch (SqlException e)
+        {
+            throw Fail("SEED_LEADER_SQL_" + Math.Abs(e.Number));
+        }
+
         db.TeamCenterAssignments.Add(new TeamCenterAssignment
         {
             TeamId = team.TeamId, CenterId = center.CenterId,
