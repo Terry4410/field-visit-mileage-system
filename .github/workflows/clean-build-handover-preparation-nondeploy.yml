@@ -99,6 +99,12 @@ jobs:
           done
           echo 'SQL2022_READY=FAIL' >&2
           exit 1
+      - name: Compile pinned SQL-only seven-table layer (source contract, NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_sql_only_tables.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
       - name: Build and execute fresh model-baseline install against disposable SQL Server 2022
         timeout-minutes: 15
         shell: bash
