@@ -59,4 +59,53 @@ class PrivateComparatorTests(unittest.TestCase):
     def test_duplicate(self):
         with self.assertRaises(v.Stop) as e:self.check(lambda d:d["Triggers"].append(dict(d["Triggers"][0])))
         self.assertEqual(e.exception.code,"DUPLICATE")
+
+    def test_47_created_table_facets_source(self):
+        rows=v.column_module.derive(Path("candidate"))
+        self.assertEqual(len(rows),47)
+        self.assertEqual(len({(x["TableName"],x["ColumnName"]) for x in rows}),47)
+        self.assertEqual({r["TableName"] for r in rows},set(v.column_module.SCOPE))
+        self.assertEqual(next(r for r in rows if r["TableName"]=="RouteCalculationAttempts" and r["ColumnName"]=="RequestBasisHash")["MaxLengthBytes"],32)
+        self.assertEqual(next(r for r in rows if r["TableName"]=="TeamLocationNotes" and r["ColumnName"]=="RowVersion")["SqlType"],"timestamp")
+    def test_created_table_col_type_and_nullability_drift(self):
+        rows=v.column_module.derive(Path("candidate"))
+        observed=copy.deepcopy(rows)
+        v.check_columns(observed,rows)
+        observed[0]["MaxLengthBytes"]=99
+        with self.assertRaises(v.Stop) as e:v.check_columns(observed,rows)
+        self.assertEqual(e.exception.code,"COLUMN_DRIFT")
+    def test_created_table_missing_extra_and_duplicate(self):
+        rows=v.column_module.derive(Path("candidate"))
+        for change in (lambda o:o.pop(),lambda o:o.append(dict(o[0])),lambda o:o.append(dict(o[0],ColumnName="Unknown"))):
+            observed=copy.deepcopy(rows)
+            change(observed)
+            with self.assertRaises(v.Stop):v.check_columns(observed,rows)
+    def test_non007_trigger_definition_drift(self):
+        sources=self.sources
+        row=next((n,s) for n,s in sources.items() if n!=v.REQUIRED007)
+        m,s=row
+        header=v.source_module.core.TRIGGER_HEADER.search(s["Ddl"])
+        record={"SchemaName":"dbo","TableName":header.group(2),"TriggerName":m,
+                "Events":",".join(sorted(x.upper() for x in header.groups()[2:] if x)),
+                "IsDisabled":False,"IsInsteadOfTrigger":False,
+                "DefinitionSha256":"f"*64}
+        d=copy.deepcopy(self.good)
+        d["Provenance"]="READONLY_UAT_CAPTURE"
+        d["Target"]={"ServerName":"sql-fieldvisit-jpe-uat","DatabaseName":"db-fieldvisit-uat"}
+        d["SchemaVersion"]="1.8.0-010"
+        d["ReasonCheck"]="PASS"
+        d["Columns"]=v.column_module.derive(Path("candidate"))
+        d["Triggers"]=[]
+        for k,item in sources.items():
+            h=v.source_module.core.TRIGGER_HEADER.search(item["Ddl"])
+            d["Triggers"].append({
+                "SchemaName":"dbo","TableName":h.group(2),"TriggerName":k,
+                "Events":",".join(sorted(x.upper() for x in h.groups()[2:] if x)),
+                "IsDisabled":False,"IsInsteadOfTrigger":False,
+                "DefinitionSha256":item["Utf16LeSha256"]})
+        self.assertEqual(v.compare(d,sources,"live",SOURCE_SHA,d["Columns"]),"PASS")
+        d["Triggers"][0]["DefinitionSha256"]="f"*64
+        with self.assertRaises(v.Stop) as e:v.compare(d,sources,"live",SOURCE_SHA,d["Columns"])
+        self.assertIn(e.exception.code,("TRIGGER_DEFINITION_DRIFT","007_DEFINITION_DRIFT"))
+
 if __name__=="__main__":unittest.main()

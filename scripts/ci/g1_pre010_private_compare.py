@@ -9,6 +9,7 @@ import argparse
 import importlib.util
 import json
 import re
+import hashlib
 import sys
 from pathlib import Path
 
@@ -16,6 +17,11 @@ SOURCE = Path(__file__).with_name("g1_pre010_trigger_ddl.py")
 spec = importlib.util.spec_from_file_location("trigger_source", SOURCE)
 source_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(source_module)
+COL_SOURCE=Path(__file__).with_name("g1_pre010_created_columns.py")
+column_spec=importlib.util.spec_from_file_location("g1_columns",COL_SOURCE)
+column_module=importlib.util.module_from_spec(column_spec)
+column_spec.loader.exec_module(column_module)
+COLUMN_FIELDS=("SchemaName","TableName","ColumnName","SqlType","MaxLengthBytes","Scale","IsNullable","IsIdentity")
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 REQUIRED007 = "TR_Locations_SelectedGeocodingAttempt"
 FIELDS = ("SchemaName", "TableName", "TriggerName", "Events",
@@ -25,7 +31,30 @@ class Stop(Exception):
     def __init__(self, code):
         self.code = code
 
-def compare(actual: dict, sources: dict, mode: str, protected_sha: str):
+def check_columns(actual, expected):
+    if not isinstance(actual,list) or len(actual)>4000:raise Stop("COLUMN_SHAPE")
+    index={}
+    for row in actual:
+        if not isinstance(row,dict) or any(x not in row for x in COLUMN_FIELDS):
+            raise Stop("COLUMN_SHAPE")
+        key=(row["SchemaName"],row["TableName"],row["ColumnName"])
+        if any(not isinstance(x,str) or not x for x in key) or key in index:
+            raise Stop("COLUMN_SHAPE")
+        index[key]=row
+    expected_map={(r["SchemaName"],r["TableName"],r["ColumnName"]):r for r in expected}
+    observed_scoped={k:v for k,v in index.items() if k[0]=="dbo" and k[1] in column_module.SCOPE}
+    if set(observed_scoped)!=set(expected_map):raise Stop("COLUMN_SCOPE")
+    for key, row in expected_map.items():
+        actual_row=observed_scoped[key]
+        for facet in COLUMN_FIELDS[3:]:
+            value=actual_row[facet]
+            if facet in ("IsNullable","IsIdentity"):
+                if type(value) is not bool and value not in (0,1):raise Stop("COLUMN_SHAPE")
+                if bool(value)!=row[facet]:raise Stop("COLUMN_DRIFT")
+            elif type(value)!=type(row[facet]) or value!=row[facet]:
+                raise Stop("COLUMN_DRIFT")
+
+def compare(actual: dict, sources: dict, mode: str, protected_sha: str, expected_columns=None):
     if not isinstance(actual, dict) or actual.get("ContractVersion") != "g1-pre010-private-observed-v1":
         raise Stop("SHAPE")
     if not re.fullmatch(r"[0-9a-f]{40}", protected_sha) or actual.get("SourceSha") != protected_sha:
@@ -38,6 +67,9 @@ def compare(actual: dict, sources: dict, mode: str, protected_sha: str):
         selected = sources
         if actual.get("ReasonCheck") != "PASS":
             raise Stop("PRE010_REASON")
+        if expected_columns is None:raise Stop("COLUMN_REFERENCE")
+        check_columns(actual.get("Columns"), expected_columns)
+
     elif mode == "disposable":
         if actual.get("Provenance") != "DISPOSABLE_SQL" or actual.get("SchemaVersion") != "DISPOSABLE":
             raise Stop("DISPOSABLE_SCOPE")
@@ -76,9 +108,11 @@ def compare(actual: dict, sources: dict, mode: str, protected_sha: str):
         hashed = row["DefinitionSha256"]
         if not isinstance(hashed, str) or not HEX64.fullmatch(hashed):
             raise Stop("DEFINITION_VISIBILITY")
-        # Only 007 has independently proven SQL Server stored-definition equality.
-        if name == REQUIRED007 and hashed.lower() != src["Utf16LeSha256"].lower():
-            raise Stop("007_DEFINITION_DRIFT")
+        if hashed.lower() != src["Utf16LeSha256"].lower():
+            # 007 has separately proven stored-definition equivalence in disposable SQL.
+            # Remaining source hashes are exact NVARCHAR definitions, not separately
+            # created one-by-one as SQL Server stored objects.
+            raise Stop("007_DEFINITION_DRIFT" if name == REQUIRED007 else "TRIGGER_DEFINITION_DRIFT")
     return "PASS"  # source-scoped collector success; release gate is always HOLD
 
 def main():
@@ -93,10 +127,11 @@ def main():
         if not args.private_actual.is_file() or args.private_actual.stat().st_size > 250000:
             raise Stop("PRIVATE_CAPTURE")
         actual = json.loads(args.private_actual.read_text(encoding="utf-8-sig"))
-        compare(actual, src, args.mode, args.protected_sha)
+        expected_columns=column_module.derive(args.candidate_root)
+        compare(actual, src, args.mode, args.protected_sha, expected_columns)
         # Even perfect catalog equality cannot prove pre-1.5 facets, history, API principal or recovery.
         scope = "21_TRIGGERS" if args.mode == "live" else "007_ONLY"
-        print(f"G1Pre010Private=PASS; Mode={args.mode.upper()}; StructuralScope={scope}; DefinitionProof=007_ONLY; BaseFacets=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;")
+        print(f"G1Pre010Private=PASS; Mode={args.mode.upper()}; StructuralScope={scope}; SourceDefinitionHashes=21; NewTableColumnFacets=47; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;")
         return 0
     except Stop as e:
         print(f"G1Pre010Private=STOP; Class={e.code}; Details=SUPPRESSED;")

@@ -45,9 +45,10 @@ env:
   PERMISSIONS_SHA256: af528981bc0e619c183e28a473b9cdbb15b5d0df10153f0b1ba33b3c67024d6b
   REQUIREMENTS_SHA256: 870b751876d84d829995f39d73289fe5b93e35528b6d8a4c9026851ffbf1f6f4
   REFERENCE_SHA256: f86a42ad88230411b2351a59cd9c1bb40ad2586076631ab249949fce13e91eb7
-  LIVE_SCRIPT_SHA256: 929e0b13ff0013d61d844ed3f73b6af784db1d28029e559afc2125996fc178ec
-  G1_PRE010_COMPARATOR_SHA256: 80e55970bba11524da832ac5b21f81712475bd23c63872297e386c7a00f68565
-  G1_PRE010_COLLECTOR_SHA256: 778e43e09370c2335728c90918af85d8b8836490cd02d3a63839c498ebff39ce
+  LIVE_SCRIPT_SHA256: 9b788859846c00d24e6689d7091298f099deb7ea544542b26ce61141c081b8e2
+  G1_PRE010_COMPARATOR_SHA256: b627f31e881ae3132924df1c7d49358bef4c23605f91fdcaaab91a1e163e838f
+  G1_PRE010_COLLECTOR_SHA256: 41ae6ad15cd16c8bf1b90c423fef6b20a1251f5ce8b7c042a59bbcdacefcc566
+  G1_PRE010_COLUMN_SOURCE_SHA256: 7f4a316ac835496ca150710b1b977d8c21621502740612514de8b5af6b2c51cd
   G1_PRE010_TRIGGER_DDL_SHA256: f51ea40132f78a8244bd920519619e1d8e86b5e730c6acc2c52ba19a4610a920
 
 jobs:
@@ -168,6 +169,7 @@ jobs:
           test "$(sha256sum scripts/ci/g1_final_schema_delta_live.ps1 | cut -d' ' -f1)" = "$LIVE_SCRIPT_SHA256"
           test "$(sha256sum scripts/ci/g1_pre010_private_compare.py | cut -d' ' -f1)" = "$G1_PRE010_COMPARATOR_SHA256"
           test "$(sha256sum scripts/ci/g1_pre010_private_collect.ps1 | cut -d' ' -f1)" = "$G1_PRE010_COLLECTOR_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_created_columns.py | cut -d' ' -f1)" = "$G1_PRE010_COLUMN_SOURCE_SHA256"
           test "$(sha256sum scripts/ci/g1_pre010_trigger_ddl.py | cut -d' ' -f1)" = "$G1_PRE010_TRIGGER_DDL_SHA256"
           python3 - <<'PY'
           import json, os
@@ -290,7 +292,7 @@ jobs:
           test -s artifacts/g1-schema-delta-summary.txt
           ! grep -Eqi '(password|access.?token|connection.?string|principal.?id|tenant.?id|subscription.?id|server=tcp|data source=|exception|stack trace|select |from |where )' artifacts/g1-schema-delta-summary.txt
           test "$(grep -c '^Migration=' artifacts/g1-schema-delta-summary.txt)" -eq 10
-          grep -qx 'Pre010Private=PASS; DefinitionProof=007_ONLY; BaseFacets=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;' artifacts/g1-schema-delta-summary.txt
+          grep -qx 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=47; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;' artifacts/g1-schema-delta-summary.txt
           grep -qx 'G1ReleaseGate=HOLD; ApiPrincipal=UNKNOWN; Runtime=UNKNOWN; Recovery=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
           grep -Eq '^Migration=019; Marker=(ABSENT|PRESENT_ONCE); Contract=OUT_OF_SCOPE; Decision=NOT_REQUIRED_FOR_FROZEN_25; PackageCompatibility=HOLD;$' artifacts/g1-schema-delta-summary.txt
           grep -qx 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;' artifacts/g1-schema-delta-summary.txt

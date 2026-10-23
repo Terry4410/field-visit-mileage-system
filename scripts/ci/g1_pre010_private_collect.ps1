@@ -33,6 +33,16 @@ SELECT
  FROM sys.triggers tr JOIN sys.tables t ON t.object_id=tr.parent_id
  JOIN sys.schemas s ON s.schema_id=t.schema_id
  WHERE tr.is_ms_shipped=0 FOR JSON PATH,INCLUDE_NULL_VALUES) AS TriggerJson,
+(SELECT N'dbo' AS SchemaName,t.name AS TableName,c.name AS ColumnName,
+    ty.name AS SqlType,CONVERT(int,c.max_length) AS MaxLengthBytes,
+    CONVERT(int,c.scale) AS Scale,CONVERT(bit,c.is_nullable) AS IsNullable,
+    CONVERT(bit,c.is_identity) AS IsIdentity
+ FROM sys.columns c JOIN sys.tables t ON t.object_id=c.object_id
+ JOIN sys.schemas s ON s.schema_id=t.schema_id
+ JOIN sys.types ty ON ty.user_type_id=c.user_type_id
+ WHERE s.name=N'dbo' AND t.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
+                                 N'GeocodingAttempts',N'RouteCalculationAttempts')
+ FOR JSON PATH,INCLUDE_NULL_VALUES) AS ColumnJson,
 CASE WHEN EXISTS(
  SELECT 1 FROM sys.check_constraints ch
  WHERE ch.parent_object_id=OBJECT_ID(N'dbo.RouteCalculationAttempts')
@@ -44,15 +54,18 @@ CASE WHEN EXISTS(
         $cmd=$Connection.CreateCommand()
         $cmd.CommandText=$commandText;$cmd.CommandTimeout=30
         $reader=$cmd.ExecuteReader()
-        if(-not $reader.Read() -or $reader.FieldCount -ne 2 -or
+        if(-not $reader.Read() -or $reader.FieldCount -ne 3 -or
            $reader.GetName(0) -cne 'TriggerJson' -or
-           $reader.GetName(1) -cne 'ReasonCheck' -or
-           $reader.IsDBNull(0) -or $reader.IsDBNull(1)){return 'STOP'}
+           $reader.GetName(1) -cne 'ColumnJson' -or
+           $reader.GetName(2) -cne 'ReasonCheck' -or
+           $reader.IsDBNull(0) -or $reader.IsDBNull(1) -or $reader.IsDBNull(2)){return 'STOP'}
         $rawJson=$reader.GetString(0)
-        $reason=$reader.GetString(1)
-        if($rawJson.Length -gt 220000 -or $reason -cnotin @('PASS','UNKNOWN')){return 'STOP'}
+        $columnJson=$reader.GetString(1)
+        $reason=$reader.GetString(2)
+        if($rawJson.Length -gt 220000 -or $columnJson.Length -gt 100000 -or $reason -cnotin @('PASS','UNKNOWN')){return 'STOP'}
         if($reader.Read() -or $reader.NextResult()){return 'STOP'}
         $parsed=$rawJson|ConvertFrom-Json -Depth 20
+        $parsedColumns=$columnJson|ConvertFrom-Json -Depth 20
         $actual=[ordered]@{
           ContractVersion='g1-pre010-private-observed-v1'
           SourceSha=$SourceSha
@@ -61,12 +74,13 @@ CASE WHEN EXISTS(
           SchemaVersion='1.8.0-010'
           ReasonCheck=$reason
           Triggers=@($parsed)
+          Columns=@($parsedColumns)
         }
         $private=Join-Path $env:RUNNER_TEMP ('g1-uat010-'+[guid]::NewGuid().ToString('N')+'.json')
         [IO.File]::WriteAllText($private,($actual|ConvertTo-Json -Depth 30 -Compress),[Text.UTF8Encoding]::new($false))
         $result=@(& python3 (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_compare.py') --candidate-root $CandidateRoot --private-actual $private --protected-sha $SourceSha --mode live 2>$null)
         if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or
-           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; DefinitionProof=007_ONLY; BaseFacets=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {return 'STOP'}
+           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; SourceDefinitionHashes=21; NewTableColumnFacets=47; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {return 'STOP'}
         return 'PASS'
     } catch {
         return 'STOP'
