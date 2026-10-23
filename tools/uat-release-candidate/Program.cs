@@ -124,12 +124,13 @@ try
    Console.WriteLine("UAT_RC_BROWSER_EXIT_"+browser.ExitCode);
    Console.WriteLine("UAT_RC_BROWSER_STREAM_LENGTHS_"+result.Length+"_"+privateError.Length);
    foreach(var kind in new[]{"SyntaxError","TypeError","ReferenceError","RangeError","FatalError"})if(privateError.Contains(kind,StringComparison.Ordinal))Console.WriteLine("UAT_RC_BROWSER_CLASS_"+kind.ToUpperInvariant());
-   foreach(var known in new[]{"ERR_MODULE_NOT_FOUND","MODULE_NOT_FOUND","ERR_INVALID_ARG_TYPE","EADDRINUSE","ENOENT","EACCES","ECONNREFUSED"}) if(privateError.Contains(known,StringComparison.Ordinal))Console.WriteLine("UAT_RC_BROWSER_RUNTIME_"+known);
+   foreach(var known in new[]{"ERR_MODULE_NOT_FOUND","MODULE_NOT_FOUND","ERR_INVALID_ARG_TYPE","EADDRINUSE","ENOENT","EACCES","ECONNREFUSED","ERR_HTTP_HEADERS_SENT","TimeoutError","AssertionError","unhandled","locator","expect","toBe","test","browser","XServer","dependencies"}) if(privateError.Contains(known,StringComparison.Ordinal))Console.WriteLine("UAT_RC_BROWSER_RUNTIME_"+known);
+   foreach(System.Text.RegularExpressions.Match marker in System.Text.RegularExpressions.Regex.Matches(result,@"UAT_RC_BROWSER_(?:STAGE|FAIL)_[A-Z0-9_]+"))Console.WriteLine(marker.Value);
    var code=System.Text.RegularExpressions.Regex.Match(result,@"UAT_RC_BROWSER_FAIL_[A-Z0-9_]+");
    Console.WriteLine(code.Success?code.Value:privateError.Contains("Cannot find module",StringComparison.Ordinal)?"UAT_RC_BROWSER_FAIL_BOOT_MODULE":privateError.Contains("Executable doesn't exist",StringComparison.Ordinal)?"UAT_RC_BROWSER_FAIL_BOOT_ENGINE":"UAT_RC_BROWSER_FAIL_BOOT_SUPPRESSED");
    throw new InvalidOperationException("BROWSER_FAILURE");
   }
-  var evidence=JsonDocument.Parse(result);File.WriteAllText(Path.Combine(output,"browser-evidence.json"),evidence.RootElement.GetRawText());
+  var evidence=JsonDocument.Parse(result.Split('\n').Last(line=>line.TrimStart().StartsWith('{')));File.WriteAllText(Path.Combine(output,"browser-evidence.json"),evidence.RootElement.GetRawText());
  }
  stage="SQL_POSTCONDITIONS";
  await using(var sql=new SqlConnection(admin))
