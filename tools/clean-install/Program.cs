@@ -304,6 +304,71 @@ try
     if (!expectedCandidateTables.SetEquals(candidateTables))
         throw new InvalidOperationException("OPTIONC_TABLE_PROBE_CATALOG_MISMATCH");
 
+    // Test 13 secondary indexes sourced from SQL-only 006/014/017 tables.
+    // This is a selected source-scoped index set, not all final indexes.
+    var extraIndexPath = Path.Combine(output, "sql-only-extra-indexes.sql");
+    var extraIndexManifestPath = Path.Combine(output, "sql-only-extra-indexes-manifest.json");
+    if (!File.Exists(extraIndexPath) || !File.Exists(extraIndexManifestPath))
+        throw new InvalidOperationException("SQL_ONLY_INDEX_PACKAGE_MISSING");
+    var extraIndexBytes = await File.ReadAllBytesAsync(extraIndexPath);
+    var extraIndexSha = Convert.ToHexString(SHA256.HashData(extraIndexBytes)).ToLowerInvariant();
+    var expectedIndexMap = new Dictionary<string, string>(StringComparer.Ordinal);
+    using (var extraIndexManifest = JsonDocument.Parse(await File.ReadAllTextAsync(extraIndexManifestPath)))
+    {
+        var root = extraIndexManifest.RootElement;
+        if (root.GetProperty("format").GetString() != "field-visit-v180-sql-only-index-probe-v1"
+            || root.GetProperty("rcSourceSha").GetString() != expectedRc
+            || root.GetProperty("indexCount").GetInt32() != 13
+            || root.GetProperty("sqlSha256").GetString() != extraIndexSha)
+            throw new InvalidOperationException("SQL_ONLY_INDEX_MANIFEST_MISMATCH");
+        foreach (var entry in root.GetProperty("indexes").EnumerateArray())
+        {
+            if (!expectedIndexMap.TryAdd(entry.GetProperty("name").GetString() ?? "",
+                                         entry.GetProperty("table").GetString() ?? ""))
+                throw new InvalidOperationException("SQL_ONLY_INDEX_DUPLICATE_NAME");
+        }
+    }
+    if (expectedIndexMap.Count != 13)
+        throw new InvalidOperationException("SQL_ONLY_INDEX_SOURCE_COUNT");
+    await using (var indexInstall = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await indexInstall.OpenAsync();
+        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(extraIndexBytes),
+                     "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
+        {
+            await using var command = new SqlCommand(batch, indexInstall) { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+    var actualIndexes = new Dictionary<string, string>(StringComparer.Ordinal);
+    await using (var indexVerify = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await indexVerify.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT i.name, s.name, t.name
+            FROM sys.indexes i
+            JOIN sys.tables t ON t.object_id=i.object_id
+            JOIN sys.schemas s ON s.schema_id=t.schema_id
+            WHERE i.index_id>0 AND i.name IS NOT NULL
+              AND s.name=N'dbo';
+            """, indexVerify) { CommandTimeout = 10 };
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var name = reader.GetString(0);
+            if (expectedIndexMap.ContainsKey(name))
+            {
+                if (!actualIndexes.TryAdd(name, reader.GetString(1) + "." + reader.GetString(2)))
+                    throw new InvalidOperationException("SQL_ONLY_INDEX_DUPLICATE_CATALOG");
+            }
+        }
+    }
+    if (actualIndexes.Count != expectedIndexMap.Count ||
+        expectedIndexMap.Any(entry => !actualIndexes.TryGetValue(entry.Key, out var table)
+                                   || table != entry.Value))
+        throw new InvalidOperationException("SQL_ONLY_INDEX_CATALOG_MISMATCH");
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -367,6 +432,8 @@ try
         installedEffectiveTriggerCount = installedTriggers.Count,
         optioncCandidateTableSqlSha256 = optioncSha,
         optioncCandidateTableCount = candidateTables.Count,
+        sqlOnlyIndexSqlSha256 = extraIndexSha,
+        installedSqlOnlyIndexCount = actualIndexes.Count,
         sqlServerMajorVersion = detectedSqlMajorVersion,
         mappedTableCount = expectedTables.Length,
         mappedColumnCount = expectedColumns.Values.Sum(x => x.Count),
@@ -385,7 +452,8 @@ try
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
-    Status("FULL_V180_INSTALL_HOLD_OPTIONC_FINAL_OBJECTS_APP_COMPAT");
+    Status("SQL_ONLY_EXTRA_INDEXES_SQL2022_PASS");
+    Status("FULL_V180_INSTALL_HOLD_OTHER_OBJECTS_APP_COMPAT");
     Console.WriteLine($"MAPPED_TABLES={expectedTables.Length}");
     Console.WriteLine($"MAPPED_COLUMNS={expectedColumns.Values.Sum(x => x.Count)}");
     Console.WriteLine($"MODEL_BASELINE_SHA256={scriptSha}");
