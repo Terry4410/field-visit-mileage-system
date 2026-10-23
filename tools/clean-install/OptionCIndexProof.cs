@@ -95,10 +95,11 @@ internal static class CleanInstallOptionCIndexProof
                     matches[0].Groups["unique"].Success != expected.Unique ||
                     Normalize(matches[0].Groups["keys"].Value) != Normalize(expected.Keys))
                     throw new InvalidOperationException("OPTIONC_INDEX_PINNED_SOURCE_MISMATCH");
-                var after = sql.AsSpan(matches[0].Index + matches[0].Length);
+                // .NET 8/C# 12: avoid Span locals in an async method.
+                var after = sql[(matches[0].Index + matches[0].Length)..];
                 var end = after.IndexOf(';');
                 if (end < 0) throw new InvalidOperationException("OPTIONC_INDEX_SOURCE_UNTERMINATED");
-                var clause = after[..end].ToString();
+                var clause = after[..end];
                 if (expected.FilterToken is null)
                 {
                     if (Regex.IsMatch(clause, @"\bWHERE\b", RegexOptions.IgnoreCase))
