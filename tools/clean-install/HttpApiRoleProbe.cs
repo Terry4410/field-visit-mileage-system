@@ -83,4 +83,107 @@ internal static class CleanInstallRoleProbe
             });
             db.UserRoleAssignments.Add(new UserRoleAssignment
             {
-             
+                UserId = user.UserId, RoleId = role.RoleId,
+                EffectiveFrom = since, CreatedAt = now
+            });
+            db.UserRoles.Add(new UserRole
+            {
+                UserId = user.UserId, RoleId = role.RoleId, AssignedAt = now
+            });
+            db.UserTeamAssignments.Add(new UserTeamAssignment
+            {
+                UserId = user.UserId, TeamId = team.TeamId,
+                IsPrimary = true, EffectiveFrom = since, CreatedAt = now
+            });
+            await db.SaveChangesAsync();
+            actors.Add(new Actor(roleCode, user.UserId, account));
+        }
+        return actors;
+    }
+
+    internal static async Task VerifyAsync(
+        HttpClient client, string cs, IReadOnlyList<Actor> actors, string password)
+    {
+        if (actors.Count != 3 || actors.Select(x => x.Role).Distinct().Count() != 3)
+            throw new InvalidOperationException("ROLE_PROBE_ACTOR_INVENTORY_INVALID");
+        var tokens = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var actor in actors)
+        {
+            using var login = await client.PostAsJsonAsync(
+                "/api/v1/auth/demo-login", new { account = actor.Account, password });
+            if (login.StatusCode != HttpStatusCode.OK)
+                throw new InvalidOperationException("ROLE_PROBE_DEMO_LOGIN_FAILED");
+            using var loginJson = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
+            var token = loginJson.RootElement.GetProperty("accessToken").GetString();
+            if (string.IsNullOrWhiteSpace(token))
+                throw new InvalidOperationException("ROLE_PROBE_TOKEN_MISSING");
+            tokens.Add(actor.Role, token);
+
+            using var meRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/me");
+            meRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var me = await client.SendAsync(meRequest);
+            if (me.StatusCode != HttpStatusCode.OK)
+                throw new InvalidOperationException("ROLE_PROBE_ME_HTTP_SQL_FAILED");
+            using var meJson = JsonDocument.Parse(await me.Content.ReadAsStringAsync());
+            if (meJson.RootElement.GetProperty("userId").GetInt32() != actor.UserId
+                || !meJson.RootElement.GetProperty("roles").EnumerateArray()
+                    .Any(r => r.GetString() == actor.Role))
+                throw new InvalidOperationException("ROLE_PROBE_SQL_PROFILE_ROLE_MISMATCH");
+        }
+
+        async Task MustDeny(string role, string route)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, route);
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", tokens[role]);
+            using var response = await client.SendAsync(request);
+            if (response.StatusCode != HttpStatusCode.Forbidden)
+                throw new InvalidOperationException("ROLE_PROBE_CROSS_ROLE_GATE_NOT_DENIED");
+        }
+
+        await MustDeny("visitor", "/api/v1/leader/review-queue");
+        await MustDeny("visitor", "/api/v1/admin/master-data/readiness");
+        await MustDeny("leader", "/api/v1/trips/context?visitDate=2026-10-23");
+        await MustDeny("leader", "/api/v1/admin/master-data/readiness");
+        await MustDeny("admin", "/api/v1/trips/context?visitDate=2026-10-23");
+
+        using (var badPassword = await client.PostAsJsonAsync(
+            "/api/v1/auth/demo-login",
+            new { account = actors[0].Account, password = password + "-wrong" }))
+        {
+            if (badPassword.StatusCode != HttpStatusCode.Forbidden)
+                throw new InvalidOperationException("ROLE_PROBE_WRONG_PASSWORD_ALLOWED");
+        }
+
+        // Real SQL employment change must deny a NEW login: a JWT-only test
+        // would miss that fail-closed account lifecycle contract.
+        await using (var db = new AppDbContext(Options(cs)))
+        {
+            var visitor = actors.Single(x => x.Role == "visitor");
+            // A linked v1.8.0 identity uses EmploymentStatusPeriods as its
+            // authoritative status; legacy unlinked users use UserEmploymentPeriods.
+            var identity = await db.UserIdentityProfiles.SingleAsync(
+                x => x.UserId == visitor.UserId);
+            if (identity.EmploymentId.HasValue)
+            {
+                var period = await db.EmploymentStatusPeriods.SingleAsync(
+                    x => x.EmploymentId == identity.EmploymentId.Value);
+                period.EmploymentStatus = EmploymentStatuses.Leave;
+            }
+            else
+            {
+                var period = await db.UserEmploymentPeriods.SingleAsync(
+                    x => x.UserId == visitor.UserId);
+                period.EmploymentStatus = EmploymentStatuses.Leave;
+            }
+            await db.SaveChangesAsync();
+            using var revoked = await client.PostAsJsonAsync(
+                "/api/v1/auth/demo-login",
+                new { account = visitor.Account, password });
+            if (revoked.StatusCode != HttpStatusCode.Forbidden)
+                throw new InvalidOperationException("ROLE_PROBE_INACTIVE_RELOGIN_ALLOWED");
+        }
+        // This scope does not claim existing JWT revocation, same-owner data
+        // access, approval workflow, Option C activation, or full schema parity.
+    }
+}

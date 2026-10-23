@@ -78,4 +78,280 @@ internal static class CleanInstallBusinessProbe
         {
             OrganizationId = otherOrg.OrganizationId,
             TeamCode = "CIEXT" + Guid.NewGuid().ToString("N")[..9],
-            T
+            TeamName = "Synthetic Other Team", IsActive = true,
+            EffectiveFrom = since, CreatedAt = now
+        };
+        db.Teams.Add(otherTeam);
+        await SaveSeedAsync(db, "S2");
+        var ve = new Employment
+        {
+            OrganizationId = orgId, PersonId = v.UserId, EmployeeNo = visitor.Account,
+            LegacyUserId = v.UserId, HireDate = since, SourceType = "Synthetic"
+        };
+        var le = new Employment
+        {
+            OrganizationId = orgId, PersonId = l.UserId, EmployeeNo = leader.Account,
+            LegacyUserId = l.UserId, HireDate = since, SourceType = "Synthetic"
+        };
+        var ae = new Employment
+        {
+            OrganizationId = orgId, PersonId = admin.UserId, EmployeeNo = admin.Account,
+            LegacyUserId = admin.UserId, HireDate = since, SourceType = "Synthetic"
+        };
+        db.Employments.AddRange(ve, le, ae);
+        await SaveSeedAsync(db, "S3");
+        (await db.UserIdentityProfiles.SingleAsync(x => x.UserId == v.UserId))
+            .EmploymentId = ve.EmploymentId;
+        (await db.UserIdentityProfiles.SingleAsync(x => x.UserId == l.UserId))
+            .EmploymentId = le.EmploymentId;
+        (await db.UserIdentityProfiles.SingleAsync(x => x.UserId == admin.UserId))
+            .EmploymentId = ae.EmploymentId;
+        db.EmploymentStatusPeriods.AddRange(
+            new EmploymentStatusPeriod
+            {
+                EmploymentId = ve.EmploymentId, EmploymentStatus = EmploymentStatuses.Active,
+                EffectiveFrom = since, SourceType = "Synthetic"
+            },
+            new EmploymentStatusPeriod
+            {
+                EmploymentId = le.EmploymentId, EmploymentStatus = EmploymentStatuses.Active,
+                EffectiveFrom = since, SourceType = "Synthetic"
+            },
+            new EmploymentStatusPeriod
+            {
+                EmploymentId = ae.EmploymentId, EmploymentStatus = EmploymentStatuses.Active,
+                EffectiveFrom = since, SourceType = "Synthetic"
+            });
+        db.TeamMemberships.AddRange(
+            new TeamMembership
+            {
+                EmploymentId = ve.EmploymentId, TeamId = team.TeamId,
+                IsPrimary = true, EffectiveFrom = since
+            },
+            new TeamMembership
+            {
+                EmploymentId = le.EmploymentId, TeamId = team.TeamId,
+                IsPrimary = true, EffectiveFrom = since
+            },
+            new TeamMembership
+            {
+                EmploymentId = ae.EmploymentId, TeamId = team.TeamId,
+                IsPrimary = true, EffectiveFrom = since
+            });
+        db.UserTeamScopes.AddRange(
+            new UserTeamScope
+            {
+                UserId = v.UserId, TeamId = team.TeamId,
+                IsPrimary = true, IsActive = true, AssignedAt = now
+            },
+            new UserTeamScope
+            {
+                UserId = l.UserId, TeamId = team.TeamId,
+                IsPrimary = true, IsActive = true, AssignedAt = now
+            },
+            new UserTeamScope
+            {
+                UserId = admin.UserId, TeamId = team.TeamId,
+                IsPrimary = true, IsActive = true, AssignedAt = now
+            });
+        var center = new Center
+        {
+            OrganizationId = orgId, CenterCode = "CI-CTX",
+            CenterName = "Synthetic Context Center", EffectiveFrom = since,
+            IsActive = true
+        };
+        db.Centers.Add(center);
+        await SaveSeedAsync(db, "S4");
+        // Exercise the RC-derived EF mapping against the enabled 1800_002
+        // trigger. The disposable candidate applies a pinned OUTPUT-clause
+        // compatibility overlay; no trigger is disabled.
+        db.TeamLeaderAssignments.Add(new TeamLeaderAssignment
+        {
+            TeamId = team.TeamId,
+            EmploymentId = le.EmploymentId,
+            EffectiveFrom = since,
+            CreatedAt = now
+        });
+        await SaveSeedAsync(db, "S4_LEADER_ASSIGNMENT");
+        if (!await db.TeamLeaderAssignments.AnyAsync(x =>
+                x.TeamId == team.TeamId && x.EmploymentId == le.EmploymentId))
+            throw Fail("LEADER_ASSIGNMENT_NOT_PERSISTED");
+        Console.WriteLine("CLEAN_INSTALL=EF_TEAM_LEADER_TRIGGER_OUTPUT_COMPAT_PASS");
+
+        db.TeamCenterAssignments.Add(new TeamCenterAssignment
+        {
+            TeamId = team.TeamId, CenterId = center.CenterId,
+            EffectiveFrom = since, CreatedAt = now
+        });
+        var site = new DeploymentSite
+        {
+            CenterId = center.CenterId, SiteCode = "CI-CTX",
+            SiteName = "Synthetic Site", EffectiveFrom = since,
+            IsActive = true, CreatedAt = now
+        };
+        db.DeploymentSites.Add(site);
+        await SaveSeedAsync(db, "S5");
+        db.TeamDeploymentSiteAssignments.Add(new TeamDeploymentSiteAssignment
+        {
+            TeamId = team.TeamId, DeploymentSiteId = site.DeploymentSiteId,
+            EffectiveFrom = since, CreatedAt = now
+        });
+        db.EmploymentDeploymentSiteAssignments.Add(
+            new EmploymentDeploymentSiteAssignment
+            {
+                EmploymentId = ve.EmploymentId,
+                DeploymentSiteId = site.DeploymentSiteId,
+                IsPrimary = true, EffectiveFrom = since, CreatedAt = now
+            });
+        var place = new Location
+        {
+            OrganizationId = orgId, TeamId = team.TeamId,
+            LocationName = "Synthetic Approved Site", LocationType = "Customer",
+            Address = "1 Disposable Testing Rd", ApprovalStatus = "Approved",
+            GeocodingStatus = "Succeeded", IsActive = true,
+            CreatedByUserId = v.UserId, CreatedAt = now
+        };
+        db.Locations.Add(place);
+        await SaveSeedAsync(db, "S6");
+        db.DeploymentSiteLocationAssignments.Add(
+            new DeploymentSiteLocationAssignment
+            {
+                DeploymentSiteId = site.DeploymentSiteId,
+                LocationId = place.LocationId, EffectiveFrom = since,
+                CreatedAt = now
+            });
+        await SaveSeedAsync(db, "S7");
+        return new Fixture(visitor, leader, admin, team.TeamId, otherTeam.TeamId,
+            site.DeploymentSiteId, place.LocationId);
+    }
+
+    internal static async Task VerifyAsync(
+        HttpClient client, string cs, Fixture f, string demoPassword)
+    {
+        using var login = await client.PostAsJsonAsync("/api/v1/auth/demo-login",
+            new { account = f.Visitor.Account, password = demoPassword });
+        if (login.StatusCode != HttpStatusCode.OK) throw Fail("VISITOR_LOGIN");
+        using var loginJson = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
+        var token = loginJson.RootElement.GetProperty("accessToken").GetString();
+        if (string.IsNullOrWhiteSpace(token)) throw Fail("TOKEN_MISSING");
+        using var visitor = new HttpClient(new HttpClientHandler
+        {
+            AllowAutoRedirect = false, UseProxy = false
+        })
+        {
+            BaseAddress = client.BaseAddress, Timeout = TimeSpan.FromSeconds(5)
+        };
+        visitor.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+
+        using (var contextResponse = await visitor.GetAsync(
+            "/api/v1/trips/context?visitDate=2026-10-15&teamId=" + f.TeamId))
+        {
+            if (contextResponse.StatusCode != HttpStatusCode.OK)
+                throw Fail("POSITIVE_CONTEXT_HTTP");
+            using var body = JsonDocument.Parse(await contextResponse.Content.ReadAsStringAsync());
+            var root = body.RootElement;
+            if (!root.GetProperty("eligibleForTrip").GetBoolean()
+                || root.GetProperty("validationCode").GetString() != "OK"
+                || root.GetProperty("selectedTeamId").GetInt32() != f.TeamId
+                || root.GetProperty("defaultStartDeploymentSiteId").GetInt32() != f.SiteId
+                || root.GetProperty("defaultEndDeploymentSiteId").GetInt32() != f.SiteId)
+                throw Fail("POSITIVE_CONTEXT_SHAPE");
+        }
+
+        using (var foreign = await visitor.GetAsync(
+            "/api/v1/trips/context?visitDate=2026-10-15&teamId=" + f.OtherTeamId))
+        {
+            if (foreign.StatusCode != HttpStatusCode.UnprocessableEntity
+                || !(await foreign.Content.ReadAsStringAsync()).Contains(
+                    "TRIP_CONTEXT_TEAM_NOT_ASSIGNED", StringComparison.Ordinal))
+                throw Fail("FOREIGN_TEAM_CONTEXT");
+        }
+
+        // Same JWT, live dated SQL membership disabled then restored.
+        await using (var db = new AppDbContext(Options(cs)))
+        {
+            var profile = await db.UserIdentityProfiles.SingleAsync(
+                x => x.UserId == f.Visitor.UserId);
+            var member = await db.TeamMemberships.SingleAsync(
+                x => x.EmploymentId == profile.EmploymentId);
+            member.EffectiveTo = new DateOnly(2026, 10, 14);
+            await db.SaveChangesAsync();
+            using var revoked = await visitor.GetAsync(
+                "/api/v1/trips/context?visitDate=2026-10-15&teamId=" + f.TeamId);
+            if (revoked.StatusCode != HttpStatusCode.UnprocessableEntity
+                || !(await revoked.Content.ReadAsStringAsync()).Contains(
+                    "TRIP_CONTEXT_TEAM_NOT_ASSIGNED", StringComparison.Ordinal))
+                throw Fail("REVOKED_MEMBERSHIP");
+            member.EffectiveTo = null;
+            await db.SaveChangesAsync();
+        }
+
+        SaveTripRequest Trip(TripStopInput stop) => new(
+            new DateOnly(2026, 10, 15), new TimeOnly(9, 0), new TimeOnly(10, 0),
+            8.5m, "Synthetic clean SQL trip", "NONDEPLOY", false,
+            new[] { stop }, f.TeamId, f.SiteId, f.SiteId, "Motorcycle");
+        // Use a Temporary stop (supported RC path) to prove actual Visitor
+        // draft persistence without bypassing incomplete published reservation.
+        using var created = await visitor.PostAsJsonAsync("/api/v1/trips",
+            Trip(new TripStopInput(null, null, null, "Temporary",
+                "Synthetic Temporary Customer", "2 Disposable Testing Rd", "visit", null)));
+        if (created.StatusCode != HttpStatusCode.OK)
+            throw Fail("TEMP_TRIP_CREATE");
+        using var createdJson = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var trip = createdJson.RootElement;
+        if (trip.GetProperty("status").GetString() != "Draft")
+            throw Fail("TEMP_TRIP_DRAFT_STATUS");
+        var tripId = trip.GetProperty("visitTripId").GetInt64();
+        var rowVersion = trip.GetProperty("rowVersion").GetString();
+        if (tripId <= 0 || string.IsNullOrWhiteSpace(rowVersion))
+            throw Fail("TEMP_TRIP_ID_VERSION");
+
+        using var submit = new HttpRequestMessage(HttpMethod.Post,
+            "/api/v1/trips/" + tripId + "/submit")
+        {
+            Content = JsonContent.Create(new SubmitTripRequest(false))
+        };
+        submit.Headers.TryAddWithoutValidation("If-Match", rowVersion);
+        using var submitted = await visitor.SendAsync(submit);
+        if (submitted.StatusCode != HttpStatusCode.OK)
+            throw Fail("TEMP_TRIP_SUBMIT");
+        using var submittedJson = JsonDocument.Parse(
+            await submitted.Content.ReadAsStringAsync());
+        if (submittedJson.RootElement.GetProperty("status").GetString() != "Submitted")
+            throw Fail("TEMP_TRIP_SUBMITTED_STATUS");
+
+        await using (var check = new AppDbContext(Options(cs)))
+        {
+            if (!await check.VisitTrips.AnyAsync(x =>
+                    x.VisitTripId == tripId && x.UserId == f.Visitor.UserId
+                    && x.TeamId == f.TeamId && x.Status == "Submitted")
+                || !await check.VisitTripSnapshots.AnyAsync(x =>
+                    x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                || !await check.AuditLogs.AnyAsync(x =>
+                    x.EntityId == tripId.ToString() && x.Action == "TripSubmit"))
+                throw Fail("TEMP_TRIP_PERSIST_AUDIT");
+        }
+
+        // A trip may reference an already approved and in-scope location;
+        // this is distinct from creating or publishing a new Location.
+        using var approvedTrip = await visitor.PostAsJsonAsync("/api/v1/trips",
+            Trip(new TripStopInput(f.LocationId, null, null, "Location",
+                "Synthetic Approved Site", "1 Disposable Testing Rd", "visit", null)));
+        if (approvedTrip.StatusCode != HttpStatusCode.OK)
+            throw Fail("APPROVED_LOCATION_TRIP_CREATE");
+        await using (var check = new SqlConnection(cs))
+        {
+            await check.OpenAsync();
+            await using var count = new SqlCommand(
+                "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK' AND AppliedBy=N'clean-install-v180'", check);
+            if (Convert.ToInt32(await count.ExecuteScalarAsync()) != 1)
+                throw Fail("CLEAN_BASELINE_CAPABILITY_RECORD_MISSING");
+        }
+        await using (var final = new AppDbContext(Options(cs)))
+        {
+            if (await final.VisitTrips.CountAsync() != 2)
+                throw Fail("APPROVED_LOCATION_TRIP_NOT_PERSISTED");
+        }
+    }
+}

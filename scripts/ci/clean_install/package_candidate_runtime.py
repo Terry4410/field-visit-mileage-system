@@ -78,4 +78,46 @@ def package(api_root: Path, output: Path, source_sha: str, rc_sha: str,
         "sourceCommit": source_sha,
         "immutableRuntimeRc": rc_sha,
         "runtimeOverlay": overlay,
-        "runtimeOverlay
+        "runtimeOverlayManifestSha256": sha256(overlay_path.read_bytes()),
+        "optionCCandidateDefault": "OFF",
+        "liveDeploymentAuthorized": False,
+        "files": file_entries,
+        "package": {"file": zip_path.name, "sizeBytes": len(package_bytes),
+                    "sha256": sha256(package_bytes)},
+    }
+    (output / "api-candidate-manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # Independent readback verifies every packaged path/hash and the package digest.
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        if set(archive.namelist()) != {x["path"] for x in file_entries}:
+            raise ValueError("CANDIDATE_ZIP_ENTRY_MISMATCH")
+        for item in file_entries:
+            if sha256(archive.read(item["path"])) != item["sha256"]:
+                raise ValueError("CANDIDATE_ZIP_READBACK_MISMATCH")
+    if sha256(zip_path.read_bytes()) != manifest["package"]["sha256"]:
+        raise ValueError("CANDIDATE_ZIP_DIGEST_MISMATCH")
+    return manifest
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--api-root", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--rc-sha", required=True)
+    parser.add_argument("--overlay-manifest", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        manifest = package(args.api_root, args.output, args.source_sha,
+                           args.rc_sha, args.overlay_manifest)
+    except (OSError, ValueError, json.JSONDecodeError):
+        print("CLEAN_INSTALL_CANDIDATE_PACKAGE=FAIL_CLOSED")
+        return 1
+    print("CLEAN_INSTALL_CANDIDATE_PACKAGE=NONDEPLOY_PASS")
+    print("CLEAN_INSTALL_CANDIDATE_PACKAGE_SHA256=" + manifest["package"]["sha256"])
+    print("CLEAN_INSTALL_CANDIDATE_DEFAULT=OFF")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

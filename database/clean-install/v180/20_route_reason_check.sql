@@ -79,4 +79,15 @@ ALTER TABLE dbo.RouteCalculationAttempts WITH CHECK ADD
 ALTER TABLE dbo.RouteCalculationAttempts WITH CHECK ADD
     CONSTRAINT CK_RouteCalculationAttempts_Result
     CHECK (
-        (Statu
+        (Status=N'Succeeded' AND ErrorCode IS NULL)
+        OR (Status=N'Failed' AND ErrorCode IS NOT NULL)
+        OR (Status=N'Pending' AND ErrorCode IS NULL)
+    );
+
+IF (
+    SELECT COUNT(*) FROM sys.check_constraints
+    WHERE parent_object_id=OBJECT_ID(N'dbo.RouteCalculationAttempts', N'U')
+      AND name LIKE N'CK_RouteCalculationAttempts[_]%'
+      AND is_disabled=0 AND is_not_trusted=0
+) < 9
+    THROW 56043, N'CLEAN_ROUTE_CHECKS_NOT_ALL_TRUSTED', 1;

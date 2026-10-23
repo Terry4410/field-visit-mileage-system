@@ -74,3 +74,65 @@ internal static class CleanInstallHttpProbe
             for (int i = 0; i < 48; i++)
             {
                 if (app.HasExited)
+                    throw new InvalidOperationException("RC_API_PROCESS_EXITED_BEFORE_READY");
+                try
+                {
+                    using var response = await client.GetAsync("/health/ready");
+                    if (response.StatusCode == HttpStatusCode.OK)
+                    {
+                        using var document = JsonDocument.Parse(
+                            await response.Content.ReadAsStringAsync());
+                        if (document.RootElement.GetProperty("status").GetString() != "ready")
+                            throw new InvalidOperationException("RC_API_READY_CONTRACT_INVALID");
+                        ready = true;
+                        break;
+                    }
+                }
+                catch (HttpRequestException) { }
+                catch (TaskCanceledException) { }
+                await Task.Delay(250);
+            }
+            if (!ready) throw new InvalidOperationException("RC_API_FRESH_SQL_READY_UNAVAILABLE");
+
+            using var live = await client.GetAsync("/health/live");
+            if (live.StatusCode != HttpStatusCode.OK)
+                throw new InvalidOperationException("RC_API_LIVENESS_FAILED");
+
+            using var unauthVisitor = await client.GetAsync(
+                "/api/v1/trips/context?visitDate=2026-10-23");
+            if (unauthVisitor.StatusCode != HttpStatusCode.Unauthorized)
+                throw new InvalidOperationException("RC_API_VISITOR_ANONYMOUS_NOT_DENIED");
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get, "/api/v1/leader/review-queue");
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", "invalid-disposable-token");
+            using var invalidLeader = await client.SendAsync(request);
+            if (invalidLeader.StatusCode != HttpStatusCode.Unauthorized)
+                throw new InvalidOperationException("RC_API_LEADER_INVALID_JWT_NOT_DENIED");
+
+            // Actual test-account login issues the signed RC token from SQL-backed
+            // employment, identity and effective-dated roles. Then real HTTP
+            // checks /me and role-specific denial on the same fresh DB.
+            // Actual role-issued JWT on this exact fresh SQL database, first
+            // prove time-scoped Trip Context and a real Visitor Draft path.
+            // Partial 017 schema must fail closed for published Location use;
+            // never invent old migration markers to make it pass.
+            await CleanInstallBusinessProbe.VerifyAsync(
+                client, sameCleanDbConnection, business, demoPassword);
+            await CleanInstallOptionCCreateApprovalProbe.VerifyAsync(
+                client, sameCleanDbConnection, business, demoPassword);
+            Console.WriteLine("CLEAN_INSTALL=RC_API_FRESH_SQL_BUSINESS_PROBE_COMPLETED");
+            await CleanInstallRoleProbe.VerifyAsync(
+                client, sameCleanDbConnection, roleActors, demoPassword);
+        }
+        finally
+        {
+            if (started)
+            {
+                if (!app.HasExited) app.Kill(entireProcessTree: true);
+                app.WaitForExit(5_000);
+            }
+        }
+    }
+}
