@@ -143,6 +143,12 @@ try
    throw new InvalidOperationException("BROWSER_FAILURE");
   }
   var evidence=JsonDocument.Parse(result.Split('\n').Last(line=>line.TrimStart().StartsWith('{')));File.WriteAllText(Path.Combine(output,"browser-evidence.json"),evidence.RootElement.GetRawText());
+  if(evidence.RootElement.GetProperty("sourceSha").GetString()!=UatReleaseIdentity.SourceSha
+    || evidence.RootElement.GetProperty("cases").GetArrayLength()<18
+    || evidence.RootElement.GetProperty("cases").EnumerateArray().Any(c=>c.GetProperty("status").GetString()!="PASS"))throw new InvalidOperationException("BROWSER_EVIDENCE_BINDING");
+  Console.WriteLine("UAT_RC=BROWSER_ALL_FOCUSED_THREE_ROLE_AND_WEBKIT_ASSERTIONS_PASS");
+  Console.WriteLine("UAT_RC_BROWSER_CASE_SIGNALS_"+evidence.RootElement.GetProperty("cases").GetArrayLength());
+
  }
  stage="SQL_POSTCONDITIONS";
  await using(var sql=new SqlConnection(admin))
@@ -155,7 +161,7 @@ try
     AND EXISTS(SELECT 1 FROM dbo.ChangeRequests WHERE OperationCode=N'UpdatePublishedLocation' AND RiskCode=N'Low' AND Status=N'Applied' AND ReviewedByUserId IS NULL)
     AND EXISTS(SELECT 1 FROM dbo.ImportBatchItems WHERE Status=N'SubmittedForReview')
     AND EXISTS(SELECT 1 FROM dbo.ChangeRequests r JOIN dbo.Locations l ON l.LocationId=TRY_CONVERT(int,r.EntityId)
-      JOIN dbo.LeaderReviews v ON v.ChangeRequestId=r.ChangeRequestId
+      JOIN dbo.ChangeRequestLeaderReviews v ON v.ChangeRequestId=r.ChangeRequestId
       WHERE r.OperationCode=N'UpdatePublishedLocation' AND r.RiskCode=N'High' AND r.Status=N'Applied'
         AND r.RequestedByUserId<>l.CreatedByUserId AND v.Status=N'Approved' AND v.ReviewerUserId<>r.RequestedByUserId)
     AND (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
