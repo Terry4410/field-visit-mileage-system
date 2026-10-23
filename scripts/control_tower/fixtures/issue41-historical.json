@@ -1,0 +1,16 @@
+[
+  {
+    "id": 6214053257,
+    "body": "<!-- control-tower-handoff:v1 -->\n{\"Version\":1,\"Lane\":\"WORK_A\",\"SHA\":\"c0cf2aa5c268afd506ff7ee5d8b798840653db0a\",\"Sequence\":1,\"CI\":[38890280493],\"Status\":\"HOLD\",\"Completed\":[\"IMPLEMENTATION\",\"NONDEPLOY_VALIDATION\"],\"Blockers\":[\"BUSINESS_UAT\",\"DEPLOYMENT_PROVENANCE\",\"ROLLBACK_EVIDENCE\",\"SCHEMA_FIDELITY\",\"INDEPENDENT_AUDIT\",\"OWNER_REVIEW\"],\"NextDelta\":[\"INDEPENDENT_AUDIT\",\"OWNER_REVIEW\",\"SCHEMA_FIDELITY\",\"BUSINESS_UAT\"],\"OwnerAuthorization\":\"NONDEPLOY_ONLY\",\"Evidence\":[\"2aa2a489dbdd57896cac1d1bc0a93efa3ebd05c3c2535faffcbce53285a5613f\"]}",
+    "user": {
+      "login": "Terry4410"
+    }
+  },
+  {
+    "id": 6216822321,
+    "body": "<!-- control-tower-handoff:v1 -->\n{\n  \"Version\": 1,\n  \"Lane\": \"WORK_A\",\n  \"SHA\": \"08c0e463089ffe771d6957728067574328993555\",\n  \"Sequence\": 3,\n  \"CI\": [38909278067],\n  \"Status\": \"HOLD\",\n  \"Completed\": [\n    \"P1_SHARED_RETRY_EVIDENCE_GUARD\",\n    \"P1_ATOMIC_WAITING_PROCESSING_CLAIM\",\n    \"P1_PROVIDER_INFLIGHT_NEGATIVE_COVERAGE\",\n    \"P1_SQL_DEADLOCK_LOCK_TIMEOUT_SAFE_MAPPING\",\n    \"P1_BACKGROUND_EXCEPTION_SAFE_CODES\",\n    \"ISOLATED_HTTP_SQL_E2E\",\n    \"A3_A5_A7_ACCEPTED_ISOLATED_REGRESSION\"\n  ],\n  \"Evidence\": [\n    \"work-a-p0-acceptance artifact 12049458290 sha256:5771184078dd7984afa9cd50b4cb9b8a18d515d5abd5562ce681617823250c5f\",\n    \"backend 771 tests PASS\",\n    \"frontend tests and production build PASS\",\n    \"isolated Playwright PASS (API mocked only)\",\n    \"real Option C HTTP DI SQL and canonical rehearsal PASS in disposable isolated runtime\"\n  ],\n  \"Blockers\": [\n    \"REAL_BROWSER_SAME_CANONICAL_SQL\",\n    \"TRUSTED_001_010_SCHEMA_FIDELITY\",\n    \"UAT_COMPATIBILITY\",\n    \"BUSINESS_UAT\",\n    \"DEPLOYMENT\",\n    \"RESTORE\",\n    \"FEATURE_FLAGS\",\n    \"PROTECTED_MERGE\",\n    \"INDEPENDENT_AUDIT\",\n    \"OWNER_REVIEW\"\n  ],\n  \"OwnerAuthorization\": \"NONDEPLOY_ONLY\",\n  \"NextDelta\": [\n    \"Independent audit of P1 hardening\",\n    \"Trusted canonical 001-010 baseline comparison\",\n    \"Real Browser to API to canonical disposable SQL evidence\"\n  ]\n}",
+    "user": {
+      "login": "Terry4410"
+    }
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "Version": 1,
+  "Lane": "WORK_A",
+  "SHA": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "CI": [],
+  "Status": "HOLD",
+  "Completed": [],
+  "Blockers": [
+    "SCHEMA_FIDELITY"
+  ],
+  "NextDelta": [
+    "INDEPENDENT_AUDIT"
+  ],
+  "OwnerAuthorization": "NONDEPLOY_ONLY",
+  "Evidence": [],
+  "Sequence": 1
+}
