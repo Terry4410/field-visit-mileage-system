@@ -29,6 +29,25 @@ internal static class CleanInstallBusinessProbe
             .UseSqlServer(b.ConnectionString).Options;
     }
 
+    // Never emit SQL text, exception body, credentials or row values in CI.
+    // Stage and SQL error number are enough to localize an isolated failure.
+    private static async Task SaveSeedAsync(AppDbContext db, string stage)
+    {
+        try { await db.SaveChangesAsync(); }
+        catch (DbUpdateException e) when (e.InnerException is SqlException sql)
+        {
+            throw Fail("SEED_" + stage + "_SQL_" + Math.Abs(sql.Number));
+        }
+        catch (SqlException sql)
+        {
+            throw Fail("SEED_" + stage + "_SQL_" + Math.Abs(sql.Number));
+        }
+        catch (Exception)
+        {
+            throw Fail("SEED_" + stage + "_UNKNOWN");
+        }
+    }
+
     internal static async Task<Fixture> SeedAsync(
         string cs, IReadOnlyList<CleanInstallRoleProbe.Actor> actors)
     {
@@ -51,7 +70,7 @@ internal static class CleanInstallBusinessProbe
             OrganizationName = "Synthetic Other Org", IsActive = true, CreatedAt = now
         };
         db.Organizations.Add(otherOrg);
-        await db.SaveChangesAsync();
+        await SaveSeedAsync(db, "S1");
         var otherTeam = new Team
         {
             OrganizationId = otherOrg.OrganizationId,
@@ -60,7 +79,7 @@ internal static class CleanInstallBusinessProbe
             EffectiveFrom = since, CreatedAt = now
         };
         db.Teams.Add(otherTeam);
-        await db.SaveChangesAsync();
+        await SaveSeedAsync(db, "S2");
         var ve = new Employment
         {
             OrganizationId = orgId, PersonId = v.UserId, EmployeeNo = visitor.Account,
@@ -72,7 +91,7 @@ internal static class CleanInstallBusinessProbe
             LegacyUserId = l.UserId, HireDate = since, SourceType = "Synthetic"
         };
         db.Employments.AddRange(ve, le);
-        await db.SaveChangesAsync();
+        await SaveSeedAsync(db, "S3");
         (await db.UserIdentityProfiles.SingleAsync(x => x.UserId == v.UserId))
             .EmploymentId = ve.EmploymentId;
         (await db.UserIdentityProfiles.SingleAsync(x => x.UserId == l.UserId))
@@ -122,7 +141,7 @@ internal static class CleanInstallBusinessProbe
             IsActive = true
         };
         db.Centers.Add(center);
-        await db.SaveChangesAsync();
+        await SaveSeedAsync(db, "S4");
         db.TeamCenterAssignments.Add(new TeamCenterAssignment
         {
             TeamId = team.TeamId, CenterId = center.CenterId,
@@ -135,7 +154,7 @@ internal static class CleanInstallBusinessProbe
             IsActive = true, CreatedAt = now
         };
         db.DeploymentSites.Add(site);
-        await db.SaveChangesAsync();
+        await SaveSeedAsync(db, "S5");
         db.TeamDeploymentSiteAssignments.Add(new TeamDeploymentSiteAssignment
         {
             TeamId = team.TeamId, DeploymentSiteId = site.DeploymentSiteId,
@@ -157,7 +176,7 @@ internal static class CleanInstallBusinessProbe
             CreatedByUserId = v.UserId, CreatedAt = now
         };
         db.Locations.Add(place);
-        await db.SaveChangesAsync();
+        await SaveSeedAsync(db, "S6");
         db.DeploymentSiteLocationAssignments.Add(
             new DeploymentSiteLocationAssignment
             {
@@ -165,7 +184,7 @@ internal static class CleanInstallBusinessProbe
                 LocationId = place.LocationId, EffectiveFrom = since,
                 CreatedAt = now
             });
-        await db.SaveChangesAsync();
+        await SaveSeedAsync(db, "S7");
         return new Fixture(visitor, team.TeamId, otherTeam.TeamId,
             site.DeploymentSiteId, place.LocationId);
     }
