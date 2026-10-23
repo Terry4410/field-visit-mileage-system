@@ -7,9 +7,6 @@ on:
     paths:
       - scripts/ci/g1_final_schema_delta_live.ps1
       - .github/workflows/g1-final-schema-delta-readonly.yml
-  push:
-    branches:
-      - post-uat/v1.8.0
   workflow_dispatch:
     inputs:
       approved_source_sha:
@@ -78,9 +75,25 @@ jobs:
               if ($actual -cne $case.Expected) { throw 'Catalog JSON array contract rejected' }
           }
           Write-Output 'CatalogJSON=PASS; Cases=3; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;'
+      - name: Assert explicit owner-dispatch gate and no automatic push authorization
+        shell: python
+        run: |
+          from pathlib import Path
+          text = Path('.github/workflows/g1-final-schema-delta-readonly.yml').read_text(encoding='utf-8')
+          event_header = "\n" + "  " + "pu" + "sh:"
+          commit_subject = "github.event." + "head_commit.message"
+          push_true = "github.event_name == '" + "pu" + "sh' && 'true'"
+          assert event_header not in text
+          assert commit_subject not in text
+          assert "github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410'" in text
+          assert "R3_AUTHORIZE_WAKE: ${{ inputs.authorize_coldstart && 'true' || 'false' }}" in text
+          assert "R3_ACCEPT_CHARGES: ${{ inputs.accept_compute_charges && 'true' || 'false' }}" in text
+          assert push_true not in text
+          assert text.count('default: false') >= 2
+          print('OwnerDispatchOnly=PASS; PushAuthorization=ABSENT; WakeConsent=EXPLICIT; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;')
 
   source-guard:
-    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'g1-final-schema-delta-live-once-3-20261022')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -99,20 +112,17 @@ jobs:
           persist-credentials: false
       - name: Enforce repository, protected ref, source and file pins
         env:
-          APPROVED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_source_sha || github.sha }}
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "Terry4410/field-visit-mileage-system"
           test "$GITHUB_REF" = "refs/heads/post-uat/v1.8.0"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_ACTOR" = "Terry4410"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
           test "$APPROVED_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            test "$(git rev-parse HEAD^)" = "c8747aacd6707dc8c2b986efc4447af6ed07ed49"
-            test "$(git log -1 --pretty=%s)" = "g1-final-schema-delta-live-once-3-20261022"
-            expected_changes=$'.github/workflows/g1-final-schema-delta-readonly.yml\nscripts/ci/g1_final_schema_delta_live.ps1'
-            test "$(git diff --name-only HEAD^ HEAD)" = "$expected_changes"
-          fi
           test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
           base=candidate/docs/release/g1-minimal-preflight
           test "$(sha256sum "$base/01-target.sql" | cut -d' ' -f1)" = "$TARGET_SHA256"
@@ -207,9 +217,9 @@ jobs:
       - name: Bounded Serverless readiness
         timeout-minutes: 6
         env:
-          R3_APPROVED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_source_sha || github.sha }}
-          R3_AUTHORIZE_WAKE: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_coldstart && 'true' || github.event_name == 'push' && 'true' || 'false' }}
-          R3_ACCEPT_CHARGES: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_compute_charges && 'true' || github.event_name == 'push' && 'true' || 'false' }}
+          R3_APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          R3_AUTHORIZE_WAKE: ${{ inputs.authorize_coldstart && 'true' || 'false' }}
+          R3_ACCEPT_CHARGES: ${{ inputs.accept_compute_charges && 'true' || 'false' }}
           R3_SUBSCRIPTION_ID: ${{ needs.identity-handoff.outputs.subscription }}
         run: python3 scripts/ci/r3_serverless_readiness.py
       - name: Execute one neutral SELECT-only delta with 240-second hard boundary
