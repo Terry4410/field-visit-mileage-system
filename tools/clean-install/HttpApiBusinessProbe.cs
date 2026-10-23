@@ -225,7 +225,7 @@ internal static class CleanInstallBusinessProbe
         db.MileageRateRules.Add(new MileageRateRule
         {
             OrganizationId = orgId, RuleName = "Synthetic Clean Install Mileage",
-            VehicleType = "Motorcycle", RatePerKm = 4m,
+            VehicleType = "MOTORCYCLE", RatePerKm = 4m,
             EffectiveFrom = since, IsActive = true, CreatedAt = now
         });
         await SaveSeedAsync(db, "S7");
