@@ -25,7 +25,13 @@ def main():
  write(infra+file.name,old.replace('</Project>','<ItemGroup><EmbeddedResource Include="SchemaFingerprint.sql" LogicalName="FieldVisit.Release.SchemaFingerprint.sql" /></ItemGroup></Project>'))
  path=infra+'V180OptionCUatTargetBoundary.cs';old=(rc/path).read_text()
  text='throw new InvalidOperationException("OPTIONC_UAT_TRUST_NOT_AVAILABLE");';assert old.count(text)==1
- write(path,old.replace(text,'V180UatReleaseTrust.Require(connection);'))
+ write(path,old.replace('RequireUat(SqlConnection? connection)', 'RequireUat(SqlConnection? connection, SqlTransaction? transaction=null)').replace(text,'V180UatReleaseTrust.Require(connection,transaction);'))
+ path=infra+'V180OptionCExecutionPolicy.cs';old=(rc/path).read_text();marker='    public static void RequireIsolatedSqlTest(SqlConnection connection)'
+ transaction_policy='    public static void RequireTransactionTarget(SqlConnection connection, SqlTransaction transaction)\n    {\n        if(transaction.Connection!=connection || transaction.IsolationLevel!=System.Data.IsolationLevel.Serializable)\n            throw new InvalidOperationException("OPTIONC_TRANSACTION_TARGET_DENIED");\n        if(Environment.GetEnvironmentVariable(ModeVariable)=="Uat")\n            V180OptionCUatTargetBoundary.RequireUat(connection,transaction);\n        else RequireExecutionTarget(connection);\n    }\n\n'
+ assert old.count(marker)==1;write(path,old.replace(marker,transaction_policy+marker))
+ for name,connection,tx in [('V180OptionCLowRiskDirectWriter.cs','connection','transaction'),('V180OptionCCreateLowRiskPublicationWriter.cs','connection','transaction'),('V180OptionCAtomicPublicationWriter.cs','connection','transaction'),('V180OptionCMergePublicationWriter.cs','db','tx')]:
+  path=infra+name;old=(rc/path).read_text();call=f'RequireExecutionTarget({connection})';assert old.count(call)==1
+  write(path,old.replace(call,f'RequireTransactionTarget({connection},{tx})'))
  for name in ['V180OptionCPublicationCatalogRules.cs','V180OptionCUnknownCommitReconciler.cs']:
   path=infra+name;old=(rc/path).read_text();assert old.count('RequireIsolatedSqlTest(connection)')==1
   write(path,old.replace('RequireIsolatedSqlTest(connection)','RequireExecutionTarget(connection)'))

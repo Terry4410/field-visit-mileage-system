@@ -46,11 +46,11 @@ public static class V180UatReleaseTrust
             || a.Features!=Features || facts.Features!=Features || facts.EngineEdition!=5
             || !facts.EncryptedCertificateVerified || !facts.NonOwnerNoDdl) throw Denied();
     }
-    public static string CatalogJson(SqlConnection connection)
+    public static string CatalogJson(SqlConnection connection, SqlTransaction? transaction=null)
     {
         using var resource=typeof(V180UatReleaseTrust).Assembly.GetManifestResourceStream("FieldVisit.Release.SchemaFingerprint.sql") ?? throw new InvalidOperationException("SCHEMA_RESOURCE_MISSING");
         using var reader=new StreamReader(resource);
-        using var cmd=new SqlCommand(reader.ReadToEnd(),connection) {CommandTimeout=15};
+        using var cmd=new SqlCommand(reader.ReadToEnd(),connection,transaction) {CommandTimeout=15};
         string json;
         using(var rows=cmd.ExecuteReader(CommandBehavior.SequentialAccess))
         {
@@ -83,12 +83,13 @@ public static class V180UatReleaseTrust
         }
         return json;
     }
-    public static void Require(SqlConnection connection)
+    public static void Require(SqlConnection connection, SqlTransaction? transaction=null)
     {
-        try { RequireCore(connection); }
+        try { RequireCore(connection,transaction); }
+        catch(SqlException error) when(error.Number is 1205 or 1222) {throw;}
         catch { throw Denied(); } // Never propagate identities, paths, SQL or provider text.
     }
-    private static void RequireCore(SqlConnection connection)
+    private static void RequireCore(SqlConnection connection, SqlTransaction? transaction)
     {
         if(connection.State!=ConnectionState.Open || connection.DataSource!=Server || connection.Database!=Database
             || Environment.GetEnvironmentVariable("FIELDVISIT_UAT_ACTIVATION")!="true") throw Denied();
@@ -118,14 +119,14 @@ public static class V180UatReleaseTrust
                 AND (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
                 AND (SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN (N'1.8.0-CREATE-LOWRISK',N'1.8.0-LOWRISK-DIRECT',N'1.8.0-EXCEL-CANONICAL-STATUS'))=3
                 THEN 1 ELSE 0 END;
-            """,connection) {CommandTimeout=10};
+            """,connection,transaction) {CommandTimeout=10};
         int engine; string principal,sid; bool least;
         using(var rows=read.ExecuteReader())
         {
             if(!rows.Read()) throw Denied();
             engine=rows.GetInt32(0); principal=rows.GetString(1); sid=Hash((byte[])rows[2]); least=rows.GetInt32(3)==1;
         }
-        var schema=Hash(Encoding.UTF8.GetBytes(CatalogJson(connection)));
+        var schema=Hash(Encoding.UTF8.GetBytes(CatalogJson(connection,transaction)));
         var api=ApiHash(root);
         if(schema!=candidate.GetProperty("schemaSha256").GetString() || api!=candidate.GetProperty("apiSha256").GetString()) throw Denied();
         var facts=new Facts(UatReleaseIdentity.SourceSha,api,candidate.GetProperty("frontendSha256").GetString()!,
