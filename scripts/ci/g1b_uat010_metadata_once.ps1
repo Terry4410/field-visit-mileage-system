@@ -10,7 +10,7 @@ $expected = @('TARGET','PREDECESSOR_010','RESERVED_013_ABSENT','PREMIGRATION_011
   'EXISTING_FK_CHECK_TRUST','IMPORT_STATUS_CHECKS','CONNECTED_DIAGNOSTIC_SELECT',
   'CONNECTED_VIEW_DEFINITION','CONNECTED_NO_SCHEMA_ALTER','ACTUAL_API_PRINCIPAL','FULL_010_PARITY')
 try {
-  if ($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne 'Terry4410/field-visit-mileage-system' -or
+  if ($env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne 'Terry4410/field-visit-mileage-system' -or
       $env:GITHUB_REF -cne 'refs/heads/post-uat/v1.8.0' -or $env:RUNNER_DEBUG -ceq '1' -or
       $env:GITHUB_SHA -cnotmatch '^[a-f0-9]{40}$' -or
       $env:G1B_EXPECTED_SOURCE -cne $env:GITHUB_SHA -or
