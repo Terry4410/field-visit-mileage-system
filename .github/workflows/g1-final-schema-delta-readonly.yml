@@ -7,9 +7,6 @@ on:
     paths:
       - scripts/ci/g1_final_schema_delta_live.ps1
       - .github/workflows/g1-final-schema-delta-readonly.yml
-  push:
-    branches:
-      - post-uat/v1.8.0
   workflow_dispatch:
     inputs:
       approved_source_sha:
@@ -48,7 +45,13 @@ env:
   PERMISSIONS_SHA256: af528981bc0e619c183e28a473b9cdbb15b5d0df10153f0b1ba33b3c67024d6b
   REQUIREMENTS_SHA256: 870b751876d84d829995f39d73289fe5b93e35528b6d8a4c9026851ffbf1f6f4
   REFERENCE_SHA256: f86a42ad88230411b2351a59cd9c1bb40ad2586076631ab249949fce13e91eb7
-  LIVE_SCRIPT_SHA256: 5c0d5e122c682d4b2fb8cec065a33e2a5cf275142a66ccef483f7109f1590566
+  LIVE_SCRIPT_SHA256: 61f429d3018ea8b87124e3f4f9405cd51efeb40e286fe40aaf37ececa8ec491d
+  G1_PRE010_COMPARATOR_SHA256: 2d9aef13a9c7eb7b4c08172a51aa6c9a9072891560053cf488e7f4d437ed4c37
+  G1_PRE010_COLLECTOR_SHA256: 787a67da3dfa20e5534c6dc5fc2f00f037c9cdb0eebf7fc2eee3e65fc8b36584
+  G1_PRE010_INDEX_DEFAULT_SOURCE_SHA256: 1757f68fdc8d8d893580c1c0ad889c07cd1dd3807b30a9626f1b1e5c9beaf8f7
+  G1_PRE010_CONSTRAINT_SOURCE_SHA256: c917a4169dd013b45912f3b419ceb7764faecc54dd807897a454d9d423b8af36
+  G1_PRE010_COLUMN_SOURCE_SHA256: d7b013f9c2ec369f3a6f6ed0abf1e2cba153f068f71abdb31f3225ef41692a68
+  G1_PRE010_TRIGGER_DDL_SHA256: f51ea40132f78a8244bd920519619e1d8e86b5e730c6acc2c52ba19a4610a920
 
 jobs:
   catalog-json-contract:
@@ -78,9 +81,99 @@ jobs:
               if ($actual -cne $case.Expected) { throw 'Catalog JSON array contract rejected' }
           }
           Write-Output 'CatalogJSON=PASS; Cases=3; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;'
+      - name: Checkout fixed PR50 candidate contract source
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          repository: Terry4410/field-visit-mileage-system
+          ref: be4d25e2c788c78cb108d2f7c819118f036d674d
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify source pins and frozen necessary-scope arithmetic (not Live parity)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/g1_necessary_010_source_contract.py --candidate-root candidate
+      - name: Validate source-derived PRE-010 invariant boundaries (nondeploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1_pre010_source_contract.py
+          python3 scripts/ci/g1_pre010_source_contract.py --candidate-root candidate
+          echo 'Pre010PrivateRead=NOT_EXECUTED; ActualUatSchema=UNKNOWN;'
+      - name: Enforce private PRE-010 comparator negative contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1_pre010_private_compare.py
+          echo 'Pre010PrivateTest=PASS; Azure=NOT_ACCESSED; LiveSQL=NOT_ACCESSED;'
+      - name: Guard latest UAT010 predecessor, not merely a historical marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('scripts/ci/g1_pre010_private_collect.ps1').read_text(encoding='utf-8')
+          assert "IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010')" in s
+          assert "SELECT TOP (1) VersionNumber FROM dbo.SchemaVersions" in s
+          assert "ORDER BY AppliedAt DESC,VersionNumber DESC) <> N'1.8.0-010'" in s
+          assert s.count("THROW 51992,N'G1_PREDECESSOR_STOP',1;")==2
+          print('Pre010LatestGuard=PASS; Azure=NOT_ACCESSED;')
+          PY
+      - name: Verify source-pinned PRE-010 FK and CHECK state scope (nondeploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1_pre010_constraints.py
+          echo 'Pre010NewTableConstraints=PASS; Definitions=UNKNOWN; Azure=NOT_ACCESSED;'
+      - name: Reject inconsistent private PRE-010 output contracts before SQL Server tests
+        shell: python
+        run: |
+          from pathlib import Path
+          proof="SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;"
+          files=[
+            "scripts/ci/g1_pre010_private_compare.py",
+            "scripts/ci/g1_pre010_private_collect.ps1",
+            "scripts/ci/g1_final_schema_delta_live.ps1",
+            "scripts/ci/test_g1_pre010_trigger_hash_disposable.ps1",
+            ".github/workflows/g1-final-schema-delta-readonly.yml"
+          ]
+          for f in files:
+              source=Path(f).read_text(encoding="utf-8")
+              expected_count=2 if f==".github/workflows/g1-final-schema-delta-readonly.yml" else 1
+              assert source.count(proof)==expected_count, "private output contract differs"
+          print("G1PrivateStatusContract=PASS; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;")
+      - name: Verify pinned PRE-010 new-table indexes and defaults (nondeploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -q scripts/ci/test_g1_pre010_index_defaults.py
+          echo 'Pre010IndexDefault=PASS; Legacy=UNKNOWN; UAT=UNKNOWN; Azure=NOT_ACCESSED;'
+      - name: Assert explicit owner-dispatch gate and no automatic push authorization
+        shell: python
+        run: |
+          from pathlib import Path
+          text = Path('.github/workflows/g1-final-schema-delta-readonly.yml').read_text(encoding='utf-8')
+          event_header = "\n" + "  " + "pu" + "sh:"
+          commit_subject = "github.event." + "head_commit.message"
+          push_true = "github.event_name == '" + "pu" + "sh' && 'true'"
+          assert event_header not in text
+          assert commit_subject not in text
+          assert "github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410'" in text
+          expr_open = "$" + "{{"
+          expr_close = "}}"
+          wake_expr = "R3_AUTHORIZE_WAKE: " + expr_open + " inputs.authorize_coldstart && 'true' || 'false' " + expr_close
+          charge_expr = "R3_ACCEPT_CHARGES: " + expr_open + " inputs.accept_compute_charges && 'true' || 'false' " + expr_close
+          assert wake_expr in text
+          assert charge_expr in text
+          assert push_true not in text
+          assert text.count('default: false') >= 2
+          print('OwnerDispatchOnly=PASS; PushAuthorization=ABSENT; WakeConsent=EXPLICIT; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;')
 
   source-guard:
-    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'g1-final-schema-delta-live-once-3-20261022')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410' && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -99,20 +192,17 @@ jobs:
           persist-credentials: false
       - name: Enforce repository, protected ref, source and file pins
         env:
-          APPROVED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_source_sha || github.sha }}
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "Terry4410/field-visit-mileage-system"
           test "$GITHUB_REF" = "refs/heads/post-uat/v1.8.0"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_ACTOR" = "Terry4410"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
           test "$APPROVED_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            test "$(git rev-parse HEAD^)" = "c8747aacd6707dc8c2b986efc4447af6ed07ed49"
-            test "$(git log -1 --pretty=%s)" = "g1-final-schema-delta-live-once-3-20261022"
-            expected_changes=$'.github/workflows/g1-final-schema-delta-readonly.yml\nscripts/ci/g1_final_schema_delta_live.ps1'
-            test "$(git diff --name-only HEAD^ HEAD)" = "$expected_changes"
-          fi
           test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
           base=candidate/docs/release/g1-minimal-preflight
           test "$(sha256sum "$base/01-target.sql" | cut -d' ' -f1)" = "$TARGET_SHA256"
@@ -121,6 +211,12 @@ jobs:
           test "$(sha256sum "$base/requirements.json" | cut -d' ' -f1)" = "$REQUIREMENTS_SHA256"
           test "$(sha256sum "$base/necessary-reference.json" | cut -d' ' -f1)" = "$REFERENCE_SHA256"
           test "$(sha256sum scripts/ci/g1_final_schema_delta_live.ps1 | cut -d' ' -f1)" = "$LIVE_SCRIPT_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_private_compare.py | cut -d' ' -f1)" = "$G1_PRE010_COMPARATOR_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_private_collect.ps1 | cut -d' ' -f1)" = "$G1_PRE010_COLLECTOR_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_created_columns.py | cut -d' ' -f1)" = "$G1_PRE010_COLUMN_SOURCE_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_created_constraints.py | cut -d' ' -f1)" = "$G1_PRE010_CONSTRAINT_SOURCE_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_created_index_defaults.py | cut -d' ' -f1)" = "$G1_PRE010_INDEX_DEFAULT_SOURCE_SHA256"
+          test "$(sha256sum scripts/ci/g1_pre010_trigger_ddl.py | cut -d' ' -f1)" = "$G1_PRE010_TRIGGER_DDL_SHA256"
           python3 - <<'PY'
           import json, os
           p='candidate/docs/release/g1-minimal-preflight/necessary-reference.json'
@@ -207,9 +303,9 @@ jobs:
       - name: Bounded Serverless readiness
         timeout-minutes: 6
         env:
-          R3_APPROVED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_source_sha || github.sha }}
-          R3_AUTHORIZE_WAKE: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_coldstart && 'true' || github.event_name == 'push' && 'true' || 'false' }}
-          R3_ACCEPT_CHARGES: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_compute_charges && 'true' || github.event_name == 'push' && 'true' || 'false' }}
+          R3_APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          R3_AUTHORIZE_WAKE: ${{ inputs.authorize_coldstart && 'true' || 'false' }}
+          R3_ACCEPT_CHARGES: ${{ inputs.accept_compute_charges && 'true' || 'false' }}
           R3_SUBSCRIPTION_ID: ${{ needs.identity-handoff.outputs.subscription }}
         run: python3 scripts/ci/r3_serverless_readiness.py
       - name: Execute one neutral SELECT-only delta with 240-second hard boundary
@@ -242,6 +338,9 @@ jobs:
           test -s artifacts/g1-schema-delta-summary.txt
           ! grep -Eqi '(password|access.?token|connection.?string|principal.?id|tenant.?id|subscription.?id|server=tcp|data source=|exception|stack trace|select |from |where )' artifacts/g1-schema-delta-summary.txt
           test "$(grep -c '^Migration=' artifacts/g1-schema-delta-summary.txt)" -eq 10
+          grep -qx 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;' artifacts/g1-schema-delta-summary.txt
+          grep -qx 'G1ReleaseGate=HOLD; ApiPrincipal=UNKNOWN; Runtime=UNKNOWN; Recovery=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
+          grep -Eq '^Migration=019; Marker=(ABSENT|PRESENT_ONCE); Contract=OUT_OF_SCOPE; Decision=NOT_REQUIRED_FOR_FROZEN_25; PackageCompatibility=HOLD;$' artifacts/g1-schema-delta-summary.txt
           grep -qx 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;' artifacts/g1-schema-delta-summary.txt
           grep -Eq '^G1Delta=PASS; SourceSha=[0-9a-f]{40}; CandidateSha=[0-9a-f]{40};$' artifacts/g1-schema-delta-summary.txt
           echo 'EvidencePrivacy=PASS;'
