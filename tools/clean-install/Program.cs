@@ -875,13 +875,21 @@ try
     {
         await CleanInstallHttpProbe.RunAsync(rcRoot, installBuilder.ConnectionString);
     }
-    catch (Exception)
+    catch (Exception error)
     {
+        // Print only bounded synthetic stage codes (never raw exceptions,
+        // connection strings, tokens, HTTP bodies or business data).
+        if (error is InvalidOperationException
+            && Regex.IsMatch(error.Message, @"^CLEAN_BIZ_[A-Z0-9_]{1,60}$"))
+            Status(error.Message);
         Status("RC_API_SAME_CLEAN_DB_HTTP_SQL_FAIL");
         throw;
     }
     Status("RC_API_SAME_CLEAN_DB_READY_UNAUTH_DENY_PASS");
     Status("RC_API_FRESH_SQL_TEST_LOGIN_ROLE_MATRIX_PASS");
+    Status("RC_API_FRESH_SQL_VISITOR_CONTEXT_TEAM_SCOPE_PASS");
+    Status("RC_API_FRESH_SQL_TEMPORARY_DRAFT_SUBMISSION_PASS");
+    Status("RC_API_PARTIAL_017_LOCATION_RESERVATION_FAIL_CLOSED_PASS");
 
     var appDbContextSha = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(contextPath))).ToLowerInvariant();
     var scriptSha = Convert.ToHexString(SHA256.HashData(sqlBytes)).ToLowerInvariant();
@@ -919,7 +927,8 @@ try
         catalogObjectCounts = catalog,
         scope = "Disposable candidate only: EF 57 tables + SQL-only 11 tables + empty new SchemaVersions + effective 010 triggers + selected indexes and trusted 010 check; NOT a complete IT or UAT installer",
         sqlOnlyObjects = "Seven source-derived core tables and four disposable Option C candidate tables installed; final A+C 011-020 objects, security and complete migration-only facets remain unverified",
-        rcApiSameCleanDbHttpSmoke = "READY_LIVE_ANON_DENY_AND_REAL_DEMO_LOGIN_ROLE_MATRIX_ONLY_NOT_BUSINESS_WORKFLOW_RBAC",
+        rcApiSameCleanDbHttpSmoke = "READY_REAL_DEMO_LOGIN_ROLE_MATRIX_VISITOR_CONTEXT_AND_TEMP_TRIP_SUBMISSION_ONLY",
+        partial017ReservationRuntimeBoundary = "LocationCreateReservations candidate present; empty new SchemaVersions ledger. Published Location Trip CREATE must fail closed. Final 011-020 acceptance/real approvals HOLD.",
         seedData = "Only ephemeral synthetic three-role accounts and employment/role assignments in disposable DB; random Demo password not packaged; entire disposable DB destroyed"
     };
     await File.WriteAllTextAsync(Path.Combine(output, "model-baseline-manifest.json"),

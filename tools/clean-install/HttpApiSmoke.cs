@@ -22,6 +22,7 @@ internal static class CleanInstallHttpProbe
         // These accounts live only in the very same newly installed disposable DB.
         // Never substitute an EnsureCreated fixture or a shared/UAT database.
         var roleActors = await CleanInstallRoleProbe.SeedAsync(sameCleanDbConnection);
+        var business = await CleanInstallBusinessProbe.SeedAsync(sameCleanDbConnection, roleActors);
         var demoPassword = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         var hostDir = Path.Combine(rcRoot, "backend", "src", "FieldVisit.Api");
         var start = new ProcessStartInfo
@@ -110,6 +111,12 @@ internal static class CleanInstallHttpProbe
             // Actual test-account login issues the signed RC token from SQL-backed
             // employment, identity and effective-dated roles. Then real HTTP
             // checks /me and role-specific denial on the same fresh DB.
+            // Actual role-issued JWT on this exact fresh SQL database, first
+            // prove time-scoped Trip Context and a real Visitor Draft path.
+            // Partial 017 schema must fail closed for published Location use;
+            // never invent old migration markers to make it pass.
+            await CleanInstallBusinessProbe.VerifyAsync(
+                client, sameCleanDbConnection, business, demoPassword);
             await CleanInstallRoleProbe.VerifyAsync(
                 client, sameCleanDbConnection, roleActors, demoPassword);
         }
