@@ -120,10 +120,13 @@ authorize deployment, or permit Business UAT.
 
 ## Operational boundary
 
-The runner requires fixed local Docker SQL2022 at `localhost,1433`, creates
-only `FieldVisitV180CleanInstall`, refuses pre-existing database targets, and
-drops only the database it created. Its service password is disposable CI
-fixture-only, never a deployment or IT credential.
+The job starts one disposable SQL Server 2022 container on
+`localhost,1433` with a run-generated password that is registered for log
+masking before container startup and is not stored in source or the artifact.
+It creates only `FieldVisitV180CleanInstall`, refuses a pre-existing database
+target, drops only the database it created, and explicitly removes the
+container in an always-run cleanup step. The password is not a deployment or
+IT credential.
 
 No Azure connection/wake, real UAT SQL, data deletion, migration, production
 permission change, deployment, feature activation or Business UAT GO is

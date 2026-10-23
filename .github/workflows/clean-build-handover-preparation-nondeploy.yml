@@ -16,19 +16,9 @@ jobs:
   clean-install:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: "Y"
-          MSSQL_PID: Developer
-          MSSQL_SA_PASSWORD: "CleanInstall_Only_2026!Sql"
-        ports:
-          - 1433:1433
     env:
       APPROVED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CLEAN_INSTALL_RC_SHA: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
-      CLEAN_INSTALL_SQL_PASSWORD: "CleanInstall_Only_2026!Sql"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,6 +77,26 @@ jobs:
           echo "CLEAN_INSTALL_OUTPUT_DIR=$RUNNER_TEMP/clean-install-output" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/clean-install-output"
           echo "RC_SOURCE_ROOT=$GITHUB_WORKSPACE/runtime-source" >> "$GITHUB_ENV"
+      - name: Start disposable SQL Server 2022 with masked run-scoped credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          sql_password="Aa7!$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+          printf 'CLEAN_INSTALL_SQL_PASSWORD=%s\n' "$sql_password" >> "$GITHUB_ENV"
+          printf '::add-mask::%s\n' "$sql_password"
+          if ! docker run --detach \
+            --name fieldvisit-clean-install-sql \
+            --publish 127.0.0.1:1433:1433 \
+            --env ACCEPT_EULA=Y \
+            --env MSSQL_PID=Developer \
+            --env "MSSQL_SA_PASSWORD=$sql_password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null 2>&1; then
+            unset sql_password
+            echo "CLEAN_INSTALL=SQL2022_CONTAINER_START_FAIL"
+            exit 1
+          fi
+          unset sql_password
+          echo "CLEAN_INSTALL=SQL2022_EPHEMERAL_CONTAINER_READY"
       - name: Build isolated RC-derived runtime candidate for trigger compatibility (NONDEPLOY)
         shell: bash
         run: |
@@ -117,8 +127,94 @@ jobs:
         run: |
           set -euo pipefail
           for i in $(seq 1 60); do
-            if docker ps --format '{{.Image}}' | grep -q '^mcr.microsoft.com/mssql/server:2022'; then
-              if docker exec "$(docker ps --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest --format '{{.ID}}' | head -1)" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then exit 0; fi
+            if docker inspect --format '{{.State.Running}}' fieldvisit-clean-install-sql 2>/dev/null | grep -q '^true
+          echo 'SQL2022_READY=FAIL' >&2
+          exit 1
+      - name: Compile pinned SQL-only seven-table layer (source contract, NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_sql_only_tables.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile effective 010 trigger layer (source-pinned, NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_effective_triggers.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile four Option C SQL-only table candidates (DISPOSABLE ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_optionc_sql_only_tables.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile source-pinned secondary SQL-only table indexes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_sql_only_indexes.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile nine complementary 007 CHECK predicates, excluding route checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_007_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile seventeen 001-004 temporal and location CHECKs (source-pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_001_004_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile final 011-020 Option C CHECKs with explicit predecessor replacement allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_optionc_final_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Build and execute fresh model-baseline install against disposable SQL Server 2022
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Reuse the exact-RC binary compiled and verified before SQL work.
+          dotnet run --no-build --no-restore --project tools/clean-install/ModelBaselineRunner.csproj \
+            -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release -- \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Remove disposable SQL Server 2022 container
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker ps -a --format '{{.Names}}' | grep -Fxq 'fieldvisit-clean-install-sql'; then
+            docker rm --force fieldvisit-clean-install-sql >/dev/null 2>&1
+            if docker ps -a --format '{{.Names}}' | grep -Fxq 'fieldvisit-clean-install-sql'; then
+              echo "CLEAN_INSTALL=SQL2022_CONTAINER_CLEANUP_FAIL"
+              exit 1
+            fi
+          fi
+          echo "CLEAN_INSTALL=DISPOSABLE_SQL2022_CONTAINER_CLEANUP_PASS"
+      - name: Verify generator and SQL inputs, package evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/verify_model_baseline_package.py \
+            --rc-sha "$CLEAN_INSTALL_RC_SHA" --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+          cp scripts/ci/clean_install/apply_rc_runtime_candidate.py "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp docs/release/clean-build-it-handover/RELEASE-GATES.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp docs/release/clean-build-it-handover/source-ledger.json "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/README.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$CLEAN_INSTALL_OUTPUT_DIR/"
+          git rev-parse HEAD HEAD^ HEAD^{tree} > "$CLEAN_INSTALL_OUTPUT_DIR/source.txt"
+          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt > checksums.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clean-install-model-baseline-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/clean-install-output/
+          retention-days: 30
+          if-no-files-found: error
+; then
+              if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then exit 0; fi
             fi
             sleep 2
           done
