@@ -154,6 +154,10 @@ try
     AND EXISTS(SELECT 1 FROM dbo.AuditLogs WHERE Action=N'LocationLowRiskDirectApplied')
     AND EXISTS(SELECT 1 FROM dbo.ChangeRequests WHERE OperationCode=N'UpdatePublishedLocation' AND RiskCode=N'Low' AND Status=N'Applied' AND ReviewedByUserId IS NULL)
     AND EXISTS(SELECT 1 FROM dbo.ImportBatchItems WHERE Status=N'SubmittedForReview')
+    AND EXISTS(SELECT 1 FROM dbo.ChangeRequests r JOIN dbo.Locations l ON l.LocationId=TRY_CONVERT(int,r.EntityId)
+      JOIN dbo.LeaderReviews v ON v.ChangeRequestId=r.ChangeRequestId
+      WHERE r.OperationCode=N'UpdatePublishedLocation' AND r.RiskCode=N'High' AND r.Status=N'Applied'
+        AND r.RequestedByUserId<>l.CreatedByUserId AND v.Status=N'Approved' AND v.ReviewerUserId<>r.RequestedByUserId)
     AND (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
     AND NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber LIKE N'1.8.0-0%')
     THEN 1 ELSE 0 END;

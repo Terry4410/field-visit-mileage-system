@@ -37,6 +37,57 @@ def main():
  path=infra+'AppDbContext.cs';old=(rc/path).read_text()
  target='e.ToTable("TeamLeaderDelegations");';assert old.count(target)==1
  write(path,old.replace(target,'e.ToTable("TeamLeaderDelegations", table => table.UseSqlOutputClause(false));'))
+
+ # Preserve the owner-Visitor rule while carrying freshly verified managed-
+ # team Leader write authority inside the same serializable transaction.
+ path=infra+'V180OptionCStageDraftWriter.cs';old=(rc/path).read_text()
+ target='int organizationId, CancellationToken ct)';assert old.count(target)==1
+ old=old.replace(target,'int organizationId, CancellationToken ct, bool leaderWriteAuthorized=false)')
+ target="AND CreatedByUserId=@requester AND LocationType=N'Customer'";assert old.count(target)==1
+ old=old.replace(target,"AND (CreatedByUserId=@requester OR @leaderWrite=1) AND LocationType=N'Customer'")
+ target='loc.Parameters.AddWithValue("@requester", requester);';assert old.count(target)==1
+ old=old.replace(target,target+'\n            loc.Parameters.AddWithValue("@leaderWrite", leaderWriteAuthorized ? 1 : 0);')
+ write(path,old)
+ path=infra+'V180OptionCCandidateService.cs';old=(rc/path).read_text()
+ target='connection, sqlTx, row.RequestPublicId, scope.OrganizationId, ct);';assert old.count(target)==1
+ write(path,old.replace(target,'connection, sqlTx, row.RequestPublicId, scope.OrganizationId, ct, scope.LeaderEligible);'))
+ for name in ['V180OptionCAtomicPublicationOrchestrator.cs','V180OptionCCreateLowRiskPublicationOrchestrator.cs']:
+  path=infra+name;old=(rc/path).read_text()
+  marker='            var sqlTx = tx.GetDbTransaction() as SqlTransaction';assert old.count(marker)==1
+  actorAuth='authorization' if name=='V180OptionCAtomicPublicationOrchestrator.cs' else 'auth'
+  proof=('            bool leaderWriteAuthorized=false;\n'
+    '            if(request.OperationCode=="UpdatePublishedLocation") {\n'
+    '                if(!int.TryParse(request.EntityId,out var sourceId)||sourceId<=0) throw new InvalidOperationException("OPTIONC_SOURCE_ID_INVALID");\n'
+    f'                var writeScope=await {actorAuth}.AuthorizeSubmissionAsync(request.RequestedByUserId,sourceId,BusinessTime.Today,ct);\n'
+    '                if(writeScope.OrganizationId!=request.OrganizationId||writeScope.TeamId!=request.TeamId) throw new UnauthorizedAccessException("OPTIONC_SOURCE_WRITE_SCOPE_DRIFT");\n'
+    '                leaderWriteAuthorized=writeScope.LeaderEligible;\n'
+    '            }\n')
+  old=old.replace(marker,proof+marker)
+  if name=='V180OptionCAtomicPublicationOrchestrator.cs':
+   target='actorId, decisionKey, reason, evidence, ct);';assert old.count(target)==1
+   old=old.replace(target,'actorId, decisionKey, reason, evidence, ct, leaderWriteAuthorized);')
+  else:
+   target='independentAdminForCreate: adminEligible, ct);';assert old.count(target)==1
+   old=old.replace(target,'independentAdminForCreate: adminEligible, ct, leaderWriteAuthorized);')
+  write(path,old)
+ path=infra+'V180OptionCAtomicPublicationWriter.cs';old=(rc/path).read_text()
+ target='V180OptionCLiveApprovalEvidence authorization, CancellationToken ct)';assert old.count(target)==1
+ old=old.replace(target,'V180OptionCLiveApprovalEvidence authorization, CancellationToken ct, bool leaderWriteAuthorized=false)')
+ target='AND TeamId=@team AND CreatedByUserId=@requester';assert old.count(target)==2
+ old=old.replace(target,'AND TeamId=@team AND (CreatedByUserId=@requester OR @leaderWrite=1)')
+ target='cmd.Parameters.AddWithValue("@reason", reason);';assert old.count(target)==1
+ old=old.replace(target,target+'\n        cmd.Parameters.AddWithValue("@leaderWrite", leaderWriteAuthorized ? 1 : 0);')
+ write(path,old)
+ path=infra+'V180OptionCCreateLowRiskPublicationWriter.cs';old=(rc/path).read_text()
+ target='bool independentAdminForCreate, CancellationToken ct)';assert old.count(target)==1
+ old=old.replace(target,'bool independentAdminForCreate, CancellationToken ct, bool leaderWriteAuthorized=false)')
+ target='OR @sourceOwner<>@requester';assert old.count(target)==1
+ old=old.replace(target,"OR (@sourceOwner<>@requester AND NOT(@operation=N'UpdatePublishedLocation' AND @leaderWrite=1))")
+ target='AND CreatedByUserId=@requester AND RowVersion=@locationVersion';assert old.count(target)==1
+ old=old.replace(target,"AND (CreatedByUserId=@requester OR (@operation=N'UpdatePublishedLocation' AND @leaderWrite=1)) AND RowVersion=@locationVersion")
+ target='cmd.Parameters.AddWithValue("@adminEligible", independentAdminForCreate ? 1 : 0);';assert old.count(target)==1
+ old=old.replace(target,target+'\n        cmd.Parameters.AddWithValue("@leaderWrite", leaderWriteAuthorized ? 1 : 0);')
+ write(path,old)
  for name in ['V180UatReleaseTrust.cs','SchemaFingerprint.sql']:
   write(infra+name,(ROOT/'tools/uat-release-candidate/runtime'/name).read_bytes())
  write(infra+'UatReleaseIdentity.g.cs','namespace FieldVisit.Infrastructure; public static class UatReleaseIdentity { public const string SourceSha="'+source+'"; }\n')

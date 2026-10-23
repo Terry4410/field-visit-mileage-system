@@ -28,7 +28,7 @@ sign_activation.py prepares an eight-hour attestation only from the paired contr
 
 ## Role entrypoints
 
-Excel Create review submission remains available to scoped Admin/Leader test accounts. Published Excel Update uses the Leader entrypoint and existing live appointment/delegation write authorization; a pure Admin does not gain published-Location submission authority through imports. An independent appointed/delegated Leader reviews Leader-originated updates, followed by independent Admin evidence/publication. Direct LowRisk remains owner Visitor or current appointed/delegated Leader only. UI role checks never replace server-side live HR/scope checks.
+Excel Create review submission remains available to scoped Admin/Leader test accounts. Published Excel Update uses the Leader entrypoint and existing live appointment/delegation write authorization; a pure Admin does not gain published-Location submission authority through imports. An independent appointed/delegated Leader reviews Leader-originated updates, followed by independent Admin evidence/publication. Direct LowRisk remains owner Visitor or current appointed/delegated Leader only. UI role checks never replace server-side live HR/scope checks. Stage and publication writers retain owner-only Visitor access; a managed-team Leader exception is passed internally only from freshly revalidated live write authorization in the same Serializable transaction, and is revalidated again at publication. HTTP clients cannot supply this proof.
 
 ## Live gates before Business UAT
 
