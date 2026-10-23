@@ -406,6 +406,38 @@ try
                                    || table != entry.Value))
         throw new InvalidOperationException("SQL_ONLY_INDEX_CATALOG_MISMATCH");
 
+    // Fresh-install final v1.8.0-010 CalculationReason CHECK, without any
+    // historical migration marker. It is trusted/enabled and source scoped.
+    var reasonDdlPath = Path.GetFullPath(Path.Combine(
+        "database", "clean-install", "v180", "20_route_reason_check.sql"));
+    if (!File.Exists(reasonDdlPath))
+        throw new InvalidOperationException("CLEAN_REASON_CHECK_DDL_MISSING");
+    var reasonDdlBytes = await File.ReadAllBytesAsync(reasonDdlPath);
+    var reasonDdlSha = Convert.ToHexString(SHA256.HashData(reasonDdlBytes)).ToLowerInvariant();
+    await using (var reasonConn = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await reasonConn.OpenAsync();
+        await using var addReason = new SqlCommand(Encoding.UTF8.GetString(reasonDdlBytes), reasonConn)
+        { CommandTimeout = 30 };
+        await addReason.ExecuteNonQueryAsync();
+        await using var proof = new SqlCommand("""
+            SELECT definition, is_disabled, is_not_trusted
+            FROM sys.check_constraints
+            WHERE object_id=OBJECT_ID(N'dbo.CK_RouteCalculationAttempts_Reason',N'C')
+              AND parent_object_id=OBJECT_ID(N'dbo.RouteCalculationAttempts',N'U');
+            """, reasonConn) { CommandTimeout = 10 };
+        await using var reader = await proof.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException("CLEAN_REASON_CHECK_ABSENT");
+        var definition = reader.GetString(0).ToLowerInvariant();
+        if (reader.GetBoolean(1) || reader.GetBoolean(2) ||
+            !new[] { "visitorcalculate", "leaderretry",
+                     "correctionrecalculate", "backgroundmileagejob" }
+                 .All(x => definition.Contains(x, StringComparison.Ordinal)) ||
+            await reader.ReadAsync())
+            throw new InvalidOperationException("CLEAN_REASON_CHECK_SHAPE_STATE");
+    }
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -571,6 +603,7 @@ try
         sqlOnlyTableSqlSha256 = sqlOnlyHash,
         newSchemaVersionLedgerSha256 = ledgerSqlSha,
         versionLedgerStatus = "EMPTY_NEW_BASELINE_NO_HISTORICAL_MARKERS",
+        sourceDerivedReasonCheckSqlSha256 = reasonDdlSha,
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
         installedEffectiveTriggerCount = installedTriggers.Count,
@@ -596,6 +629,7 @@ try
     Status("MODEL_DDL_CONSTRAINT_TRUST_STATE_PASS");
     Status("EF_SYNTHETIC_WRITE_ROLLBACK_PASS");
     Status("EMPTY_NEW_SCHEMA_VERSION_LEDGER_SQL2022_PASS");
+    Status("TRUSTED_010_MILEAGE_REASON_CHECK_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
