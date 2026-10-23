@@ -100,7 +100,13 @@ try {
             'PREDECESSOR','PRIVATE_OUTPUT','PINNED_SOURCE',
             'METADATA_FORMAT','SCOPED_PARITY','COMPARATOR_REJECTED')
         $status='UNCLASSIFIED'
-        if($pre010 -is [string] -and $pre010 -cmatch '^STOP:([A-Z_]+)
+        if($pre010 -is [string] -and $pre010 -cmatch '^STOP:([A-Z_]+)$' -and
+            $Matches[1] -cin $allowlisted) {
+            $status=$Matches[1]
+        }
+        Write-Output "Pre010Private=STOP; Code=$status; Details=SUPPRESSED;"
+        Stop-G1 'ResultContractRejected'
+    }
     Write-Output 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'
 
 
