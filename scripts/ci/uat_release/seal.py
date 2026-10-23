@@ -63,3 +63,6 @@ else:
  (out/'checksums.sha256').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(out).as_posix()+'\n' for p in sorted(out.rglob('*')) if p.is_file() and p.name!='checksums.sha256'))
  print('UAT_RC=FINAL_SAME_SOURCE_API_FRONTEND_SQL_TRUST_BINDING_PASS')
  print('UAT_RC_API_SHA256='+app['sha256']);print('UAT_RC_FRONTEND_SHA256='+contract['frontendSha256'])
+ print('UAT_RC_API_ASSEMBLY_COMPOSITE_SHA256='+contract['apiSha256']);print('UAT_RC_SCHEMA_SHA256='+contract['schemaSha256'])
+ print('UAT_RC_FROZEN_25=PASS_0_PARTIAL_25_HOLD_0_LIVE_NOT_EXECUTED')
+ print('UAT_RC_FOCUSED_CASE_SIGNALS='+','.join(sorted(observed)))

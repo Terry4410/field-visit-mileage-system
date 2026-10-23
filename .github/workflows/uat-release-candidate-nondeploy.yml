@@ -121,8 +121,46 @@ jobs:
           if docker ps -a --format '{{.Names}}' | grep -Fxq fieldvisit-uat-rc-sql; then exit 1; fi
           echo 'UAT_RC=DISPOSABLE_CONTAINER_CLEANUP_PASS'
       - uses: actions/upload-artifact@v4
+        id: release-artifact
         with:
           name: uat-release-candidate-${{ github.sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/release-output/
           retention-days: 30
           if-no-files-found: error
+      - name: Download registered release artifact for byte and package readback
+        uses: actions/download-artifact@v4
+        with:
+          name: uat-release-candidate-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/registered-readback
+      - name: Verify every downloaded inner file and nested package
+        shell: bash
+        env:
+          RELEASE_ARTIFACT_ID: ${{ steps.release-artifact.outputs.artifact-id }}
+          RELEASE_ARTIFACT_DIGEST: ${{ steps.release-artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,zipfile
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'registered-readback'
+          sha=lambda b:hashlib.sha256(b).hexdigest()
+          entries=(root/'checksums.sha256').read_text().splitlines()
+          assert entries
+          for line in entries:
+              digest,name=line.split('  ',1)
+              assert sha((root/name).read_bytes())==digest
+          for name in ['api','frontend']:
+              manifest=json.loads((root/(name+'-manifest.json')).read_text())
+              package=root/manifest['file'];assert sha(package.read_bytes())==manifest['sha256']
+              with zipfile.ZipFile(package) as archive:
+                  assert set(archive.namelist())=={x['path'] for x in manifest['files']}
+                  for item in manifest['files']:assert sha(archive.read(item['path']))==item['sha256']
+          release=json.loads((root/'release-manifest.json').read_text())
+          assert release['candidateSourceSha']==os.environ['GITHUB_SHA']
+          assert release['activationDefault']=='OFF'
+          assert len(json.loads((root/'frozen-25-coverage.json').read_text())['cases'])==25
+          print('UAT_RC=REGISTERED_ARTIFACT_DOWNLOADED_ALL_INNER_AND_NESTED_HASHES_PASS')
+          print('UAT_RC_INNER_FILE_COUNT='+str(len(entries)))
+          print('UAT_RC_ARTIFACT_ID='+os.environ['RELEASE_ARTIFACT_ID'])
+          print('UAT_RC_ARTIFACT_REGISTERED_SHA256='+os.environ['RELEASE_ARTIFACT_DIGEST'])
+          PY
