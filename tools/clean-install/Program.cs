@@ -254,6 +254,56 @@ try
     if (!expectedTriggerNames.SetEquals(installedTriggers))
         throw new InvalidOperationException("EFFECTIVE_TRIGGER_CATALOG_MISMATCH");
 
+    // Candidate A+C table shapes are exercised against this disposable DB
+    // only. Their original Up.sql files explicitly forbid live execution.
+    var optioncPath = Path.Combine(output, "optionc-sql-only-candidates.sql");
+    var optioncManifestPath = Path.Combine(output, "optionc-sql-only-candidates-manifest.json");
+    if (!File.Exists(optioncPath) || !File.Exists(optioncManifestPath))
+        throw new InvalidOperationException("OPTIONC_TABLE_PROBE_SOURCE_MISSING");
+    var optioncBytes = await File.ReadAllBytesAsync(optioncPath);
+    var optioncSha = Convert.ToHexString(SHA256.HashData(optioncBytes)).ToLowerInvariant();
+    using (var candidateManifest = JsonDocument.Parse(await File.ReadAllTextAsync(optioncManifestPath)))
+    {
+        var root = candidateManifest.RootElement;
+        if (root.GetProperty("format").GetString() != "field-visit-v180-optionc-sql-only-table-probe-v1"
+            || root.GetProperty("rcSourceSha").GetString() != expectedRc
+            || root.GetProperty("disposableCandidateTableCount").GetInt32() != 4
+            || root.GetProperty("sqlSha256").GetString() != optioncSha)
+            throw new InvalidOperationException("OPTIONC_TABLE_PROBE_MANIFEST");
+    }
+    await using (var candidateConnection = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await candidateConnection.OpenAsync();
+        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(optioncBytes),
+                     "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
+        {
+            await using var command = new SqlCommand(batch, candidateConnection) { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+    var expectedCandidateTables = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "LocationPublicationStages", "LocationPublishedVersions",
+        "LocationCreateReservations", "LocationMergeDetails"
+    };
+    var candidateTables = new HashSet<string>(StringComparer.Ordinal);
+    await using (var candidateVerify = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await candidateVerify.OpenAsync();
+        await using var cmd = new SqlCommand("""
+            SELECT name FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo')
+            AND name IN (N'LocationPublicationStages',N'LocationPublishedVersions',
+                         N'LocationCreateReservations',N'LocationMergeDetails');
+            """, candidateVerify) { CommandTimeout = 10 };
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            if (!candidateTables.Add(reader.GetString(0)))
+                throw new InvalidOperationException("OPTIONC_TABLE_PROBE_DUPLICATE");
+    }
+    if (!expectedCandidateTables.SetEquals(candidateTables))
+        throw new InvalidOperationException("OPTIONC_TABLE_PROBE_CATALOG_MISMATCH");
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -315,6 +365,8 @@ try
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
         installedEffectiveTriggerCount = installedTriggers.Count,
+        optioncCandidateTableSqlSha256 = optioncSha,
+        optioncCandidateTableCount = candidateTables.Count,
         sqlServerMajorVersion = detectedSqlMajorVersion,
         mappedTableCount = expectedTables.Length,
         mappedColumnCount = expectedColumns.Values.Sum(x => x.Count),
@@ -332,7 +384,8 @@ try
     Status("EF_SYNTHETIC_WRITE_ROLLBACK_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
-    Status("FULL_V180_INSTALL_HOLD_OPTIONC_APP_COMPAT");
+    Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
+    Status("FULL_V180_INSTALL_HOLD_OPTIONC_FINAL_OBJECTS_APP_COMPAT");
     Console.WriteLine($"MAPPED_TABLES={expectedTables.Length}");
     Console.WriteLine($"MAPPED_COLUMNS={expectedColumns.Values.Sum(x => x.Count)}");
     Console.WriteLine($"MODEL_BASELINE_SHA256={scriptSha}");
