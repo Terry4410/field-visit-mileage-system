@@ -131,13 +131,46 @@ def main() -> int:
         if actual_rc != args.rc_sha:
             raise ContractError("RC_CHECKOUT_SHA_MISMATCH")
         result = verify(args.rc_sha, args.rc_root, args.output)
+        # Verify the new SQL-only layer without changing the accepted EF-only
+        # 57-table verification contract. This is still NOT full Clean Install.
+        layer_sql = args.output / "sql-only-core-tables.sql"
+        layer_path = args.output / "sql-only-core-tables-manifest.json"
+        if not layer_sql.is_file() or not layer_path.is_file():
+            raise ContractError("SQL_ONLY_CORE_LAYER_MISSING")
+        layer = json.loads(layer_path.read_text(encoding="utf-8"))
+        if (layer.get("format") != "field-visit-v180-sql-only-core-tables-v1"
+                or layer.get("rcSourceSha") != EXPECTED_RC
+                or layer.get("requiredSqlOnlyTableCount") != 7
+                or layer.get("sqlSha256") != sha256(layer_sql)):
+            raise ContractError("SQL_ONLY_CORE_LAYER_INVALID")
+        objects = layer.get("objects")
+        if not isinstance(objects, list) or len(objects) != 7:
+            raise ContractError("SQL_ONLY_CORE_OBJECT_LIST_INVALID")
+        source_paths = {
+            "database/migrations/1800_001_organization_center_team_lifecycle/Up.sql",
+            "database/migrations/1800_006_notification_framework/Up.sql",
+        }
+        expected_names = {
+            "dbo.SchemaMigrationDataBaselines", "dbo.NotificationEnvironmentPolicies",
+            "dbo.NotificationEmailAllowlist", "dbo.NotificationSettings",
+            "dbo.NotificationSettingRecipients", "dbo.MailOutbox", "dbo.MailDeliveryLogs"
+        }
+        if {o.get("name") for o in objects} != expected_names:
+            raise ContractError("SQL_ONLY_CORE_OBJECT_NAMES_MISMATCH")
+        for obj in objects:
+            if obj.get("sourcePath") not in source_paths:
+                raise ContractError("SQL_ONLY_SOURCE_PATH_MISMATCH")
+            if sha256(args.rc_root / obj["sourcePath"]) != obj.get("sourceSha256"):
+                raise ContractError("SQL_ONLY_SOURCE_HASH_MISMATCH")
+
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ContractError):
         print("CLEAN_INSTALL_PACKAGE=FAIL_CLOSED")
         return 1
     print("MODEL_BASELINE_PACKAGE=PASS")
     print(f"SQL_ONLY_TABLES={result['sqlOnlyTableCount']}")
     print(f"SQL_TRIGGER_DEFINITIONS={result['triggerDefinitionCount']}")
-    print("FULL_CLEAN_INSTALL=HOLD_SQL_ONLY_DDL_AND_TRIGGER_REVIEW_REQUIRED")
+    print("SQL_ONLY_CORE_TABLE_PACKAGE=PASS")
+    print("FULL_CLEAN_INSTALL=HOLD_TRIGGERS_OPTIONC_AND_APP_COMPATIBILITY")
     return 0
 
 
