@@ -660,6 +660,87 @@ try
             throw new InvalidOperationException("OPTIONC_FINAL_CHECK_CATALOG_MISMATCH");
     }
 
+    // Apply final A+C 011–020 CHECK states on disposable clean SQL2022.
+    // Eight EF-origin and one 014 candidate checks are replaced under a
+    // source-pinned explicit allowlist, not bypassed or disabled.
+    var optioncChecksPath = Path.Combine(output, "optionc-final-target-checks.sql");
+    var optioncChecksManifestPath = Path.Combine(output, "optionc-final-target-checks-manifest.json");
+    if (!File.Exists(optioncChecksPath) || !File.Exists(optioncChecksManifestPath))
+        throw new InvalidOperationException("OPTIONC_FINAL_CHECK_PACKAGE_MISSING");
+    var optioncChecksBytes = await File.ReadAllBytesAsync(optioncChecksPath);
+    var optioncChecksSha = Convert.ToHexString(SHA256.HashData(optioncChecksBytes)).ToLowerInvariant();
+    var expectedOptionCChecks = new Dictionary<string, string>(StringComparer.Ordinal);
+    var expectedReplacementChecks = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "CK_B3_ChangeRequests_KnownCodes",
+        "CK_B3_ChangeRequests_KnownStatus",
+        "CK_B3_ChangeRequests_ExpectedLocationVersion",
+        "CK_B3_ChangeRequests_ProposedJson",
+        "CK_B3_ChangeRequests_ReviewState",
+        "CK_B3_ChangeRequestEvents_EventType",
+        "CK_B3_ChangeRequestEvents_DetailsJson",
+        "CK_B3_ChangeRequestEvents_DecisionState",
+        "CK_OptionC_Published_Origin"
+    };
+    var actualReplacementChecks = new HashSet<string>(StringComparer.Ordinal);
+    using (var optioncFinalManifest = JsonDocument.Parse(await File.ReadAllTextAsync(optioncChecksManifestPath)))
+    {
+        var root = optioncFinalManifest.RootElement;
+        if (root.GetProperty("format").GetString() != "field-visit-v180-optionc-effective-checks-v1"
+            || root.GetProperty("rcSourceSha").GetString() != expectedRc
+            || root.GetProperty("checkCount").GetInt32() != 15
+            || root.GetProperty("sqlSha256").GetString() != optioncChecksSha)
+            throw new InvalidOperationException("OPTIONC_FINAL_CHECK_MANIFEST_INVALID");
+        foreach (var entry in root.GetProperty("checks").EnumerateArray())
+        {
+            var name = entry.GetProperty("name").GetString() ?? "";
+            var table = entry.GetProperty("table").GetString() ?? "";
+            if (!expectedOptionCChecks.TryAdd(name, table))
+                throw new InvalidOperationException("OPTIONC_FINAL_CHECK_DUPLICATE_NAME");
+            if (entry.GetProperty("replacesReviewedPredecessor").GetBoolean())
+                actualReplacementChecks.Add(name);
+        }
+    }
+    if (expectedOptionCChecks.Count != 15 ||
+        !expectedReplacementChecks.SetEquals(actualReplacementChecks))
+        throw new InvalidOperationException("OPTIONC_FINAL_CHECK_SOURCE_SCOPE");
+    await using (var optioncCheckConnection = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await optioncCheckConnection.OpenAsync();
+        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(optioncChecksBytes),
+                     "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
+        {
+            await using var command = new SqlCommand(batch, optioncCheckConnection) { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+    var actualOptionCChecks = new HashSet<string>(StringComparer.Ordinal);
+    await using (var optioncCheckCatalog = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await optioncCheckCatalog.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT c.name, s.name, t.name, c.is_disabled, c.is_not_trusted, c.definition
+            FROM sys.check_constraints c
+            JOIN sys.tables t ON t.object_id=c.parent_object_id
+            JOIN sys.schemas s ON s.schema_id=t.schema_id
+            WHERE s.name=N'dbo';
+            """, optioncCheckCatalog) { CommandTimeout = 10 };
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var name = reader.GetString(0);
+            if (!expectedOptionCChecks.TryGetValue(name, out var table))
+                continue;
+            if (reader.GetString(1) + "." + reader.GetString(2) != table ||
+                reader.GetBoolean(3) || reader.GetBoolean(4) ||
+                reader.IsDBNull(5) || !actualOptionCChecks.Add(name))
+                throw new InvalidOperationException("OPTIONC_FINAL_CHECK_TRUST_OR_SCOPE");
+        }
+    }
+    if (actualOptionCChecks.Count != 15)
+        throw new InvalidOperationException("OPTIONC_FINAL_CHECK_CATALOG_INCOMPLETE");
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -872,6 +953,9 @@ try
         sourceDerivedOptioncFinalChecksSha256 = optioncCheckSha,
         installedOptioncEffectiveCheckCount = expectedOptioncChecks.Count,
         installedSource001004CheckCount = actualChecks001.Count,
+        optioncEffectiveChecksSqlSha256 = optioncChecksSha,
+        optioncEffectiveCheckCount = actualOptionCChecks.Count,
+        optioncReplacedReviewedPredecessorCount = actualReplacementChecks.Count,
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
         installedEffectiveTriggerCount = installedTriggers.Count,
@@ -900,6 +984,7 @@ try
     Status("TRUSTED_007_009_010_ROUTE_CHECKS_SQL2022_PASS");
     Status("SOURCE_007_NINE_OTHER_CHECKS_SQL2022_PASS");
     Status("SOURCE_001_004_SEVENTEEN_CHECKS_SQL2022_PASS");
+    Status("OPTIONC_FINAL_FIFTEEN_CHECKS_SQL2022_PASS");
     Status("SOURCE_OPTIONC_FINAL_FIFTEEN_CHECKS_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");

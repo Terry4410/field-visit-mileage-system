@@ -322,6 +322,34 @@ def main() -> int:
             if entry.get("sourcePath") != rel or (
                     sha256(args.rc_root / rel) != entry.get("sourceSha256")):
                 raise ContractError("OPTIONC_FINAL_CHECK_SOURCE_HASH")
+        optionc_final_sql = args.output / "optionc-final-target-checks.sql"
+        optionc_final_manifest = args.output / "optionc-final-target-checks-manifest.json"
+        if not optionc_final_sql.is_file() or not optionc_final_manifest.is_file():
+            raise ContractError("OPTIONC_FINAL_CHECK_SOURCE_MISSING")
+        final_checks = json.loads(optionc_final_manifest.read_text(encoding="utf-8"))
+        if (final_checks.get("format") != "field-visit-v180-optionc-effective-checks-v1"
+                or final_checks.get("rcSourceSha") != EXPECTED_RC
+                or final_checks.get("checkCount") != 15
+                or final_checks.get("sqlSha256") != sha256(optionc_final_sql)):
+            raise ContractError("OPTIONC_FINAL_CHECK_SOURCE_CONTRACT")
+        checks = final_checks.get("checks")
+        if not isinstance(checks, list) or len(checks) != 15 or len({e.get("name") for e in checks}) != 15:
+            raise ContractError("OPTIONC_FINAL_CHECK_SET")
+        expected_replacements = {
+            "CK_B3_ChangeRequests_KnownCodes","CK_B3_ChangeRequests_KnownStatus",
+            "CK_B3_ChangeRequests_ExpectedLocationVersion","CK_B3_ChangeRequests_ProposedJson",
+            "CK_B3_ChangeRequests_ReviewState","CK_B3_ChangeRequestEvents_EventType",
+            "CK_B3_ChangeRequestEvents_DetailsJson","CK_B3_ChangeRequestEvents_DecisionState",
+            "CK_OptionC_Published_Origin"
+        }
+        if {e.get("name") for e in checks if e.get("replacesReviewedPredecessor")} != expected_replacements:
+            raise ContractError("OPTIONC_FINAL_REPLACEMENT_SCOPE")
+        for e in checks:
+            p=e.get("sourcePath","")
+            if not re.fullmatch(r"docs/release/optionc-canonical-sql-draft/candidate/1800_0(?:11|12|16|17|18|20)/Up\.sql",p):
+                raise ContractError("OPTIONC_FINAL_SOURCE_PATH")
+            if e.get("sourceSha256") != sha256(args.rc_root / p):
+                raise ContractError("OPTIONC_FINAL_SOURCE_DIGEST")
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ContractError):
         print("CLEAN_INSTALL_PACKAGE=FAIL_CLOSED")
         return 1
@@ -334,6 +362,7 @@ def main() -> int:
     print("SQL_ONLY_INDEX_PACKAGE=PASS")
     print("SOURCE_007_OTHER_CHECKS_PACKAGE=PASS")
     print("SOURCE_001_004_CHECKS_PACKAGE=PASS")
+    print("OPTIONC_FINAL_CHECKS_PACKAGE=PASS")
     print("OPTIONC_FINAL_CHECKS_PACKAGE=PASS")
     print("FULL_CLEAN_INSTALL=HOLD_OTHER_OBJECTS_AND_APP_COMPATIBILITY")
     return 0

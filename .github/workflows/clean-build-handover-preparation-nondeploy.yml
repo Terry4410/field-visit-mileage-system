@@ -141,6 +141,12 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/clean_install/build_optionc_final_checks.py \
             --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile final 011-020 Option C CHECKs with explicit predecessor replacement allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_optionc_final_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
       - name: Build and execute fresh model-baseline install against disposable SQL Server 2022
         timeout-minutes: 15
         shell: bash

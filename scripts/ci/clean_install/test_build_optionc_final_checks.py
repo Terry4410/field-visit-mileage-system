@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from build_optionc_final_checks import CONTRACT, COUNT, ROOT, CANDIDATE_SOURCE_IDS, build
+from build_optionc_final_checks import CONTRACT, COUNT, ROOT, CANDIDATE_SOURCE_IDS, REPLACEMENT_NAMES, build
 from build_sql_only_tables import SourceContractError
 
 
@@ -38,6 +38,13 @@ class OptionCFinalCheckContractTests(unittest.TestCase):
             self.assertEqual((out / "optionc-final-target-checks.sql").read_text().count("\nGO\n"), COUNT + 1)
             self.assertIn("DROP CONSTRAINT CK_OptionC_Published_Origin", (out / "optionc-final-target-checks.sql").read_text())
             self.assertEqual(manifest["fullCleanInstall"].startswith("HOLD_"), True)
+
+    def test_predecessor_replacements_are_explicit(self):
+        allowed={name for names in CONTRACT.values() for name in names}
+        self.assertEqual(len(REPLACEMENT_NAMES), 9)
+        self.assertTrue(REPLACEMENT_NAMES.issubset(allowed))
+        self.assertIn("CK_OptionC_Published_Origin", REPLACEMENT_NAMES)
+        self.assertNotIn("CK_ImportBatches_Status", REPLACEMENT_NAMES)
 
     def test_missing_approved_source_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

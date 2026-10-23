@@ -44,6 +44,20 @@ CONTRACT = {
     "ImportBatchItems": {"CK_ImportBatchItems_Status": "020"},
 }
 COUNT = 15
+# Immutable RC EF model creates eight predecessor checks; 014 candidate creates one.
+# Only these specific, reviewable definitions can be replaced on the empty DB.
+REPLACEMENT_NAMES = {
+    "CK_B3_ChangeRequests_KnownCodes",
+    "CK_B3_ChangeRequests_KnownStatus",
+    "CK_B3_ChangeRequests_ExpectedLocationVersion",
+    "CK_B3_ChangeRequests_ProposedJson",
+    "CK_B3_ChangeRequests_ReviewState",
+    "CK_B3_ChangeRequestEvents_EventType",
+    "CK_B3_ChangeRequestEvents_DetailsJson",
+    "CK_B3_ChangeRequestEvents_DecisionState",
+    "CK_OptionC_Published_Origin",
+}
+
 CANDIDATE_SOURCE_IDS = {"011", "012", "016", "017", "018", "020"}
 OUT_SQL = "optionc-final-target-checks.sql"
 OUT_JSON = "optionc-final-target-checks-manifest.json"
@@ -82,19 +96,35 @@ def build(rc_root: Path, output: Path) -> dict:
                     "ALTER TABLE dbo.LocationPublishedVersions "
                     "DROP CONSTRAINT CK_OptionC_Published_Origin;\nGO\n"
                 )
+            if name in REPLACEMENT_NAMES:
+                precheck = (
+                    f"IF NOT EXISTS (SELECT 1 FROM sys.check_constraints "
+                    f"WHERE name=N'{name}' "
+                    f"AND parent_object_id=OBJECT_ID(N'dbo.{table}',N'U') "
+                    f"AND is_disabled=0 AND is_not_trusted=0)\n"
+                    f"    THROW 56090, N'CLEAN_OPTIONC_EXPECTED_PREDECESSOR_MISSING', 1;\n"
+                    f"ALTER TABLE dbo.{table} DROP CONSTRAINT {name};\n"
+                )
+            else:
+                precheck = (
+                    f"IF OBJECT_ID(N'dbo.{name}', N'C') IS NOT NULL\n"
+                    f"    THROW 56091, N'CLEAN_OPTIONC_UNEXPECTED_EXISTING_CHECK', 1;\n"
+                )
             chunks.append(
                 f"\n-- FINAL dbo.{table}.{name} from {rel}\n"
-                f"IF OBJECT_ID(N'dbo.{name}', N'C') IS NOT NULL\n"
-                f"    THROW 56090, N'CLEAN_OPTIONC_FINAL_CHECK_ALREADY_EXISTS', 1;\n"
-                f"ALTER TABLE dbo.{table} WITH CHECK ADD {definition};\n"
-                f"ALTER TABLE dbo.{table} CHECK CONSTRAINT {name};\nGO\n"
+                + precheck
+                + f"ALTER TABLE dbo.{table} WITH CHECK ADD {definition};\n"
+                + f"ALTER TABLE dbo.{table} CHECK CONSTRAINT {name};\nGO\n"
             )
             entries.append({
                 "name": name, "table": f"dbo.{table}", "sourceVersion": mid,
                 "sourcePath": rel, "sourceSha256": sha256(raw),
                 "definitionSha256": sha256(definition.encode("utf-8")),
+                "replacesReviewedPredecessor": name in REPLACEMENT_NAMES,
             })
 
+    if not REPLACEMENT_NAMES.issubset({e["name"] for e in entries}):
+        raise SourceContractError("FINAL_SOURCE_REPLACEMENT_SCOPE")
     if (len(entries) != COUNT or
         len({entry["name"] for entry in entries}) != COUNT):
         raise SourceContractError("OPTIONC_CHECK_SET_INVALID")
