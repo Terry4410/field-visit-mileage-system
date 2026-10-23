@@ -1,37 +1,61 @@
-# v1.8.0 Clean Install — Current Offline Candidate
+# Field Visit v1.8.0 — SQL Server 2022 Clean Install (partial, NONDEPLOY)
 
-**Status: PARTIAL / NOT AN IT INSTALLER / NOT APPROVED FOR UAT.**
+**Release decision: HOLD. Not yet an IT installer and not authorized for live UAT.**
 
-This directory's CI candidate uses the exact accepted RC source
-`9d431ea318fcec34f04f3cc36a8fb6d01d00c48a` to generate the EF Core relational
-model DDL, install it into an empty disposable SQL Server 2022 database, check
-EF table/column parity, and exercise one synthetic insert/read in a transaction
-that is rolled back. Generated SQL, its source hash, and the test inventory are
-published as a short-retention NONDEPLOY Actions artifact.
+## Verified source and execution
 
-The runner creates only the fixed database `FieldVisitV180CleanInstall` on the
-job's local SQL Server service, refuses to use it if it already exists, disables
-pooling and retries, masks exceptions, and drops only the database it created in
-its `finally` cleanup path. A cleanup failure makes the job fail.
+The accepted application runtime source is pinned to
+`9d431ea318fcec34f04f3cc36a8fb6d01d00c48a`. Existing
+`tools/clean-install/ModelBaselineRunner.csproj` generates the EF relational
+model DDL and executes it against a newly created disposable SQL Server 2022
+database named `FieldVisitV180CleanInstall`. It validates the **57 EF
+mapped tables and 664 mapped columns**, constraints/trust state, and a
+synthetic Organization insert/read with transaction rollback.
 
-## Deliberate scope limit
+The next additive layer `scripts/ci/clean_install/build_sql_only_tables.py`
+extracts the exact `CREATE TABLE` statements for **seven SQL-only tables**
+from two pinned application RC migration sources:
 
-`AppDbContext.GenerateCreateScript()` does not include SQL-only tables,
-triggers, procedural objects, migration data contracts, or the full ordered
-reference/seed requirements. The verifier inventories CREATE TABLE and trigger
-definitions in the RC's numbered migration sources and reports their source
-locations. Those objects have **not** been installed by this candidate. The
-workflow therefore reports `FULL_CLEAN_INSTALL=HOLD_SQL_ONLY_DDL_AND_TRIGGER_REVIEW_REQUIRED`
-even when the isolated EF model baseline tests pass.
+- `database/migrations/1800_001_organization_center_team_lifecycle/Up.sql`:
+  `SchemaMigrationDataBaselines`.
+- `database/migrations/1800_006_notification_framework/Up.sql`:
+  `NotificationEnvironmentPolicies`, `NotificationEmailAllowlist`,
+  `NotificationSettings`, `NotificationSettingRecipients`,
+  `MailOutbox`, `MailDeliveryLogs`.
 
-Do not run the generated model baseline as a production/UAT install, do not
-apply migrations to an existing database, and do not infer that this artifact
-proves historical compatibility or complete RBAC/security behavior. This
-candidate creates no accounts, roles, employees, business records, passwords,
-or historical migration markers.
+The extraction fails closed for duplicate/missing tables, unbalanced SQL
+literals/parentheses and ambiguous terminators. The generated file
+`sql-only-core-tables.sql`, associated
+`sql-only-core-tables-manifest.json`, source hashes and package hash are
+archived as NONDEPLOY CI evidence. The disposable runner installs these
+seven tables **after** validating the unmodified EF baseline and rechecks
+their existence and trusted constraints, then destroys only its own
+disposable database. CI errors, including cleanup failures, are fatal.
 
-The remaining engineering needed for a complete IT clean-install package is a
-reviewed, deterministic DDL composition for the SQL-only objects and their
-final trigger definitions, followed by empty SQL Server 2022 tests of the full
-package and the agreed RC/runtime compatibility suite. No Azure/UAT operation
-is part of this workflow.
+**These are seven source-derived tables, not a certified count of all
+SQL-only or application-dependent schema objects.** Older source inventory
+searches only numbered `Up.sql` files with regular expressions and can
+miss other objects, dynamic SQL, and superseding definitions.
+
+## What remains mandatory before PASS
+
+The new database does **not** yet have a demonstrated complete set of
+runtime SQL triggers, migration-only indexes/constraints/defaults,
+stored modules, A+C candidate 011–020 final DDL and dependency ordering,
+reference/initial configuration, and effective Visitor/Leader/Admin
+RBAC/audit/approval behavior. Migration 013 remains reserved. Some A+C
+sources are explicitly disposable proposals; they must be reviewed and
+converted into approved final target-state DDL, not run unchanged against
+a real shared database or disguised as historical migrations.
+
+Do not claim `FULL_CLEAN_INSTALL=PASS` until a true fresh install contains
+and validates those missing object contracts, demonstrates necessary
+Browser/API/SQL tests and restricted runtime SQL permissions, and provides
+IT reproducibility, recovery and verification instructions.
+
+The CI workflow is **NONDEPLOY only**. It makes no Azure connection, no
+shared SQL write/deletion/migration, no grants, no test-account creation,
+no feature activation, no artifact promotion, and no Business UAT GO.
+
+This partial state is useful for engineering and fails closed if the
+expected clean-install source or disposable SQL Server test changes.
