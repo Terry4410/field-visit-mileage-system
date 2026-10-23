@@ -618,8 +618,8 @@ try
         verifiedCandidateCatalogTableNames = installedCandidateCatalog.OrderBy(x => x, StringComparer.Ordinal).ToArray(),
         mappedTables = expectedTables,
         catalogObjectCounts = catalog,
-        scope = "EF relational model only; not the complete v1.8.0 SQL install package",
-        sqlOnlyObjects = "Not installed by this baseline; inventory and reviewed target DDL remain required",
+        scope = "Disposable candidate only: EF 57 tables + SQL-only 11 tables + empty new SchemaVersions + effective 010 triggers + selected indexes and trusted 010 check; NOT a complete IT or UAT installer",
+        sqlOnlyObjects = "Seven source-derived core tables and four disposable Option C candidate tables installed; final A+C 011-020 objects, security and complete migration-only facets remain unverified",
         seedData = "No accounts, roles, employees, business rows, or passwords are created"
     };
     await File.WriteAllTextAsync(Path.Combine(output, "model-baseline-manifest.json"),
