@@ -70,7 +70,7 @@ def build(rc_root: Path, output: Path) -> dict:
             definition = extract_balanced_check(source, name)
             # Do not install any source definition that references an earlier
             # constraint name; the selected DDL must be a single CHECK clause.
-            if not re.match(r"(?is)^CONSTRAINT\\s+" + re.escape(name) + r"\\s+CHECK\\s*\\(", definition):
+            if not re.match(r"(?is)^CONSTRAINT\s+" + re.escape(name) + r"\s+CHECK\s*\(", definition):
                 raise SourceContractError("CHECK_SOURCE_SHAPE:" + name)
             chunks.append(
                 f"\n-- FINAL dbo.{table}.{name} from {rel}\n"
