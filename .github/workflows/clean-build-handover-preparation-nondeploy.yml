@@ -1,7 +1,7 @@
 name: Clean build handover source assessment (NONDEPLOY)
 on:
-  push:
-    branches: [work/minimal-clean-build-it-handover-20261019]
+  # PR #48 is the one authoritative NONDEPLOY verification trigger.
+  # Push+PR previously created duplicate exact-SHA SQL Server jobs.
   pull_request:
     branches: [post-uat/v1.8.0]
     paths:
@@ -87,6 +87,14 @@ jobs:
           echo "CLEAN_INSTALL_OUTPUT_DIR=$RUNNER_TEMP/clean-install-output" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/clean-install-output"
           echo "RC_SOURCE_ROOT=$GITHUB_WORKSPACE/runtime-source" >> "$GITHUB_ENV"
+      - name: Preflight Python contracts and compile exact-RC .NET runner (before SQL DDL)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q scripts/ci/clean_install
+          python3 -m unittest discover -s scripts/ci/clean_install -p 'test_*.py' -v
+          dotnet build tools/clean-install/ModelBaselineRunner.csproj \
+            -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release --nologo
       - name: Wait for isolated SQL Server 2022
         shell: bash
         run: |
@@ -146,8 +154,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s scripts/ci/clean_install -p 'test_*.py' -v
-          dotnet run --project tools/clean-install/ModelBaselineRunner.csproj -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release -- \
+          # Reuse the exact-RC binary compiled and verified before SQL work.
+          dotnet run --no-build --no-restore --project tools/clean-install/ModelBaselineRunner.csproj \
+            -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release -- \
             --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
       - name: Verify generator and SQL inputs, package evidence
         shell: bash
