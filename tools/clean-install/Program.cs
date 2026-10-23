@@ -480,6 +480,86 @@ try
         if (await verifyEmpty.Organizations.CountAsync() != 0)
             throw new InvalidOperationException("SYNTHETIC_ROLLBACK_FAIL");
 
+    // Scope: actual EF persistence for a synthetic Visitor trip and audit,
+    // with a distinct Leader identity. This does NOT prove API RBAC/approval.
+    await using (var businessDb = new AppDbContext(options))
+    await using (var businessTx = await businessDb.Database.BeginTransactionAsync())
+    {
+        var now = DateTime.UtcNow;
+        var org = new Organization
+        {
+            OrganizationCode = "CI-" + Guid.NewGuid().ToString("N")[..12],
+            OrganizationName = "Disposable Integration Organization",
+            IsActive = true, CreatedAt = now
+        };
+        businessDb.Organizations.Add(org);
+        await businessDb.SaveChangesAsync();
+        var team = new Team
+        {
+            OrganizationId = org.OrganizationId,
+            TeamCode = "CI-" + Guid.NewGuid().ToString("N")[..12],
+            TeamName = "Disposable Team", IsActive = true, CreatedAt = now
+        };
+        businessDb.Teams.Add(team);
+        await businessDb.SaveChangesAsync();
+        var visitor = new User
+        {
+            OrganizationId = org.OrganizationId, TeamId = team.TeamId,
+            DisplayName = "Synthetic Visitor", IsActive = true, CreatedAt = now
+        };
+        var leader = new User
+        {
+            OrganizationId = org.OrganizationId, TeamId = team.TeamId,
+            DisplayName = "Synthetic Leader", IsActive = true, CreatedAt = now
+        };
+        businessDb.Users.AddRange(visitor, leader);
+        businessDb.Roles.AddRange(
+            new Role { RoleCode = "Visitor", RoleName = "Visitor", IsActive = true, CreatedAt = now },
+            new Role { RoleCode = "Leader", RoleName = "Leader", IsActive = true, CreatedAt = now });
+        await businessDb.SaveChangesAsync();
+        var visitorRole = await businessDb.Roles.SingleAsync(x => x.RoleCode == "Visitor");
+        var leaderRole = await businessDb.Roles.SingleAsync(x => x.RoleCode == "Leader");
+        businessDb.UserRoles.AddRange(
+            new UserRole { UserId = visitor.UserId, RoleId = visitorRole.RoleId, AssignedAt = now },
+            new UserRole { UserId = leader.UserId, RoleId = leaderRole.RoleId, AssignedAt = now });
+        await businessDb.SaveChangesAsync();
+
+        var trip = new VisitTrip
+        {
+            TripNo = "CI-" + Guid.NewGuid().ToString("N")[..12],
+            UserId = visitor.UserId, OrganizationId = org.OrganizationId,
+            TeamId = team.TeamId, VisitDate = DateOnly.FromDateTime(now),
+            Status = "Draft", Purpose = "Disposable SQL compatibility smoke",
+            CreatedAt = now, CreatedByUserId = visitor.UserId
+        };
+        businessDb.VisitTrips.Add(trip);
+        await businessDb.SaveChangesAsync();
+        businessDb.AuditLogs.Add(new AuditLog
+        {
+            UserId = visitor.UserId, EntityType = "VisitTrip",
+            EntityId = trip.VisitTripId.ToString(),
+            Action = "Created", CreatedAt = now
+        });
+        await businessDb.SaveChangesAsync();
+        if (!await businessDb.VisitTrips.AnyAsync(x => x.VisitTripId == trip.VisitTripId &&
+                                                        x.UserId == visitor.UserId &&
+                                                        x.TeamId == team.TeamId &&
+                                                        x.Status == "Draft") ||
+            !await businessDb.AuditLogs.AnyAsync(x => x.EntityType == "VisitTrip" &&
+                                                    x.EntityId == trip.VisitTripId.ToString() &&
+                                                    x.Action == "Created"))
+            throw new InvalidOperationException("SYNTHETIC_TRIP_AUDIT_SQL_SMOKE_FAIL");
+        await businessTx.RollbackAsync();
+    }
+    await using (var emptyBusiness = new AppDbContext(options))
+    {
+        if (await emptyBusiness.Organizations.AnyAsync() ||
+            await emptyBusiness.Users.AnyAsync() ||
+            await emptyBusiness.VisitTrips.AnyAsync() ||
+            await emptyBusiness.AuditLogs.AnyAsync())
+            throw new InvalidOperationException("SYNTHETIC_BUSINESS_ROLLBACK_FAIL");
+    }
+
     var appDbContextSha = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(contextPath))).ToLowerInvariant();
     var scriptSha = Convert.ToHexString(SHA256.HashData(sqlBytes)).ToLowerInvariant();
     var manifest = new
@@ -521,6 +601,7 @@ try
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
     Status("SQL_ONLY_EXTRA_INDEXES_SQL2022_PASS");
     Status("SCOPED_CANDIDATE_69_TABLE_CATALOG_PASS");
+    Status("SYNTHETIC_VISITOR_TRIP_AUDIT_EF_SQL_SMOKE_PASS");
     Status("FULL_V180_INSTALL_HOLD_OTHER_OBJECTS_APP_COMPAT");
     Console.WriteLine($"MAPPED_TABLES={expectedTables.Length}");
     Console.WriteLine($"MAPPED_COLUMNS={expectedColumns.Values.Sum(x => x.Count)}");
