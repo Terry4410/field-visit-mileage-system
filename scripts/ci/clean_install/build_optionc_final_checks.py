@@ -72,6 +72,16 @@ def build(rc_root: Path, output: Path) -> dict:
             # constraint name; the selected DDL must be a single CHECK clause.
             if not re.match(r"(?is)^CONSTRAINT\s+" + re.escape(name) + r"\s+CHECK\s*\(", definition):
                 raise SourceContractError("CHECK_SOURCE_SHAPE:" + name)
+            # 014's source-pinned candidate table carries its older Origin
+            # CHECK inline; 017's explicitly reviewed definition supersedes it.
+            # No other constraint may be silently replaced.
+            if name == "CK_OptionC_Published_Origin":
+                chunks.append(
+                    "IF OBJECT_ID(N'dbo.CK_OptionC_Published_Origin', N'C') IS NULL\n"
+                    "    THROW 56091, N'CLEAN_OPTIONC_014_PREDECESSOR_ORIGIN_MISSING', 1;\n"
+                    "ALTER TABLE dbo.LocationPublishedVersions "
+                    "DROP CONSTRAINT CK_OptionC_Published_Origin;\nGO\n"
+                )
             chunks.append(
                 f"\n-- FINAL dbo.{table}.{name} from {rel}\n"
                 f"IF OBJECT_ID(N'dbo.{name}', N'C') IS NOT NULL\n"
