@@ -44,4 +44,22 @@ class Safety(unittest.TestCase):
         self.assertIn('az account get-access-token', PS)
     def test_source_sha_guard(self):
         self.assertIn('$env:G1B_EXPECTED_SOURCE -cne $env:GITHUB_SHA', PS)
+    def test_preconnect_management_state_before_sql(self):
+        self.assertIn("az sql db show", PS)
+        self.assertIn("if ($dbState -cne 'Online')", PS)
+        self.assertIn("SQLConnections=ZERO", PS)
+        self.assertLess(PS.index("az sql db show"), PS.index("$conn.Open()"))
+    def test_exact_one_open_without_retry(self):
+        self.assertEqual(PS.count("$conn.Open()"), 1)
+        self.assertEqual(PS.count("$cmd.ExecuteReader()"), 1)
+        self.assertIn("ConnectRetryCount'] = 0", PS)
+    def test_bounded_stage_diagnostics(self):
+        for stage in ('CLIENT_IMPORT','MANAGEMENT_STATE','CONNECTION_BUILDER','SQL_OPEN','ONE_METADATA_QUERY'):
+            self.assertIn(stage, PS)
+        self.assertIn('Get-SanitizedUatInventoryFailure',PS)
+        self.assertIn('ProviderCode=$provider; Details=SUPPRESSED',PS)
+    def test_no_azure_identity_or_raw_metadata_logging(self):
+        self.assertNotIn("Write-Output $raw", PS)
+        self.assertNotIn("Write-Output $subscription", PS)
+        self.assertNotIn("Write-Output $data", PS)
 if __name__=='__main__': unittest.main()
