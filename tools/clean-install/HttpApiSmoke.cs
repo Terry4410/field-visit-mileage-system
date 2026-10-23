@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 
 /// <summary>
 /// NONDEPLOY: boot the separately identified RC-derived runtime candidate API
@@ -23,6 +24,7 @@ internal static class CleanInstallHttpProbe
         // Never substitute an EnsureCreated fixture or a shared/UAT database.
         var roleActors = await CleanInstallRoleProbe.SeedAsync(sameCleanDbConnection);
         var business = await CleanInstallBusinessProbe.SeedAsync(sameCleanDbConnection, roleActors);
+        var runtimeConnection = await CreateRuntimeConnectionAsync(sameCleanDbConnection);
         var demoPassword = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         var start = new ProcessStartInfo
         {
@@ -37,7 +39,7 @@ internal static class CleanInstallHttpProbe
         start.Environment["ASPNETCORE_URLS"] = ApiHost;
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
         start.Environment["DOTNET_ENVIRONMENT"] = "Production";
-        start.Environment["ConnectionStrings__DefaultConnection"] = sameCleanDbConnection;
+        start.Environment["ConnectionStrings__DefaultConnection"] = runtimeConnection;
         start.Environment["Auth__Mode"] = "Demo";
         // Offline Google failure evidence: preserve the production provider's
         // canonical GoogleMapsRoutes identity, but force HTTP to the unavailable
@@ -133,6 +135,7 @@ internal static class CleanInstallHttpProbe
             Console.WriteLine("CLEAN_INSTALL=RC_API_FRESH_SQL_BUSINESS_PROBE_COMPLETED");
             await CleanInstallRoleProbe.VerifyAsync(
                 client, sameCleanDbConnection, roleActors, demoPassword);
+            Console.WriteLine("CLEAN_INSTALL=CANDIDATE_API_NONOWNER_DML_SQL_IDENTITY_BUSINESS_FLOW_PASS");
         }
         finally
         {
@@ -142,5 +145,73 @@ internal static class CleanInstallHttpProbe
                 app.WaitForExit(5_000);
             }
         }
+    }
+
+    private static async Task<string> CreateRuntimeConnectionAsync(string installationConnection)
+    {
+        var config = new SqlConnectionStringBuilder(installationConnection);
+        if (config.DataSource != "localhost,1433" ||
+            config.InitialCatalog != "OptionCIsolated_FieldVisitV180CleanInstall")
+            throw new InvalidOperationException("RUNTIME_PRINCIPAL_DISPOSABLE_TARGET_REQUIRED");
+        // Only this isolated container receives this login. No password, SQL or
+        // connection string is emitted, exported or added to appsettings.
+        var password = "Aa7!" + Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        const string login = "fieldvisit_disposable_runtime";
+        var masterConfig = new SqlConnectionStringBuilder(installationConnection) { InitialCatalog = "master" };
+        await using (var master = new SqlConnection(masterConfig.ConnectionString))
+        {
+            await master.OpenAsync();
+            // Password alphabet is fixed alphanumeric plus Aa7!; never input data.
+            await using var create = new SqlCommand(
+                $"CREATE LOGIN [{login}] WITH PASSWORD=N'{password}', CHECK_POLICY=ON;", master)
+                { CommandTimeout = 10 };
+            await create.ExecuteNonQueryAsync();
+        }
+        await using (var install = new SqlConnection(installationConnection))
+        {
+            await install.OpenAsync();
+            await using var grant = new SqlCommand("""
+                CREATE USER [fieldvisit_disposable_runtime] FOR LOGIN [fieldvisit_disposable_runtime];
+                GRANT CONNECT TO [fieldvisit_disposable_runtime];
+                DECLARE @permissions nvarchar(max)=N'';
+                SELECT @permissions=@permissions+
+                    N'GRANT SELECT, INSERT, UPDATE, DELETE ON OBJECT::'+
+                    QUOTENAME(SCHEMA_NAME(schema_id))+N'.'+QUOTENAME(name)+
+                    N' TO [fieldvisit_disposable_runtime];'
+                FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo');
+                EXEC sys.sp_executesql @permissions;
+                DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.SchemaVersions TO [fieldvisit_disposable_runtime];
+                DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.SchemaMigrationDataBaselines TO [fieldvisit_disposable_runtime];
+                """, install) { CommandTimeout = 10 };
+            await grant.ExecuteNonQueryAsync();
+        }
+        config.UserID = login;
+        config.Password = password;
+        await using var runtime = new SqlConnection(config.ConnectionString);
+        await runtime.OpenAsync();
+        await using var inspect = new SqlCommand("""
+            SELECT CASE WHEN IS_SRVROLEMEMBER(N'sysadmin')=0
+                AND IS_ROLEMEMBER(N'db_owner')=0
+                AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER')=0
+                AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE TABLE')=0
+                AND HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'UPDATE')=0
+                AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'UPDATE')=0
+              THEN 1 ELSE 0 END;
+            """, runtime) { CommandTimeout = 10 };
+        if (Convert.ToInt32(await inspect.ExecuteScalarAsync()) != 1)
+            throw new InvalidOperationException("RUNTIME_PRINCIPAL_EFFECTIVE_PERMISSION_MISMATCH");
+        try
+        {
+            await using var denied = new SqlCommand(
+                "CREATE TABLE dbo.RuntimeDdlMustBeDenied (Id int NOT NULL);", runtime)
+                { CommandTimeout = 10 };
+            await denied.ExecuteNonQueryAsync();
+            throw new InvalidOperationException("RUNTIME_PRINCIPAL_DDL_NOT_DENIED");
+        }
+        catch (SqlException error) when (error.Number is 229 or 262)
+        {
+            Console.WriteLine("CLEAN_INSTALL=RUNTIME_SQL_NONOWNER_NO_DDL_LEDGER_WRITE_DENY_PASS");
+        }
+        return config.ConnectionString;
     }
 }

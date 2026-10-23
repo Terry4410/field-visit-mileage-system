@@ -211,13 +211,27 @@ jobs:
         run: |
           set -euo pipefail
           database=OptionCIsolated_FieldVisitV180Replay
+          recovery=OptionCIsolated_FieldVisitV180Recovery
           created=0
+          restored=0
           cleanup_replay() {
             local prior=$?
             trap - EXIT
+            if [ "$restored" = "1" ]; then
+              if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+                -Q "IF DB_ID(N'$recovery') IS NOT NULL BEGIN
+                    ALTER DATABASE [$recovery] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [$recovery]; END;" >/dev/null 2>&1; then
+                echo "CLEAN_INSTALL=RECOVERY_DISPOSABLE_DB_CLEANUP_PASS"
+              else
+                echo "CLEAN_INSTALL=RECOVERY_DISPOSABLE_DB_CLEANUP_FAIL"
+                prior=1
+              fi
+            fi
             if [ "$created" = "1" ]; then
               if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
-                -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d master \
+                -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
                 -Q "IF DB_ID(N'$database') IS NOT NULL BEGIN
                     ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
                     DROP DATABASE [$database]; END;" >/dev/null 2>&1; then
@@ -231,13 +245,42 @@ jobs:
           }
           trap cleanup_replay EXIT
           if ! docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
-            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d master \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
             -Q "IF DB_ID(N'$database') IS NOT NULL THROW 56520,N'REPLAY_TARGET_EXISTS',1;
                 CREATE DATABASE [$database];" >/dev/null 2>&1; then
             echo "CLEAN_INSTALL=REPLAY_TARGET_CREATE_FAIL"
             exit 1
           fi
           created=1
+          # Reproduce the actual 1934 cause in this new disposable DB before
+          # replaying any accepted source DDL. Never expose provider text.
+          session_probe="SET QUOTED_IDENTIFIER OFF;
+            CREATE TABLE dbo.CleanInstallSessionProbe (Id int NULL);
+            CREATE INDEX IX_CleanInstallSessionProbe ON dbo.CleanInstallSessionProbe(Id) WHERE Id IS NOT NULL;"
+          diagnostic_file="$RUNNER_TEMP/fieldvisit-replay-sqlcmd-suppressed.log"
+          if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
+            -Q "$session_probe" >"$diagnostic_file" 2>&1; then
+            echo "CLEAN_INSTALL=SQLCMD_SESSION_NEGATIVE_UNEXPECTED_SUCCESS"
+            exit 1
+          fi
+          python3 - "$diagnostic_file" <<'PY'
+          import re,sys
+          from pathlib import Path
+          raw=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
+          if not re.search(r'(?m)^Msg\s+1934\s*,',raw):
+              raise SystemExit("CLEAN_INSTALL=SQLCMD_SESSION_NEGATIVE_WRONG_ERROR")
+          PY
+          rm -f "$diagnostic_file"
+          if ! docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d "$database" \
+            -Q "IF SESSIONPROPERTY('QUOTED_IDENTIFIER')<>1 THROW 56521,N'SESSION_CONTRACT',1;
+                CREATE INDEX IX_CleanInstallSessionProbe ON dbo.CleanInstallSessionProbe(Id) WHERE Id IS NOT NULL;
+                DROP TABLE dbo.CleanInstallSessionProbe;" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=SQLCMD_SESSION_POSITIVE_FAIL"
+            exit 1
+          fi
+          echo "CLEAN_INSTALL=SQLCMD_QUOTED_IDENTIFIER_1934_REPRO_AND_FIX_PASS"
           cp database/clean-install/v180/00_schema_versions.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp database/clean-install/v180/20_route_reason_check.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
           cp database/clean-install/v180/50_scoped_clean_install_verify.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
@@ -294,12 +337,57 @@ jobs:
           done
           if ! timeout 30s docker exec -i fieldvisit-clean-install-sql \
             /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
-            -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
+            -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d "$database" \
             < "$CLEAN_INSTALL_OUTPUT_DIR/50_scoped_clean_install_verify.sql" >/dev/null 2>&1; then
             echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_REPLAY_VERIFY_FAIL; DETAILS=SUPPRESSED"
             exit 1
           fi
           echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_69_TABLE_REPLAY_SCOPED_VERIFY_PASS"
+          # Rehearse recovery using the exact empty installed schema and its
+          # capability row. No application tests, shared target or user data.
+          if ! timeout 90s docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+            -Q "IF DB_ID(N'$recovery') IS NOT NULL THROW 56522,N'RECOVERY_TARGET_EXISTS',1;
+                BACKUP DATABASE [$database] TO DISK=N'/var/opt/mssql/data/fieldvisit-replay-recovery.bak'
+                  WITH COPY_ONLY, CHECKSUM, INIT;
+                RESTORE VERIFYONLY FROM DISK=N'/var/opt/mssql/data/fieldvisit-replay-recovery.bak' WITH CHECKSUM;" \
+            >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=DISPOSABLE_BACKUP_VERIFY_FAIL"
+            exit 1
+          fi
+          # The preflight above proves absence. Track partial RESTORE cleanup.
+          restored=1
+          if ! timeout 90s docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+            -Q "RESTORE DATABASE [$recovery]
+                FROM DISK=N'/var/opt/mssql/data/fieldvisit-replay-recovery.bak'
+                WITH CHECKSUM, RECOVERY,
+                  MOVE N'$database' TO N'/var/opt/mssql/data/fieldvisit-recovery.mdf',
+                  MOVE N'${database}_log' TO N'/var/opt/mssql/data/fieldvisit-recovery_log.ldf';
+                DBCC CHECKDB ([$recovery]) WITH NO_INFOMSGS;" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=DISPOSABLE_RESTORE_CHECKDB_FAIL"
+            exit 1
+          fi
+          if ! timeout 30s docker exec -i fieldvisit-clean-install-sql \
+            /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+            -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d "$recovery" \
+            < "$CLEAN_INSTALL_OUTPUT_DIR/50_scoped_clean_install_verify.sql" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=DISPOSABLE_RECOVERY_SCOPED_VERIFY_FAIL"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          result={"sourceSha":os.environ["APPROVED_SOURCE_SHA"],
+                  "runId":os.environ["GITHUB_RUN_ID"],
+                  "independentSqlcmdReplay":"PASS_13_ORDERED_LAYERS_69_TABLE_SCOPED_VERIFY",
+                  "sessionRegression":"QUOTED_IDENTIFIER_OFF_1934_ON_PASS",
+                  "recovery":"COPY_ONLY_CHECKSUM_BACKUP_VERIFYONLY_RESTORE_CHECKDB_SCOPED_VERIFY_PASS",
+                  "scope":"DISPOSABLE_EMPTY_SCHEMA_AND_CAPABILITY_ROW_ONLY_NOT_LIVE_RECOVERY_OR_FULL_SCHEMA_CERTIFICATION"}
+          (Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])/"independent-install-recovery-evidence.json").write_text(
+              json.dumps(result,sort_keys=True,indent=2)+"\n")
+          PY
+          echo "CLEAN_INSTALL=DISPOSABLE_BACKUP_RESTORE_CHECKDB_SCOPED_VERIFY_PASS"
       - name: Remove disposable SQL Server 2022 container
         if: always()
         shell: bash
@@ -425,6 +513,9 @@ jobs:
           plan={
               "format":"field-visit-v180-nondeploy-sql-install-order-v1",
               "status":"NONDEPLOY_SOURCE_BOUND_SCOPE_ONLY_NOT_FINAL_IT_INSTALLER",
+              "candidateSourceSha":os.environ["APPROVED_SOURCE_SHA"],
+              "workflowRunId":os.environ["GITHUB_RUN_ID"],
+              "sqlcmdRequiredOptions":["-I","-b"],
               "acceptedRcSha":"9d431ea318fcec34f04f3cc36a8fb6d01d00c48a",
               "historicalMigrationsApplied":False,
               "reservedMigration013":"RESERVED_NOT_REPLAYED",
@@ -445,7 +536,51 @@ jobs:
           PY
           cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$CLEAN_INSTALL_OUTPUT_DIR/"
           git rev-parse HEAD HEAD^ HEAD^{tree} > "$CLEAN_INSTALL_OUTPUT_DIR/source.txt"
-          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt api-candidate-nondeploy.zip frontend-candidate-nondeploy.zip > checksums.sha256)
+          git -C "$RC_SOURCE_ROOT" archive --format=zip \
+            --output="$CLEAN_INSTALL_OUTPUT_DIR/source-code-immutable-rc.zip" "$CLEAN_INSTALL_RC_SHA"
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          out=Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])
+          read=lambda n:json.loads((out/n).read_text())
+          digest=lambda n:hashlib.sha256((out/n).read_bytes()).hexdigest()
+          source=os.environ["APPROVED_SOURCE_SHA"]
+          rc=os.environ["CLEAN_INSTALL_RC_SHA"]
+          api=read("api-candidate-manifest.json")
+          frontend=read("frontend-candidate-manifest.json")
+          sql=read("it-sql-install-order.json")
+          recovery=read("independent-install-recovery-evidence.json")
+          overlay=read("runtime-candidate-overlay.json")
+          if not (api["sourceCommit"]==frontend["pairedCandidateSourceSha"]==
+                  sql["candidateSourceSha"]==recovery["sourceSha"]==source):
+              raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_CANDIDATE_SHA_MISMATCH")
+          if not (api["immutableRuntimeRc"]==frontend["sourceRcSha"]==sql["acceptedRcSha"]==rc):
+              raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_RC_SHA_MISMATCH")
+          if overlay["overlayScriptSha256"]!=digest("apply_rc_runtime_candidate.py"):
+              raise SystemExit("CLEAN_INSTALL=OVERLAY_SOURCE_PACKAGE_MISMATCH")
+          for component in (api,frontend):
+              if digest(component["package"]["file"])!=component["package"]["sha256"]:
+                  raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_BINARY_HASH_MISMATCH")
+          if any(digest(x["file"])!=x["sha256"] for x in sql["sequence"]):
+              raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_SQL_HASH_MISMATCH")
+          manifests=["api-candidate-manifest.json","frontend-candidate-manifest.json",
+                     "it-sql-install-order.json","model-baseline-manifest.json",
+                     "runtime-candidate-overlay.json","independent-install-recovery-evidence.json"]
+          result={"format":"field-visit-v180-cross-package-release-binding-v1",
+                  "candidateSourceSha":source,"immutableRuntimeRc":rc,
+                  "runId":os.environ["GITHUB_RUN_ID"],
+                  "status":"EXACT_SOURCE_BOUND_NONDEPLOY_CANDIDATE_GATES_REMAIN_HOLD",
+                  "manifests":[{"file":n,"sha256":digest(n)} for n in manifests],
+                  "packages":[api["package"],frontend["package"],
+                      {"file":"source-code-immutable-rc.zip",
+                       "sha256":digest("source-code-immutable-rc.zip")}],
+                  "rebuild":"Extract immutable RC source; apply bundled source-pinned apply_rc_runtime_candidate.py; build API. PR candidate commit contains all clean-install generators.",
+                  "businessUat":"HOLD_UNVERIFIED_RELEASE_GATES",
+                  "itHandover":"HOLD_FULL_SCHEMA_PERMISSION_AND_ACCEPTANCE_GATES"}
+          (out/"release-candidate-binding.json").write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
+          print("CLEAN_INSTALL=CROSS_PACKAGE_API_FRONTEND_SQL_SOURCE_RECOVERY_BINDING_PASS")
+          PY
+          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt *.zip > checksums.sha256 && sha256sum --check --quiet checksums.sha256)
       - uses: actions/upload-artifact@v4
         with:
           name: clean-install-model-baseline-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}
