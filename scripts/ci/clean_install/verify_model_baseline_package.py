@@ -297,6 +297,25 @@ def main() -> int:
         for entry in check_list:
             if sha256(args.rc_root / entry["sourcePath"])!=entry.get("sourceSha256"):
                 raise ContractError("CHECK_001_004_SOURCE_HASH")
+        control005_sql = args.output / "005_source_controls.sql"
+        control005_manifest = args.output / "005_source_controls-manifest.json"
+        if not control005_sql.is_file() or not control005_manifest.is_file():
+            raise ContractError("SOURCE_005_CONTROLS_MISSING")
+        c005 = json.loads(control005_manifest.read_text(encoding="utf-8"))
+        src005 = rc_root / "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql"
+        if (c005.get("format") != "field-visit-v180-source-005-controls-v1"
+                or c005.get("rcSourceSha") != EXPECTED_RC
+                or c005.get("sourceSha256") != sha256(src005)
+                or c005.get("sqlSha256") != sha256(control005_sql)
+                or set(c005.get("checks", [])) != {
+                    "CK_Projects_Dates", "CK_MileageRateRules_VehicleType",
+                    "CK_MileageRateRules_Dates", "CK_MileageRateRules_NonNegativeRate"}
+                or set(c005.get("indexes", [])) != {
+                    "IX_Projects_Search", "UX_VisitTypes_VisitTypeCode",
+                    "IX_VisitTypes_Active_Sort",
+                    "UX_MileageRateRules_Scope_Vehicle_Start",
+                    "IX_MileageRateRules_AsOf"}):
+            raise ContractError("SOURCE_005_CONTROLS_INVALID")
         optionc_final_sql = args.output / "optionc-final-target-checks.sql"
         optionc_final_manifest = args.output / "optionc-final-target-checks-manifest.json"
         if not optionc_final_sql.is_file() or not optionc_final_manifest.is_file():

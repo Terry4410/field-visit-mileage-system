@@ -608,6 +608,139 @@ try
     if (actualChecks001.Count != 17)
         throw new InvalidOperationException("CHECK_001_004_CATALOG_INCOMPLETE");
 
+    // 1800_005 contains four non-EF CHECKs and five non-EF indexes.
+    // This is source-exact target DDL extracted from immutable RC, not an
+    // execution/claim of historical migration 005 or any marker insertion.
+    stage = "SOURCE_005_PROJECT_RATE_CONTRACT";
+    var source005File = Path.Combine(rcRoot,
+        "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql");
+    var source005Bytes = await File.ReadAllBytesAsync(source005File);
+    var source005 = Encoding.UTF8.GetString(source005Bytes);
+    var source005Sha = Convert.ToHexString(SHA256.HashData(source005Bytes)).ToLowerInvariant();
+    var controls005 = new List<string>();
+    var checks005 = new (string Table, string Name)[]
+    {
+        ("Projects", "CK_Projects_Dates"),
+        ("MileageRateRules", "CK_MileageRateRules_VehicleType"),
+        ("MileageRateRules", "CK_MileageRateRules_Dates"),
+        ("MileageRateRules", "CK_MileageRateRules_NonNegativeRate")
+    };
+    var indexes005 = new (string Table, string Name)[]
+    {
+        ("Projects", "IX_Projects_Search"),
+        ("VisitTypes", "UX_VisitTypes_VisitTypeCode"),
+        ("VisitTypes", "IX_VisitTypes_Active_Sort"),
+        ("MileageRateRules", "UX_MileageRateRules_Scope_Vehicle_Start"),
+        ("MileageRateRules", "IX_MileageRateRules_AsOf")
+    };
+    foreach (var (table, name) in checks005)
+    {
+        var matches = Regex.Matches(source005,
+            @"\bCONSTRAINT\s+" + Regex.Escape(name) + @"\s+CHECK\s*(?=\()",
+            RegexOptions.IgnoreCase);
+        if (matches.Count != 1)
+            throw new InvalidOperationException("SOURCE_005_CHECK_NOT_UNIQUE");
+        var paren = source005.IndexOf('(', matches[0].Index + matches[0].Length);
+        var depth = 0;
+        var inQuote = false;
+        var end = -1;
+        for (var n = paren; n < source005.Length; n++)
+        {
+            var ch = source005[n];
+            if (ch == '\'')
+            {
+                if (inQuote && n + 1 < source005.Length && source005[n + 1] == '\'')
+                    n++;
+                else
+                    inQuote = !inQuote;
+            }
+            else if (!inQuote && ch == '(') depth++;
+            else if (!inQuote && ch == ')' && --depth == 0) { end = n; break; }
+        }
+        if (paren < 0 || end < paren || inQuote)
+            throw new InvalidOperationException("SOURCE_005_CHECK_PARENS");
+        var checkDdl = source005.Substring(matches[0].Index,
+            end - matches[0].Index + 1);
+        controls005.Add("IF OBJECT_ID(N'dbo." + name + "',N'C') IS NOT NULL " +
+            "THROW 56150,N'SOURCE_005_CHECK_ALREADY_EXISTS',1;\n" +
+            "ALTER TABLE dbo." + table + " WITH CHECK ADD " + checkDdl + ";\n" +
+            "ALTER TABLE dbo." + table + " CHECK CONSTRAINT " + name + ";\nGO\n");
+    }
+    foreach (var (table, name) in indexes005)
+    {
+        var matches = Regex.Matches(source005,
+            @"\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+" + Regex.Escape(name)
+             + @"\s+ON\s+dbo\." + Regex.Escape(table) + @"\s*\(",
+            RegexOptions.IgnoreCase);
+        if (matches.Count != 1)
+            throw new InvalidOperationException("SOURCE_005_INDEX_NOT_UNIQUE");
+        var end = source005.IndexOf(';', matches[0].Index + matches[0].Length);
+        if (end < 0 || end - matches[0].Index > 3000)
+            throw new InvalidOperationException("SOURCE_005_INDEX_SYNTAX");
+        var indexDdl = source005.Substring(matches[0].Index,
+            end - matches[0].Index + 1);
+        controls005.Add("IF EXISTS(SELECT 1 FROM sys.indexes WHERE " +
+            "object_id=OBJECT_ID(N'dbo." + table + "',N'U') AND name=N'" + name +
+            "') THROW 56151,N'SOURCE_005_INDEX_ALREADY_EXISTS',1;\n" +
+            indexDdl + "\nGO\n");
+    }
+    if (controls005.Count != 9)
+        throw new InvalidOperationException("SOURCE_005_EXPECTED_SET");
+    var controls005Bytes = Encoding.UTF8.GetBytes(
+        "-- Source-bound disposable final 005 controls. No migrations replayed.\n"
+        + string.Join("\n", controls005));
+    var controls005Sha = Convert.ToHexString(
+        SHA256.HashData(controls005Bytes)).ToLowerInvariant();
+    await File.WriteAllBytesAsync(Path.Combine(output, "005_source_controls.sql"),
+        controls005Bytes);
+    await File.WriteAllTextAsync(Path.Combine(output, "005_source_controls-manifest.json"),
+        JsonSerializer.Serialize(new
+        {
+            format = "field-visit-v180-source-005-controls-v1",
+            rcSourceSha = expectedRc,
+            sourcePath = "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql",
+            sourceSha256 = source005Sha,
+            sqlSha256 = controls005Sha,
+            checks = checks005.Select(x => x.Name).ToArray(),
+            indexes = indexes005.Select(x => x.Name).ToArray(),
+            scope = "NONDEPLOY_ONLY_SOURCE_CONTRACT_NOT_COMPLETE_SCHEMA"
+        }) + "\n");
+    await using (var sql005 = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await sql005.OpenAsync();
+        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(controls005Bytes),
+                     "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            await using var cmd = new SqlCommand(batch, sql005) { CommandTimeout = 30 };
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await using var inspect = new SqlCommand("""
+            SELECT
+             (SELECT COUNT(*) FROM sys.check_constraints WHERE name IN
+               (N'CK_Projects_Dates',N'CK_MileageRateRules_VehicleType',
+                N'CK_MileageRateRules_Dates',N'CK_MileageRateRules_NonNegativeRate')
+               AND is_disabled=0 AND is_not_trusted=0 AND definition IS NOT NULL),
+             (SELECT COUNT(*) FROM sys.indexes WHERE name IN
+               (N'IX_Projects_Search',N'UX_VisitTypes_VisitTypeCode',
+                N'IX_VisitTypes_Active_Sort',
+                N'UX_MileageRateRules_Scope_Vehicle_Start',
+                N'IX_MileageRateRules_AsOf') AND is_disabled=0),
+             (SELECT COUNT(*) FROM sys.indexes WHERE name IN
+                (N'UX_VisitTypes_VisitTypeCode',
+                 N'UX_MileageRateRules_Scope_Vehicle_Start') AND is_unique=1),
+             (SELECT COUNT(*) FROM sys.indexes WHERE
+                name=N'UX_MileageRateRules_Scope_Vehicle_Start'
+                AND is_unique=1 AND has_filter=1 AND filter_definition IS NOT NULL);
+            """, sql005) { CommandTimeout = 10 };
+        await using var rows = await inspect.ExecuteReaderAsync();
+        if (!await rows.ReadAsync() || rows.GetInt32(0) != 4 ||
+            rows.GetInt32(1) != 5 || rows.GetInt32(2) != 2 ||
+            rows.GetInt32(3) != 1)
+            throw new InvalidOperationException("SOURCE_005_CATALOG_MISMATCH");
+    }
+    Status("SOURCE_005_PROJECT_RATE_CHECKS_INDEXES_SQL2022_PASS");
+
     // Apply final A+C 011–020 CHECK states on disposable clean SQL2022.
     // Eight EF-origin and one 014 candidate checks are replaced under a
     // source-pinned explicit allowlist, not bypassed or disabled.
@@ -1242,6 +1375,10 @@ try
         sourceDerived007ChecksSha256 = check007Sha,
         installedSource007CheckCount = checked007.Count,
         sourceDerived001004ChecksSha256 = checks001Sha,
+        source005Sha256 = source005Sha,
+        source005SqlSha256 = controls005Sha,
+        source005InstalledCheckCount = 4,
+        source005InstalledIndexCount = 5,
         installedSource001004CheckCount = actualChecks001.Count,
         optioncEffectiveChecksSqlSha256 = optioncChecksSha,
         optioncEffectiveCheckCount = actualOptionCChecks.Count,

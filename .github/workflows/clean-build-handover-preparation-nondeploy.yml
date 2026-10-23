@@ -384,7 +384,7 @@ jobs:
               "sql-only-core-tables.sql","effective-source-triggers.sql",
               "optionc-sql-only-candidates.sql","sql-only-extra-indexes.sql",
               "20_route_reason_check.sql","007_source_checks.sql",
-              "001_004_source_checks.sql","optionc-final-target-checks.sql",
+              "001_004_source_checks.sql","005_source_controls.sql","optionc-final-target-checks.sql",
               "40_clean_install_017_capability.sql"]
           digest=lambda name:hashlib.sha256((out/name).read_bytes()).hexdigest()
           for name in ordered:
