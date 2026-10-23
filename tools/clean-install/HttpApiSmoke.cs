@@ -117,6 +117,7 @@ internal static class CleanInstallHttpProbe
             // never invent old migration markers to make it pass.
             await CleanInstallBusinessProbe.VerifyAsync(
                 client, sameCleanDbConnection, business, demoPassword);
+            Console.WriteLine("CLEAN_INSTALL=RC_API_FRESH_SQL_BUSINESS_PROBE_COMPLETED");
             await CleanInstallRoleProbe.VerifyAsync(
                 client, sameCleanDbConnection, roleActors, demoPassword);
         }

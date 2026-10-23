@@ -160,9 +160,22 @@ internal static class CleanInstallRoleProbe
         await using (var db = new AppDbContext(Options(cs)))
         {
             var visitor = actors.Single(x => x.Role == "visitor");
-            var employment = await db.UserEmploymentPeriods.SingleAsync(
+            // A linked v1.8.0 identity uses EmploymentStatusPeriods as its
+            // authoritative status; legacy unlinked users use UserEmploymentPeriods.
+            var identity = await db.UserIdentityProfiles.SingleAsync(
                 x => x.UserId == visitor.UserId);
-            employment.EmploymentStatus = EmploymentStatuses.Leave;
+            if (identity.EmploymentId.HasValue)
+            {
+                var period = await db.EmploymentStatusPeriods.SingleAsync(
+                    x => x.EmploymentId == identity.EmploymentId.Value);
+                period.EmploymentStatus = EmploymentStatuses.Leave;
+            }
+            else
+            {
+                var period = await db.UserEmploymentPeriods.SingleAsync(
+                    x => x.UserId == visitor.UserId);
+                period.EmploymentStatus = EmploymentStatuses.Leave;
+            }
             await db.SaveChangesAsync();
             using var revoked = await client.PostAsJsonAsync(
                 "/api/v1/auth/demo-login",
