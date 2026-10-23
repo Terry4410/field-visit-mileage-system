@@ -864,7 +864,12 @@ try
                        REPLACE(REPLACE(definition,CHAR(10),N''),CHAR(13),N''),
                        N'[',N''),N']',N''),N' ',N''),N'(',N''),N')',N''))
                    IN (N'reservationstatusinn''pending'',n''published'',n''abandoned''',
-                       N'reservationstatus=n''pending''orreservationstatus=n''published''orreservationstatus=n''abandoned'''))
+                        N'reservationstatus=n''pending''orreservationstatus=n''published''orreservationstatus=n''abandoned''',
+                        N'reservationstatus=n''pending''orreservationstatus=n''abandoned''orreservationstatus=n''published''',
+                        N'reservationstatus=n''published''orreservationstatus=n''pending''orreservationstatus=n''abandoned''',
+                        N'reservationstatus=n''published''orreservationstatus=n''abandoned''orreservationstatus=n''pending''',
+                        N'reservationstatus=n''abandoned''orreservationstatus=n''pending''orreservationstatus=n''published''',
+                        N'reservationstatus=n''abandoned''orreservationstatus=n''published''orreservationstatus=n''pending'''))
                   THEN 1 ELSE 0 END,
               CASE WHEN EXISTS(SELECT 1 FROM sys.indexes i
                  WHERE i.object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
@@ -1010,7 +1015,12 @@ try
                          REPLACE(REPLACE(definition,CHAR(10),N''),CHAR(13),N''),
                          N'[',N''),N']',N''),N' ',N''),N'(',N''),N')',N''))
                          IN (N'reservationstatusinn''pending'',n''published'',n''abandoned''',
-                             N'reservationstatus=n''pending''orreservationstatus=n''published''orreservationstatus=n''abandoned'''))
+                        N'reservationstatus=n''pending''orreservationstatus=n''published''orreservationstatus=n''abandoned''',
+                        N'reservationstatus=n''pending''orreservationstatus=n''abandoned''orreservationstatus=n''published''',
+                        N'reservationstatus=n''published''orreservationstatus=n''pending''orreservationstatus=n''abandoned''',
+                        N'reservationstatus=n''published''orreservationstatus=n''abandoned''orreservationstatus=n''pending''',
+                        N'reservationstatus=n''abandoned''orreservationstatus=n''pending''orreservationstatus=n''published''',
+                        N'reservationstatus=n''abandoned''orreservationstatus=n''published''orreservationstatus=n''pending'''))
                OR EXISTS (SELECT 1 FROM sys.foreign_keys
                    WHERE parent_object_id=OBJECT_ID(N'dbo.LocationCreateReservations',N'U')
                      AND (is_disabled=1 OR is_not_trusted=1))
