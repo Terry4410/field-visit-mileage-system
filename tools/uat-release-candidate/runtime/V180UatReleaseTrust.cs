@@ -46,14 +46,34 @@ public static class V180UatReleaseTrust
         using var resource=typeof(V180UatReleaseTrust).Assembly.GetManifestResourceStream("FieldVisit.Release.SchemaFingerprint.sql") ?? throw new InvalidOperationException("SCHEMA_RESOURCE_MISSING");
         using var reader=new StreamReader(resource);
         using var cmd=new SqlCommand(reader.ReadToEnd(),connection) {CommandTimeout=15};
-        var json=cmd.ExecuteScalar() as string ?? throw Denied();
+        string json;
+        using(var rows=cmd.ExecuteReader(CommandBehavior.SequentialAccess))
+        {
+            if(!rows.Read() || rows.IsDBNull(0)) throw new InvalidOperationException("SCHEMA_EMPTY_RESULT");
+            using var text=rows.GetTextReader(0);json=text.ReadToEnd();
+            if(rows.Read()) throw new InvalidOperationException("SCHEMA_MULTIPLE_RESULTS");
+        }
         using var doc=JsonDocument.Parse(json);
+        if(doc.RootElement.ValueKind!=JsonValueKind.Array) throw new InvalidOperationException("SCHEMA_ROOT_NOT_ARRAY");
         if(doc.RootElement.GetArrayLength()!=69) throw new InvalidOperationException("SCHEMA_TABLE_COUNT");
         foreach(var table in doc.RootElement.EnumerateArray())
         {
-            foreach(var index in table.GetProperty("indexes").EnumerateArray())
-                if(index.GetProperty("has_filter").GetBoolean() && index.GetProperty("filter_definition").ValueKind==JsonValueKind.Null) throw new InvalidOperationException("SCHEMA_INDEX_METADATA_HIDDEN");
-            foreach(var trigger in table.GetProperty("triggers").EnumerateArray())
+            var indexes=table.GetProperty("indexes");
+            if(indexes.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null)) throw new InvalidOperationException("SCHEMA_INDEX_LIST_TYPE");
+            if(indexes.ValueKind==JsonValueKind.Array)
+            foreach(var index in indexes.EnumerateArray())
+            {
+                var bit=index.GetProperty("has_filter");
+                var filtered=bit.ValueKind switch {JsonValueKind.True=>true,JsonValueKind.False=>false,
+                    JsonValueKind.Number when bit.GetInt32()==1=>true,
+                    JsonValueKind.Number when bit.GetInt32()==0=>false,
+                    _=>throw new InvalidOperationException("SCHEMA_FILTER_FLAG_TYPE")};
+                if(filtered && index.GetProperty("filter_definition").ValueKind==JsonValueKind.Null) throw new InvalidOperationException("SCHEMA_INDEX_METADATA_HIDDEN");
+            }
+            var triggers=table.GetProperty("triggers");
+            if(triggers.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null)) throw new InvalidOperationException("SCHEMA_TRIGGER_LIST_TYPE");
+            if(triggers.ValueKind==JsonValueKind.Array)
+            foreach(var trigger in triggers.EnumerateArray())
                 if(trigger.GetProperty("definition").ValueKind==JsonValueKind.Null) throw new InvalidOperationException("SCHEMA_TRIGGER_METADATA_HIDDEN");
         }
         return json;
@@ -85,6 +105,10 @@ public static class V180UatReleaseTrust
               CASE WHEN IS_ROLEMEMBER(N'db_owner')=0
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER')=0
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE TABLE')=0
+                AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CONTROL')=0
+                AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY USER')=0
+                AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY ROLE')=0
+                AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'IMPERSONATE ANY USER')=0
                 AND HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'UPDATE')=0
                 AND (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
                 AND (SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN (N'1.8.0-CREATE-LOWRISK',N'1.8.0-LOWRISK-DIRECT',N'1.8.0-EXCEL-CANONICAL-STATUS'))=3
