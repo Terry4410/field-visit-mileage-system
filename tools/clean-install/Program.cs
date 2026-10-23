@@ -436,6 +436,31 @@ try
         catalog["checkConstraintsDisabledOrUntrusted"] != 0 || catalog["triggersDisabled"] != 0)
         throw new InvalidOperationException("CATALOG_TRUST_STATE_FAIL");
 
+    // After EVERY candidate layer is installed, prove that the whole dbo
+    // catalog has EXACTLY the expected tables (rather than merely checking
+    // each incremental subset). This is a *scoped candidate* completeness
+    // assertion, NOT final A+C or IT handover certification.
+    var expectedCandidateCatalog = new HashSet<string>(expectedTables, StringComparer.Ordinal);
+    expectedCandidateCatalog.UnionWith(sqlOnlyExpected);
+    expectedCandidateCatalog.UnionWith(expectedCandidateTables);
+    if (!expectedCandidateCatalog.Add("SchemaVersions") ||
+        expectedCandidateCatalog.Count != 69)
+        throw new InvalidOperationException("CLEAN_CATALOG_EXPECTED_SET_INVALID");
+    var installedCandidateCatalog = new HashSet<string>(StringComparer.Ordinal);
+    await using (var finalCatalogConnection = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await finalCatalogConnection.OpenAsync();
+        await using var finalCommand = new SqlCommand("""
+            SELECT name FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo');
+            """, finalCatalogConnection) { CommandTimeout = 10 };
+        await using var reader = await finalCommand.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            if (!installedCandidateCatalog.Add(reader.GetString(0)))
+                throw new InvalidOperationException("CLEAN_CATALOG_DUPLICATE_TABLE");
+    }
+    if (!expectedCandidateCatalog.SetEquals(installedCandidateCatalog))
+        throw new InvalidOperationException("CLEAN_CATALOG_TABLE_SET_MISMATCH");
+
     // Actual EF SQL write/read compatibility on a synthetic transaction; rollback is explicit.
     await using (var db = new AppDbContext(options))
     await using (var tx = await db.Database.BeginTransactionAsync())
@@ -476,6 +501,8 @@ try
         sqlServerMajorVersion = detectedSqlMajorVersion,
         mappedTableCount = expectedTables.Length,
         mappedColumnCount = expectedColumns.Values.Sum(x => x.Count),
+        verifiedCandidateCatalogTableCount = installedCandidateCatalog.Count,
+        verifiedCandidateCatalogTableNames = installedCandidateCatalog.OrderBy(x => x, StringComparer.Ordinal).ToArray(),
         mappedTables = expectedTables,
         catalogObjectCounts = catalog,
         scope = "EF relational model only; not the complete v1.8.0 SQL install package",
@@ -493,6 +520,7 @@ try
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
     Status("SQL_ONLY_EXTRA_INDEXES_SQL2022_PASS");
+    Status("SCOPED_CANDIDATE_69_TABLE_CATALOG_PASS");
     Status("FULL_V180_INSTALL_HOLD_OTHER_OBJECTS_APP_COMPAT");
     Console.WriteLine($"MAPPED_TABLES={expectedTables.Length}");
     Console.WriteLine($"MAPPED_COLUMNS={expectedColumns.Values.Sum(x => x.Count)}");
