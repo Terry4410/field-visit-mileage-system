@@ -19,7 +19,7 @@
 5. Confirm trusted FK/CHECK constraints, enabled triggers, index/filter definitions, dates/roles and version ledger through a separate read-only schema-verification gate. A table count is not sufficient.
 6. Run the released API with application-secret injection, an appropriately scoped SQL principal, and candidate flags default-OFF. The original RC and separately derived binary are distinct; use matching manifest hashes.
 7. Prepare test-only Visitor/Leader/Admin accounts without embedding passwords. Execute real Browser→API→SQL business/UAT cases, including cross-org isolation, independent approvals, Google failure/manual fallback and rollback before asking Owner for GO.
-8. Package corresponding Frontend build and source SHA. This artifact alone does not certify a matching Frontend binary or all 25 frozen Business UAT cases.
+8. Verify `frontend-candidate-nondeploy.zip` and `frontend-candidate-manifest.json` against this exact candidate SHA and immutable RC SHA. It is built in normal Vite production mode with Option C UI activation OFF and Demo login; no GitHub Pages deployment occurs. This build and the matching API hash do not certify all 25 frozen Business UAT cases, Browser acceptance, live deployment or recovery.
 
 ## Recovery / stop conditions
 

@@ -229,6 +229,71 @@ jobs:
             --rc-sha "$CLEAN_INSTALL_RC_SHA" \
             --overlay-manifest "$CLEAN_INSTALL_OUTPUT_DIR/runtime-candidate-overlay.json"
           rm -rf "$CLEAN_INSTALL_API_CANDIDATE_ROOT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build and seal source-matched Frontend DEFAULT OFF (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$RC_SOURCE_ROOT" rev-parse HEAD)" = "$CLEAN_INSTALL_RC_SHA"
+          cd "$RC_SOURCE_ROOT/frontend"
+          npm ci --no-audit --no-fund
+          npm run build
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os,re,zipfile
+          frontend=Path(os.environ["RC_SOURCE_ROOT"])/"frontend"
+          dist=frontend/"dist"
+          out=Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])
+          approved=os.environ["CLEAN_INSTALL_RC_SHA"]
+          current=os.environ["APPROVED_SOURCE_SHA"]
+          flags=(frontend/"src/optionc-approval-flags.ts").read_text()
+          if ("import.meta.env.MODE === \"optionc-activation-candidate\"" not in flags
+              or "OPTIONC_ACTIVATION_CANDIDATE" not in flags):
+              raise SystemExit("FRONTEND_CANDIDATE_FLAG_SOURCE_MISMATCH")
+          config=(dist/"config.js").read_text(encoding="utf-8")
+          if not re.search(r'AUTH_MODE:\\s*["\\\']Demo["\\\']',config):
+              raise SystemExit("FRONTEND_DEMO_MODE_REQUIRED")
+          if not (dist/"index.html").is_file():
+              raise SystemExit("FRONTEND_DIST_MISSING")
+          files=sorted(p for p in dist.rglob("*") if p.is_file())
+          if len(files)<3:
+              raise SystemExit("FRONTEND_DIST_INCOMPLETE")
+          sha=lambda b:hashlib.sha256(b).hexdigest()
+          entries=[{"path":p.relative_to(dist).as_posix(),"sizeBytes":p.stat().st_size,
+                    "sha256":sha(p.read_bytes())} for p in files]
+          zipped=out/"frontend-candidate-nondeploy.zip"
+          with zipfile.ZipFile(zipped,"w",compression=zipfile.ZIP_DEFLATED,
+                               compresslevel=9,strict_timestamps=True) as archive:
+              for p in files:
+                  zi=zipfile.ZipInfo(p.relative_to(dist).as_posix(),date_time=(2026,1,1,0,0,0))
+                  zi.compress_type=zipfile.ZIP_DEFLATED
+                  zi.external_attr=0o100644<<16
+                  archive.writestr(zi,p.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,
+                                   compresslevel=9)
+          with zipfile.ZipFile(zipped) as archive:
+              if set(archive.namelist())!={x["path"] for x in entries}:
+                  raise SystemExit("FRONTEND_ZIP_ENTRIES_MISMATCH")
+              if any(sha(archive.read(x["path"]))!=x["sha256"] for x in entries):
+                  raise SystemExit("FRONTEND_ZIP_READBACK_MISMATCH")
+          manifest={
+              "format":"field-visit-v180-frontend-nondeploy-build-v1",
+              "state":"BUILT_DEFAULT_OFF_NONDEPLOY_NOT_UAT_AUTHORIZED",
+              "sourceRcSha":approved,"pairedCandidateSourceSha":current,
+              "buildCommand":"npm ci; npm run build (vite production mode)",
+              "authentication":"Demo",
+              "optionCActivationCandidate":False,
+              "files":entries,
+              "package":{"file":zipped.name,"sizeBytes":zipped.stat().st_size,
+                         "sha256":sha(zipped.read_bytes())}
+          }
+          (out/"frontend-candidate-manifest.json").write_text(
+              json.dumps(manifest,sort_keys=True,indent=2)+"\\n",encoding="utf-8")
+          print("CLEAN_INSTALL=FRONTEND_DEFAULT_OFF_SOURCE_MATCHED_PACKAGE_PASS")
+          print("CLEAN_INSTALL_FRONTEND_PACKAGE_SHA256="+manifest["package"]["sha256"])
+          PY
       - name: Verify generator and SQL inputs, package evidence
         shell: bash
         run: |
@@ -284,7 +349,7 @@ jobs:
           PY
           cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$CLEAN_INSTALL_OUTPUT_DIR/"
           git rev-parse HEAD HEAD^ HEAD^{tree} > "$CLEAN_INSTALL_OUTPUT_DIR/source.txt"
-          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt api-candidate-nondeploy.zip > checksums.sha256)
+          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt api-candidate-nondeploy.zip frontend-candidate-nondeploy.zip > checksums.sha256)
       - uses: actions/upload-artifact@v4
         with:
           name: clean-install-model-baseline-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}
