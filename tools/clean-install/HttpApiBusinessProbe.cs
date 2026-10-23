@@ -220,6 +220,14 @@ internal static class CleanInstallBusinessProbe
                 LocationId = place.LocationId, EffectiveFrom = since,
                 CreatedAt = now
             });
+        // Real source-mapped compensation rule, confined to this disposable DB;
+        // required by actual Leader.ApproveAsync, not a bypassed mock approval.
+        db.MileageRateRules.Add(new MileageRateRule
+        {
+            OrganizationId = orgId, RuleName = "Synthetic Clean Install Mileage",
+            VehicleType = "Motorcycle", RatePerKm = 4m,
+            EffectiveFrom = since, IsActive = true, CreatedAt = now
+        });
         await SaveSeedAsync(db, "S7");
         return new Fixture(visitor, leader, admin, team.TeamId, otherTeam.TeamId,
             site.DeploymentSiteId, place.LocationId);
@@ -335,11 +343,133 @@ internal static class CleanInstallBusinessProbe
 
         // A trip may reference an already approved and in-scope location;
         // this is distinct from creating or publishing a new Location.
+        // Distinct date avoids accidental overlap with the temporary visit.
+        // This exact approved-location path is submitted, calculated and
+        // approved over the real published candidate HTTP/DI/SQL stack.
         using var approvedTrip = await visitor.PostAsJsonAsync("/api/v1/trips",
             Trip(new TripStopInput(f.LocationId, null, null, "Location",
-                "Synthetic Approved Site", "1 Disposable Testing Rd", "visit", null)));
+                "Synthetic Approved Site", "1 Disposable Testing Rd", "visit", null))
+                with { VisitDate = new DateOnly(2026, 10, 16) });
         if (approvedTrip.StatusCode != HttpStatusCode.OK)
             throw Fail("APPROVED_LOCATION_TRIP_CREATE");
+        using var approvedBody = JsonDocument.Parse(await approvedTrip.Content.ReadAsStringAsync());
+        var approvedId = approvedBody.RootElement.GetProperty("visitTripId").GetInt64();
+        var approvedVersion = approvedBody.RootElement.GetProperty("rowVersion").GetString();
+        if (approvedId <= 0 || string.IsNullOrWhiteSpace(approvedVersion))
+            throw Fail("APPROVED_LOCATION_DRAFT_SHAPE");
+
+        // Live-disabled provider returns deterministic failure evidence. It
+        // must be current and authoritative before ManualFallback is permitted.
+        using (var failedRoute = await visitor.PostAsync(
+            "/api/v1/trips/" + approvedId + "/route-preview", null))
+        {
+            if (failedRoute.StatusCode != HttpStatusCode.OK)
+                throw Fail("APPROVED_ROUTE_PREVIEW_HTTP");
+            using var failedRouteBody = JsonDocument.Parse(
+                await failedRoute.Content.ReadAsStringAsync());
+            if (failedRouteBody.RootElement.GetProperty("status").GetString() != "Failed")
+                throw Fail("APPROVED_ROUTE_FAILURE_EVIDENCE");
+        }
+
+        using var submitApproved = new HttpRequestMessage(HttpMethod.Post,
+            "/api/v1/trips/" + approvedId + "/submit")
+        {
+            Content = JsonContent.Create(new SubmitTripRequest(false))
+        };
+        submitApproved.Headers.TryAddWithoutValidation("If-Match", approvedVersion);
+        using (var submitResponse = await visitor.SendAsync(submitApproved))
+        {
+            if (submitResponse.StatusCode != HttpStatusCode.OK)
+                throw Fail("APPROVED_LOCATION_SUBMIT_HTTP");
+            using var submittedBody = JsonDocument.Parse(
+                await submitResponse.Content.ReadAsStringAsync());
+            if (submittedBody.RootElement.GetProperty("status").GetString() != "Submitted")
+                throw Fail("APPROVED_LOCATION_SUBMITTED_SHAPE");
+        }
+
+        using var leaderLogin = await client.PostAsJsonAsync("/api/v1/auth/demo-login",
+            new { account = f.Leader.Account, password = demoPassword });
+        if (leaderLogin.StatusCode != HttpStatusCode.OK)
+            throw Fail("LEADER_MILEAGE_LOGIN");
+        using var leaderLoginBody = JsonDocument.Parse(
+            await leaderLogin.Content.ReadAsStringAsync());
+        var leaderToken = leaderLoginBody.RootElement.GetProperty("accessToken").GetString();
+        if (string.IsNullOrWhiteSpace(leaderToken))
+            throw Fail("LEADER_MILEAGE_TOKEN");
+        using var leaderClient = new HttpClient(new HttpClientHandler
+        {
+            AllowAutoRedirect = false, UseProxy = false
+        }) { BaseAddress = client.BaseAddress, Timeout = TimeSpan.FromSeconds(8) };
+        leaderClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", leaderToken);
+
+        using (var queue = await leaderClient.GetAsync("/api/v1/leader/review-queue"))
+        {
+            if (queue.StatusCode != HttpStatusCode.OK)
+                throw Fail("LEADER_MILEAGE_QUEUE_HTTP");
+            using var queueBody = JsonDocument.Parse(await queue.Content.ReadAsStringAsync());
+            if (!queueBody.RootElement.EnumerateArray()
+                .Any(x => x.GetProperty("visitTripId").GetInt64() == approvedId))
+                throw Fail("LEADER_MILEAGE_QUEUE_SCOPE");
+        }
+
+        using (var calculated = await leaderClient.PostAsJsonAsync(
+            "/api/v1/leader/trips/calculate",
+            new MileageBatchRequest("Selected", null, null, new[] { approvedId })))
+        {
+            if (calculated.StatusCode != HttpStatusCode.OK)
+                throw Fail("LEADER_MILEAGE_CALCULATE_HTTP");
+            using var calculatedBody = JsonDocument.Parse(
+                await calculated.Content.ReadAsStringAsync());
+            if (calculatedBody.RootElement.GetProperty("success").GetInt32() != 1)
+                throw Fail("LEADER_MILEAGE_CALCULATE_RESULT");
+        }
+
+        using var pendingResponse = await visitor.GetAsync("/api/v1/trips/" + approvedId);
+        if (pendingResponse.StatusCode != HttpStatusCode.OK)
+            throw Fail("LEADER_MILEAGE_PENDING_GET");
+        using var pendingBody = JsonDocument.Parse(
+            await pendingResponse.Content.ReadAsStringAsync());
+        var pendingRoot = pendingBody.RootElement;
+        var pendingVersion = pendingRoot.GetProperty("rowVersion").GetString();
+        if (pendingRoot.GetProperty("status").GetString() != "PendingApproval"
+            || string.IsNullOrWhiteSpace(pendingVersion))
+            throw Fail("LEADER_MILEAGE_PENDING_STATE");
+
+        using (var approvedResponse = await leaderClient.PostAsJsonAsync(
+            "/api/v1/trips/" + approvedId + "/approve",
+            new ApproveTripRequest(8.5m, pendingVersion,
+                "Synthetic current-route provider-failure fallback", "ManualFallback")))
+        {
+            if (approvedResponse.StatusCode != HttpStatusCode.OK)
+                throw Fail("LEADER_MILEAGE_APPROVE_HTTP");
+            using var approvalBody = JsonDocument.Parse(
+                await approvedResponse.Content.ReadAsStringAsync());
+            if (approvalBody.RootElement.GetProperty("status").GetString() != "Approved")
+                throw Fail("LEADER_MILEAGE_APPROVED_STATE");
+        }
+
+        await using (var approvedPersistence = new AppDbContext(Options(cs)))
+        {
+            if (!await approvedPersistence.VisitTrips.AnyAsync(t =>
+                    t.VisitTripId == approvedId && t.UserId == f.Visitor.UserId
+                    && t.TeamId == f.TeamId && t.Status == "Approved")
+                || !await approvedPersistence.VisitTripSnapshots.AnyAsync(t =>
+                    t.VisitTripId == approvedId && t.SnapshotType == "Submitted")
+                || !await approvedPersistence.ApprovalRecords.AnyAsync(t =>
+                    t.VisitTripId == approvedId && t.Action == "Approved"
+                    && t.ApproverUserId == f.Leader.UserId)
+                || !await approvedPersistence.MileageCalculations.AnyAsync(t =>
+                    t.VisitTripId == approvedId && t.ManualFallbackUsed
+                    && t.ApprovedDistanceKm == 8.5m && t.ApprovedAmount == 34m)
+                || !await approvedPersistence.MileageGovernanceEvents.AnyAsync(t =>
+                    t.VisitTripId == approvedId && t.EventType == "ManualFallback")
+                || !await approvedPersistence.AuditLogs.AnyAsync(t =>
+                    t.EntityId == approvedId.ToString() && t.Action == "TripApprove"))
+                throw Fail("LEADER_MILEAGE_SQL_TRANSACTION_AUDIT");
+        }
+        Console.WriteLine("CLEAN_INSTALL=REAL_HTTP_APPROVED_LOCATION_TRIP_SUBMIT_LEADER_MILEAGE_APPROVE_SQL_PASS");
+
         await using (var check = new SqlConnection(cs))
         {
             await check.OpenAsync();
