@@ -868,6 +868,20 @@ try
             throw new InvalidOperationException("SYNTHETIC_BUSINESS_ROLLBACK_FAIL");
     }
 
+    // Verify that the *accepted RC API binary* reaches this exact newly
+    // installed disposable DB via real loopback HTTP. Neither role grants nor
+    // Business UAT are certified by this unauthenticated smoke.
+    try
+    {
+        await CleanInstallHttpProbe.RunAsync(rcRoot, installBuilder.ConnectionString);
+    }
+    catch (Exception)
+    {
+        Status("RC_API_SAME_CLEAN_DB_HTTP_SQL_FAIL");
+        throw;
+    }
+    Status("RC_API_SAME_CLEAN_DB_READY_UNAUTH_DENY_PASS");
+
     var appDbContextSha = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(contextPath))).ToLowerInvariant();
     var scriptSha = Convert.ToHexString(SHA256.HashData(sqlBytes)).ToLowerInvariant();
     var manifest = new
@@ -904,6 +918,7 @@ try
         catalogObjectCounts = catalog,
         scope = "Disposable candidate only: EF 57 tables + SQL-only 11 tables + empty new SchemaVersions + effective 010 triggers + selected indexes and trusted 010 check; NOT a complete IT or UAT installer",
         sqlOnlyObjects = "Seven source-derived core tables and four disposable Option C candidate tables installed; final A+C 011-020 objects, security and complete migration-only facets remain unverified",
+        rcApiSameCleanDbHttpSmoke = "READY_LIVE_AND_UNAUTHENTICATED_DENY_ONLY_NOT_ROLE_RBAC",
         seedData = "No accounts, roles, employees, business rows, or passwords are created"
     };
     await File.WriteAllTextAsync(Path.Combine(output, "model-baseline-manifest.json"),

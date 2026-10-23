@@ -51,6 +51,14 @@ candidate fragments. This package does **not** apply historical migrations.
   published-Origin supersession. Only disposable SQL Server 2022 is allowed;
   source candidates are not approved deployable migrations.
 
+- The accepted RC API is now built in CI before SQL DDL. The same
+  disposable database is then used by the RC API on **loopback-only HTTP**
+  for `/health/live`, `/health/ready` (real EF SQL CanConnect), and
+  anonymous/invalid-token **401** on Visitor/Leader protected routes.
+  The API process is terminated before DB teardown. This only proves
+  boot/readiness/unauthenticated denial on the new database: it **does not**
+  certify valid Visitor/Leader/Admin entitlements, API writes or full UAT.
+
 Every layer writes a SHA-256 manifest, records original RC source paths and
 file digests, refuses missing/duplicate/ambiguous objects, and exports only
 NONDEPLOY evidence under the fixed PR source SHA. All generated SQL files,

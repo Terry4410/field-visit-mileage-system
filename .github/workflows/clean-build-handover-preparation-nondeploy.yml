@@ -95,6 +95,8 @@ jobs:
           python3 -m unittest discover -s scripts/ci/clean_install -p 'test_*.py' -v
           dotnet build tools/clean-install/ModelBaselineRunner.csproj \
             -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release --nologo
+          dotnet build "$RC_SOURCE_ROOT/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" \
+            -c Release --nologo
       - name: Wait for isolated SQL Server 2022
         shell: bash
         run: |
