@@ -33,7 +33,7 @@ def main():
  # runtime config enables exactly this compiled release identity.
  path='frontend/src/optionc-approval-flags.ts';old=(rc/path).read_text()
  oldexpr='import.meta.env.MODE === "optionc-activation-candidate"';assert old.count(oldexpr)==1
- prefix='const release=(window as unknown as {APP_CONFIG?:{OPTIONC_RELEASE?:{enabled?:boolean;sourceSha?:string}}}).APP_CONFIG?.OPTIONC_RELEASE;\n'
+ prefix='const release=typeof window === "undefined"?undefined:(window as unknown as {APP_CONFIG?:{OPTIONC_RELEASE?:{enabled?:boolean;sourceSha?:string}}}).APP_CONFIG?.OPTIONC_RELEASE;\n'
  write(path,old.replace('/// <reference types="vite/client" />\n','/// <reference types="vite/client" />\n'+prefix).replace(oldexpr,'release?.enabled === true && release.sourceSha === import.meta.env.VITE_RELEASE_SOURCE_SHA'))
  path='frontend/src/pages/ScopedLocationPage.tsx';old=(rc/path).read_text()
  marker='{role==="leader"&&<LeaderLowRiskAction'

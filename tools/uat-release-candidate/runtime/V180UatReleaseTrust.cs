@@ -43,18 +43,18 @@ public static class V180UatReleaseTrust
     }
     public static string CatalogJson(SqlConnection connection)
     {
-        using var resource=typeof(V180UatReleaseTrust).Assembly.GetManifestResourceStream("FieldVisit.Release.SchemaFingerprint.sql") ?? throw Denied();
+        using var resource=typeof(V180UatReleaseTrust).Assembly.GetManifestResourceStream("FieldVisit.Release.SchemaFingerprint.sql") ?? throw new InvalidOperationException("SCHEMA_RESOURCE_MISSING");
         using var reader=new StreamReader(resource);
         using var cmd=new SqlCommand(reader.ReadToEnd(),connection) {CommandTimeout=15};
         var json=cmd.ExecuteScalar() as string ?? throw Denied();
         using var doc=JsonDocument.Parse(json);
-        if(doc.RootElement.GetArrayLength()!=69) throw Denied();
+        if(doc.RootElement.GetArrayLength()!=69) throw new InvalidOperationException("SCHEMA_TABLE_COUNT");
         foreach(var table in doc.RootElement.EnumerateArray())
         {
             foreach(var index in table.GetProperty("indexes").EnumerateArray())
-                if(index.GetProperty("has_filter").GetBoolean() && index.GetProperty("filter_definition").ValueKind==JsonValueKind.Null) throw Denied();
+                if(index.GetProperty("has_filter").GetBoolean() && index.GetProperty("filter_definition").ValueKind==JsonValueKind.Null) throw new InvalidOperationException("SCHEMA_INDEX_METADATA_HIDDEN");
             foreach(var trigger in table.GetProperty("triggers").EnumerateArray())
-                if(trigger.GetProperty("definition").ValueKind==JsonValueKind.Null) throw Denied();
+                if(trigger.GetProperty("definition").ValueKind==JsonValueKind.Null) throw new InvalidOperationException("SCHEMA_TRIGGER_METADATA_HIDDEN");
         }
         return json;
     }

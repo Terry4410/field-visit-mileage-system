@@ -20,8 +20,11 @@ try
  {
   await sql.OpenAsync();
   await using(var command=new SqlCommand(File.ReadAllText(Path.Combine(output,"60_final_functional_capabilities.sql")),sql){CommandTimeout=30}) await command.ExecuteNonQueryAsync();
+  Console.WriteLine("UAT_RC=SOURCE_018_020_CAPABILITY_SQL_PASS");
+  stage="SCHEMA_OBJECT_MANIFEST";
   var catalog=V180UatReleaseTrust.CatalogJson(sql);
   File.WriteAllText(Path.Combine(output,"schema-contract.json"),catalog);
+  stage="API_FRONTEND_SCHEMA_BINDING";
   var binding=new {candidateSourceSha=UatReleaseIdentity.SourceSha,apiSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(apiRoot,"FieldVisit.Api.dll"))),frontendSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(output,"frontend-release-candidate.zip"))),schemaSha256=V180UatReleaseTrust.Hash(Encoding.UTF8.GetBytes(catalog))};
   File.WriteAllText(Path.Combine(apiRoot,"release-contract.json"),JsonSerializer.Serialize(binding));
   File.WriteAllText(Path.Combine(output,"release-contract.json"),JsonSerializer.Serialize(binding));
@@ -125,6 +128,9 @@ catch(Exception e)
 {
  Console.WriteLine("UAT_RC=FAIL_AT_"+stage);
  if(e is SqlException sql) Console.WriteLine("UAT_RC=SQL_NUMBER_"+Math.Abs(sql.Number));
+ if(e is Microsoft.EntityFrameworkCore.DbUpdateException {InnerException:SqlException nested}) Console.WriteLine("UAT_RC=SQL_NUMBER_"+Math.Abs(nested.Number));
+ if(e is InvalidOperationException && System.Text.RegularExpressions.Regex.IsMatch(e.Message,@"\A(?:SCHEMA|OPTIONC_UAT)_[A-Z0-9_]{1,60}\z")) Console.WriteLine("UAT_RC="+e.Message);
+ Console.WriteLine("UAT_RC=ERROR_CLASS_"+(e is JsonException?"JSON":e is FileNotFoundException?"MISSING_FILE":e is KeyNotFoundException?"JSON_PROPERTY":e is InvalidOperationException?"CONTRACT":"SUPPRESSED"));
  return 1;
 }
 finally{if(app is not null&&!app.HasExited){app.Kill(true);app.WaitForExit(5000);}}
