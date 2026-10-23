@@ -254,7 +254,7 @@ jobs:
               or "OPTIONC_ACTIVATION_CANDIDATE" not in flags):
               raise SystemExit("FRONTEND_CANDIDATE_FLAG_SOURCE_MISMATCH")
           config=(dist/"config.js").read_text(encoding="utf-8")
-          if not re.search(r'AUTH_MODE:\\s*["\\\']Demo["\\\']',config):
+          if 'AUTH_MODE: "Demo"' not in config:
               raise SystemExit("FRONTEND_DEMO_MODE_REQUIRED")
           if not (dist/"index.html").is_file():
               raise SystemExit("FRONTEND_DIST_MISSING")
@@ -290,7 +290,7 @@ jobs:
                          "sha256":sha(zipped.read_bytes())}
           }
           (out/"frontend-candidate-manifest.json").write_text(
-              json.dumps(manifest,sort_keys=True,indent=2)+"\\n",encoding="utf-8")
+              json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
           print("CLEAN_INSTALL=FRONTEND_DEFAULT_OFF_SOURCE_MATCHED_PACKAGE_PASS")
           print("CLEAN_INSTALL_FRONTEND_PACKAGE_SHA256="+manifest["package"]["sha256"])
           PY
