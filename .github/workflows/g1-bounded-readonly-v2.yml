@@ -1,0 +1,95 @@
+name: G1 bounded read-only v2 (separate approval required)
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Separately approved final protected execution SHA
+        type: string
+        required: true
+      authorization_comment:
+        description: NEW exact dispatch approval comment (not the preparation authorization)
+        type: string
+        required: true
+      accept_one_connection_cost:
+        description: Approve one connection only, without retry
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: g1-bounded-readonly-v2
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410' && github.triggering_actor == 'Terry4410' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate exact approved source and fresh dispatch authorization without Azure
+        env:
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
+          ACCEPT_COST: ${{ inputs.accept_one_connection_cost }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/g1_bounded/guard.py
+      - name: Verify sealed files
+        run: sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+  inventory:
+    needs: source
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      APPROVED_SHA: ${{ inputs.approved_source_sha }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify files and mask identifiers before login
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          test "${RUNNER_DEBUG:-}" != 1
+          for item in "$AZURE_TENANT_ID" "$AZURE_SUBSCRIPTION_ID" "$AZURE_CLIENT_ID"; do
+            test -n "$item"
+            echo "::add-mask::$item"
+          done
+          python3 scripts/ci/g1_bounded/arm.py --prelogin
+      - name: Existing UAT OIDC only
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Five fixed ARM GETs only; no retries or pagination
+        run: timeout --signal=TERM --kill-after=5s 150s python3 scripts/ci/g1_bounded/arm.py
+      - name: Load pinned SQL client without opening SQL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try {Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null}
+          catch {Write-Output 'SqlDependency=HOLD; Details=SUPPRESSED;'; exit 1}
+      - name: One SELECT-only TLS connection, 120s connect, 30s commands, 240s hard stop
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 240s pwsh -NoProfile -NonInteractive -File scripts/ci/g1_bounded/sql.ps1 2>/dev/null
