@@ -95,6 +95,9 @@ class PrivateComparatorTests(unittest.TestCase):
         d["SchemaVersion"]="1.8.0-010"
         d["ReasonCheck"]="PASS"
         d["Columns"]=v.column_module.derive(Path("candidate"))
+        constraints=v.constraint_module.derive(Path("candidate"))
+        d["ForeignKeys"]=[dict(x,IsDisabled=False,IsNotTrusted=False) for x in constraints["ForeignKeys"]]
+        d["Checks"]=[dict(x,DefinitionVisible=True,IsDisabled=False,IsNotTrusted=False) for x in constraints["Checks"]]
         d["Triggers"]=[]
         for k,item in sources.items():
             h=v.source_module.core.TRIGGER_HEADER.search(item["Ddl"])
@@ -103,9 +106,9 @@ class PrivateComparatorTests(unittest.TestCase):
                 "Events":",".join(sorted(x.upper() for x in h.groups()[2:] if x)),
                 "IsDisabled":False,"IsInsteadOfTrigger":False,
                 "DefinitionSha256":item["Utf16LeSha256"]})
-        self.assertEqual(v.compare(d,sources,"live",SOURCE_SHA,d["Columns"]),"PASS")
+        self.assertEqual(v.compare(d,sources,"live",SOURCE_SHA,d["Columns"],constraints),"PASS")
         d["Triggers"][0]["DefinitionSha256"]="f"*64
-        with self.assertRaises(v.Stop) as e:v.compare(d,sources,"live",SOURCE_SHA,d["Columns"])
+        with self.assertRaises(v.Stop) as e:v.compare(d,sources,"live",SOURCE_SHA,d["Columns"],constraints)
         self.assertIn(e.exception.code,("TRIGGER_DEFINITION_DRIFT","007_DEFINITION_DRIFT"))
 
 if __name__=="__main__":unittest.main()
