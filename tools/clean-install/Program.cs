@@ -594,72 +594,6 @@ try
     if (actualChecks001.Count != 17)
         throw new InvalidOperationException("CHECK_001_004_CATALOG_INCOMPLETE");
 
-    // Apply fifteen effective A+C CHECKs from immutable 011-020 sources.
-    // 014's obsolete published Origin constraint is explicitly superseded
-    // by 017. No historical migration or live database is touched.
-    var optioncCheckPath = Path.Combine(output, "optionc-final-target-checks.sql");
-    var optioncCheckManifestPath = Path.Combine(output, "optionc-final-target-checks-manifest.json");
-    if (!File.Exists(optioncCheckPath) || !File.Exists(optioncCheckManifestPath))
-        throw new InvalidOperationException("OPTIONC_FINAL_CHECK_PACKAGE_MISSING");
-    var optioncCheckBytes = await File.ReadAllBytesAsync(optioncCheckPath);
-    var optioncCheckSha = Convert.ToHexString(SHA256.HashData(optioncCheckBytes)).ToLowerInvariant();
-    var expectedOptioncChecks = new Dictionary<string, string>(StringComparer.Ordinal);
-    using (var sourceManifest = JsonDocument.Parse(await File.ReadAllTextAsync(optioncCheckManifestPath)))
-    {
-        var root = sourceManifest.RootElement;
-        if (root.GetProperty("format").GetString() != "field-visit-v180-optionc-effective-checks-v1" ||
-            root.GetProperty("rcSourceSha").GetString() != expectedRc ||
-            root.GetProperty("checkCount").GetInt32() != 15 ||
-            root.GetProperty("sqlSha256").GetString() != optioncCheckSha ||
-            root.GetProperty("scope").GetString() != "DISPOSABLE_SOURCE_DERIVED_NOT_APPROVED_IT_FINAL_INSTALL")
-            throw new InvalidOperationException("OPTIONC_FINAL_CHECK_MANIFEST_INVALID");
-        foreach (var entry in root.GetProperty("checks").EnumerateArray())
-        {
-            if (!expectedOptioncChecks.TryAdd(entry.GetProperty("name").GetString() ?? "",
-                entry.GetProperty("table").GetString() ?? ""))
-                throw new InvalidOperationException("OPTIONC_FINAL_CHECK_NAME_DUPLICATE");
-        }
-    }
-    if (expectedOptioncChecks.Count != 15 ||
-        expectedOptioncChecks.Keys.Any(routeCheckNames.Contains) ||
-        expectedOptioncChecks.Keys.Any(expected007.ContainsKey) ||
-        expectedOptioncChecks.Keys.Any(actualChecks001.ContainsKey))
-        throw new InvalidOperationException("OPTIONC_FINAL_CHECK_SET_COLLISION");
-    await using (var optioncCheckConn = new SqlConnection(installBuilder.ConnectionString))
-    {
-        await optioncCheckConn.OpenAsync();
-        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(optioncCheckBytes),
-                     "(?im)^\\s*GO\\s*(?:--.*)?$")
-                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
-        {
-            await using var cmd = new SqlCommand(batch, optioncCheckConn) { CommandTimeout = 30 };
-            await cmd.ExecuteNonQueryAsync();
-        }
-        var actualOptionc = new Dictionary<string, string>(StringComparer.Ordinal);
-        await using var cmd = new SqlCommand("""
-            SELECT c.name, s.name, t.name, c.is_disabled, c.is_not_trusted
-            FROM sys.check_constraints c
-            JOIN sys.tables t ON t.object_id=c.parent_object_id
-            JOIN sys.schemas s ON s.schema_id=t.schema_id
-            WHERE s.name=N'dbo';
-            """, optioncCheckConn) { CommandTimeout = 10 };
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            var name = reader.GetString(0);
-            if (expectedOptioncChecks.ContainsKey(name))
-            {
-                if (reader.GetBoolean(3) || reader.GetBoolean(4) ||
-                    !actualOptionc.TryAdd(name, reader.GetString(1) + "." + reader.GetString(2)))
-                    throw new InvalidOperationException("OPTIONC_FINAL_CHECK_UNTRUSTED");
-            }
-        }
-        if (actualOptionc.Count != 15 ||
-            expectedOptioncChecks.Any(x => !actualOptionc.TryGetValue(x.Key, out var table) ||
-                                           table != x.Value))
-            throw new InvalidOperationException("OPTIONC_FINAL_CHECK_CATALOG_MISMATCH");
-    }
-
     // Apply final A+C 011–020 CHECK states on disposable clean SQL2022.
     // Eight EF-origin and one 014 candidate checks are replaced under a
     // source-pinned explicit allowlist, not bypassed or disabled.
@@ -950,8 +884,6 @@ try
         sourceDerived007ChecksSha256 = check007Sha,
         installedSource007CheckCount = checked007.Count,
         sourceDerived001004ChecksSha256 = checks001Sha,
-        sourceDerivedOptioncFinalChecksSha256 = optioncCheckSha,
-        installedOptioncEffectiveCheckCount = expectedOptioncChecks.Count,
         installedSource001004CheckCount = actualChecks001.Count,
         optioncEffectiveChecksSqlSha256 = optioncChecksSha,
         optioncEffectiveCheckCount = actualOptionCChecks.Count,
@@ -985,7 +917,6 @@ try
     Status("SOURCE_007_NINE_OTHER_CHECKS_SQL2022_PASS");
     Status("SOURCE_001_004_SEVENTEEN_CHECKS_SQL2022_PASS");
     Status("OPTIONC_FINAL_FIFTEEN_CHECKS_SQL2022_PASS");
-    Status("SOURCE_OPTIONC_FINAL_FIFTEEN_CHECKS_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");

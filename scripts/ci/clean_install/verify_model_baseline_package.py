@@ -297,31 +297,6 @@ def main() -> int:
         for entry in check_list:
             if sha256(args.rc_root / entry["sourcePath"])!=entry.get("sourceSha256"):
                 raise ContractError("CHECK_001_004_SOURCE_HASH")
-        optionc_check_sql = args.output / "optionc-final-target-checks.sql"
-        optionc_check_json = args.output / "optionc-final-target-checks-manifest.json"
-        if not optionc_check_sql.is_file() or not optionc_check_json.is_file():
-            raise ContractError("OPTIONC_FINAL_CHECK_PACKAGE_MISSING")
-        optionc_check = json.loads(optionc_check_json.read_text(encoding="utf-8"))
-        if (optionc_check.get("format") != "field-visit-v180-optionc-effective-checks-v1"
-                or optionc_check.get("rcSourceSha") != EXPECTED_RC
-                or optionc_check.get("checkCount") != 15
-                or optionc_check.get("sqlSha256") != sha256(optionc_check_sql)
-                or optionc_check.get("scope") != "DISPOSABLE_SOURCE_DERIVED_NOT_APPROVED_IT_FINAL_INSTALL"):
-            raise ContractError("OPTIONC_FINAL_CHECK_MANIFEST_INVALID")
-        effective = optionc_check.get("checks")
-        if not isinstance(effective, list) or len(effective) != 15:
-            raise ContractError("OPTIONC_FINAL_CHECK_SET")
-        if len({x.get("name") for x in effective}) != 15:
-            raise ContractError("OPTIONC_FINAL_CHECK_DUPLICATE")
-        allowed = {"011", "012", "016", "017", "018", "020"}
-        for entry in effective:
-            version = entry.get("sourceVersion")
-            if version not in allowed:
-                raise ContractError("OPTIONC_FINAL_CHECK_SOURCE_VERSION")
-            rel = f"docs/release/optionc-canonical-sql-draft/candidate/1800_{version}/Up.sql"
-            if entry.get("sourcePath") != rel or (
-                    sha256(args.rc_root / rel) != entry.get("sourceSha256")):
-                raise ContractError("OPTIONC_FINAL_CHECK_SOURCE_HASH")
         optionc_final_sql = args.output / "optionc-final-target-checks.sql"
         optionc_final_manifest = args.output / "optionc-final-target-checks-manifest.json"
         if not optionc_final_sql.is_file() or not optionc_final_manifest.is_file():
@@ -362,7 +337,6 @@ def main() -> int:
     print("SQL_ONLY_INDEX_PACKAGE=PASS")
     print("SOURCE_007_OTHER_CHECKS_PACKAGE=PASS")
     print("SOURCE_001_004_CHECKS_PACKAGE=PASS")
-    print("OPTIONC_FINAL_CHECKS_PACKAGE=PASS")
     print("OPTIONC_FINAL_CHECKS_PACKAGE=PASS")
     print("FULL_CLEAN_INSTALL=HOLD_OTHER_OBJECTS_AND_APP_COMPATIBILITY")
     return 0
