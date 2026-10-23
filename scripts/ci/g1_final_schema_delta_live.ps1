@@ -94,7 +94,141 @@ try {
     $stage = 'PRE010_PRIVATE'
     . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_collect.ps1')
     $pre010 = Invoke-G1Pre010PrivateCollect -Connection $connection -CandidateRoot (Join-Path $env:GITHUB_WORKSPACE 'candidate') -SourceSha $env:GITHUB_SHA
-    if($pre010 -cne 'PASS'){Stop-G1 'ResultContractRejected'}
+    if($pre010 -cne 'PASS'){
+        $allowlisted=@('BOUNDARY','SQL_EXECUTION','SQL_RESULT','JSON_PARSE',
+            'PRIVATE_WRITE','COMPARATOR_EXECUTION','COMPARATOR_PROTOCOL',
+            'PREDECESSOR','PRIVATE_OUTPUT','PINNED_SOURCE',
+            'METADATA_FORMAT','SCOPED_PARITY','COMPARATOR_REJECTED')
+        $status='UNCLASSIFIED'
+        if($pre010 -is [string] -and $pre010 -cmatch '^STOP:([A-Z_]+)
+    Write-Output 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'
+
+
+    $stage = 'LEDGER'
+    $ledgerSql = @"
+WITH expected(VersionNumber,MigrationId) AS (
+ SELECT N'1.8.0-011','011' UNION ALL SELECT N'1.8.0-012','012' UNION ALL
+ SELECT N'1.8.0-013','013' UNION ALL SELECT N'1.8.0-014','014' UNION ALL
+ SELECT N'1.8.0-015','015' UNION ALL SELECT N'1.8.0-016','016' UNION ALL
+ SELECT N'1.8.0-017','017' UNION ALL SELECT N'1.8.0-018','018' UNION ALL
+ SELECT N'1.8.0-019','019' UNION ALL SELECT N'1.8.0-020','020'
+)
+SELECT e.MigrationId, CONVERT(int,COUNT_BIG(s.VersionNumber)) AS MarkerCount
+FROM expected e LEFT JOIN dbo.SchemaVersions s ON s.VersionNumber=e.VersionNumber
+GROUP BY e.MigrationId ORDER BY e.MigrationId;
+"@
+    $ledger = Invoke-Table $connection $ledgerSql
+    if ($ledger.Columns.Count -ne 2 -or $ledger.Columns[0].ColumnName -cne 'MigrationId' -or
+        $ledger.Columns[1].ColumnName -cne 'MarkerCount' -or $ledger.Rows.Count -ne 10) { Stop-G1 'ResultContractRejected' }
+    $markers = @{}
+    foreach ($row in $ledger.Rows) {
+        $id = [string]$row.MigrationId
+        $count = [int]$row.MarkerCount
+        if ($id -cnotmatch '^0(1[1-9]|20)$' -or $markers.ContainsKey($id) -or $count -lt 0) { Stop-G1 'ResultContractRejected' }
+        $markers[$id] = if ($count -eq 0) {'ABSENT'} elseif ($count -eq 1) {'PRESENT_ONCE'} else {'DUPLICATE'}
+    }
+    if ($markers['013'] -ne 'ABSENT') {
+        Write-Output "Migration=013; Marker=$($markers['013']); Contract=RESERVED; Decision=UNKNOWN;"
+    } else {
+        Write-Output 'Migration=013; Marker=ABSENT; Contract=RESERVED; Decision=NOT_REQUIRED;'
+    }
+
+    $stage = 'CATALOG'
+    $reference = Get-Content -LiteralPath $paths.reference -Raw | ConvertFrom-Json -Depth 100
+    $catalogSql = Get-Content -LiteralPath $paths.catalog -Raw
+    $decisions = @{}
+    $catalogMigration = 'NONE'
+    foreach ($id in @('011','012','014','016','017','018','020')) {
+        $catalogMigration = $id
+        $subset = [ordered]@{
+            columns = @($reference.columns | Where-Object migration -eq $id)
+            checks = @($reference.checks | Where-Object migration -eq $id)
+            indexes = @($reference.indexes | Where-Object migration -eq $id)
+            foreignKeys = @($reference.foreignKeys | Where-Object migration -eq $id)
+        }
+        $requirements = @($subset.columns | ForEach-Object { [ordered]@{table=$_.table;column=$_.column} })
+        $table = Invoke-Table $connection $catalogSql @{
+            '@requirements' = (ConvertTo-Json -InputObject $requirements -Depth 10 -Compress)
+            '@reference' = ($subset | ConvertTo-Json -Depth 100 -Compress)
+        }
+        $status = Read-CodeStatus $table
+        $requiredCodes = @('REQUIRED_COLUMNS','TRUSTED_RELATIONSHIPS','ENABLED_INDEXES','SCOPED_COLUMN_FACETS','SCOPED_FK_MAPPINGS','SCOPED_INDEX_KEYS','SCOPED_CHECK_DEFINITIONS')
+        $contract = 'PASS'
+        foreach ($code in $requiredCodes) {
+            if (-not $status.ContainsKey($code)) { Stop-G1 'ResultContractRejected' }
+            if ($status[$code] -eq 'FAIL') { $contract = 'FAIL' }
+            elseif ($status[$code] -eq 'UNKNOWN' -and $contract -ne 'FAIL') { $contract = 'UNKNOWN' }
+        }
+        $decisions[$id] = $contract
+    }
+
+    $stage = 'SPECIAL_CONTRACTS'
+    $specialSql = @"
+SELECT code,status FROM (VALUES
+ ('M015',CASE WHEN OBJECT_ID(N'dbo.ChangeRequestEvents',N'U') IS NOT NULL
+   AND EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'dbo.ChangeRequestEvents') AND name=N'CK_B3_ChangeRequestEvents_EventType' AND is_disabled=0 AND is_not_trusted=0 AND definition LIKE N'%GeocodeEvidenceRecorded%' AND definition LIKE N'%DuplicateReviewEvidenceRecorded%')
+   AND EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'dbo.ChangeRequestEvents') AND name=N'CK_B3_ChangeRequestEvents_StageEvidenceEventType' AND is_disabled=0 AND is_not_trusted=0 AND definition LIKE N'%GeocodeEvidenceRecorded%' AND definition LIKE N'%DuplicateReviewEvidenceRecorded%')
+   THEN 'PASS' ELSE 'FAIL' END),
+ ('M020',CASE WHEN COL_LENGTH(N'dbo.ImportBatches',N'Status')=60 AND COL_LENGTH(N'dbo.ImportBatchItems',N'Status')=60
+   AND EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'dbo.ImportBatches') AND name=N'CK_ImportBatches_Status' AND is_disabled=0 AND is_not_trusted=0 AND definition LIKE N'%SubmittedForReview%')
+   AND EXISTS(SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'dbo.ImportBatchItems') AND name=N'CK_ImportBatchItems_Status' AND is_disabled=0 AND is_not_trusted=0 AND definition LIKE N'%SubmittedForReview%')
+   THEN 'PASS' ELSE 'FAIL' END)
+) c(code,status) ORDER BY code;
+"@
+    $special = Read-CodeStatus (Invoke-Table $connection $specialSql)
+    if (-not $special.ContainsKey('M015') -or -not $special.ContainsKey('M020')) { Stop-G1 'ResultContractRejected' }
+    $decisions['015'] = $special['M015']
+    if ($special['M020'] -eq 'FAIL') { $decisions['020'] = 'FAIL' }
+
+    foreach ($id in @('011','012','014','015','016','017','018','019','020')) {
+        if($id -eq '019'){
+            $marker019=$markers['019']
+            if($marker019 -eq 'DUPLICATE'){Stop-G1 'ResultContractRejected'}
+            Write-Output "Migration=019; Marker=$marker019; Contract=OUT_OF_SCOPE; Decision=NOT_REQUIRED_FOR_FROZEN_25; PackageCompatibility=HOLD;"
+            continue
+        }
+        $marker = $markers[$id]
+        $contract = $decisions[$id]
+        $decision = if ($marker -eq 'PRESENT_ONCE' -and $contract -eq 'PASS') {'NOT_REQUIRED'}
+                    elseif ($marker -eq 'ABSENT' -and $contract -eq 'FAIL') {'REQUIRED'}
+                    else {'UNKNOWN'}
+        Write-Output "Migration=$id; Marker=$marker; Contract=$contract; Decision=$decision;"
+    }
+
+    $stage = 'PERMISSIONS'
+    $permissionStatus = Read-CodeStatus (Invoke-Table $connection (Get-Content -LiteralPath $paths.permissions -Raw))
+    foreach ($code in @('NO_DATABASE_CONTROL','NO_DATABASE_ALTER','NO_CREATE_TABLE','NO_SCHEMA_ALTER','NO_REGISTRY_INSERT','NO_REGISTRY_UPDATE','NO_REGISTRY_DELETE')) {
+        if (-not $permissionStatus.ContainsKey($code) -or $permissionStatus[$code] -ne 'PASS') { Stop-G1 'ResultContractRejected' }
+    }
+    Write-Output 'DiagnosticPermissions=PASS; ApiPrincipal=UNKNOWN;'
+    Write-Output "G1Delta=PASS; SourceSha=$($env:GITHUB_SHA); CandidateSha=$($env:G1_CANDIDATE_SHA);"
+    Write-Output 'G1ReleaseGate=HOLD; ApiPrincipal=UNKNOWN; Runtime=UNKNOWN; Recovery=UNKNOWN;'
+} catch {
+    if ($stage -eq 'CATALOG') {
+        $kind = 'RUNTIME'
+        if ($_.Exception -is [Microsoft.Data.SqlClient.SqlException]) {
+            $kind = 'SQL_OTHER'
+            if ($_.Exception.Number -in @(102,156,207,208,4104)) { $kind = 'SQL_SYNTAX_BINDING' }
+            elseif ($_.Exception.Number -in @(13607,13609)) { $kind = 'SQL_JSON' }
+            elseif ($_.Exception.Number -in @(229,297)) { $kind = 'SQL_PERMISSION' }
+            elseif ($_.Exception.Number -in @(1205,1222,-2)) { $kind = 'SQL_TRANSIENT_OR_TIMEOUT' }
+        }
+        $id = if ($catalogMigration -in @('011','012','014','016','017','018','019','020')) { $catalogMigration } else { 'NONE' }
+        Write-Output "CatalogFailure=STOP; Migration=$id; Class=$kind; Details=SUPPRESSED;"
+    }
+    Stop-G1 'ProviderFailure'
+} finally {
+    if ($null -ne $connection) {
+        try { if ($connection.State -ne [System.Data.ConnectionState]::Closed) { $connection.Close() } } catch {}
+        try { $connection.Dispose() } catch {}
+    }
+    $env:G1_SQL_ACCESS_TOKEN = $null
+}
+ -and
+            $Matches[1] -cin $allowlisted){$status=$Matches[1]}
+        Write-Output "Pre010Private=STOP; Code=$status; Details=SUPPRESSED;"
+        Stop-G1 'ResultContractRejected'
+    }
     Write-Output 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=57; NewTableFKs=17; NewTableChecks=14; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'
 
 
