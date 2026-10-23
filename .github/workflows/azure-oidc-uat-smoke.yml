@@ -49,7 +49,7 @@ jobs:
           PY
   source-guard:
     # Only one reviewed SHA guarded squash merge may start an Azure job.
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'g1b-sql-select-once-20261023')
+    if: github.event_name == 'push' && github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'g1b-sql-select-once-20261023')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -64,15 +64,16 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = 'Terry4410/field-visit-mileage-system'
           test "$GITHUB_REF" = 'refs/heads/post-uat/v1.8.0'
+          test "${GITHUB_RUN_ATTEMPT}" = '1'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD^)" = '2a8908e32b25916207a86b6529d9d2b2717cf38e'
           test "$(git log -1 --format=%s)" = 'g1b-sql-select-once-20261023'
           expected=$'.github/workflows/azure-oidc-uat-smoke.yml\n.github/workflows/g1b-private-uat010-once.yml\nscripts/ci/g1b_uat010_metadata_once.ps1\nscripts/ci/g1b_uat010_metadata_once.sql\nscripts/ci/test_g1b_uat010_metadata_once.py'
           test "$(git diff --name-only HEAD^ HEAD)" = "$expected"
           test "$(git hash-object scripts/ci/g1b_uat010_metadata_once.sql)" = 'd2661d72eda502cd998268634705dfa54d8a64fc'
-          test "$(git hash-object scripts/ci/g1b_uat010_metadata_once.ps1)" = '08c18432288299235a7f9f6a86cf1d0eafbfe4ba'
+          test "$(git hash-object scripts/ci/g1b_uat010_metadata_once.ps1)" = 'ae54042cdcab4976f6686daa34fb75de25d53814'
           test "$(git hash-object scripts/ci/test_g1b_uat010_metadata_once.py)" = '1ac998cb8679fb33595d0ee54d4ca60c1aee6853'
-          test "$(git hash-object .github/workflows/g1b-private-uat010-once.yml)" = '919341d43f61d1792fd713cab5de71817f735b40'
+          test "$(git hash-object .github/workflows/g1b-private-uat010-once.yml)" = '62f4e0aa2bc80812ea41fc41fde0b43b8823e18c'
           test "${RUNNER_DEBUG:-}" != '1'
           python3 -m unittest -q scripts/ci/test_g1b_uat010_metadata_once.py
           echo 'G1BSourceGuard=PASS; SQL=NOT_ACCESSED; Azure=NOT_ACCESSED;'
