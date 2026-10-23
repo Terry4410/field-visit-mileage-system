@@ -16,7 +16,7 @@ permissions:
   contents: read
 jobs:
   one-sql-read:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/post-uat/v1.8.0' && github.event_name == 'push'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/post-uat/v1.8.0' && github.event_name == 'push' && github.run_attempt == 1
     runs-on: ubuntu-latest
     environment: uat
     timeout-minutes: 10
