@@ -46,6 +46,11 @@ candidate fragments. This package does **not** apply historical migrations.
   then rolls back and asserts no synthetic business rows remain. This is
   **not** Browser/API authorization, self-approval prevention or RBAC proof.
 
+- `build_optionc_final_checks.py`: 15 effective A+C final-state CHECKs
+  sourced from 011/012/016/017/018/020, including the explicit 014→017
+  published-Origin supersession. Only disposable SQL Server 2022 is allowed;
+  source candidates are not approved deployable migrations.
+
 Every layer writes a SHA-256 manifest, records original RC source paths and
 file digests, refuses missing/duplicate/ambiguous objects, and exports only
 NONDEPLOY evidence under the fixed PR source SHA. All generated SQL files,
