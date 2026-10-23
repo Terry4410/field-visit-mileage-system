@@ -1,5 +1,7 @@
 name: Clean build handover source assessment (NONDEPLOY)
 on:
+  push:
+    branches: [work/minimal-clean-build-it-handover-20261019]
   pull_request:
     branches: [post-uat/v1.8.0]
     paths:
