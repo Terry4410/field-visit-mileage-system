@@ -730,6 +730,12 @@ try
     if (!expectedCandidateCatalog.SetEquals(installedCandidateCatalog))
         throw new InvalidOperationException("CLEAN_CATALOG_TABLE_SET_MISMATCH");
 
+    // Verify the *actual* 011/014/016/017 source-derived Option C index
+    // definitions against real sys.indexes and indexed column order.
+    // Nine are EF-mapped (never reinstall); six are in SQL-only DDL layers.
+    var optioncIndexProof = await CleanInstallOptionCIndexProof.VerifyAsync(
+        rcRoot, installBuilder.ConnectionString);
+
     // Actual EF SQL write/read compatibility on a synthetic transaction; rollback is explicit.
     await using (var db = new AppDbContext(options))
     await using (var tx = await db.Database.BeginTransactionAsync())
@@ -910,6 +916,10 @@ try
         installedSource001004CheckCount = actualChecks001.Count,
         optioncEffectiveChecksSqlSha256 = optioncChecksSha,
         optioncEffectiveCheckCount = actualOptionCChecks.Count,
+        optioncEffectiveIndexCount = optioncIndexProof.VerifiedIndexCount,
+        optioncEfOriginIndexCount = optioncIndexProof.MappedIndexCount,
+        optioncSqlOnlyIndexCount = optioncIndexProof.SqlOnlyIndexCount,
+        optioncIndexSourceSha256 = optioncIndexProof.SourceSha256,
         optioncReplacedReviewedPredecessorCount = actualReplacementChecks.Count,
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
@@ -942,6 +952,7 @@ try
     Status("SOURCE_007_NINE_OTHER_CHECKS_SQL2022_PASS");
     Status("SOURCE_001_004_SEVENTEEN_CHECKS_SQL2022_PASS");
     Status("OPTIONC_FINAL_FIFTEEN_CHECKS_SQL2022_PASS");
+    Status("OPTIONC_FINAL_FIFTEEN_INDEX_DEFINITIONS_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");

@@ -46,6 +46,14 @@ candidate fragments. This package does **not** apply historical migrations.
   then rolls back and asserts no synthetic business rows remain. This is
   **not** Browser/API authorization, self-approval prevention or RBAC proof.
 
+- `CleanInstallOptionCIndexProof`: same disposable SQL2022 catalog
+  verifies all **15 unique final A+C index definitions**, including correct
+  source index name, table, key-column order, uniqueness, filtered predicate
+  and enabled state. The nine indexes already installed by EF from 011/016
+  are **not replayed**. Six SQL-only 014/017 indexes are cross-checked against
+  the existing source-derived DDL. Original 011/014/016/017 file SHA-256
+  is retained in the clean-install manifest; no new migration marker is
+  inserted. This is a scoped index proof, not full 011–020 certification.
 - `build_optionc_final_checks.py`: 15 effective A+C final-state CHECKs
   sourced from 011/012/016/017/018/020, including the explicit 014→017
   published-Origin supersession. Only disposable SQL Server 2022 is allowed;
