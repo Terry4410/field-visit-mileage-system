@@ -56,6 +56,7 @@ try
  stage="ACCEPTED_FIXTURE_SETUP";
  var actors=await CleanInstallRoleProbe.SeedAsync(admin);
  var fixture=await CleanInstallBusinessProbe.SeedAsync(admin,actors);
+ stage="INDEPENDENT_REVIEW_ACTOR_SETUP";
  var extraActors=new List<CleanInstallRoleProbe.Actor>();
  await using(var db=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(admin).Options)) {
   foreach(var extraRole in new[]{"admin","leader"}) {
@@ -92,6 +93,13 @@ try
     """,sql){CommandTimeout=10}; await cmd.ExecuteNonQueryAsync();
  }
  var runtime=new SqlConnectionStringBuilder(admin){UserID="release_runtime",Password=runtimePass};
+ stage="NONOWNER_SCHEMA_PREFLIGHT";
+ await using(var runtimeCheck=new SqlConnection(runtime.ConnectionString)) {
+  await runtimeCheck.OpenAsync();
+  if(V180UatReleaseTrust.CatalogJson(runtimeCheck)!=File.ReadAllText(Path.Combine(output,"schema-contract.json")))throw new InvalidOperationException("SCHEMA_NONOWNER_MANIFEST_DRIFT");
+ }
+ Console.WriteLine("UAT_RC=NONOWNER_READONLY_COMPLETE_SCHEMA_PREFLIGHT_PASS");
+
  var start=new ProcessStartInfo("dotnet"){WorkingDirectory=apiRoot,UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};start.ArgumentList.Add(Path.Combine(apiRoot,"FieldVisit.Api.dll"));
  foreach(var pair in new Dictionary<string,string> {
   ["ASPNETCORE_URLS"]="http://127.0.0.1:18376",["ASPNETCORE_ENVIRONMENT"]="Production",["DOTNET_ENVIRONMENT"]="Production",

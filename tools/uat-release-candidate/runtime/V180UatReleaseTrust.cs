@@ -116,6 +116,11 @@ public static class V180UatReleaseTrust
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER ANY ROLE')=0
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'IMPERSONATE ANY USER')=0
                 AND HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'UPDATE')=0
+                AND HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'INSERT')=0
+                AND HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'DELETE')=0
+                AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'INSERT')=0
+                AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'UPDATE')=0
+                AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'DELETE')=0
                 AND (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
                 AND (SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN (N'1.8.0-CREATE-LOWRISK',N'1.8.0-LOWRISK-DIRECT',N'1.8.0-EXCEL-CANONICAL-STATUS'))=3
                 THEN 1 ELSE 0 END;

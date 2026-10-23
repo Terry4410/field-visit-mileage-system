@@ -34,6 +34,9 @@ def main():
   path=rc/rel;old=path.read_bytes() if path.exists() else b'';raw=new.encode() if isinstance(new,str) else new
   path.write_bytes(raw);changes.append({'path':rel,'beforeSha256':digest(old),'afterSha256':digest(raw)})
  infra='backend/src/FieldVisit.Infrastructure/'
+ path=infra+'AppDbContext.cs';old=(rc/path).read_text()
+ target='e.ToTable("TeamLeaderDelegations");';assert old.count(target)==1
+ write(path,old.replace(target,'e.ToTable("TeamLeaderDelegations", table => table.UseSqlOutputClause(false));'))
  for name in ['V180UatReleaseTrust.cs','SchemaFingerprint.sql']:
   write(infra+name,(ROOT/'tools/uat-release-candidate/runtime'/name).read_bytes())
  write(infra+'UatReleaseIdentity.g.cs','namespace FieldVisit.Infrastructure; public static class UatReleaseIdentity { public const string SourceSha="'+source+'"; }\n')
