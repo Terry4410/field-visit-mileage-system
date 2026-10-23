@@ -35,6 +35,9 @@ def main():
  for name in ['V180OptionCPublicationCatalogRules.cs','V180OptionCUnknownCommitReconciler.cs']:
   path=infra+name;old=(rc/path).read_text();assert old.count('RequireIsolatedSqlTest(connection)')==1
   write(path,old.replace('RequireIsolatedSqlTest(connection)','RequireExecutionTarget(connection)'))
+ path=infra+'V180OptionCMergeService.cs';old=(rc/path).read_text()
+ marker='        V180OptionCExecutionPolicy.RequireExecutionTarget(connection);';assert old.count(marker)==1
+ write(path,old.replace(marker,'        if(Environment.GetEnvironmentVariable("OPTIONC_EXECUTION_MODE")=="Uat") throw new InvalidOperationException("OPTIONC_MERGE_NOT_IN_APPROVED_UAT_SCOPE");\n'+marker))
  # Same normal frontend binary remains OFF unless a separately controlled
  # runtime config enables exactly this compiled release identity.
  path='frontend/src/optionc-approval-flags.ts';old=(rc/path).read_text()

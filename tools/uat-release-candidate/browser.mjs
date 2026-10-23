@@ -24,7 +24,7 @@ try{
   const path=resolve(root,'.'+decodeURIComponent(req.url.split('?')[0]==='/'?'/index.html':req.url.split('?')[0]));if(!path.startsWith(root+'/'))throw Error();const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml'}[extname(path)]||'application/octet-stream';res.writeHead(200,{'Content-Type':mime});res.end(await readFile(path));
  }catch{res.writeHead(500);res.end('SUPPRESSED');}});await new Promise(r=>server.listen(18377,'127.0.0.1',r));
  browser=await chromium.launch();
- step='LOGIN_THREE_ROLES';const visitor=await pageFor('visitor'),leader=await pageFor('leader'),admin=await pageFor('admin'),publisher=await pageFor('publisher');pass('THREE_ROLE_REAL_DEMO_LOGIN');
+ step='LOGIN_VISITOR';const visitor=await pageFor('visitor');step='LOGIN_LEADER';const leader=await pageFor('leader');step='LOGIN_ADMIN';const admin=await pageFor('admin');step='LOGIN_PUBLISHER';const publisher=await pageFor('publisher');pass('THREE_ROLE_REAL_DEMO_LOGIN');
  step='VISITOR_UI_CREATE';await go(visitor,'/locations/manage');await visitor.getByLabel('所屬小組',{exact:true}).selectOption(String(fixture.TeamId));await visitor.getByLabel('地點名稱',{exact:true}).fill('Browser Release Location');await visitor.getByLabel('地址（或 Plus Code）',{exact:true}).fill('100 Browser Test Road');
  const created=await clickJson(visitor,visitor.getByRole('button',{name:'儲存地點草稿',exact:true}),'/optionc-candidate/locations');const locationId=Number(created.entityId);expect(created.status).toBe('Pending');pass('VIS-01');
  step='INDEPENDENT_LEADER_UI';await leaderDecision(leader,locationId,true);pass('LEAD-01');pass('LEAD-04');
