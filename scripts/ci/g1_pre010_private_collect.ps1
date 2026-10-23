@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 # Translate only predefined comparator error codes into coarse, safe statuses.
 # Raw SQL/metadata/provider exception and unknown comparator text are never printed.
 function Resolve-G1Pre010Stop([string]$Line) {
-    if (-not ($Line -cmatch '^G1Pre010Private=STOP; Class=([A-Z0-9_]{2,60}); Details=SUPPRESSED;
+    if (-not ($Line -cmatch '^G1Pre010Private=STOP; Class=([A-Z0-9_]{2,60}); Details=SUPPRESSED;$')) {
         return 'COMPARATOR_PROTOCOL'
     }
     $code=[string]$Matches[1]
