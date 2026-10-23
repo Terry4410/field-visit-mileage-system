@@ -29,7 +29,6 @@ jobs:
       APPROVED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CLEAN_INSTALL_RC_SHA: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
       CLEAN_INSTALL_SQL_PASSWORD: "CleanInstall_Only_2026!Sql"
-      CLEAN_INSTALL_OUTPUT_DIR: ${{ runner.temp }}/clean-install-output
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,7 +84,8 @@ jobs:
           set -euo pipefail
           test "$(git -C runtime-source rev-parse HEAD)" = "$CLEAN_INSTALL_RC_SHA"
           test -f runtime-source/backend/src/FieldVisit.Infrastructure/AppDbContext.cs
-          mkdir -p "$CLEAN_INSTALL_OUTPUT_DIR"
+          echo "CLEAN_INSTALL_OUTPUT_DIR=$RUNNER_TEMP/clean-install-output" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/clean-install-output"
           echo "RC_SOURCE_ROOT=$GITHUB_WORKSPACE/runtime-source" >> "$GITHUB_ENV"
       - name: Wait for isolated SQL Server 2022
         shell: bash
