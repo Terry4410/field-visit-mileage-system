@@ -531,6 +531,69 @@ try
     if (checked007.Count != 9)
         throw new InvalidOperationException("CHECK_007_CATALOG_INCOMPLETE");
 
+    // Replay the 17 source-pinned 001-004 period/deployment/location CHECKs.
+    // These complement the 007 and 009/010 scopes without duplicates.
+    var checks001Path = Path.Combine(output, "001_004_source_checks.sql");
+    var checks001ManifestPath = Path.Combine(output, "001_004_source_checks-manifest.json");
+    if (!File.Exists(checks001Path) || !File.Exists(checks001ManifestPath))
+        throw new InvalidOperationException("CHECK_001_004_SOURCE_PACKAGE_MISSING");
+    var checks001Bytes = await File.ReadAllBytesAsync(checks001Path);
+    var checks001Sha = Convert.ToHexString(SHA256.HashData(checks001Bytes)).ToLowerInvariant();
+    var expectedChecks001 = new Dictionary<string, string>(StringComparer.Ordinal);
+    using (var checks001Manifest = JsonDocument.Parse(await File.ReadAllTextAsync(checks001ManifestPath)))
+    {
+        var root = checks001Manifest.RootElement;
+        if (root.GetProperty("format").GetString() != "field-visit-v180-source-checks-001-004-v1"
+            || root.GetProperty("rcSourceSha").GetString() != expectedRc
+            || root.GetProperty("count").GetInt32() != 17
+            || root.GetProperty("sqlSha256").GetString() != checks001Sha)
+            throw new InvalidOperationException("CHECK_001_004_MANIFEST_INVALID");
+        foreach (var entry in root.GetProperty("checks").EnumerateArray())
+        {
+            if (!expectedChecks001.TryAdd(entry.GetProperty("name").GetString() ?? "",
+                                          entry.GetProperty("table").GetString() ?? ""))
+                throw new InvalidOperationException("CHECK_001_004_DUPLICATE_NAME");
+        }
+    }
+    if (expectedChecks001.Count != 17)
+        throw new InvalidOperationException("CHECK_001_004_SCOPE_MISMATCH");
+    await using (var install001 = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await install001.OpenAsync();
+        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(checks001Bytes),
+                     "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
+        {
+            await using var command = new SqlCommand(batch, install001) { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+    var actualChecks001 = new HashSet<string>(StringComparer.Ordinal);
+    await using (var catalog001 = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await catalog001.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT c.name, s.name, t.name, c.is_disabled, c.is_not_trusted, c.definition
+            FROM sys.check_constraints c
+            JOIN sys.tables t ON t.object_id=c.parent_object_id
+            JOIN sys.schemas s ON s.schema_id=t.schema_id
+            WHERE s.name=N'dbo';
+            """, catalog001) { CommandTimeout = 10 };
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var name = reader.GetString(0);
+            if (!expectedChecks001.TryGetValue(name, out var expectedTable))
+                continue;
+            if (reader.GetString(1) + "." + reader.GetString(2) != expectedTable
+                || reader.GetBoolean(3) || reader.GetBoolean(4)
+                || reader.IsDBNull(5) || !actualChecks001.Add(name))
+                throw new InvalidOperationException("CHECK_001_004_CATALOG_STATE");
+        }
+    }
+    if (actualChecks001.Count != 17)
+        throw new InvalidOperationException("CHECK_001_004_CATALOG_INCOMPLETE");
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -739,6 +802,8 @@ try
         trustedRouteCheckCount = routeCheckNames.Count,
         sourceDerived007ChecksSha256 = check007Sha,
         installedSource007CheckCount = checked007.Count,
+        sourceDerived001004ChecksSha256 = checks001Sha,
+        installedSource001004CheckCount = actualChecks001.Count,
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
         installedEffectiveTriggerCount = installedTriggers.Count,
@@ -766,6 +831,7 @@ try
     Status("EMPTY_NEW_SCHEMA_VERSION_LEDGER_SQL2022_PASS");
     Status("TRUSTED_007_009_010_ROUTE_CHECKS_SQL2022_PASS");
     Status("SOURCE_007_NINE_OTHER_CHECKS_SQL2022_PASS");
+    Status("SOURCE_001_004_SEVENTEEN_CHECKS_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");

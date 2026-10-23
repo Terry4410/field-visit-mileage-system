@@ -269,6 +269,34 @@ def main() -> int:
         path="database/migrations/1800_007_mileage_google_governance/Up.sql"
         if m.get("sourcePath")!=path or m.get("sourceSha256")!=sha256(args.rc_root / path):
             raise ContractError("SOURCE_007_CHECK_PROVENANCE")
+        checks001_sql = args.output / "001_004_source_checks.sql"
+        checks001_manifest = args.output / "001_004_source_checks-manifest.json"
+        if not checks001_sql.is_file() or not checks001_manifest.is_file():
+            raise ContractError("CHECK_001_004_PACKAGE_MISSING")
+        obj001 = json.loads(checks001_manifest.read_text(encoding="utf-8"))
+        if (obj001.get("format") != "field-visit-v180-source-checks-001-004-v1"
+                or obj001.get("rcSourceSha") != EXPECTED_RC
+                or obj001.get("count") != 17
+                or obj001.get("sqlSha256") != sha256(checks001_sql)):
+            raise ContractError("CHECK_001_004_PACKAGE_INVALID")
+        check_list=obj001.get("checks")
+        if (not isinstance(check_list,list) or len(check_list)!=17
+                or len({e.get("name") for e in check_list})!=17):
+            raise ContractError("CHECK_001_004_SCOPE")
+        approved={
+            f"database/migrations/1800_00{i}_{title}/Up.sql"
+            for i,title in [
+                (1,"organization_center_team_lifecycle"),
+                (2,"person_employment_role_membership"),
+                (3,"deployment_sites"),
+                (4,"location_governance")
+            ]
+        }
+        if {e.get("sourcePath") for e in check_list}!=approved:
+            raise ContractError("CHECK_001_004_SOURCES")
+        for entry in check_list:
+            if sha256(args.rc_root / entry["sourcePath"])!=entry.get("sourceSha256"):
+                raise ContractError("CHECK_001_004_SOURCE_HASH")
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ContractError):
         print("CLEAN_INSTALL_PACKAGE=FAIL_CLOSED")
         return 1
@@ -280,6 +308,7 @@ def main() -> int:
     print("OPTIONC_CANDIDATE_TABLE_PACKAGE=PASS")
     print("SQL_ONLY_INDEX_PACKAGE=PASS")
     print("SOURCE_007_OTHER_CHECKS_PACKAGE=PASS")
+    print("SOURCE_001_004_CHECKS_PACKAGE=PASS")
     print("FULL_CLEAN_INSTALL=HOLD_OTHER_OBJECTS_AND_APP_COMPATIBILITY")
     return 0
 

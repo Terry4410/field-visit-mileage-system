@@ -129,6 +129,12 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/clean_install/build_007_checks.py \
             --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile seventeen 001-004 temporal and location CHECKs (source-pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_001_004_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
       - name: Build and execute fresh model-baseline install against disposable SQL Server 2022
         timeout-minutes: 15
         shell: bash
