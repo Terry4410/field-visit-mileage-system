@@ -48,6 +48,16 @@ else:
 
  shutil.copyfile(accepted/'source-code-immutable-rc.zip',out/'source-code-immutable-rc.zip')
  subprocess.run(['git','archive','--format=zip','--output='+str(out/'release-source-delta.zip'),os.environ['GITHUB_SHA'],'tools/uat-release-candidate','scripts/ci/uat_release','docs/release/uat-release-candidate','.github/workflows/uat-release-candidate-nondeploy.yml'],check=True)
+ browser=json.loads((out/'browser-evidence.json').read_text());observed={x['case'] for x in browser['cases']}
+ source_cases=(runtime/'docs/release/SCHEME_A_BUSINESS_UAT_ROLE_CASES_NONDEPLOY.md').read_text()
+ import re
+ cases=re.findall(r'^\| ((?:VIS|LEAD|ADMIN|XLS|TRIP|SEC)-\d{2}) \|',source_cases,re.M);assert len(cases)==25
+ coverage=[]
+ for case in cases:
+  status='PASS' if case in observed else 'PARTIAL'
+  detail='Focused same-build browser and SQL assertions' if case in observed else 'Accepted isolated API/security evidence reused; complete case still needs bounded Business UAT disposition'
+  coverage.append({'case':case,'technicalCoverage':status,'basis':detail,'liveBusinessUat':'NOT_EXECUTED'})
+ (out/'frozen-25-coverage.json').write_text(json.dumps({'sourceSha256':sha(source_cases.encode()),'caseCount':25,'cases':coverage,'notAllCasesClaimedPass':True},indent=2))
  manifest={'candidateSourceSha':os.environ['GITHUB_SHA'],'runId':os.environ['GITHUB_RUN_ID'],'acceptedInstallEvidence':{'sha':'39c86f03cc8d66881a78a800ded974b2f338cf07','run':'39981135659','artifact':'12513786826','zipSha256':'0f8e86063bb11edc223f2ec2cd628dc45fd64d059343b410826163e21586d61a'},'binding':contract,'packages':[{'file':app['file'],'sha256':app['sha256']},{'file':'frontend-release-candidate.zip','sha256':contract['frontendSha256']}],'activationDefault':'OFF','physicalIphone':'NOT_EXECUTED','liveUat':'NOT_AUTHORIZED_NOT_EXECUTED'}
  (out/'release-manifest.json').write_text(json.dumps(manifest,indent=2))
  (out/'checksums.sha256').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(out).as_posix()+'\n' for p in sorted(out.rglob('*')) if p.is_file() and p.name!='checksums.sha256'))

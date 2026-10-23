@@ -1,7 +1,7 @@
 SET NOCOUNT ON;
 SELECT (
  SELECT t.name AS [table],
-   JSON_QUERY((SELECT c.name,ty.name AS [type],c.max_length,c.precision,c.scale,c.is_nullable,c.is_identity,c.is_computed,
+   JSON_QUERY((SELECT c.name,ty.name AS [type],c.max_length,c.precision,c.scale,c.is_nullable,c.is_identity,c.is_computed,c.collation_name,
       dc.definition AS [default],cc.definition AS computed
      FROM sys.columns c JOIN sys.types ty ON ty.user_type_id=c.user_type_id
      LEFT JOIN sys.default_constraints dc ON dc.object_id=c.default_object_id

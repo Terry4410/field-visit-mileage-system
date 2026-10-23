@@ -46,10 +46,19 @@ def main():
  path='frontend/src/pages/ScopedLocationPage.tsx';old=(rc/path).read_text()
  old=old.replace('useState<"review"|"drafts">','useState<"review"|"drafts"|"published">')
  old=old.replace('const visibleRows=role===', 'const publishedRows=rows.filter(x=>x.isActive&&x.approvalStatus==="Approved");\n const visibleRows=role===')
+ old=old.replace('leaderTab==="review"?"待審地點":"我的地點草稿"','leaderTab==="review"?"待審地點":leaderTab==="published"?"已發布地點":"我的地點草稿"')
  old=old.replace('leaderTab==="review"?pendingReviewRows:leaderDraftRows','leaderTab==="review"?pendingReviewRows:leaderTab==="published"?publishedRows:leaderDraftRows')
  old=old.replace('待審地點（{pendingReviewRows.length}）</button>', '待審地點（{pendingReviewRows.length}）</button><button type="button" role="tab" aria-selected={leaderTab==="published"} className="btn secondary" onClick={()=>setLeaderTab("published")}>已發布地點</button>')
  write(path,old)
  path='frontend/src/pages/AdminPage.tsx';old=(rc/path).read_text();write(path,old.replace('<AdminImportPanel type="locations" onDone={load}/>', '<AdminImportPanel type="locations" reviewOnly onDone={load}/>'))
+ path='frontend/src/App.tsx';old=(rc/path).read_text()
+ mobile='<div className="mobile-session-controls"><span>{roleLabel[role]}</span>{roles.length>1&&<select aria-label="切換角色" value={role} onChange={e=>switchRole(e.target.value)}>{roles.map(r=><option key={r} value={r}>{roleLabel[r]||r}</option>)}</select>}<button className="btn small secondary" onClick={logout}>登出</button></div>'
+ write(path,old.replace('<section className="content">',mobile+'<section className="content">'))
+ path='frontend/src/styles.css';old=(rc/path).read_text();write(path,old+'\n.mobile-session-controls{display:none}@media(max-width:1100px){.mobile-session-controls{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:6px 14px}.mobile-session-controls select,.mobile-session-controls button{min-height:44px}}\n')
+ path='frontend/src/pages/LocationApprovalQueuePage.tsx';old=(rc/path).read_text()
+ old=old.replace('const isCreate=row?.operationCode==="CreateLocation";', 'const isCreate=row?.operationCode==="CreateLocation";const requiresEvidence=isCreate||row?.riskCode==="High";')
+ old=old.replace('action==="approve"&&isCreate&&','action==="approve"&&requiresEvidence&&').replace('{isCreate&&stage?.stageStatus', '{requiresEvidence&&stage?.stageStatus').replace('{isCreate&&<div className="actions">','{requiresEvidence&&<div className="actions">').replace('(isCreate&&stage?.stageStatus!==','(requiresEvidence&&stage?.stageStatus!==')
+ write(path,old)
  # Complete final 018/020 capabilities only after compiling each source
  # predicate on a zero-row temporary shape and matching SQL's actual definition.
  contract={'018':{'ChangeRequests':['CK_B3_ChangeRequests_ReviewState'],'ChangeRequestEvents':['CK_B3_ChangeRequestEvents_EventType','CK_B3_ChangeRequestEvents_DecisionState']},'020':{'ImportBatches':['CK_ImportBatches_Status'],'ImportBatchItems':['CK_ImportBatchItems_Status']}}

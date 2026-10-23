@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FieldVisit.Infrastructure;
+using FieldVisit.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 
 var stage="INIT";
@@ -42,6 +44,21 @@ try
  stage="ACCEPTED_FIXTURE_SETUP";
  var actors=await CleanInstallRoleProbe.SeedAsync(admin);
  var fixture=await CleanInstallBusinessProbe.SeedAsync(admin,actors);
+ CleanInstallRoleProbe.Actor publisher;
+ await using(var db=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(admin).Options)) {
+  var original=await db.Users.SingleAsync(x=>x.UserId==fixture.Admin.UserId);var nowSeed=DateTime.UtcNow;var since=new DateOnly(2020,1,1);
+  var account="RC-P-"+Guid.NewGuid().ToString("N")[..10];
+  var u=new User {OrganizationId=original.OrganizationId,TeamId=fixture.TeamId,EmployeeNo=account,DisplayName="Independent Publisher",IsActive=true,CreatedAt=nowSeed};db.Users.Add(u);await db.SaveChangesAsync();
+  var employment=new Employment {OrganizationId=original.OrganizationId!.Value,PersonId=u.UserId,EmployeeNo=account,LegacyUserId=u.UserId,HireDate=since,SourceType="Synthetic"};db.Employments.Add(employment);await db.SaveChangesAsync();
+  var role=await db.Roles.SingleAsync(x=>x.RoleCode=="admin");
+  db.UserIdentityProfiles.Add(new UserIdentityProfile {UserId=u.UserId,UserType=UserTypes.Internal,UserCode=account,IdentityProvider="Demo",EmploymentId=employment.EmploymentId,CreatedAt=nowSeed});
+  db.UserEmploymentPeriods.Add(new UserEmploymentPeriod {UserId=u.UserId,EmploymentStatus=EmploymentStatuses.Active,EffectiveFrom=since,SourceType="Synthetic",CreatedAt=nowSeed});
+  db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod {EmploymentId=employment.EmploymentId,EmploymentStatus=EmploymentStatuses.Active,EffectiveFrom=since,SourceType="Synthetic"});
+  db.UserRoleAssignments.Add(new UserRoleAssignment {UserId=u.UserId,RoleId=role.RoleId,EffectiveFrom=since,CreatedAt=nowSeed});db.UserRoles.Add(new UserRole {UserId=u.UserId,RoleId=role.RoleId,AssignedAt=nowSeed});
+  db.UserTeamAssignments.Add(new UserTeamAssignment {UserId=u.UserId,TeamId=fixture.TeamId,IsPrimary=true,EffectiveFrom=since,CreatedAt=nowSeed});
+  db.UserTeamScopes.Add(new UserTeamScope {UserId=u.UserId,TeamId=fixture.TeamId,IsPrimary=true,IsActive=true,AssignedAt=nowSeed});
+  db.TeamMemberships.Add(new TeamMembership {EmploymentId=employment.EmploymentId,TeamId=fixture.TeamId,IsPrimary=true,EffectiveFrom=since});await db.SaveChangesAsync();publisher=new("publisher",u.UserId,account);
+ }
  var demo=Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
  var runtimePass="Aa7!"+Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
  await using(var sql=new SqlConnection(admin))
@@ -75,7 +92,7 @@ try
   await using var locationLookup=new SqlCommand("SELECT LocationCode FROM dbo.Locations WHERE LocationId=@id",lookup);locationLookup.Parameters.AddWithValue("@id",fixture.LocationId);locationCode=(string)(await locationLookup.ExecuteScalarAsync())!;
  }
  var node=new ProcessStartInfo(Environment.GetEnvironmentVariable("NODE_BINARY")??"node"){UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true};node.ArgumentList.Add(Path.GetFullPath("tools/uat-release-candidate/browser.mjs"));
- node.Environment["RELEASE_FIXTURE"]=JsonSerializer.Serialize(new {actors=actors.ToDictionary(x=>x.Role,x=>new{account=x.Account,id=x.UserId}),password=demo,teamCode,locationCode,fixture.TeamId,fixture.OtherTeamId,fixture.LocationId});
+ node.Environment["RELEASE_FIXTURE"]=JsonSerializer.Serialize(new {actors=actors.Append(publisher).ToDictionary(x=>x.Role,x=>new{account=x.Account,id=x.UserId}),password=demo,teamCode,locationCode,fixture.TeamId,fixture.OtherTeamId,fixture.LocationId});
  using(var browser=Process.Start(node)??throw new InvalidOperationException("BROWSER_START"))
  {
   var stdout=browser.StandardOutput.ReadToEndAsync();var stderr=browser.StandardError.ReadToEndAsync();
