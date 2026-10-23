@@ -39,6 +39,14 @@ internal static class CleanInstallHttpProbe
         start.Environment["DOTNET_ENVIRONMENT"] = "Production";
         start.Environment["ConnectionStrings__DefaultConnection"] = sameCleanDbConnection;
         start.Environment["Auth__Mode"] = "Demo";
+        // Offline Google failure evidence: preserve the production provider's
+        // canonical GoogleMapsRoutes identity, but force HTTP to the unavailable
+        // local port 1. No external Google API, key, or network dependency.
+        // This is synthetic failure evidence for NONDEPLOY SQL2022 CI only.
+        start.Environment["Providers__Route"] = "Google";
+        start.Environment["GoogleMaps__ApiKey"] = "DISPOSABLE-SYNTHETIC-ROUTES-ONLY";
+        start.Environment["GoogleMaps__RoutesBaseUrl"] = "http://127.0.0.1:1";
+        start.Environment["GoogleMaps__TimeoutSeconds"] = "2";
         start.Environment["Auth__DemoPassword"] = demoPassword;
         start.Environment["Auth__JwtKey"] = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         start.Environment["BackgroundJobs__WorkerEnabled"] = "false";
