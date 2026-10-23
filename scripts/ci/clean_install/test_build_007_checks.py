@@ -27,6 +27,7 @@ class Source007CheckTests(unittest.TestCase):
         self.assertEqual(len(set(names)), EXPECTED_COUNT)
         self.assertNotIn("CK_RouteCalculationAttempts_StopCount", names)
         self.assertNotIn("CK_RouteCalculationAttempts_Reason", names)
+        self.assertFalse(any(n.startswith("CK_RouteCalculationAttempts_") for n in names))
 
     def test_missing_real_migration_is_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

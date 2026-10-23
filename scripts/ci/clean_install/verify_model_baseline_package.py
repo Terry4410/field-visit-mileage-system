@@ -243,6 +243,32 @@ def main() -> int:
                 raise ContractError("SQL_ONLY_INDEX_PROVENANCE")
             if sha256(args.rc_root / path) != item.get("sourceSha256"):
                 raise ContractError("SQL_ONLY_INDEX_SOURCE_HASH")
+        source_check_sql = args.output / "007_source_checks.sql"
+        source_check_manifest = args.output / "007_source_checks-manifest.json"
+        if not source_check_sql.is_file() or not source_check_manifest.is_file():
+            raise ContractError("SOURCE_007_CHECK_PACKAGE_MISSING")
+        m = json.loads(source_check_manifest.read_text(encoding="utf-8"))
+        if (m.get("format") != "field-visit-v180-source-checks-007-v1"
+                or m.get("rcSourceSha") != EXPECTED_RC
+                or m.get("count") != 9
+                or m.get("sqlSha256") != sha256(source_check_sql)):
+            raise ContractError("SOURCE_007_CHECK_MANIFEST_INVALID")
+        expected_007_names = {
+            "CK_GeocodingAttempts_Status", "CK_GeocodingAttempts_Result",
+            "CK_MileageGovernanceEvents_Type",
+            "CK_MileageCalculations_ApprovedDistanceSource",
+            "CK_MileageCalculations_ApprovalEvidence",
+            "CK_VisitTripSnapshots_RouteMode",
+            "CK_VisitTripSnapshots_RouteStatus",
+            "CK_VisitTripSnapshots_ApprovedDistanceSource",
+            "CK_VisitTripSnapshots_ApprovalBasis"
+        }
+        entries=m.get("checks")
+        if not isinstance(entries,list) or len(entries)!=9 or {e.get("name") for e in entries} != expected_007_names:
+            raise ContractError("SOURCE_007_CHECK_SCOPE")
+        path="database/migrations/1800_007_mileage_google_governance/Up.sql"
+        if m.get("sourcePath")!=path or m.get("sourceSha256")!=sha256(args.rc_root / path):
+            raise ContractError("SOURCE_007_CHECK_PROVENANCE")
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ContractError):
         print("CLEAN_INSTALL_PACKAGE=FAIL_CLOSED")
         return 1
@@ -253,6 +279,7 @@ def main() -> int:
     print("EFFECTIVE_TRIGGER_PACKAGE=PASS")
     print("OPTIONC_CANDIDATE_TABLE_PACKAGE=PASS")
     print("SQL_ONLY_INDEX_PACKAGE=PASS")
+    print("SOURCE_007_OTHER_CHECKS_PACKAGE=PASS")
     print("FULL_CLEAN_INSTALL=HOLD_OTHER_OBJECTS_AND_APP_COMPATIBILITY")
     return 0
 

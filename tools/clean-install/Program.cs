@@ -464,6 +464,73 @@ try
             throw new InvalidOperationException("CLEAN_ROUTE_NINE_CHECKS_MISSING");
     }
 
+    // Complement the nine already-installed route checks with the nine
+    // independent Geocoding/MileageGovernance/Mileage/Snapshot predicates
+    // pinned to 1800_007. Never reinstall overlapping route constraints.
+    var check007Path = Path.Combine(output, "007_source_checks.sql");
+    var check007ManifestPath = Path.Combine(output, "007_source_checks-manifest.json");
+    if (!File.Exists(check007Path) || !File.Exists(check007ManifestPath))
+        throw new InvalidOperationException("CHECK_007_SOURCE_PACKAGE_MISSING");
+    var check007Bytes = await File.ReadAllBytesAsync(check007Path);
+    var check007Sha = Convert.ToHexString(SHA256.HashData(check007Bytes)).ToLowerInvariant();
+    var expectedChecks007 = new Dictionary<string, string>(StringComparer.Ordinal);
+    using (var check007Manifest = JsonDocument.Parse(await File.ReadAllTextAsync(check007ManifestPath)))
+    {
+        var root = check007Manifest.RootElement;
+        if (root.GetProperty("format").GetString() != "field-visit-v180-source-checks-007-v1"
+            || root.GetProperty("rcSourceSha").GetString() != expectedRc
+            || root.GetProperty("count").GetInt32() != 9
+            || root.GetProperty("sqlSha256").GetString() != check007Sha)
+            throw new InvalidOperationException("CHECK_007_MANIFEST_INVALID");
+        foreach (var entry in root.GetProperty("checks").EnumerateArray())
+        {
+            var name = entry.GetProperty("name").GetString() ?? "";
+            var table = entry.GetProperty("table").GetString() ?? "";
+            if (!expectedChecks007.TryAdd(name, table)
+                || name.StartsWith("CK_RouteCalculationAttempts_", StringComparison.Ordinal))
+                throw new InvalidOperationException("CHECK_007_SOURCE_OVERLAP");
+        }
+    }
+    if (expectedChecks007.Count != 9)
+        throw new InvalidOperationException("CHECK_007_EXPECTED_COUNT");
+    await using (var checkInstall = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await checkInstall.OpenAsync();
+        foreach (var batch in Regex.Split(Encoding.UTF8.GetString(check007Bytes),
+                     "(?im)^\\s*GO\\s*(?:--.*)?$")
+                     .Where(batch => !string.IsNullOrWhiteSpace(batch)))
+        {
+            await using var command = new SqlCommand(batch, checkInstall)
+            { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+    var checked007 = new HashSet<string>(StringComparer.Ordinal);
+    await using (var checkCatalog = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await checkCatalog.OpenAsync();
+        await using var command = new SqlCommand("""
+            SELECT c.name, s.name, t.name, c.is_disabled, c.is_not_trusted, c.definition
+            FROM sys.check_constraints c
+            JOIN sys.tables t ON t.object_id=c.parent_object_id
+            JOIN sys.schemas s ON s.schema_id=t.schema_id
+            WHERE s.name=N'dbo';
+            """, checkCatalog) { CommandTimeout = 10 };
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var name = reader.GetString(0);
+            if (!expectedChecks007.TryGetValue(name, out var expectedTable))
+                continue;
+            if (reader.GetString(1) + "." + reader.GetString(2) != expectedTable
+                || reader.GetBoolean(3) || reader.GetBoolean(4)
+                || reader.IsDBNull(5) || !checked007.Add(name))
+                throw new InvalidOperationException("CHECK_007_CATALOG_STATE_MISMATCH");
+        }
+    }
+    if (checked007.Count != 9)
+        throw new InvalidOperationException("CHECK_007_CATALOG_INCOMPLETE");
+
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
     await using (var catalogConnection = new SqlConnection(installBuilder.ConnectionString))
     {
@@ -670,6 +737,8 @@ try
         versionLedgerStatus = "EMPTY_NEW_BASELINE_NO_HISTORICAL_MARKERS",
         sourceDerivedRouteChecksSqlSha256 = reasonDdlSha,
         trustedRouteCheckCount = routeCheckNames.Count,
+        sourceDerived007ChecksSha256 = check007Sha,
+        installedSource007CheckCount = checked007.Count,
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
         installedEffectiveTriggerCount = installedTriggers.Count,
@@ -696,6 +765,7 @@ try
     Status("EF_SYNTHETIC_WRITE_ROLLBACK_PASS");
     Status("EMPTY_NEW_SCHEMA_VERSION_LEDGER_SQL2022_PASS");
     Status("TRUSTED_007_009_010_ROUTE_CHECKS_SQL2022_PASS");
+    Status("SOURCE_007_NINE_OTHER_CHECKS_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
