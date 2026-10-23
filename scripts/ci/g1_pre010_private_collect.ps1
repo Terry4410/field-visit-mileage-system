@@ -19,6 +19,10 @@ IF DB_NAME() COLLATE Latin1_General_100_BIN2<>N'db-fieldvisit-uat'
  THROW 51990,N'G1_FIXED_TARGET_STOP',1;
 IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010')
  THROW 51992,N'G1_PREDECESSOR_STOP',1;
+-- Historical application of 010 is not the same as current UAT010.
+IF (SELECT TOP (1) VersionNumber FROM dbo.SchemaVersions
+    ORDER BY AppliedAt DESC,VersionNumber DESC) <> N'1.8.0-010'
+ THROW 51992,N'G1_PREDECESSOR_STOP',1;
 IF COALESCE(HAS_PERMS_BY_NAME(N'dbo',N'SCHEMA',N'VIEW DEFINITION'),0)<>1
  THROW 51993,N'G1_METADATA_VISIBILITY_STOP',1;
 SELECT

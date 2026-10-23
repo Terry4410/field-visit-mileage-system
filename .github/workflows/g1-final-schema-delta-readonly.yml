@@ -47,7 +47,7 @@ env:
   REFERENCE_SHA256: f86a42ad88230411b2351a59cd9c1bb40ad2586076631ab249949fce13e91eb7
   LIVE_SCRIPT_SHA256: 9b788859846c00d24e6689d7091298f099deb7ea544542b26ce61141c081b8e2
   G1_PRE010_COMPARATOR_SHA256: b627f31e881ae3132924df1c7d49358bef4c23605f91fdcaaab91a1e163e838f
-  G1_PRE010_COLLECTOR_SHA256: 41ae6ad15cd16c8bf1b90c423fef6b20a1251f5ce8b7c042a59bbcdacefcc566
+  G1_PRE010_COLLECTOR_SHA256: 59d650bc08d1d2eda9493af574f0bdb4fe67b38f0d164d8c269ce5f4e35cceac
   G1_PRE010_COLUMN_SOURCE_SHA256: 7f4a316ac835496ca150710b1b977d8c21621502740612514de8b5af6b2c51cd
   G1_PRE010_TRIGGER_DDL_SHA256: f51ea40132f78a8244bd920519619e1d8e86b5e730c6acc2c52ba19a4610a920
 
@@ -107,6 +107,19 @@ jobs:
           set -euo pipefail
           python3 -m unittest -q scripts/ci/test_g1_pre010_private_compare.py
           echo 'Pre010PrivateTest=PASS; Azure=NOT_ACCESSED; LiveSQL=NOT_ACCESSED;'
+      - name: Guard latest UAT010 predecessor, not merely a historical marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('scripts/ci/g1_pre010_private_collect.ps1').read_text(encoding='utf-8')
+          assert "IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010')" in s
+          assert "SELECT TOP (1) VersionNumber FROM dbo.SchemaVersions" in s
+          assert "ORDER BY AppliedAt DESC,VersionNumber DESC) <> N'1.8.0-010'" in s
+          assert s.count("THROW 51992,N'G1_PREDECESSOR_STOP',1;")==2
+          print('Pre010LatestGuard=PASS; Azure=NOT_ACCESSED;')
+          PY
       - name: Assert explicit owner-dispatch gate and no automatic push authorization
         shell: python
         run: |
