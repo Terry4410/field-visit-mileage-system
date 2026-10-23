@@ -14,6 +14,7 @@ public interface ITokenService
 
 public interface IUserRepository
 {
+    Task<bool?> GetIsActiveAsync(int userId, CancellationToken ct);
     Task<User?> FindByAccountAsync(
         string account,
         CancellationToken ct);
