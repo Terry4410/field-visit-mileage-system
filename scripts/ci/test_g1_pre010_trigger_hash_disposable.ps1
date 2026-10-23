@@ -122,3 +122,6 @@ FOR JSON PATH,INCLUDE_NULL_VALUES;
     if($null -ne $privateEvidence){Remove-Item -LiteralPath $privateEvidence -Force -ErrorAction SilentlyContinue}
     Remove-Variable ddl -ErrorAction SilentlyContinue
 }
+# A deliberately rejected Python tamper check leaves LASTEXITCODE=1; explicit
+# success is required only after all positive/negative assertions and cleanup.
+exit 0
