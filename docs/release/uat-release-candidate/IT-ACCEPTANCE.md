@@ -26,6 +26,10 @@ UAT runtime trust requires all of: fixed endpoint+database; Azure SQL engine; TL
 
 sign_activation.py prepares an eight-hour attestation only from the paired contract and separately inspected facts. It never connects or enables anything. Key/attestation injection, OPTIONC_EXECUTION_MODE=Uat, API Candidate enablement, FIELDVISIT_UAT_ACTIVATION and the source-matched Frontend runtime switch all require later explicit activation approval. Neither a mode nor a UI flag grants SQL access. The normal Frontend binary is tested with a loopback-only runtime config in CI; the packaged config stays OFF.
 
+## Role entrypoints
+
+Excel Create review submission remains available to scoped Admin/Leader test accounts. Published Excel Update uses the Leader entrypoint and existing live appointment/delegation write authorization; a pure Admin does not gain published-Location submission authority through imports. An independent appointed/delegated Leader reviews Leader-originated updates, followed by independent Admin evidence/publication. Direct LowRisk remains owner Visitor or current appointed/delegated Leader only. UI role checks never replace server-side live HR/scope checks.
+
 ## Live gates before Business UAT
 
 After separate authorization: verify exact deployed API/Frontend/source hashes, target SQL fingerprint/capabilities, actual least-privilege principal, restoration boundary and test-account scopes; approve controlled activation; execute physical iPhone and actual deployed three-role Browser→API→SQL cases. CI mobile viewport/WebKit is not physical iPhone evidence. Business UAT signoff and full 25-case disposition remain separate from technical candidate readiness.

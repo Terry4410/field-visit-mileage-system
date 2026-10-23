@@ -76,6 +76,15 @@ def main():
  old=old.replace('leaderTab==="review"?pendingReviewRows:leaderDraftRows','leaderTab==="review"?pendingReviewRows:leaderTab==="published"?publishedRows:leaderDraftRows')
  old=old.replace('待審地點（{pendingReviewRows.length}）</button>', '待審地點（{pendingReviewRows.length}）</button><button type="button" role="tab" aria-selected={leaderTab==="published"} className="btn secondary" onClick={()=>setLeaderTab("published")}>已發布地點</button>')
  write(path,old)
+ path='frontend/src/components/AdminImportPanel.tsx';old=(rc/path).read_text()
+ old='import {useAuth} from "../auth";\n'+old
+ old=old.replace('export function OptionCExcelActions({type,preview,busy,onCreate,onUpdate}', 'export function OptionCExcelActions({type,preview,busy,onCreate,onUpdate,allowUpdates=true}')
+ old=old.replace('onUpdate:()=>void}', 'onUpdate:()=>void;allowUpdates?:boolean}')
+ old=old.replace('OPTIONC_EXCEL_UPDATE_UI_ENABLED&&maySubmitCanonicalExcelUpdates(preview)', 'allowUpdates&&OPTIONC_EXCEL_UPDATE_UI_ENABLED&&maySubmitCanonicalExcelUpdates(preview)')
+ old=old.replace(' const[file,setFile]', ' const {user}=useAuth();const allowUpdates=!!user?.roles.some(r=>r.toLowerCase()==="leader");\n const[file,setFile]')
+ old=old.replace('busy={busy} onCreate=', 'busy={busy} allowUpdates={allowUpdates} onCreate=')
+ old=old.replace('混合動作與不完整預覽會拒絕送審。','混合動作與不完整預覽會拒絕送審。已發布地點的 Excel 更新由具現任或委任寫入資格的小組長送審，Admin 不因匯入取得地點寫入權。')
+ write(path,old)
  path='frontend/src/pages/AdminPage.tsx';old=(rc/path).read_text();write(path,old.replace('<AdminImportPanel type="locations" onDone={load}/>', '<AdminImportPanel type="locations" reviewOnly onDone={load}/>'))
  path='frontend/src/App.tsx';old=(rc/path).read_text()
  mobile='<div className="mobile-session-controls"><span>{roleLabel[role]}</span>{roles.length>1&&<select aria-label="切換角色" value={role} onChange={e=>switchRole(e.target.value)}>{roles.map(r=><option key={r} value={r}>{roleLabel[r]||r}</option>)}</select>}<button className="btn small secondary" onClick={logout}>登出</button></div>'

@@ -56,20 +56,24 @@ try
  stage="ACCEPTED_FIXTURE_SETUP";
  var actors=await CleanInstallRoleProbe.SeedAsync(admin);
  var fixture=await CleanInstallBusinessProbe.SeedAsync(admin,actors);
- CleanInstallRoleProbe.Actor publisher;
+ var extraActors=new List<CleanInstallRoleProbe.Actor>();
  await using(var db=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(admin).Options)) {
+  foreach(var extraRole in new[]{"admin","leader"}) {
   var original=await db.Users.SingleAsync(x=>x.UserId==fixture.Admin.UserId);var nowSeed=DateTime.UtcNow;var since=new DateOnly(2020,1,1);
   var account="RC-P-"+Guid.NewGuid().ToString("N")[..10];
   var u=new User {OrganizationId=original.OrganizationId,TeamId=fixture.TeamId,EmployeeNo=account,DisplayName="Independent Publisher",IsActive=true,CreatedAt=nowSeed};db.Users.Add(u);await db.SaveChangesAsync();
   var employment=new Employment {OrganizationId=original.OrganizationId!.Value,PersonId=u.UserId,EmployeeNo=account,LegacyUserId=u.UserId,HireDate=since,SourceType="Synthetic"};db.Employments.Add(employment);await db.SaveChangesAsync();
-  var role=await db.Roles.SingleAsync(x=>x.RoleCode=="admin");
+  var role=await db.Roles.SingleAsync(x=>x.RoleCode==extraRole);
   db.UserIdentityProfiles.Add(new UserIdentityProfile {UserId=u.UserId,UserType=UserTypes.Internal,UserCode=account,IdentityProvider="Demo",EmploymentId=employment.EmploymentId,CreatedAt=nowSeed});
   db.UserEmploymentPeriods.Add(new UserEmploymentPeriod {UserId=u.UserId,EmploymentStatus=EmploymentStatuses.Active,EffectiveFrom=since,SourceType="Synthetic",CreatedAt=nowSeed});
   db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod {EmploymentId=employment.EmploymentId,EmploymentStatus=EmploymentStatuses.Active,EffectiveFrom=since,SourceType="Synthetic"});
   db.UserRoleAssignments.Add(new UserRoleAssignment {UserId=u.UserId,RoleId=role.RoleId,EffectiveFrom=since,CreatedAt=nowSeed});db.UserRoles.Add(new UserRole {UserId=u.UserId,RoleId=role.RoleId,AssignedAt=nowSeed});
   db.UserTeamAssignments.Add(new UserTeamAssignment {UserId=u.UserId,TeamId=fixture.TeamId,IsPrimary=true,EffectiveFrom=since,CreatedAt=nowSeed});
   db.UserTeamScopes.Add(new UserTeamScope {UserId=u.UserId,TeamId=fixture.TeamId,IsPrimary=true,IsActive=true,AssignedAt=nowSeed});
-  db.TeamMemberships.Add(new TeamMembership {EmploymentId=employment.EmploymentId,TeamId=fixture.TeamId,IsPrimary=true,EffectiveFrom=since});await db.SaveChangesAsync();publisher=new("publisher",u.UserId,account);
+  db.TeamMemberships.Add(new TeamMembership {EmploymentId=employment.EmploymentId,TeamId=fixture.TeamId,IsPrimary=true,EffectiveFrom=since});
+  if(extraRole=="leader") {var assignment=await db.TeamLeaderAssignments.SingleAsync(x=>x.TeamId==fixture.TeamId);var todaySeed=DateOnly.FromDateTime(nowSeed);db.TeamLeaderDelegations.Add(new TeamLeaderDelegation{TeamLeaderAssignmentId=assignment.TeamLeaderAssignmentId,DelegateEmploymentId=employment.EmploymentId,EffectiveFrom=todaySeed,EffectiveTo=todaySeed.AddDays(2),Reason="Synthetic independent Excel review",CreatedAt=nowSeed,CreatedByUserId=fixture.Admin.UserId});}
+  await db.SaveChangesAsync();extraActors.Add(new(extraRole=="admin"?"publisher":"reviewLeader",u.UserId,account));
+  }
  }
  var demo=Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
  var runtimePass="Aa7!"+Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -112,7 +116,7 @@ try
  node.ArgumentList.Add("--input-type=module");node.ArgumentList.Add("-e");
  node.ArgumentList.Add("import {pathToFileURL} from 'node:url';console.log('UAT_RC_BROWSER_BOOT');import(pathToFileURL(process.argv[1]).href).catch(e=>{const kind=['SyntaxError','TypeError','ReferenceError','Error'].includes(e.name)?e.name.toUpperCase():'SUPPRESSED';console.log('UAT_RC_BROWSER_FAIL_IMPORT_'+kind);process.exitCode=1;});");
  node.ArgumentList.Add(Path.Combine(Environment.GetEnvironmentVariable("GITHUB_WORKSPACE")??Directory.GetCurrentDirectory(),"tools/uat-release-candidate/browser.mjs"));
- node.Environment["RELEASE_FIXTURE"]=JsonSerializer.Serialize(new {actors=actors.Append(publisher).ToDictionary(x=>x.Role,x=>new{account=x.Account,id=x.UserId}),password=demo,teamCode,fixture.TeamId,fixture.OtherTeamId,fixture.LocationId});
+ node.Environment["RELEASE_FIXTURE"]=JsonSerializer.Serialize(new {actors=actors.Concat(extraActors).ToDictionary(x=>x.Role,x=>new{account=x.Account,id=x.UserId}),password=demo,teamCode,fixture.TeamId,fixture.OtherTeamId,fixture.LocationId});
  stage="BROWSER_PROCESS";
  using(var browser=Process.Start(node)??throw new InvalidOperationException("BROWSER_START"))
  {
