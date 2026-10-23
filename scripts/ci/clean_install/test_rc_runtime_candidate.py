@@ -23,7 +23,12 @@ class RuntimeCandidateOverlayTests(unittest.TestCase):
                 b"        return await db.Locations.AsNoTracking()")
         updated_guard, updated_repo = rewrite_operational_guards(guard, repo)
         self.assertIn(b"ReservationStatus<>N'Published'", updated_guard)
-        self.assertIn(b"pv.IsCurrent=1", updated_guard)
+        self.assertIn(b"request.Status=N'Applied'", updated_guard)
+        self.assertIn(b"origin.VersionNumber=1", updated_guard)
+        self.assertIn(b"currentVersion.IsCurrent=1", updated_guard)
+        # A later low-risk publish changes the Current version's ChangeRequestId:
+        # it must NOT be forced to equal the origin Create reservation request.
+        self.assertNotIn(b"pv.ChangeRequestId=cr.ChangeRequestId\n                          AND pv.IsCurrent=1", updated_guard)
         self.assertIn(b"l.IsActive=1", updated_guard)
         self.assertIn(b"RequireUnreservedDraftAsync(db, id, ct);", updated_repo)
         self.assertIn(b"RequirePublishedOrUnreservedOperationalAsync(db, id, ct);", updated_repo)

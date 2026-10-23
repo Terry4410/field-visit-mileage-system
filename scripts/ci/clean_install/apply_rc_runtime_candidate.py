@@ -52,10 +52,23 @@ OPERATIONAL_GUARD = '''    /// <summary>
                           AND l.IsActive=1
                           AND l.ApprovalStatus=N'Approved')
                     OR NOT EXISTS (
-                        SELECT 1 FROM dbo.LocationPublishedVersions pv WITH(HOLDLOCK)
-                        WHERE pv.LocationId=cr.LocationId
-                          AND pv.ChangeRequestId=cr.ChangeRequestId
-                          AND pv.IsCurrent=1))
+                        SELECT 1 FROM dbo.ChangeRequests request WITH(HOLDLOCK)
+                        WHERE request.ChangeRequestId=cr.ChangeRequestId
+                          AND request.Status=N'Applied'
+                          AND request.EntityKind=N'Location'
+                          AND request.OperationCode=N'CreateLocation'
+                          AND request.OrganizationId=cr.OrganizationId
+                          AND request.TeamId=cr.TeamId
+                          AND TRY_CONVERT(int, request.EntityId)=cr.LocationId)
+                    OR NOT EXISTS (
+                        SELECT 1 FROM dbo.LocationPublishedVersions origin WITH(HOLDLOCK)
+                        WHERE origin.LocationId=cr.LocationId
+                          AND origin.ChangeRequestId=cr.ChangeRequestId
+                          AND origin.VersionNumber=1)
+                    OR NOT EXISTS (
+                        SELECT 1 FROM dbo.LocationPublishedVersions currentVersion WITH(HOLDLOCK)
+                        WHERE currentVersion.LocationId=cr.LocationId
+                          AND currentVersion.IsCurrent=1))
             ) THEN 1 ELSE 0 END
             """, sql);
         check.Parameters.AddWithValue("@location", locationId);
@@ -136,7 +149,7 @@ def main() -> int:
             "overlayScriptSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "changes": [
                 "TeamLeaderAssignments EF mapping uses UseSqlOutputClause(false)",
-                "Canonical Published Location can be read by operational Trip only when Location, reservation and current publication ledger agree; legacy maintenance remains denied"
+                "Canonical Published Location requires applied Create request, origin version one and current published state; legacy maintenance remains denied"
             ],
             "operationalGuard": {
                 "guardPath": GUARD_PATH.as_posix(),
