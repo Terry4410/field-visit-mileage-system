@@ -22,6 +22,11 @@ column_spec=importlib.util.spec_from_file_location("g1_columns",COL_SOURCE)
 column_module=importlib.util.module_from_spec(column_spec)
 column_spec.loader.exec_module(column_module)
 COLUMN_FIELDS=("SchemaName","TableName","ColumnName","SqlType","MaxLengthBytes","Scale","IsNullable","IsIdentity")
+CONSTRAINT_SOURCE=Path(__file__).with_name("g1_pre010_created_constraints.py")
+constraint_spec=importlib.util.spec_from_file_location("g1_constraints",CONSTRAINT_SOURCE)
+constraint_module=importlib.util.module_from_spec(constraint_spec)
+constraint_spec.loader.exec_module(constraint_module)
+
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 REQUIRED007 = "TR_Locations_SelectedGeocodingAttempt"
 FIELDS = ("SchemaName", "TableName", "TriggerName", "Events",
@@ -54,7 +59,42 @@ def check_columns(actual, expected):
             elif type(value)!=type(row[facet]) or value!=row[facet]:
                 raise Stop("COLUMN_DRIFT")
 
-def compare(actual: dict, sources: dict, mode: str, protected_sha: str, expected_columns=None):
+def check_constraints(observed_fks, observed_checks, expected):
+    if not isinstance(expected,dict) or not isinstance(observed_fks,list) or not isinstance(observed_checks,list):
+        raise Stop("CONSTRAINT_SHAPE")
+    if len(observed_fks)>5000 or len(observed_checks)>5000:
+        raise Stop("CONSTRAINT_SHAPE")
+    for actual,required,identity,state,code in (
+        (observed_fks,expected["ForeignKeys"],
+         ("SchemaName","TableName","ForeignKeyName","ParentColumn"),("IsDisabled","IsNotTrusted"),"FK"),
+        (observed_checks,expected["Checks"],
+         ("SchemaName","TableName","CheckConstraintName"),("IsDisabled","IsNotTrusted"),"CHECK")):
+        by_key={}
+        for row in actual:
+            if not isinstance(row,dict) or any(k not in row for k in identity+state):
+                raise Stop("CONSTRAINT_SHAPE")
+            key=tuple(row[k] for k in identity)
+            if any(not isinstance(v,str) or not v for v in key) or key in by_key:
+                raise Stop("CONSTRAINT_SHAPE")
+            by_key[key]=row
+        wanted={tuple(row[k] for k in identity):row for row in required}
+        scoped={k:v for k,v in by_key.items() if k[0]=="dbo" and k[1] in constraint_module.EXPECT_FKS}
+        if set(scoped)!=set(wanted):raise Stop(code+"_SCOPE")
+        for key,expected_row in wanted.items():
+            actual_row=scoped[key]
+            for field in state:
+                value=actual_row[field]
+                if type(value) is not bool and (type(value) is not int or value not in (0,1)):
+                    raise Stop("CONSTRAINT_SHAPE")
+                if bool(value):raise Stop(code+"_STATE")
+            if code=="FK":
+                for name in ("ReferencedTable","ReferencedColumn"):
+                    if actual_row.get(name)!=expected_row[name]:raise Stop("FK_DRIFT")
+            else:
+                if actual_row.get("DefinitionVisible") not in (True,1):
+                    raise Stop("CHECK_VISIBILITY")
+
+def compare(actual: dict, sources: dict, mode: str, protected_sha: str, expected_columns=None, expected_constraints=None):
     if not isinstance(actual, dict) or actual.get("ContractVersion") != "g1-pre010-private-observed-v1":
         raise Stop("SHAPE")
     if not re.fullmatch(r"[0-9a-f]{40}", protected_sha) or actual.get("SourceSha") != protected_sha:
@@ -69,6 +109,8 @@ def compare(actual: dict, sources: dict, mode: str, protected_sha: str, expected
             raise Stop("PRE010_REASON")
         if expected_columns is None:raise Stop("COLUMN_REFERENCE")
         check_columns(actual.get("Columns"), expected_columns)
+        if expected_constraints is None:raise Stop("CONSTRAINT_REFERENCE")
+        check_constraints(actual.get("ForeignKeys"),actual.get("Checks"),expected_constraints)
 
     elif mode == "disposable":
         if actual.get("Provenance") != "DISPOSABLE_SQL" or actual.get("SchemaVersion") != "DISPOSABLE":
@@ -128,10 +170,11 @@ def main():
             raise Stop("PRIVATE_CAPTURE")
         actual = json.loads(args.private_actual.read_text(encoding="utf-8-sig"))
         expected_columns=column_module.derive(args.candidate_root)
-        compare(actual, src, args.mode, args.protected_sha, expected_columns)
+        expected_constraints=constraint_module.derive(args.candidate_root)
+        compare(actual, src, args.mode, args.protected_sha, expected_columns, expected_constraints)
         # Even perfect catalog equality cannot prove pre-1.5 facets, history, API principal or recovery.
         scope = "21_TRIGGERS" if args.mode == "live" else "007_ONLY"
-        print(f"G1Pre010Private=PASS; Mode={args.mode.upper()}; StructuralScope={scope}; SourceDefinitionHashes=21; NewTableColumnFacets=47; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;")
+        print(f"G1Pre010Private=PASS; Mode={args.mode.upper()}; StructuralScope={scope}; SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;")
         return 0
     except Stop as e:
         print(f"G1Pre010Private=STOP; Class={e.code}; Details=SUPPRESSED;")

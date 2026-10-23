@@ -47,6 +47,28 @@ SELECT
  WHERE s.name=N'dbo' AND t.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
                                  N'GeocodingAttempts',N'RouteCalculationAttempts')
  FOR JSON PATH,INCLUDE_NULL_VALUES) AS ColumnJson,
+(SELECT ss.name AS SchemaName,pt.name AS TableName,fk.name AS ForeignKeyName,
+ pc.name AS ParentColumn,rt.name AS ReferencedTable,rc.name AS ReferencedColumn,
+ CONVERT(bit,fk.is_disabled) AS IsDisabled,CONVERT(bit,fk.is_not_trusted) AS IsNotTrusted
+ FROM sys.foreign_keys fk
+ JOIN sys.tables pt ON pt.object_id=fk.parent_object_id
+ JOIN sys.schemas ss ON ss.schema_id=pt.schema_id
+ JOIN sys.foreign_key_columns fc ON fc.constraint_object_id=fk.object_id
+ JOIN sys.columns pc ON pc.object_id=fc.parent_object_id AND pc.column_id=fc.parent_column_id
+ JOIN sys.tables rt ON rt.object_id=fk.referenced_object_id
+ JOIN sys.columns rc ON rc.object_id=fc.referenced_object_id AND rc.column_id=fc.referenced_column_id
+ WHERE ss.name=N'dbo' AND pt.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
+ N'GeocodingAttempts',N'RouteCalculationAttempts')
+ FOR JSON PATH,INCLUDE_NULL_VALUES) AS ForeignKeyJson,
+(SELECT ss.name AS SchemaName,pt.name AS TableName,ck.name AS CheckConstraintName,
+ CONVERT(bit,CASE WHEN ck.definition IS NULL THEN 0 ELSE 1 END) AS DefinitionVisible,
+ CONVERT(bit,ck.is_disabled) AS IsDisabled,CONVERT(bit,ck.is_not_trusted) AS IsNotTrusted
+ FROM sys.check_constraints ck
+ JOIN sys.tables pt ON pt.object_id=ck.parent_object_id
+ JOIN sys.schemas ss ON ss.schema_id=pt.schema_id
+ WHERE ss.name=N'dbo' AND pt.name IN(N'TeamLocationNotes',N'TeamLocationNoteHistory',
+ N'GeocodingAttempts',N'RouteCalculationAttempts')
+ FOR JSON PATH,INCLUDE_NULL_VALUES) AS CheckJson,
 CASE WHEN EXISTS(
  SELECT 1 FROM sys.check_constraints ch
  WHERE ch.parent_object_id=OBJECT_ID(N'dbo.RouteCalculationAttempts')
@@ -58,18 +80,27 @@ CASE WHEN EXISTS(
         $cmd=$Connection.CreateCommand()
         $cmd.CommandText=$commandText;$cmd.CommandTimeout=30
         $reader=$cmd.ExecuteReader()
-        if(-not $reader.Read() -or $reader.FieldCount -ne 3 -or
+        if(-not $reader.Read() -or $reader.FieldCount -ne 5 -or
            $reader.GetName(0) -cne 'TriggerJson' -or
            $reader.GetName(1) -cne 'ColumnJson' -or
-           $reader.GetName(2) -cne 'ReasonCheck' -or
-           $reader.IsDBNull(0) -or $reader.IsDBNull(1) -or $reader.IsDBNull(2)){return 'STOP'}
+           $reader.GetName(2) -cne 'ForeignKeyJson' -or
+           $reader.GetName(3) -cne 'CheckJson' -or
+           $reader.GetName(4) -cne 'ReasonCheck' -or
+           $reader.IsDBNull(0) -or $reader.IsDBNull(1) -or $reader.IsDBNull(2) -or
+           $reader.IsDBNull(3) -or $reader.IsDBNull(4)){return 'STOP'}
         $rawJson=$reader.GetString(0)
         $columnJson=$reader.GetString(1)
-        $reason=$reader.GetString(2)
-        if($rawJson.Length -gt 220000 -or $columnJson.Length -gt 100000 -or $reason -cnotin @('PASS','UNKNOWN')){return 'STOP'}
+        $fkJson=$reader.GetString(2)
+        $ckJson=$reader.GetString(3)
+        $reason=$reader.GetString(4)
+        if($rawJson.Length -gt 220000 -or $columnJson.Length -gt 100000 -or
+           $fkJson.Length -gt 100000 -or $ckJson.Length -gt 100000 -or
+           $reason -cnotin @('PASS','UNKNOWN')){return 'STOP'}
         if($reader.Read() -or $reader.NextResult()){return 'STOP'}
         $parsed=$rawJson|ConvertFrom-Json -Depth 20
         $parsedColumns=$columnJson|ConvertFrom-Json -Depth 20
+        $parsedFks=$fkJson|ConvertFrom-Json -Depth 20
+        $parsedChecks=$ckJson|ConvertFrom-Json -Depth 20
         $actual=[ordered]@{
           ContractVersion='g1-pre010-private-observed-v1'
           SourceSha=$SourceSha
@@ -79,12 +110,14 @@ CASE WHEN EXISTS(
           ReasonCheck=$reason
           Triggers=@($parsed)
           Columns=@($parsedColumns)
+          ForeignKeys=@($parsedFks)
+          Checks=@($parsedChecks)
         }
         $private=Join-Path $env:RUNNER_TEMP ('g1-uat010-'+[guid]::NewGuid().ToString('N')+'.json')
         [IO.File]::WriteAllText($private,($actual|ConvertTo-Json -Depth 30 -Compress),[Text.UTF8Encoding]::new($false))
         $result=@(& python3 (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_compare.py') --candidate-root $CandidateRoot --private-actual $private --protected-sha $SourceSha --mode live 2>$null)
         if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or
-           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; SourceDefinitionHashes=21; NewTableColumnFacets=47; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {return 'STOP'}
+           $result[0] -cne 'G1Pre010Private=PASS; Mode=LIVE; StructuralScope=21_TRIGGERS; SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;') {return 'STOP'}
         return 'PASS'
     } catch {
         return 'STOP'

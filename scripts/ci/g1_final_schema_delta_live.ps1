@@ -95,7 +95,7 @@ try {
     . (Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/g1_pre010_private_collect.ps1')
     $pre010 = Invoke-G1Pre010PrivateCollect -Connection $connection -CandidateRoot (Join-Path $env:GITHUB_WORKSPACE 'candidate') -SourceSha $env:GITHUB_SHA
     if($pre010 -cne 'PASS'){Stop-G1 'ResultContractRejected'}
-    Write-Output 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=47; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'
+    Write-Output 'Pre010Private=PASS; SourceDefinitionHashes=21; NewTableColumnFacets=47; NewTableFKs=13; NewTableChecks=13; CheckDefinitionParity=UNKNOWN; PhysicalStoredObjectProof=007_ONLY; Base15=UNKNOWN; History=UNKNOWN; ReleaseGate=HOLD;'
 
 
     $stage = 'LEDGER'
