@@ -1,0 +1,121 @@
+{
+  "contract": "leader-uat-preflight-evidence-v1",
+  "recordedAtUtc": "2026-10-16T09:22:28.091333+00:00",
+  "implementationSha": "811bf37a1d79742ea1f6a2de734e4a0d4af34f05",
+  "protectedBase": "7f0cf0cb55467916fb0f57239301a8787fd5cb69",
+  "collectionPolicy": {
+    "uatSqlExecuted": false,
+    "healthReadyCalled": false,
+    "authenticatedAzureInspection": false,
+    "publicReads": [
+      "Pages HTML/config/source stamp/declared JS/CSS",
+      "API /health/live, /health, /source-sha.txt"
+    ],
+    "gitHubReads": [
+      "workflow runs",
+      "job steps/logs",
+      "run artifacts",
+      "one prior Pages artifact download attempt"
+    ]
+  },
+  "pages": {
+    "state": "LIVE_SOURCE_STAMP_OBSERVED",
+    "sourceSha": "0899f3996618c4b2bd02ecd659c76fdd07cc91ed",
+    "runId": 38338108364,
+    "runCreatedUtc": "2026-10-13T02:41:47Z",
+    "buildJobId": 115102726021,
+    "deploymentJobId": 115102831978,
+    "deploymentId": "0899f3996618c4b2bd02ecd659c76fdd07cc91ed",
+    "url": "https://terry4410.github.io/field-visit-mileage-system/",
+    "files": {
+      "index.html": {
+        "sha256": "7088e45b0f707cad8f3f3d70fe7c51c008d94cb2b1f5ec7da95f6d9b99639b94"
+      },
+      "config.js": {
+        "sha256": "f1bae11fdf3da5fe5980b740238d069f60302d3e5e2e3a9f45e9cd94d484a0ab",
+        "matchesSourceFile": true
+      },
+      "source-sha.txt": {
+        "sha256": "ec85be4bff59919761a04ee7f8f6506846f708afb93280882a5ca44c0a2e7554"
+      },
+      "assets/index-BhfObhru.js": {
+        "sha256": "64d75c9520dd0a09110a4458465dee84b1b105e81092bd7b258b9ff395babe8b",
+        "size": 432681
+      },
+      "assets/index-DHXX5y_3.css": {
+        "sha256": "26349adc34ba890773d9b31aaf6fe548573c422c7080faa26f3876a901e2d6ea",
+        "size": 20231
+      }
+    },
+    "historicalArtifact": {
+      "id": 11785810643,
+      "loggedArchiveSha256": "5d786255c5b59304737788bd049ea23e40be76ecf1d3c680e4ec561ca8fc5a12",
+      "retrieval": "HTTP_404_NOT_FOUND",
+      "reason": "UNKNOWN_NOT_ASSUMED_EXPIRED",
+      "archiveBytesVerified": false
+    },
+    "fullDeployedArchiveProvenance": "HOLD_ARCHIVE_UNAVAILABLE"
+  },
+  "api": {
+    "state": "HISTORICAL_DEPLOYMENT_ONLY",
+    "activeSourceSha": null,
+    "historicalSourceSha": "db235938b8b13ca8a65ab3b525de1df10d911645",
+    "runId": 38334707319,
+    "runCreatedUtc": "2026-10-13T01:59:00Z",
+    "jobId": 115092087588,
+    "appName": "api-fieldvisit-uat",
+    "oneDeployId": "2a2c4204-e53e-47af-8739-c00343a05fe8",
+    "url": "https://api-fieldvisit-uat-cxauf4g8fzdyfsd9.eastasia-01.azurewebsites.net",
+    "sourceStampHttpStatus": 404,
+    "liveHealthStatus": "ok",
+    "configuredSchemaLabel": "1.8.0-010",
+    "labelIsCatalogEvidence": false,
+    "retainedDeployArchiveFound": false,
+    "availableRunArtifactNames": [
+      "uat-playwright-report"
+    ],
+    "packageSha256": null,
+    "activeAzureDeploymentVerified": false
+  },
+  "trustedReference": {
+    "state": "HOLD_MISSING_APPROVED_150_BASELINE",
+    "migrationFileCount": 40,
+    "efModelNotAcceptedAsReference": true,
+    "legacyZip": "Gate1 design draft; UUID keys; no SchemaVersions; not approved 1.5 source",
+    "backupOrDacpacInTrackedTree": false,
+    "uatInventoryRun": 38859687847,
+    "uatInventoryConclusion": "failure",
+    "applicationPrincipalPermissions": "UNVERIFIED"
+  },
+  "sourceCompatibility": {
+    "state": "HOLD_VISITOR_SOURCE_REGRESSION",
+    "comparisonScope": "candidate implementation vs recorded deployment sources, not actual UAT execution",
+    "efModelSha256": "5cb95ec0088f6ff75886e955f74ce84d3ac172dace584f42ea41c6b4869cb929",
+    "unchangedPaths": [
+      "backend/src/FieldVisit.Infrastructure/AppDbContext.cs",
+      "backend/src/FieldVisit.Domain",
+      "database"
+    ],
+    "saveManagedLocationRequestUnchanged": true,
+    "regressions": [
+      "Visitor /locations/manage route/nav removed relative to live Pages stamped source",
+      "Visitor managed-locations GET/search/POST/PUT access removed relative to historical API deployment",
+      "managed-locations/visitor-teams endpoint and VisitorTeamDto absent",
+      "ManagedLocationDto.CreatedByUserId removed; existing Visitor draft ownership UX loses field"
+    ]
+  },
+  "rollback": {
+    "state": "HOLD_PRIOR_BINARY_PAIR_UNVERIFIED",
+    "apiArchiveVerified": false,
+    "pagesArchiveVerified": false,
+    "liveSettingsFingerprintVerified": false,
+    "sourceRebuildEquivalentToPriorArtifact": false,
+    "procedureState": "PREPARED_NOT_EXECUTED"
+  },
+  "decision": {
+    "release": "HOLD",
+    "ownerExecutionApproval": "NOT_AUTHORIZED",
+    "partialLeaderOnly": true,
+    "fullSchemeAAcceptance": false
+  }
+}

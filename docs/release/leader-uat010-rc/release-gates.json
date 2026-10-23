@@ -1,0 +1,14 @@
+{
+  "actualUatSchemaParity": "HOLD",
+  "applicationPrincipalPermissions": "HOLD",
+  "priorApiAndFrontendArtifactVerification": "HOLD",
+  "backupExportEvidence": "HOLD",
+  "fontCompleteReleaseArtifacts": "HOLD",
+  "controlTowerReview": "HOLD",
+  "ownerExecutionApproval": "NOT_AUTHORIZED",
+  "deployment": "HOLD",
+  "protectedMigrationReferenceCompatibility": "HOLD",
+  "existingVisitorNonRegression": "HOLD",
+  "activeApiBinaryProvenance": "HOLD",
+  "priorBinaryPairAvailability": "HOLD"
+}
