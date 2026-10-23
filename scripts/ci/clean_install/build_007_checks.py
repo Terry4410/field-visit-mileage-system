@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Build sixteen source-exact 1800_007 CHECK predicates on an empty SQL2022 DB.
+"""Build nine complementary source-exact 1800_007 CHECK predicates on an empty SQL2022 DB.
 
-The original 007 StopCount and Reason checks are intentionally omitted:
-final replacements are 009 StopCount>=1 and 010 BackgroundMileageJob.
+All nine RouteCalculationAttempts checks are supplied by 20_route_reason_check.sql
+(including final 009 StopCount>=1 and 010 BackgroundMileageJob).
+This separate layer installs the nine other 007 guards exactly once.
 This is NONDEPLOY new-baseline DDL, not execution of historical migrations.
 """
 from __future__ import annotations
@@ -23,15 +24,6 @@ TABLES = {
     "GeocodingAttempts": (
         "CK_GeocodingAttempts_Status", "CK_GeocodingAttempts_Result",
     ),
-    "RouteCalculationAttempts": (
-        "CK_RouteCalculationAttempts_Basis",
-        "CK_RouteCalculationAttempts_LeaderBasis",
-        "CK_RouteCalculationAttempts_Vehicle",
-        "CK_RouteCalculationAttempts_Mode",
-        "CK_RouteCalculationAttempts_VehicleMode",
-        "CK_RouteCalculationAttempts_Status",
-        "CK_RouteCalculationAttempts_Result",
-    ),
     "MileageGovernanceEvents": ("CK_MileageGovernanceEvents_Type",),
     "MileageCalculations": (
         "CK_MileageCalculations_ApprovedDistanceSource",
@@ -44,7 +36,7 @@ TABLES = {
         "CK_VisitTripSnapshots_ApprovalBasis",
     ),
 }
-EXPECTED_COUNT = 16
+EXPECTED_COUNT = 9
 CHECK_HEADER = re.compile(r"\bCONSTRAINT\s+(?P<name>CK_[A-Za-z_0-9]+)\s+CHECK\s*(?=\()", re.I)
 
 
@@ -165,7 +157,7 @@ def main() -> int:
     except (OSError, ValueError, UnicodeError, subprocess.CalledProcessError):
         print("SOURCE_007_CHECKS=FAIL_CLOSED")
         return 1
-    print("SOURCE_007_CHECKS=PASS; Count=16; Superseded009010=EXCLUDED")
+    print("SOURCE_007_CHECKS=PASS; Count=9; RouteChecks=SEPARATE_LAYER")
     print("FULL_CLEAN_INSTALL=HOLD_OTHER_OBJECTS_APP_RBAC")
     return 0
 
