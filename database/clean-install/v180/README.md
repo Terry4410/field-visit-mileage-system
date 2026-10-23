@@ -31,6 +31,21 @@ candidate fragments. This package does **not** apply historical migrations.
   these SQL-only tables (seven notification/outbox, five 014, one 017).
   These **do not** prove all final indexes are complete.
 
+- `00_schema_versions.sql`: a **new, empty** `dbo.SchemaVersions` target
+  contract with **no false historical migration markers**. It does not
+  pretend that original 1.5/1.7/1.8 migrations were executed.
+- `20_route_reason_check.sql`: target v1.8.0-010 trusted
+  `CK_RouteCalculationAttempts_Reason` (VisitorCalculate, LeaderRetry,
+  CorrectionRecalculate, BackgroundMileageJob), directly installed without
+  replaying an old predecessor migration.
+- The final isolated SQL Server catalog is compared against the **exact
+  scoped set of 69 dbo tables** (57 EF + 7 SQL-only core + 4 Option C
+  candidate shapes + 1 new version ledger), not only per-layer counts.
+- The *same disposable database* additionally executes a synthetic
+  Organization/Team/Visitor/Leader/Role/Trip/AuditLog EF persistence smoke,
+  then rolls back and asserts no synthetic business rows remain. This is
+  **not** Browser/API authorization, self-approval prevention or RBAC proof.
+
 Every layer writes a SHA-256 manifest, records original RC source paths and
 file digests, refuses missing/duplicate/ambiguous objects, and exports only
 NONDEPLOY evidence under the fixed PR source SHA. All generated SQL files,
@@ -46,7 +61,7 @@ proves only the explicitly printed PASS stages, never full release readiness.
    **reserved**, not silently renumbered or installed. Do not spoof historical
    SchemaVersion rows.
 2. Verify complete object definitions, FK/CHECK trust and business constraint
-   behavior—not only creation, object counts, names or enabled trigger state.
+   behavior—not only creation, object counts, names or enabled trigger state. The new scoped 69-table equality and 010 reason CHECK are stronger evidence but are not proof of all final A+C contracts.
 3. Establish explicitly reviewed minimal reference/configuration seed and
    nonsecret Visitor/Leader/Admin test identity contract, with no real
    employee/production credentials.
