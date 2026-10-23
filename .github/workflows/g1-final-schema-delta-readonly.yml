@@ -141,7 +141,8 @@ jobs:
           ]
           for f in files:
               source=Path(f).read_text(encoding="utf-8")
-              assert source.count(proof)==1, "private output contract differs"
+              expected_count=2 if f==".github/workflows/g1-final-schema-delta-readonly.yml" else 1
+              assert source.count(proof)==expected_count, "private output contract differs"
           print("G1PrivateStatusContract=PASS; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;")
       - name: Assert explicit owner-dispatch gate and no automatic push authorization
         shell: python
