@@ -406,36 +406,62 @@ try
                                    || table != entry.Value))
         throw new InvalidOperationException("SQL_ONLY_INDEX_CATALOG_MISMATCH");
 
-    // Fresh-install final v1.8.0-010 CalculationReason CHECK, without any
-    // historical migration marker. It is trusted/enabled and source scoped.
+    // Apply all 9 source-backed route governance CHECKs in final 007/009/010
+    // target state, with one-stop support and background-job reason.
+    // No predecessor migration or artificial historical marker is inserted.
     var reasonDdlPath = Path.GetFullPath(Path.Combine(
         "database", "clean-install", "v180", "20_route_reason_check.sql"));
     if (!File.Exists(reasonDdlPath))
-        throw new InvalidOperationException("CLEAN_REASON_CHECK_DDL_MISSING");
+        throw new InvalidOperationException("CLEAN_ROUTE_CHECK_DDL_MISSING");
     var reasonDdlBytes = await File.ReadAllBytesAsync(reasonDdlPath);
     var reasonDdlSha = Convert.ToHexString(SHA256.HashData(reasonDdlBytes)).ToLowerInvariant();
-    await using (var reasonConn = new SqlConnection(installBuilder.ConnectionString))
+    var routeCheckNames = new HashSet<string>(StringComparer.Ordinal)
     {
-        await reasonConn.OpenAsync();
-        await using var addReason = new SqlCommand(Encoding.UTF8.GetString(reasonDdlBytes), reasonConn)
+        "CK_RouteCalculationAttempts_Basis",
+        "CK_RouteCalculationAttempts_Reason",
+        "CK_RouteCalculationAttempts_LeaderBasis",
+        "CK_RouteCalculationAttempts_Vehicle",
+        "CK_RouteCalculationAttempts_Mode",
+        "CK_RouteCalculationAttempts_VehicleMode",
+        "CK_RouteCalculationAttempts_StopCount",
+        "CK_RouteCalculationAttempts_Status",
+        "CK_RouteCalculationAttempts_Result"
+    };
+    await using (var routeConn = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await routeConn.OpenAsync();
+        await using var installChecks = new SqlCommand(Encoding.UTF8.GetString(reasonDdlBytes), routeConn)
         { CommandTimeout = 30 };
-        await addReason.ExecuteNonQueryAsync();
+        await installChecks.ExecuteNonQueryAsync();
+        var actualNames = new HashSet<string>(StringComparer.Ordinal);
         await using var proof = new SqlCommand("""
-            SELECT definition, is_disabled, is_not_trusted
+            SELECT name, definition, is_disabled, is_not_trusted
             FROM sys.check_constraints
-            WHERE object_id=OBJECT_ID(N'dbo.CK_RouteCalculationAttempts_Reason',N'C')
-              AND parent_object_id=OBJECT_ID(N'dbo.RouteCalculationAttempts',N'U');
-            """, reasonConn) { CommandTimeout = 10 };
+            WHERE parent_object_id=OBJECT_ID(N'dbo.RouteCalculationAttempts',N'U')
+              AND name LIKE N'CK_RouteCalculationAttempts[_]%';
+            """, routeConn) { CommandTimeout = 10 };
         await using var reader = await proof.ExecuteReaderAsync();
-        if (!await reader.ReadAsync())
-            throw new InvalidOperationException("CLEAN_REASON_CHECK_ABSENT");
-        var definition = reader.GetString(0).ToLowerInvariant();
-        if (reader.GetBoolean(1) || reader.GetBoolean(2) ||
-            !new[] { "visitorcalculate", "leaderretry",
-                     "correctionrecalculate", "backgroundmileagejob" }
-                 .All(x => definition.Contains(x, StringComparison.Ordinal)) ||
-            await reader.ReadAsync())
-            throw new InvalidOperationException("CLEAN_REASON_CHECK_SHAPE_STATE");
+        while (await reader.ReadAsync())
+        {
+            var name = reader.GetString(0);
+            if (!routeCheckNames.Contains(name) || !actualNames.Add(name) ||
+                reader.GetBoolean(2) || reader.GetBoolean(3))
+                throw new InvalidOperationException("CLEAN_ROUTE_CHECK_CATALOG_STATE");
+            var definition = reader.GetString(1).ToLowerInvariant();
+            if (name == "CK_RouteCalculationAttempts_Reason" &&
+                !new[] { "visitorcalculate", "leaderretry",
+                         "correctionrecalculate", "backgroundmileagejob" }
+                     .All(x => definition.Contains(x, StringComparison.Ordinal)))
+                throw new InvalidOperationException("CLEAN_ROUTE_REASON_VALUES");
+            if (name == "CK_RouteCalculationAttempts_StopCount" &&
+                !definition.Replace(" ", "").Replace("[", "").Replace("]", "")
+                           .Contains("stopcount>=(1)", StringComparison.Ordinal) &&
+                !definition.Replace(" ", "").Replace("[", "").Replace("]", "")
+                           .Contains("stopcount>=1", StringComparison.Ordinal))
+                throw new InvalidOperationException("CLEAN_ROUTE_ONESTOP_RULE");
+        }
+        if (!routeCheckNames.SetEquals(actualNames))
+            throw new InvalidOperationException("CLEAN_ROUTE_NINE_CHECKS_MISSING");
     }
 
     var catalog = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -603,7 +629,8 @@ try
         sqlOnlyTableSqlSha256 = sqlOnlyHash,
         newSchemaVersionLedgerSha256 = ledgerSqlSha,
         versionLedgerStatus = "EMPTY_NEW_BASELINE_NO_HISTORICAL_MARKERS",
-        sourceDerivedReasonCheckSqlSha256 = reasonDdlSha,
+        sourceDerivedRouteChecksSqlSha256 = reasonDdlSha,
+        trustedRouteCheckCount = routeCheckNames.Count,
         sqlOnlyInstalledTableCount = sqlOnlyExpected.Length,
         effective010TriggerSqlSha256 = triggerSha,
         installedEffectiveTriggerCount = installedTriggers.Count,
@@ -629,7 +656,7 @@ try
     Status("MODEL_DDL_CONSTRAINT_TRUST_STATE_PASS");
     Status("EF_SYNTHETIC_WRITE_ROLLBACK_PASS");
     Status("EMPTY_NEW_SCHEMA_VERSION_LEDGER_SQL2022_PASS");
-    Status("TRUSTED_010_MILEAGE_REASON_CHECK_SQL2022_PASS");
+    Status("TRUSTED_007_009_010_ROUTE_CHECKS_SQL2022_PASS");
     Status("SQL_ONLY_SEVEN_TABLES_SQL2022_PASS");
     Status("EFFECTIVE_010_TRIGGERS_SQL2022_PASS");
     Status("OPTIONC_FOUR_CANDIDATE_TABLES_SQL2022_PASS");
