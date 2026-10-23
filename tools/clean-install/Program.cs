@@ -617,6 +617,50 @@ try
     var source005Bytes = await File.ReadAllBytesAsync(source005File);
     var source005 = Encoding.UTF8.GetString(source005Bytes);
     var source005Sha = Convert.ToHexString(SHA256.HashData(source005Bytes)).ToLowerInvariant();
+    // SQL 1919: EF's unbounded legacy *master* strings cannot be indexed by
+    // original 005 DDL. The new-empty target chooses bounded indexable facets
+    // using the immutable 1600_001 snapshot lengths as conservative evidence.
+    // This is a NEW target declaration, not reconstructed historical lineage.
+    var snapshot1600 = await File.ReadAllTextAsync(Path.Combine(rcRoot,
+        "database/migrations/1600_001_foundation/Up.sql"));
+    foreach (var expected in new[]
+    {
+        @"VisitTypeCodeSnapshot\s+NVARCHAR\(50\)",
+        @"VisitTypeNameSnapshot\s+NVARCHAR\(200\)",
+        @"VehicleTypeSnapshot\s+NVARCHAR\(50\)"
+    })
+        if (!Regex.IsMatch(snapshot1600, expected, RegexOptions.IgnoreCase))
+            throw new InvalidOperationException("SOURCE_005_FACET_AUTHORITY_MISSING");
+    var bounded005 = """
+        ALTER TABLE dbo.VisitTypes ALTER COLUMN VisitTypeCode NVARCHAR(50) NOT NULL;
+        ALTER TABLE dbo.VisitTypes ALTER COLUMN VisitTypeName NVARCHAR(200) NOT NULL;
+        ALTER TABLE dbo.MileageRateRules ALTER COLUMN VehicleType NVARCHAR(50) NOT NULL;
+        """;
+    var bounded005Bytes = Encoding.UTF8.GetBytes(bounded005 + "\n");
+    var bounded005Sha = Convert.ToHexString(
+        SHA256.HashData(bounded005Bytes)).ToLowerInvariant();
+    await File.WriteAllBytesAsync(Path.Combine(output, "005_indexable_facets.sql"),
+        bounded005Bytes);
+    await using (var facets005 = new SqlConnection(installBuilder.ConnectionString))
+    {
+        await facets005.OpenAsync();
+        foreach (var statement in bounded005.Split(';').Where(x => !string.IsNullOrWhiteSpace(x)))
+        {
+            await using var command = new SqlCommand(statement, facets005) { CommandTimeout = 30 };
+            await command.ExecuteNonQueryAsync();
+        }
+        await using var inspect = new SqlCommand("""
+            SELECT COUNT(*) FROM sys.columns c
+            WHERE (c.object_id=OBJECT_ID(N'dbo.VisitTypes',N'U')
+                   AND c.name=N'VisitTypeCode' AND c.max_length=100 AND c.is_nullable=0)
+               OR (c.object_id=OBJECT_ID(N'dbo.VisitTypes',N'U')
+                   AND c.name=N'VisitTypeName' AND c.max_length=400 AND c.is_nullable=0)
+               OR (c.object_id=OBJECT_ID(N'dbo.MileageRateRules',N'U')
+                   AND c.name=N'VehicleType' AND c.max_length=100 AND c.is_nullable=0);
+            """, facets005) { CommandTimeout = 10 };
+        if (Convert.ToInt32(await inspect.ExecuteScalarAsync()) != 3)
+            throw new InvalidOperationException("SOURCE_005_FACET_CATALOG_MISMATCH");
+    }
     var controls005 = new List<string>();
     var checks005 = new (string Table, string Name)[]
     {
@@ -1377,6 +1421,8 @@ try
         sourceDerived001004ChecksSha256 = checks001Sha,
         source005Sha256 = source005Sha,
         source005SqlSha256 = controls005Sha,
+        source005IndexableFacetSha256 = bounded005Sha,
+        source005IndexableFacetCount = 3,
         source005InstalledCheckCount = 4,
         source005InstalledIndexCount = 5,
         installedSource001004CheckCount = actualChecks001.Count,

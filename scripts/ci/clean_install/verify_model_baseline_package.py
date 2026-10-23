@@ -297,6 +297,16 @@ def main() -> int:
         for entry in check_list:
             if sha256(args.rc_root / entry["sourcePath"])!=entry.get("sourceSha256"):
                 raise ContractError("CHECK_001_004_SOURCE_HASH")
+        facets005 = args.output / "005_indexable_facets.sql"
+        if not facets005.is_file():
+            raise ContractError("SOURCE_005_INDEXABLE_FACETS_MISSING")
+        exact_facets = (
+            "ALTER TABLE dbo.VisitTypes ALTER COLUMN VisitTypeCode NVARCHAR(50) NOT NULL;"
+            "\nALTER TABLE dbo.VisitTypes ALTER COLUMN VisitTypeName NVARCHAR(200) NOT NULL;"
+            "\nALTER TABLE dbo.MileageRateRules ALTER COLUMN VehicleType NVARCHAR(50) NOT NULL;"
+        )
+        if facets005.read_text(encoding="utf-8").strip() != exact_facets:
+            raise ContractError("SOURCE_005_INDEXABLE_FACETS_NOT_REVIEWED")
         control005_sql = args.output / "005_source_controls.sql"
         control005_manifest = args.output / "005_source_controls-manifest.json"
         if not control005_sql.is_file() or not control005_manifest.is_file():
