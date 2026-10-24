@@ -1,0 +1,73 @@
+name: G1 D0 v3 diagnostic (separate approval, zero SQL)
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: NEW separately approved final Protected v3 source SHA
+        type: string
+        required: true
+      authorization_comment:
+        description: NEW Issue41 G1_D0_V3_DIAGNOSTIC_APPROVED comment
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: g1-d0-v3-one-shot
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/post-uat/v1.8.0' && github.actor == 'Terry4410' && github.triggering_actor == 'Terry4410' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    env:
+      G1_MODE: D0_V3_DIAGNOSTIC
+      ACCEPT_COST: 'false'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact new v3 consent and unused v3 identity before environment access
+        env:
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          sha256sum --check scripts/ci/g1_d0_v3/checksums.sha256
+          python3 scripts/ci/g1_d0_v3/guard.py
+  identity:
+    needs: source
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 1
+    permissions:
+      contents: none
+    outputs:
+      client: ${{ vars.AZURE_CLIENT_ID }}
+      tenant: ${{ vars.AZURE_TENANT_ID }}
+      subscription: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - run: test "${RUNNER_DEBUG:-}" != 1
+  observation:
+    needs: [source, identity]
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      id-token: write
+    uses: ./.github/workflows/g1-d0-v3-worker.yml
+    with:
+      approved_source_sha: ${{ inputs.approved_source_sha }}
+      authorization_comment: ${{ inputs.authorization_comment }}
+    secrets:
+      client: ${{ needs.identity.outputs.client }}
+      tenant: ${{ needs.identity.outputs.tenant }}
+      subscription: ${{ needs.identity.outputs.subscription }}

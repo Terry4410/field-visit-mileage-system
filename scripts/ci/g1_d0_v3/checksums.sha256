@@ -1,0 +1,11 @@
+ddf34de78e88fb0a95b83415c7e801a99a7c1cbb428245428ce2f37c0b749678  .github/workflows/g1-d0-v3-offline.yml
+57308da9cb29e46364d4eff02c1e04dbbf8836c1d197439099175dca18dddefa  .github/workflows/g1-d0-v3-worker.yml
+70fdca337e2012981ff3ebbcdc82a89bc5566700f08db9270f7309e867df622a  .github/workflows/g1-version-observation-v3.yml
+60c5c49bfb963059028ad528cbbd212a116a63a37a0b19db9d6c13bc03db93d2  docs/release/g1-d0-v3/RECOVERY-INVENTORY.json
+d8d74e2ab8d3e4f932daba5df52b2b3cf5a5fdc030fab864cafb132a843f6803  docs/release/g1-d0-v3/REVIEW.md
+3a8807e2e57f98cd0312e383c4d3ff1c70b1e5239aacd6f1643686b11175aa69  docs/release/g1-d0-v3/main-registration.yml
+182893377f02261c5bab2860018f3a5f86897697758a11da7bcada4977be7cbc  scripts/ci/g1_d0_v3/d0.py
+478b83b5167328d10fba94eb4df99da4f347330a7c92bb0ccd92f23c64e15a92  scripts/ci/g1_d0_v3/guard.py
+5da538ae00d3cf98caad835b749df90fccc03fd531abc2889e7df74bb8b134aa  scripts/ci/g1_d0_v3/remote.py
+c543f622bca8bd98d9ce76a0ae38e2e85357880b5a3533412005d2f3011f8341  scripts/ci/g1_d0_v3/test_d0.py
+de83e2a1beb4fa4c268661bcdcf4e0dec9522dde7991620960cdb93f734fc6e9  scripts/ci/g1_d0_v3/test_guard.py

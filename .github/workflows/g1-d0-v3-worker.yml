@@ -1,0 +1,68 @@
+name: G1 D0 v3 private worker (call only)
+on:
+  workflow_call:
+    inputs:
+      approved_source_sha:
+        type: string
+        required: true
+      authorization_comment:
+        type: string
+        required: true
+    secrets:
+      client:
+        required: true
+      tenant:
+        required: true
+      subscription:
+        required: true
+permissions:
+  contents: read
+jobs:
+  bounded:
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      id-token: write
+    env:
+      G1_MODE: D0_V3_DIAGNOSTIC
+      ACCEPT_COST: 'false'
+      APPROVED_SHA: ${{ inputs.approved_source_sha }}
+      APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
+      GH_TOKEN: ${{ github.token }}
+      AZURE_CLIENT_ID: ${{ secrets.client }}
+      AZURE_TENANT_ID: ${{ secrets.tenant }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.subscription }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Repeat exact guard and pinned identity without Azure
+        run: |
+          set -euo pipefail
+          test "${RUNNER_DEBUG:-}" != 1
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          sha256sum --check scripts/ci/g1_d0_v3/checksums.sha256
+          python3 scripts/ci/g1_d0_v3/guard.py
+          python3 scripts/ci/g1_bounded/arm.py --prelogin
+      - name: Load pinned WSS client on runner before bounded clock
+        run: python3 -m pip install --disable-pip-version-check --no-input websocket-client==1.8.0
+      - name: New D0 v3 one-shot bounded diagnostic, zero SQL
+        env:
+          G1_D0_V3_GUARD: PASS
+        run: |
+          set -euo pipefail
+          mkdir -p verification
+          timeout --signal=TERM --kill-after=5s 300s python3 scripts/ci/g1_d0_v3/d0.py > verification/g1-d0-v3.json 2>/dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: g1-d0-v3-observation-${{ github.sha }}
+          path: verification/g1-d0-v3.json
+          if-no-files-found: ignore
+          retention-days: 30
