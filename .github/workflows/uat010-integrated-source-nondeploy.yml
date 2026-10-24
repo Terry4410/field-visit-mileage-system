@@ -64,3 +64,103 @@ jobs:
           path: artifacts/uat010-integrated/
           retention-days: 30
           if-no-files-found: error
+
+  corrected-020-reference:
+    name: Corrected phase020 synthetic catalog derivation (LOCAL SQL2022 ONLY)
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      E1_R1_REQUIRED: '1'
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify source is a true descendant of accepted PR82
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor ae9ca02cf2d9539fe9bed61a073d60d63731cbb9 HEAD
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          echo 'ReferenceTarget=DISPOSABLE_SQL2022_ONLY; Azure=NONE;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Prepare isolated SQL client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery *> $null
+      - name: Start ephemeral SQL2022 Developer on localhost
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 24)!G1a"
+          connection="Server=localhost,1433;Database=master;User Id=sa;Password=${password};Encrypt=False;TrustServerCertificate=True;Connect Timeout=5;ConnectRetryCount=0"
+          echo "::add-mask::$password"
+          echo "::add-mask::$connection"
+          envfile="$RUNNER_TEMP/g1-reference-sql.env"
+          umask 077
+          printf 'ACCEPT_EULA=Y\nMSSQL_PID=Developer\nMSSQL_SA_PASSWORD=%s\n' "$password" > "$envfile"
+          docker run -d --name uat010-ref-local -p 127.0.0.1:1433:1433 --env-file "$envfile" mcr.microsoft.com/mssql/server:2022-latest > /dev/null
+          rm -f "$envfile"
+          ready=0
+          for _ in $(seq 1 24); do
+            if docker exec -e "SQLCMDPASSWORD=$password" uat010-ref-local /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = 1
+          printf 'E1_R1_SQL_CONNECTION=%s\n' "$connection" >> "$GITHUB_ENV"
+          echo 'EphemeralSQL=READY; Target=LOCAL_ONLY;'
+      - name: Derive corrected 020 synthetic catalog without touching frozen reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode Reference
+      - name: Assert previous eight stages unchanged and label result SYNTHETIC
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib
+          p=pathlib.Path
+          old=json.loads(p('docs/release/g1-execution/promotion/reference.json').read_text())
+          new=json.loads(p('artifacts/observed-reference.json').read_text())
+          assert old['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert new['fixture']==old['fixture']
+          assert new['initial'].upper()==old['initial'].upper()
+          assert new['emptyLedger'].upper()==old['emptyLedger'].upper()
+          assert [x['id'] for x in new['steps']]==[11,12,14,15,16,17,18,19,20]
+          for oldstep,newstep in zip(old['steps'][:8],new['steps'][:8]):
+            assert oldstep['id']==newstep['id'] and oldstep['catalog'].upper()==newstep['catalog'].upper()
+          corrected020=new['steps'][8]['catalog'].upper()
+          assert len(corrected020)==64 and all(c in '0123456789ABCDEF' for c in corrected020)
+          assert corrected020!=old['steps'][8]['catalog'].upper()
+          sql=p('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()
+          assert hashlib.sha256(sql).hexdigest()=='b64a0e63261fd7ea32a329579cb7a67c9b96bede0a71653d2b1647e0fd48401c'
+          assert b"Confirming" in sql
+          out=p('artifacts/uat010-corrected020')
+          out.mkdir(parents=True,exist_ok=True)
+          payload={'contract':'corrected020-synthetic-reference-v1','sourceSha':os.environ['GITHUB_SHA'],'sourceScope':'ISOLATED_SQL2022_SYNTHETIC_NOT_LIVE_UAT','originalReferenceSha256':hashlib.sha256(p('docs/release/g1-execution/promotion/reference.json').read_bytes()).hexdigest(),'phase020SqlSha256':hashlib.sha256(sql).hexdigest(),'firstEightCatalogsUnchanged':True,'phase020CatalogSha256':corrected020,'livePredecessorFidelity':'HOLD','releaseGate':'HOLD','azureAccess':False,'liveSqlAccess':False}
+          (out/'reference.json').write_text(json.dumps(payload,sort_keys=True,indent=2)+'\n')
+          print('Corrected020SyntheticReference=PASS; FirstEightCatalogs=UNCHANGED; Phase020Catalog='+corrected020+'; LiveUAT=HOLD;')
+      - name: Stop disposable SQL
+        if: always()
+        shell: bash
+        run: docker rm -f uat010-ref-local >/dev/null 2>&1 || true
+      - name: Bind sanitized source-derived synthetic receipt
+        if: success()
+        shell: bash
+        run: |
+          cd artifacts/uat010-corrected020
+          sha256sum reference.json > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-corrected020-synthetic-${{ github.sha }}
+          path: artifacts/uat010-corrected020/
+          retention-days: 30
+          if-no-files-found: error
