@@ -133,15 +133,18 @@ def paths(sub):
 
 
 class Reader:
-    def __init__(self, plan, token, opener=None, clock=time.monotonic):
+    def __init__(self, plan, token, opener=None, clock=time.monotonic, collections=()):
         self.allowed = set(plan.values())
+        self.limit=len(self.allowed);self.used=set();self.collections=set(collections)
+        if not 1<=self.limit<=20 or not self.collections<=self.allowed:raise Stop()
         self.token, self.calls, self.clock = token, 0, clock
         self.started = clock()
         self.opener = opener or urllib.request.build_opener(NoRedirect())
 
     def get(self, path):
-        if path not in self.allowed or self.calls >= 5 or self.clock() - self.started >= 120:
+        if path not in self.allowed or path in self.used or self.calls >= self.limit or self.clock() - self.started >= 120:
             raise Stop()
+        self.used.add(path)
         self.calls += 1  # Errors consume the request; never retry.
         url = 'https://management.azure.com' + path
         req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + self.token}, method='GET')
@@ -152,8 +155,13 @@ class Reader:
         if len(raw) > 262144:
             raise Stop()
         d = json.loads(raw)
-        if not isinstance(d, dict) or d.get('nextLink') or str(d.get('id', '')).lower() != path.split('?')[0].lower():
+        if not isinstance(d, dict) or d.get('nextLink'):
             raise Stop()
+        if path in self.collections:
+            if not isinstance(d.get('value'),list) or len(d['value'])!=1:raise Stop()
+            item=d['value'][0]
+            if not isinstance(item,dict) or str(item.get('id','')).lower()!=path.split('?')[0].lower()+'/'+str(item.get('name','')).lower():raise Stop()
+        elif str(d.get('id', '')).lower() != path.split('?')[0].lower():raise Stop()
         return d
 
 

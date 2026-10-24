@@ -1,4 +1,70 @@
-# G1 v2 audit correction and precise publication plan
+# G1 staged main-container evidence proposal — NONDEPLOY
+
+## Current result and boundaries
+
+This revision adds executable source and focused offline contracts to the same G1 branch. PR48 9ee5dacceed2bf55c39310d663f3258bcb545989, CI39998237406 and artifact12520693555 remain frozen. There are EIGHTEEN added paths relative to Protected base d919f8a107e3dbaee919b8c4e3b463240674eaf4; no accepted application code, database script or package is changed. No Protected/main ref, environment restriction, Azure resource, database, feature or privilege is changed. No Live dispatch has occurred.
+
+D0 is a separately approved ZERO-SQL version observation, NOT Live G1 and NOT consumption of the full-G1 workflow's one-shot. Full G1 remains blocked before OIDC. New code is not evidence of actual deployment compatibility or a recovered database.
+
+## Concrete D0 route (ready for exact-source review; execution not authorized)
+
+Entry: `.github/workflows/g1-version-observation-v2.yml` -> secret-masked call-only worker -> `d0.py` -> `DiscoverySession` -> sealed `main_probe.py:discover_main`.
+
+- Existing uat federation only. One GitHub OIDC request and one normal Entra token exchange for ARM scope. No SQL token. Tenant/subscription/client context remains hash-pinned.
+- Exactly TWO management-plane GET attempts: the fixed API site and its instances collection (API2024-04-01). Each20s, aggregate reader120s; every attempt consumed, duplicate paths/redirect/pagination denied. Fixed full resource IDs bind the existing approved context. No subscription, app, secret or configuration enumeration.
+- Require Running Linux app and exactly one verified instance. Derive the single SCM Repository host from that site's response. One TLS-verified WSS upgrade GET to `/exec/shell?shell=/bin/sh` with existing ARM bearer token and fixed-instance affinity. Default target is the MAIN container; never `target=kudu`. No Basic auth, publish-password readback, CLI/SDK discovery, SSH-server enablement, retries or role/network changes.
+- Session command is source-bound: disable PTY echo/canonical input for this session only, unset shell history destination, exec `/usr/bin/python3 -I -B -c <sealed source + discover_main(nonce)>`. Shell source is never taken from dispatch input. Python source stays in command memory, not an uploaded file. No pip, module install, diagnostic API, .NET process, DDL/DML/EXEC or Azure filesystem write is performed.
+- Require exactly one running API process with the fixed DLL command, fixed working directory and four DLL mappings bound to current file inodes. Hash those four assembly bytes plus exactly Microsoft.Data.SqlClient.dll and FieldVisit.Api.runtimeconfig.json; repeat PID-start/mapped-byte stability checks. Emits only nonce, hashes, fixed fact labels and sqlConnections=0. No `/proc/*/environ`, appsettings, connection string, MI endpoint/header, account identifier or SQL read. Failure emits a fixed suppressed HOLD.
+- Main session<=90s after handshake (handshake30s); outer observation timeout300s including direct authentication/ARM. No raw PTY/HTTP/provider output is logged or archived. Only sanitized `g1-d0.json` is an artifact. Unknown Python/proc/SCM protocol availability is an execution prerequisite, not an offline PASS claim. Missing existing permission/network or >1 instance stops without retry or grant.
+
+Microsoft documents main-app interactive exec, and explicitly warns that execute-mode202 acceptance does not prove completion. This proposal therefore uses the output-bearing interactive WSS protocol, not fire-and-forget `/exec/execute` or a log-file write. It is a NEW privileged observation channel. Prior management-GET authorization, successful MFA and Owner's general continuation do not constitute approval of this exact new channel.
+
+D0 approval must name the final Protected source and its fresh focused offline evidence:
+
+`G1_D0_OBSERVATION_APPROVED <final-protected-sha> g1-version-observation-v2.yml ONE_WSS ZERO_SQL`
+
+Both source and private worker verify Owner actor/triggering actor, attempt1, exact fresh Issue41 Owner line, fixed repository/ref, exact eighteen-path delta and no earlier dispatch of THIS D0 workflow before identity handoff. D0's separate workflow history does not consume or reuse the full-G1 workflow's dispatch allowance. Failed D0 is consumed; no rerun.
+
+## Full-G1 adapter implemented, deliberately not connected to Live worker
+
+`main_channel.py:MainSession` and the BCL-only .NET8 `probe/Program.cs` implement the subsequent API-identity SELECT-only path. No application startup, EF DbContext or hosted service is invoked. The compiled helper runs through Linux anonymous-memory FD using the existing framework runtime and existing SqlClient assembly. Its environment is scrubbed of startup hooks, profiler and inherited credentials. Runtimeconfig and every supplied SqlClient managed dependency must match a reviewed rollback artifact manifest; the resolver rechecks hashes before loading custom dependencies.
+
+Selected startup configuration stays private in main-container memory. Duplicate/case-conflicting/ambiguous host-prefixed configuration, newer-than-process appsettings, changed inodes, KeyVault references and unsupported authentication fail closed. SQL target/database/TLS are fixed; failover partner, read-routing and external auth providers are denied. SQL password or explicitly selected API managed identity can be used only after separate selected-configuration/credential-use approval. For MI there is one bounded loopback App Service token request, no SDK retry. Neither credential nor token is returned to runner/logs/artifacts.
+
+Before `G1_SQL_GO nonce`, verify actual mapped API hashes, reviewed source policy binding default-builder startup configuration (no custom providers/environment mutation), approved Frontend origin and per-file manifest (<=80 GET attempts, <=8MiB/file, <=32MiB total,120s, no auth/cookies/redirect/retry), immutable source-proven Frontend OFF file, candidate/mode/activation OFF, rollback bundle availability and continuous PITR/retention metadata with a selected UTC point. A hash-shaped arbitrary JSON plan is NOT sufficient provenance. The source-policy and artifact resolver/independent review must supply those immutable inputs; this is not implemented by trusting an Owner to fill in technical values.
+
+After GO: exactly ONE SqlConnection.OpenAsync<=120s; poolingOFF, retry0; three metadata-only commands<=30s each for actual API principal/effective object grants, metadata catalog, and target binding. Required app DML permissions are inspected, never exercised. Ledger DML/DDL/control/impersonation/EXEC are denied. No diagnostic-OIDC SQL connection also runs. Afterward require actual schema hash, source/target/nonce/process stability and all gates; the adapter has tested conditional PASS, drift/missing evidence -> HOLD. Selected helper output is not proof of installed candidate features or data-marker migrations. Full-G1 route still needs its reviewed receipt/management/plan resolver and capability-marker join before production wiring; existing old diagnostic SQL path stays inaccessible behind coverageHOLD.
+
+## Focused offline validation and artifact
+
+The ONLY push-triggered job has contents:read, no uat environment, Azure secrets or id-token. It tests real local Linux mmap/inode replacement and timeout behavior, configuration and nonce/privacy controls, exact D0/full consent isolation, GET-attempt accounting and conditional success/drift denial. It builds ONLY the new BCL diagnostic, never the RC; executes its real Linux anonymous-memory self-test; and constructs the actual pinned SqlClient from a synthetic runner fixture without a GO message/Open. The historical PowerShell parser/constructor remains checked. Artifact contains sanitized exact-source evidence, the new diagnostic DLL and runtimeconfig, and DLL SHA256. Actual WSS/App Service/SQL compatibility remains unexecuted.
+
+## Evidence gap found in existing connected sources
+
+The private RC archive repository contains only README.md. Its inventory explicitly says candidate ZIPs do not establish prior active runtime binaries and are NOT an old-version recovery pair. Its candidates 9d431ea/b18ced are not substituted for the prior active release. The observed OneDeploy ID2a2c420 is not a resolvable commit prefix in this repository (GitHub422); no SHA equivalence is inferred. This is why D0 measures runtime bytes before selecting source-bound old artifacts. No Azure operation was used for this discovery.
+
+## Exact publication and execution proposal
+
+1. Independently review this final eighteen-path source, focused offline Run/Job/artifact and D0's new WSS main-container scope. Current branch may be updated; Protected/main promotion and dispatch remain separately unapproved. No Protected PR is opened here.
+2. If D0 approved, use normal Protected promotion against d919f8a107e3dbaee919b8c4e3b463240674eaf4 with exact source/tree and byte-preserving seals. Opening that PR triggers existing broad proposal CI; merging triggers post-uat-v180-verify. Do not disable CI or expand uat allowed branches. This is source promotion, not Azure deployment. If base changes, re-diff and re-review.
+3. Separately register ONLY the new D0 workflow path on main using an inert workflow_dispatch stub with the same two required inputs, permissions:{}, no environment/worker/id-token, a fixed REGISTRATION_ONLY message and exit1. Pin current main parent and exact stub bytes in approval. Registration-only commit must not include app files or executable worker and must not be dispatched. Prior inert full-G1 stub8c293cdd is not this D0 registration.
+4. Read back final Protected SHA/seals, verify unchanged uat restriction, obtain exact NEW D0 approval line above, then dispatch D0 ONCE on post-uat/v1.8.0 with approved_source_sha and authorization_comment. No SQL cost checkbox, no old PRE010 workflow, no borrowed branch, no rerun. Preserve sanitized runtime hashes/artifact and compare against existing immutable successful deployment artifacts. If Python/SCM/permission/network is unavailable, stop and report exact access/transport HOLD; no retry/grant/deploy fallback.
+5. Only after identifying matching old API/Frontend artifacts, their source policy and recovery interval/point, complete the full-G1 immutable-input resolver, capability-marker join and source review. Publish/execute the one API-identity SQL workflow only under a separate exact full-G1 approval. D0 is not that approval and does not make schema/permissions/flags/recovery PASS.
+6. No G1 observation authorizes UAT installation, deployment or activation. Existing DB is not empty; no accepted new-empty installer, reset, fabricated ledger or assumed upgrade. Separate deployment approval must pin compatible DB strategy, accepted artifact12520693555, API/FE pair, operator permissions, verified old pair and restore-to-separate-target/no-overwrite boundary. Feature flags remainOFF. Real-role/iPhone Business UAT follows deployment.
+
+Remaining P0: live main-runtime/old-artifact pairing; complete actual-identity schema/permissions/flags/PITR evidence and reviewed full adapter integration; normal Protected/default registration plus exact new-channel consent. Technical RC=READY and IT candidate package=READY. Live G1=HOLD; final live IT handover=HOLD; Business UAT=HOLD.
+
+Primary references:
+- https://learn.microsoft.com/en-us/azure/app-service/configure-linux-open-ssh-session
+- https://github.com/Azure/azure-cli/blob/dev/src/azure-cli/azure/cli/command_modules/appservice/webapp_exec.py (protocol examined, not executed; implementation below is independently sealed)
+- https://learn.microsoft.com/en-us/azure/app-service/resources-kudu
+- https://learn.microsoft.com/en-us/rest/api/sql/restore-points/list
+
+The following historical sections explain the already-delivered audit fix. Statements about nine files and missing code describe source981e6a8; CURRENT source and D0/full distinction are defined above. The machine-readable completion map stays HOLD until full Live producer integration, artifact provenance and independent review are complete.
+
+---
+
+# Historical audit correction (source 981e6a8)
 
 Authority: Owner's current WORK instruction and independent Issue41 audit6376978699 of source44cd3fc264d8d43c716613ba966cf0fa0a859c38. NONDEPLOY. Same branch work/g1-bounded-readonly-entry-20261024. No Protected/main ref update, Live dispatch, Azure/SQL call, deploy, flag/grant change or PR48 rebuild is authorized.
 

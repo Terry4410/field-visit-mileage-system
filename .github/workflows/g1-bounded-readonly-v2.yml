@@ -2,7 +2,7 @@ name: G1 bounded read-only v2 (review before Live)
 on:
   push:
     branches: [work/g1-bounded-readonly-entry-20261024]
-    paths: [.github/workflows/g1-bounded-readonly-v2.yml, .github/workflows/g1-bounded-readonly-worker-v2.yml, 'scripts/ci/g1_bounded/**', 'docs/release/g1-bounded/**']
+    paths: [.github/workflows/g1-bounded-readonly-v2.yml, .github/workflows/g1-bounded-readonly-worker-v2.yml, .github/workflows/g1-version-observation-v2.yml, 'scripts/ci/g1_bounded/**', 'docs/release/g1-bounded/**']
   workflow_dispatch:
     inputs:
       approved_source_sha:
@@ -39,7 +39,13 @@ jobs:
         run: |
           set -euo pipefail
           sha256sum --check scripts/ci/g1_bounded/checksums.sha256
-          python3 -m unittest discover -s scripts/ci/g1_bounded -p test_boundary.py -v
+          python3 -m unittest discover -s scripts/ci/g1_bounded -p 'test_*.py' -v
+      - name: Compile only the BCL diagnostic, never the accepted app
+        run: |
+          set -euo pipefail
+          dotnet build scripts/ci/g1_bounded/probe/G1Probe.csproj --configuration Release --output "$RUNNER_TEMP/g1-probe" -p:ContinuousIntegrationBuild=true -warnaserror
+          dotnet "$RUNNER_TEMP/g1-probe/G1Probe.dll" --self-test
+          sudo install -d -m 0700 -o "$(id -un)" /home/site/wwwroot
       - name: PowerShell parse and actual pinned SqlClient constructor, no Open
         shell: pwsh
         run: |
@@ -50,6 +56,15 @@ jobs:
           Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null
           & ./scripts/ci/g1_bounded/sql.ps1 -OfflineContract
           if($LASTEXITCODE -ne 0){throw 'SQLCLIENT_CONTRACT_REJECTED'}
+          # Synthetic runner filesystem, never Azure: no API process is started.
+          $fixture='/home/site/wwwroot'
+          $null=New-Item -ItemType Directory -Force $fixture
+          $driver=[Microsoft.Data.SqlClient.SqlConnection].Assembly.Location
+          Copy-Item (Join-Path (Split-Path $driver) '*.dll') $fixture
+      - name: Actual Linux anonymous-memory execution and no-GO constructor
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/g1_bounded/offline_memory_probe.py "$RUNNER_TEMP/g1-probe/G1Probe.dll" "$RUNNER_TEMP/g1-probe/G1Probe.runtimeconfig.json"
       - name: Record completeness honestly
         run: |
           mkdir -p verification
@@ -62,12 +77,19 @@ jobs:
             completionCoverage='READY' if coverage_ready() else 'HOLD',azure='NOT_ACCESSED',
             sqlConnections=0,liveG1='NOT_EXECUTED',protectedPromotion='NOT_AUTHORIZED')
           Path('verification/g1-offline.json').write_text(json.dumps(d,sort_keys=True,indent=2)+'\n')
+          import hashlib,shutil
+          for name in ('G1Probe.dll','G1Probe.runtimeconfig.json'):
+            shutil.copyfile(Path(os.environ['RUNNER_TEMP'])/'g1-probe'/name,Path('verification')/name)
+          d['probeSha256']=hashlib.sha256(Path('verification/G1Probe.dll').read_bytes()).hexdigest()
+          d['mainContainerContract']='OFFLINE_PASS_ZERO_OPEN'
+          d['mainContainerLiveAdapter']='NOT_REGISTERED_NOT_AUTHORIZED'
+          Path('verification/g1-offline.json').write_text(json.dumps(d,sort_keys=True,indent=2)+'\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write('G1 offline contracts PASS. Completion coverage: '+d['completionCoverage']+'. No Azure/SQL execution.\n')
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: g1-v2-offline-${{ github.sha }}
-          path: verification/g1-offline.json
+          path: verification/
           retention-days: 30
   source:
     if: github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410' && github.triggering_actor == 'Terry4410' && github.run_attempt == 1

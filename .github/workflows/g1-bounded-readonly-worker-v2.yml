@@ -2,6 +2,9 @@ name: G1 v2 private worker (call only)
 on:
   workflow_call:
     inputs:
+      mode:
+        type: string
+        default: FULL_G1
       approved_source_sha:
         type: string
         required: true
@@ -31,6 +34,7 @@ jobs:
       issues: read
       id-token: write
     env:
+      G1_MODE: ${{ inputs.mode }}
       APPROVED_SHA: ${{ inputs.approved_source_sha }}
       APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
       ACCEPT_COST: ${{ inputs.accept_one_connection_cost }}
@@ -52,12 +56,14 @@ jobs:
           python3 scripts/ci/g1_bounded/guard.py
           python3 scripts/ci/g1_bounded/arm.py --prelogin
       - name: Load dependency before bounded inspection clock
+        if: inputs.mode == 'FULL_G1'
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           try {Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null}
           catch {Write-Output 'SqlDependency=HOLD; Details=SUPPRESSED;'; exit 1}
       - name: Existing federation, exactly five ARM GETs and one SQL session
+        if: inputs.mode == 'FULL_G1'
         shell: bash
         run: |
           set -euo pipefail
@@ -65,3 +71,21 @@ jobs:
             timeout --signal=TERM --kill-after=5s 180s python3 scripts/ci/g1_bounded/arm.py
             timeout --signal=TERM --kill-after=5s 240s pwsh -NoProfile -NonInteractive -File scripts/ci/g1_bounded/sql.ps1 2>/dev/null
           '
+      - name: Load D0 client on runner before observation clock
+        if: inputs.mode == 'D0_VERSION_ONLY'
+        run: python3 -m pip install --disable-pip-version-check --no-input websocket-client==1.8.0
+      - name: D0 two fixed ARM GETs and one WSS main-container observation, zero SQL
+        if: inputs.mode == 'D0_VERSION_ONLY'
+        env:
+          G1_D0_GUARD: PASS
+        run: |
+          set -euo pipefail
+          mkdir -p verification
+          timeout --signal=TERM --kill-after=5s 300s python3 scripts/ci/g1_bounded/d0.py > verification/g1-d0.json 2>/dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && inputs.mode == 'D0_VERSION_ONLY'
+        with:
+          name: g1-d0-observation-${{ github.sha }}
+          path: verification/g1-d0.json
+          if-no-files-found: ignore
+          retention-days: 30

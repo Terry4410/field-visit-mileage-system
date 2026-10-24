@@ -1,0 +1,73 @@
+name: G1 D0 version observation (separate approval, zero SQL)
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Separately approved final Protected source SHA
+        type: string
+        required: true
+      authorization_comment:
+        description: NEW Issue41 exact D0 ONE_WSS ZERO_SQL approval
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: g1-d0-version-observation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.actor == 'Terry4410' && github.triggering_actor == 'Terry4410' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    env:
+      G1_MODE: D0_VERSION_ONLY
+      ACCEPT_COST: 'false'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact D0 consent and unused D0 workflow before identity
+        env:
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          python3 scripts/ci/g1_bounded/guard.py
+  identity:
+    needs: source
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 1
+    permissions:
+      contents: none
+    outputs:
+      client: ${{ vars.AZURE_CLIENT_ID }}
+      tenant: ${{ vars.AZURE_TENANT_ID }}
+      subscription: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - run: test "${RUNNER_DEBUG:-}" != 1
+  observation:
+    needs: [source, identity]
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      id-token: write
+    uses: ./.github/workflows/g1-bounded-readonly-worker-v2.yml
+    with:
+      approved_source_sha: ${{ inputs.approved_source_sha }}
+      authorization_comment: ${{ inputs.authorization_comment }}
+      accept_one_connection_cost: false
+      mode: D0_VERSION_ONLY
+    secrets:
+      client: ${{ needs.identity.outputs.client }}
+      tenant: ${{ needs.identity.outputs.tenant }}
+      subscription: ${{ needs.identity.outputs.subscription }}
