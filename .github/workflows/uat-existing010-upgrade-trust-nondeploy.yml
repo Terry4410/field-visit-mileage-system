@@ -1,0 +1,122 @@
+name: UAT010 Existing Upgrade Runtime Trust NONDEPLOY
+on:
+  push:
+    branches: [work/uat010-upgrade-trust-nondeploy-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: existing010-upgrade-trust-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  upgraded-runtime-trust:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-upgrade-trust-nondeploy-20261024' && !startsWith(github.event.head_commit.message, 'test(uat010-sql):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact parent, scope and zero deployment authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 9ee5dacceed2bf55c39310d663f3258bcb545989 HEAD
+          git diff --name-only 9ee5dacceed2bf55c39310d663f3258bcb545989 HEAD | sort > "$RUNNER_TEMP/actual"
+          printf '%s\n' \
+            .github/workflows/uat-existing010-upgrade-trust-nondeploy.yml \
+            docs/release/uat-release-candidate/EXISTING010-UPGRADE-PROFILE.md \
+            scripts/ci/uat_release/prepare_candidate.py \
+            scripts/ci/uat_release/sign_activation.py \
+            tools/uat-release-candidate/runtime/V180UatExisting010HistoryTrust.cs \
+            tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs \
+            tools/uat-release-candidate/upgrade-profile-tests/Program.cs \
+            tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj \
+            | sort > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          test -z "${AZURE_CREDENTIALS:-}"
+          test -z "${FIELDVISIT_UAT_TRUST_KEY:-}"
+          echo 'UpgradeTrustSource=PASS; ExactParent=PASS; Scope=EIGHT_FILES; AzureSQL=NOT_ACCESSED;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile actual candidate trust and execute signed-profile negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj -c Release --nologo
+      - name: Check Python overlay and activation signer syntax
+        run: |
+          python3 -m py_compile scripts/ci/uat_release/prepare_candidate.py scripts/ci/uat_release/sign_activation.py
+          echo 'UpgradeTrustPython=PASS; Activation=NOT_EXECUTED;'
+
+  sql-runtime:
+    name: Focused SQL2022 runtime history gate — NONDEPLOY
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-upgrade-trust-nondeploy-20261024' && startsWith(github.event.head_commit.message, 'test(uat010-sql):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Terry4410/field-visit-mileage-system
+          ref: feb244d480d35ba7dbadc4d7ae796e8875d705e3
+          path: pr50-source
+          persist-credentials: false
+      - name: Exact source ancestry and unchanged PR50 migration bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C pr50-source rev-parse HEAD)" = feb244d480d35ba7dbadc4d7ae796e8875d705e3
+          git merge-base --is-ancestor 1e5f5f164eddb48e60cac25c64823c9b7c0c9a66 HEAD
+          git diff --name-only 1e5f5f164eddb48e60cac25c64823c9b7c0c9a66 HEAD | sort > "$RUNNER_TEMP/actual"
+          printf '%s\n' .github/workflows/uat-existing010-upgrade-trust-nondeploy.yml tools/uat-release-candidate/upgrade-profile-tests/Program.cs tools/uat-release-candidate/upgrade-profile-tests/SqlHistoryBridge.cs tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj | sort > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          test -z "${AZURE_CREDENTIALS:-}"
+          test -z "${FIELDVISIT_UAT_TRUST_KEY:-}"
+          echo 'UpgradeSqlSource=PASS; ExistingRuntime=UNCHANGED; Migration=PR50_PINNED;'
+      - name: Start disposable SQL Server 2022 on loopback only
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 24)!G1a"
+          connection="Server=localhost,1433;Database=master;User Id=sa;Password=${password};Encrypt=False;TrustServerCertificate=True;Connect Timeout=5;ConnectRetryCount=0"
+          echo "::add-mask::$password"
+          echo "::add-mask::$connection"
+          envfile="$RUNNER_TEMP/uat010-runtime-sql.env"
+          umask 077
+          printf 'ACCEPT_EULA=Y\nMSSQL_PID=Developer\nMSSQL_SA_PASSWORD=%s\n' "$password" > "$envfile"
+          docker run -d --name uat010-runtime-sql --memory 3g -p 127.0.0.1:1433:1433 --env-file "$envfile" mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          rm -f "$envfile"
+          ready=0
+          for _ in $(seq 1 24); do
+            if docker exec -e "SQLCMDPASSWORD=$password" uat010-runtime-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = 1
+          printf 'E1_R1_SQL_CONNECTION=%s\n' "$connection" >> "$GITHUB_ENV"
+          echo 'UpgradeSqlProvider=PASS; Engine=LOCAL_SQL2022_ONLY;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Execute actual UAT010 history trust against disposable SQL2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj -c Release --nologo -- --sql pr50-source
+      - name: Stop disposable SQL Server
+        if: always()
+        shell: bash
+        run: docker rm -f uat010-runtime-sql >/dev/null 2>&1 || true
+
