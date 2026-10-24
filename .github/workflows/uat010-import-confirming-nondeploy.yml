@@ -1,0 +1,56 @@
+name: UAT010 Import Confirming compatibility NONDEPLOY
+on:
+  push:
+    branches: [work/uat010-import-confirming-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: uat010-import-confirming-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-import-compatibility:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.event_name == 'push' && github.ref == 'refs/heads/work/uat010-import-confirming-20261024'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Exact source and four-file delta guard
+        shell: python
+        run: |
+          import os,subprocess
+          base='feb244d480d35ba7dbadc4d7ae796e8875d705e3'
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
+          assert subprocess.run(['git','merge-base','--is-ancestor',base,'HEAD'],capture_output=True).returncode==0
+          expected={'.github/workflows/uat010-import-confirming-nondeploy.yml','tools/uat010-import-confirming/verify.ps1','docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql','docs/release/g1-execution/promotion/CONFIRMING-COMPATIBILITY-DELTA.md'}
+          assert set(git('diff','--name-only',base,'HEAD').splitlines())==expected
+          print('SOURCE_SCOPE=PASS; AzureAccess=NONE;')
+      - name: Prepare isolated local SQL2022 only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber *> $null
+          $pw='Aa1!'+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+          Write-Output "::add-mask::$pw"
+          Add-Content $env:GITHUB_ENV "LOCAL_SQL_PASSWORD=$pw"
+          docker run -d --name fieldvisit-import-confirming-sql -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e "MSSQL_SA_PASSWORD=$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest *> $null
+          if($LASTEXITCODE -ne 0){throw 'LOCAL_CONTAINER_START_STOP'}
+      - name: Execute only new Confirming compatibility regression
+        shell: pwsh
+        run: ./tools/uat010-import-confirming/verify.ps1
+      - name: Close isolated container
+        if: always()
+        run: docker rm -f fieldvisit-import-confirming-sql >/dev/null 2>&1 || true
+      - name: Bind sanitized receipt bytes
+        shell: bash
+        run: |
+          cd artifacts/import-confirming
+          sha256sum result.json > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uat010-import-confirming-${{ github.sha }}
+          path: artifacts/import-confirming/
+          retention-days: 30
+          if-no-files-found: error

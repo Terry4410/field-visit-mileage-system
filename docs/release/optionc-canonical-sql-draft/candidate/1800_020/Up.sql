@@ -24,7 +24,7 @@ BEGIN TRY
       ALTER TABLE dbo.ImportBatchItems DROP CONSTRAINT CK_ImportBatchItems_Status;
   ALTER TABLE dbo.ImportBatches WITH CHECK ADD
     CONSTRAINT CK_ImportBatches_Status CHECK(Status IN(
-      N'Previewed',N'Confirmed',N'PartiallyFailed',
+      N'Previewed',N'Confirming',N'Confirmed',N'PartiallyFailed',
       N'PartiallySubmittedForReview',N'SubmittedForReview'));
   ALTER TABLE dbo.ImportBatchItems WITH CHECK ADD
     CONSTRAINT CK_ImportBatchItems_Status CHECK(Status IN(
