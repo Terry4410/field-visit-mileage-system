@@ -29,7 +29,7 @@ jobs:
           assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
           assert subprocess.run(['git','merge-base','--is-ancestor','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD']).returncode==0
           changed=set(git('diff','--name-only','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD').splitlines())
-          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1'}
+          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1','scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py','docs/release/g1-execution/promotion/UAT010-FRONTEND-DUAL-NONDEPLOY.md'}
           assert len(j['integratedFiles'])==53 and changed==expected
           assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==44
           assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==9
@@ -243,5 +243,49 @@ jobs:
         with:
           name: uat010-corrected020-synthetic-${{ github.sha }}
           path: artifacts/uat010-corrected020/
+          retention-days: 30
+          if-no-files-found: error
+
+  frontend-gated-candidate:
+    name: Dual OFF / ON_NONDEPLOY frontend artifact (no deployment)
+    needs: combined-source
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check exact six-flag source and reject any overlay drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py --self-test
+      - name: Build and independently seal isolated dual frontend bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py
+      - name: Prove git source remains OFF / not committed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object frontend/src/optionc-approval-flags.ts)" = 7c9e8482ffa2bb4a92316bff6f9e4954bf9560be
+          git diff --exit-code -- frontend/src frontend/public/config.js
+          cd artifacts/uat010-frontend-dual
+          sha256sum --check --quiet checksums.sha256
+          echo 'FrontendSource=UNCHANGED_OFF; DualCandidate=SEALED_NONDEPLOY;'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-optionc-frontend-dual-NONDEPLOY-${{ github.sha }}
+          path: artifacts/uat010-frontend-dual/
           retention-days: 30
           if-no-files-found: error
