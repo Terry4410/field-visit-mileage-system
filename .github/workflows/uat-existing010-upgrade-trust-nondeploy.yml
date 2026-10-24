@@ -1,0 +1,55 @@
+name: UAT010 Existing Upgrade Runtime Trust NONDEPLOY
+on:
+  push:
+    branches: [work/uat010-upgrade-trust-nondeploy-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: existing010-upgrade-trust-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  upgraded-runtime-trust:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-upgrade-trust-nondeploy-20261024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact parent, scope and zero deployment authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 9ee5dacceed2bf55c39310d663f3258bcb545989 HEAD
+          git diff --name-only 9ee5dacceed2bf55c39310d663f3258bcb545989 HEAD | sort > "$RUNNER_TEMP/actual"
+          printf '%s\n' \
+            .github/workflows/uat-existing010-upgrade-trust-nondeploy.yml \
+            docs/release/uat-release-candidate/EXISTING010-UPGRADE-PROFILE.md \
+            scripts/ci/uat_release/prepare_candidate.py \
+            scripts/ci/uat_release/sign_activation.py \
+            tools/uat-release-candidate/runtime/V180UatExisting010HistoryTrust.cs \
+            tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs \
+            tools/uat-release-candidate/upgrade-profile-tests/Program.cs \
+            tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj \
+            | sort > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          test -z "${AZURE_CREDENTIALS:-}"
+          test -z "${FIELDVISIT_UAT_TRUST_KEY:-}"
+          echo 'UpgradeTrustSource=PASS; ExactParent=PASS; Scope=EIGHT_FILES; AzureSQL=NOT_ACCESSED;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile actual candidate trust and execute signed-profile negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj -c Release --nologo
+      - name: Check Python overlay and activation signer syntax
+        run: |
+          python3 -m py_compile scripts/ci/uat_release/prepare_candidate.py scripts/ci/uat_release/sign_activation.py
+          echo 'UpgradeTrustPython=PASS; Activation=NOT_EXECUTED;'

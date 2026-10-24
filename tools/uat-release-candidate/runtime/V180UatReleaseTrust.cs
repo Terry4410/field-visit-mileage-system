@@ -13,11 +13,25 @@ public static class V180UatReleaseTrust
     public sealed record Attestation(string CandidateSourceSha, string ApiSha256,
         string FrontendSha256, string SchemaSha256, string PrincipalSidSha256,
         string PrincipalName, string Server, string Database, string Features,
-        DateTimeOffset NotBefore, DateTimeOffset Expires);
+        DateTimeOffset NotBefore, DateTimeOffset Expires)
+    {
+        public string? SchemaProfile { get; init; }
+        public string? HistoricalMarkerSha256 { get; init; }
+        public string? PromotionPackageId { get; init; }
+        public string? LedgerSha256 { get; init; }
+        public int? TableCount { get; init; }
+    }
     public sealed record Facts(string CandidateSourceSha, string ApiSha256,
         string FrontendSha256, string SchemaSha256, string PrincipalSidSha256,
         string PrincipalName, string Server, string Database, int EngineEdition,
-        bool EncryptedCertificateVerified, bool NonOwnerNoDdl, string Features);
+        bool EncryptedCertificateVerified, bool NonOwnerNoDdl, string Features)
+    {
+        public string? SchemaProfile { get; init; }
+        public string? HistoricalMarkerSha256 { get; init; }
+        public string? PromotionPackageId { get; init; }
+        public string? LedgerSha256 { get; init; }
+        public int? TableCount { get; init; }
+    }
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public const string Features = "LocationReview,LowRiskDirect,ExcelReview";
     public const string Server = "sql-fieldvisit-jpe-uat.database.windows.net";
@@ -45,8 +59,24 @@ public static class V180UatReleaseTrust
             || a.Server!=Server || a.Database!=Database || facts.Server!=Server || facts.Database!=Database
             || a.Features!=Features || facts.Features!=Features || facts.EngineEdition!=5
             || !facts.EncryptedCertificateVerified || !facts.NonOwnerNoDdl) throw Denied();
+        // Only a fresh signed payload with the exact existing-010 profile can
+        // authorize the upgraded schema. An old three-marker RC remains denied.
+        if (facts.SchemaProfile=="Existing010Upgrade")
+        {
+            if(a.SchemaProfile!="Existing010Upgrade" || !Hex(a.HistoricalMarkerSha256 ?? "",64)
+                || !Hex(a.PromotionPackageId ?? "",64) || !Hex(a.LedgerSha256 ?? "",64)
+                || a.HistoricalMarkerSha256!=facts.HistoricalMarkerSha256
+                || a.PromotionPackageId!=facts.PromotionPackageId
+                || a.LedgerSha256!=facts.LedgerSha256
+                || a.TableCount!=facts.TableCount || a.TableCount is null or <70 or >100)
+                throw Denied();
+        }
+        else if(facts.SchemaProfile is not null || a.SchemaProfile is not null
+            || a.HistoricalMarkerSha256 is not null || a.PromotionPackageId is not null
+            || a.LedgerSha256 is not null || a.TableCount is not null)
+            throw Denied();
     }
-    public static string CatalogJson(SqlConnection connection, SqlTransaction? transaction=null)
+    public static string CatalogJson(SqlConnection connection, SqlTransaction? transaction=null, int expectedTableCount=69)
     {
         using var resource=typeof(V180UatReleaseTrust).Assembly.GetManifestResourceStream("FieldVisit.Release.SchemaFingerprint.sql") ?? throw new InvalidOperationException("SCHEMA_RESOURCE_MISSING");
         using var reader=new StreamReader(resource);
@@ -60,7 +90,9 @@ public static class V180UatReleaseTrust
         }
         using var doc=JsonDocument.Parse(json);
         if(doc.RootElement.ValueKind!=JsonValueKind.Array) throw new InvalidOperationException("SCHEMA_ROOT_NOT_ARRAY");
-        if(doc.RootElement.GetArrayLength()!=69) throw new InvalidOperationException("SCHEMA_TABLE_COUNT");
+        if(expectedTableCount!=69 && (expectedTableCount<70 || expectedTableCount>100))
+            throw new InvalidOperationException("SCHEMA_PROFILE_TABLE_COUNT");
+        if(doc.RootElement.GetArrayLength()!=expectedTableCount) throw new InvalidOperationException("SCHEMA_TABLE_COUNT");
         foreach(var table in doc.RootElement.EnumerateArray())
         {
             var indexes=table.GetProperty("indexes");
@@ -105,6 +137,11 @@ public static class V180UatReleaseTrust
         using var contract=JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root,"release-contract.json")));
         var candidate=contract.RootElement;
         if(candidate.GetProperty("candidateSourceSha").GetString()!=UatReleaseIdentity.SourceSha) throw Denied();
+        var profile=candidate.TryGetProperty("schemaProfile",out var v) ? v.GetString() : null;
+        if(profile is not (null or "Existing010Upgrade")) throw Denied();
+        bool upgrade=profile=="Existing010Upgrade";
+        int expectedTables=upgrade ? candidate.GetProperty("tableCount").GetInt32() : 69;
+        if(upgrade && (expectedTables<70 || expectedTables>100)) throw Denied();
         using var read=new SqlCommand("""
             SELECT CONVERT(int,SERVERPROPERTY('EngineEdition')),USER_NAME(),
               (SELECT sid FROM sys.database_principals WHERE principal_id=USER_ID()),
@@ -121,8 +158,10 @@ public static class V180UatReleaseTrust
                 AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'INSERT')=0
                 AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'UPDATE')=0
                 AND HAS_PERMS_BY_NAME(N'dbo.SchemaMigrationDataBaselines',N'OBJECT',N'DELETE')=0
-                AND (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
-                AND (SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN (N'1.8.0-CREATE-LOWRISK',N'1.8.0-LOWRISK-DIRECT',N'1.8.0-EXCEL-CANONICAL-STATUS'))=3
+                AND (OBJECT_ID(N'dbo.FieldVisitMigrationLedger',N'U') IS NULL OR
+                    (HAS_PERMS_BY_NAME(N'dbo.FieldVisitMigrationLedger',N'OBJECT',N'INSERT')=0
+                     AND HAS_PERMS_BY_NAME(N'dbo.FieldVisitMigrationLedger',N'OBJECT',N'UPDATE')=0
+                     AND HAS_PERMS_BY_NAME(N'dbo.FieldVisitMigrationLedger',N'OBJECT',N'DELETE')=0))
                 THEN 1 ELSE 0 END;
             """,connection,transaction) {CommandTimeout=10};
         int engine; string principal,sid; bool least;
@@ -131,11 +170,35 @@ public static class V180UatReleaseTrust
             if(!rows.Read()) throw Denied();
             engine=rows.GetInt32(0); principal=rows.GetString(1); sid=Hash((byte[])rows[2]); least=rows.GetInt32(3)==1;
         }
-        var schema=Hash(Encoding.UTF8.GetBytes(CatalogJson(connection,transaction)));
+        var schema=Hash(Encoding.UTF8.GetBytes(CatalogJson(connection,transaction,expectedTables)));
         var api=ApiHash(root);
         if(schema!=candidate.GetProperty("schemaSha256").GetString() || api!=candidate.GetProperty("apiSha256").GetString()) throw Denied();
+        V180UatExisting010HistoryTrust.Proof? proof=null;
+        if(upgrade)
+        {
+            proof=V180UatExisting010HistoryTrust.ReadAndVerify(connection,transaction,
+                candidate.GetProperty("historicalMarkerSha256").GetString()!,
+                candidate.GetProperty("promotionPackageId").GetString()!,
+                candidate.GetProperty("ledgerSha256").GetString()!);
+        }
+        else
+        {
+            // Keep the original fresh-install 69-table/3-capability contract exact.
+            using var markers=new SqlCommand("""
+                SELECT CASE WHEN (SELECT COUNT(*) FROM dbo.SchemaVersions)=3
+                    AND (SELECT COUNT(*) FROM dbo.SchemaVersions
+                         WHERE VersionNumber IN(N'1.8.0-CREATE-LOWRISK',N'1.8.0-LOWRISK-DIRECT',N'1.8.0-EXCEL-CANONICAL-STATUS'))=3
+                    THEN 1 ELSE 0 END
+                """,connection,transaction) {CommandTimeout=10};
+            if(Convert.ToInt32(markers.ExecuteScalar())!=1) throw Denied();
+        }
         var facts=new Facts(UatReleaseIdentity.SourceSha,api,candidate.GetProperty("frontendSha256").GetString()!,
-            schema,sid,principal,connection.DataSource,connection.Database,engine,tls,least,Features);
+            schema,sid,principal,connection.DataSource,connection.Database,engine,tls,least,Features)
+        {
+            SchemaProfile=profile,HistoricalMarkerSha256=proof?.HistoricalMarkerSha256,
+            PromotionPackageId=proof?.PromotionPackageId,LedgerSha256=proof?.LedgerSha256,
+            TableCount=upgrade ? expectedTables : null
+        };
         Validate(payload,signature,key,facts,DateTimeOffset.UtcNow);
     }
 }
