@@ -1,0 +1,65 @@
+name: G1 SCM ARM6 private inspection worker (call only)
+on:
+  workflow_call:
+    inputs:
+      approved_source_sha:
+        required: true
+        type: string
+      authorization_comment:
+        required: true
+        type: string
+    secrets:
+      client:
+        required: true
+      tenant:
+        required: true
+      subscription:
+        required: true
+permissions:
+  contents: read
+jobs:
+  bounded:
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      id-token: write
+    env:
+      G1_MODE: SCM_ARM6_READONLY
+      G1_ARM6_GUARD: PASS
+      ACCEPT_COST: 'false'
+      APPROVED_SHA: ${{ inputs.approved_source_sha }}
+      APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
+      GH_TOKEN: ${{ github.token }}
+      AZURE_CLIENT_ID: ${{ secrets.client }}
+      AZURE_TENANT_ID: ${{ secrets.tenant }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.subscription }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recheck exact authorization/source and pinned Azure identity before any OIDC
+        run: |
+          set -euo pipefail
+          test "${RUNNER_DEBUG:-}" != 1
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          sha256sum --check scripts/ci/g1_arm6/checksums.sha256
+          python3 scripts/ci/g1_arm6/guard.py
+          python3 scripts/ci/g1_bounded/arm.py --prelogin
+      - name: Exactly six maximum fixed ARM GET, no SCM or SQL
+        run: |
+          set -euo pipefail
+          mkdir -p verification
+          timeout --signal=TERM --kill-after=5s 210s python3 scripts/ci/g1_arm6/arm6.py > verification/scm-arm6.json 2>/dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: g1-scm-arm6-${{ github.sha }}
+          path: verification/scm-arm6.json
+          if-no-files-found: ignore
+          retention-days: 30

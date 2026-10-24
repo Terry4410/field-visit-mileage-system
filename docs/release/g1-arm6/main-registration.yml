@@ -1,0 +1,20 @@
+name: G1 SCM ARM6 (INERT default-main registration ONLY)
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        required: true
+        type: string
+      authorization_comment:
+        required: true
+        type: string
+permissions: {}
+jobs:
+  registration-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - run: |
+          echo 'INERT_MAIN; ARM=NOT_ACCESSED; SQL=NOT_ACCESSED; SCM=NOT_ACCESSED;'
+          exit 1
