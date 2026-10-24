@@ -1,0 +1,104 @@
+{
+  "record": "GITHUB_ONLY_RECOVERY_INVENTORY",
+  "observedDateTaipei": "2026-10-24",
+  "azureQueries": 0,
+  "sqlOpens": 0,
+  "scope": {
+    "manualDispatchesExamined": 235,
+    "mainSuccessRunsExamined": 29,
+    "oct13to14RunsExamined": 398,
+    "releasesFound": 0
+  },
+  "latestKnownDeployments": [
+    {
+      "runId": 38334707319,
+      "workflow": ".github/workflows/api-azure.yml",
+      "sourceSha": "db235938b8b13ca8a65ab3b525de1df10d911645",
+      "branch": "work/v180-visitor-only-uat010-security-fix",
+      "conclusion": "success",
+      "createdUtc": "2026-10-13T01:59:00Z",
+      "artifacts": [
+        {
+          "id": 11784129018,
+          "name": "uat-playwright-report",
+          "sha256": "d5543de0e0d11ed610d13f12c5cce9d37cd940efa123172ef2228fbdad406d12",
+          "bytes": 200217,
+          "expired": false,
+          "classification": "PLAYWRIGHT_REPORT_NOT_DEPLOY_PACKAGE"
+        }
+      ],
+      "currentlyDeployedMatch": "UNKNOWN"
+    },
+    {
+      "runId": 38338108364,
+      "workflow": ".github/workflows/frontend-pages.yml",
+      "sourceSha": "0899f3996618c4b2bd02ecd659c76fdd07cc91ed",
+      "branch": "work/v180-visitor-only-uat010-security-fix",
+      "conclusion": "success",
+      "createdUtc": "2026-10-13T02:41:47Z",
+      "artifacts": [
+        {
+          "id": 11784789804,
+          "name": "uat-playwright-report",
+          "sha256": "60741b25ba83d2ed8cae89bb375e1463107ef27e920eb5112b4cf420c6b5da06",
+          "bytes": 200153,
+          "expired": false,
+          "classification": "PLAYWRIGHT_REPORT_NOT_DEPLOY_PACKAGE"
+        }
+      ],
+      "currentlyDeployedMatch": "UNKNOWN"
+    }
+  ],
+  "priorPinnedSourceRollbackLeads": [
+    {
+      "runId": 38019868384,
+      "workflow": ".github/workflows/api-azure.yml",
+      "sourceSha": "68b94138e2b79d9bff694d3bf8dcb4825d0dcbe2",
+      "branch": "post-uat/v1.8.0",
+      "conclusion": "success",
+      "createdUtc": "2026-10-10T03:14:36Z",
+      "artifacts": [],
+      "currentlyDeployedMatch": "UNKNOWN"
+    },
+    {
+      "runId": 38018403878,
+      "workflow": ".github/workflows/frontend-pages.yml",
+      "sourceSha": "007b79dba12a1668b66164ac9f8440bbb8ac8e90",
+      "branch": "post-uat/v1.8.0",
+      "conclusion": "success",
+      "createdUtc": "2026-10-10T02:50:04Z",
+      "artifacts": [],
+      "currentlyDeployedMatch": "UNKNOWN"
+    }
+  ],
+  "frontendOriginalPages": {
+    "artifactId": 11785810643,
+    "sourceRun": 38338108364,
+    "sha256FromOriginalBuildLog": "5d786255c5b59304737788bd049ea23e40be76ecf1d3c680e4ec561ca8fc5a12",
+    "downloadResult": "GITHUB_404_NOT_FOUND",
+    "originalBytesVerifiedNow": false
+  },
+  "apiOriginalPublish": {
+    "sourceRun": 38334707319,
+    "jobId": 115092087588,
+    "deployStep": "SUCCESS",
+    "binaryArtifact": "NOT_ARCHIVED_BY_WORKFLOW",
+    "binaryHashes": "UNKNOWN"
+  },
+  "existingCandidateOnly": {
+    "runId": 39556556921,
+    "artifactId": 12325063869,
+    "sourceSha": "9d431ea318fcec34f04f3cc36a8fb6d01d00c48a",
+    "sha256": "175cdbb82c66f2eb3a602a8855693feab08a985596115a94866a82c7c3d306a4",
+    "classification": "NONDEPLOY_CANDIDATE_NOT_VERIFIED_OLD_PAIR",
+    "privateArchiveReadmeBlob": "fe0b84e7b78c76cace4a55550306173bc68e90bd",
+    "privateGitHubBinaryBackup": "NOT_PRESENT_PER_README"
+  },
+  "acceptedRc": {
+    "pr": 48,
+    "sha": "9ee5dacceed2bf55c39310d663f3258bcb545989",
+    "status": "ACCEPTED_UNCHANGED_NOT_REBUILT"
+  },
+  "rollbackPair": "HOLD_ORIGINAL_API_BYTES_AND_FRONTEND_BYTES_UNAVAILABLE",
+  "restriction": "GitHub deployment success/source stamp is not live six-hash evidence. No rebuild can recreate an immutable original artifact claim. No Azure restore/deploy/reset authorized."
+}
