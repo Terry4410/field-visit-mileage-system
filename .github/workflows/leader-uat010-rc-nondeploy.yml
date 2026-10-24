@@ -140,8 +140,27 @@ jobs:
           diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
           test -z "${UAT_SQL_CONNECTION:-}"
           test -z "${PRODUCTION_SQL_CONNECTION:-}"
-      - name: Start local disposable SQL Server 2022
-        run: python3 scripts/ci/g1_migration_readiness.py sql
+      - name: Start local disposable SQL Server 2022 (history-only, independent source guard)
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 24)!G1a"
+          connection="Server=localhost,1433;Database=master;User Id=sa;Password=${password};Encrypt=False;TrustServerCertificate=True;Connect Timeout=5;ConnectRetryCount=0"
+          echo "::add-mask::$password"
+          echo "::add-mask::$connection"
+          envfile="$RUNNER_TEMP/g1-history-sql.env"
+          umask 077
+          printf 'ACCEPT_EULA=Y\nMSSQL_PID=Developer\nMSSQL_SA_PASSWORD=%s\n' "$password" > "$envfile"
+          docker run -d --name g1-preparation-sql -p 127.0.0.1:1433:1433 --env-file "$envfile" mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          rm -f "$envfile"
+          ready=0
+          for _ in $(seq 1 24); do
+            if docker exec -e "SQLCMDPASSWORD=$password" g1-preparation-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = 1
+          printf 'E1_R1_SQL_CONNECTION=%s\n' "$connection" >> "$GITHUB_ENV"
+          echo 'G1HistoryProvider=PASS; Target=LOCAL_SQL2022_ONLY;'
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
