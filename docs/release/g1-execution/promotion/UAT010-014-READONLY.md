@@ -1,0 +1,7 @@
+# PR83 — source-derived 014 data compatibility check (NONDEPLOY)
+
+The approved-active historical location publication Backfill in 1800_014 has two proven P0 data preconditions (complete location fields and authority/organization/team relationships). This generator copies BOTH exact SELECT predicates from the reviewed Backfill.sql, bound by the original PR50 manifest SHA256; it does not approximate business predicates or run any SQL by default.
+
+Use `python3 scripts/ci/uat010_014_readonly.py --output artifacts/uat010-014/014-preflight.sql` to create a **SELECT-only / fail-closed** draft. It returns only two approved-source PASS/HOLD code pairs, no row data/counts/identifiers. Fixed actual UAT host/database and exact Latest 1.8.0-010 are required. Developer SQL2022 allows only isolated OptionCIsolated_<32 hex> names with explicit nondeploy session context. It contains no DML, DDL, deployment or permission changes.
+
+Offline unit tests pin source digest, enforce both predicates, cross-organization/NULL-team condition, latest-marker/target guards, output restriction, and negative drift tests. No Azure or live SQL execution is part of this PR. Passing these 014 checks **does not** establish the 63-table full schema, triggers, API SQL Principal, active binaries/flags, post-upgrade consistency, recovery, or UAT go/no-go. Real G1 remains HOLD until an authorized bounded live read on a supported Azure session and independent review; never paste DB records into an issue/artifact. Existing PR48/50/81/82 source and accepted results remain untouched.

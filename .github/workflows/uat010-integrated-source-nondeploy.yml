@@ -29,7 +29,7 @@ jobs:
           assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
           assert subprocess.run(['git','merge-base','--is-ancestor','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD']).returncode==0
           changed=set(git('diff','--name-only','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD').splitlines())
-          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml'}
+          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md'}
           assert len(j['integratedFiles'])==53 and changed==expected
           assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==44
           assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==9
@@ -52,8 +52,15 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Focused runtime history profile compile only
         run: dotnet build tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj --configuration Release --nologo
-      - name: Python source syntax only
-        run: python3 -m py_compile scripts/ci/uat_release/prepare_candidate.py scripts/ci/uat_release/sign_activation.py scripts/ci/g1_promotion.py
+      - name: Python source syntax and focused 014 preflight source guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ci/uat_release/prepare_candidate.py scripts/ci/uat_release/sign_activation.py scripts/ci/g1_promotion.py scripts/ci/uat010_014_readonly.py
+          python3 -m unittest discover -s scripts/ci -p test_uat010_014_readonly.py -v
+          python3 scripts/ci/uat010_014_readonly.py --output artifacts/uat010-integrated/014-preflight.sql
+          test -s artifacts/uat010-integrated/014-preflight.sql
+          echo 'UAT010_014_Preflight=SOURCE_BOUND_ONLY; LiveG1=HOLD;'
       - name: Bind sanitized receipt
         if: success()
         run: cd artifacts/uat010-integrated && sha256sum receipt.json > checksums.sha256
