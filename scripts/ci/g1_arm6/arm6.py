@@ -116,14 +116,17 @@ def site_projection(value, sub):
     props = value.get('properties')
     if (not isinstance(props, dict) or str(value.get('id', '')).lower() != expected.lower() or
             str(value.get('name', '')).lower() != APP.lower() or props.get('reserved') is not True or
-            props.get('state') != 'Running'):
+            props.get('state') != 'Running' or
+            props.get('publicNetworkAccess') not in ('Enabled', 'Disabled')):
         raise Stop()
-    return props.get('publicNetworkAccess') in ('Enabled', 'Disabled')
 
 
-def scm_projection(value):
+def scm_projection(value, sub):
+    expected = paths(sub)[1].split('?', 1)[0]
     props = value.get('properties')
-    if not isinstance(props, dict):
+    if (not isinstance(props, dict) or str(value.get('id', '')).lower() != expected.lower() or
+            value.get('name') != 'web' or
+            str(value.get('type', '')).lower() != 'microsoft.web/sites/config'):
         raise Stop()
     use = props.get('scmIpSecurityRestrictionsUseMain')
     default = props.get('scmIpSecurityRestrictionsDefaultAction')
@@ -242,7 +245,7 @@ def run(opener=None, token_factory=None, env=None):
                 site_projection(response, ctx[1])
                 out['target'] = 'CONFIRMED'
             if i == 1:
-                out.update(scm_projection(response))
+                out.update(scm_projection(response, ctx[1]))
             if i == 2:
                 role_ids, ambiguity = assignments_projection(response, oid)
             if i == 3:

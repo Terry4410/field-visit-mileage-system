@@ -44,7 +44,8 @@ def env():
 def responses():
     return [
         {'id': ROOT, 'name': 'api-fieldvisit-uat', 'properties': {'reserved': True, 'state': 'Running', 'publicNetworkAccess': 'Enabled'}},
-        {'properties': {'scmIpSecurityRestrictionsUseMain': False,
+        {'id': ROOT + '/config/web', 'name': 'web', 'type': 'Microsoft.Web/sites/config',
+         'properties': {'scmIpSecurityRestrictionsUseMain': False,
                         'scmIpSecurityRestrictionsDefaultAction': 'Deny',
                         'scmIpSecurityRestrictions': [{'action': 'Allow', 'ipAddress': 'SENSITIVE_IP'}], 'scmMinTlsVersion': '1.2'}},
         {'value': [{'properties': {'principalId': OID, 'principalType': 'ServicePrincipal',
@@ -56,8 +57,9 @@ def responses():
 
 
 class Response:
-    def __init__(self, uri, value, status=200, redirect=None):
-        self.url, self.value, self.status = uri, value, status
+    def __init__(self, uri, value, status=200, redirect=None, url=None, raw=None):
+        self.url, self.value, self.status = uri if url is None else url, value, status
+        self.raw = raw
         self.headers = {'Location': redirect} if redirect is not None else {}
 
     def __enter__(self):
@@ -70,14 +72,15 @@ class Response:
         return self.url
 
     def read(self, *_):
-        return json.dumps(self.value).encode()
+        return json.dumps(self.value).encode() if self.raw is None else self.raw
 
 
 class Transport:
-    def __init__(self, values=None, fail_index=None, failure=None):
+    def __init__(self, values=None, fail_index=None, failure=None, response_options=None):
         self.values = responses() if values is None else values
         self.fail_index = fail_index
         self.failure = failure
+        self.response_options = response_options or {}
         self.calls = []
 
     def open(self, request, timeout):
@@ -85,7 +88,7 @@ class Transport:
         self.calls.append((request.get_method(), request.full_url, timeout))
         if self.fail_index == i:
             raise self.failure if self.failure is not None else OSError('SECRET_PROVIDER_ERROR SECRET_TOKEN')
-        return Response(request.full_url, self.values[i])
+        return Response(request.full_url, self.values[i], **self.response_options.get(i, {}))
 
 
 class Arm6Tests(unittest.TestCase):
@@ -106,9 +109,99 @@ class Arm6Tests(unittest.TestCase):
         with contextlib.redirect_stdout(sink):
             rc = arm6.run(opener=transport, token_factory=lambda scope: given_token or token(), env=e or self.env)
         body = sink.getvalue()
-        for secret in ('SENSITIVE_IP', 'SECRET_PROVIDER_ERROR', 'SECRET_TOKEN', TENANT, SUB, CLIENT, OID, ROLE, 'Bearer', 'management.azure.com'):
+        for secret in ('SENSITIVE_IP', 'SECRET_PROVIDER_ERROR', 'SECRET_TOKEN', 'SECRET_RESPONSE', TENANT, SUB, CLIENT, OID, ROLE, 'Bearer', 'management.azure.com'):
             self.assertNotIn(secret, body)
         return rc, json.loads(body), transport
+
+    def assert_stopped(self, result, transport, step):
+        self.assertEqual(result['status'], 'HOLD')
+        self.assertEqual((result['GET_ATTEMPTS'], result['GET_COMPLETED']), (step + 1, step))
+        self.assertEqual(len(transport.calls), step + 1)
+        self.assertEqual([result['steps'][k] for k in arm6.STEPS[:step]], ['PASS'] * step)
+        self.assertEqual(result['steps'][arm6.STEPS[step]], 'ATTEMPTED')
+        self.assertEqual([result['steps'][k] for k in arm6.STEPS[step+1:]], ['SKIPPED'] * (5 - step))
+
+    def test_site_missing_public_network_access_fails_closed(self):
+        values = responses()
+        del values[0]['properties']['publicNetworkAccess']
+        rc, out, tr = self.execute(Transport(values=values))
+        self.assertEqual((rc, out['target']), (1, 'UNKNOWN'))
+        self.assert_stopped(out, tr, 0)
+
+    def test_site_unexpected_public_network_access_fails_closed(self):
+        for invalid in (None, '', 'SECRET_RESPONSE', 'enabled', True, 1, [], {}):
+            with self.subTest():
+                values = responses()
+                values[0]['properties']['publicNetworkAccess'] = invalid
+                rc, out, tr = self.execute(Transport(values=values))
+                self.assertEqual((rc, out['target']), (1, 'UNKNOWN'))
+                self.assert_stopped(out, tr, 0)
+
+    def test_site_disabled_is_metadata_only_not_scm_reachability(self):
+        values = responses()
+        values[0]['properties']['publicNetworkAccess'] = 'Disabled'
+        rc, out, tr = self.execute(Transport(values=values))
+        self.assertEqual((rc, out['target'], out['scmNetworkFeasibility']), (0, 'CONFIRMED', 'UNKNOWN'))
+
+    def test_site_config_missing_or_foreign_binding_fails_closed(self):
+        for field in ('id', 'name', 'type'):
+            for missing in (True, False):
+                with self.subTest(field=field, missing=missing):
+                    values = responses()
+                    if missing:
+                        del values[1][field]
+                    else:
+                        values[1][field] = 'SECRET_RESPONSE'
+                    rc, out, tr = self.execute(Transport(values=values))
+                    self.assertEqual((rc, out['scmUseMain'], out['scmDefault']), (1, 'UNKNOWN', 'UNKNOWN'))
+                    self.assert_stopped(out, tr, 1)
+
+    def test_missing_response_shape_stops_at_each_fixed_get(self):
+        for step in range(6):
+            for missing in (None, {}, [], {'properties': None, 'SECRET_RESPONSE': 'SECRET_TOKEN'}):
+                with self.subTest(step=step):
+                    values = responses()
+                    values[step] = missing
+                    rc, out, tr = self.execute(Transport(values=values))
+                    self.assertEqual(rc, 1)
+                    self.assert_stopped(out, tr, step)
+
+    def test_each_role_collection_pagination_stops_without_followup(self):
+        for step in range(2, 6):
+            for field in ('nextLink', 'nextlink'):
+                with self.subTest(step=step, field=field):
+                    values = responses()
+                    values[step][field] = 'SECRET_RESPONSE'
+                    rc, out, tr = self.execute(Transport(values=values))
+                    self.assertEqual(rc, 1)
+                    self.assert_stopped(out, tr, step)
+
+    def test_http_status_stops_without_retry_or_next_get(self):
+        for step in (0, 1):
+            for status in (301, 302, 307, 308, 401, 403, 500):
+                with self.subTest(step=step, status=status):
+                    rc, out, tr = self.execute(Transport(response_options={step: {'status': status}}))
+                    self.assertEqual(rc, 1)
+                    self.assert_stopped(out, tr, step)
+
+    def test_redirect_location_or_response_url_mismatch_stops(self):
+        for step in (0, 1):
+            for options in ({'redirect': 'SECRET_RESPONSE'}, {'url': 'SECRET_RESPONSE'}):
+                with self.subTest(step=step):
+                    rc, out, tr = self.execute(Transport(response_options={step: options}))
+                    self.assertEqual(rc, 1)
+                    self.assert_stopped(out, tr, step)
+
+    def test_production_redirect_handler_refuses_followup(self):
+        for status in (301, 302, 303, 307, 308):
+            with self.subTest(status=status), self.assertRaises(arm6.Stop):
+                arm6.NoRedirect().redirect_request(None, None, status, 'SECRET_RESPONSE', {}, 'SECRET_RESPONSE')
+
+    def test_invalid_or_oversize_json_stops_without_raw_output(self):
+        for raw in (b'SECRET_RESPONSE SECRET_TOKEN', b'SECRET_RESPONSE' * 90000):
+            rc, out, tr = self.execute(Transport(response_options={0: {'raw': raw}}))
+            self.assertEqual((rc, out['target']), (1, 'UNKNOWN'))
+            self.assert_stopped(out, tr, 0)
 
     def test_happy_path_gets_six_exact_once_sanitized(self):
         rc, result, t = self.execute()
