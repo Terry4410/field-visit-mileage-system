@@ -1,3 +1,5 @@
+> Current D0 transport review: see [TRANSPORT-AUDIT.md](TRANSPORT-AUDIT.md). This supersedes historical statements below about one ARM-audience token, multiline shell payload, JSON-only completion and eighteen paths. Current delta is nineteen added paths; App Service audience, PTY-safe single-line source, HTTP101 and exit0 receipt are required. Native/PowerShell tests reuse accepted4046c655 only with six byte-identical inputs. Actual Azure compatibility remains unobserved/HOLD.
+
 # G1 staged main-container evidence proposal — NONDEPLOY
 
 ## Current result and boundaries

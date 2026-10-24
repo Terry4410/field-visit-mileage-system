@@ -110,11 +110,12 @@ class MainSession:
             self.ws=connect(url,header={'Authorization':'Bearer '+token},cookie='ARRAffinity='+instance,
                 timeout=30,redirect_limit=0,sslopt={'cert_reqs':ssl.CERT_REQUIRED,'check_hostname':True},
                 enable_multithread=False)
-            self.send("unset HISTFILE; stty -echo -icanon && printf '\\nG1_READY_%s\\n' "+nonce+"\n")
-            if self.line(30)!=('G1_READY_'+nonce).encode():
-                # Ignore banners/initial echo, but never accept an echoed command.
-                until=self.clock()+30
-                while self.line(max(0,until-self.clock()))!=('G1_READY_'+nonce).encode():pass
+            # websocket-client1.8 may return a 3xx handshake with redirect_limit0.
+            # Deny it before sending ANY shell command; never follow Location.
+            if self.ws.getstatus()!=101:raise Stop()
+            self.send("PS1= PS2=; unset HISTFILE; stty -echo -icanon && printf '\\nG1_READY_%s\\n' "+nonce+" || exit 1\n")
+            until=self.clock()+30
+            while self.line(max(0,until-self.clock()))!=('G1_READY_'+nonce).encode():pass
         except Exception:
             self.close();raise Stop() from None
 
@@ -185,7 +186,12 @@ class DiscoverySession(MainSession):
         self.end=min(self.end,self.clock()+90)
         try:
             code=source.decode('utf-8')+'\nraise SystemExit(discover_main('+repr(nonce)+'))\n'
-            self.send('exec /usr/bin/python3 -I -B -c '+shlex.quote(code)+'\n')
+            # One physical input line: multiline quoted source creates PS2
+            # prompts that can prefix the only JSON record on a real PTY.
+            loader='import base64;exec(compile(base64.b64decode('+repr(base64.b64encode(code.encode()).decode())+'),"<reviewed-g1-d0>","exec"))'
+            command="printf '\\n'; /usr/bin/python3 -I -B -c "+shlex.quote(loader)
+            command+=' 2>/dev/null; result=$?; printf \'\\nG1_DONE_'+nonce+'_%s\\n\' "$result"; exit "$result"\n'
+            self.send(command)
         except Exception:
             self.close();raise Stop() from None
 
@@ -200,6 +206,14 @@ class DiscoverySession(MainSession):
                for h in list(files.values())+list(runtime['assemblies'].values())):raise Stop()
         composite=digest(''.join(n+':'+runtime['assemblies'][n]+'\n' for n in DLLS).encode())
         if runtime['apiCompositeSha256']!=composite:raise Stop()
+        # A valid JSON line alone is insufficient. Require the source-bound
+        # process to finish with exit0 in the same session, never poll/reconnect.
+        until=min(self.end,self.clock()+15)
+        while True:
+            done=self.line(max(0,until-self.clock()))
+            if not done:continue
+            if done!=('G1_DONE_'+self.nonce+'_0').encode():raise Stop()
+            break
         return value
 
     def sql_once(self,*args,**kwargs):raise Stop()

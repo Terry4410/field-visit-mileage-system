@@ -35,7 +35,7 @@ def context_valid(env):
 
 def exchange_token(scope, opener=None):
     """Existing federation only; zero ARM discovery or CLI/SDK retries."""
-    if scope not in ('https://management.azure.com/.default', 'https://database.windows.net/.default'):
+    if scope not in ('https://management.azure.com/.default', 'https://appservice.azure.com/.default', 'https://database.windows.net/.default'):
         raise Stop()
     url = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', '')
     parsed = urllib.parse.urlsplit(url)

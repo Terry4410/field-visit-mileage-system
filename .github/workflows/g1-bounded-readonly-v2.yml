@@ -35,36 +35,24 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - name: Source seals and offline Python contracts
         run: |
           set -euo pipefail
           sha256sum --check scripts/ci/g1_bounded/checksums.sha256
           python3 -m unittest discover -s scripts/ci/g1_bounded -p 'test_*.py' -v
-      - name: Compile only the BCL diagnostic, never the accepted app
+      - name: Reuse accepted native and PowerShell evidence only with identical inputs
         run: |
-          set -euo pipefail
-          dotnet build scripts/ci/g1_bounded/probe/G1Probe.csproj --configuration Release --output "$RUNNER_TEMP/g1-probe" -p:ContinuousIntegrationBuild=true -warnaserror
-          dotnet "$RUNNER_TEMP/g1-probe/G1Probe.dll" --self-test
-          sudo install -d -m 0700 -o "$(id -un)" /home/site/wwwroot
-      - name: PowerShell parse and actual pinned SqlClient constructor, no Open
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $tokens=$null;$errors=$null
-          $null=[Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts/ci/g1_bounded/sql.ps1),[ref]$tokens,[ref]$errors)
-          if($errors.Count -ne 0){throw 'POWERSHELL_PARSE_REJECTED'}
-          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null
-          & ./scripts/ci/g1_bounded/sql.ps1 -OfflineContract
-          if($LASTEXITCODE -ne 0){throw 'SQLCLIENT_CONTRACT_REJECTED'}
-          # Synthetic runner filesystem, never Azure: no API process is started.
-          $fixture='/home/site/wwwroot'
-          $null=New-Item -ItemType Directory -Force $fixture
-          $driver=[Microsoft.Data.SqlClient.SqlConnection].Assembly.Location
-          Copy-Item (Join-Path (Split-Path $driver) '*.dll') $fixture
-      - name: Actual Linux anonymous-memory execution and no-GO constructor
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/g1_bounded/offline_memory_probe.py "$RUNNER_TEMP/g1-probe/G1Probe.dll" "$RUNNER_TEMP/g1-probe/G1Probe.runtimeconfig.json"
+          python3 - <<'PYCORE'
+          import subprocess
+          from pathlib import Path
+          accepted='4046c655a118a995c7ad1c8bf1859b6f70b6bfcf'
+          files=('main_probe.py','probe/Program.cs','probe/G1Probe.csproj','catalog.sql','sql.ps1','offline_memory_probe.py')
+          for name in files:
+            path='scripts/ci/g1_bounded/'+name
+            assert Path(path).read_bytes()==subprocess.check_output(['git','show',accepted+':'+path]), 'ACCEPTED_NATIVE_INPUT_CHANGED'
+          print('Accepted Run40046654388/Job120729820147/Artifact12541796831 REUSED; six inputs byte-identical; no native/SQL/PowerShell rerun.')
+          PYCORE
       - name: Record completeness honestly
         run: |
           mkdir -p verification
@@ -77,11 +65,10 @@ jobs:
             completionCoverage='READY' if coverage_ready() else 'HOLD',azure='NOT_ACCESSED',
             sqlConnections=0,liveG1='NOT_EXECUTED',protectedPromotion='NOT_AUTHORIZED')
           Path('verification/g1-offline.json').write_text(json.dumps(d,sort_keys=True,indent=2)+'\n')
-          import hashlib,shutil
-          for name in ('G1Probe.dll','G1Probe.runtimeconfig.json'):
-            shutil.copyfile(Path(os.environ['RUNNER_TEMP'])/'g1-probe'/name,Path('verification')/name)
-          d['probeSha256']=hashlib.sha256(Path('verification/G1Probe.dll').read_bytes()).hexdigest()
-          d['mainContainerContract']='OFFLINE_PASS_ZERO_OPEN'
+          d['reusedEvidence']=dict(sourceSha='4046c655a118a995c7ad1c8bf1859b6f70b6bfcf',run=40046654388,job=120729820147,artifact=12541796831,nativeInputs='BYTE_IDENTICAL')
+          d['probeSha256']='461c0d41c3133993c2e8a31ddb745bc0c6977979849d344d7f857c922324835e'
+          d['mainContainerContract']='REUSED_ACCEPTED_OFFLINE_ZERO_OPEN'
+          d['d0Transport']='SOURCE_AND_LOCAL_PTY_PASS_LIVE_UNVERIFIED'
           d['mainContainerLiveAdapter']='NOT_REGISTERED_NOT_AUTHORIZED'
           Path('verification/g1-offline.json').write_text(json.dumps(d,sort_keys=True,indent=2)+'\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write('G1 offline contracts PASS. Completion coverage: '+d['completionCoverage']+'. No Azure/SQL execution.\n')

@@ -6,6 +6,7 @@ import mmap
 import os
 from pathlib import Path
 import subprocess
+import select
 import tempfile
 import time
 import unittest
@@ -120,7 +121,8 @@ class MainChannelContracts(unittest.TestCase):
             fixedFiles={'Microsoft.Data.SqlClient.dll':'c'*64,'FieldVisit.Api.runtimeconfig.json':'d'*64},
             processStable=True,sqlConnections=0,configuration='NOT_READ')
         class Socket:
-            def __init__(self):self.sent=[];self.frames=[b'private-banner\n',('G1_READY_'+nonce+'\n').encode(),(json.dumps(result)+'\n').encode()]
+            def __init__(self):self.sent=[];self.frames=[b'private-banner\n',('G1_READY_'+nonce+'\n').encode(),(json.dumps(result)+'\n').encode(),('G1_DONE_'+nonce+'_0\n').encode()]
+            def getstatus(self):return 101
             def send(self,value,opcode):self.sent.append((value,opcode))
             def settimeout(self,value):pass
             def recv_data(self):return 2,self.frames.pop(0)
@@ -134,12 +136,82 @@ class MainChannelContracts(unittest.TestCase):
             sent=b''.join(v for v,k in socket.sent)
             self.assertNotIn(b'G1_SQL_GO',sent);self.assertNotIn(b'probeBase64',sent)
             self.assertNotIn(b'synthetic-private-token',sent)
-            self.assertIn(b'discover_main',sent)
+            self.assertIn(b'b64decode',sent)
             self.assertTrue(all(k==2 for v,k in socket.sent))
             self.assertEqual(connect.call_count,1)
             self.assertEqual(connect.call_args.kwargs['redirect_limit'],0)
             self.assertTrue(connect.call_args.kwargs['sslopt']['check_hostname'])
         finally:session.close()
+
+    def test_redirect_is_rejected_before_any_remote_command(self):
+        site={'name':'api-fieldvisit-uat','properties':{'state':'Running','hostNameSslStates':[{'hostType':'Repository','name':'api-fieldvisit-uat.scm.azurewebsites.net'}]}}
+        socket=mock.Mock();socket.getstatus.return_value=302
+        connect=mock.Mock(return_value=socket)
+        with self.assertRaises(probe.Stop):channel.DiscoverySession(site,{'value':[{'name':'b'*32}]},'synthetic',b'# fixed','a'*64,connect)
+        socket.send.assert_not_called();socket.close.assert_called_once()
+        connect.assert_called_once()
+
+    def test_real_shell_pty_long_source_success_and_nonzero_exit_rejection(self):
+        # Local Linux only, using a real PTY and /bin/sh rather than a fake
+        # JSON-only socket. No Azure/network/credentials/configuration/SQL.
+        import pty
+        plan,obs,recovery,files=self.fixture();nonce=plan['nonce']
+        record=dict(kind='G1_DISCOVERY',nonce=nonce,runtime=obs['runtime'],
+            fixedFiles={'Microsoft.Data.SqlClient.dll':'c'*64,'FieldVisit.Api.runtimeconfig.json':'d'*64},
+            processStable=True,sqlConnections=0,configuration='NOT_READ')
+        class PtySocket:
+            def __init__(self):
+                self.fd,slave=pty.openpty();self.timeout=3;self.sent=[]
+                self.child=subprocess.Popen(['/bin/sh','-i'],stdin=slave,stdout=slave,stderr=slave,close_fds=True)
+                os.close(slave)
+            def getstatus(self):return 101
+            def settimeout(self,value):self.timeout=min(value,3)
+            def send(self,data,opcode):
+                if opcode!=2:raise AssertionError('binary shell input required')
+                self.sent.append(data)
+                while data:
+                    _,ready,_=select.select([],[self.fd],[],self.timeout)
+                    if not ready:raise probe.Stop()
+                    n=os.write(self.fd,data);data=data[n:]
+            def recv_data(self):
+                if not select.select([self.fd],[],[],self.timeout)[0]:raise probe.Stop()
+                return 2,os.read(self.fd,65536)
+            def close(self,timeout):
+                if self.child.poll() is None:self.child.kill()
+                self.child.wait(timeout=2);os.close(self.fd)
+        site={'name':'api-fieldvisit-uat','properties':{'state':'Running','hostNameSslStates':[{'hostType':'Repository','name':'api-fieldvisit-uat.scm.azurewebsites.net'}]}}
+        for exit_code in (0,1):
+            # Exercise a payload as large as the actual source, not a short
+            # echo fixture that misses terminal canonical/continuation behavior.
+            source=('# padding\n'*3000+'import json\ndef discover_main(nonce):\n print('+repr(json.dumps(record))+')\n return '+str(exit_code)+'\n').encode()
+            socket=PtySocket();session=None
+            try:
+                session=channel.DiscoverySession(site,{'value':[{'name':'b'*32}]},'synthetic',source,nonce,lambda *a,**k:socket)
+                if exit_code==0:self.assertEqual(session.observe(),record)
+                else:
+                    with self.assertRaises(probe.Stop):session.observe()
+                self.assertEqual(socket.sent[1].count(b'\n'),1)
+                self.assertNotIn(b'probeBase64',b''.join(socket.sent))
+            finally:
+                if session is not None:session.close()
+                else:socket.close(1)
+
+    def test_appservice_scope_is_used_only_for_scm_not_management(self):
+        # Verify production runner routing, not just a scope-shaped constant.
+        e=dict(GITHUB_ACTIONS='true',GITHUB_REPOSITORY=arm.REPO,GITHUB_REF=arm.REF,
+            GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_ACTOR='Terry4410',GITHUB_TRIGGERING_ACTOR='Terry4410',
+            GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40,APPROVED_SHA='a'*40,G1_MODE='D0_VERSION_ONLY',
+            ACCEPT_COST='false',G1_D0_GUARD='PASS',AZURE_TENANT_ID='tenant',AZURE_SUBSCRIPTION_ID='sub',AZURE_CLIENT_ID='client')
+        context=probe.digest(b'tenant\nsub\nclient')
+        site={'name':'api-fieldvisit-uat','properties':{'reserved':True,'state':'Running','hostNameSslStates':[{'hostType':'Repository','name':'api-fieldvisit-uat.scm.azurewebsites.net'}]}}
+        instance={'value':[{'name':'b'*32}]}
+        reader=mock.Mock();reader.get.side_effect=[site,instance];reader.calls=2
+        session=mock.Mock();session.observe.return_value={'sqlConnections':0}
+        with mock.patch.dict(d0.os.environ,e,clear=True),mock.patch.object(d0,'CONTEXT_SHA256',context),mock.patch.object(d0.sys,'argv',['d0.py']),mock.patch.object(d0,'Reader',return_value=reader) as reader_class,mock.patch.object(d0,'exchange_token',side_effect=['ARM_ONLY','SCM_ONLY']) as tokens,mock.patch.object(d0,'DiscoverySession',return_value=session) as ctor,mock.patch('sys.stdout',new_callable=io.StringIO):
+            self.assertEqual(d0.run(connect=mock.Mock()),0)
+            self.assertEqual([c.args[0] for c in tokens.call_args_list],['https://management.azure.com/.default','https://appservice.azure.com/.default'])
+            self.assertEqual(reader_class.call_args.args[1],'ARM_ONLY')
+            self.assertEqual(ctor.call_args.args[2],'SCM_ONLY')
 
     def test_bad_discovery_shape_cannot_emit_private_fields(self):
         session=channel.DiscoverySession.__new__(channel.DiscoverySession)

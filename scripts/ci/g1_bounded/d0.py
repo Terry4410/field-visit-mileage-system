@@ -10,7 +10,7 @@ from pathlib import Path
 import secrets
 import sys
 from arm import APP, RG, CONTEXT_SHA256, Reader, Stop, context_valid, exchange_token, paths
-from main_channel import DiscoverySession
+from main_channel import DiscoverySession, scm_url
 
 
 def run(connect=None):
@@ -30,13 +30,17 @@ def run(connect=None):
         properties=pages['api'].get('properties',{})
         if (pages['api'].get('name')!=APP or properties.get('reserved') is not True or
             properties.get('state')!='Running'):raise Stop()
+        scm_url(pages['api'],pages['instances'])
         if connect is None:
             import websocket
             if websocket.__version__!='1.8.0':raise Stop()
             connect=websocket.create_connection
         source=Path(__file__).with_name('main_probe.py').read_bytes()
         nonce=secrets.token_hex(32)
-        session=DiscoverySession(pages['api'],pages['instances'],token,source,nonce,connect)
+        # Official CLI get_bearer_token uses AzureCloud.app_service_resource_id,
+        # NOT the ARM resource audience used by the two management GETs.
+        scm_token=exchange_token('https://appservice.azure.com/.default')
+        session=DiscoverySession(pages['api'],pages['instances'],scm_token,source,nonce,connect)
         result=session.observe()
         # No raw HTTP/PTY/provider text, process environment or identity IDs.
         print(json.dumps(dict(stage='D0_VERSION_ONLY',sourceSha=env['GITHUB_SHA'],armGets=reader.calls,

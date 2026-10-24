@@ -15,6 +15,7 @@ ALLOWED = {'.github/workflows/' + WORKFLOW,
            '.github/workflows/' + D0_WORKFLOW,
            '.github/workflows/g1-bounded-readonly-worker-v2.yml',
            'docs/release/g1-bounded/REVIEW.md',
+           'docs/release/g1-bounded/TRANSPORT-AUDIT.md',
            *('scripts/ci/g1_bounded/' + p for p in ('arm.py', 'guard.py', 'sql.ps1', 'catalog.sql', 'test_boundary.py', 'checksums.sha256',
              'main_probe.py','main_channel.py','frontend.py','test_main_channel.py','offline_memory_probe.py','d0.py',
              'probe/Program.cs','probe/G1Probe.csproj'))}
