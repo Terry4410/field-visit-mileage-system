@@ -7,3 +7,9 @@
 The OFF and ON ZIP are **candidate assets only**. They do not prove any server-side flag, test-account RBAC, live runtime, 63-table UAT010 fidelity, API SQL Principal, Google side effects, matched recovery or 25 Business UAT cases; they must not be pointed at live APIs or published until separate exact-artifact approval and live Gate PASS. Owner need not download/extract/upload anything. Do not reuse the empty-DB PR48 installer for existing UAT010.
 
 **Live G1 HOLD.** Authorized live management/runtime inspection and recoverable migration validation still mandatory; this build is not a deployment workflow. No id-token or GitHub Pages write access is granted.
+
+## Exact future runtime provenance and compiled-gate binding
+
+A review of the accepted dual Frontend artifact identified a concrete missing runtime evidence path: neither earlier bundle had a `source-sha.txt` file. The new NONDEPLOY builder now embeds `source-sha.txt` (the actual exact PR83 Git SHA) and a public, **nonsecret** `candidate-mode.json` in **each** temporary build. The mode file explicitly says `deployAllowed: false`, `approval: NOT_GRANTED`, and backend alignment UNKNOWN. The assembler verifies these files before sealing the deterministic ZIP and their hashes are included in the manifest. A future authorized read-only Pages collector may compare the actual served **source SHA + exact file bytes** to this reviewed candidate, but a source stamp *by itself* never proves an active deployment or release approval.
+
+The new verification also reads the **compiled JS assets**, not merely the TypeScript flag literals: the `leader/location-review` route, `publish-reviewed` action and canonical Excel Create review guard must each be absent in OFF and present in ON_NONDEPLOY. Unexpected Vite dead-code elimination/flag drift fails the nondeploy CI. This is a focused compile-time source proof, not a substitute for live browser, all 25 user cases, API authorization or true Azure G1.

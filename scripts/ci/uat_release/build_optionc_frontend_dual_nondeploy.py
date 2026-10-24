@@ -92,11 +92,27 @@ def source_guard() -> tuple[str, str]:
     return original, converted
 
 
-def package_tree(dist: pathlib.Path, target: pathlib.Path) -> dict:
+def package_tree(dist: pathlib.Path, target: pathlib.Path, sha: str, label: str, enabled: bool) -> dict:
     if not (dist / "index.html").is_file() or not (dist / "config.js").is_file():
         raise SourceHold("build-output-missing")
     if 'AUTH_MODE: "Demo"' not in (dist / "config.js").read_text():
         raise SourceHold("auth-config-drift")
+    if (dist / "source-sha.txt").read_text(encoding="ascii") != sha + "\n":
+        raise SourceHold("candidate-source-stamp")
+    expected_profile = {"sourceSha": sha, "mode": label, "deployAllowed": False,
+                        "approval": "NOT_GRANTED", "backendAlignment": "UNKNOWN"}
+    if json.loads((dist / "candidate-mode.json").read_text(encoding="utf-8")) != expected_profile:
+        raise SourceHold("candidate-profile-drift")
+    # Validate actual post-Vite output, not only the edited TypeScript input:
+    # these three source-gated routes/actions must be absent in OFF and present in ON.
+    bundles = sorted(p for p in (dist / "assets").glob("*.js") if p.is_file())
+    if not bundles:
+        raise SourceHold("bundled-frontend-missing")
+    compiled = b"\n".join(p.read_bytes() for p in bundles)
+    for marker in (b"/leader/location-review", b"publish-reviewed",
+                   b"LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW"):
+        if (marker in compiled) is not enabled:
+            raise SourceHold("compiled-feature-gate-drift")
     files = sorted(p for p in dist.rglob("*") if p.is_file())
     if not files or not any(p.suffix == ".js" and "assets" in p.parts for p in files):
         raise SourceHold("missing-bundled-js")
@@ -143,7 +159,17 @@ def run() -> None:
                 tsinfo.unlink()
             subprocess.run(["npm", "run", "build"], cwd=frontend, timeout=240, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
                            env={**os.environ, "VITE_RELEASE_SOURCE_SHA": os.environ["GITHUB_SHA"]})
-            manifest = package_tree(frontend / "dist", output / ("frontend-optionc-" + label.lower() + ".zip"))
+            dist = frontend / "dist"
+            # A future read-only runtime observer can correlate this deployed
+            # content to the exact source and candidate mode (not an approval).
+            (dist / "source-sha.txt").write_text(os.environ["GITHUB_SHA"] + "\n", encoding="ascii")
+            public_profile = {"sourceSha": os.environ["GITHUB_SHA"], "mode": label,
+                              "deployAllowed": False, "approval": "NOT_GRANTED",
+                              "backendAlignment": "UNKNOWN"}
+            (dist / "candidate-mode.json").write_text(
+                json.dumps(public_profile, sort_keys=True) + "\n", encoding="utf-8")
+            manifest = package_tree(dist, output / ("frontend-optionc-" + label.lower() + ".zip"),
+                                    os.environ["GITHUB_SHA"], label, allowed)
             manifest.update({"candidate": label, "enabled": allowed, "flagSourceSha256": h(source.encode("utf-8")),
                              "deployAllowed": False, "liveApiBackendReady": "UNVERIFIED"})
             receipts.append(manifest)
