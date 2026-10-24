@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   isolated:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && !startsWith(github.event.head_commit.message, 'test(g1-preflight):') && !startsWith(github.event.head_commit.message, 'test(g1-u010-source):')
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && !startsWith(github.event.head_commit.message, 'test(g1-preflight):') && !startsWith(github.event.head_commit.message, 'test(g1-u010-source):') && !startsWith(github.event.head_commit.message, 'test(g1-history):')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -112,3 +112,51 @@ jobs:
           git merge-base --is-ancestor b18ced16aec934dedc6dcb8cdc90b5679c0e6f68 HEAD
           python3 -m unittest -v scripts/ci/test_g1_uat010_source_gate.py
           python3 scripts/ci/g1_uat010_source_gate.py
+
+  existing010-history:
+    name: Focused synthetic 26-history compatibility NONDEPLOY
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020' && startsWith(github.event.head_commit.message, 'test(g1-history):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      E1_R1_REQUIRED: '1'
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact branch and bounded source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 77f8c19d944ffbf66169be32453bba7dcf7eafb9 HEAD
+          git diff --name-only 77f8c19d944ffbf66169be32453bba7dcf7eafb9 HEAD | sort > "$RUNNER_TEMP/actual"
+          printf '%s\n' .github/workflows/leader-uat010-rc-nondeploy.yml scripts/ci/test_g1_promotion.ps1 > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+      - name: Start local disposable SQL Server 2022
+        run: python3 scripts/ci/g1_migration_readiness.py sql
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install existing pinned SQL client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop | Out-Null }
+          catch { Write-Output 'HistoryClient=STOP; Details=SUPPRESSED;'; exit 1 }
+      - name: Verify unchanged promotion inputs
+        run: python3 scripts/ci/g1_promotion.py verify
+      - name: Four focused existing-010 historical tests
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode HistoryCompatibility
+      - name: Remove isolated SQL provider
+        if: always()
+        run: docker rm -f g1-preparation-sql >/dev/null 2>&1 || true
+

@@ -1,4 +1,4 @@
-param([ValidateSet('Reference','Test')][string]$Mode='Reference')
+param([ValidateSet('Reference','Test','HistoryCompatibility')][string]$Mode='Reference')
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $case='START';$connections=[Collections.Generic.List[object]]::new();$dbs=[Collections.Generic.List[string]]::new();$results=[Collections.Generic.List[object]]::new()
 function Assert([bool]$ok){if(-not $ok){throw 'ASSERT_STOP'}}
@@ -46,7 +46,58 @@ try{
    Assert ((Scalar $c $history) -eq $h);$ch=Scalar $c $catalog;Assert ($ch -match '^[A-Fa-f0-9]{64}$');$steps+=@{id=$n;catalog=$ch};Pass $case
   }
   @{contract='g1-scoped-promotion-reference-v1';originRc='f29affb3299828f45b1f131321779e8bea2f86a8';fixture='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE';initial=$initial;emptyLedger=$emptyLedger;steps=$steps} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $repo 'artifacts/observed-reference.json')
- }else{
+ }elseif($Mode -eq 'HistoryCompatibility'){
+   # Only synthetic SQL2022 26-marker predecessor, never Azure or real UAT history.
+   $reference=Get-Content (Join-Path $p 'reference.json') -Raw | ConvertFrom-Json
+   $promotion=[IO.File]::ReadAllText((Join-Path $p 'Promotion.sql'))
+   $verify=[IO.File]::ReadAllText((Join-Path $p 'Verify.sql'))
+   $newMarks=@('1.8.0-011','1.8.0-012','1.8.0-014','1.8.0-015','1.8.0-016','1.8.0-LEADER-REVIEW','1.8.0-017','1.8.0-CREATE-LOWRISK','1.8.0-018','1.8.0-LOWRISK-DIRECT','1.8.0-019','1.8.0-020','1.8.0-EXCEL-CANONICAL-STATUS')
+   Assert ($newMarks.Count -eq 13 -and @($newMarks|Select-Object -Unique).Count -eq 13)
+   $quoted=($newMarks|ForEach-Object{"N'$_'"}) -join ','
+   $oldDigestSql="SELECT CONVERT(varchar(64),HASHBYTES('SHA2_256',CONVERT(varbinary(max),(SELECT VersionNumber,Description,AppliedAt,AppliedBy FROM dbo.SchemaVersions WHERE VersionNumber NOT IN($quoted) ORDER BY VersionNumber FOR JSON PATH,INCLUDE_NULL_VALUES))),2);"
+   function Seed26($c) {
+     for($i=1;$i -le 25;$i++){
+       $mark=if($i -le 9){'1.8.0-{0:000}' -f $i}else{'1.7.0-SYNTHETIC-{0:000}' -f ($i-9)}
+       $days=$i+1
+       Exec $c "INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) SELECT N'$mark',N'ISOLATED_SYNTHETIC_PRE010',DATEADD(day,-$days,AppliedAt),N'isolated-fixture' FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010';"
+     }
+     Assert ((Scalar $c 'SELECT COUNT(*) FROM dbo.SchemaVersions') -eq '26')
+     Assert ((Scalar $c 'SELECT TOP(1) VersionNumber FROM dbo.SchemaVersions ORDER BY AppliedAt DESC,VersionNumber DESC') -eq '1.8.0-010')
+   }
+   $case='Existing010History26Preserved'
+   $d=Fixture;Seed26 $d
+   $before=Scalar $d $oldDigestSql
+   Assert ($before -match '^[0-9A-Fa-f]{64}$')
+   Exec $d $promotion;Exec $d $verify
+   Assert ((Scalar $d "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber NOT IN($quoted)") -eq '26')
+   Assert ((Scalar $d "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN($quoted)") -eq '13')
+   Assert ((Scalar $d 'SELECT COUNT(*) FROM dbo.FieldVisitMigrationLedger') -eq '9')
+   Assert ((Scalar $d $oldDigestSql) -eq $before)
+   Pass $case
+   $case='Existing010History26ReplayRefused'
+   Refuse $d $promotion @(52020);Exec $d $verify
+   Assert ((Scalar $d $oldDigestSql) -eq $before)
+   Pass $case
+   $case='Existing010History26RollbackPreserved'
+   $d=Fixture;Seed26 $d;$before=Scalar $d $oldDigestSql
+   $fault=$promotion.Replace('-- G1_STEP_014_END',"THROW 52990,N'G1_SYNTHETIC_FAILURE',1;")
+   Assert ($fault -ne $promotion)
+   Refuse $d $fault @(52990)
+   Assert ((Scalar $d $oldDigestSql) -eq $before)
+   Assert ((Scalar $d 'SELECT COUNT(*) FROM dbo.SchemaVersions') -eq '26')
+   Assert ((Scalar $d "SELECT COUNT(*) FROM sys.tables WHERE name=N'FieldVisitMigrationLedger'") -eq '0')
+   Assert ((Scalar $d $catalog) -eq $reference.initial)
+   Pass $case
+   $case='Existing010History26Reserved013Refused'
+   $d=Fixture;Seed26 $d
+   Exec $d "INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) SELECT N'1.8.0-013',N'SYNTHETIC_RESERVED',DATEADD(day,-1,AppliedAt),N'isolated-fixture' FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010';"
+   $before=Scalar $d $oldDigestSql
+   Refuse $d $promotion @(52011)
+   Assert ((Scalar $d $oldDigestSql) -eq $before)
+   Assert ((Scalar $d "SELECT COUNT(*) FROM sys.tables WHERE name=N'FieldVisitMigrationLedger'") -eq '0')
+   Pass $case
+   Write-Output 'G1History26=PASS; Scope=SYNTHETIC_SQL2022_ONLY; Cases=4; LiveUAT=NOT_ACCESSED;'
+  }else{
   $reference=Get-Content (Join-Path $p 'reference.json') -Raw | ConvertFrom-Json
   $promotion=[IO.File]::ReadAllText((Join-Path $p 'Promotion.sql'));$verify=[IO.File]::ReadAllText((Join-Path $p 'Verify.sql'))
   function BadInitial([string]$id,[string]$change,[int[]]$codes){$script:case=$id;$d=Fixture;if($change){Exec $d $change};$h=Scalar $d $history;Refuse $d $promotion $codes;Assert ((Scalar $d $history) -eq $h);Assert ((Scalar $d "SELECT COUNT(*) FROM sys.tables WHERE name=N'FieldVisitMigrationLedger'") -eq '0');Pass $id}
