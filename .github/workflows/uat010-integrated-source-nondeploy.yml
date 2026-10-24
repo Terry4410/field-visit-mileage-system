@@ -29,7 +29,7 @@ jobs:
           assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
           assert subprocess.run(['git','merge-base','--is-ancestor','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD']).returncode==0
           changed=set(git('diff','--name-only','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD').splitlines())
-          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md'}
+          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1'}
           assert len(j['integratedFiles'])==53 and changed==expected
           assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==44
           assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==9
@@ -182,6 +182,12 @@ jobs:
         run: |
           set -euo pipefail
           pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode HistoryCompatibility
+      - name: Execute focused SOURCE-BOUND 014 SELECT-only preflight on disposable SQL2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat010_014_readonly.py --output artifacts/uat010-014/014-preflight.sql
+          pwsh -NoProfile -File scripts/ci/test_uat010_014_readonly.ps1
       - name: Seal NONDEPLOY synthetic package only
         shell: python
         run: |
