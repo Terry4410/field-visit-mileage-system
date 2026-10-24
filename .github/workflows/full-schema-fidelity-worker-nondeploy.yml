@@ -1,0 +1,87 @@
+name: Full Inventory isolated SQL contract proof
+on:
+  workflow_call:
+    secrets:
+      fixture_password:
+        required: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIDELITY_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        options: --hostname sql-fieldvisit-jpe-uat
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: ${{ secrets.fixture_password }}
+        ports: ['1433:1433']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact source and immutable Full Inventory pins
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$FIDELITY_SOURCE_SHA"
+          python3 - <<'PYCODE'
+          import hashlib,json
+          from pathlib import Path
+          manifest=Path('scripts/ci/full_fidelity/hashes.json')
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest() == 'c7e6b28b9bc21800cc17e375aeb5be774d97e0f6dea319ca45a15ecd637dd57e'
+          pins=json.loads(manifest.read_text())
+          assert set(pins) == {'docs/release/full-schema-fidelity/UatSchemaFidelity.release-gate.readonly.sql','scripts/ci/uat_schema_fidelity_evidence.ps1','scripts/ci/compare_uat010_schema_inventory.py'}
+          for path,digest in pins.items():
+              assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest
+          print('Full Inventory source and immutable pins: PASS')
+          PYCODE
+      - name: Mask disposable labels before fixture logs
+        run: |
+          echo '::add-mask::sa'
+          echo '::add-mask::FullRestricted'
+      - name: Original Full Inventory contracts on real SQL Server 2022
+        shell: pwsh
+        env:
+          FIDELITY_FIXTURE_PASSWORD: ${{ secrets.fixture_password }}
+        run: |
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber
+          ./scripts/ci/full_fidelity/test_full_inventory.ps1
+      - name: Original validator contracts (no R3 rerun)
+        shell: pwsh
+        run: ./scripts/ci/test_uat_schema_fidelity_evidence.ps1
+      - name: Comparator and privacy boundary regression
+        run: |
+          python3 - <<'PYCODE'
+          import json,os,unittest
+          from pathlib import Path
+          suite=unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromName(name) for name in ('scripts.ci.full_fidelity.test_comparator','scripts.ci.test_uat_schema_fidelity_proposal'))
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          out=Path(os.environ['RUNNER_TEMP'])/'full-fidelity-evidence'/'comparator-results.json'
+          out.write_text(json.dumps({'SourceSha':os.environ['FIDELITY_SOURCE_SHA'],'Passed':result.testsRun-len(result.failures)-len(result.errors),'Failed':len(result.failures)+len(result.errors),'Scope':'synthetic comparator and preserved proposal contracts'})+'\n')
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PYCODE
+      - name: Remove synthetic private evidence on every outcome
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP/full-fidelity-private"
+      - name: Package source and sanitized results only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/full-fidelity-evidence"
+          git rev-parse HEAD HEAD^ HEAD^{tree} > "$RUNNER_TEMP/full-fidelity-evidence/source.txt"
+          git archive --format=zip HEAD > "$RUNNER_TEMP/full-fidelity-evidence/exact-source.zip"
+          sha256sum "$RUNNER_TEMP/full-fidelity-evidence/exact-source.zip" > "$RUNNER_TEMP/full-fidelity-evidence/exact-source.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: full-fidelity-nondeploy-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/full-fidelity-evidence/
+          retention-days: 7
+          if-no-files-found: error
