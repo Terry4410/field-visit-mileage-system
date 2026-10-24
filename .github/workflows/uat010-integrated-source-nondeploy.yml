@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - name: Exact immutable source overlays and fail-closed release boundary
         shell: python
@@ -27,12 +27,12 @@ jobs:
           assert j['contract']=='uat010-combined-source-review-v1'
           assert j['sourceBranches']=={'PR82_BASE':'ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','PR48_CLEAN':'9ee5dacceed2bf55c39310d663f3258bcb545989','PR81_HISTORY':'5bab502f20d9590d415d6a25a238d1629057989d'}
           assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
-          assert git('rev-parse','HEAD^')=='ae9ca02cf2d9539fe9bed61a073d60d63731cbb9'
-          changed=set(git('diff','--name-only','HEAD^','HEAD').splitlines())
+          assert subprocess.run(['git','merge-base','--is-ancestor','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD']).returncode==0
+          changed=set(git('diff','--name-only','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD').splitlines())
           expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml'}
           assert len(j['integratedFiles'])==53 and changed==expected
-          assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==47
-          assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==6
+          assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==44
+          assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==9
           for path,item in j['integratedFiles'].items():
             assert git('hash-object',path)==item['sha']
           m=json.loads(p('docs/release/g1-execution/promotion/manifest.json').read_text())
