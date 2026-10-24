@@ -6,6 +6,8 @@ from unittest import mock
 import contextlib
 import io
 import hashlib
+import sys
+sys.path.insert(0,str(pathlib.Path(__file__).parent))
 
 ROOT = pathlib.Path(__file__).parent
 
@@ -31,7 +33,7 @@ class Boundary(unittest.TestCase):
         e = self.environment()
         e.update(AZURE_TENANT_ID='synthetic-tenant', AZURE_SUBSCRIPTION_ID='synthetic-sub', AZURE_CLIENT_ID='synthetic-client')
         digest = hashlib.sha256(bytes([10]).join(x.encode() for x in ('synthetic-tenant','synthetic-sub','synthetic-client'))).hexdigest()
-        with mock.patch.dict(arm.os.environ,e,clear=True), mock.patch.object(arm,'CONTEXT_SHA256',digest), mock.patch.object(arm.sys,'argv',['arm.py','--prelogin']), mock.patch.object(arm,'az',side_effect=AssertionError('no Azure')), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.dict(arm.os.environ,e,clear=True), mock.patch.object(arm,'CONTEXT_SHA256',digest), mock.patch.object(arm.sys,'argv',['arm.py','--prelogin']), mock.patch.object(arm,'exchange_token',side_effect=AssertionError('no Azure')), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(arm.main(),0)
 
     def test_exact_source_guard_positive_and_modified_file_denial(self):
@@ -42,8 +44,10 @@ class Boundary(unittest.TestCase):
                      body='G1_V2_DISPATCH_APPROVED '+'a'*40+' '+guard.WORKFLOW+' ONE_CONNECTION')
         runs=dict(total_count=1,workflow_runs=[dict(id=123,head_sha='a'*40,run_attempt=1)])
         delta=''.join('A'+chr(9)+p+chr(10) for p in sorted(guard.ALLOWED))
-        with mock.patch.dict(guard.os.environ,e,clear=True), mock.patch.object(guard.subprocess,'check_output',return_value=delta), mock.patch.object(guard,'get',side_effect=[comment,runs]), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.dict(guard.os.environ,e,clear=True), mock.patch.object(guard.subprocess,'check_output',return_value=delta), mock.patch.object(guard,'get',side_effect=[comment,runs]), mock.patch.object(guard,'coverage_ready',return_value=True), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(guard.main(),0)
+        with mock.patch.dict(guard.os.environ,e,clear=True), mock.patch.object(guard.subprocess,'check_output',return_value=delta), mock.patch.object(guard,'get',side_effect=[comment,runs]), mock.patch.object(guard,'coverage_ready',return_value=False), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(guard.main(),1)
         for bad in [delta.replace('A'+chr(9),'M'+chr(9),1),delta+'A'+chr(9)+'backend/changed.cs'+chr(10)]:
             with mock.patch.dict(guard.os.environ,e,clear=True), mock.patch.object(guard.subprocess,'check_output',return_value=bad), mock.patch.object(guard,'get',side_effect=AssertionError('no network')), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(guard.main(),1)
@@ -104,6 +108,56 @@ class Boundary(unittest.TestCase):
         for change in [dict(user={'login':'Terry4410','id':1}),dict(author_association='NONE'),
                        dict(issue_url='other'),dict(body='Owner generally approved G1')]:
             self.assertFalse(guard.valid_approval(dict(c, **change), 'a'*40))
+
+    def test_full_gate_positive_and_each_missing_mismatched_gate(self):
+        keys={'target','runtime','schema','apiPrincipal','flags','recovery'}
+        expected=dict(sourceSha='a'*40,producers={k:'1'*64 for k in keys})
+        receipts={k:dict(measurementSha256='2'*64,sourceSha='a'*40,
+            targetBinding=arm.CONTEXT_SHA256,observedAt=1000,outcome='MATCH',producer='1'*64) for k in keys}
+        self.assertEqual(arm.final_gate(receipts,1001,expected),'PASS')
+        for key in keys:
+            for change in [dict(outcome='UNKNOWN'),dict(observedAt=399),dict(observedAt=1002),
+                           dict(producer='3'*64),dict(measurementSha256=True),dict(sourceSha='b'*40),dict(targetBinding='wrong')]:
+                with self.subTest(gate=key,change=change):
+                    bad={**receipts,key:{**receipts[key],**change}}
+                    self.assertEqual(arm.final_gate(bad,1001,expected),'HOLD')
+            self.assertEqual(arm.final_gate({k:v for k,v in receipts.items() if k!=key},1001,expected),'HOLD')
+        self.assertEqual(arm.final_gate({'all':'PASS'},1001,expected),'HOLD')
+
+    def test_oidc_scope_and_host_denied_before_transport(self):
+        class Never:
+            def open(self,*a,**k):raise AssertionError('no network')
+        for url in ['http://pipelines.actions.githubusercontent.com/idtoken','https://evil.example/idtoken',
+                    'https://pipelines.actions.githubusercontent.com.evil.example/idtoken',
+                    'https://user@pipelines.actions.githubusercontent.com/idtoken',
+                    'https://pipelines.actions.githubusercontent.com/idtoken?audience=wrong']:
+            with mock.patch.dict(arm.os.environ,{'ACTIONS_ID_TOKEN_REQUEST_URL':url},clear=True):
+                with self.assertRaises(arm.Stop):
+                    arm.exchange_token('https://management.azure.com/.default',Never())
+        with self.assertRaises(arm.Stop):
+            arm.exchange_token('https://graph.microsoft.com/.default',Never())
+
+    def test_oidc_flow_has_only_auth_requests_and_no_arm_discovery(self):
+        import json
+        class Response:
+            status=200
+            def __init__(self,url,payload):self.url,self.payload=url,payload
+            def __enter__(self):return self
+            def __exit__(self,*a):pass
+            def geturl(self):return self.url
+            def read(self,n):return json.dumps(self.payload).encode()
+        class Opener:
+            def __init__(self):self.calls=[]
+            def open(self,req,timeout):
+                self.calls.append((req.method,req.full_url,timeout))
+                return Response(req.full_url,{'value':'synthetic-assertion'} if len(self.calls)==1 else {'access_token':'x'*200})
+        env=dict(ACTIONS_ID_TOKEN_REQUEST_URL='https://pipelines.actions.githubusercontent.com/idtoken?api-version=2',
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN='synthetic',AZURE_TENANT_ID='synthetic',AZURE_CLIENT_ID='synthetic')
+        op=Opener()
+        with mock.patch.dict(arm.os.environ,env,clear=True):
+            self.assertEqual(arm.exchange_token('https://management.azure.com/.default',op),'x'*200)
+        self.assertEqual([x[0] for x in op.calls],['GET','POST'])
+        self.assertTrue(all('management.azure.com' not in url for _,url,_ in op.calls))
 
 
 if __name__ == '__main__':

@@ -5,11 +5,13 @@ import re
 import subprocess
 import sys
 import urllib.request
+from arm import coverage_ready
 
 REPO = 'Terry4410/field-visit-mileage-system'
 WORKFLOW = 'g1-bounded-readonly-v2.yml'
 BASE = 'd919f8a107e3dbaee919b8c4e3b463240674eaf4'
 ALLOWED = {'.github/workflows/' + WORKFLOW,
+           '.github/workflows/g1-bounded-readonly-worker-v2.yml',
            'docs/release/g1-bounded/REVIEW.md',
            *('scripts/ci/g1_bounded/' + p for p in ('arm.py', 'guard.py', 'sql.ps1', 'catalog.sql', 'test_boundary.py', 'checksums.sha256'))}
 
@@ -66,6 +68,9 @@ def main():
             raise ValueError()
         if runs.get('total_count') != 1 or values[0].get('head_sha') != sha or values[0].get('run_attempt') != 1:
             raise ValueError()
+        if not coverage_ready():
+            print('DispatchReadiness=HOLD; Missing=REVIEWED_COMPLETION_PRODUCERS; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED;')
+            return 1
         print('OwnerSource=PASS; FreshExactDispatchConsent=PASS; PriorDispatches=0; Azure=NOT_ACCESSED;')
         return 0
     except Exception:

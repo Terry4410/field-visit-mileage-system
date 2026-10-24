@@ -1,0 +1,67 @@
+name: G1 v2 private worker (call only)
+on:
+  workflow_call:
+    inputs:
+      approved_source_sha:
+        type: string
+        required: true
+      authorization_comment:
+        type: string
+        required: true
+      accept_one_connection_cost:
+        type: boolean
+        required: true
+    secrets:
+      client:
+        required: true
+      tenant:
+        required: true
+      subscription:
+        required: true
+permissions:
+  contents: read
+jobs:
+  bounded:
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      id-token: write
+    env:
+      APPROVED_SHA: ${{ inputs.approved_source_sha }}
+      APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
+      ACCEPT_COST: ${{ inputs.accept_one_connection_cost }}
+      GH_TOKEN: ${{ github.token }}
+      AZURE_TENANT_ID: ${{ secrets.tenant }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.subscription }}
+      AZURE_CLIENT_ID: ${{ secrets.client }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify approval again and pinned identity, no Azure
+        run: |
+          set -euo pipefail
+          test "${RUNNER_DEBUG:-}" != 1
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          python3 scripts/ci/g1_bounded/guard.py
+          python3 scripts/ci/g1_bounded/arm.py --prelogin
+      - name: Load dependency before bounded inspection clock
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try {Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null}
+          catch {Write-Output 'SqlDependency=HOLD; Details=SUPPRESSED;'; exit 1}
+      - name: Existing federation, exactly five ARM GETs and one SQL session
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 480s bash -euo pipefail -c '
+            timeout --signal=TERM --kill-after=5s 180s python3 scripts/ci/g1_bounded/arm.py
+            timeout --signal=TERM --kill-after=5s 240s pwsh -NoProfile -NonInteractive -File scripts/ci/g1_bounded/sql.ps1 2>/dev/null
+          '

@@ -1,5 +1,8 @@
-name: G1 bounded read-only v2 (separate approval required)
+name: G1 bounded read-only v2 (review before Live)
 on:
+  push:
+    branches: [work/g1-bounded-readonly-entry-20261024]
+    paths: [.github/workflows/g1-bounded-readonly-v2.yml, .github/workflows/g1-bounded-readonly-worker-v2.yml, 'scripts/ci/g1_bounded/**', 'docs/release/g1-bounded/**']
   workflow_dispatch:
     inputs:
       approved_source_sha:
@@ -7,20 +10,65 @@ on:
         type: string
         required: true
       authorization_comment:
-        description: NEW exact dispatch approval comment (not the preparation authorization)
+        description: NEW exact dispatch approval comment
         type: string
         required: true
       accept_one_connection_cost:
-        description: Approve one connection only, without retry
+        description: Approve one bounded connection, no retry
         type: boolean
         default: false
         required: true
 permissions:
   contents: read
 concurrency:
-  group: g1-bounded-readonly-v2
+  group: g1-bounded-readonly-v2-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  offline:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/work/g1-bounded-readonly-entry-20261024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Source seals and offline Python contracts
+        run: |
+          set -euo pipefail
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          python3 -m unittest discover -s scripts/ci/g1_bounded -p test_boundary.py -v
+      - name: PowerShell parse and actual pinned SqlClient constructor, no Open
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null;$errors=$null
+          $null=[Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts/ci/g1_bounded/sql.ps1),[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'POWERSHELL_PARSE_REJECTED'}
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null
+          & ./scripts/ci/g1_bounded/sql.ps1 -OfflineContract
+          if($LASTEXITCODE -ne 0){throw 'SQLCLIENT_CONTRACT_REJECTED'}
+      - name: Record completeness honestly
+        run: |
+          mkdir -p verification
+          python3 - <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          sys.path.insert(0,'scripts/ci/g1_bounded')
+          from arm import coverage_ready
+          d=dict(sourceSha=os.environ['GITHUB_SHA'],contractTests='PASS',
+            completionCoverage='READY' if coverage_ready() else 'HOLD',azure='NOT_ACCESSED',
+            sqlConnections=0,liveG1='NOT_EXECUTED',protectedPromotion='NOT_AUTHORIZED')
+          Path('verification/g1-offline.json').write_text(json.dumps(d,sort_keys=True,indent=2)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write('G1 offline contracts PASS. Completion coverage: '+d['completionCoverage']+'. No Azure/SQL execution.\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: g1-v2-offline-${{ github.sha }}
+          path: verification/g1-offline.json
+          retention-days: 30
   source:
     if: github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410' && github.triggering_actor == 'Terry4410' && github.run_attempt == 1
     runs-on: ubuntu-latest
@@ -35,61 +83,42 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate exact approved source and fresh dispatch authorization without Azure
+      - name: Consent, one-shot and completion routes before identity handoff
         env:
           APPROVED_SHA: ${{ inputs.approved_source_sha }}
           APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
           ACCEPT_COST: ${{ inputs.accept_one_connection_cost }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/g1_bounded/guard.py
-      - name: Verify sealed files
-        run: sha256sum --check scripts/ci/g1_bounded/checksums.sha256
-  inventory:
+        run: |
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          python3 scripts/ci/g1_bounded/guard.py
+  identity:
     needs: source
     runs-on: ubuntu-latest
     environment: uat
-    timeout-minutes: 10
+    timeout-minutes: 1
+    permissions:
+      contents: none
+    outputs:
+      client: ${{ vars.AZURE_CLIENT_ID }}
+      tenant: ${{ vars.AZURE_TENANT_ID }}
+      subscription: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - name: Values travel only as worker secrets, never shell env or run text
+        run: test "${RUNNER_DEBUG:-}" != 1
+  inventory:
+    needs: [source, identity]
     permissions:
       contents: read
+      actions: read
+      issues: read
       id-token: write
-    env:
-      APPROVED_SHA: ${{ inputs.approved_source_sha }}
-      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-      AZURE_CORE_ONLY_SHOW_ERRORS: 'true'
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Verify files and mask identifiers before login
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
-          test "${RUNNER_DEBUG:-}" != 1
-          for item in "$AZURE_TENANT_ID" "$AZURE_SUBSCRIPTION_ID" "$AZURE_CLIENT_ID"; do
-            test -n "$item"
-            echo "::add-mask::$item"
-          done
-          python3 scripts/ci/g1_bounded/arm.py --prelogin
-      - name: Existing UAT OIDC only
-        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: Five fixed ARM GETs only; no retries or pagination
-        run: timeout --signal=TERM --kill-after=5s 150s python3 scripts/ci/g1_bounded/arm.py
-      - name: Load pinned SQL client without opening SQL
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          try {Install-Module SqlServer -RequiredVersion 22.4.5.1 -Repository PSGallery -Scope CurrentUser -Force -AllowClobber | Out-Null}
-          catch {Write-Output 'SqlDependency=HOLD; Details=SUPPRESSED;'; exit 1}
-      - name: One SELECT-only TLS connection, 120s connect, 30s commands, 240s hard stop
-        shell: bash
-        run: |
-          set -euo pipefail
-          timeout --signal=TERM --kill-after=5s 240s pwsh -NoProfile -NonInteractive -File scripts/ci/g1_bounded/sql.ps1 2>/dev/null
+    uses: ./.github/workflows/g1-bounded-readonly-worker-v2.yml
+    with:
+      approved_source_sha: ${{ inputs.approved_source_sha }}
+      authorization_comment: ${{ inputs.authorization_comment }}
+      accept_one_connection_cost: ${{ inputs.accept_one_connection_cost }}
+    secrets:
+      client: ${{ needs.identity.outputs.client }}
+      tenant: ${{ needs.identity.outputs.tenant }}
+      subscription: ${{ needs.identity.outputs.subscription }}
