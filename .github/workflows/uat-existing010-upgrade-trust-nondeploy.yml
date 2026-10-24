@@ -120,7 +120,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet run --no-build --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj -c Release --nologo -- --sql pr50-source
+          dotnet tools/uat-release-candidate/upgrade-profile-tests/bin/Release/net8.0/UpgradeProfileTests.dll --sql pr50-source
       - name: Stop disposable SQL Server
         if: always()
         shell: bash
