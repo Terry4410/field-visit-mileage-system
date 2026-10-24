@@ -692,13 +692,35 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task<IReadOnlyList<ManagedLocationDto>> GetManagedLocationsAsync(CurrentUserDto user, bool includeInactive, CancellationToken ct)
     {
-        var q = db.Locations.AsNoTracking().AsQueryable();
-        q = ApplyLocationScope(q, user);
+        var q = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
+        if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
+        {
+            var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
+            q = q.Where(x => x.OrganizationId == user.OrganizationId
+                && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
+        }
+        else if (IsLeaderDraftActor(user)) q = await LeaderDraftReadScopeAsync(user, q, ct);
+        else q = ApplyLocationScope(q, user);
         if (!includeInactive) q = q.Where(x => x.IsActive);
         var rows = await q.OrderBy(x => x.City).ThenBy(x => x.District).ThenBy(x => x.LocationName).ToListAsync(ct);
         var ids = rows.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
         var teams = await db.Teams.AsNoTracking().Where(x => ids.Contains(x.TeamId)).ToDictionaryAsync(x => x.TeamId, ct);
         return rows.Select(x => MapManagedLocation(x, x.TeamId.HasValue && teams.TryGetValue(x.TeamId.Value, out var t) ? t.TeamName : null)).ToList();
+    }
+
+    public async Task<IReadOnlyList<VisitorTeamDto>> GetVisitorTeamsAsync(CurrentUserDto user, CancellationToken ct)
+    {
+        var teamIds = await EnsureVisitorCurrentAsync(user, ct);
+        var primary = await db.UserTeamAssignments.AsNoTracking()
+            .Where(x => x.UserId == user.UserId && x.EffectiveFrom <= BusinessTime.Today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= BusinessTime.Today))
+            .Where(x => teamIds.Contains(x.TeamId)).ToDictionaryAsync(x => x.TeamId, x => x.IsPrimary, ct);
+        var orgId = RequireOrganization(user);
+        var teams = await db.Teams.AsNoTracking()
+            .Where(x => x.OrganizationId == orgId && x.IsActive && teamIds.Contains(x.TeamId))
+            .OrderBy(x => x.TeamName)
+            .ToListAsync(ct);
+        return teams.Select(x => new VisitorTeamDto(x.TeamId, x.TeamName, primary.TryGetValue(x.TeamId, out var isPrimary) && isPrimary)).ToList();
     }
 
     public async Task<PagedResult<ManagedLocationDto>> SearchManagedLocationsAsync(
@@ -708,7 +730,17 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var page = Math.Max(1, request.Page);
         var pageSize = request.PageSize is 20 or 50 or 100 ? request.PageSize : 50;
-        var q = ApplyLocationScope(db.Locations.AsNoTracking(), user);
+        var visible = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
+        IQueryable<Location> q;
+        if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
+        {
+            var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
+            q = visible.Where(x => x.OrganizationId == user.OrganizationId
+                && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
+        }
+        else if (IsLeaderDraftActor(user)) q = await LeaderDraftReadScopeAsync(user, visible, ct);
+        else q = ApplyLocationScope(visible, user);
 
         if (!string.IsNullOrWhiteSpace(request.Q))
         {
@@ -766,6 +798,22 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> CreateManagedLocationAsync(CurrentUserDto user, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
+        // Do not permit old direct Create to bypass canonical Request,
+        // independent Leader/Admin review and Location reservation once
+        // Scheme A's additive Create contract is present.
+        await V180OptionCCreateReservationGuard.RequireCanonicalCreateAsync(
+            db, request.LocationType, ct);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
+        if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
+        {
+            var teams = await EnsureVisitorCurrentAsync(user, ct);
+            V180VisitorLocationRules.EnsureCreate(user, request.TeamId, request.LocationType, request.IsActive, teams);
+        }
+        else
+        {
+            V180OptionCLocationWriteRules.EnsureLeaderDraftCreate(user, request.TeamId,
+                string.IsNullOrWhiteSpace(request.LocationType) ? "Customer" : request.LocationType, request.IsActive);
+        }
         await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         var orgId = RequireOrganization(user);
         var row = new Location
@@ -787,10 +835,33 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     public async Task<ManagedLocationDto> UpdateManagedLocationAsync(CurrentUserDto user, int locationId, SaveManagedLocationRequest request, CancellationToken ct)
     {
         ValidateLocationRequest(user, request);
-        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, request.TeamId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
+        if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
+        {
+            var teams = await EnsureVisitorCurrentAsync(user, ct);
+            V180VisitorLocationRules.EnsureUpdate(user, row, request.TeamId, request.LocationType, request.IsActive, teams);
+        }
+        else
+        {
+            V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
+                row, user, request.TeamId,
+                string.IsNullOrWhiteSpace(request.LocationType) ? row.LocationType : request.LocationType,
+                request.IsActive);
+        }
+        await EnsureManagedLocationTeamAsync(user, request.TeamId, ct);
         EnsureLocationWriteScope(row, user);
-        EnsureRowVersion(row.RowVersion, request.RowVersion);
+        if (V180VisitorLocationRules.IsVisitor(user) && !HasRole(user, "admin"))
+            V180VisitorLocationRules.EnsureRequiredRowVersion(row.RowVersion, request.RowVersion);
+        else
+        {
+            if (HasRole(user, "leader") && !HasRole(user, "admin")
+                && string.IsNullOrWhiteSpace(request.RowVersion))
+                throw new InvalidOperationException("ROWVERSION_REQUIRED");
+            EnsureRowVersion(row.RowVersion, request.RowVersion);
+        }
         var before = new { row.LocationName, row.TeamId, row.City, row.District, row.Address, row.PlusCode, row.TaxId, row.MasterNote, row.IsActive };
         row.TeamId = request.TeamId;
         row.LocationName = request.LocationName.Trim();
@@ -810,6 +881,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     {
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct) ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, row.TeamId, ct);
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
+        V180OptionCLocationWriteRules.EnsureDirectDraftUpdate(
+            row, user, row.TeamId, row.LocationType, false);
         row.IsActive = false;
         row.UpdatedAt = DateTime.UtcNow;
         AddAudit(user.UserId, "Location", locationId.ToString(), "LocationDeactivate", new { locationId });
@@ -821,6 +897,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         int locationId,
         CancellationToken ct)
     {
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         var row = await db.Locations.AsNoTracking().FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
@@ -851,9 +929,12 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task DeleteManagedLocationAsync(CurrentUserDto user, int locationId, CancellationToken ct)
     {
+        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+            db, locationId, ct);
         var row = await db.Locations.FirstOrDefaultAsync(x => x.LocationId == locationId, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationWriteScope(row, user);
+        V180OptionCLocationWriteRules.EnsureUnpublishedDraft(row);
 
         var impact = await GetManagedLocationDeleteImpactAsync(user, locationId, ct);
         if (!impact.CanDelete)
@@ -886,11 +967,16 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var thisMonth = await trips.CountAsync(ct);
         var pending = await trips.CountAsync(x => x.Status == TripStatuses.PendingApproval, ct);
         var approved = await trips.CountAsync(x => x.Status == TripStatuses.Approved, ct);
+        // Canonical CreateLocation reservations are private, not legacy
+        // pending worklist items. Do not leak their existence via the
+        // dashboard pending-location counter; retain unreserved drafts.
+        var visiblePendingLocations = await V180OptionCCreateReservationGuard
+            .LegacyVisibleLocationsAsync(db, ct);
         var pendingLocations =
             HasRole(user, "supervisor")
                 ? 0
                 : await ApplyLocationScope(
-                    db.Locations.AsNoTracking(),
+                    visiblePendingLocations.AsNoTracking(),
                     user)
                     .CountAsync(
                         x =>
@@ -1050,6 +1136,54 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var orgId = RequireOrganization(user);
         var valid = await db.Teams.AsNoTracking().AnyAsync(x => x.TeamId == teamId.Value && x.OrganizationId == orgId && x.IsActive, ct);
         if (!valid) throw new InvalidOperationException("所選小組不存在、已停用或不屬於目前 Organization。");
+    }
+
+    private async Task<IReadOnlyList<int>> EnsureVisitorCurrentAsync(CurrentUserDto user, CancellationToken ct)
+    {
+        var today = BusinessTime.Today;
+        var account = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.UserId, ct)
+            ?? throw new UnauthorizedAccessException("VISITOR_ACCOUNT_NOT_FOUND");
+        if (!account.IsActive) throw new UnauthorizedAccessException("VISITOR_ACCOUNT_INACTIVE");
+
+        var effectiveRole = await (from assignment in db.UserRoleAssignments.AsNoTracking()
+                                   join role in db.Roles.AsNoTracking() on assignment.RoleId equals role.RoleId
+                                   where assignment.UserId == user.UserId
+                                      && role.IsActive
+                                      && role.RoleCode.ToUpper() == "VISITOR"
+                                      && assignment.EffectiveFrom <= today
+                                      && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                                   select assignment.UserRoleAssignmentId).AnyAsync(ct);
+
+        var identity = await db.UserIdentityProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.UserId, ct);
+        string? status;
+        if (identity?.EmploymentId is long employmentId)
+        {
+            status = await db.EmploymentStatusPeriods.AsNoTracking()
+                .Where(x => x.EmploymentId == employmentId && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom).ThenByDescending(x => x.EmploymentStatusPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+            var employment = await db.Employments.AsNoTracking().FirstOrDefaultAsync(x => x.EmploymentId == employmentId, ct);
+            if (employment?.TerminationDate is { } termination && termination <= today) status = EmploymentStatuses.Terminated;
+        }
+        else
+        {
+            status = await db.UserEmploymentPeriods.AsNoTracking()
+                .Where(x => x.UserId == user.UserId && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+                .OrderByDescending(x => x.EffectiveFrom).ThenByDescending(x => x.UserEmploymentPeriodId)
+                .Select(x => x.EmploymentStatus).FirstOrDefaultAsync(ct);
+        }
+        if (!string.Equals(status, EmploymentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("VISITOR_HR_STATUS_NOT_ACTIVE");
+
+        var orgId = RequireOrganization(user);
+        var assignedTeams = await db.UserTeamAssignments.AsNoTracking()
+            .Where(x => x.UserId == user.UserId && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today))
+            .Select(x => x.TeamId).Distinct().ToListAsync(ct);
+        var effectiveTeams = await db.Teams.AsNoTracking()
+            .Where(x => x.OrganizationId == orgId && x.IsActive && assignedTeams.Contains(x.TeamId))
+            .Select(x => x.TeamId).ToListAsync(ct);
+        V180VisitorLocationRules.EnsureCurrentAssignment(effectiveRole, status, effectiveTeams, user.OrganizationId);
+        return effectiveTeams;
     }
 
     private void ValidateLocationRequest(CurrentUserDto user, SaveManagedLocationRequest request)
@@ -1399,7 +1533,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
     private static ManagedLocationDto MapManagedLocation(Location x, string? teamName) => new(
         x.LocationId, x.LocationCode ?? "", x.TeamId, teamName, x.LocationName, x.LocationType, x.City, x.District, x.Address, x.PlusCode,
         x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []),
-        x.DuplicateOfLocationId, x.DuplicateReason, x.TaxId, x.MasterNote);
+        x.DuplicateOfLocationId, x.DuplicateReason, x.TaxId, x.MasterNote, x.CreatedByUserId);
 
     private static void EnsureRowVersion(byte[] currentValue, string? expectedBase64)
     {

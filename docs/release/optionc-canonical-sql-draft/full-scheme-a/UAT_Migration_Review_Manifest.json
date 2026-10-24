@@ -1,0 +1,341 @@
+{
+  "status": "HOLD_NONEXECUTED_DESIGN",
+  "authoritativeUatEvidence": {
+    "workflowRunId": 38707441735,
+    "sourceSha": "ce70eddc290e85375c64311b6d96eedc09942dba",
+    "observedUtc": "2026-10-15T08:42:04.8304305Z",
+    "latestSchemaVersion": "1.8.0-010",
+    "catalogFingerprintSha256": "665C66D7BA7DE5F75AD855CDDDA10175E8AB31114B6572EC010813799BFCD975",
+    "canonicalRequestTablesPresent": false,
+    "stageAndPublishedVersionsPresent": false,
+    "mergeDetailsPresent": false,
+    "canonicalEvidenceAuditExtended": false
+  },
+  "frozenRules": {
+    "reservedMigration": "1.8.0-013",
+    "reservedMigrationAction": "NO_CHANGE_NO_EXECUTION",
+    "candidateFlagsDefaultOff": true,
+    "uatExecutionAuthorized": false,
+    "productionExecutionAuthorized": false
+  },
+  "orderedDesign": [
+    {
+      "order": 1,
+      "marker": "1.8.0-011",
+      "contract": "canonical request and event ledger",
+      "source": "docs/release/optionc-canonical-sql-draft/1800_011",
+      "deployability": "REVIEW_REQUIRED",
+      "prerequisite": "latest marker exactly 1.8.0-010 and canonical tables absent"
+    },
+    {
+      "order": 2,
+      "marker": "1.8.0-012",
+      "contract": "Approved and Applied canonical states",
+      "source": "docs/release/optionc-canonical-sql-draft/1800_012",
+      "deployability": "REVIEW_REQUIRED",
+      "prerequisite": "latest marker exactly 1.8.0-011"
+    },
+    {
+      "order": 3,
+      "marker": "1.8.0-013",
+      "contract": "reserved leader-grant migration",
+      "source": null,
+      "deployability": "RESERVED_DO_NOT_TOUCH",
+      "prerequisite": "none; this package must neither create nor alter it"
+    },
+    {
+      "order": 4,
+      "marker": "1.8.0-014",
+      "contract": "publication Stage and immutable published-version ledger",
+      "source": "docs/release/optionc-canonical-sql-draft/1800_014",
+      "deployability": "DISPOSABLE_ONLY_NOT_UAT_READY",
+      "prerequisite": "latest marker exactly 1.8.0-012; 013 must remain absent; deterministic version-1 backfill review"
+    },
+    {
+      "order": 5,
+      "marker": null,
+      "contract": "canonical Stage evidence audit event extension",
+      "source": "docs/release/optionc-canonical-sql-draft/audit/StageEvidenceAuditEvents.disposable.sql",
+      "deployability": "HOLD_PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "014 and exact canonical event constraints; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-015",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
+    },
+    {
+      "order": 6,
+      "marker": "1.8.0-LEADER-REVIEW",
+      "contract": "persistent independent Leader first-level decision",
+      "source": "docs/release/optionc-canonical-sql-draft/leader-review/LeaderReviewDetails.disposable.sql",
+      "deployability": "HOLD_PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "014 and Stage evidence audit extension; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-016",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
+    },
+    {
+      "order": 7,
+      "marker": "1.8.0-CREATE-LOWRISK",
+      "contract": "CreateLocation reservation and LowRisk publication contract",
+      "source": "docs/release/optionc-canonical-sql-draft/create-lowrisk/CreateLowRiskContract.disposable.sql",
+      "deployability": "HOLD_PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "Leader review contract and publication ledger; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-017",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
+    },
+    {
+      "order": 8,
+      "marker": "1.8.0-LOWRISK-DIRECT",
+      "contract": "authorized direct LowRisk version and immutable audit",
+      "source": "docs/release/optionc-canonical-sql-draft/lowrisk-direct/LowRiskDirectContract.disposable.sql",
+      "deployability": "HOLD_PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "CreateLowRisk contract and canonical published-version ledger; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-018",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
+    },
+    {
+      "order": 9,
+      "marker": null,
+      "contract": "dual-Location MergeFields evidence",
+      "source": "docs/release/optionc-canonical-sql-draft/merge/LocationMergeDetails.disposable.sql",
+      "deployability": "HOLD_PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "014, canonical audit extension, Leader review, and approved reference-rebinding policy; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-019",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
+    },
+    {
+      "order": 10,
+      "marker": "1.8.0-EXCEL-CANONICAL-STATUS",
+      "contract": "Excel canonical submission statuses",
+      "source": "docs/release/optionc-canonical-sql-draft/excel-import/ExcelImportStatusContract.disposable.sql",
+      "deployability": "HOLD_PROPOSED_NUMERIC_ID_REVIEW_REQUIRED",
+      "prerequisite": "canonical Create and published Update flows; existing ImportBatch data compatibility; proposed ID is not executable until registry approval and checksum review",
+      "proposedMarker": "1.8.0-020",
+      "markerStatus": "PROPOSED_OWNER_APPROVAL_REQUIRED"
+    }
+  ],
+  "mandatoryStopConditions": [
+    "protected UAT target does not match the approved server and database",
+    "latest SchemaVersion is not exactly 1.8.0-010 before the first forward step",
+    "any 011/012/014 object exists without its matching marker or vice versa",
+    "any 1.8.0-013 marker or unauthorized 013 object is observed",
+    "disabled or untrusted required constraint or foreign key is observed",
+    "symbolic or unassigned additive migration marker has not been replaced by an Owner-approved immutable version",
+    "historical pre-migration fingerprint cannot be captured or differs after a forward step",
+    "version-1 backfill is ambiguous, incomplete, or would include Pending or inactive Locations",
+    "backup recovery point, restore owner, rollback window, or deployment artifact identity is missing",
+    "application and frontend candidate flags are not OFF before deployment"
+  ],
+  "proposedRegistry": {
+    "status": "PROPOSED_NOT_FINAL_NOT_EXECUTABLE",
+    "reserved": "1.8.0-013",
+    "entries": [
+      {
+        "order": 1,
+        "marker": "1.8.0-011",
+        "contract": "canonical request and event ledger",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 2,
+        "marker": "1.8.0-012",
+        "contract": "Approved and Applied canonical states",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 3,
+        "marker": "1.8.0-014",
+        "contract": "publication Stage and immutable published-version ledger",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 4,
+        "marker": "1.8.0-015",
+        "contract": "Stage evidence audit event extension",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 5,
+        "marker": "1.8.0-016",
+        "contract": "persistent independent Leader first-level decision",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 6,
+        "marker": "1.8.0-017",
+        "contract": "CreateLocation reservation and LowRisk publication contract",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 7,
+        "marker": "1.8.0-018",
+        "contract": "authorized direct LowRisk version and immutable audit",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 8,
+        "marker": "1.8.0-019",
+        "contract": "dual-Location MergeFields evidence",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      },
+      {
+        "order": 9,
+        "marker": "1.8.0-020",
+        "contract": "Excel canonical submission statuses",
+        "action": "OWNER_REVIEW_AND_REGISTRY_ASSIGNMENT_REQUIRED"
+      }
+    ],
+    "rules": [
+      "No proposed marker may be written to UAT until migration review approval, checksum approval and deployment-window authorization.",
+      "1.8.0-013 remains reserved and must remain absent unless separately authorized by its own frozen contract.",
+      "Each step requires Preflight, Up/Backfill, Verify, historical fingerprint and Unknown Commit decision evidence.",
+      "A marker/object mismatch or partial execution is STOP; do not rerun blindly."
+    ]
+  },
+  "checksumManifest": {
+    "status": "REVIEW_REQUIRED",
+    "algorithm": "SHA-256",
+    "sourceFiles": [
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_011/Preflight.sql",
+        "sha256": "5552c502fdae46ad42a210d9e44aa457a96d489c6b36fd1a8289aa6d3ecb87fe",
+        "phase": "Preflight",
+        "dependsOn": [
+          "1.8.0-010"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_011/Up.sql",
+        "sha256": "cdb85749fee47f7480c410792879a6cf885ac2aae5107dfefd3418bc8fa2fd6a",
+        "phase": "Up",
+        "dependsOn": [
+          "1.8.0-010"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_011/Verify.sql",
+        "sha256": "de9375da5e97aa92ab9779e8a02535597c8a52f02174ca86ad1c4b657343a281",
+        "phase": "Verify",
+        "dependsOn": [
+          "1.8.0-011"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_012/Preflight.sql",
+        "sha256": "e6e62a9f4d4cfce976ea8ddca558cc5b8eb616c1a812b6ff33c3e8e9a2685737",
+        "phase": "Preflight",
+        "dependsOn": [
+          "1.8.0-011"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_012/Up.sql",
+        "sha256": "84905dc6efccd0a711878e37f0688e011f259b64cb37799967219d7df7d7c7e7",
+        "phase": "Up",
+        "dependsOn": [
+          "1.8.0-011"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_012/Verify.sql",
+        "sha256": "87726cd3fee1c80e342c8a05135a1cd91675aaa8d9925a4e12dc6543ececfc72",
+        "phase": "Verify",
+        "dependsOn": [
+          "1.8.0-012"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_014/Preflight.sql",
+        "sha256": "c5d8b0cd1ccb583ed674aaf7b19eea3a7e55fe7bf59f5572500bd1f891c653c2",
+        "phase": "Preflight",
+        "dependsOn": [
+          "1.8.0-012",
+          "1.8.0-013 absent"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_014/Up.sql",
+        "sha256": "2ced64461913036b77a1416caadf1bdb68460adba2eaf95adeb47e08fc37d69e",
+        "phase": "Up",
+        "dependsOn": [
+          "1.8.0-012",
+          "1.8.0-013 absent"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_014/Backfill.sql",
+        "sha256": "b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed",
+        "phase": "Backfill",
+        "dependsOn": [
+          "1.8.0-014",
+          "Approved+Active only"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/1800_014/Verify.sql",
+        "sha256": "972aeb530436adc66be57f8407a7ef1404747725e267e104a442bbdae836d55c",
+        "phase": "Verify",
+        "dependsOn": [
+          "1.8.0-014"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/audit/StageEvidenceAuditEvents.disposable.sql",
+        "sha256": "59a5bf105f26aaed578e2d47dd7067bf0c6f9abc771a179ef1032dce3b7b3307",
+        "phase": "Additive candidate",
+        "proposedMarker": "1.8.0-015",
+        "dependsOn": [
+          "1.8.0-014"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/leader-review/LeaderReviewDetails.disposable.sql",
+        "sha256": "e96ee76d1b51612b57881d96087b1ccf06194f48eb437c0f51dbfbeed726076f",
+        "phase": "Additive candidate",
+        "proposedMarker": "1.8.0-016",
+        "dependsOn": [
+          "1.8.0-015"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/create-lowrisk/CreateLowRiskContract.disposable.sql",
+        "sha256": "55e2ee2af2adb141d68402f1ffc581366aa96f0bd9438aa61cbec5c5f74ddd03",
+        "phase": "Additive candidate",
+        "proposedMarker": "1.8.0-017",
+        "dependsOn": [
+          "1.8.0-016",
+          "1.8.0-014"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/lowrisk-direct/LowRiskDirectContract.disposable.sql",
+        "sha256": "2b70b713a16b58c14929782f03805984b68a412108df5f45f37e54c5dd769aaa",
+        "phase": "Additive candidate",
+        "proposedMarker": "1.8.0-018",
+        "dependsOn": [
+          "1.8.0-017"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/merge/LocationMergeDetails.disposable.sql",
+        "sha256": "c03d2f2a877121fcecd6d829c4339c27c659b8d0d1c2243abfcb1c810dee1a09",
+        "phase": "Additive candidate",
+        "proposedMarker": "1.8.0-019",
+        "dependsOn": [
+          "1.8.0-014",
+          "1.8.0-016"
+        ]
+      },
+      {
+        "path": "docs/release/optionc-canonical-sql-draft/excel-import/ExcelImportStatusContract.disposable.sql",
+        "sha256": "d581de8349927872a04586c59796891115df4a1bc0a825da7a2fa78deaa3fe32",
+        "phase": "Additive candidate",
+        "proposedMarker": "1.8.0-020",
+        "dependsOn": [
+          "1.8.0-017",
+          "1.8.0-018"
+        ]
+      }
+    ],
+    "note": "SHA-256 values are pinned to the exact reviewed source files on the staging candidate. They are review evidence only; no file is UAT-executable until registry approval, target compatibility and separate execution authorization.",
+    "executionStatus": "NOT_EXECUTED"
+  }
+}

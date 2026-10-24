@@ -12,7 +12,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private sealed record LocationImportRow(string? LocationCode, string? TeamCode, string LocationName, string? City, string? District, string? Address, string? PlusCode, string Status);
+    private sealed record LocationImportRow(string? LocationCode, string? TeamCode, string LocationName, string? City, string? District, string? Address, string? PlusCode, string Status, string? ExpectedEntityRowVersion = null);
     private sealed record ProjectImportRow(string ProjectCode, string ProjectName, string? TeamCode, string LocationMode, string? StartDate, string? EndDate, string Status, string? Description);
     private sealed record ProjectLocationImportRow(string ProjectCode, string LocationCode, bool IsPrimary, string Status);
 
@@ -34,12 +34,12 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                 AddSheet(wb, sheets, 2, "說明", new[]
                 {
                     new[] { "項目", "規則" },
-                    new[] { "LocationCode", "新增地點請留空；更新既有地點時必須填寫現有 LocationCode。" },
+                    new[] { "LocationCode", "更新既有地點時請填寫現有 LocationCode。新增地點請改走 canonical 新增地點申請，Excel 新增目前禁止。" },
                     new[] { "TeamCode", "選填；若填寫必須是目前啟用且有權限的小組代碼。" },
                     new[] { "LocationName", "必填。" },
                     new[] { "Address / PlusCode", "至少需填一項。" },
-                    new[] { "新增地點", "Excel 匯入後一律為正式地點資料，但 ApprovalStatus=Pending、GeocodingStatus=Pending、IsActive=false；完成解析與核准後才可使用。" },
-                    new[] { "更新既有地點", "只要主檔內容有變更，匯入後會重新進入 Pending / Pending / 未啟用，需重新解析與核准。" },
+                    new[] { "新增地點", "Scheme A：Excel 新增地點尚未串接獨立 Leader/Admin 審查，預覽會標記錯誤、Confirm 會拒絕，不能直接寫入 Pending 地點。請走受控新增申請入口。" },
+                    new[] { "更新既有地點", "已核准／已啟用地點及 Scheme A 保留中的 Pending 地點禁止直接改寫；只有合法的未保留舊草稿可更新。已發布地點請走 canonical 維護審查。" },
                     new[] { "重複資料", "同一 Excel 不可重複使用相同 LocationCode；新增資料不可在同一小組重複相同地點名稱＋地址／PlusCode。" },
                     new[] { "Status", "新版範本已移除。舊版檔案若仍有 Status 欄可相容讀取，但不會直接控制啟用或核准狀態。" }
                 });
@@ -140,6 +140,34 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         if (batch.ImportType == "projects" && !HasRole(user, "admin")) throw new UnauthorizedAccessException("只有管理者可以確認專案匯入。");
 
         var items = await db.ImportBatchItems.Where(x => x.ImportBatchId == importBatchId && x.Status == "Valid").OrderBy(x => x.EntityType == "ProjectLocation" ? 2 : 1).ThenBy(x => x.RowNumber).ToListAsync(ct);
+        // Fail the whole batch before applying any row when a published
+        // Location would be changed outside the canonical approval queue.
+        // The in-loop check below also guards against a preview/confirm race.
+        if (batch.ImportType == "locations")
+        {
+            foreach (var item in items.Where(x => x.EntityType == "Location" && x.Action != "Create" && x.Action != "NoChange"))
+            {
+                var data = JsonSerializer.Deserialize<LocationImportRow>(item.DataJson, JsonOptions)!;
+                if (HasRole(user, "leader") && !HasRole(user, "admin") && string.IsNullOrWhiteSpace(data.TeamCode))
+                    throw new UnauthorizedAccessException("LOCATION_EXCEL_LEADER_TEAM_REQUIRED");
+                var existing = await db.Locations.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
+                if (existing is null || existing.ApprovalStatus == "Approved" || existing.IsActive)
+                    throw new InvalidOperationException("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
+                // Even an inactive Pending Location may be a canonical
+                // CreateLocation reservation. Refuse before the batch writes.
+                await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                    db, existing.LocationId, ct);
+            }
+        }
+        // Scheme A: the legacy Excel import does not create a canonical
+        // ChangeRequest, independent Leader/Admin reviews or publication audit.
+        // Refuse new Location identities before processing ANY batch row; an
+        // inactive Location row alone must not be treated as a reviewed create.
+        if (batch.ImportType == "locations" && items.Any(x =>
+            x.EntityType == "Location" && x.Action == "Create"))
+            throw new InvalidOperationException("LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW");
+
         int created = 0, updated = 0, unchanged = 0, failed = 0;
         var errors = new List<string>();
         foreach (var item in items)
@@ -169,7 +197,15 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     else
                     {
                         var row = await db.Locations.FirstAsync(x => x.OrganizationId == user.OrganizationId && x.LocationCode == data.LocationCode, ct);
+                        // Repeat at mutation time: do not trust a preview or
+                        // preflight that predates a concurrent reservation.
+                        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                            db, row.LocationId, ct);
                         EnsureLeaderTeam(user, row.TeamId);
+                        if (row.ApprovalStatus == "Approved" || row.IsActive)
+                            throw new InvalidOperationException("LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL");
+                        if (HasRole(user, "leader") && !HasRole(user, "admin") && row.CreatedByUserId != user.UserId)
+                            throw new UnauthorizedAccessException("LOCATION_EXCEL_PENDING_OWNER_REQUIRED");
                         // Any imported master-data change reopens geocoding /
                         // approval before the Location can be used again.
                         row.TeamId = await ResolveTeamIdAsync(user, data.TeamCode, ct);
@@ -284,6 +320,11 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var workbookNewLocationKeys =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Pending/Abandoned canonical CreateLocation reservations are private.
+        // A rejected historical identity must not be mistaken for an
+        // unchanged active location on a second Excel preview.
+        var visible = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
+            db, ct)).AsNoTracking();
 
         var rowNo = 1;
         foreach (var raw in rows.Skip(1))
@@ -321,8 +362,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     }
                     else
                     {
-                        var existing = await db.Locations
-                            .AsNoTracking()
+                        var existing = await visible
                             .FirstOrDefaultAsync(
                                 x => x.OrganizationId == user.OrganizationId
                                      && x.LocationCode == code,
@@ -339,6 +379,36 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                                 && existing.TeamId == teamId
                                     ? "NoChange"
                                     : "Update";
+                            // Bind the Excel preview to the exact published
+                            // rowversion. The canonical submission must
+                            // revalidate this value under a Serializable lock.
+                            if (action == "Update" && existing.RowVersion is { Length: 8 })
+                                data = data with {
+                                    ExpectedEntityRowVersion = Convert.ToBase64String(existing.RowVersion)
+                                };
+                            // Preview must disclose the same Option C restriction
+                            // that Confirm enforces. Do not advertise a direct
+                            // update that would bypass independent review.
+                            if (action == "Update"
+                                && (existing.ApprovalStatus == "Approved" || existing.IsActive))
+                                error = "LOCATION_EXCEL_PUBLISHED_CHANGE_REQUIRES_UNIFIED_APPROVAL";
+                            else if (action == "Update"
+                                && HasRole(user, "leader") && !HasRole(user, "admin")
+                                && existing.CreatedByUserId != user.UserId)
+                                error = "LOCATION_EXCEL_PENDING_OWNER_REQUIRED";
+                            if (error is null && action == "Update")
+                            {
+                                try
+                                {
+                                    await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(
+                                        db, existing.LocationId, ct);
+                                }
+                                catch (InvalidOperationException ex) when
+                                    (ex.Message == "LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW")
+                                {
+                                    error = ex.Message;
+                                }
+                            }
                         }
                     }
                 }
@@ -357,8 +427,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     }
                     else
                     {
-                        var same = await db.Locations
-                            .AsNoTracking()
+                        var same = await visible
                             .FirstOrDefaultAsync(
                                 x => x.OrganizationId == user.OrganizationId
                                      && x.TeamId == teamId
@@ -373,8 +442,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                             // idempotent and must not create a duplicate.
                             action = "NoChange";
                         }
-                        else if (await db.Locations
-                                     .AsNoTracking()
+                        else if (await visible
                                      .AnyAsync(
                                          x => x.OrganizationId == user.OrganizationId
                                               && x.TeamId == teamId
@@ -387,6 +455,21 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
                     }
                 }
             }
+
+            // Canonical Create requires an explicit live-authorized team and
+            // a real address, not a nullable legacy team/PlusCode-only draft.
+            // Reject at Preview rather than advertise an importable row that
+            // the canonical submission would inevitably refuse.
+            if (error is null && action == "Create"
+                && string.IsNullOrWhiteSpace(data.TeamCode))
+                error = "OPTIONC_EXCEL_TEAM_REQUIRED";
+            if (error is null && action == "Create"
+                && string.IsNullOrWhiteSpace(data.Address))
+                error = "OPTIONC_EXCEL_ADDRESS_REQUIRED";
+            // Match Confirm's fail-closed CreateLocation gate in preview.
+            // Do not present an unreviewed Excel create as a Valid row.
+            if (error is null && action == "Create")
+                error = "LOCATION_EXCEL_CREATE_REQUIRES_CANONICAL_REVIEW";
 
             await StageAsync(
                 batch,
@@ -746,6 +829,8 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
 
     private async Task<string?> ValidateLocationAsync(CurrentUserDto user, LocationImportRow row, CancellationToken ct)
     {
+        if (HasRole(user, "leader") && !HasRole(user, "admin") && string.IsNullOrWhiteSpace(row.TeamCode))
+            return "小組長 Excel 地點匯入必須指定有效 TeamCode。";
         if (string.IsNullOrWhiteSpace(row.LocationName)) return "LocationName 為必填。";
         if (string.IsNullOrWhiteSpace(row.Address) && string.IsNullOrWhiteSpace(row.PlusCode)) return "Address 與 PlusCode 至少需要一項。";
         try { _ = ParseActive(row.Status); }
@@ -789,6 +874,7 @@ public sealed class WorkbookImportService(AppDbContext db) : IWorkbookImportServ
         if (string.IsNullOrWhiteSpace(teamCode)) return null;
         var team = await db.Teams.AsNoTracking().FirstOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.TeamCode == teamCode && x.IsActive, ct) ?? throw new InvalidOperationException($"找不到小組代碼 {teamCode}。");
         if (HasRole(user, "leader") && !user.TeamIds.Contains(team.TeamId)) throw new UnauthorizedAccessException($"無權匯入小組 {team.TeamName} 的資料。");
+        await V180OptionCLiveLeaderScope.RequireAsync(db, user, team.TeamId, ct);
         return team.TeamId;
     }
 

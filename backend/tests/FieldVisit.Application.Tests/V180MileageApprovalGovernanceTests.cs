@@ -1,4 +1,6 @@
 using FieldVisit.Application;
+using FieldVisit.Domain.Entities;
+using FieldVisit.Infrastructure;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
@@ -13,6 +15,17 @@ public sealed class V180MileageApprovalGovernanceTests
         Assert.Equal("ManualFallback", V180MileageGovernanceRules.RequireDecisionSource("ManualFallback"));
         Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireDecisionSource(null));
         Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireDecisionSource("Claimed"));
+    }
+
+    [Fact]
+    public void Leader_adjustment_reason_must_contain_meaningful_individual_content()
+    {
+        Assert.Equal("Dispatch timing required this adjustment.",
+            V180MileageGovernanceRules.RequireLeaderAdjustmentReason(" Dispatch timing required this adjustment. "));
+        Assert.Throws<InvalidOperationException>(
+            () => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("aaaaaaaaaa"));
+        Assert.Throws<InvalidOperationException>(
+            () => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("batch approve"));
     }
 
     [Fact]
@@ -36,6 +49,132 @@ public sealed class V180MileageApprovalGovernanceTests
     }
 
     [Fact]
+    public void Retry_candidates_require_current_route_failure_and_no_current_success()
+    {
+        var source = ReadRepositoryFile("backend/src/FieldVisit.Application/V180GoogleMileageContracts.cs");
+        Assert.Contains("HasRetryEvidence", source);
+        Assert.Contains("x.Status == \"Failed\"", source);
+        Assert.Contains("!current.Any(x => x.Status == \"Succeeded\")", source);
+        var job = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
+        Assert.Contains("FindEligibleMileageRetryIds", job);
+        Assert.Contains("MILEAGE_BATCH_SELECTION_STALE_OR_UNAUTHORIZED", job);
+        Assert.Contains("ResolveLiveMileageTeamIdsAsync", job);
+        Assert.Contains("MILEAGE_JOB_LEADER_ROLE_REVOKED", job);
+        Assert.Contains("IsolationLevel.Serializable", job);
+        Assert.Contains("MILEAGE_JOB_POST_PROVIDER_STATE_STALE", job);
+        Assert.Contains("ExecuteUpdateAsync", job);
+        Assert.Contains("Status == \"Waiting\"", job);
+    }
+
+    [Fact]
+    public void Retry_route_and_job_failures_use_safe_diagnostic_codes()
+    {
+        var routeSource = ReadRepositoryFile("backend/src/FieldVisit.Application/V180GoogleMileageOrchestrationService.cs");
+        Assert.Contains("HasRetryEvidence", routeSource);
+        Assert.Contains("F_B_RETRY_EVIDENCE_REQUIRED", routeSource);
+        Assert.Equal("MILEAGE_JOB_LEADER_ROLE_REVOKED",
+            BackgroundJobFailureCodes.FromException(new UnauthorizedAccessException("MILEAGE_JOB_LEADER_ROLE_REVOKED：scope")));
+        Assert.Equal("BACKGROUND_JOB_STATE_REJECTED",
+            BackgroundJobFailureCodes.FromException(new InvalidOperationException("raw database details")));
+        Assert.DoesNotContain("raw database details",
+            BackgroundJobFailureCodes.FromException(new InvalidOperationException("raw database details")));
+        Assert.Equal("SQL_DEADLOCK_1205", BackgroundJobFailureCodes.FromSqlNumber(1205));
+        Assert.Equal("SQL_LOCK_TIMEOUT_1222", BackgroundJobFailureCodes.FromSqlNumber(1222));
+        Assert.Equal("SQL_OPERATION_FAILED", BackgroundJobFailureCodes.FromSqlNumber(50000));
+    }
+
+    [Fact]
+    public void Provider_failures_use_allowlisted_codes_and_never_persist_provider_text()
+    {
+        var hostile = "SQL 1205 token=abc SSN=123-45-6789 customer@example.com";
+        var sanitized = V180MileageGovernanceRules.SanitizeProviderFailure(
+            "PROVIDER_DEFINED_FAILURE", hostile);
+
+        Assert.Equal("PROVIDER_FAILURE", sanitized.Code);
+        Assert.Equal("PROVIDER_FAILURE", sanitized.Message);
+        Assert.DoesNotContain("1205", sanitized.Message);
+        Assert.DoesNotContain("abc", sanitized.Message);
+        Assert.DoesNotContain("123-45-6789", sanitized.Message);
+        Assert.DoesNotContain("customer@example.com", sanitized.Message);
+    }
+
+    [Fact]
+    public void Background_job_rechecks_authoritative_success_before_applying_provider_result()
+    {
+        var source = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/BackgroundJobService.cs");
+        Assert.Contains("IsAuthoritativeCurrentRouteAttempt", source);
+        Assert.Contains("MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS", source);
+        Assert.Contains("x.RouteCalculationAttemptId != currentAttemptId", source);
+        Assert.Contains("authoritativeSuccesses.Any", source);
+        Assert.DoesNotContain("FirstOrDefault();", source[source.IndexOf("authoritativeSuccesses", StringComparison.Ordinal)..]);
+        Assert.Contains("IsolationLevel.Serializable", source);
+    }
+
+    [Fact]
+    public void Retry_evidence_is_current_route_only_and_any_current_success_blocks_it()
+    {
+        var snapshot = new VisitTripSnapshot
+        {
+            VisitTripSnapshotId = 8,
+            VehicleTypeSnapshot = "Motorcycle",
+            StartDeploymentSiteCodeSnapshot = "S1",
+            StartDeploymentAddressSnapshot = "Start",
+            EndDeploymentSiteCodeSnapshot = "S1",
+            EndDeploymentAddressSnapshot = "End",
+            Stops = [new VisitTripSnapshotStop { StopSequence = 1, AddressSnapshot = "Visited" }]
+        };
+        var hash = V180MileageCanonicalization.HashRoute(
+            V180MileageCanonicalization.BuildSubmittedSnapshotBasis(snapshot));
+        var failed = new RouteCalculationAttempt
+        {
+            VisitTripId = 10,
+            Provider = "GoogleMapsRoutes-TestStub",
+            BasisType = "SubmittedSnapshot",
+            BasisVisitTripSnapshotId = snapshot.VisitTripSnapshotId,
+            RequestedVehicleType = "Motorcycle",
+            TravelMode = "TWO_WHEELER",
+            RequestBasisHash = hash,
+            Status = "Failed"
+        };
+        Assert.True(V180MileageCanonicalization.HasRetryEvidence(snapshot, [failed]));
+        var unverifiedProviderClaim = new RouteCalculationAttempt
+        {
+            VisitTripId = failed.VisitTripId,
+            BasisType = failed.BasisType,
+            BasisVisitTripSnapshotId = failed.BasisVisitTripSnapshotId,
+            RequestedVehicleType = failed.RequestedVehicleType,
+            TravelMode = failed.TravelMode,
+            RequestBasisHash = hash,
+            Status = "Failed"
+        };
+        Assert.False(V180MileageCanonicalization.HasRetryEvidence(snapshot, [unverifiedProviderClaim]));
+        var currentSuccess = new RouteCalculationAttempt
+        {
+            VisitTripId = 10,
+            Provider = "GoogleMapsRoutes-TestStub",
+            BasisType = "SubmittedSnapshot",
+            BasisVisitTripSnapshotId = snapshot.VisitTripSnapshotId,
+            RequestedVehicleType = "Motorcycle",
+            TravelMode = "TWO_WHEELER",
+            RequestBasisHash = hash,
+            Status = "Succeeded"
+        };
+        Assert.False(V180MileageCanonicalization.HasRetryEvidence(snapshot, [failed, currentSuccess]));
+        var staleFailure = new RouteCalculationAttempt
+        {
+            VisitTripId = failed.VisitTripId,
+            Provider = failed.Provider,
+            BasisType = failed.BasisType,
+            BasisVisitTripSnapshotId = failed.BasisVisitTripSnapshotId,
+            RequestedVehicleType = failed.RequestedVehicleType,
+            TravelMode = failed.TravelMode,
+            RequestBasisHash = new byte[32],
+            Status = "Failed"
+        };
+        Assert.False(V180MileageCanonicalization.HasRetryEvidence(snapshot, [staleFailure]));
+    }
+
+    [Fact]
     public void Pending_approval_without_decision_evidence_fails_closed()
     {
         var ex = Assert.Throws<InvalidOperationException>(
@@ -52,8 +191,21 @@ public sealed class V180MileageApprovalGovernanceTests
 
         Assert.Contains("item.DistanceDecisionSource", source);
         Assert.Contains("item.RouteCalculationAttemptId", source);
+        Assert.Contains("item.AdjustmentReason", source);
+        Assert.DoesNotContain("\"Batch approve\"", source);
         Assert.DoesNotContain("unchangedLegacyPendingApproval", source);
         Assert.Contains("RequireLeaderApprovalDecisionSource", source);
+    }
+
+    [Fact]
+    public void Leader_adjustments_require_individual_specific_reason()
+    {
+        Assert.Equal("Travel time differs due to dispatch conditions.",
+            V180MileageGovernanceRules.RequireLeaderAdjustmentReason(" Travel time differs due to dispatch conditions. "));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason(null));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("Batch approve"));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason("adjusted"));
+        Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireLeaderAdjustmentReason(new string('x', 501)));
     }
 
     [Fact]

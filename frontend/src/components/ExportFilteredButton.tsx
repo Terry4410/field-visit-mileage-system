@@ -1,9 +1,10 @@
 import {useState} from "react";
 import {apiDownload} from "../api";
 import {qs} from "../v160";
+import {filteredExportEndpoint} from "../export-filtered-ui";
 
 type FilterValue=string|number|boolean|null|undefined;
-type Props={dataset:"personnel"|"roles"|"teams"|"members"|"locations"|"projects"|"visit-types"|"centers"|"deployment-sites"|"locations-official";
+type Props={dataset:"personnel"|"personnel-full"|"roles"|"teams"|"members"|"locations"|"projects"|"visit-types"|"centers"|"deployment-sites"|"locations-official";
  filters:Record<string,FilterValue>|null; label?:string; disabled?:boolean};
 
 export default function ExportFilteredButton({dataset,filters,label="匯出查詢結果 Excel",disabled=false}:Props){
@@ -13,7 +14,7 @@ export default function ExportFilteredButton({dataset,filters,label="匯出查�
   setBusy(true);setError("");
   try{
    const suffix=qs(filters);
-   await apiDownload("/admin/query-exports/"+dataset+".xlsx"+(suffix?"?"+suffix:""),
+   await apiDownload(filteredExportEndpoint(dataset,suffix),
     "fieldvisit_"+dataset+".xlsx",180000);
   }catch(e){setError(e instanceof Error?e.message:"匯出失敗");}
   finally{setBusy(false)}

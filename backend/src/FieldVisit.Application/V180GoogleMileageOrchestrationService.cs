@@ -17,7 +17,8 @@ public sealed class V180GoogleMileageOrchestrationService(
     IV180GoogleMileageGovernanceRepository governance,
     IV180RouteProvider routeProvider,
     IV180GeocodingProvider geocodingProvider,
-    IUnitOfWork uow)
+    IUnitOfWork uow,
+    IMileageRepository? mileage = null)
 {
     private static readonly TimeSpan PostProviderTerminalizationTimeout = TimeSpan.FromSeconds(30);
 
@@ -62,6 +63,10 @@ public sealed class V180GoogleMileageOrchestrationService(
 
         var submitted = await snapshots.GetLatestAsync(tripId, "Submitted", ct)
             ?? throw new InvalidOperationException("SUBMITTED_SNAPSHOT_REQUIRED：路線重試必須使用最新 Submitted Snapshot。");
+        var attempts = await governance.GetRouteCalculationAttemptsAsync(tripId, ct);
+        if (!V180MileageCanonicalization.HasRetryEvidence(submitted, attempts))
+            throw new InvalidOperationException(
+                "F_B_RETRY_EVIDENCE_REQUIRED：只有目前 Submitted 路線具 authoritative Google failure 且沒有成功證據時才可重試。");
         var basis = V180MileageCanonicalization.BuildSubmittedSnapshotBasis(submitted);
         return await CalculateRouteAsync(
             trip, basis, "SubmittedSnapshot", submitted.VisitTripSnapshotId,
@@ -87,7 +92,7 @@ public sealed class V180GoogleMileageOrchestrationService(
 
     public async Task<V180GeocodingOrchestrationResult> GeocodeLocationAsync(int locationId, CancellationToken ct)
     {
-        var user = RequireAny("leader", "admin");
+        var user = RequireAny("admin");
         var location = await masters.GetLocationAsync(locationId, false, ct)
             ?? throw new KeyNotFoundException("找不到地點。");
         EnsureLocationScope(user, location);
@@ -250,6 +255,19 @@ public sealed class V180GoogleMileageOrchestrationService(
                 validSuccess ? "Calculated" : "CalculationFailed",
                 failure.Code, failure.Message, correlationId, completedAt, actorUserId), terminalizationToken);
         await uow.SaveChangesAsync(terminalizationToken);
+
+        if (validSuccess && basisType == "Draft" && mileage is not null)
+        {
+            var calculation = await mileage.GetByTripAsync(trip.VisitTripId, true, terminalizationToken)
+                ?? new MileageCalculation { VisitTripId = trip.VisitTripId, CreatedAt = completedAt };
+            calculation.SystemDistanceKm = providerResult.SuggestedDistanceKm;
+            calculation.CalculationSource = "GoogleMapsAPI";
+            calculation.SelectedRouteCalculationAttemptId = attempt.RouteCalculationAttemptId;
+            calculation.UpdatedAt = completedAt;
+            if (calculation.MileageCalculationId == 0)
+                await mileage.AddAsync(calculation, terminalizationToken);
+            await uow.SaveChangesAsync(terminalizationToken);
+        }
 
         if (providerCancellation is not null) throw providerCancellation;
         ct.ThrowIfCancellationRequested();
