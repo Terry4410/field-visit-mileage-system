@@ -1,0 +1,589 @@
+name: Clean build handover source assessment (NONDEPLOY)
+on:
+  # Single source-bound NONDEPLOY SQL2022 run for the existing PR #48 branch.
+  # Keep the trigger branch-scoped to avoid duplicate push+PR SQL jobs.
+  push:
+    branches:
+      - work/minimal-clean-build-it-handover-20261019
+    paths:
+      - 'docs/release/clean-build-it-handover/**'
+      - '.github/workflows/clean-build-handover-preparation-nondeploy.yml'
+      - 'database/clean-install/v180/**'
+      - 'tools/clean-install/**'
+      - 'scripts/ci/clean_install/**'
+permissions:
+  contents: read
+jobs:
+  clean-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APPROVED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CLEAN_INSTALL_RC_SHA: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Verify exact PR source, current protected base and narrow delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$APPROVED_SOURCE_SHA"
+          protected='d919f8a107e3dbaee919b8c4e3b463240674eaf4'
+          test "$(git rev-parse origin/post-uat/v1.8.0)" = "$protected"
+          git merge-base --is-ancestor "$protected" HEAD
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          ledger=json.loads(Path('docs/release/clean-build-it-handover/source-ledger.json').read_text())
+          protected='4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc'
+          current='d919f8a107e3dbaee919b8c4e3b463240674eaf4'
+          assert ledger['protectedSha']==protected
+          assert subprocess.check_output(['git','rev-parse',protected+'^{tree}']).decode().strip()==ledger['protectedTree']
+          assert subprocess.check_output(['git','rev-parse',current+'^{tree}']).decode().strip()
+          assert ledger['acceptedAcSha']=='138cd8352ab180254ed83bce4a77acb3fdfc948f'
+          assert ledger['acceptedPr47Sha']=='8a6949bd3555f99bb42958f13ff0335513d24780'
+          allowed={protected,ledger['acceptedAcSha'],ledger['acceptedPr47Sha']}
+          seen=set()
+          for entry in ledger['files']:
+              key=(entry['sourceSha'],entry['path'])
+              assert entry['sourceSha'] in allowed and key not in seen
+              seen.add(key)
+              raw=subprocess.check_output(['git','show',entry['sourceSha']+':'+entry['path']])
+              assert hashlib.sha256(raw).hexdigest()==entry['sha256']
+          changed=set(subprocess.check_output(['git','diff','--name-only',current,'HEAD']).decode().splitlines())
+          allowed_prefixes=('docs/release/clean-build-it-handover/','database/clean-install/v180/','tools/clean-install/','scripts/ci/clean_install/')
+          allowed_exact={'.github/workflows/clean-build-handover-preparation-nondeploy.yml'}
+          assert changed and all(p in allowed_exact or p.startswith(allowed_prefixes) for p in changed), sorted(changed)
+          print('Exact PR source / historical source ledger / narrow clean-install allowlist: PASS')
+          PY
+      - name: Checkout immutable accepted runtime source
+        uses: actions/checkout@v4
+        with:
+          ref: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+          path: runtime-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Confirm exact RC source and prepare output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C runtime-source rev-parse HEAD)" = "$CLEAN_INSTALL_RC_SHA"
+          test -f runtime-source/backend/src/FieldVisit.Infrastructure/AppDbContext.cs
+          echo "CLEAN_INSTALL_OUTPUT_DIR=$RUNNER_TEMP/clean-install-output" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/clean-install-output"
+          echo "RC_SOURCE_ROOT=$GITHUB_WORKSPACE/runtime-source" >> "$GITHUB_ENV"
+      - name: Start disposable SQL Server 2022 with masked run-scoped credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          sql_password="Aa7!$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+          printf 'CLEAN_INSTALL_SQL_PASSWORD=%s\n' "$sql_password" >> "$GITHUB_ENV"
+          printf '::add-mask::%s\n' "$sql_password"
+          if ! docker run --detach \
+            --name fieldvisit-clean-install-sql \
+            --publish 127.0.0.1:1433:1433 \
+            --env ACCEPT_EULA=Y \
+            --env MSSQL_PID=Developer \
+            --env "MSSQL_SA_PASSWORD=$sql_password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null 2>&1; then
+            unset sql_password
+            echo "CLEAN_INSTALL=SQL2022_CONTAINER_START_FAIL"
+            exit 1
+          fi
+          unset sql_password
+          echo "CLEAN_INSTALL=SQL2022_EPHEMERAL_CONTAINER_READY"
+      - name: Build isolated RC-derived runtime candidate for trigger compatibility (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_context="$RC_SOURCE_ROOT/backend/src/FieldVisit.Infrastructure/AppDbContext.cs"
+          original_context="$RUNNER_TEMP/AppDbContext.cs.accepted"
+          runtime_guard="$RC_SOURCE_ROOT/backend/src/FieldVisit.Infrastructure/V180OptionCCreateReservationGuard.cs"
+          runtime_repositories="$RC_SOURCE_ROOT/backend/src/FieldVisit.Infrastructure/Repositories.cs"
+          original_guard="$RUNNER_TEMP/ReservationGuard.cs.accepted"
+          original_repositories="$RUNNER_TEMP/Repositories.cs.accepted"
+          cp "$runtime_context" "$original_context"
+          cp "$runtime_guard" "$original_guard"
+          cp "$runtime_repositories" "$original_repositories"
+          guard_source_sha="$(sha256sum "$original_guard" | awk '{print $1}')"
+          repositories_source_sha="$(sha256sum "$original_repositories" | awk '{print $1}')"
+          restore_context() {
+            cp "$original_context" "$runtime_context"
+            cp "$original_guard" "$runtime_guard"
+            cp "$original_repositories" "$runtime_repositories"
+            rm -f "$original_context" "$original_guard" "$original_repositories"
+          }
+          trap restore_context EXIT
+          python3 scripts/ci/clean_install/apply_rc_runtime_candidate.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+          python3 -m compileall -q scripts/ci/clean_install
+          python3 -m unittest discover -s scripts/ci/clean_install -p 'test_*.py' -v
+          dotnet build tools/clean-install/ModelBaselineRunner.csproj \
+            -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release --nologo
+          dotnet build "$RC_SOURCE_ROOT/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" \
+            -c Release --nologo
+          candidate_api="$CLEAN_INSTALL_OUTPUT_DIR/api-candidate"
+          dotnet publish "$RC_SOURCE_ROOT/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" \
+            -c Release --no-restore --output "$candidate_api" --nologo
+          echo "CLEAN_INSTALL_API_CANDIDATE_ROOT=$candidate_api" >> "$GITHUB_ENV"
+          restore_context
+          trap - EXIT
+          test "$(sha256sum "$runtime_context" | awk '{print $1}')" = \
+            "dcbc2fc34c091310d49005c5280a9fb07de32312056b1757a5b88b746c6e1377"
+          test "$(sha256sum "$runtime_guard" | awk '{print $1}')" = "$guard_source_sha"
+          test "$(sha256sum "$runtime_repositories" | awk '{print $1}')" = "$repositories_source_sha"
+          echo "CLEAN_INSTALL=ACCEPTED_RC_SOURCE_RESTORED_AFTER_CANDIDATE_BUILD_PASS"
+      - name: Wait for isolated SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if docker inspect --format '{{.State.Running}}' fieldvisit-clean-install-sql 2>/dev/null | grep -qx 'true'; then
+              if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then
+                echo 'SQL2022_READY=PASS'
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo 'SQL2022_READY=FAIL' >&2
+          exit 1
+      - name: Compile pinned SQL-only seven-table layer (source contract, NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_sql_only_tables.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile effective 010 trigger layer (source-pinned, NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_effective_triggers.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile four Option C SQL-only table candidates (DISPOSABLE ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_optionc_sql_only_tables.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile source-pinned secondary SQL-only table indexes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_sql_only_indexes.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile nine complementary 007 CHECK predicates, excluding route checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_007_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile seventeen 001-004 temporal and location CHECKs (source-pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_001_004_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Compile final 011-020 Option C CHECKs with explicit predecessor replacement allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/build_optionc_final_checks.py \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Build and execute fresh model-baseline install against disposable SQL Server 2022
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Reuse the exact-RC binary compiled and verified before SQL work.
+          dotnet run --no-build --no-restore --project tools/clean-install/ModelBaselineRunner.csproj \
+            -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release -- \
+            --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - name: Independently replay the source SQL using sqlcmd against new disposable SQL2022 (NONDEPLOY)
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          database=OptionCIsolated_FieldVisitV180Replay
+          recovery=OptionCIsolated_FieldVisitV180Recovery
+          created=0
+          restored=0
+          cleanup_replay() {
+            local prior=$?
+            trap - EXIT
+            if [ "$restored" = "1" ]; then
+              if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+                -Q "IF DB_ID(N'$recovery') IS NOT NULL BEGIN
+                    ALTER DATABASE [$recovery] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [$recovery]; END;" >/dev/null 2>&1; then
+                echo "CLEAN_INSTALL=RECOVERY_DISPOSABLE_DB_CLEANUP_PASS"
+              else
+                echo "CLEAN_INSTALL=RECOVERY_DISPOSABLE_DB_CLEANUP_FAIL"
+                prior=1
+              fi
+            fi
+            if [ "$created" = "1" ]; then
+              if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+                -Q "IF DB_ID(N'$database') IS NOT NULL BEGIN
+                    ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE [$database]; END;" >/dev/null 2>&1; then
+                echo "CLEAN_INSTALL=REPLAY_DISPOSABLE_DB_CLEANUP_PASS"
+              else
+                echo "CLEAN_INSTALL=REPLAY_DISPOSABLE_DB_CLEANUP_FAIL"
+                prior=1
+              fi
+            fi
+            exit "$prior"
+          }
+          trap cleanup_replay EXIT
+          if ! docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+            -Q "IF DB_ID(N'$database') IS NOT NULL THROW 56520,N'REPLAY_TARGET_EXISTS',1;
+                CREATE DATABASE [$database];" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=REPLAY_TARGET_CREATE_FAIL"
+            exit 1
+          fi
+          created=1
+          # Reproduce the actual 1934 cause in this new disposable DB before
+          # replaying any accepted source DDL. Never expose provider text.
+          session_probe="SET QUOTED_IDENTIFIER OFF;
+            CREATE TABLE dbo.CleanInstallSessionProbe (Id int NULL);
+            CREATE INDEX IX_CleanInstallSessionProbe ON dbo.CleanInstallSessionProbe(Id) WHERE Id IS NOT NULL;"
+          diagnostic_file="$RUNNER_TEMP/fieldvisit-replay-sqlcmd-suppressed.log"
+          if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
+            -Q "$session_probe" >"$diagnostic_file" 2>&1; then
+            echo "CLEAN_INSTALL=SQLCMD_SESSION_NEGATIVE_UNEXPECTED_SUCCESS"
+            exit 1
+          fi
+          python3 - "$diagnostic_file" <<'PY'
+          import re,sys
+          from pathlib import Path
+          raw=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
+          if not re.search(r'(?m)^Msg\s+1934\s*,',raw):
+              raise SystemExit("CLEAN_INSTALL=SQLCMD_SESSION_NEGATIVE_WRONG_ERROR")
+          PY
+          rm -f "$diagnostic_file"
+          if ! docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d "$database" \
+            -Q "IF SESSIONPROPERTY('QUOTED_IDENTIFIER')<>1 THROW 56521,N'SESSION_CONTRACT',1;
+                CREATE INDEX IX_CleanInstallSessionProbe ON dbo.CleanInstallSessionProbe(Id) WHERE Id IS NOT NULL;
+                DROP TABLE dbo.CleanInstallSessionProbe;" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=SQLCMD_SESSION_POSITIVE_FAIL"
+            exit 1
+          fi
+          echo "CLEAN_INSTALL=SQLCMD_QUOTED_IDENTIFIER_1934_REPRO_AND_FIX_PASS"
+          cp database/clean-install/v180/00_schema_versions.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/20_route_reason_check.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/50_scoped_clean_install_verify.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          ordered=(
+            model-baseline.sql
+            00_schema_versions.sql
+            sql-only-core-tables.sql
+            effective-source-triggers.sql
+            optionc-sql-only-candidates.sql
+            sql-only-extra-indexes.sql
+            20_route_reason_check.sql
+            007_source_checks.sql
+            001_004_source_checks.sql
+            005_indexable_facets.sql
+            005_source_controls.sql
+            optionc-final-target-checks.sql
+            40_clean_install_017_capability.sql
+          )
+          # SQLCMD's defaults differ from SqlClient. 1934 requires all indexed
+          # view/filter index SET options for *each* fresh sqlcmd connection.
+          session_prologue="$RUNNER_TEMP/fieldvisit-sqlcmd-session-options.sql"
+          cat > "$session_prologue" <<'SQL'
+          SET ANSI_NULLS ON;
+          SET ANSI_PADDING ON;
+          SET ANSI_WARNINGS ON;
+          SET ARITHABORT ON;
+          SET CONCAT_NULL_YIELDS_NULL ON;
+          SET QUOTED_IDENTIFIER ON;
+          SET NUMERIC_ROUNDABORT OFF;
+          GO
+          SQL
+          diagnostic_file="$RUNNER_TEMP/fieldvisit-replay-sqlcmd-suppressed.log"
+          for file in "${ordered[@]}"; do
+            test -s "$CLEAN_INSTALL_OUTPUT_DIR/$file"
+            if ! { cat "$session_prologue"; cat "$CLEAN_INSTALL_OUTPUT_DIR/$file"; } | \
+              timeout 60s docker exec -i fieldvisit-clean-install-sql \
+              /opt/mssql-tools18/bin/sqlcmd -I -S localhost -U sa \
+              -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -b -d "$database" \
+              >"$diagnostic_file" 2>&1; then
+              # Only a numeric SQL Server Msg code can leave this step.
+              # Never print SQL, login, server name, raw provider text or data.
+              python3 - "$diagnostic_file" <<'PY'
+          import re,sys
+          from pathlib import Path
+          raw=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace")
+          codes=re.findall(r'(?m)^Msg\s+(\d{1,6})\s*,',raw)
+          print("CLEAN_INSTALL=INDEPENDENT_SQLCMD_ERROR_"+(codes[0] if codes else "UNCLASSIFIED"))
+          PY
+              rm -f "$diagnostic_file"
+              echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_REPLAY_FAIL; STEP=$file; DETAILS=SUPPRESSED"
+              exit 1
+            fi
+            rm -f "$diagnostic_file"
+          done
+          if ! timeout 30s docker exec -i fieldvisit-clean-install-sql \
+            /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+            -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d "$database" \
+            < "$CLEAN_INSTALL_OUTPUT_DIR/50_scoped_clean_install_verify.sql" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_REPLAY_VERIFY_FAIL; DETAILS=SUPPRESSED"
+            exit 1
+          fi
+          echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_69_TABLE_REPLAY_SCOPED_VERIFY_PASS"
+          # Rehearse recovery using the exact empty installed schema and its
+          # capability row. No application tests, shared target or user data.
+          if ! timeout 90s docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+            -Q "IF DB_ID(N'$recovery') IS NOT NULL THROW 56522,N'RECOVERY_TARGET_EXISTS',1;
+                BACKUP DATABASE [$database] TO DISK=N'/var/opt/mssql/data/fieldvisit-replay-recovery.bak'
+                  WITH COPY_ONLY, CHECKSUM, INIT;
+                RESTORE VERIFYONLY FROM DISK=N'/var/opt/mssql/data/fieldvisit-replay-recovery.bak' WITH CHECKSUM;" \
+            >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=DISPOSABLE_BACKUP_VERIFY_FAIL"
+            exit 1
+          fi
+          # The preflight above proves absence. Track partial RESTORE cleanup.
+          restored=1
+          if ! timeout 90s docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
+            -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d master \
+            -Q "RESTORE DATABASE [$recovery]
+                FROM DISK=N'/var/opt/mssql/data/fieldvisit-replay-recovery.bak'
+                WITH CHECKSUM, RECOVERY,
+                  MOVE N'$database' TO N'/var/opt/mssql/data/fieldvisit-recovery.mdf',
+                  MOVE N'${database}_log' TO N'/var/opt/mssql/data/fieldvisit-recovery_log.ldf';
+                DBCC CHECKDB ([$recovery]) WITH NO_INFOMSGS;" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=DISPOSABLE_RESTORE_CHECKDB_FAIL"
+            exit 1
+          fi
+          if ! timeout 30s docker exec -i fieldvisit-clean-install-sql \
+            /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+            -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b -d "$recovery" \
+            < "$CLEAN_INSTALL_OUTPUT_DIR/50_scoped_clean_install_verify.sql" >/dev/null 2>&1; then
+            echo "CLEAN_INSTALL=DISPOSABLE_RECOVERY_SCOPED_VERIFY_FAIL"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          result={"sourceSha":os.environ["APPROVED_SOURCE_SHA"],
+                  "runId":os.environ["GITHUB_RUN_ID"],
+                  "independentSqlcmdReplay":"PASS_13_ORDERED_LAYERS_69_TABLE_SCOPED_VERIFY",
+                  "sessionRegression":"QUOTED_IDENTIFIER_OFF_1934_ON_PASS",
+                  "recovery":"COPY_ONLY_CHECKSUM_BACKUP_VERIFYONLY_RESTORE_CHECKDB_SCOPED_VERIFY_PASS",
+                  "scope":"DISPOSABLE_EMPTY_SCHEMA_AND_CAPABILITY_ROW_ONLY_NOT_LIVE_RECOVERY_OR_FULL_SCHEMA_CERTIFICATION"}
+          (Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])/"independent-install-recovery-evidence.json").write_text(
+              json.dumps(result,sort_keys=True,indent=2)+"\n")
+          PY
+          echo "CLEAN_INSTALL=DISPOSABLE_BACKUP_RESTORE_CHECKDB_SCOPED_VERIFY_PASS"
+      - name: Remove disposable SQL Server 2022 container
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker ps -a --format '{{.Names}}' | grep -Fxq 'fieldvisit-clean-install-sql'; then
+            docker rm --force fieldvisit-clean-install-sql >/dev/null 2>&1
+            if docker ps -a --format '{{.Names}}' | grep -Fxq 'fieldvisit-clean-install-sql'; then
+              echo "CLEAN_INSTALL=SQL2022_CONTAINER_CLEANUP_FAIL"
+              exit 1
+            fi
+          fi
+          echo "CLEAN_INSTALL=DISPOSABLE_SQL2022_CONTAINER_CLEANUP_PASS"
+      - name: Verify and package the tested nondeploy API candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/package_candidate_runtime.py \
+            --api-root "$CLEAN_INSTALL_API_CANDIDATE_ROOT" \
+            --output "$CLEAN_INSTALL_OUTPUT_DIR" \
+            --source-sha "$APPROVED_SOURCE_SHA" \
+            --rc-sha "$CLEAN_INSTALL_RC_SHA" \
+            --overlay-manifest "$CLEAN_INSTALL_OUTPUT_DIR/runtime-candidate-overlay.json"
+          rm -rf "$CLEAN_INSTALL_API_CANDIDATE_ROOT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build and seal source-matched Frontend DEFAULT OFF (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$RC_SOURCE_ROOT" rev-parse HEAD)" = "$CLEAN_INSTALL_RC_SHA"
+          cd "$RC_SOURCE_ROOT/frontend"
+          npm ci --no-audit --no-fund
+          npm run build
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os,re,zipfile
+          frontend=Path(os.environ["RC_SOURCE_ROOT"])/"frontend"
+          dist=frontend/"dist"
+          out=Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])
+          approved=os.environ["CLEAN_INSTALL_RC_SHA"]
+          current=os.environ["APPROVED_SOURCE_SHA"]
+          flags=(frontend/"src/optionc-approval-flags.ts").read_text()
+          if ("import.meta.env.MODE === \"optionc-activation-candidate\"" not in flags
+              or "OPTIONC_ACTIVATION_CANDIDATE" not in flags):
+              raise SystemExit("FRONTEND_CANDIDATE_FLAG_SOURCE_MISMATCH")
+          config=(dist/"config.js").read_text(encoding="utf-8")
+          if 'AUTH_MODE: "Demo"' not in config:
+              raise SystemExit("FRONTEND_DEMO_MODE_REQUIRED")
+          if not (dist/"index.html").is_file():
+              raise SystemExit("FRONTEND_DIST_MISSING")
+          files=sorted(p for p in dist.rglob("*") if p.is_file())
+          if len(files)<3:
+              raise SystemExit("FRONTEND_DIST_INCOMPLETE")
+          sha=lambda b:hashlib.sha256(b).hexdigest()
+          entries=[{"path":p.relative_to(dist).as_posix(),"sizeBytes":p.stat().st_size,
+                    "sha256":sha(p.read_bytes())} for p in files]
+          zipped=out/"frontend-candidate-nondeploy.zip"
+          with zipfile.ZipFile(zipped,"w",compression=zipfile.ZIP_DEFLATED,
+                               compresslevel=9,strict_timestamps=True) as archive:
+              for p in files:
+                  zi=zipfile.ZipInfo(p.relative_to(dist).as_posix(),date_time=(2026,1,1,0,0,0))
+                  zi.compress_type=zipfile.ZIP_DEFLATED
+                  zi.external_attr=0o100644<<16
+                  archive.writestr(zi,p.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,
+                                   compresslevel=9)
+          with zipfile.ZipFile(zipped) as archive:
+              if set(archive.namelist())!={x["path"] for x in entries}:
+                  raise SystemExit("FRONTEND_ZIP_ENTRIES_MISMATCH")
+              if any(sha(archive.read(x["path"]))!=x["sha256"] for x in entries):
+                  raise SystemExit("FRONTEND_ZIP_READBACK_MISMATCH")
+          manifest={
+              "format":"field-visit-v180-frontend-nondeploy-build-v1",
+              "state":"BUILT_DEFAULT_OFF_NONDEPLOY_NOT_UAT_AUTHORIZED",
+              "sourceRcSha":approved,"pairedCandidateSourceSha":current,
+              "buildCommand":"npm ci; npm run build (vite production mode)",
+              "authentication":"Demo",
+              "optionCActivationCandidate":False,
+              "files":entries,
+              "package":{"file":zipped.name,"sizeBytes":zipped.stat().st_size,
+                         "sha256":sha(zipped.read_bytes())}
+          }
+          (out/"frontend-candidate-manifest.json").write_text(
+              json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+          print("CLEAN_INSTALL=FRONTEND_DEFAULT_OFF_SOURCE_MATCHED_PACKAGE_PASS")
+          print("CLEAN_INSTALL_FRONTEND_PACKAGE_SHA256="+manifest["package"]["sha256"])
+          PY
+      - name: Verify generator and SQL inputs, package evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/clean_install/verify_model_baseline_package.py \
+            --rc-sha "$CLEAN_INSTALL_RC_SHA" --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+          cp scripts/ci/clean_install/apply_rc_runtime_candidate.py "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp docs/release/clean-build-it-handover/RELEASE-GATES.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp docs/release/clean-build-it-handover/source-ledger.json "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/README.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/00_schema_versions.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp database/clean-install/v180/20_route_reason_check.sql "$CLEAN_INSTALL_OUTPUT_DIR/"
+          cp docs/release/clean-build-it-handover/IT-INSTALL-RECOVERY-SOP.md "$CLEAN_INSTALL_OUTPUT_DIR/"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os
+          out=Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])
+          source=json.loads((out/"model-baseline-manifest.json").read_text())
+          ordered=[
+              "model-baseline.sql","00_schema_versions.sql",
+              "sql-only-core-tables.sql","effective-source-triggers.sql",
+              "optionc-sql-only-candidates.sql","sql-only-extra-indexes.sql",
+              "20_route_reason_check.sql","007_source_checks.sql",
+              "001_004_source_checks.sql","005_indexable_facets.sql","005_source_controls.sql","optionc-final-target-checks.sql",
+              "40_clean_install_017_capability.sql"]
+          digest=lambda name:hashlib.sha256((out/name).read_bytes()).hexdigest()
+          for name in ordered:
+              if not (out/name).is_file() or (out/name).stat().st_size==0:
+                  raise SystemExit("CLEAN_INSTALL_ORDER_MISSING_SOURCE")
+          if (digest("00_schema_versions.sql")!=source["newSchemaVersionLedgerSha256"]
+              or digest("20_route_reason_check.sql")!=source["sourceDerivedRouteChecksSqlSha256"]
+              or digest("40_clean_install_017_capability.sql")!=source["cleanInstall017CapabilityReplaySqlSha256"]):
+              raise SystemExit("CLEAN_INSTALL_ORDER_SOURCE_DIGEST_MISMATCH")
+          plan={
+              "format":"field-visit-v180-nondeploy-sql-install-order-v1",
+              "status":"NONDEPLOY_SOURCE_BOUND_SCOPE_ONLY_NOT_FINAL_IT_INSTALLER",
+              "candidateSourceSha":os.environ["APPROVED_SOURCE_SHA"],
+              "workflowRunId":os.environ["GITHUB_RUN_ID"],
+              "sqlcmdRequiredOptions":["-I","-b"],
+              "acceptedRcSha":"9d431ea318fcec34f04f3cc36a8fb6d01d00c48a",
+              "historicalMigrationsApplied":False,
+              "reservedMigration013":"RESERVED_NOT_REPLAYED",
+              "verificationSql":{"file":"50_scoped_clean_install_verify.sql","sha256":digest("50_scoped_clean_install_verify.sql")},
+              "sqlServerMajorVersion":16,
+              "sequence":[{"step":i+1,"file":n,"sha256":digest(n)}
+                          for i,n in enumerate(ordered)],
+              "requiredGatesBeforeITExecution":[
+                  "Complete 011-020 runtime schema contract",
+                  "Independent clean install replay and full schema verify",
+                  "Least privilege SQL runtime identity and app configuration",
+                  "Frontend release match and recovery exercise",
+                  "Separate explicit environment-specific Owner authorization"]
+          }
+          (out/"it-sql-install-order.json").write_text(
+              json.dumps(plan,indent=2,sort_keys=True)+"\n")
+          print("CLEAN_INSTALL=SOURCE_BOUND_SQL_REPLAY_ORDER_PACKAGE_PASS")
+          PY
+          cp .github/workflows/clean-build-handover-preparation-nondeploy.yml "$CLEAN_INSTALL_OUTPUT_DIR/"
+          git rev-parse HEAD HEAD^ HEAD^{tree} > "$CLEAN_INSTALL_OUTPUT_DIR/source.txt"
+          git -C "$RC_SOURCE_ROOT" archive --format=zip \
+            --output="$CLEAN_INSTALL_OUTPUT_DIR/source-code-immutable-rc.zip" "$CLEAN_INSTALL_RC_SHA"
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          out=Path(os.environ["CLEAN_INSTALL_OUTPUT_DIR"])
+          read=lambda n:json.loads((out/n).read_text())
+          digest=lambda n:hashlib.sha256((out/n).read_bytes()).hexdigest()
+          source=os.environ["APPROVED_SOURCE_SHA"]
+          rc=os.environ["CLEAN_INSTALL_RC_SHA"]
+          api=read("api-candidate-manifest.json")
+          frontend=read("frontend-candidate-manifest.json")
+          sql=read("it-sql-install-order.json")
+          recovery=read("independent-install-recovery-evidence.json")
+          overlay=read("runtime-candidate-overlay.json")
+          if not (api["sourceCommit"]==frontend["pairedCandidateSourceSha"]==
+                  sql["candidateSourceSha"]==recovery["sourceSha"]==source):
+              raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_CANDIDATE_SHA_MISMATCH")
+          if not (api["immutableRuntimeRc"]==frontend["sourceRcSha"]==sql["acceptedRcSha"]==rc):
+              raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_RC_SHA_MISMATCH")
+          if overlay["overlayScriptSha256"]!=digest("apply_rc_runtime_candidate.py"):
+              raise SystemExit("CLEAN_INSTALL=OVERLAY_SOURCE_PACKAGE_MISMATCH")
+          for component in (api,frontend):
+              if digest(component["package"]["file"])!=component["package"]["sha256"]:
+                  raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_BINARY_HASH_MISMATCH")
+          if any(digest(x["file"])!=x["sha256"] for x in sql["sequence"]):
+              raise SystemExit("CLEAN_INSTALL=CROSS_PACKAGE_SQL_HASH_MISMATCH")
+          manifests=["api-candidate-manifest.json","frontend-candidate-manifest.json",
+                     "it-sql-install-order.json","model-baseline-manifest.json",
+                     "runtime-candidate-overlay.json","independent-install-recovery-evidence.json"]
+          result={"format":"field-visit-v180-cross-package-release-binding-v1",
+                  "candidateSourceSha":source,"immutableRuntimeRc":rc,
+                  "runId":os.environ["GITHUB_RUN_ID"],
+                  "status":"EXACT_SOURCE_BOUND_NONDEPLOY_CANDIDATE_GATES_REMAIN_HOLD",
+                  "manifests":[{"file":n,"sha256":digest(n)} for n in manifests],
+                  "packages":[api["package"],frontend["package"],
+                      {"file":"source-code-immutable-rc.zip",
+                       "sha256":digest("source-code-immutable-rc.zip")}],
+                  "rebuild":"Extract immutable RC source; apply bundled source-pinned apply_rc_runtime_candidate.py; build API. PR candidate commit contains all clean-install generators.",
+                  "businessUat":"HOLD_UNVERIFIED_RELEASE_GATES",
+                  "itHandover":"HOLD_FULL_SCHEMA_PERMISSION_AND_ACCEPTANCE_GATES"}
+          (out/"release-candidate-binding.json").write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
+          print("CLEAN_INSTALL=CROSS_PACKAGE_API_FRONTEND_SQL_SOURCE_RECOVERY_BINDING_PASS")
+          PY
+          (cd "$CLEAN_INSTALL_OUTPUT_DIR" && sha256sum *.sql *.json *.md *.yml *.py source.txt *.zip > checksums.sha256 && sha256sum --check --quiet checksums.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clean-install-model-baseline-${{ env.APPROVED_SOURCE_SHA }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/clean-install-output/
+          retention-days: 30
+          if-no-files-found: error
