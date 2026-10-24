@@ -36,8 +36,10 @@ internal static class Program
         }
         throw new InvalidOperationException("EXPECTED_DENIAL_NOT_OBSERVED");
     }
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if(args.Length==2 && args[0]=="--sql") return SqlHistoryBridge.Execute(args[1]);
+        if(args.Length!=0) return 1;
         try
         {
             var f=new V180UatReleaseTrust.Facts(

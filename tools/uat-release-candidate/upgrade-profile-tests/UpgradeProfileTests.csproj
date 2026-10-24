@@ -12,5 +12,6 @@
     <Compile Include="../runtime/V180UatReleaseTrust.cs" Link="V180UatReleaseTrust.cs" />
     <Compile Include="../runtime/V180UatExisting010HistoryTrust.cs" Link="V180UatExisting010HistoryTrust.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="SqlHistoryBridge.cs" />
   </ItemGroup>
 </Project>
