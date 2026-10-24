@@ -1,17 +1,22 @@
 using System.Data.Common;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-internal static class Program
+public static class Program
 {
     const string Root="/home/site/wwwroot";
     const string Host="sql-fieldvisit-jpe-uat.database.windows.net";
     const string Database="db-fieldvisit-uat";
     const string Schema="742f2a95f7f58889d1609aceefa656030cf1f1365f10cc9c89968e89cfff0c63";
     static int opens;
+    [UnmanagedCallersOnly]
+    public static int G1Run()=>Main(Array.Empty<string>()).GetAwaiter().GetResult();
+    [UnmanagedCallersOnly]
+    public static int G1SelfTest()=>Main(new[]{"--self-test"}).GetAwaiter().GetResult();
     static Dictionary<string,string> approvedDependencies=new(StringComparer.Ordinal);
     static string Hash(byte[] value)=>Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant();
     static void Emit(object value)=>Console.WriteLine(JsonSerializer.Serialize(value));

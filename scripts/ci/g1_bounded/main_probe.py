@@ -24,6 +24,49 @@ KEYS={'ConnectionStrings__DefaultConnection','ConnectionStrings:DefaultConnectio
       'IDENTITY_ENDPOINT','IDENTITY_HEADER'}
 CANONICAL={k.lower():k for k in KEYS}
 
+# .NET8's documented native-host ABI loads bytes into Default load context.
+# dotnet exec rejects /proc FD application paths; do not create a .dll symlink
+# or a temporary uploaded file to evade that. Host only this reviewed helper.
+HOST_BOOTSTRAP=r'''
+import ctypes as C,glob,json,os,re,sys
+stage='HOST_LIBRARY'
+try:
+    versions=[]
+    for path in glob.glob('/usr/share/dotnet/host/fxr/8.0.*/libhostfxr.so'):
+        version=path.split('/')[-2]
+        if re.fullmatch(r'8\.0\.\d+',version):versions.append((tuple(map(int,version.split('.'))),path))
+    if not versions:raise RuntimeError()
+    host=C.CDLL(max(versions)[1])
+    host.hostfxr_initialize_for_runtime_config.argtypes=[C.c_char_p,C.c_void_p,C.POINTER(C.c_void_p)]
+    host.hostfxr_initialize_for_runtime_config.restype=C.c_int
+    host.hostfxr_get_runtime_delegate.argtypes=[C.c_void_p,C.c_int,C.POINTER(C.c_void_p)]
+    host.hostfxr_get_runtime_delegate.restype=C.c_int
+    host.hostfxr_close.argtypes=[C.c_void_p];host.hostfxr_close.restype=C.c_int
+    stage='HOST_INITIALIZE';handle=C.c_void_p()
+    if host.hostfxr_initialize_for_runtime_config(os.fsencode(sys.argv[1]),None,C.byref(handle))!=0:raise RuntimeError()
+    try:
+        # hdt_load_assembly_bytes=8, hdt_get_function_pointer=6 (.NET8 header).
+        loadptr=C.c_void_p();getptr=C.c_void_p();stage='HOST_DELEGATES'
+        if host.hostfxr_get_runtime_delegate(handle,8,C.byref(loadptr))!=0:raise RuntimeError()
+        if host.hostfxr_get_runtime_delegate(handle,6,C.byref(getptr))!=0:raise RuntimeError()
+        load=C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_size_t,C.c_void_p,C.c_size_t,C.c_void_p,C.c_void_p)(loadptr.value)
+        get=C.CFUNCTYPE(C.c_int,C.c_char_p,C.c_char_p,C.c_void_p,C.c_void_p,C.c_void_p,C.POINTER(C.c_void_p))(getptr.value)
+        stage='HOST_LOAD_BYTES'
+        with open(sys.argv[2],'rb') as stream:assembly=stream.read(1048577)
+        if not 0<len(assembly)<=1048576:raise RuntimeError()
+        buffer=C.create_string_buffer(assembly)
+        if load(buffer,len(assembly),None,0,None,None)!=0:raise RuntimeError()
+        stage='HOST_ENTRY';entry=C.c_void_p();method=sys.argv[3]
+        if method not in ('G1Run','G1SelfTest'):raise RuntimeError()
+        if get(b'Program, G1Probe',method.encode(),C.c_void_p(-1),None,None,C.byref(entry))!=0:raise RuntimeError()
+    finally:host.hostfxr_close(handle)
+    result=C.CFUNCTYPE(C.c_int)(entry.value)()
+    sys.exit(result)
+except Exception:
+    print(json.dumps(dict(kind='HOST_STOP',stage=stage,sqlConnections=0)),flush=True)
+    sys.exit(1)
+'''
+
 
 class Stop(Exception):
     pass
@@ -209,22 +252,31 @@ def discover_main(nonce):
         return 1
 
 
-def run_memory_probe(binary,runtimeconfig,packet,go_stream,expected_nonce,seconds=240):
+def memory_process(binary,runtimeconfig,entry='G1Run'):
     if not hasattr(os,'memfd_create') or len(binary)>1048576:raise Stop()
     fd=os.memfd_create('fieldvisit-reviewed-g1',flags=0)
-    process=None
     try:
         os.write(fd,binary);os.lseek(fd,0,os.SEEK_SET)
         # Never inherit startup hooks/profilers/additional dependencies or creds.
         env=dict(DOTNET_ROOT='/usr/share/dotnet',DOTNET_EnableDiagnostics='0',
                  DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1',DOTNET_CLI_TELEMETRY_OPTOUT='1',
                  COMPlus_PerfMapEnabled='0')
-        process=subprocess.Popen(['/usr/share/dotnet/dotnet','exec','--runtimeconfig',str(runtimeconfig),f'/proc/self/fd/{fd}'],
+        return subprocess.Popen(['/usr/bin/python3','-I','-B','-c',HOST_BOOTSTRAP,str(runtimeconfig),f'/proc/self/fd/{fd}',entry],
             stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,bufsize=0,
             pass_fds=(fd,),env=env)
+    finally:os.close(fd)
+
+
+def run_memory_probe(binary,runtimeconfig,packet,go_stream,expected_nonce,seconds=240):
+    process=None
+    try:
+        process=memory_process(binary,runtimeconfig)
         process.stdin.write((json.dumps(packet)+'\n').encode());process.stdin.flush()
         prepared=json.loads(read_line(process.stdout,30))
-        if prepared.get('kind')!='DB_PREPARED' or prepared.get('nonce')!=expected_nonce or prepared.get('sqlConnections')!=0:raise Stop()
+        if prepared.get('kind')!='DB_PREPARED' or prepared.get('nonce')!=expected_nonce or prepared.get('sqlConnections')!=0:
+            known={'INPUT','DRIVER','CONSENT','HOST_LIBRARY','HOST_INITIALIZE','HOST_DELEGATES','HOST_LOAD_BYTES','HOST_ENTRY'}
+            stage=prepared.get('stage')
+            raise Stop(stage if stage in known else 'PREPARE_REJECTED')
         yield prepared
         go=read_line(go_stream,180,100)
         if go!='G1_SQL_GO '+expected_nonce:raise Stop()
@@ -241,7 +293,6 @@ def run_memory_probe(binary,runtimeconfig,packet,go_stream,expected_nonce,second
             except subprocess.TimeoutExpired:pass
             for pipe in (process.stdin,process.stdout):
                 if pipe is not None:pipe.close()
-        os.close(fd)
 
 
 def main(expected_probe_sha):
