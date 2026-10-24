@@ -1,0 +1,22 @@
+name: G1 D0 v3 diagnostic (INERT main registration only)
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Separately approved Protected v3 SHA; main never executes Azure
+        type: string
+        required: true
+      authorization_comment:
+        description: NEW exact Issue41 v3 one-shot consent
+        type: string
+        required: true
+permissions: {}
+jobs:
+  registration-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - run: |
+          echo 'INERT_MAIN_REGISTRATION_ONLY; Azure=NOT_ACCESSED; SQL=NOT_ACCESSED; D0=NOT_EXECUTED;'
+          exit 1
