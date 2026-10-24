@@ -86,6 +86,15 @@ jobs:
           test -z "${AZURE_CREDENTIALS:-}"
           test -z "${FIELDVISIT_UAT_TRUST_KEY:-}"
           echo 'UpgradeSqlSource=PASS; ExistingRuntime=UNCHANGED; Migration=PR50_PINNED;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile new actual SqlClient runtime integration test first
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj -c Release --nologo -v minimal
+          echo 'UpgradeSqlCompile=PASS; SQLProvider=NOT_STARTED;'
       - name: Start disposable SQL Server 2022 on loopback only
         shell: bash
         run: |
@@ -107,14 +116,11 @@ jobs:
           test "$ready" = 1
           printf 'E1_R1_SQL_CONNECTION=%s\n' "$connection" >> "$GITHUB_ENV"
           echo 'UpgradeSqlProvider=PASS; Engine=LOCAL_SQL2022_ONLY;'
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
       - name: Execute actual UAT010 history trust against disposable SQL2022
         shell: bash
         run: |
           set -euo pipefail
-          dotnet run --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj -c Release --nologo -- --sql pr50-source
+          dotnet run --no-build --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj -c Release --nologo -- --sql pr50-source
       - name: Stop disposable SQL Server
         if: always()
         shell: bash

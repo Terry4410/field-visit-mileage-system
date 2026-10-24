@@ -137,7 +137,7 @@ internal static class SqlHistoryBridge
             {
                 try
                 {
-                    var builder=new SqlConnectionStringBuilder(Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION"));
+                    var builder=new SqlConnectionStringBuilder(Environment.GetEnvironmentVariable("E1_R1_SQL_CONNECTION") ?? "");
                     builder.InitialCatalog="master";builder.Pooling=false;
                     using var admin=new SqlConnection(builder.ConnectionString);admin.Open();
                     Exec(admin,"ALTER DATABASE ["+dbName+"] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE ["+dbName+"]",timeout:50);
