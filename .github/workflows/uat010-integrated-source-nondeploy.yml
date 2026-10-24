@@ -1,0 +1,66 @@
+name: UAT010 combined source identity and compile NONDEPLOY
+on:
+  push:
+    branches: [work/uat010-existing-rc-integration-20261025]
+permissions:
+  contents: read
+concurrency:
+  group: uat010-integrated-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  combined-source:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Exact immutable source overlays and fail-closed release boundary
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,subprocess
+          p=pathlib.Path
+          def git(*a):return subprocess.check_output(['git',*a],text=True).strip()
+          j=json.loads(p('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
+          assert j['contract']=='uat010-combined-source-review-v1'
+          assert j['sourceBranches']=={'PR82_BASE':'ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','PR48_CLEAN':'9ee5dacceed2bf55c39310d663f3258bcb545989','PR81_HISTORY':'5bab502f20d9590d415d6a25a238d1629057989d'}
+          assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
+          assert git('rev-parse','HEAD^')=='ae9ca02cf2d9539fe9bed61a073d60d63731cbb9'
+          changed=set(git('diff','--name-only','HEAD^','HEAD').splitlines())
+          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml'}
+          assert len(j['integratedFiles'])==53 and changed==expected
+          assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==47
+          assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==6
+          for path,item in j['integratedFiles'].items():
+            assert git('hash-object',path)==item['sha']
+          m=json.loads(p('docs/release/g1-execution/promotion/manifest.json').read_text())
+          sql=p('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()
+          sha=hashlib.sha256(sql).hexdigest()
+          assert sha=='b64a0e63261fd7ea32a329579cb7a67c9b96bede0a71653d2b1647e0fd48401c'
+          assert m['sourceHashes']['docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql']!=sha
+          assert m['approval']=='PROPOSED_NOT_AUTHORIZED' and m['schema010SourceBoundBaseline']['status']=='HOLD'
+          assert j['deploymentAllowed'] is False and j['promotionPackageAligned'] is False
+          assert not os.environ.get('UAT_SQL_CONNECTION') and not os.environ.get('PRODUCTION_SQL_CONNECTION')
+          out=p('artifacts/uat010-integrated');out.mkdir(parents=True,exist_ok=True)
+          payload={'sourceSHA':os.environ['GITHUB_SHA'],'sourceOverlays':53,'sourceIdentity':'PASS','schemaFidelity':'HOLD','promotionPackageAligned':False,'liveG1':'HOLD','deploymentAllowed':False,'azureAccess':False,'liveSqlAccess':False}
+          (out/'receipt.json').write_text(json.dumps(payload,sort_keys=True)+'\n')
+          print('SourceIntegration=PASS; Promotion=HOLD; LiveG1=HOLD; Azure=NONE;')
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Focused runtime history profile compile only
+        run: dotnet build tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj --configuration Release --nologo
+      - name: Python source syntax only
+        run: python3 -m py_compile scripts/ci/uat_release/prepare_candidate.py scripts/ci/uat_release/sign_activation.py scripts/ci/g1_promotion.py
+      - name: Bind sanitized receipt
+        if: success()
+        run: cd artifacts/uat010-integrated && sha256sum receipt.json > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-integrated-source-${{ github.sha }}
+          path: artifacts/uat010-integrated/
+          retention-days: 30
+          if-no-files-found: error

@@ -1,0 +1,233 @@
+{
+  "contract": "uat010-combined-source-review-v1",
+  "deploymentAllowed": false,
+  "liveG1": "HOLD",
+  "predecessorFidelity": "HOLD",
+  "promotionPackageAligned": false,
+  "sourceBranches": {
+    "PR82_BASE": "ae9ca02cf2d9539fe9bed61a073d60d63731cbb9",
+    "PR48_CLEAN": "9ee5dacceed2bf55c39310d663f3258bcb545989",
+    "PR81_HISTORY": "5bab502f20d9590d415d6a25a238d1629057989d"
+  },
+  "sourceScope": "copy exact reviewed Git blobs; no edits to accepted artifacts, schema migration or application auth",
+  "acceptedOriginal": {
+    "PR48_CI": "39998237406",
+    "PR50_CI": "40086823634",
+    "PR81_CI": "40089848788",
+    "PR82_CI": "40103702883"
+  },
+  "integratedFiles": {
+    ".github/workflows/clean-build-handover-preparation-nondeploy.yml": {
+      "sha": "421a074fb8fbee61feaf18ac763d8ebb76ec03a1",
+      "source": "PR48"
+    },
+    ".github/workflows/uat-existing010-upgrade-trust-nondeploy.yml": {
+      "sha": "905ab1a5fbcc1773f1f3b39a93a74e99ecdd43dc",
+      "source": "PR81"
+    },
+    ".github/workflows/uat-release-candidate-nondeploy.yml": {
+      "sha": "c8e15f23a6921898240d8929354a776fdb0f1a11",
+      "source": "PR48"
+    },
+    "database/clean-install/v180/00_schema_versions.sql": {
+      "sha": "34af7d9908057b0bbd2ef1b36400d5019c31840e",
+      "source": "PR48"
+    },
+    "database/clean-install/v180/20_route_reason_check.sql": {
+      "sha": "b30edd9ac1f15fd7ee49a504d76dace097ef4be7",
+      "source": "PR48"
+    },
+    "database/clean-install/v180/50_scoped_clean_install_verify.sql": {
+      "sha": "8750d6603a29a2716e5186b89a4f6e0206c67d0a",
+      "source": "PR48"
+    },
+    "database/clean-install/v180/README.md": {
+      "sha": "b1ab99cbebc613dc62949dca26c80f9f1ea2eb84",
+      "source": "PR48"
+    },
+    "docs/release/clean-build-it-handover/IT-INSTALL-RECOVERY-SOP.md": {
+      "sha": "2378a061d54208d675d2a81bd6093bc582f97f6e",
+      "source": "PR48"
+    },
+    "docs/release/clean-build-it-handover/RELEASE-GATES.md": {
+      "sha": "689cdf2df6f13838ebd734429c4ccf020e202655",
+      "source": "PR48"
+    },
+    "docs/release/clean-build-it-handover/source-ledger.json": {
+      "sha": "d895e51a38a70463b91093e8fc32748f7c6481f9",
+      "source": "PR48"
+    },
+    "docs/release/uat-release-candidate/EXISTING010-UPGRADE-PROFILE.md": {
+      "sha": "45d7bab9b5adc46c85ad8d037accdc00b5fc228e",
+      "source": "PR81"
+    },
+    "docs/release/uat-release-candidate/IT-ACCEPTANCE.md": {
+      "sha": "c3a22f87c47460e74de47db7034a7e702220f1b4",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/apply_rc_runtime_candidate.py": {
+      "sha": "2ee86a165e2d077a7c086552f6052bf2e1d83d9b",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/build_001_004_checks.py": {
+      "sha": "604a7551b89afd1ddc5a6c97668cb8c991734aa8",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/build_007_checks.py": {
+      "sha": "962acac7473a8340aa03b125e636b6aee2f80506",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/build_effective_triggers.py": {
+      "sha": "515b5e9999b91f843b3c708c735efb2d8109a442",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/build_optionc_final_checks.py": {
+      "sha": "f45a8b6f4bc7b324e88cdca35b530d10ecb28ee6",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/build_optionc_sql_only_tables.py": {
+      "sha": "d1b0fa2381c4df081511b8f5f37d8c6ad2e07ba3",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/build_sql_only_indexes.py": {
+      "sha": "fd9ff4252bd7088639957b8bd748b0f9b7ae85ae",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/build_sql_only_tables.py": {
+      "sha": "c7ee17e8e9053cb75dfacf6265d08027826a7085",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/package_candidate_runtime.py": {
+      "sha": "a691ec6f123c081575d0462ff87ebc517bdf92bf",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_build_001_004_checks.py": {
+      "sha": "fdf06cc190319c1c4cc516d227960300611429ee",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_build_007_checks.py": {
+      "sha": "9e52a7a12986da491ae0dafdf779cde1795c1905",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_build_effective_triggers.py": {
+      "sha": "68a78934d486a0ae8b8f79fbb25a8a0877f59abf",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_build_optionc_final_checks.py": {
+      "sha": "7f02ba2cb653b198c21fa210d3f6a17d1fb36109",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_build_optionc_sql_only_tables.py": {
+      "sha": "24e7137268491ebb24570588056dbf23cb8297fb",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_build_sql_only_indexes.py": {
+      "sha": "16edd34e60d2f95f4a75d15af0ba4eb4fedc629d",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_build_sql_only_tables.py": {
+      "sha": "3afa54c9cbc465cbde37cfb24246d17e2b81a279",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_clean_install_workflow_privacy.py": {
+      "sha": "4ffee078e308d39ad54b1dbb70c3de467785dfbd",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_package_candidate_runtime.py": {
+      "sha": "e4ee83c6e58fcf0c35af5b68fe72ec4ff3be07cb",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_rc_runtime_candidate.py": {
+      "sha": "f6252ac557fd6ce8c47062aa5fcde1c75a8dcd31",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/test_verify_model_baseline_package.py": {
+      "sha": "15652e56c26b2ec7eb6f7eee299347b4d86f22e3",
+      "source": "PR48"
+    },
+    "scripts/ci/clean_install/verify_model_baseline_package.py": {
+      "sha": "e1dd618c1f809b2e6b13296367e1bda28195d624",
+      "source": "PR48"
+    },
+    "scripts/ci/uat_release/install.py": {
+      "sha": "d411c77479cb1bc4fc66182069db3103179ff980",
+      "source": "PR48"
+    },
+    "scripts/ci/uat_release/prepare_candidate.py": {
+      "sha": "698b815360d4963bbb5a3bdc8138585b5e0da830",
+      "source": "PR81"
+    },
+    "scripts/ci/uat_release/seal.py": {
+      "sha": "2fad66a88c2a89b1a4f91add6fb63efb00fff425",
+      "source": "PR48"
+    },
+    "scripts/ci/uat_release/sign_activation.py": {
+      "sha": "3bc354530fd4c94a03ef881496dcbaa94818578a",
+      "source": "PR81"
+    },
+    "tools/clean-install/HttpApiBusinessProbe.cs": {
+      "sha": "a640ed9cf034a3d4a39a5f03f2b08ce5c4664240",
+      "source": "PR48"
+    },
+    "tools/clean-install/HttpApiOptionCCreateApprovalProbe.cs": {
+      "sha": "b30a04f321333ee477b46e69c600fa87d7bd3c36",
+      "source": "PR48"
+    },
+    "tools/clean-install/HttpApiRoleProbe.cs": {
+      "sha": "ef6e6f3553c42514718a1096ab0fe88c52cff52f",
+      "source": "PR48"
+    },
+    "tools/clean-install/HttpApiSmoke.cs": {
+      "sha": "170721f3f3129b6bdfd61855df20c75ea1aaaa46",
+      "source": "PR48"
+    },
+    "tools/clean-install/ModelBaselineRunner.csproj": {
+      "sha": "01cfc9f5fb9e8d3fcec6aafbdda7975ff7c30406",
+      "source": "PR48"
+    },
+    "tools/clean-install/OptionCIndexProof.cs": {
+      "sha": "f22faff246d99148155c1bdaf2b1c0e868ca316a",
+      "source": "PR48"
+    },
+    "tools/clean-install/Program.cs": {
+      "sha": "59a622e45a7e6aa572d8c0eaedba93b9e0e4881d",
+      "source": "PR48"
+    },
+    "tools/uat-release-candidate/browser.mjs": {
+      "sha": "803e4a124db8fcfdef38d35902eeac722af3e179",
+      "source": "PR48"
+    },
+    "tools/uat-release-candidate/Program.cs": {
+      "sha": "3b4d747433367691bfc9f50a9164df30dfc1dc12",
+      "source": "PR48"
+    },
+    "tools/uat-release-candidate/ReleaseProbe.csproj": {
+      "sha": "009a1295e3bceee42e23a7de2360775901ee087c",
+      "source": "PR48"
+    },
+    "tools/uat-release-candidate/runtime/SchemaFingerprint.sql": {
+      "sha": "c45aa21886d86e600fbfb8c1f7923d7f67d30e37",
+      "source": "PR48"
+    },
+    "tools/uat-release-candidate/runtime/V180UatExisting010HistoryTrust.cs": {
+      "sha": "dd7791d624518703d5cc339dd8909787cbfbdfe2",
+      "source": "PR81"
+    },
+    "tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs": {
+      "sha": "7e0441f6d2c323858701612a0b8e5bc4a6632885",
+      "source": "PR81"
+    },
+    "tools/uat-release-candidate/upgrade-profile-tests/Program.cs": {
+      "sha": "52436fd25f86d316ed5971770bd699d9a356ae1e",
+      "source": "PR81"
+    },
+    "tools/uat-release-candidate/upgrade-profile-tests/SqlHistoryBridge.cs": {
+      "sha": "ff351149719b197ee8dbba4c834eaa8e53695e9d",
+      "source": "PR81"
+    },
+    "tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj": {
+      "sha": "9ff2de485746260ed4423dbcd19947ed9807ae7b",
+      "source": "PR81"
+    }
+  }
+}
