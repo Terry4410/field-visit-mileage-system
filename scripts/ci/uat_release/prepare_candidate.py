@@ -88,7 +88,7 @@ def main():
  target='cmd.Parameters.AddWithValue("@adminEligible", independentAdminForCreate ? 1 : 0);';assert old.count(target)==1
  old=old.replace(target,target+'\n        cmd.Parameters.AddWithValue("@leaderWrite", leaderWriteAuthorized ? 1 : 0);')
  write(path,old)
- for name in ['V180UatReleaseTrust.cs','SchemaFingerprint.sql']:
+ for name in ['V180UatReleaseTrust.cs','V180UatExisting010HistoryTrust.cs','SchemaFingerprint.sql']:
   write(infra+name,(ROOT/'tools/uat-release-candidate/runtime'/name).read_bytes())
  write(infra+'UatReleaseIdentity.g.cs','namespace FieldVisit.Infrastructure; public static class UatReleaseIdentity { public const string SourceSha="'+source+'"; }\n')
  file=rc/infra/'FieldVisit.Infrastructure.csproj';old=file.read_text()
