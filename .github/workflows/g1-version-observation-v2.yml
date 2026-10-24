@@ -1,0 +1,25 @@
+# Registration stub only. This file on main MUST NOT execute any G1 collector.
+# A real D0 execution must come from separately reviewed, approved Protected source.
+name: G1 D0 version observation (registration-only main stub)
+on:
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Exact separately approved Protected source SHA
+        type: string
+        required: true
+      authorization_comment:
+        description: Exact new Issue 41 D0 dispatch approval comment
+        type: string
+        required: true
+permissions: {}
+jobs:
+  registration-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Fail closed without Azure or SQL
+        shell: bash
+        run: |
+          echo "::error::REGISTRATION_ONLY — no Azure/SQL/main-container operation is available on this source."
+          exit 1
