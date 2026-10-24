@@ -1,0 +1,133 @@
+name: G1 bounded read-only v2 (review before Live)
+on:
+  push:
+    branches: [work/g1-bounded-readonly-entry-20261024]
+    paths: [.github/workflows/g1-bounded-readonly-v2.yml, .github/workflows/g1-bounded-readonly-worker-v2.yml, .github/workflows/g1-version-observation-v2.yml, 'scripts/ci/g1_bounded/**', 'docs/release/g1-bounded/**']
+  workflow_dispatch:
+    inputs:
+      approved_source_sha:
+        description: Separately approved final protected execution SHA
+        type: string
+        required: true
+      authorization_comment:
+        description: NEW exact dispatch approval comment
+        type: string
+        required: true
+      accept_one_connection_cost:
+        description: Approve one bounded connection, no retry
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: g1-bounded-readonly-v2-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  offline:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/work/g1-bounded-readonly-entry-20261024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Source seals and offline Python contracts
+        run: |
+          set -euo pipefail
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          python3 -m unittest discover -s scripts/ci/g1_bounded -p 'test_*.py' -v
+      - name: Reuse accepted native and PowerShell evidence only with identical inputs
+        run: |
+          python3 - <<'PYCORE'
+          import subprocess
+          from pathlib import Path
+          accepted='4046c655a118a995c7ad1c8bf1859b6f70b6bfcf'
+          files=('main_probe.py','probe/Program.cs','probe/G1Probe.csproj','catalog.sql','sql.ps1','offline_memory_probe.py')
+          for name in files:
+            path='scripts/ci/g1_bounded/'+name
+            assert Path(path).read_bytes()==subprocess.check_output(['git','show',accepted+':'+path]), 'ACCEPTED_NATIVE_INPUT_CHANGED'
+          print('Accepted Run40046654388/Job120729820147/Artifact12541796831 REUSED; six inputs byte-identical; no native/SQL/PowerShell rerun.')
+          PYCORE
+      - name: Record completeness honestly
+        run: |
+          mkdir -p verification
+          python3 - <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          sys.path.insert(0,'scripts/ci/g1_bounded')
+          from arm import coverage_ready
+          d=dict(sourceSha=os.environ['GITHUB_SHA'],contractTests='PASS',
+            completionCoverage='READY' if coverage_ready() else 'HOLD',azure='NOT_ACCESSED',
+            sqlConnections=0,liveG1='NOT_EXECUTED',protectedPromotion='NOT_AUTHORIZED')
+          Path('verification/g1-offline.json').write_text(json.dumps(d,sort_keys=True,indent=2)+'\n')
+          d['reusedEvidence']=dict(sourceSha='4046c655a118a995c7ad1c8bf1859b6f70b6bfcf',run=40046654388,job=120729820147,artifact=12541796831,nativeInputs='BYTE_IDENTICAL')
+          d['probeSha256']='461c0d41c3133993c2e8a31ddb745bc0c6977979849d344d7f857c922324835e'
+          d['mainContainerContract']='REUSED_ACCEPTED_OFFLINE_ZERO_OPEN'
+          d['d0Transport']='SOURCE_AND_LOCAL_PTY_PASS_LIVE_UNVERIFIED'
+          d['mainContainerLiveAdapter']='NOT_REGISTERED_NOT_AUTHORIZED'
+          Path('verification/g1-offline.json').write_text(json.dumps(d,sort_keys=True,indent=2)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write('G1 offline contracts PASS. Completion coverage: '+d['completionCoverage']+'. No Azure/SQL execution.\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: g1-v2-offline-${{ github.sha }}
+          path: verification/
+          retention-days: 30
+  source:
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'Terry4410' && github.triggering_actor == 'Terry4410' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Consent, one-shot and completion routes before identity handoff
+        env:
+          APPROVED_SHA: ${{ inputs.approved_source_sha }}
+          APPROVAL_COMMENT: ${{ inputs.authorization_comment }}
+          ACCEPT_COST: ${{ inputs.accept_one_connection_cost }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum --check scripts/ci/g1_bounded/checksums.sha256
+          python3 scripts/ci/g1_bounded/guard.py
+  identity:
+    needs: source
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 1
+    permissions:
+      contents: none
+    outputs:
+      client: ${{ vars.AZURE_CLIENT_ID }}
+      tenant: ${{ vars.AZURE_TENANT_ID }}
+      subscription: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - name: Values travel only as worker secrets, never shell env or run text
+        run: test "${RUNNER_DEBUG:-}" != 1
+  inventory:
+    needs: [source, identity]
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      id-token: write
+    uses: ./.github/workflows/g1-bounded-readonly-worker-v2.yml
+    with:
+      approved_source_sha: ${{ inputs.approved_source_sha }}
+      authorization_comment: ${{ inputs.authorization_comment }}
+      accept_one_connection_cost: ${{ inputs.accept_one_connection_cost }}
+    secrets:
+      client: ${{ needs.identity.outputs.client }}
+      tenant: ${{ needs.identity.outputs.tenant }}
+      subscription: ${{ needs.identity.outputs.subscription }}
