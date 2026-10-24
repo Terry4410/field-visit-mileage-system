@@ -1,0 +1,320 @@
+# Disposable SQL2022 only. Accepted collector/SQL are copied, never edited in place.
+param([switch]$FirstStopOnly,[switch]$ReferenceOnly,[switch]$PermissionOnly)
+$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+$case='Client';$admin=$null;$db=$null;$temp=$null;$setup=$null;$script:failed=$false
+$repo=(Resolve-Path "$PSScriptRoot/../..").Path
+$results=[Collections.Generic.List[object]]::new()
+$diagnosis='HARNESS_FAILURE_OTHER'
+$script:collectorStopPhase='STOP_PHASE_UNAVAILABLE'
+$script:collectorFailureClassification='APPROVED_CLASSIFICATION_NOT_PRESENT'
+$script:collectorReturn='COLLECTOR_NOT_INVOKED'
+$script:collectorGuard='GUARD_UNAVAILABLE'
+$script:referencePhase='NOT_STARTED'
+$script:permissionPhase='PERMISSION_SETUP'
+function CaptureSafePhase($copy){
+ $script:collectorGuard='GUARD_UNAVAILABLE'
+ if(Test-Path -LiteralPath $copy.guard){
+  $id=[IO.File]::ReadAllText($copy.guard)
+  if($id -cmatch '^G(?:0[1-9]|1[0-9]|2[0-2])$'){$script:collectorGuard=$id}
+ }
+ $script:collectorStopPhase='STOP_PHASE_UNAVAILABLE'
+ if(Test-Path -LiteralPath $copy.phase){
+  $phase=[IO.File]::ReadAllText($copy.phase)
+  if(@('PRE_SQL_GUARDS','CONNECTION_OPEN','TARGET_OR_MARKER','CATALOG_COLLECTION','PERMISSIONS_COLLECTION','FINAL_EVIDENCE_VALIDATION') -ccontains $phase){$script:collectorStopPhase=$phase}
+ }
+}
+function Assert([bool]$ok){if(-not $ok){throw 'G1_TEST_STOP'}}
+function Exec($c,[string]$sql){$q=$c.CreateCommand();try{$q.CommandTimeout=90;$q.CommandText=$sql;[void]$q.ExecuteNonQuery()}finally{$q.Dispose()}}
+function Rows($c,[string]$sql,[string]$requirements='',[string]$reference=''){
+ $q=$c.CreateCommand();$r=$null
+ try{
+  $q.CommandTimeout=30;$q.CommandText=$sql
+  if($case -ceq 'RealReferenceParameterFacetsAndKeys'){$script:referencePhase='PARAMETER_BINDING'}
+  if($requirements){$p=$q.Parameters.Add('@requirements',[Data.SqlDbType]::NVarChar,-1);$p.Value=$requirements}
+  if($reference){$p=$q.Parameters.Add('@reference',[Data.SqlDbType]::NVarChar,-1);$p.Value=$reference}
+  if($case -ceq 'RealReferenceParameterFacetsAndKeys'){$script:referencePhase='SQL_EXECUTION'}
+  $r=$q.ExecuteReader()
+  if($case -ceq 'RealReferenceParameterFacetsAndKeys'){$script:referencePhase='RESULT_SET_CONTRACT'}
+  Assert ($r.FieldCount -eq 2 -and $r.GetName(0) -ceq 'code' -and $r.GetName(1) -ceq 'status')
+  $rows=@();while($r.Read()){$rows+=@{code=$r.GetString(0);status=$r.GetString(1)}};Assert (-not $r.NextResult());return $rows
+ }finally{if($null -ne $r){$r.Dispose()};$q.Dispose()}
+}
+function Status($rows,[string]$code){$m=@($rows|Where-Object{$_.code -ceq $code});Assert ($m.Count -eq 1);return $m[0].status}
+function Pass([string]$id){$results.Add(@{case=$id;result='PASS'});Write-Output "PreflightCase=$id; Status=PASS;"}
+function NewConnection{
+ $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($script:base.ConnectionString)
+ $b['Initial Catalog']=$script:db;$b['TrustServerCertificate']=$false;$b['Encrypt']=$false
+ return [Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+}
+function Rehash([string]$directory){
+ $m=Get-Content (Join-Path $directory 'manifest.json') -Raw|ConvertFrom-Json
+ foreach($p in $m.files.PSObject.Properties){$p.Value=(Get-FileHash (Join-Path $directory $p.Name) -Algorithm SHA256).Hash.ToLowerInvariant()}
+ $m|ConvertTo-Json -Depth 15|Set-Content (Join-Path $directory 'manifest.json') -Encoding utf8
+ return (Get-FileHash (Join-Path $directory 'manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+function TestCopy([string]$id,[string]$replaceCatalog=''){
+ Assert ($id -cmatch '^[A-Za-z0-9_]+$')
+ $d=Join-Path $script:temp $id;New-Item -ItemType Directory $d|Out-Null
+ Copy-Item (Join-Path $script:package '*') $d
+ $collector=[IO.File]::ReadAllText((Join-Path $d 'collect.ps1'))
+ # EXACTLY labelled test-only substitutions. No path can connect beyond loopback.
+ $collector=$collector.Replace("tcp:sql-fieldvisit-jpe-uat.database.windows.net,1433",'localhost,1433').Replace('db-fieldvisit-uat',$script:db).Replace("`$b['Encrypt']=`$true","`$b['Encrypt']=`$false")
+ $needle='   $reader=$cmd.ExecuteReader()'
+ Assert ($collector.Contains($needle))
+ $trace=Join-Path $d 'trace.txt'
+ $phase=Join-Path $d 'phase.txt'
+ $guard=Join-Path $d 'guard.txt'
+ # Mark the next original pre-SQL statement BEFORE argument evaluation.
+ # Fixed IDs only; no expression values and no changes to original behavior.
+ $anchors=@(
+  ' Guard ($ExpectedManifestSha256',
+  ' Guard ((Get-FileHash $mp',
+  ' $m=Get-Content $mp',
+  ' Guard ($m.source',
+  '  Guard ([IO.Path]::GetFileName',
+  '  Guard ((Get-FileHash (Join-Path',
+  ' Guard ($null -ne $ApplicationConnection)',
+  ' Guard (-not [string]::IsNullOrWhiteSpace',
+  ' Guard (-not (Test-Path',
+  ' Guard ($ApplicationConnection.GetType()',
+  ' Guard ($ApplicationConnection.State',
+  ' $b=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]',
+  ' Guard ($b.DataSource',
+  ' Guard (-not $b.TrustServerCertificate',
+  ' $retry=$ApplicationConnection.RetryLogicProvider',
+  " `$b['Encrypt']=",
+  " `$b['ApplicationIntent']=",
+  ' $ApplicationConnection.ConnectionString=',
+  " . (Join-Path `$root 'uat_schema_fidelity_evidence.ps1')",
+  ' $groups=[Collections.Generic.List[object]]',
+  ' $ApplicationConnection.Open();',
+  ' $root=$PSScriptRoot;'
+ )
+ $lines=$collector -split "`n";$observed=@{}
+ $collector=($lines|ForEach-Object{
+  $line=$_
+  for($i=0;$i -lt $anchors.Count;$i++){
+   if($line.StartsWith($anchors[$i])){
+    Assert (-not $observed.ContainsKey($i));$observed[$i]=$true
+    " [IO.File]::WriteAllText('$guard','G$('{0:00}' -f ($i+1))')"
+   }
+  }
+  $line
+ }) -join "`n"
+ Assert ($observed.Count -eq $anchors.Count)
+ # Temporary-copy observation only: six fixed phases, no values or guard changes.
+ Assert ($collector.Contains('$opened=$false') -and $collector.Contains(' $ApplicationConnection.Open();') -and $collector.Contains(' $e=[ordered]@'))
+ $collector=$collector.Replace('$opened=$false',('$opened=$false'+"`n[IO.File]::WriteAllText('$phase','PRE_SQL_GUARDS')"))
+ $collector=$collector.Replace(' $ApplicationConnection.Open();'," [IO.File]::WriteAllText('$phase','CONNECTION_OPEN')`n"+' $ApplicationConnection.Open();')
+ $collector=$collector.Replace(' $e=[ordered]@'," [IO.File]::WriteAllText('$phase','FINAL_EVIDENCE_VALIDATION')`n"+' $e=[ordered]@')
+ $phaseTrace="   [IO.File]::WriteAllText('$phase',`$(switch(`$file){'01-target.sql'{'TARGET_OR_MARKER'} '02-marker.sql'{'TARGET_OR_MARKER'} '03-catalog.sql'{'CATALOG_COLLECTION'} '04-permissions.sql'{'PERMISSIONS_COLLECTION'}}))`n"
+ $collector=$collector.Replace($needle,$phaseTrace+$needle)
+ $collector=$collector.Replace($needle,"   [IO.File]::AppendAllText('$trace',`$file+[Environment]::NewLine)`n"+$needle)
+ [IO.File]::WriteAllText((Join-Path $d 'collect.ps1'),$collector)
+ $identity=[IO.File]::ReadAllText((Join-Path $d '01-target.sql'))
+ # Table/query behavior remains SQL2022; Azure identity comparison becomes a
+ # fixture-local literal comparison. This is NOT proof of Azure target identity.
+ $identity=$identity.Replace('db-fieldvisit-uat',$script:db).Replace("CONVERT(nvarchar(128),SERVERPROPERTY('ServerName'))", "N'sql-fieldvisit-jpe-uat'").Replace("CONVERT(int,SERVERPROPERTY('EngineEdition'))=5","CONVERT(int,SERVERPROPERTY('EngineEdition'))=3")
+ [IO.File]::WriteAllText((Join-Path $d '01-target.sql'),$identity)
+ if($replaceCatalog){[IO.File]::WriteAllText((Join-Path $d '03-catalog.sql'),$replaceCatalog)}
+ $pin=Rehash $d
+ return @{directory=$d;trace=$trace;phase=$phase;guard=$guard;pin=$pin;evidence=(Join-Path $d 'evidence.json')}
+}
+function RunCopy($copy,$retryProvider=$null){
+ $c=NewConnection;$global:LASTEXITCODE=0;$returned=$false
+ if($null -ne $retryProvider){$c.RetryLogicProvider=$retryProvider}
+ $script:collectorFailureClassification='APPROVED_CLASSIFICATION_NOT_PRESENT'
+ try{
+  $output=@(& (Join-Path $copy.directory 'collect.ps1') -ExecuteAuthorized -ApplicationConnection $c -ExpectedManifestSha256 $copy.pin -EvidenceFile $copy.evidence 2>&1)
+  $returned=$true
+  $exit=$LASTEXITCODE
+  $script:collectorReturn=if($exit -eq 0){'COLLECTOR_ZERO_EXIT'}else{'COLLECTOR_NONZERO_EXIT'}
+  CaptureSafePhase $copy
+  $text=$output -join "`n"
+  # Match only the existing approved Collector line, never arbitrary exception text.
+  $approved='UnknownSqlFailure|UnclassifiedSqlFailure|TargetGuardRejected|RequiredObjectMissing|HistoricalSelectOrObjectUnavailable|SqlPermissionDenied|MissingObjectOrColumn|SqlSyntaxOrCompatibility|AuthenticationOrDatabaseAccess|TimeoutOrTransient|ConnectivityFailure'
+  $matches=[regex]::Matches($text,"(?m)^Collection=STOP; (?:STOP: metadata-only SQL inventory failed\. )?Classification=($approved); ProviderCode=(?:Suppressed|-?[0-9]+);(?: raw SQL error suppressed\.)?`r?$")
+  if($matches.Count -eq 1){$script:collectorFailureClassification=$matches[0].Groups[1].Value}
+  Assert (-not $text.Contains('G1_SYNTHETIC_PRIVATE_CANARY'))
+  Assert (-not $text.Contains($script:base.Password))
+  Assert (-not $text.Contains('Server=') -and -not $text.Contains('System.Management.Automation'))
+  return @{exit=$exit;output=$text;trace=if(Test-Path $copy.trace){@(Get-Content $copy.trace)}else{@()}}
+ }catch{
+  $script:collectorReturn=if($returned){'HARNESS_FAILURE_OTHER'}else{'HARNESS_EXCEPTION_BEFORE_COLLECTOR_RETURN'}
+  CaptureSafePhase $copy
+  throw
+ }finally{$c.Dispose()}
+}
+try{
+ Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
+ if(-not $ReferenceOnly -and -not $PermissionOnly){
+ # Same loaded assembly and host as Collector; no SQL Open in this experiment.
+ $case='RetryProviderUnopenedRootCause'
+ $fresh=[Microsoft.Data.SqlClient.SqlConnection]::new()
+ try{
+  $field=$fresh.GetType().GetField('_retryLogicProvider',[Reflection.BindingFlags]'Instance,NonPublic')
+  Assert ($null -ne $field -and $null -eq $field.GetValue($fresh))
+  $provider=$fresh.RetryLogicProvider
+  $none=[Microsoft.Data.SqlClient.SqlConfigurableRetryFactory]::CreateNoneRetryProvider()
+  Assert ($null -ne $provider -and $provider.GetType() -eq $none.GetType())
+  Assert ($provider.RetryLogic.GetType() -eq $none.RetryLogic.GetType())
+  Assert ($provider.RetryLogic.RetryIntervalEnumerator.GetType() -eq $none.RetryLogic.RetryIntervalEnumerator.GetType())
+  Assert ($fresh.State -eq [Data.ConnectionState]::Closed)
+ }finally{$fresh.Dispose()}
+ }
+ Assert ($env:GITHUB_ACTIONS -eq 'true' -and $env:GITHUB_REPOSITORY -eq 'Terry4410/field-visit-mileage-system')
+ $base=[Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($env:E1_R1_SQL_CONNECTION)
+ Assert ($base.DataSource -ceq 'localhost,1433' -and $base.InitialCatalog -ceq 'master' -and $base.UserID -ceq 'sa')
+ $base['Pooling']=$false;$base['ConnectRetryCount']=0
+ $db='master'
+ if(-not $ReferenceOnly -and -not $PermissionOnly){
+ $probe=NewConnection
+ try{
+  Assert ($null -eq $field.GetValue($probe))
+  $provider=$probe.RetryLogicProvider
+  Assert ($null -ne $provider -and $provider.GetType() -eq $none.GetType())
+  Assert ($provider.RetryLogic.RetryIntervalEnumerator.GetType() -eq $none.RetryLogic.RetryIntervalEnumerator.GetType())
+  Assert ($base.ConnectRetryCount -eq 0 -and $probe.State -eq [Data.ConnectionState]::Closed)
+  Write-Output 'RetryProviderProbe=PASS; Getter=RETURNED; Default=BUILTIN_NONE; Fixture=BUILTIN_NONE; ExplicitProvider=ABSENT; ConnectRetryCount=ZERO; SqlOpen=FALSE;'
+ }finally{$probe.Dispose()}
+ }
+ $admin=[Microsoft.Data.SqlClient.SqlConnection]::new($base.ConnectionString);$admin.Open()
+ $repo=(Resolve-Path "$PSScriptRoot/../..").Path
+ $package=Join-Path $repo 'docs/release/g1-minimal-preflight'
+ Assert ((Get-FileHash (Join-Path $package 'manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant() -eq '7742024b9bb790acef0821d0dd10361dd284f4a44311d8045464d1a7f1db686f')
+ $temp=Join-Path $env:RUNNER_TEMP ('g1-preflight-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory $temp|Out-Null
+ $db='OptionCIsolated_'+[guid]::NewGuid().ToString('N');Assert ($db -cmatch '^OptionCIsolated_[0-9a-f]{32}$')
+ Exec $admin "CREATE DATABASE [$db]"
+ $setup=NewConnection;$setup.Open()
+ $old=[IO.File]::ReadAllText((Join-Path $repo 'scripts/ci/run_full_candidate_migration.ps1'))
+ $matches=[regex]::Matches($old,"(?s)\`$boot=@'\r?\n(.*?)\r?\n'@");Assert ($matches.Count -eq 1);Exec $setup $matches[0].Groups[1].Value
+ $requirements=[IO.File]::ReadAllText((Join-Path $package 'requirements.json'));$reference=[IO.File]::ReadAllText((Join-Path $package 'necessary-reference.json'));$catalog=[IO.File]::ReadAllText((Join-Path $package '03-catalog.sql'))
+ if(-not $PermissionOnly){
+ if(-not $ReferenceOnly){
+ if(-not $FirstStopOnly){
+ $case='NoSqlCmdExpansion';foreach($f in @('01-target.sql','02-marker.sql','03-catalog.sql','04-permissions.sql')){Assert (-not ([IO.File]::ReadAllText((Join-Path $package $f)) -match '\$\('))};Pass $case
+ $case='UnmodifiedTargetSqlRejectsDisposable';$rows=Rows $setup ([IO.File]::ReadAllText((Join-Path $package '01-target.sql')));Assert ((Status $rows 'TARGET') -ceq 'FAIL');Pass $case
+ $case='UnmodifiedCollectorRejectsLoopbackBeforeOpen';$c=NewConnection;$global:LASTEXITCODE=0
+ $output=@(& (Join-Path $package 'collect.ps1') -ExecuteAuthorized -ApplicationConnection $c -ExpectedManifestSha256 '7742024b9bb790acef0821d0dd10361dd284f4a44311d8045464d1a7f1db686f' -EvidenceFile (Join-Path $temp 'forbidden.json') 2>&1)
+ Assert ($LASTEXITCODE -ne 0 -and $c.State -eq [Data.ConnectionState]::Closed -and -not (Test-Path (Join-Path $temp 'forbidden.json')));$c.Dispose();Pass $case
+ }
+ $case='Collector010FindingsStillCollectPermissions';$copy=TestCopy $case;$run=RunCopy $copy
+ $diagnosis='COLLECTOR_EXIT_UNEXPECTED';Assert ($run.exit -eq 0)
+ $diagnosis='EXPECTED_STAGE_SEQUENCE_MISMATCH';Assert (($run.trace -join ',') -ceq '01-target.sql,02-marker.sql,03-catalog.sql,04-permissions.sql')
+ $diagnosis='EVIDENCE_MISSING_OR_INVALID';Assert (Test-Path -LiteralPath $copy.evidence)
+ $e=Get-Content $copy.evidence -Raw|ConvertFrom-Json;Assert ($e.groups.Count -eq 4)
+ $diagnosis='CATALOG_ASSERTION_MISMATCH'
+ Assert ((Status $e.groups[2] 'REQUIRED_COLUMNS') -ceq 'FAIL' -and (Status $e.groups[2] 'COMPLETE_FACET_EQUIVALENCE') -ceq 'UNKNOWN')
+ $diagnosis='PERMISSIONS_ASSERTION_MISMATCH'
+ Assert ((Status $e.groups[3] 'API_PRINCIPAL_BINDING') -ceq 'UNKNOWN');Pass $case
+ $diagnosis='NONE'
+ if(-not $FirstStopOnly){
+ $case='ConfiguredRetryRejectedBeforeOpen';$copy=TestCopy $case
+ $option=[Microsoft.Data.SqlClient.SqlRetryLogicOption]::new();$option.NumberOfTries=2
+ $retryProvider=[Microsoft.Data.SqlClient.SqlConfigurableRetryFactory]::CreateFixedRetryProvider($option)
+ $run=RunCopy $copy $retryProvider
+ Assert ($run.exit -ne 0 -and $run.trace.Count -eq 0 -and -not (Test-Path $copy.evidence) -and $script:collectorStopPhase -ceq 'PRE_SQL_GUARDS');Pass $case
+ $case='MarkerStopBeforeCatalog';Exec $setup "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-009'";$copy=TestCopy $case;$run=RunCopy $copy
+ Assert ($run.exit -eq 0 -and ($run.trace -join ',') -ceq '01-target.sql,02-marker.sql');Exec $setup "UPDATE dbo.SchemaVersions SET VersionNumber=N'1.8.0-010'";Pass $case
+ $case='MissingVersionObjectStops';Exec $setup 'EXEC sys.sp_rename N''dbo.SchemaVersions'',N''G1HeldVersions'';';$copy=TestCopy $case;$run=RunCopy $copy
+ Assert ($run.exit -eq 0 -and ($run.trace -join ',') -ceq '01-target.sql');Exec $setup 'EXEC sys.sp_rename N''dbo.G1HeldVersions'',N''SchemaVersions'';';Pass $case
+ foreach($fault in @(
+  @{id='MalformedResultStops';sql="SELECT N'G1_UNREVIEWED' AS code,N'PASS' AS status";classification=''},
+  @{id='UnexpectedResultSetStops';sql="SELECT N'COMPLETE_FACET_EQUIVALENCE' AS code,N'UNKNOWN' AS status; SELECT N'PRIVATE' AS extra";classification=''},
+  @{id='SqlSyntaxSanitized';sql='SELECT FROM;';classification='SqlSyntaxOrCompatibility'},
+  @{id='UnknownProviderSuppressed';sql="THROW 55555,N'G1_SYNTHETIC_PRIVATE_CANARY',1;";classification='UnclassifiedSqlFailure'},
+  @{id='TimeoutStops';sql="WAITFOR DELAY '00:00:03'; SELECT N'PRIVATE' AS code,N'PASS' AS status";classification='TimeoutOrTransient'}
+ )){
+  $case=$fault.id;$copy=TestCopy $case $fault.sql
+  if($case -ceq 'TimeoutStops'){
+   $f=Join-Path $copy.directory 'collect.ps1';$t=[IO.File]::ReadAllText($f).Replace('$cmd.CommandTimeout=30','$cmd.CommandTimeout=1');[IO.File]::WriteAllText($f,$t);$copy.pin=Rehash $copy.directory
+  }
+  $run=RunCopy $copy;Assert ($run.exit -ne 0 -and -not (Test-Path $copy.evidence) -and ($run.trace -join ',') -ceq '01-target.sql,02-marker.sql,03-catalog.sql')
+  if($fault.classification){Assert ($run.output.Contains('Classification='+$fault.classification))}
+  if($case -ceq 'UnknownProviderSuppressed'){Assert ($run.output.Contains('ProviderCode=Suppressed'))}
+  Pass $case
+ }
+ $case='HashMismatchBeforeSql';$copy=TestCopy $case;$copy.pin='0'*64;$run=RunCopy $copy;Assert ($run.exit -ne 0 -and $run.trace.Count -eq 0);Pass $case
+ }
+ }
+ if(-not $FirstStopOnly){
+ # Only fixture setup executes original candidate phases, not the accepted suite.
+ $case='RealReferenceParameterFacetsAndKeys';$script:referencePhase='MIGRATION_FIXTURE';$diagnosis='NONE'
+ $draft=Join-Path $repo 'docs/release/optionc-canonical-sql-draft/candidate'
+ foreach($n in @(11,12,14,15,16,17,18,19,20)){
+  $dir=Join-Path $draft ('1800_{0:000}' -f $n)
+  Exec $setup ([IO.File]::ReadAllText((Join-Path $dir 'Preflight.sql')))
+  Exec $setup ([IO.File]::ReadAllText((Join-Path $dir 'Up.sql')))
+  if($n -eq 14){Exec $setup ([IO.File]::ReadAllText((Join-Path $dir 'Backfill.sql')))}
+ }
+ # Reproduce the obsolete-reference false failure with frozen parent bytes.
+ $oldReference=(& git -C $repo show 'ac0b14688c21f6b02a53a0f933e5779daaacd735:docs/release/g1-minimal-preflight/necessary-reference.json') -join "`n"
+ Assert ($LASTEXITCODE -eq 0)
+ $oldRows=Rows $setup $catalog $requirements $oldReference
+ $script:referencePhase='RETIRED_CHECK_REFERENCE_NEGATIVE';Assert ((Status $oldRows 'SCOPED_CHECK_DEFINITIONS') -ceq 'FAIL')
+ $rows=Rows $setup $catalog $requirements $reference
+ foreach($code in @('REQUIRED_COLUMNS','SCOPED_COLUMN_FACETS','SCOPED_FK_MAPPINGS')){$script:referencePhase=$code;Assert ((Status $rows $code) -ceq 'PASS')}
+ $script:referencePhase='SCOPED_INDEX_KEYS';Assert ((Status $rows 'SCOPED_INDEX_KEYS') -in @('PASS','UNKNOWN'))
+ $script:referencePhase='SCOPED_CHECK_DEFINITIONS';Assert ((Status $rows 'SCOPED_CHECK_DEFINITIONS') -in @('PASS','UNKNOWN'))
+ $script:referencePhase='COMPLETE_FACET_UNKNOWN';Assert ((Status $rows 'COMPLETE_FACET_EQUIVALENCE') -ceq 'UNKNOWN');Pass $case
+ $script:referencePhase='COMPLETE'
+ $case='DisabledConstraintFails';Exec $setup 'BEGIN TRANSACTION;ALTER TABLE dbo.ChangeRequests NOCHECK CONSTRAINT CK_B3_ChangeRequests_KnownStatus;'
+ try{$rows=Rows $setup $catalog $requirements $reference;Assert ((Status $rows 'SCOPED_CHECK_DEFINITIONS') -ceq 'FAIL' -and (Status $rows 'TRUSTED_RELATIONSHIPS') -ceq 'FAIL')}finally{Exec $setup 'ROLLBACK TRANSACTION;'};Pass $case
+ $case='MissingIndexFails';Exec $setup 'BEGIN TRANSACTION;DROP INDEX UX_B3_ChangeRequests_RequestPublicId ON dbo.ChangeRequests;'
+ try{$rows=Rows $setup $catalog $requirements $reference;Assert ((Status $rows 'SCOPED_INDEX_KEYS') -ceq 'FAIL')}finally{Exec $setup 'ROLLBACK TRANSACTION;'};Pass $case
+ $case='ColumnFacetDriftFails';Exec $setup 'BEGIN TRANSACTION;ALTER TABLE dbo.ChangeRequestEvents DROP CONSTRAINT CK_B3_ChangeRequestEvents_DetailsJson;ALTER TABLE dbo.ChangeRequestEvents ALTER COLUMN DetailsJson nvarchar(1000) NULL;'
+ try{$rows=Rows $setup $catalog $requirements $reference;Assert ((Status $rows 'SCOPED_COLUMN_FACETS') -ceq 'FAIL')}finally{Exec $setup 'ROLLBACK TRANSACTION;'};Pass $case
+ $case='RestrictedMetadataStops';Exec $setup 'CREATE USER G1SyntheticRestricted WITHOUT LOGIN;GRANT SELECT ON SCHEMA::dbo TO G1SyntheticRestricted;DENY VIEW DEFINITION TO G1SyntheticRestricted;EXECUTE AS USER=N''G1SyntheticRestricted'';'
+ try{$rows=Rows $setup ([IO.File]::ReadAllText((Join-Path $package '01-target.sql')));Assert ((Status $rows 'VISIBILITY') -ceq 'UNKNOWN')}finally{Exec $setup 'REVERT;'};Pass $case
+ }
+ }
+ if(-not $FirstStopOnly){
+ $case='DeniedDdlRegistryObservedConnectedOnly';$script:permissionPhase='PERMISSION_SETUP';$diagnosis='NONE'
+ if($PermissionOnly){Exec $setup 'CREATE USER G1SyntheticRestricted WITHOUT LOGIN;GRANT SELECT ON SCHEMA::dbo TO G1SyntheticRestricted;'}
+ # DENY CONTROL also denies CONNECT. Do not grant CONTROL; test effective
+ # absence of CONTROL while allowing this disposable principal to run SELECT.
+ Exec $setup 'GRANT VIEW DEFINITION TO G1SyntheticRestricted;DENY ALTER,CREATE TABLE TO G1SyntheticRestricted;DENY ALTER ON SCHEMA::dbo TO G1SyntheticRestricted;DENY INSERT,UPDATE,DELETE ON dbo.SchemaVersions TO G1SyntheticRestricted;'
+ $rows=Rows $setup "SELECT N'IDENTITY_RESTORED' AS code,CASE WHEN USER_ID()=DATABASE_PRINCIPAL_ID(N'dbo') THEN N'PASS' ELSE N'FAIL' END AS status"
+ Assert ((Status $rows 'IDENTITY_RESTORED') -ceq 'PASS')
+ $impersonated=$false
+ try{
+  Exec $setup 'EXECUTE AS USER=N''G1SyntheticRestricted'';';$impersonated=$true
+  $script:permissionPhase='PERMISSION_QUERY_ASSERTION'
+  $rows=Rows $setup ([IO.File]::ReadAllText((Join-Path $package '04-permissions.sql')))
+  foreach($code in @('NO_DATABASE_CONTROL','NO_DATABASE_ALTER','NO_CREATE_TABLE','NO_SCHEMA_ALTER','NO_REGISTRY_INSERT','NO_REGISTRY_UPDATE','NO_REGISTRY_DELETE')){Assert ((Status $rows $code) -ceq 'PASS')}
+  Assert ((Status $rows 'API_PRINCIPAL_BINDING') -ceq 'UNKNOWN')
+  Assert ((Status $rows 'API_OPERATION_PERMISSION_MATRIX') -ceq 'UNKNOWN')
+ }finally{
+  $previousPhase=$script:permissionPhase;$script:permissionPhase='IDENTITY_RESTORE'
+  if($impersonated){Exec $setup 'REVERT;'}
+  $restored=Rows $setup "SELECT N'IDENTITY_RESTORED' AS code,CASE WHEN USER_ID()=DATABASE_PRINCIPAL_ID(N'dbo') THEN N'PASS' ELSE N'FAIL' END AS status"
+  Assert ((Status $restored 'IDENTITY_RESTORED') -ceq 'PASS')
+  $script:permissionPhase=$previousPhase
+ };Pass $case
+ $case='Complete';Assert ($results.Count -eq $(if($PermissionOnly){1}elseif($ReferenceOnly){6}else{19}))
+ }else{$case='DiagnosticComplete'}
+}catch{
+ if($diagnosis -notin @('COLLECTOR_EXIT_UNEXPECTED','EXPECTED_STAGE_SEQUENCE_MISMATCH','EVIDENCE_MISSING_OR_INVALID','CATALOG_ASSERTION_MISMATCH','PERMISSIONS_ASSERTION_MISMATCH','HARNESS_FAILURE_OTHER')){$diagnosis='HARNESS_FAILURE_OTHER'}
+ Write-Output "PreflightDiagnostic=$diagnosis;"
+ Write-Output "CollectorStopPhase=$script:collectorStopPhase;"
+ Write-Output "CollectorFailureClassification=$script:collectorFailureClassification;"
+ Write-Output "CollectorReturn=$script:collectorReturn;"
+ Write-Output "CollectorGuard=$script:collectorGuard;"
+ if($script:permissionPhase -in @('PERMISSION_SETUP','PERMISSION_QUERY_ASSERTION','IDENTITY_RESTORE')){Write-Output "PermissionPhase=$script:permissionPhase;"}
+ if($script:referencePhase -in @('NOT_STARTED','MIGRATION_FIXTURE','PARAMETER_BINDING','SQL_EXECUTION','RESULT_SET_CONTRACT','RETIRED_CHECK_REFERENCE_NEGATIVE','REQUIRED_COLUMNS','SCOPED_COLUMN_FACETS','SCOPED_FK_MAPPINGS','SCOPED_INDEX_KEYS','SCOPED_CHECK_DEFINITIONS','COMPLETE_FACET_UNKNOWN','COMPLETE')){Write-Output "ReferencePhase=$script:referencePhase;"}
+ Write-Output "PreflightCase=$case; Status=STOP; Details=SUPPRESSED;"
+ # Diagnostic line number only, never exception text or SQL metadata.
+ Write-Output "PreflightHarnessLine=$($_.InvocationInfo.ScriptLineNumber);"
+ $script:failed=$true
+}finally{
+ if($null -ne $setup){$setup.Dispose()}
+ if($null -ne $admin){
+  if($db -cmatch '^OptionCIsolated_[0-9a-f]{32}$'){
+   try{Exec $admin "ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;DROP DATABASE [$db]"}catch{Write-Output 'PreflightCleanup=STOP; Details=SUPPRESSED;';$script:failed=$true}
+  };$admin.Dispose()
+ }
+ if($temp){Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue}
+ $artifact=Join-Path $repo 'artifacts';New-Item -ItemType Directory -Force $artifact|Out-Null
+ @{contract='g1-minimal-preflight-disposable-v1';source=$env:GITHUB_SHA;base='88c21921860888f531a0962867f916c307452bbc';cases=$results.ToArray();passed=($case -in @('Complete','DiagnosticComplete') -and -not $script:failed);diagnosticOnly=[bool]$FirstStopOnly;diagnosis=$diagnosis;collectorStopPhase=$script:collectorStopPhase;collectorFailureClassification=$script:collectorFailureClassification;collectorReturn=$script:collectorReturn;collectorGuard=$script:collectorGuard;provider='SQL_SERVER_2022_DEVELOPER_LOCAL';testOnlyTargetAndTimeoutDerivatives=$true;apiPrincipalBinding='UNKNOWN';liveSql=$false;acceptedSuiteRerun=$false}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $artifact 'preflight-sql.json') -Encoding utf8
+}
+if($script:failed){exit 1}

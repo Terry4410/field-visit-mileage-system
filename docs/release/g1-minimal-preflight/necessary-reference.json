@@ -1,0 +1,1619 @@
+{
+  "rc": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "scope": "CANDIDATE_NECESSARY_CONTRACT_NOT_OBSERVED_UAT",
+  "inputs": {
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Up.sql": "cdb85749fee47f7480c410792879a6cf885ac2aae5107dfefd3418bc8fa2fd6a",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Up.sql": "84905dc6efccd0a711878e37f0688e011f259b64cb37799967219d7df7d7c7e7",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Up.sql": "2ced64461913036b77a1416caadf1bdb68460adba2eaf95adeb47e08fc37d69e",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Up.sql": "9e49451c35395d2402c0d10964ac707f1462ae481a0978c3693f0088e2b1d75d",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Up.sql": "a3f7d28dac6425547eec9c36ebb915dd34d91f09c98e49da21e888b7e489d057",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql": "59d9363b59aacad362c9dd41ca0ed0c7111d1f550972e1aae7544fd3a61abd3a",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Up.sql": "3b80b40f8cbeeecbd21db746ab6788f4b94500a5c69f372b254a52c42a1c0d55",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Up.sql": "c27ecce42d5af777c6553648a9e11ef6261d76d52f8dfc4815b50f56a551f6c4",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql": "6bbad476386d8c7353496ea850c636371ebeb9501c98cc2505ef7f4c1bf1ab53",
+    "backend/src/FieldVisit.Infrastructure/AppDbContext.cs": "dcbc2fc34c091310d49005c5280a9fb07de32312056b1757a5b88b746c6e1377",
+    "database/015_schema_v1_5_verify.sql": "f43e23c8201cc651464f8aa95bcf9de160d84866273df209d47082c0fa12fc63",
+    "docs/release/SCHEME_A_BUSINESS_UAT_ROLE_CASES_NONDEPLOY.md": "2c1f4ed240e1597e00159dafa5a8b49b743154af6af6e331e6ac8db1c6936452",
+    "database/migrations/1800_001_organization_center_team_lifecycle/Up.sql": "8e21073a1cd8bf239ad20504e670ea8c0df69cf02f630bb92f473465fbd6726c",
+    "database/migrations/1800_002_person_employment_role_membership/Up.sql": "82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87",
+    "database/migrations/1800_003_deployment_sites/Up.sql": "e8dea828f29dc64c99b59a042be75580c08c4dfbc9f681223d30950dad3f4aab",
+    "database/migrations/1800_004_location_governance/Up.sql": "f7ab917e9fd0c10f5e88a5cd6534f5f91c27bb372615ad733e7b7c1fc22d9cb6",
+    "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql": "4a78f8d53f77111b1c445bf9669274cbc70824ca589b0d8322367e5257551d10",
+    "database/migrations/1800_006_notification_framework/Up.sql": "69f3b864e91131ef0ffbc95e515aeac29ad1b1c2b48d9eb8e66cdb737eabcd56",
+    "database/migrations/1800_007_mileage_google_governance/Up.sql": "d89a061c15c95427a0cb1793b762a7fce306cd8019f276bb26664f617ffa364d",
+    "database/migrations/1800_008_rate_manual_effective_dates/Up.sql": "d5d13d242898bbefa9a5adafcfd90487514a621631eeb4c2ee83b0bf3754e4fd",
+    "database/migrations/1800_009_one_stop_route_attempt_constraint/Up.sql": "2a43a20be088887c082721b8facaf153a655b488fc2c6566c1e4d5ccad17f625",
+    "database/migrations/1800_010_background_mileage_reason_constraint/Up.sql": "aa56e3c1f847e252b089b572ab35a0aede65dc9dbd6d1d657ebc4c0ae6e775c8"
+  },
+  "columns": [
+    {
+      "table": "ChangeRequests",
+      "column": "ChangeRequestId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 1,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "RequestPublicId",
+      "type": "uniqueidentifier",
+      "max_length": 16,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "OrganizationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "TeamId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "EntityKind",
+      "type": "nvarchar",
+      "max_length": 80,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "EntityId",
+      "type": "nvarchar",
+      "max_length": 160,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "OperationCode",
+      "type": "nvarchar",
+      "max_length": 160,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "RiskCode",
+      "type": "nvarchar",
+      "max_length": 40,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "ExpectedEntityRowVersion",
+      "type": "varbinary",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "BeforeJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "ProposedJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "EvidenceJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "RequestedByUserId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "SubmittedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "Status",
+      "type": "nvarchar",
+      "max_length": 60,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "ReviewedByUserId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "ReviewedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "ReviewReason",
+      "type": "nvarchar",
+      "max_length": 2000,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "AppliedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "column": "RowVersion",
+      "type": "timestamp",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "ChangeRequestEventId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 1,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "ChangeRequestId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "EventType",
+      "type": "nvarchar",
+      "max_length": 80,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "ActorUserId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "OccurredAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "CorrelationId",
+      "type": "uniqueidentifier",
+      "max_length": 16,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "DecisionKey",
+      "type": "uniqueidentifier",
+      "max_length": 16,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "column": "DetailsJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "011"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "ChangeRequestId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "LocationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "OrganizationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "TeamId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "ExpectedLocationRowVersion",
+      "type": "binary",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "ProposedJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "ProposedSha256",
+      "type": "binary",
+      "max_length": 32,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "StageStatus",
+      "type": "nvarchar",
+      "max_length": 60,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "GeocodeStatus",
+      "type": "nvarchar",
+      "max_length": 40,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "GeocodeAddressSha256",
+      "type": "binary",
+      "max_length": 32,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "Latitude",
+      "type": "decimal",
+      "max_length": 9,
+      "precision": 10,
+      "scale": 7,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "Longitude",
+      "type": "decimal",
+      "max_length": 9,
+      "precision": 10,
+      "scale": 7,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "DuplicateReviewStatus",
+      "type": "nvarchar",
+      "max_length": 40,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "DuplicateEvidenceSha256",
+      "type": "binary",
+      "max_length": 32,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "CreatedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "UpdatedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "column": "RowVersion",
+      "type": "timestamp",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "LocationPublishedVersionId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 1,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "LocationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "VersionNumber",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "ChangeRequestId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "IsCurrent",
+      "type": "bit",
+      "max_length": 1,
+      "precision": 1,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "PublishedJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "PublishedSha256",
+      "type": "binary",
+      "max_length": 32,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "PublishedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "PublishedByUserId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "column": "SourceLocationRowVersion",
+      "type": "binary",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "014"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "ChangeRequestLeaderReviewId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 1,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "ChangeRequestId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "ReviewStage",
+      "type": "nvarchar",
+      "max_length": 60,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "Status",
+      "type": "nvarchar",
+      "max_length": 40,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "ReviewerUserId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "ReviewedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "Reason",
+      "type": "nvarchar",
+      "max_length": 2000,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "DecisionKey",
+      "type": "uniqueidentifier",
+      "max_length": 16,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "EvidenceJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "column": "RowVersion",
+      "type": "timestamp",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "016"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "ChangeRequestId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "LocationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "OrganizationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "TeamId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "ReservedLocationRowVersion",
+      "type": "binary",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "ReservationStatus",
+      "type": "nvarchar",
+      "max_length": 40,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "CreatedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "UpdatedAt",
+      "type": "datetime2",
+      "max_length": 7,
+      "precision": 23,
+      "scale": 3,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "column": "RowVersion",
+      "type": "timestamp",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "017"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "ChangeRequestId",
+      "type": "bigint",
+      "max_length": 8,
+      "precision": 19,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SourceLocationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SurvivorLocationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SourceOrganizationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SurvivorOrganizationId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SourceTeamId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SurvivorTeamId",
+      "type": "int",
+      "max_length": 4,
+      "precision": 10,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SourceLocationRowVersion",
+      "type": "binary",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "SurvivorLocationRowVersion",
+      "type": "binary",
+      "max_length": 8,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "BeforeJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "ProposedJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 0,
+      "is_identity": 0,
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "column": "EvidenceJson",
+      "type": "nvarchar",
+      "max_length": -1,
+      "precision": 0,
+      "scale": 0,
+      "is_nullable": 1,
+      "is_identity": 0,
+      "migration": "019"
+    }
+  ],
+  "checks": [
+    {
+      "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_ExpectedLocationVersion",
+      "definition": "([ExpectedEntityRowVersion] IS NOT NULL AND DATALENGTH([ExpectedEntityRowVersion])=8)",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_ProposedJson",
+      "definition": "(ISJSON([ProposedJson])=1)",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "CK_B3_ChangeRequestEvents_DetailsJson",
+      "definition": "([DetailsJson] IS NULL OR ISJSON([DetailsJson])=1)",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_KnownStatus",
+      "definition": "([Status] IN(N'Pending',N'Rejected',N'Applied'))",
+      "migration": "012"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_Json",
+      "definition": "(ISJSON(ProposedJson)=1)",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_Hash",
+      "definition": "(ProposedSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),ProposedJson)))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_Status",
+      "definition": "(StageStatus IN(N'PendingGeocode',N'PendingDuplicateReview',N'ReadyForPublish',N'Published',N'Abandoned'))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_Geocode",
+      "definition": "(GeocodeStatus IN(N'Pending',N'Succeeded',N'Failed',N'NotRequired'))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_Duplicate",
+      "definition": "(DuplicateReviewStatus IN(N'Pending',N'Cleared',N'Blocked'))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_Coordinates",
+      "definition": "((Latitude IS NULL AND Longitude IS NULL) OR\n             (Latitude BETWEEN -90 AND 90 AND Longitude BETWEEN -180 AND 180))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_GeocodeEvidence",
+      "definition": "(GeocodeStatus<>N'Succeeded' OR\n             (GeocodeAddressSha256 IS NOT NULL AND Latitude IS NOT NULL AND Longitude IS NOT NULL))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_AddressBinding",
+      "definition": "(GeocodeStatus<>N'Succeeded' OR\n             (JSON_VALUE(ProposedJson,N'$.Address') IS NOT NULL AND\n              GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(ProposedJson,N'$.Address')))))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_DuplicateBinding",
+      "definition": "(DuplicateReviewStatus<>N'Cleared' OR DuplicateEvidenceSha256=ProposedSha256)",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "CK_OptionC_Stage_Ready",
+      "definition": "(StageStatus<>N'ReadyForPublish' OR\n             (DuplicateReviewStatus=N'Cleared' AND DuplicateEvidenceSha256 IS NOT NULL\n              AND GeocodeStatus IN(N'Succeeded',N'NotRequired')))",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "CK_OptionC_Published_Number",
+      "definition": "(VersionNumber>0)",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "CK_OptionC_Published_Json",
+      "definition": "(ISJSON(PublishedJson)=1)",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "CK_OptionC_Published_Hash",
+      "definition": "(PublishedSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),PublishedJson)))",
+      "migration": "014"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "name": "CK_OptionC_LeaderReview_Stage",
+      "definition": "(ReviewStage=N'LeaderFirstLevel')",
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "name": "CK_OptionC_LeaderReview_Status",
+      "definition": "(Status IN(N'Pending',N'Approved',N'Rejected'))",
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "name": "CK_OptionC_LeaderReview_DecisionState",
+      "definition": "(\n            (Status=N'Pending' AND ReviewerUserId IS NULL AND ReviewedAt IS NULL\n                AND DecisionKey IS NULL)\n            OR\n            (Status IN(N'Approved',N'Rejected') AND ReviewerUserId IS NOT NULL\n                AND ReviewedAt IS NOT NULL AND DecisionKey IS NOT NULL\n                AND LEN(LTRIM(RTRIM(ISNULL(Reason,N''))))>0))",
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_KnownCodes",
+      "definition": "(EntityKind=N'Location' AND\n          ((OperationCode=N'CreateLocation' AND RiskCode=N'High')\n           OR (OperationCode=N'UpdatePublishedLocation'\n               AND RiskCode IN(N'Low',N'High'))))",
+      "migration": "017"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "CK_OptionC_CreateLowRisk_BeforeImage",
+      "definition": "((OperationCode=N'CreateLocation' AND BeforeJson IS NULL)\n           OR (OperationCode=N'UpdatePublishedLocation'\n               AND BeforeJson IS NOT NULL AND ISJSON(BeforeJson)=1))",
+      "migration": "017"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "CK_OptionC_Published_Origin",
+      "definition": "(VersionNumber=1 OR\n              (VersionNumber>1 AND ChangeRequestId IS NOT NULL))",
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "name": "CK_OptionC_CreateReservation_Status",
+      "definition": "(ReservationStatus IN(N'Pending',N'Published',N'Abandoned'))",
+      "migration": "017"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "CK_B3_ChangeRequests_ReviewState",
+      "definition": "((Status=N'Pending' AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL\n    AND ReviewReason IS NULL AND AppliedAt IS NULL)\n OR (Status=N'Rejected' AND ReviewedByUserId IS NOT NULL\n    AND ReviewedByUserId<>RequestedByUserId AND ReviewedAt IS NOT NULL\n    AND ReviewedAt>=SubmittedAt AND ReviewReason IS NOT NULL\n    AND LEN(LTRIM(RTRIM(ReviewReason)))>0 AND AppliedAt IS NULL)\n OR (Status=N'Applied' AND\n    ((ReviewedByUserId IS NOT NULL AND ReviewedByUserId<>RequestedByUserId\n      AND ReviewedAt IS NOT NULL AND ReviewedAt>=SubmittedAt)\n     OR\n     (OperationCode=N'UpdatePublishedLocation' AND RiskCode=N'Low'\n      AND ReviewedByUserId IS NULL AND ReviewedAt IS NULL\n      AND ISJSON(EvidenceJson)=1\n      AND JSON_VALUE(EvidenceJson,N'$.PublicationMode')=N'DirectLowRisk'))\n    AND ReviewReason IS NOT NULL AND LEN(LTRIM(RTRIM(ReviewReason)))>0\n    AND AppliedAt IS NOT NULL AND AppliedAt>=SubmittedAt))",
+      "migration": "018"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "CK_B3_ChangeRequestEvents_EventType",
+      "definition": "(EventType IN(N'Submitted',N'Rejected',N'Approved',N'Applied',\n    N'GeocodeEvidenceRecorded',N'DuplicateReviewEvidenceRecorded',\n    N'LeaderApproved',N'LeaderRejected',N'DirectLowRiskApplied'))",
+      "migration": "018"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "CK_B3_ChangeRequestEvents_DecisionState",
+      "definition": "(ActorUserId IS NOT NULL AND ActorUserId>0\n  AND CorrelationId<>'00000000-0000-0000-0000-000000000000'\n  AND ((EventType IN(N'Submitted',N'Applied') AND DecisionKey IS NULL)\n    OR (EventType IN(N'Rejected',N'Approved',N'GeocodeEvidenceRecorded',\n         N'DuplicateReviewEvidenceRecorded',N'LeaderApproved',N'LeaderRejected',\n         N'DirectLowRiskApplied')\n        AND DecisionKey IS NOT NULL\n        AND DecisionKey<>'00000000-0000-0000-0000-000000000000')))",
+      "migration": "018"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "name": "CK_OptionC_MergeDetails_Different",
+      "definition": "(SourceLocationId<>SurvivorLocationId)",
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "name": "CK_OptionC_MergeDetails_SameOrg",
+      "definition": "(SourceOrganizationId=SurvivorOrganizationId)",
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "name": "CK_OptionC_MergeDetails_Teams",
+      "definition": "(SourceTeamId=SurvivorTeamId AND SourceTeamId>0)",
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "name": "CK_OptionC_MergeDetails_RowVersions",
+      "definition": "(DATALENGTH(SourceLocationRowVersion)=8 AND DATALENGTH(SurvivorLocationRowVersion)=8)",
+      "migration": "019"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "name": "CK_OptionC_MergeDetails_Json",
+      "definition": "(ISJSON(BeforeJson)=1 AND ISJSON(ProposedJson)=1 AND (EvidenceJson IS NULL OR ISJSON(EvidenceJson)=1))",
+      "migration": "019"
+    },
+    {
+      "table": "ImportBatches",
+      "name": "CK_ImportBatches_Status",
+      "definition": "(Status IN(\n      N'Previewed',N'Confirmed',N'PartiallyFailed',\n      N'PartiallySubmittedForReview',N'SubmittedForReview'))",
+      "migration": "020"
+    },
+    {
+      "table": "ImportBatchItems",
+      "name": "CK_ImportBatchItems_Status",
+      "definition": "(Status IN(\n      N'Valid',N'Error',N'Applied',N'Failed',N'SubmittedForReview'))",
+      "migration": "020"
+    }
+  ],
+  "indexes": [
+    {
+      "table": "ChangeRequests",
+      "name": "UX_B3_ChangeRequests_RequestPublicId",
+      "unique": true,
+      "keys": [
+        "RequestPublicId"
+      ],
+      "filter": null,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "UX_B3_ChangeRequests_Org_Entity_Pending",
+      "unique": true,
+      "keys": [
+        "OrganizationId",
+        "EntityKind",
+        "EntityId"
+      ],
+      "filter": "[Status]=N'Pending'",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "IX_B3_ChangeRequests_Org_Status_SubmittedAt",
+      "unique": false,
+      "keys": [
+        "OrganizationId",
+        "Status",
+        "SubmittedAt"
+      ],
+      "filter": null,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "IX_B3_ChangeRequests_Requester_SubmittedAt",
+      "unique": false,
+      "keys": [
+        "RequestedByUserId",
+        "SubmittedAt"
+      ],
+      "filter": null,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "UX_B3_ChangeRequestEvents_DecisionKey",
+      "unique": true,
+      "keys": [
+        "DecisionKey"
+      ],
+      "filter": "[DecisionKey] IS NOT NULL",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "IX_B3_ChangeRequestEvents_Request_OccurredAt",
+      "unique": false,
+      "keys": [
+        "ChangeRequestId",
+        "OccurredAt",
+        "ChangeRequestEventId"
+      ],
+      "filter": null,
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "IX_B3_ChangeRequestEvents_CorrelationId",
+      "unique": false,
+      "keys": [
+        "CorrelationId"
+      ],
+      "filter": null,
+      "migration": "011"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "UX_OptionC_Stages_Request",
+      "unique": true,
+      "keys": [
+        "ChangeRequestId"
+      ],
+      "filter": null,
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "UX_OptionC_Stages_OpenLocation",
+      "unique": true,
+      "keys": [
+        "OrganizationId",
+        "LocationId"
+      ],
+      "filter": "StageStatus IN(N'PendingGeocode',N'PendingDuplicateReview',N'ReadyForPublish')",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "UX_OptionC_Published_Current",
+      "unique": true,
+      "keys": [
+        "LocationId"
+      ],
+      "filter": "IsCurrent=1",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "UX_OptionC_Published_Request",
+      "unique": true,
+      "keys": [
+        "ChangeRequestId"
+      ],
+      "filter": "ChangeRequestId IS NOT NULL",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "UX_OptionC_Published_Number",
+      "unique": true,
+      "keys": [
+        "LocationId",
+        "VersionNumber"
+      ],
+      "filter": null,
+      "migration": "014"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "name": "UX_OptionC_LeaderReview_Request_Stage",
+      "unique": true,
+      "keys": [
+        "ChangeRequestId",
+        "ReviewStage"
+      ],
+      "filter": null,
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "name": "UX_OptionC_LeaderReview_DecisionKey",
+      "unique": true,
+      "keys": [
+        "DecisionKey"
+      ],
+      "filter": "DecisionKey IS NOT NULL",
+      "migration": "016"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "name": "UX_OptionC_CreateReservation_Location",
+      "unique": true,
+      "keys": [
+        "LocationId"
+      ],
+      "filter": null,
+      "migration": "017"
+    }
+  ],
+  "foreignKeys": [
+    {
+      "table": "ChangeRequests",
+      "name": "FK_B3_Requests_Org",
+      "columns": [
+        "OrganizationId"
+      ],
+      "referencedTable": "Organizations",
+      "referencedColumns": [
+        "OrganizationId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "FK_B3_Requests_Team",
+      "columns": [
+        "TeamId"
+      ],
+      "referencedTable": "Teams",
+      "referencedColumns": [
+        "TeamId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "FK_B3_Requests_Requester",
+      "columns": [
+        "RequestedByUserId"
+      ],
+      "referencedTable": "Users",
+      "referencedColumns": [
+        "UserId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequests",
+      "name": "FK_B3_Requests_Reviewer",
+      "columns": [
+        "ReviewedByUserId"
+      ],
+      "referencedTable": "Users",
+      "referencedColumns": [
+        "UserId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "FK_B3_Events_Request",
+      "columns": [
+        "ChangeRequestId"
+      ],
+      "referencedTable": "ChangeRequests",
+      "referencedColumns": [
+        "ChangeRequestId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "011"
+    },
+    {
+      "table": "ChangeRequestEvents",
+      "name": "FK_B3_Events_Actor",
+      "columns": [
+        "ActorUserId"
+      ],
+      "referencedTable": "Users",
+      "referencedColumns": [
+        "UserId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "011"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "FK_OptionC_Stage_Request",
+      "columns": [
+        "ChangeRequestId"
+      ],
+      "referencedTable": "ChangeRequests",
+      "referencedColumns": [
+        "ChangeRequestId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "FK_OptionC_Stage_Location",
+      "columns": [
+        "LocationId"
+      ],
+      "referencedTable": "Locations",
+      "referencedColumns": [
+        "LocationId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "FK_OptionC_Stage_Org",
+      "columns": [
+        "OrganizationId"
+      ],
+      "referencedTable": "Organizations",
+      "referencedColumns": [
+        "OrganizationId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublicationStages",
+      "name": "FK_OptionC_Stage_Team",
+      "columns": [
+        "TeamId"
+      ],
+      "referencedTable": "Teams",
+      "referencedColumns": [
+        "TeamId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "FK_OptionC_Published_Location",
+      "columns": [
+        "LocationId"
+      ],
+      "referencedTable": "Locations",
+      "referencedColumns": [
+        "LocationId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "014"
+    },
+    {
+      "table": "LocationPublishedVersions",
+      "name": "FK_OptionC_Published_Request",
+      "columns": [
+        "ChangeRequestId"
+      ],
+      "referencedTable": "ChangeRequests",
+      "referencedColumns": [
+        "ChangeRequestId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "014"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "name": "FK_OptionC_LeaderReview_Request",
+      "columns": [
+        "ChangeRequestId"
+      ],
+      "referencedTable": "ChangeRequests",
+      "referencedColumns": [
+        "ChangeRequestId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "016"
+    },
+    {
+      "table": "ChangeRequestLeaderReviews",
+      "name": "FK_OptionC_LeaderReview_Reviewer",
+      "columns": [
+        "ReviewerUserId"
+      ],
+      "referencedTable": "Users",
+      "referencedColumns": [
+        "UserId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "016"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "name": "FK_OptionC_CreateReservation_Request",
+      "columns": [
+        "ChangeRequestId"
+      ],
+      "referencedTable": "ChangeRequests",
+      "referencedColumns": [
+        "ChangeRequestId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "name": "FK_OptionC_CreateReservation_Location",
+      "columns": [
+        "LocationId"
+      ],
+      "referencedTable": "Locations",
+      "referencedColumns": [
+        "LocationId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "name": "FK_OptionC_CreateReservation_Org",
+      "columns": [
+        "OrganizationId"
+      ],
+      "referencedTable": "Organizations",
+      "referencedColumns": [
+        "OrganizationId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "017"
+    },
+    {
+      "table": "LocationCreateReservations",
+      "name": "FK_OptionC_CreateReservation_Team",
+      "columns": [
+        "TeamId"
+      ],
+      "referencedTable": "Teams",
+      "referencedColumns": [
+        "TeamId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "017"
+    },
+    {
+      "table": "LocationMergeDetails",
+      "name": "FK_OptionC_MergeDetails_Request",
+      "columns": [
+        "ChangeRequestId"
+      ],
+      "referencedTable": "ChangeRequests",
+      "referencedColumns": [
+        "ChangeRequestId"
+      ],
+      "deleteAction": "NO_ACTION",
+      "updateAction": "NO_ACTION",
+      "migration": "019"
+    }
+  ],
+  "sourceOnly": [
+    "010 deployed metadata NOT OBSERVED",
+    "base010 exact facets/FK/index/trigger reconciliation UNKNOWN",
+    "candidate defaults/PK/triggers and full EF property comparison require review",
+    "history row consistency NOT OBSERVED; accepted regression is synthetic only",
+    "019 not mandatory for frozen25;013 reserved"
+  ]
+}

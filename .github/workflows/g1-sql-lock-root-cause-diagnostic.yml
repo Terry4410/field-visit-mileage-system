@@ -1,0 +1,99 @@
+name: G1 SQL Lock Root Cause Diagnostic NONDEPLOY
+
+on:
+  push:
+    branches: [work/g1-uat-migration-readiness-20261020]
+    paths:
+      - scripts/ci/g1_sql_lock_root_cause_diagnostic.ps1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-sql-lock-root-cause-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/g1-uat-migration-readiness-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FROZEN_SOURCE_SHA: dbf5f2d1fa1bf7182918540f992c58629eac78ba
+      PROMOTION_SHA256: 91b4efaa20bfc21e730466efa0a32e6a6ab8916b3003c8c35fc9c15978bdb84a
+      VERIFY_SHA256: 8bcc6e3001c6ad3fc0bad264e1122a2416088c08877e1bbd4a39742909355d12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Exact frozen-parent and diagnostic-only guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$FROZEN_SOURCE_SHA"
+          test "$(git rev-parse "$FROZEN_SOURCE_SHA^{tree}")" = e57d8119a7659f5e05420494321b4bf6c235f457
+          test "$(sha256sum docs/release/g1-execution/promotion/Promotion.sql | cut -d' ' -f1)" = "$PROMOTION_SHA256"
+          test "$(sha256sum docs/release/g1-execution/promotion/Verify.sql | cut -d' ' -f1)" = "$VERIFY_SHA256"
+          git diff --name-only "$FROZEN_SOURCE_SHA" HEAD | sort > "$RUNNER_TEMP/actual-files"
+          printf '%s\n' \
+            .github/workflows/g1-sql-lock-root-cause-diagnostic.yml \
+            .github/workflows/leader-uat010-rc-nondeploy.yml \
+            scripts/ci/g1_sql_lock_root_cause_diagnostic.ps1 > "$RUNNER_TEMP/expected-files"
+          diff -u "$RUNNER_TEMP/expected-files" "$RUNNER_TEMP/actual-files"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          echo 'DiagnosticSourceGuard=PASS; FrozenParent=PASS; CandidateSql=UNCHANGED;'
+
+      - name: Start isolated SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 24)!G1a"
+          connection="Server=localhost,1433;Database=master;User Id=sa;Password=${password};Encrypt=False;TrustServerCertificate=True;Connect Timeout=5;ConnectRetryCount=0"
+          echo "::add-mask::$password"
+          echo "::add-mask::$connection"
+          envfile="$RUNNER_TEMP/g1-lock-diagnostic.env"
+          umask 077
+          printf 'ACCEPT_EULA=Y\nMSSQL_PID=Developer\nMSSQL_SA_PASSWORD=%s\n' "$password" > "$envfile"
+          docker run -d --name g1-lock-diagnostic-sql -p 127.0.0.1:1433:1433 --env-file "$envfile" mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          rm -f "$envfile"
+          ready=0
+          for _ in $(seq 1 24); do
+            if docker exec -e "SQLCMDPASSWORD=$password" g1-lock-diagnostic-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = 1
+          printf 'E1_R1_SQL_CONNECTION=%s\n' "$connection" >> "$GITHUB_ENV"
+          echo 'DisposableProvider=PASS; Engine=SQL_SERVER_2022; Target=LOCAL_ONLY;'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install pinned SQL client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          try { Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop | Out-Null }
+          catch { Write-Output 'DisposableClient=STOP; Details=SUPPRESSED;'; exit 1 }
+
+      - name: Run one-shot lock diagnostic
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/ci/g1_sql_lock_root_cause_diagnostic.ps1
+
+      - name: Stop disposable provider
+        if: always()
+        shell: bash
+        run: docker rm -f g1-lock-diagnostic-sql >/dev/null 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: g1-sql-lock-root-cause-${{ github.sha }}
+          path: artifacts/g1-sql-lock-root-cause.json
+          if-no-files-found: warn
+          retention-days: 7

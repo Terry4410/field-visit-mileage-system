@@ -1,0 +1,173 @@
+{
+  "contract": "g1-fixed-target-promotion-v1",
+  "approval": "PROPOSED_NOT_AUTHORIZED",
+  "rcSource": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "acceptedPreparation": "8e4d3dc72a63e324b69253dff9e0cc1d7fef2273",
+  "packageId": "8ba0e373234e3b9d01f3508d55eab7639e74e846e54c15141e44686ca682806d",
+  "server": "sql-fieldvisit-jpe-uat",
+  "database": "db-fieldvisit-uat",
+  "transaction": "ALL_NINE_STEPS_AND_BACKFILL_ATOMIC",
+  "reserved013": "UNCHANGED_ABSENT",
+  "offlineTestGuard": "SQL2022_Developer_only;OptionCIsolated_GUID;explicit_session_context;caller_localhost_only",
+  "sourceHashes": {
+    "scripts/ci/g1_promotion.py": "16b888cac3aa6c5d777a59bb3e0876e78b7915c281f34e7d92b40b5cebf27779",
+    "docs/release/g1-execution/promotion/reference.json": "e598c81c8de029e4bb9ef105814201f89cee27ad0a1fa6c667462ed6b14c9b1b",
+    "docs/release/g1-execution/promotion/CatalogContract.sql": "569b6286426d51d3cc023e3cc879f377da66760750e92a1deeffe4ddf0dfbd52",
+    "docs/release/g1-execution/promotion/HistoryContract.sql": "43edb0823340f78340c5d28733a0acea92f7087a3ac74fb7baa704a9fccb4dd8",
+    "docs/release/g1-execution/promotion/LedgerContract.sql": "e6b15309cd77c5a94492de5d575cfb7e13f60c71666009185c390703d37287a0",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Up.sql": "cdb85749fee47f7480c410792879a6cf885ac2aae5107dfefd3418bc8fa2fd6a",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Up.sql": "84905dc6efccd0a711878e37f0688e011f259b64cb37799967219d7df7d7c7e7",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Up.sql": "2ced64461913036b77a1416caadf1bdb68460adba2eaf95adeb47e08fc37d69e",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Up.sql": "9e49451c35395d2402c0d10964ac707f1462ae481a0978c3693f0088e2b1d75d",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Up.sql": "a3f7d28dac6425547eec9c36ebb915dd34d91f09c98e49da21e888b7e489d057",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql": "59d9363b59aacad362c9dd41ca0ed0c7111d1f550972e1aae7544fd3a61abd3a",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Up.sql": "3b80b40f8cbeeecbd21db746ab6788f4b94500a5c69f372b254a52c42a1c0d55",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Up.sql": "c27ecce42d5af777c6553648a9e11ef6261d76d52f8dfc4815b50f56a551f6c4",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql": "6bbad476386d8c7353496ea850c636371ebeb9501c98cc2505ef7f4c1bf1ab53",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql": "8ef320c4539742017c39908221bdb1b4312024f3b2f5eb0ab172b2a62c52056f",
+    "database/migrations/1800_001_organization_center_team_lifecycle/Up.sql": "8e21073a1cd8bf239ad20504e670ea8c0df69cf02f630bb92f473465fbd6726c",
+    "database/migrations/1800_002_person_employment_role_membership/Up.sql": "82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87",
+    "database/migrations/1800_003_deployment_sites/Up.sql": "e8dea828f29dc64c99b59a042be75580c08c4dfbc9f681223d30950dad3f4aab",
+    "database/migrations/1800_004_location_governance/Up.sql": "f7ab917e9fd0c10f5e88a5cd6534f5f91c27bb372615ad733e7b7c1fc22d9cb6",
+    "database/migrations/1800_005_project_visit_rate_lifecycle/Up.sql": "4a78f8d53f77111b1c445bf9669274cbc70824ca589b0d8322367e5257551d10",
+    "database/migrations/1800_006_notification_framework/Up.sql": "69f3b864e91131ef0ffbc95e515aeac29ad1b1c2b48d9eb8e66cdb737eabcd56",
+    "database/migrations/1800_007_mileage_google_governance/Up.sql": "d89a061c15c95427a0cb1793b762a7fce306cd8019f276bb26664f617ffa364d",
+    "database/migrations/1800_008_rate_manual_effective_dates/Up.sql": "d5d13d242898bbefa9a5adafcfd90487514a621631eeb4c2ee83b0bf3754e4fd",
+    "database/migrations/1800_009_one_stop_route_attempt_constraint/Up.sql": "2a43a20be088887c082721b8facaf153a655b488fc2c6566c1e4d5ccad17f625",
+    "database/migrations/1800_010_background_mileage_reason_constraint/Up.sql": "aa56e3c1f847e252b089b572ab35a0aede65dc9dbd6d1d657ebc4c0ae6e775c8",
+    "scripts/ci/compare_uat010_schema_inventory.py": "0630cad60f8be3fe4f2b58440daea8c8365381a20e90b73ae4d2f4aa0ca98b00",
+    "scripts/ci/uat_schema_r3.hashes.json": "74585811a86adc6c4b1f578ea4f8d26eacbdb1cf4fa5148137c958409737a829",
+    "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/IdentityVersion.sql": "a7f5dad3e306ff29e8b32753f3287604f3c3973d8fd2b62f3f946ed017e5d292",
+    "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/Catalog.sql": "6627fa1aceb702fe09c7caea0be99a1b4afdbd8ef59ccf2b2f96c276a14c9331",
+    "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/HistoricalAccess.sql": "ef9c80d209612b710e77c77139b87b2fe6bdfb54e6a58a46a7e6c54d4c4cfd8d",
+    "docs/release/optionc-canonical-sql-draft/full-scheme-a/r3/HistoricalAggregates.sql": "c7f8af609fc2a6d0d4c1f833e8d42b6981b0a583ea057eda7ee2c07293d0ba87"
+  },
+  "reviewedStagingCommit": "d5ae0b47b8a3c4887fb4e090877e5929749c45b4",
+  "reviewedStagingParent": "b020357b1f1a8b9cdf19512abb653afca883a177",
+  "candidateSourceOverrides": [
+    {
+      "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql",
+      "previousRegistrySha256": "b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed",
+      "reviewedSha256": "8ef320c4539742017c39908221bdb1b4312024f3b2f5eb0ab172b2a62c52056f"
+    }
+  ],
+  "schema010SourceBoundBaseline": {
+    "status": "HOLD",
+    "sourceMigrations": "001-010 source hashes bound in sourceHashes",
+    "acceptedR3": "Four-stage results reused; no complete normalized UAT010 inventory artifact available in accepted run",
+    "requiredComparison": "Full source-derived 001-010 inventory against accepted UAT010 metadata, including 004/007 legacy Location triggers and import CHECK facets",
+    "syntheticReferenceAcceptedAsUatBaseline": false
+  },
+  "originalRegistrySha256": "c5952efe71fb8a476eb91db1d0a828ce5041f57fcf2d4ba898b9454ba41cf3d5",
+  "originalSqlSha256": {
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Preflight.sql": "5552c502fdae46ad42a210d9e44aa457a96d489c6b36fd1a8289aa6d3ecb87fe",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Up.sql": "cdb85749fee47f7480c410792879a6cf885ac2aae5107dfefd3418bc8fa2fd6a",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Verify.sql": "de9375da5e97aa92ab9779e8a02535597c8a52f02174ca86ad1c4b657343a281",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Preflight.sql": "e6e62a9f4d4cfce976ea8ddca558cc5b8eb616c1a812b6ff33c3e8e9a2685737",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Up.sql": "84905dc6efccd0a711878e37f0688e011f259b64cb37799967219d7df7d7c7e7",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Verify.sql": "87726cd3fee1c80e342c8a05135a1cd91675aaa8d9925a4e12dc6543ececfc72",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Preflight.sql": "c5d8b0cd1ccb583ed674aaf7b19eea3a7e55fe7bf59f5572500bd1f891c653c2",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Up.sql": "2ced64461913036b77a1416caadf1bdb68460adba2eaf95adeb47e08fc37d69e",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql": "b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Verify.sql": "972aeb530436adc66be57f8407a7ef1404747725e267e104a442bbdae836d55c",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Preflight.sql": "ddac2676c505434248d1dd1f278b8b095c670222be8b8176a2d4639e8a330603",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Up.sql": "9e49451c35395d2402c0d10964ac707f1462ae481a0978c3693f0088e2b1d75d",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Verify.sql": "c1687d4e7e8cd9fee4f5c046cde018a7749673ca879bf76962e218f8b157b173",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Preflight.sql": "e8fe6c3f594fb4bbb6dcfdac9d5580a9cb560ea43e7c5f8ec105176b41700683",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Up.sql": "a3f7d28dac6425547eec9c36ebb915dd34d91f09c98e49da21e888b7e489d057",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Verify.sql": "05c49d367edba4ec73fd6664eb9f42ca662cb5af3e01f94d044e8165db3b2991",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Preflight.sql": "6b2b94227ae7719c3bb9335dea8af96f3423cd989deee99073f662eb59de1428",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql": "59d9363b59aacad362c9dd41ca0ed0c7111d1f550972e1aae7544fd3a61abd3a",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Verify.sql": "6b0a424052d1d067654ea9feaeac1db467683365693ae7b81d760fc8a801f7e0",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Preflight.sql": "4fa3c5e2c3a978ffd14d93002a91ae53d47f2f5b12f6aa7978f7db260b54d609",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Up.sql": "3b80b40f8cbeeecbd21db746ab6788f4b94500a5c69f372b254a52c42a1c0d55",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Verify.sql": "72a3e4e0fea0c3e5e0ccd15ff599cb8f871554d304098d1fb10b3705eddc666f",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Preflight.sql": "fc13313d0d347d55daa994762a231dabfb8e92258616c6b6e1294d231e2cef27",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Up.sql": "c27ecce42d5af777c6553648a9e11ef6261d76d52f8dfc4815b50f56a551f6c4",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Verify.sql": "bf7236d1463619fe4f104095c86a1336011c7dc2d41fb9b8fead692d2722d540",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Preflight.sql": "a9ae1e6b72917a56340086088c7d5c518c8438b1f93c9d110ae99e42545cce6e",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql": "6bbad476386d8c7353496ea850c636371ebeb9501c98cc2505ef7f4c1bf1ab53",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Verify.sql": "9126ab4dfd9be6f694cc529567ebe4d8c0acf8b0b17641ec31c201ae4e6c9664"
+  },
+  "steps": [
+    {
+      "proposedId": "1.8.0-011",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "b55ed30e002541a17bc0600667d1d1629b6544d3279b6fd5763a2a45109253ca",
+      "postCatalogSha256": "3caffee23251e45a1e1e3e90a1003256cf0ad0be29ab8eeb23bbd5076c4e6405",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-012",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "50812ed02e784d7140cfa7d1fe04b92d4fdfb4ea013c04272ef1f39f4d8d3ac4",
+      "postCatalogSha256": "d46be3bb81f8b4645c5732a68b20bd58f6b16125eeba6c0fce1051ebb6dd135a",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-014",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "017ed453fc8c7d87052974d0eb327ac4a11a785f0a6c2c1a54e38efd5cee16f5",
+      "postCatalogSha256": "89672cbd083bdca08df15f38d9eb7ad8f67ca5319cfe94e97a4e60ee22ae34fe",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-015",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "ae07dd70550c00eaac15c3664d15d557739ef14d681cafb9a472fab256188f7d",
+      "postCatalogSha256": "40825212db9403724893125cdeca4dbe7071d2d6cb25de623093f0bd67fb8879",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-016",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "f7be77add8fcab7f0b4c7c798817f2d399ad1dac4ccf87f335ed69d25de05f94",
+      "postCatalogSha256": "538e93637633603de40410f41ba8dd957c10d01571e7280aa564cbec5dbda6f7",
+      "aliases": [
+        "1.8.0-LEADER-REVIEW"
+      ]
+    },
+    {
+      "proposedId": "1.8.0-017",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "a90f97ff90dd634e2c57a53db5aec06ee1754d4e7da4beabaf27f4a5a3cc6c89",
+      "postCatalogSha256": "dcff6fcb1095204e8a2b1e7bebb9fc8b5a7f3950794b2be71e6b54dfb90b6205",
+      "aliases": [
+        "1.8.0-CREATE-LOWRISK"
+      ]
+    },
+    {
+      "proposedId": "1.8.0-018",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "0787be84c88f841831fdea94a32e678cc204c24218729540d8e36895dcf700c7",
+      "postCatalogSha256": "d619301f85b9061fdaf16bd3da22c1fe37e71088d53eed0abde0ffe679662033",
+      "aliases": [
+        "1.8.0-LOWRISK-DIRECT"
+      ]
+    },
+    {
+      "proposedId": "1.8.0-019",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "e30b1dfa3563fb706e1d1358fb5b42807b2c86ac6494902dc7e2ecb1b492e46b",
+      "postCatalogSha256": "e168885f8f9b9482791b20a2cf301e771380c514c0334d13b904c78e403c558e",
+      "aliases": []
+    },
+    {
+      "proposedId": "1.8.0-020",
+      "assignment": "OWNER_APPROVAL_PENDING",
+      "payloadSha256": "992eb565487f8c24535fd89b3dbdbb28ad292b62120e42287538f940c31c64a7",
+      "postCatalogSha256": "cfaaae20bde78da8ea1327fef077abeca48b7d4579303bf2cb7b62ddda22bd66",
+      "aliases": [
+        "1.8.0-EXCEL-CANONICAL-STATUS"
+      ]
+    }
+  ],
+  "files": {
+    "docs/release/g1-execution/promotion/Promotion.sql": "2ff6301bc53ee567f3e4be6ad2efc56e3ec6dedb0029883a66c2a621b04d03a8",
+    "docs/release/g1-execution/promotion/Verify.sql": "9e685255598d027ec2b6ef1a0f3a33832ae575a49a470328489465f1c876249a",
+    "docs/release/g1-execution/promotion/CatalogContract.sql": "569b6286426d51d3cc023e3cc879f377da66760750e92a1deeffe4ddf0dfbd52",
+    "docs/release/g1-execution/promotion/HistoryContract.sql": "43edb0823340f78340c5d28733a0acea92f7087a3ac74fb7baa704a9fccb4dd8",
+    "docs/release/g1-execution/promotion/LedgerContract.sql": "e6b15309cd77c5a94492de5d575cfb7e13f60c71666009185c390703d37287a0",
+    "docs/release/g1-execution/promotion/reference.json": "e598c81c8de029e4bb9ef105814201f89cee27ad0a1fa6c667462ed6b14c9b1b"
+  }
+}

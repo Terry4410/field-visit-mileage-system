@@ -1,0 +1,432 @@
+{
+  "contract": "g1-migration-promotion-decision-v1",
+  "rcSource": "f29affb3299828f45b1f131321779e8bea2f86a8",
+  "rcTree": "60a9c3308ad052ee71898799c913fe39439237c0",
+  "protectedCheckpoint": "4e02f37c0379f7f8003bb4ec3e8c27f82e31e3dc",
+  "reserved013": "NO_ASSIGNMENT_NO_EXECUTION_NO_CHANGE",
+  "registryDecision": "OWNER_DECISION_PENDING",
+  "uatExecution": "NOT_AUTHORIZED",
+  "promotedSql": null,
+  "promotedSqlReason": "Frozen disposable candidates require a separately reviewed fixed-target derivative, complete state validator and registry decision; no guard stripping or database rename is permitted.",
+  "sequence": [
+    {
+      "proposedId": "1.8.0-011",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "request/event ledger",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "5552c502fdae46ad42a210d9e44aa457a96d489c6b36fd1a8289aa6d3ecb87fe"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "cdb85749fee47f7480c410792879a6cf885ac2aae5107dfefd3418bc8fa2fd6a"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_011/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "de9375da5e97aa92ab9779e8a02535597c8a52f02174ca86ad1c4b657343a281"
+        }
+      ],
+      "createdTables": [
+        "ChangeRequests",
+        "ChangeRequestEvents"
+      ],
+      "declaredConstraints": [
+        "CK_B3_ChangeRequestEvents_DecisionState",
+        "CK_B3_ChangeRequestEvents_DetailsJson",
+        "CK_B3_ChangeRequestEvents_EventType",
+        "CK_B3_ChangeRequests_ExpectedLocationVersion",
+        "CK_B3_ChangeRequests_KnownCodes",
+        "CK_B3_ChangeRequests_KnownStatus",
+        "CK_B3_ChangeRequests_ProposedJson",
+        "CK_B3_ChangeRequests_ReviewState",
+        "FK_B3_Events_Actor",
+        "FK_B3_Events_Request",
+        "FK_B3_Requests_Org",
+        "FK_B3_Requests_Requester",
+        "FK_B3_Requests_Reviewer",
+        "FK_B3_Requests_Team",
+        "PK_B3_ChangeRequestEvents",
+        "PK_B3_ChangeRequests"
+      ],
+      "createdIndexes": [
+        "UX_B3_ChangeRequests_RequestPublicId",
+        "UX_B3_ChangeRequests_Org_Entity_Pending",
+        "IX_B3_ChangeRequests_Org_Status_SubmittedAt",
+        "IX_B3_ChangeRequests_Requester_SubmittedAt",
+        "UX_B3_ChangeRequestEvents_DecisionKey",
+        "IX_B3_ChangeRequestEvents_Request_OccurredAt",
+        "IX_B3_ChangeRequestEvents_CorrelationId"
+      ],
+      "references": [
+        "ChangeRequests",
+        "Organizations",
+        "Teams",
+        "Users"
+      ],
+      "lockReturnChecked": true,
+      "disposableOnly": false,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-012",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "atomic approval audit states",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "e6e62a9f4d4cfce976ea8ddca558cc5b8eb616c1a812b6ff33c3e8e9a2685737"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "84905dc6efccd0a711878e37f0688e011f259b64cb37799967219d7df7d7c7e7"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_012/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "87726cd3fee1c80e342c8a05135a1cd91675aaa8d9925a4e12dc6543ececfc72"
+        }
+      ],
+      "createdTables": [],
+      "declaredConstraints": [
+        "CK_B3_ChangeRequestEvents_DecisionState",
+        "CK_B3_ChangeRequestEvents_EventType",
+        "CK_B3_ChangeRequests_KnownStatus",
+        "CK_B3_ChangeRequests_ReviewState"
+      ],
+      "createdIndexes": [],
+      "references": [],
+      "lockReturnChecked": true,
+      "disposableOnly": false,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-014",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "publication staging and historical version-1 ledger",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "c5d8b0cd1ccb583ed674aaf7b19eea3a7e55fe7bf59f5572500bd1f891c653c2"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "2ced64461913036b77a1416caadf1bdb68460adba2eaf95adeb47e08fc37d69e"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql",
+          "phase": "Backfill.sql",
+          "sha256": "b59eeed933a7eba6a2e34df02f83091dc92c54633c83e44ae271e290ab8de3ed"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "972aeb530436adc66be57f8407a7ef1404747725e267e104a442bbdae836d55c"
+        }
+      ],
+      "createdTables": [
+        "LocationPublicationStages",
+        "LocationPublishedVersions"
+      ],
+      "declaredConstraints": [
+        "CK_OptionC_Published_Hash",
+        "CK_OptionC_Published_Json",
+        "CK_OptionC_Published_Number",
+        "CK_OptionC_Published_Origin",
+        "CK_OptionC_Stage_AddressBinding",
+        "CK_OptionC_Stage_Coordinates",
+        "CK_OptionC_Stage_Duplicate",
+        "CK_OptionC_Stage_DuplicateBinding",
+        "CK_OptionC_Stage_Geocode",
+        "CK_OptionC_Stage_GeocodeEvidence",
+        "CK_OptionC_Stage_Hash",
+        "CK_OptionC_Stage_Json",
+        "CK_OptionC_Stage_Ready",
+        "CK_OptionC_Stage_Status",
+        "FK_OptionC_Published_Location",
+        "FK_OptionC_Published_Request",
+        "FK_OptionC_Stage_Location",
+        "FK_OptionC_Stage_Org",
+        "FK_OptionC_Stage_Request",
+        "FK_OptionC_Stage_Team",
+        "PK_OptionC_PublishedVersion",
+        "PK_OptionC_Stage"
+      ],
+      "createdIndexes": [
+        "UX_OptionC_Stages_Request",
+        "UX_OptionC_Stages_OpenLocation",
+        "UX_OptionC_Published_Current",
+        "UX_OptionC_Published_Request",
+        "UX_OptionC_Published_Number"
+      ],
+      "references": [
+        "ChangeRequests",
+        "Locations",
+        "Organizations",
+        "Teams"
+      ],
+      "lockReturnChecked": false,
+      "disposableOnly": true,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-015",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "stage evidence events",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "ddac2676c505434248d1dd1f278b8b095c670222be8b8176a2d4639e8a330603"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "9e49451c35395d2402c0d10964ac707f1462ae481a0978c3693f0088e2b1d75d"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_015/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "c1687d4e7e8cd9fee4f5c046cde018a7749673ca879bf76962e218f8b157b173"
+        }
+      ],
+      "createdTables": [],
+      "declaredConstraints": [
+        "CK_B3_ChangeRequestEvents_DecisionState",
+        "CK_B3_ChangeRequestEvents_EventType",
+        "CK_B3_ChangeRequestEvents_StageEvidenceEventType"
+      ],
+      "createdIndexes": [],
+      "references": [],
+      "lockReturnChecked": false,
+      "disposableOnly": true,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-016",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "independent Leader review",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "e8fe6c3f594fb4bbb6dcfdac9d5580a9cb560ea43e7c5f8ec105176b41700683"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "a3f7d28dac6425547eec9c36ebb915dd34d91f09c98e49da21e888b7e489d057"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_016/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "05c49d367edba4ec73fd6664eb9f42ca662cb5af3e01f94d044e8165db3b2991"
+        }
+      ],
+      "createdTables": [
+        "ChangeRequestLeaderReviews"
+      ],
+      "declaredConstraints": [
+        "CK_B3_ChangeRequestEvents_DecisionState",
+        "CK_B3_ChangeRequestEvents_EventType",
+        "CK_B3_ChangeRequestEvents_StageEvidenceEventType",
+        "CK_B3_ChangeRequests_KnownCodes",
+        "CK_OptionC_LeaderReview_DecisionState",
+        "CK_OptionC_LeaderReview_Stage",
+        "CK_OptionC_LeaderReview_Status",
+        "FK_OptionC_LeaderReview_Request",
+        "FK_OptionC_LeaderReview_Reviewer",
+        "PK_ChangeRequestLeaderReviews"
+      ],
+      "createdIndexes": [
+        "UX_OptionC_LeaderReview_Request_Stage",
+        "UX_OptionC_LeaderReview_DecisionKey"
+      ],
+      "references": [
+        "ChangeRequests",
+        "Users"
+      ],
+      "lockReturnChecked": false,
+      "disposableOnly": true,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-017",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "Create reservation and version-1 origin",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "6b2b94227ae7719c3bb9335dea8af96f3423cd989deee99073f662eb59de1428"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "59d9363b59aacad362c9dd41ca0ed0c7111d1f550972e1aae7544fd3a61abd3a"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "6b0a424052d1d067654ea9feaeac1db467683365693ae7b81d760fc8a801f7e0"
+        }
+      ],
+      "createdTables": [
+        "LocationCreateReservations"
+      ],
+      "declaredConstraints": [
+        "CK_B3_ChangeRequests_KnownCodes",
+        "CK_OptionC_CreateLowRisk_BeforeImage",
+        "CK_OptionC_CreateReservation_Status",
+        "CK_OptionC_Published_Origin",
+        "FK_OptionC_CreateReservation_Location",
+        "FK_OptionC_CreateReservation_Org",
+        "FK_OptionC_CreateReservation_Request",
+        "FK_OptionC_CreateReservation_Team",
+        "PK_OptionC_CreateReservation"
+      ],
+      "createdIndexes": [
+        "UX_OptionC_CreateReservation_Location"
+      ],
+      "references": [
+        "ChangeRequests",
+        "Locations",
+        "Organizations",
+        "Teams"
+      ],
+      "lockReturnChecked": true,
+      "disposableOnly": true,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-018",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "direct LowRisk audited publication",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "4fa3c5e2c3a978ffd14d93002a91ae53d47f2f5b12f6aa7978f7db260b54d609"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "3b80b40f8cbeeecbd21db746ab6788f4b94500a5c69f372b254a52c42a1c0d55"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "72a3e4e0fea0c3e5e0ccd15ff599cb8f871554d304098d1fb10b3705eddc666f"
+        }
+      ],
+      "createdTables": [],
+      "declaredConstraints": [
+        "CK_B3_ChangeRequestEvents_DecisionState",
+        "CK_B3_ChangeRequestEvents_EventType",
+        "CK_B3_ChangeRequests_ReviewState"
+      ],
+      "createdIndexes": [],
+      "references": [],
+      "lockReturnChecked": true,
+      "disposableOnly": true,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-019",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "Merge evidence",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "fc13313d0d347d55daa994762a231dabfb8e92258616c6b6e1294d231e2cef27"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "c27ecce42d5af777c6553648a9e11ef6261d76d52f8dfc4815b50f56a551f6c4"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "bf7236d1463619fe4f104095c86a1336011c7dc2d41fb9b8fead692d2722d540"
+        }
+      ],
+      "createdTables": [
+        "LocationMergeDetails"
+      ],
+      "declaredConstraints": [
+        "CK_OptionC_MergeDetails_Different",
+        "CK_OptionC_MergeDetails_Json",
+        "CK_OptionC_MergeDetails_RowVersions",
+        "CK_OptionC_MergeDetails_SameOrg",
+        "CK_OptionC_MergeDetails_Teams",
+        "FK_OptionC_MergeDetails_Request",
+        "PK_OptionC_MergeDetails"
+      ],
+      "createdIndexes": [],
+      "references": [
+        "ChangeRequests"
+      ],
+      "lockReturnChecked": false,
+      "disposableOnly": true,
+      "fullObjectEquivalenceVerifier": false
+    },
+    {
+      "proposedId": "1.8.0-020",
+      "approval": "PROPOSED_NOT_ASSIGNED_NOT_EXECUTABLE",
+      "contract": "Excel canonical review statuses",
+      "files": [
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Preflight.sql",
+          "phase": "Preflight.sql",
+          "sha256": "a9ae1e6b72917a56340086088c7d5c518c8438b1f93c9d110ae99e42545cce6e"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql",
+          "phase": "Up.sql",
+          "sha256": "6bbad476386d8c7353496ea850c636371ebeb9501c98cc2505ef7f4c1bf1ab53"
+        },
+        {
+          "path": "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Verify.sql",
+          "phase": "Verify.sql",
+          "sha256": "9126ab4dfd9be6f694cc529567ebe4d8c0acf8b0b17641ec31c201ae4e6c9664"
+        }
+      ],
+      "createdTables": [],
+      "declaredConstraints": [
+        "CK_ImportBatchItems_Status",
+        "CK_ImportBatches_Status"
+      ],
+      "createdIndexes": [],
+      "references": [],
+      "lockReturnChecked": false,
+      "disposableOnly": true,
+      "fullObjectEquivalenceVerifier": false
+    }
+  ],
+  "reusedFixture": {
+    "path": "scripts/ci/run_full_candidate_migration.ps1",
+    "sha256": "872cd931102557c1caa86efef6fbb0fcf10b7546d00f75f5210677c58d8ee611",
+    "use": "Bootstrap here-string only; not its verbose SQL runner"
+  },
+  "rcArtifact": {
+    "runId": 39357993766,
+    "artifactId": 12236590943,
+    "sha256": "6a604b212e88fb6039c449f9a6701d8aa0c68d7c8feec9e7b1e2600a4ddedb7b",
+    "releaseManifestSha256": "4f432b93fe3a29b1f7c74acf72ea0a953a511899fe1cd5b18fcdc9fbe9e70df3"
+  },
+  "historicalAliases": [
+    "1.8.0-LEADER-REVIEW",
+    "1.8.0-CREATE-LOWRISK",
+    "1.8.0-LOWRISK-DIRECT",
+    "1.8.0-EXCEL-CANONICAL-STATUS"
+  ]
+}
