@@ -147,6 +147,74 @@ jobs:
           payload={'contract':'corrected020-synthetic-reference-v1','sourceSha':os.environ['GITHUB_SHA'],'sourceScope':'ISOLATED_SQL2022_SYNTHETIC_NOT_LIVE_UAT','originalReferenceSha256':hashlib.sha256(p('docs/release/g1-execution/promotion/reference.json').read_bytes()).hexdigest(),'phase020SqlSha256':hashlib.sha256(sql).hexdigest(),'firstEightCatalogsUnchanged':True,'phase020CatalogSha256':corrected020,'livePredecessorFidelity':'HOLD','releaseGate':'HOLD','azureAccess':False,'liveSqlAccess':False}
           (out/'reference.json').write_text(json.dumps(payload,sort_keys=True,indent=2)+'\n')
           print('Corrected020SyntheticReference=PASS; FirstEightCatalogs=UNCHANGED; Phase020Catalog='+corrected020+'; LiveUAT=HOLD;')
+      - name: Regenerate deterministic synthetic-only promotion candidate in ephemeral checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path
+          original=p('docs/release/g1-execution/promotion/reference.json')
+          current=json.loads(original.read_text())
+          produced=json.loads(p('artifacts/observed-reference.json').read_text())
+          assert current['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert [x['catalog'].upper() for x in current['steps'][:8]]==[x['catalog'].upper() for x in produced['steps'][:8]]
+          assert current['initial'].upper()==produced['initial'].upper()
+          assert current['emptyLedger'].upper()==produced['emptyLedger'].upper()
+          assert produced['steps'][-1]['catalog'].upper()=='2F6346FBC1E113EAF678F4A256A2F4F3704342B3905DA4794FC658728B56D281'
+          current['steps'][-1]['catalog']=produced['steps'][-1]['catalog']
+          current['corrected020Source']='PR82_AE9CA02C_PHASE020_AND_DISPOSABLE_SQL2022_ONLY'
+          current['liveUat010Predecessor']='NOT_VERIFIED_DO_NOT_DEPLOY'
+          original.write_text(json.dumps(current,indent=2)+'\n')
+          print('SyntheticReference020=BOUND; OriginalSourceReference=UNCHANGED_IN_GIT; UAT010=HOLD;')
+          PY
+          python3 scripts/ci/g1_promotion.py build
+          python3 scripts/ci/g1_promotion.py verify
+      - name: Four focused synthetic 26-history promotion and rollback regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode HistoryCompatibility
+      - name: Seal NONDEPLOY synthetic package only
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,shutil
+          p=pathlib.Path
+          root=p('docs/release/g1-execution/promotion')
+          manifest=json.loads((root/'manifest.json').read_text())
+          ref=json.loads((root/'reference.json').read_text())
+          up20=p('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql')
+          digest=lambda f:hashlib.sha256(f.read_bytes()).hexdigest()
+          assert manifest['approval']=='PROPOSED_NOT_AUTHORIZED'
+          assert manifest['schema010SourceBoundBaseline']['status']=='HOLD'
+          assert manifest['schema010SourceBoundBaseline']['syntheticReferenceAcceptedAsUatBaseline'] is False
+          assert ref['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert ref['liveUat010Predecessor']=='NOT_VERIFIED_DO_NOT_DEPLOY'
+          assert manifest['sourceHashes'][str(up20)]==digest(up20)
+          assert manifest['steps'][-1]['postCatalogSha256'].upper()=='2F6346FBC1E113EAF678F4A256A2F4F3704342B3905DA4794FC658728B56D281'
+          assert manifest['packageId']==manifest['steps'][0]['payloadSha256'] or len(manifest['packageId'])==64
+          files=['Promotion.sql','Verify.sql','manifest.json','reference.json','CatalogContract.sql','HistoryContract.sql','LedgerContract.sql']
+          for f in files:
+            assert manifest['files'][str(root/f)]==digest(root/f) if f!='manifest.json' else True
+          dest=p('artifacts/uat010-synthetic-promotion')
+          dest.mkdir(parents=True,exist_ok=True)
+          for f in files:shutil.copyfile(root/f,dest/f)
+          receipt={'contract':'uat010-corrected020-synthetic-promotion-v1','sourceSha':os.environ['GITHUB_SHA'],'releaseAllowed':False,'liveUatSqlAccess':False,'azureAccess':False,'predecessorSourceFidelity':'HOLD','apiPrincipal':'UNKNOWN','recoveryPair':'HOLD','syntheticHistory4Cases':'PASS','origin':'DISPOSABLE_SQL2022_ONLY','packageId':manifest['packageId'],'fileSha256':{f:digest(dest/f) for f in files}}
+          (dest/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          print('Corrected020OfflinePromotion=BUILT_AND_HISTORY4_PASS; RealUAT010=HOLD; Deploy=DENIED;')
+      - name: Bind synthetic-only package file checksums
+        if: success()
+        shell: bash
+        run: |
+          cd artifacts/uat010-synthetic-promotion
+          sha256sum Promotion.sql Verify.sql manifest.json reference.json CatalogContract.sql HistoryContract.sql LedgerContract.sql receipt.json > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-corrected020-promotion-nondeploy-${{ github.sha }}
+          path: artifacts/uat010-synthetic-promotion/
+          retention-days: 30
+          if-no-files-found: error
       - name: Stop disposable SQL
         if: always()
         shell: bash
