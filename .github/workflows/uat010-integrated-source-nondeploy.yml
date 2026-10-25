@@ -314,7 +314,7 @@ jobs:
           echo 'Source=EXACT_20261013; Deployment=FORBIDDEN;'
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '8.0.425'
       - name: Build and publish historic source ONLY in disposable GitHub runner
         shell: bash
         run: |
