@@ -32,8 +32,10 @@ try {
     $historyBlob=(& git hash-object -- $historyPath).Trim()
     StopIf ($historyBlob -ne 'ff6347a93ad72e0c6ad5f7883834471f052e1cf5') 'G1_FACET_HISTORY_BLOB_STOP'
     $fixture=Get-Content (Join-Path $PSScriptRoot 'run_full_candidate_migration.ps1') -Raw
-    $matches=[regex]::Matches($fixture,"(?s)\`$boot=@'\r?\n(.*?)\r?\n'@")
-    StopIf ($matches.Count -ne 1) 'G1_FACET_FIXTURE_SCOPE_STOP'
+    $fixtureMatch=[regex]::Matches($fixture,"(?s)\`$boot=@'\r?\n(.*?)\r?\n'@")
+    StopIf ($fixtureMatch.Count -ne 1) 'G1_FACET_FIXTURE_SCOPE_STOP'
+    $boot=[string]$fixtureMatch[0].Groups[1].Value
+    StopIf ([string]::IsNullOrWhiteSpace($boot)) 'G1_FACET_FIXTURE_EMPTY_STOP'
     $b['Pooling']=$false
     $b['Connect Timeout']=5
     $b['ConnectRetryCount']=0
@@ -42,17 +44,20 @@ try {
     StopIf ([int](Scalar $admin "SELECT CONVERT(int,SERVERPROPERTY(N'ProductMajorVersion'))") -ne 16 -or
         [int](Scalar $admin "SELECT CONVERT(int,SERVERPROPERTY(N'EngineEdition'))") -ne 3 -or
         [string](Scalar $admin "SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'Edition'))") -notlike 'Developer Edition*') 'G1_FACET_SQL2022_DEVELOPER_STOP'
-    $case='DISPOSABLE_DATABASE'
+    $case='CREATE_DISPOSABLE_DATABASE'
     Execute $admin "CREATE DATABASE [$dbName]"
     $created=$true
+    $case='CONNECT_DISPOSABLE_DATABASE'
     $b.InitialCatalog=$dbName
     $db=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
     $db.Open()
     Execute $db "EXEC sys.sp_set_session_context @key=N'FieldVisit.G1.NonDeploy',@value=1;"
-    Execute $db $matches[0].Groups[1].Value
+    $case='BOOTSTRAP_FROZEN_FIXTURE'
+    Execute $db $boot
     StopIf ([int](Scalar $db "SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010'") -ne 1) 'G1_FACET_FIXTURE_010_STOP'
     # Only disposable 1.7.0-004 marker is synthetic; the accepted 1700_005
     # migration itself runs unchanged, including its CHECK/ledger transaction.
+    $case='INSERT_DISPOSABLE_LEGACY_PRECONDITION'
     Execute $db "INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.7.0-004',N'DISPOSABLE_FACET_PREREQUISITE',DATEADD(day,-1,SYSUTCDATETIME()),N'isolated');"
     $case='ACTUAL_1700_005_MIGRATION'
     Execute $db ([IO.File]::ReadAllText((Join-Path $root $historyPath)))
