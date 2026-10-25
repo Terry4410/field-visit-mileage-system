@@ -104,11 +104,24 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Prepare isolated SQL client
+      - name: Prepare isolated SQL client using verified official PSGallery only
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery *> $null
+          $gallery = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue
+          if ($null -eq $gallery) {
+            Register-PSRepository -Default -ErrorAction Stop
+            $gallery = Get-PSRepository -Name PSGallery -ErrorAction Stop
+          }
+          if ($gallery.SourceLocation.TrimEnd('/') -ne 'https://www.powershellgallery.com/api/v2') {
+            throw 'G1_SQL_CLIENT_REPOSITORY_ORIGIN_STOP'
+          }
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop *> $null
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
+          if ((Get-Module SqlServer).Version.ToString() -ne '22.4.5.1') {
+            throw 'G1_SQL_CLIENT_VERSION_STOP'
+          }
+          Write-Output 'G1SqlClient=OFFICIAL_PSGALLERY_EXACT_MODULE_PASS; Azure=NONE;'
       - name: Start ephemeral SQL2022 Developer on localhost
         shell: bash
         run: |
@@ -222,6 +235,52 @@ jobs:
           receipt={'contract':'uat010-corrected020-synthetic-promotion-v1','sourceSha':os.environ['GITHUB_SHA'],'releaseAllowed':False,'liveUatSqlAccess':False,'azureAccess':False,'predecessorSourceFidelity':'HOLD','apiPrincipal':'UNKNOWN','recoveryPair':'HOLD','syntheticHistory4Cases':'PASS','origin':'DISPOSABLE_SQL2022_ONLY','packageId':manifest['packageId'],'fileSha256':{f:digest(dest/f) for f in files}}
           (dest/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
           print('Corrected020OfflinePromotion=BUILT_AND_HISTORY4_PASS; RealUAT010=HOLD; Deploy=DENIED;')
+      - name: Derive isolated one-facet historical 1700_005 Confirming contrast (NO LIVE UAT)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture=scripts/ci/run_full_candidate_migration.ps1
+          save="$RUNNER_TEMP/uat010-pr50-synthetic-fixture.original"
+          cp "$fixture" "$save"
+          trap 'cp "$save" scripts/ci/run_full_candidate_migration.ps1; rm -f "$save"' EXIT
+          python3 - <<'PY'
+          import pathlib
+          path=pathlib.Path('scripts/ci/run_full_candidate_migration.ps1')
+          old="N'Previewed',N'Confirmed',N'PartiallyFailed'))"
+          new="N'Previewed',N'Confirming',N'Confirmed',N'PartiallyFailed'))"
+          source=path.read_text()
+          assert source.count(old)==1 and source.count(new)==0, 'G1_FROZEN_FIXTURE_SHAPE_STOP'
+          path.write_text(source.replace(old,new,1))
+          print('OneFacetFixture=1700_005_Confirming_INJECTED_EPHEMERAL_ONLY; OriginalPR50=UNCHANGED_IN_GIT;')
+          PY
+          pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode Reference
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          p=pathlib.Path
+          prior=json.loads(p('docs/release/g1-execution/promotion/reference.json').read_text())
+          observed=json.loads(p('artifacts/observed-reference.json').read_text())
+          assert prior['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert observed['fixture']==prior['fixture']
+          assert len(observed['steps'])==9
+          assert [x['id'] for x in observed['steps']]==[11,12,14,15,16,17,18,19,20]
+          assert observed['initial'].upper()!=prior['initial'].upper(), 'G1_EXPECTED_SOURCE_CONTRAST_MISSING'
+          result={
+            'contract':'existing010-1700_005-one-facet-source-contrast-nondeploy-v1',
+            'liveUatSqlQueried':False,'azureAccess':False,'sqlWriteToLiveUat':False,
+            'syntheticChange':'CK_ImportBatches_Status_ADD_Confirming_ONLY',
+            'baselineBefore':prior['initial'].upper(),
+            'baselineAfterOneFacetCorrection':observed['initial'].upper(),
+            'baselineDiffers':True,
+            'actual63TableCatalogCompared':False,
+            'actual26HistoricalRowsCompared':False,
+            'allTriggerBodiesCompared':False,
+            'originalPR50ReferenceChangedInGit':False,
+            'releaseAuthorized':False,'businessUat':'NO_GO','g1':'HOLD'
+          }
+          dest=p('artifacts/uat010-corrected020/1700-005-one-facet-contrast.json')
+          dest.write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
+          print('HistoricalBatchCheckOneFacet=DIFFERENT_INITIAL_HASH_CONFIRMED; RealUAT=NOT_ACCESSED; Migration=DENIED;')
+          PY
       - name: Bind synthetic-only package file checksums
         if: success()
         shell: bash
@@ -298,9 +357,10 @@ jobs:
           if-no-files-found: error
 
   legacy-api-dll-hash-nondeploy:
-    name: 10-13 deployed API DLL source reproducibility (HASH ONLY)
+    name: 10-13 deployed API DLL source reproducibility (HASH ONLY; ACCEPTED RECEIPT, DO NOT RERUN)
     needs: combined-source
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    # Exact-SHA Run40148778658 already finalized MISMATCH_HOLD; never spend another runner on this fixed result.
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
