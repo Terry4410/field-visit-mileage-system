@@ -146,6 +146,7 @@ public static class V180UatReleaseTrust
             SELECT CONVERT(int,SERVERPROPERTY('EngineEdition')),USER_NAME(),
               (SELECT sid FROM sys.database_principals WHERE principal_id=USER_ID()),
               CASE WHEN IS_ROLEMEMBER(N'db_owner')=0
+                AND IS_ROLEMEMBER(N'db_datawriter')=0
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'ALTER')=0
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CREATE TABLE')=0
                 AND HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CONTROL')=0

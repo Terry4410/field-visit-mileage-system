@@ -214,7 +214,7 @@
       "source": "PR81"
     },
     "tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs": {
-      "sha": "7e0441f6d2c323858701612a0b8e5bc4a6632885",
+      "sha": "84a87a19558fa0647ce4949c1b71e3738bd00abd",
       "source": "PR81"
     },
     "tools/uat-release-candidate/upgrade-profile-tests/Program.cs": {
@@ -229,5 +229,15 @@
       "sha": "9ff2de485746260ed4423dbcd19947ed9807ae7b",
       "source": "PR81"
     }
+  },
+  "securityDelta": {
+    "kind": "runtime-sql-broad-writer-role-rejection",
+    "codePath": "tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs",
+    "previousBlobSha": "7e0441f6d2c323858701612a0b8e5bc4a6632885",
+    "amendedBlobSha": "84a87a19558fa0647ce4949c1b71e3738bd00abd",
+    "scope": "NONDEPLOY_SOURCE_ONLY",
+    "reviewStatus": "CI_PENDING_AND_LIVE_RUNTIME_RIGHTS_HOLD",
+    "baseline": "Issue41-6393698885",
+    "predecessorCompatible": true
   }
 }
