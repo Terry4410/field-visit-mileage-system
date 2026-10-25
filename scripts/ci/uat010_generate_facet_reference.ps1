@@ -47,10 +47,13 @@ try {
     $case='CREATE_DISPOSABLE_DATABASE'
     Execute $admin "CREATE DATABASE [$dbName]"
     $created=$true
-    $case='CONNECT_DISPOSABLE_DATABASE'
+    $case='CONNECTION_BUILDER_TARGET'
     $b.InitialCatalog=$dbName
+    $case='SQL_CONNECTION_CONSTRUCTOR'
     $db=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+    $case='SQL_CONNECTION_OPEN'
     $db.Open()
+    $case='SQL_SESSION_CONTEXT'
     Execute $db "EXEC sys.sp_set_session_context @key=N'FieldVisit.G1.NonDeploy',@value=1;"
     $case='BOOTSTRAP_FROZEN_FIXTURE'
     Execute $db $boot
@@ -99,7 +102,14 @@ try {
     $case='PASS'
     Write-Output 'G1FacetSource1700_005=PASS; ScopedSixFacetReference=SEALED_NONDEPLOY; RealUatCompared=NO; FullSchema=HOLD; G1=HOLD;'
 } catch {
-    Write-Output "G1FacetSource1700_005=HOLD; Stage=$case; Details=SUPPRESSED; LiveUatAccess=NONE;"
+    $exception=$_.Exception
+    $category=if($exception -is [Microsoft.Data.SqlClient.SqlException]) {'SQL_PROVIDER'}
+              elseif($exception -is [System.ArgumentException]) {'ARGUMENT'}
+              elseif($exception -is [System.Management.Automation.ParameterBindingException]) {'BINDING'}
+              elseif($exception -is [System.Management.Automation.RuntimeException]) {'RUNTIME'}
+              else {'OTHER'}
+    $providerCode=if($category -eq 'SQL_PROVIDER') {[string]$exception.Number} else {'N_A'}
+    Write-Output "G1FacetSource1700_005=HOLD; Stage=$case; Category=$category; ProviderNumber=$providerCode; Details=SUPPRESSED; LiveUatAccess=NONE;"
     throw 'G1_FACET_DISPOSABLE_TEST_STOP'
 } finally {
     if($null -ne $db){$db.Dispose()}
