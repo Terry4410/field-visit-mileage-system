@@ -1,0 +1,13 @@
+# Existing010 source mismatch — PR50 synthetic CHECK lacks historical Confirming
+
+**Status: SOURCE_DRIFT_CONFIRMED; actual UAT010 predecessor full fidelity HOLD.**
+
+The PR50 test bootstrap in `scripts/ci/run_full_candidate_migration.ps1` creates synthetic `dbo.ImportBatches` with `CK_ImportBatches_Status` accepting only `Previewed/Confirmed/PartiallyFailed`. Historical accepted migration `database/migrations/1700_005_people_bulk_confirm_claim/Up.sql` changes the SAME named CHECK to also accept `Confirming`, which is required by the People Bulk atomic-claim writer. `CatalogContract.sql` includes the actual CHECK's `sys.check_constraints.definition` in its baseline SHA-256. PR50 `test_g1_promotion.ps1 -Mode Reference` generates its sealed `reference.json.initial` from **the simplified fixture**, not the actual live predecessor.
+
+Independent previously accepted UAT query [Issue #41 6385671748](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-6385671748) saw the actual 1700_005 marker and enabled/trusted batch CHECK containing `Confirming`. Actual historical PR50 initial `CatalogContract` gave `MISMATCH_STOP` **even when the trigger projection was removed** (Issue #41 6385219903). This CHECK source conflict is sufficient to invalidate automatic use of the fixture's original initial hash as a live UAT equality condition, but it does NOT prove all other source facets match.
+
+The read-only script `scripts/ci/uat010_legacy_batch_check_drift.py` requires all four source inputs to retain the expected relationship; four negative self-tests ensure it fails closed on source changes. It emits only a nonsecret JSON receipt, never SQL text, database rows, identities or credentials, and no Azure/network access. `CONFIRMED` means **reference-source contradiction discovered**, not `MIGRATION_GO`.
+
+**Repair needed before any deployment or migration:** build a **new separately labeled Existing010Upgrade reference**, source-bound to historical 1700_005's `Confirming` state, and reconcile the rest of live UAT 63-table/26-history predecessor metadata, trigger source bodies, CHECK/default/index/FK facts. Then derive a new exact promotion package and independently review the corrected phase020. Never edit PR48's NewEmpty RC or silently replace PR50's immutable synthetic initial digest with the live observed hash. No live data delete/reset/restore/DDL, grants, deployment, or activation. G1 and Business UAT remain HOLD.
+
+*Operator impact:* This source-only investigation requires **no Owner Azure Portal, CLI, or SQL operation**, and must not cause re-execution of previously consumed Azure diagnostic workflows.
