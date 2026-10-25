@@ -48,7 +48,8 @@ try {
     Execute $admin "CREATE DATABASE [$dbName]"
     $created=$true
     $case='CONNECTION_BUILDER_TARGET'
-    StopIf ($dbName -notmatch '^OptionCIsolated_[0-9a-f]{32}
+    StopIf ($dbName -notmatch '^OptionCIsolated_[0-9a-f]{32}$') 'G1_FACET_DB_NAME_SCOPE_STOP'
+    $b['Initial Catalog']=$dbName
     $case='SQL_CONNECTION_CONSTRUCTOR'
     $db=[Microsoft.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
     $case='SQL_CONNECTION_OPEN'
