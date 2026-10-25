@@ -29,7 +29,7 @@ jobs:
           assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
           assert subprocess.run(['git','merge-base','--is-ancestor','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD']).returncode==0
           changed=set(git('diff','--name-only','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD').splitlines())
-          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1','scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py','docs/release/g1-execution/promotion/UAT010-FRONTEND-DUAL-NONDEPLOY.md'}
+          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1','scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py','docs/release/g1-execution/promotion/UAT010-FRONTEND-DUAL-NONDEPLOY.md','docs/release/g1-execution/promotion/HISTORIC-API-DLL-REBUILD-NONDEPLOY.md'}
           assert len(j['integratedFiles'])==53 and changed==expected
           assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==44
           assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==9
@@ -287,5 +287,76 @@ jobs:
         with:
           name: uat010-optionc-frontend-dual-NONDEPLOY-${{ github.sha }}
           path: artifacts/uat010-frontend-dual/
+          retention-days: 30
+          if-no-files-found: error
+
+  legacy-api-dll-hash-nondeploy:
+    name: 10-13 deployed API DLL source reproducibility (HASH ONLY)
+    needs: combined-source
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: db235938b8b13ca8a65ab3b525de1df10d911645
+          persist-credentials: false
+      - name: Verify pinned deployed source and no live target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = db235938b8b13ca8a65ab3b525de1df10d911645
+          test "$GITHUB_REF" = refs/heads/work/uat010-existing-rc-integration-20261025
+          test -z "$(printenv UAT_SQL_CONNECTION || true)"
+          test -z "$(printenv PRODUCTION_SQL_CONNECTION || true)"
+          echo 'Source=EXACT_20261013; Deployment=FORBIDDEN;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and publish historic source ONLY in disposable GitHub runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj --nologo
+          dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore --nologo
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build --nologo -o ./publish
+          test -s publish/FieldVisit.Api.dll
+      - name: Compare observed UAT DLL hash with rebuilt DLL, store receipt ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          observed='da3d658d01d076e7b4026638fb1157779466e0f8b83e5efee51ad7106b288418'
+          actual=hashlib.sha256(pathlib.Path('publish/FieldVisit.Api.dll').read_bytes()).hexdigest()
+          equivalent=actual==observed
+          root=pathlib.Path('artifacts/uat010-old-api-dll-hash-only')
+          root.mkdir(parents=True,exist_ok=False)
+          data={'contract':'uat010-old-api-dll-hash-only-nondeploy-v1',
+            'historicDeployRun':38334707319,
+            'historicSourceSha':'db235938b8b13ca8a65ab3b525de1df10d911645',
+            'reviewHeadSha':os.environ['GITHUB_SHA'],
+            'observedLivePublishedDllSha256':observed,
+            'reproducedDllSha256':actual,
+            'byteEquivalent':equivalent,
+            'result':'MATCH' if equivalent else 'MISMATCH_HOLD',
+            'fullPublishArchiveExists':False,
+            'rollbackReady':False,'sqlPrincipal':'UNKNOWN',
+            'azureAccess':False,'deploymentAllowed':False,'liveSqlAccess':False,
+            'g1':'HOLD','businessUat':'NO_GO'}
+          target=root/'receipt.json'
+          target.write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
+          (root/'checksums.sha256').write_text(
+            hashlib.sha256(target.read_bytes()).hexdigest()+'  receipt.json\n')
+          print('LegacyApiDll=' + data['result'] +
+                '; BinaryUpload=NONE; Azure=NONE; Rollback=HOLD;')
+          PY
+          ( cd artifacts/uat010-old-api-dll-hash-only && sha256sum -c --quiet checksums.sha256 )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: old-api-dll-hash-receipt-NONDEPLOY
+          path: artifacts/uat010-old-api-dll-hash-only/
           retention-days: 30
           if-no-files-found: error
