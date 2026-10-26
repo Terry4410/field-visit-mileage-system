@@ -13,10 +13,14 @@ public static class UatAutomationSafety
 {
     public const string PurposePrefix = "UAT-AUTO-";
 
-    public static bool IsEligibleEnvironment(string? authMode, string? appVersion) =>
+    public static bool IsCleanupEnabled(string? configuredValue) =>
+        bool.TryParse(configuredValue, out var enabled) && enabled;
+
+    public static bool IsEligibleEnvironment(string? authMode, string? appVersion, string? cleanupEnabled) =>
         string.Equals(authMode?.Trim(), "Demo", StringComparison.OrdinalIgnoreCase)
         && !string.IsNullOrWhiteSpace(appVersion)
-        && appVersion.Contains("-uat-candidate", StringComparison.OrdinalIgnoreCase);
+        && appVersion.Contains("-uat-candidate", StringComparison.OrdinalIgnoreCase)
+        && IsCleanupEnabled(cleanupEnabled);
 
     public static bool IsExactAutomationPurpose(string? actualPurpose, string? expectedPurpose) =>
         !string.IsNullOrWhiteSpace(actualPurpose)
@@ -84,7 +88,8 @@ public sealed class UatAutomationController(
     {
         if (!UatAutomationSafety.IsEligibleEnvironment(
                 config["Auth:Mode"],
-                config["App:Version"]))
+                config["App:Version"],
+                config["UatAutomation:CleanupEnabled"]))
             return NotFound();
 
         var suppliedKey = Request.Headers["X-UAT-Automation-Key"].FirstOrDefault();
