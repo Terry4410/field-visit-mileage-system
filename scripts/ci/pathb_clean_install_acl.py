@@ -229,7 +229,7 @@ def prepare(repo: Path, runner: Path, grants: Path) -> None:
     business_source = business_source.replace(
         'throw Fail("APPROVED_ROUTE_PREVIEW_HTTP");',
         'throw Fail("APPROVED_ROUTE_PREVIEW_HTTP_" + (int)failedRoute.StatusCode);', 1)
-    business_path.write_text(business_source, encoding="utf-8", newline="\\n")
+    business_path.write_text(business_source, encoding="utf-8", newline="\n")
 
     path = runner / "HttpApiSmoke.cs"
     source = path.read_text(encoding="utf-8")
