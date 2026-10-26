@@ -15,7 +15,7 @@ IF OBJECT_ID(N'dbo.SchemaVersions',N'U') IS NULL
 BEGIN THROW 52104,N'EXISTING010_CAPTURE_SCHEMA_VERSIONS_MISSING',1; END;
 IF (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions)<>26
 BEGIN THROW 52105,N'EXISTING010_CAPTURE_HISTORY_COUNT_HOLD',1; END;
-IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE [Version]=N'1.8.0-010')
+IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-010')
 BEGIN THROW 52106,N'EXISTING010_CAPTURE_MARKER_HOLD',1; END;
 
 -- 1. Target and fixed historical predecessor markers.
@@ -23,7 +23,7 @@ SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName')) AS ServerName,DB_NAM
  N'METADATA_ONLY_NO_BUSINESS_ROW_VALUES' AS EvidenceMode,
  (SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo')) AS DboTableCount,
  (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions) AS SchemaVersionCount,
- (SELECT MAX([Version]) FROM dbo.SchemaVersions) AS LatestVersion;
+ (SELECT MAX(VersionNumber) FROM dbo.SchemaVersions) AS LatestVersion;
 
 -- 2. Complete dbo table inventory.
 SELECT s.name AS SchemaName,t.name AS TableName,t.temporal_type_desc AS TemporalType,

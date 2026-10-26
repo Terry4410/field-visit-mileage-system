@@ -17,7 +17,7 @@ class Existing010FullSchemaCaptureTests(unittest.TestCase):
     def test_fixed_target_and_predecessor_guards(self):
         for token in ("EngineEdition", "sql-fieldvisit-jpe-uat", "db-fieldvisit-uat", "VIEW DEFINITION",
                       "COUNT(*) FROM sys.tables", "COUNT_BIG(*) FROM dbo.SchemaVersions",
-                      "[Version]=N'1.8.0-010'", "<>63", "<>26"):
+                      "VersionNumber=N'1.8.0-010'", "<>63", "<>26"):
             self.assertIn(token, self.executable)
 
     def test_full_schema_facets(self):
