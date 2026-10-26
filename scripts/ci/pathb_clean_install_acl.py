@@ -6,6 +6,7 @@ from pathlib import Path
 
 HELPER_BLOB = "170721f3f3129b6bdfd61855df20c75ea1aaaa46"
 APPDBCONTEXT_BLOB = "fff038e9b2a8ce884fddad0a44da0252baa35571"
+BUSINESS_PROBE_BLOB = "a640ed9cf034a3d4a39a5f03f2b08ce5c4664240"
 APPDBCONTEXT_PATH = "backend/src/FieldVisit.Infrastructure/AppDbContext.cs"
 PR82_BASE = "ae9ca02cf2d9539fe9bed61a073d60d63731cbb9"
 PROTECTED = {"SchemaVersions", "SchemaMigrationDataBaselines", "FieldVisitMigrationLedger"}
@@ -197,6 +198,39 @@ def prepare(repo: Path, runner: Path, grants: Path) -> None:
         if source.is_file():
             shutil.copy2(source, runner / source.name)
 
+    business_path = runner / "HttpApiBusinessProbe.cs"
+    business_source = business_path.read_text(encoding="utf-8")
+    business_blob = subprocess.check_output(["git", "-C", str(repo), "hash-object", str(repo / "tools/clean-install/HttpApiBusinessProbe.cs")], text=True).strip()
+    if business_blob != BUSINESS_PROBE_BLOB or ledger["integratedFiles"].get("tools/clean-install/HttpApiBusinessProbe.cs") != {"sha": BUSINESS_PROBE_BLOB, "source": "PR48"}:
+        raise SystemExit("IMMUTABLE_HTTP_BUSINESS_PROBE_SOURCE_STOP")
+    helper_anchor = '''        SaveTripRequest Trip(TripStopInput stop) => new(
+            new DateOnly(2026, 10, 15), new TimeOnly(9, 0), new TimeOnly(10, 0),
+            8.5m, "Synthetic clean SQL trip", "NONDEPLOY", false,
+            new[] { stop }, f.TeamId, f.SiteId, f.SiteId, "Motorcycle");'''
+    helper_replacement = '''        SaveTripRequest Trip(params TripStopInput[] stops) => new(
+            new DateOnly(2026, 10, 15), new TimeOnly(9, 0), new TimeOnly(10, 0),
+            8.5m, "Synthetic clean SQL trip", "NONDEPLOY", false,
+            stops, f.TeamId, f.SiteId, f.SiteId, "Motorcycle");'''
+    if business_source.count(helper_anchor) != 1:
+        raise SystemExit("HTTP_BUSINESS_TRIP_HELPER_OVERLAY_STOP")
+    business_source = business_source.replace(helper_anchor, helper_replacement, 1)
+    route_anchor = '''            Trip(new TripStopInput(f.LocationId, null, null, "Location",
+                "Synthetic Approved Site", "1 Disposable Testing Rd", "visit", null))
+                with { VisitDate = new DateOnly(2026, 10, 16) });'''
+    route_replacement = '''            Trip(
+                new TripStopInput(f.LocationId, null, null, "Location",
+                    "Synthetic Approved Site", "1 Disposable Testing Rd", "visit", null),
+                new TripStopInput(null, null, null, "Temporary",
+                    "Synthetic Route Endpoint", "2 Disposable Testing Rd", "visit", null))
+                with { VisitDate = new DateOnly(2026, 10, 16) });'''
+    if business_source.count(route_anchor) != 1:
+        raise SystemExit("HTTP_BUSINESS_TWO_STOP_ROUTE_FIXTURE_STOP")
+    business_source = business_source.replace(route_anchor, route_replacement, 1)
+    business_source = business_source.replace(
+        'throw Fail("APPROVED_ROUTE_PREVIEW_HTTP");',
+        'throw Fail("APPROVED_ROUTE_PREVIEW_HTTP_" + (int)failedRoute.StatusCode);', 1)
+    business_path.write_text(business_source, encoding="utf-8", newline="\\n")
+
     path = runner / "HttpApiSmoke.cs"
     source = path.read_text(encoding="utf-8")
     start = source.index("            await using var grant = new SqlCommand(\"\"\"")
@@ -236,6 +270,10 @@ def main() -> None:
         rows = rows_from(a.matrix)
         mapped_tables = ef_mapped_tables(a.appdb)
         sql = grant_sql(rows, mapped_tables)
+        probe = a.repo / "tools/clean-install/HttpApiBusinessProbe.cs"
+        probe_blob = subprocess.check_output(["git", "-C", str(a.repo), "hash-object", str(probe)], text=True).strip()
+        if probe_blob != BUSINESS_PROBE_BLOB:
+            raise SystemExit("HTTP_BUSINESS_PROBE_SOURCE_PIN_STOP")
         for name in PROTECTED:
             if f"DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.[{name}]" not in sql:
                 raise SystemExit("HISTORY_DENY_MISSING")
