@@ -208,8 +208,22 @@ jobs:
           base='ae9ca02cf2d9539fe9bed61a073d60d63731cbb9'
           assert subprocess.check_output(['git','hash-object',app_context],text=True).strip()==pinned_app_context
           assert subprocess.check_output(['git','rev-parse',f'{base}:{app_context}'],text=True).strip()==pinned_app_context
+          generators=[
+            'scripts/ci/clean_install/build_sql_only_tables.py',
+            'scripts/ci/clean_install/build_effective_triggers.py',
+            'scripts/ci/clean_install/build_optionc_sql_only_tables.py',
+            'scripts/ci/clean_install/build_sql_only_indexes.py',
+            'scripts/ci/clean_install/build_007_checks.py',
+            'scripts/ci/clean_install/build_001_004_checks.py',
+            'scripts/ci/clean_install/build_optionc_final_checks.py'
+          ]
+          for path in generators:
+            entry=ledger['integratedFiles'].get(path)
+            assert entry and entry['source']=='PR48', f'PATHB_GENERATOR_SOURCE_MISSING:{path}'
+            assert subprocess.check_output(['git','hash-object',path],text=True).strip()==entry['sha']
           assert ledger['deploymentAllowed'] is False
           print('Current API exact SHA + immutable PR48 clean-schema source binding: PASS')
+          print('Path B source package generator inventory/pins: PASS')
           PY
       - uses: actions/checkout@v4
         with:
