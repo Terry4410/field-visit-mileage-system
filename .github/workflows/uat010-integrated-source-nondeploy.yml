@@ -124,6 +124,7 @@ jobs:
           )
           echo "API_CANDIDATE=SOURCE_BOUND_BUILD_ONLY; DEPLOYABLE=NO; LIVE_SQL=NONE; FLAGS=NOT_CONFIGURED;"
       - uses: actions/upload-artifact@v4
+        if: ${{ success() && !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
         with:
           name: uat010-integrated-api-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/uat010-api-candidate/
@@ -195,7 +196,6 @@ jobs:
             'tools/clean-install/HttpApiRoleProbe.cs',
             'tools/clean-install/HttpApiBusinessProbe.cs',
             'tools/clean-install/Program.cs',
-            'backend/src/FieldVisit.Infrastructure/AppDbContext.cs',
             'database/clean-install/v180/00_schema_versions.sql',
             'database/clean-install/v180/20_route_reason_check.sql'
           }
@@ -203,6 +203,11 @@ jobs:
           assert all(ledger['integratedFiles'][p]['source']=='PR48' for p in required)
           for p in required:
             assert subprocess.check_output(['git','hash-object',p],text=True).strip()==ledger['integratedFiles'][p]['sha']
+          app_context='backend/src/FieldVisit.Infrastructure/AppDbContext.cs'
+          pinned_app_context='fff038e9b2a8ce884fddad0a44da0252baa35571'
+          base='ae9ca02cf2d9539fe9bed61a073d60d63731cbb9'
+          assert subprocess.check_output(['git','hash-object',app_context],text=True).strip()==pinned_app_context
+          assert subprocess.check_output(['git','rev-parse',f'{base}:{app_context}'],text=True).strip()==pinned_app_context
           assert ledger['deploymentAllowed'] is False
           print('Current API exact SHA + immutable PR48 clean-schema source binding: PASS')
           PY
@@ -278,20 +283,65 @@ jobs:
           dotnet "$PATHB_RUNNER_DIR/bin/Release/net8.0/ModelBaselineRunner.dll" \
             --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
           echo 'CurrentPR83API=REAL_HTTP_TO_SQL2022; RuntimePrincipal=OBJECT_SCOPED_MATRIX; Deployment=NONE'
+      - name: Seal exact API bytes used by the successful isolated ACL run
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,shutil,subprocess
+          source=pathlib.Path(os.environ['CLEAN_INSTALL_API_CANDIDATE_ROOT'])
+          settings=json.loads((source/'appsettings.json').read_text(encoding='utf-8'))
+          assert settings['UatAutomation']['CleanupEnabled'] is False
+          assert settings['Auth']['Mode']=='Demo'
+          assert settings['ConnectionStrings']['DefaultConnection']=='SET-IN-AZURE-APP-SERVICE'
+          assert settings['Auth']['JwtKey']=='SET-IN-AZURE-APP-SERVICE-AT-LEAST-32-CHARS'
+          assert settings['Auth']['DemoPassword']=='SET-IN-AZURE-APP-SERVICE'
+          root=pathlib.Path('artifacts/pathb-current-api-candidate')
+          root.mkdir(parents=True,exist_ok=False)
+          publish=root/'publish'
+          shutil.copytree(source,publish)
+          files=[{'path':p.relative_to(publish).as_posix(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+                 for p in sorted(publish.rglob('*')) if p.is_file()]
+          manifest={
+            'contract':'fieldvisit-pathb-api-candidate-after-isolated-acl-v1',
+            'sourceSha':os.environ['GITHUB_SHA'],
+            'state':'TESTED_BUILD_CANDIDATE_NONDEPLOY',
+            'deployable':False,
+            'apiBytes':'exact publish output used for SQL2022 HTTP probes',
+            'cleanInstallSchema':'PR48-derived 69-table SQL2022 disposable schema; runtime ACL probe passed',
+            'runtimePrincipal':'object-scoped SELECT plus CRUD candidate; no broad database roles',
+            'cleanupEnabledDefault':False,
+            'authMode':'Demo only in disposable CI; placeholder credential values in package',
+            'azureRuntimeFlags':'NOT_VERIFIED',
+            'excelImport':'NOT_TESTED',
+            'worker':'DISABLED_NOT_TESTED',
+            'fullBusinessUat':'NOT_RUN',
+            'liveSql':'NONE',
+            'azure':'NONE',
+            'files':files
+          }
+          (root/'candidate-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          checks=[f"{x['sha256']}  publish/{x['path']}" for x in files]
+          checks.append(f"{hashlib.sha256((root/'candidate-manifest.json').read_bytes()).hexdigest()}  candidate-manifest.json")
+          (root/'checksums.sha256').write_text('\n'.join(checks)+'\n')
+          subprocess.run(['sha256sum','--check','--quiet','checksums.sha256'],cwd=root,check=True)
+          print('PathBApiCandidate=EXACT_TESTED_BYTES_SEALED; DEPLOYABLE=NO; SECRETS=PLACEHOLDERS_ONLY')
       - name: Seal sanitized Path B test receipt
         shell: python
         run: |
           import hashlib,json,os,pathlib,subprocess
           matrix=pathlib.Path('docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.csv')
           ledger=json.loads(pathlib.Path('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
-          files=['tools/clean-install/HttpApiSmoke.cs','backend/src/FieldVisit.Infrastructure/AppDbContext.cs',
-                 'database/clean-install/v180/00_schema_versions.sql']
+          pr48_files=['tools/clean-install/HttpApiSmoke.cs','database/clean-install/v180/00_schema_versions.sql']
+          source_bindings={p:ledger['integratedFiles'][p]['sha'] for p in pr48_files}
+          app_context='backend/src/FieldVisit.Infrastructure/AppDbContext.cs'
+          source_bindings[app_context]=subprocess.check_output(
+            ['git','rev-parse',f"ae9ca02cf2d9539fe9bed61a073d60d63731cbb9:{app_context}"],text=True).strip()
           receipt={
             'contract':'fieldvisit-pathb-current-api-clean-install-acl-v1',
             'sourceSha':os.environ['GITHUB_SHA'],
             'schemaSourceRcSha':os.environ['CLEAN_INSTALL_RC_SHA'],
             'matrixSha256':hashlib.sha256(matrix.read_bytes()).hexdigest(),
-            'sourceBindings':{p:ledger['integratedFiles'][p]['sha'] for p in files},
+            'apiCandidateManifestSha256':hashlib.sha256(pathlib.Path('artifacts/pathb-current-api-candidate/candidate-manifest.json').read_bytes()).hexdigest(),
+            'sourceBindings':source_bindings,
             'cleanInstallTables':69,
             'runtimePrincipal':'SQL_LOGIN; no sysadmin/db_owner/db_datawriter/db_datareader; object-scoped matrix',
             'historyDmlNegative':'SchemaVersions and SchemaMigrationDataBaselines INSERT/UPDATE/DELETE denied with SQL error 229; FieldVisitMigrationLedger denied when present',
@@ -319,6 +369,13 @@ jobs:
         with:
           name: pathb-current-api-clean-install-acl-\${{ github.sha }}
           path: artifacts/pathb-current-api-clean-install/
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: pathb-current-api-candidate-${{ github.sha }}
+          path: artifacts/pathb-current-api-candidate/
           retention-days: 30
           if-no-files-found: error
 
