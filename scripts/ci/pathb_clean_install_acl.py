@@ -180,8 +180,16 @@ def prepare(repo: Path, runner: Path, grants: Path) -> None:
     rows = rows_from(repo / "docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.csv")
     mapped_tables = ef_mapped_tables(app_context)
     sql = grant_sql(rows, mapped_tables)
-    if re.search(r"(?i)\b(db_datawriter|db_datareader|db_owner)\b|GRANT [^;]+ ON SCHEMA::|VIEW DEFINITION", sql):
+    if re.search(r"(?i)\b(db_datawriter|db_datareader|db_owner)\b|GRANT [^;]+ ON SCHEMA::", sql):
         raise SystemExit("BROAD_RUNTIME_RIGHTS_STOP")
+    metadata_grants = {line.strip() for line in sql.splitlines()
+                       if line.strip().startswith("GRANT VIEW DEFINITION")}
+    expected_metadata = {
+        "GRANT VIEW DEFINITION ON OBJECT::dbo.[LocationPublicationStages] TO [fieldvisit_disposable_runtime];",
+        "GRANT VIEW DEFINITION ON OBJECT::dbo.[LocationPublishedVersions] TO [fieldvisit_disposable_runtime];",
+    }
+    if metadata_grants != expected_metadata:
+        raise SystemExit("OPTIONC_FILTERED_INDEX_METADATA_SCOPE_STOP")
     grants.parent.mkdir(parents=True, exist_ok=True)
     grants.write_text(sql, encoding="utf-8", newline="\n")
     runner.mkdir(parents=True, exist_ok=False)
