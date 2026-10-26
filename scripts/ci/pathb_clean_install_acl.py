@@ -66,6 +66,15 @@ def grant_sql(rows: list[dict[str, str]], mapped_tables: list[str]) -> str:
         if name in PROTECTED:
             out.append(f"    DENY INSERT, UPDATE, DELETE ON OBJECT::dbo.[{name}] TO [fieldvisit_disposable_runtime];")
         out.append("END;")
+    # Exact metadata visibility required to validate three filtered Option C indexes.
+    # This is object-scoped and does not grant table data access or schema-wide metadata.
+    for name in ("LocationPublicationStages", "LocationPublishedVersions"):
+        out += [
+            f"SET @object_id=OBJECT_ID(N'dbo.{name}',N'U');",
+            "IF @object_id IS NULL",
+            f"    THROW 51073,N'REQUIRED_OPTIONC_METADATA_OBJECT_MISSING:{name}',1;",
+            f"GRANT VIEW DEFINITION ON OBJECT::dbo.[{name}] TO [fieldvisit_disposable_runtime];",
+        ]
     out.append("PRINT N'PATHB_OBJECT_SCOPED_RUNTIME_GRANTS_APPLIED';")
     return "\n".join(out) + "\n"
 
@@ -230,6 +239,14 @@ def main() -> None:
             raise SystemExit("SCHEMA_WIDE_GRANT_PRESENT")
         if "GRANT SELECT ON SCHEMA::dbo" in sql or len(mapped_tables) != 57:
             raise SystemExit("EF_SELECT_WHITELIST_CONTRACT_STOP")
+        metadata_grants = [line.strip() for line in sql.splitlines()
+                           if line.strip().startswith("GRANT VIEW DEFINITION")]
+        expected_metadata = {
+            "GRANT VIEW DEFINITION ON OBJECT::dbo.[LocationPublicationStages] TO [fieldvisit_disposable_runtime];",
+            "GRANT VIEW DEFINITION ON OBJECT::dbo.[LocationPublishedVersions] TO [fieldvisit_disposable_runtime];",
+        }
+        if set(metadata_grants) != expected_metadata or len(metadata_grants) != 2:
+            raise SystemExit("OPTIONC_FILTERED_INDEX_METADATA_SCOPE_STOP")
         select_grants = [line for line in sql.splitlines() if line.strip().startswith("GRANT ") and "SELECT" in line and "ON OBJECT::dbo.[" in line]
         if len(select_grants) != 63:
             raise SystemExit("EF_SELECT_GRANT_COUNT_STOP")
