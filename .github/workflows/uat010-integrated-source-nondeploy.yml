@@ -29,7 +29,7 @@ jobs:
           assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
           assert subprocess.run(['git','merge-base','--is-ancestor','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD']).returncode==0
           changed=set(git('diff','--name-only','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD').splitlines())
-          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1','scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py','docs/release/g1-execution/promotion/UAT010-FRONTEND-DUAL-NONDEPLOY.md','docs/release/g1-execution/promotion/HISTORIC-API-DLL-REBUILD-NONDEPLOY.md','scripts/ci/uat010_legacy_batch_check_drift.py','docs/release/g1-execution/promotion/EXISTING010-SYNTHETIC-CHECK-DRIFT.md','scripts/ci/uat010_catalog_facets.py','scripts/ci/test_uat010_catalog_facets.py','scripts/ci/uat010_generate_facet_reference.ps1','scripts/ci/compare_uat010_schema_inventory.py','docs/release/g1-execution/promotion/EXISTING010-API-RUNTIME-ACL-OBSERVE-READONLY.sql','backend/src/FieldVisit.Api/Controllers/UatAutomationController.cs','backend/src/FieldVisit.Api/appsettings.json','backend/tests/FieldVisit.Application.Tests/UatAutomationSafetyTests.cs','scripts/ci/test_api_runtime_acl_matrix.py','scripts/ci/test_api_runtime_acl_matrix.ps1','docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.csv','docs/release/g1-execution/promotion/API-RUNTIME-SQL-GRANT-CANDIDATE.sql','docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.md','docs/release/g1-execution/promotion/Promotion.sql','docs/release/g1-execution/promotion/Verify.sql','docs/release/g1-execution/promotion/manifest.json','docs/release/g1-execution/promotion/reference.json','scripts/ci/test_existing010_full_schema_capture.py','docs/release/g1-execution/promotion/EXISTING010-FULL-SCHEMA-READONLY-ONCE.sql','docs/release/g1-execution/promotion/EXISTING010-FULL-SCHEMA-CAPTURE.md'}
+          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1','scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py','docs/release/g1-execution/promotion/UAT010-FRONTEND-DUAL-NONDEPLOY.md','docs/release/g1-execution/promotion/HISTORIC-API-DLL-REBUILD-NONDEPLOY.md','scripts/ci/uat010_legacy_batch_check_drift.py','docs/release/g1-execution/promotion/EXISTING010-SYNTHETIC-CHECK-DRIFT.md','scripts/ci/uat010_catalog_facets.py','scripts/ci/test_uat010_catalog_facets.py','scripts/ci/uat010_generate_facet_reference.ps1','scripts/ci/compare_uat010_schema_inventory.py','docs/release/g1-execution/promotion/EXISTING010-API-RUNTIME-ACL-OBSERVE-READONLY.sql','backend/src/FieldVisit.Api/Controllers/UatAutomationController.cs','backend/src/FieldVisit.Api/appsettings.json','backend/tests/FieldVisit.Application.Tests/UatAutomationSafetyTests.cs','scripts/ci/test_api_runtime_acl_matrix.py','scripts/ci/test_api_runtime_acl_matrix.ps1','docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.csv','docs/release/g1-execution/promotion/API-RUNTIME-SQL-GRANT-CANDIDATE.sql','docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.md','docs/release/g1-execution/promotion/Promotion.sql','docs/release/g1-execution/promotion/Verify.sql','docs/release/g1-execution/promotion/manifest.json','docs/release/g1-execution/promotion/reference.json','scripts/ci/test_existing010_full_schema_capture.py','docs/release/g1-execution/promotion/EXISTING010-FULL-SCHEMA-READONLY-ONCE.sql','docs/release/g1-execution/promotion/EXISTING010-FULL-SCHEMA-CAPTURE.md','scripts/ci/pathb_clean_install_acl.py'}
           assert len(j['integratedFiles'])==53 and changed==expected
           guide=p('docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md').read_text()
           assert 'Business User Access：**NOT RELEASED**' in guide
@@ -74,8 +74,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Focused runtime history profile compile only
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
         run: dotnet build tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj --configuration Release --nologo
       - name: Publish exact integrated API candidate (NONDEPLOY; no runtime flags)
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -128,8 +130,10 @@ jobs:
           retention-days: 30
           if-no-files-found: error
       - name: UAT automation cleanup default-off gate tests
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release --nologo --filter FullyQualifiedName~UatAutomationSafetyTests
       - name: Python source syntax and focused 014 preflight source guard
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -143,6 +147,7 @@ jobs:
           python3 -m unittest discover -s scripts/ci -p test_uat010_catalog_facets.py -v
           pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile("scripts/ci/uat010_generate_facet_reference.ps1",[ref]$tokens,[ref]$errors); if ($errors.Count -ne 0) { throw "G1_FACET_SCRIPT_SYNTAX_STOP" }; Write-Output "G1FacetPowerShellSyntax=PASS"'
       - name: Fail-closed source-only proof of historical 1700_005 ImportBatches CHECK mismatch
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -160,10 +165,167 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  pathb-current-api-clean-install-nondeploy:
+    name: Current PR83 API + object ACL on integrated 69-table SQL2022 clean install (NONDEPLOY)
+    needs: combined-source
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && contains(github.event.head_commit.message, '[pathb-clean-install]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      CLEAN_INSTALL_RC_SHA: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: \${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact integrated API and clean-schema source bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          ledger=json.loads(pathlib.Path('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
+          assert ledger['sourceBranches']['PR48_CLEAN']=='9ee5dacceed2bf55c39310d663f3258bcb545989'
+          required={
+            'tools/clean-install/HttpApiSmoke.cs',
+            'tools/clean-install/HttpApiRoleProbe.cs',
+            'tools/clean-install/HttpApiBusinessProbe.cs',
+            'tools/clean-install/Program.cs',
+            'backend/src/FieldVisit.Infrastructure/AppDbContext.cs',
+            'database/clean-install/v180/00_schema_versions.sql',
+            'database/clean-install/v180/20_route_reason_check.sql'
+          }
+          assert required.issubset(ledger['integratedFiles'])
+          assert all(ledger['integratedFiles'][p]['source']=='PR48' for p in required)
+          for p in required:
+            assert subprocess.check_output(['git','hash-object',p],text=True).strip()==ledger['integratedFiles'][p]['sha']
+          assert ledger['deploymentAllowed'] is False
+          print('Current API exact SHA + immutable PR48 clean-schema source binding: PASS')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+          path: pathb-runtime-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Confirm accepted RC schema source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pathb-runtime-source rev-parse HEAD)" = "$CLEAN_INSTALL_RC_SHA"
+          test -f pathb-runtime-source/backend/src/FieldVisit.Infrastructure/AppDbContext.cs
+          echo "CLEAN_INSTALL_RC_ROOT=$GITHUB_WORKSPACE/pathb-runtime-source" >> "$GITHUB_ENV"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Start isolated SQL Server 2022 and create masked ephemeral admin credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          sql_password="Aa7!$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+          printf 'CLEAN_INSTALL_SQL_PASSWORD=%s\n' "$sql_password" >> "$GITHUB_ENV"
+          printf '::add-mask::%s\n' "$sql_password"
+          docker run --detach --name fieldvisit-pathb-sql2022 \
+            --publish 127.0.0.1:1433:1433 \
+            --env ACCEPT_EULA=Y --env MSSQL_PID=Developer \
+            --env "MSSQL_SA_PASSWORD=$sql_password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null 2>&1
+          unset sql_password
+          echo 'PATHB_SQL2022=EPHEMERAL_LOCAL_ONLY'
+      - name: Wait for isolated SQL Server 2022 readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if docker exec fieldvisit-pathb-sql2022 /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo 'PATHB_SQL2022_READY=PASS'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'PATHB_SQL2022_READY=FAIL' >&2
+          exit 1
+      - name: Build exact PR83 API and prepare matrix-restricted clean-install runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ci/pathb_clean_install_acl.py
+          python3 scripts/ci/pathb_clean_install_acl.py --self-test
+          api_root="$RUNNER_TEMP/pathb-current-api"
+          output="$RUNNER_TEMP/pathb-clean-install-output"
+          runner="$GITHUB_WORKSPACE/.pathb-clean-install-runner"
+          grants="$RUNNER_TEMP/pathb-runtime-grants.sql"
+          mkdir -p "$api_root" "$output"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj \
+            --configuration Release --output "$api_root" --nologo
+          python3 scripts/ci/pathb_clean_install_acl.py \
+            --repo "$GITHUB_WORKSPACE" --runner "$runner" --grants "$grants"
+          echo "CLEAN_INSTALL_OUTPUT_DIR=$output" >> "$GITHUB_ENV"
+          echo "CLEAN_INSTALL_API_CANDIDATE_ROOT=$api_root" >> "$GITHUB_ENV"
+          echo "FIELDVISIT_API_RUNTIME_GRANTS_SQL_FILE=$grants" >> "$GITHUB_ENV"
+          echo "PATHB_RUNNER_DIR=$runner" >> "$GITHUB_ENV"
+          dotnet build "$runner/ModelBaselineRunner.csproj" \
+            --configuration Release -p:RcSourceRoot="$CLEAN_INSTALL_RC_ROOT" --nologo
+      - name: Run integrated 69-table schema, minimum Runtime ACL, and current API HTTP business probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet "$PATHB_RUNNER_DIR/bin/Release/net8.0/ModelBaselineRunner.dll" \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+          echo 'CurrentPR83API=REAL_HTTP_TO_SQL2022; RuntimePrincipal=OBJECT_SCOPED_MATRIX; Deployment=NONE'
+      - name: Seal sanitized Path B test receipt
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,subprocess
+          matrix=pathlib.Path('docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.csv')
+          ledger=json.loads(pathlib.Path('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
+          files=['tools/clean-install/HttpApiSmoke.cs','backend/src/FieldVisit.Infrastructure/AppDbContext.cs',
+                 'database/clean-install/v180/00_schema_versions.sql']
+          receipt={
+            'contract':'fieldvisit-pathb-current-api-clean-install-acl-v1',
+            'sourceSha':os.environ['GITHUB_SHA'],
+            'schemaSourceRcSha':os.environ['CLEAN_INSTALL_RC_SHA'],
+            'matrixSha256':hashlib.sha256(matrix.read_bytes()).hexdigest(),
+            'sourceBindings':{p:ledger['integratedFiles'][p]['sha'] for p in files},
+            'cleanInstallTables':69,
+            'runtimePrincipal':'SQL_LOGIN; no sysadmin/db_owner/db_datawriter/db_datareader; object-scoped matrix',
+            'historyDmlNegative':'SchemaVersions and SchemaMigrationDataBaselines INSERT/UPDATE/DELETE denied with SQL error 229; FieldVisitMigrationLedger denied when present',
+            'selectScope':'57 PR82-base EF ToTable objects plus object-scoped matrix-only reads (SchemaVersions, SchemaMigrationDataBaselines, Option C SQL-only tables, optional FieldVisitMigrationLedger)',
+            'httpFlows':'Visitor/Leader/Admin login, role denials, same-clean-DB visitor trip and location approval probes',
+            'runtimeFlags':'Demo=enabled only in ephemeral CI; OptionCCandidate=enabled only for isolated SQL test; Worker=false; CleanupEnabled remains source-default false and cleanup endpoint not called',
+            'azureRuntimeFlags':'NOT_VERIFIED',
+            'excelImport':'NOT_TESTED',
+            'worker':'DISABLED_NOT_TESTED',
+            'azure':'NONE','liveSql':'NONE','deployment':'NONE',
+            'existingUatPreserved':True,'existing010':'NOT_TESTED'
+          }
+          out=pathlib.Path('artifacts/pathb-current-api-clean-install')
+          out.mkdir(parents=True,exist_ok=False)
+          (out/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          (out/'checksums.sha256').write_text(hashlib.sha256((out/'receipt.json').read_bytes()).hexdigest()+'  receipt.json\n')
+          subprocess.run(['sha256sum','--check','--quiet','checksums.sha256'],cwd=out,check=True)
+          print('PathBExactSource=PASS; SQL2022RuntimeACL=PASS; Azure=NONE; BusinessUAT=NO_GO')
+      - name: Remove disposable SQL2022 container
+        if: always()
+        shell: bash
+        run: docker rm -f fieldvisit-pathb-sql2022 >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: pathb-current-api-clean-install-acl-\${{ github.sha }}
+          path: artifacts/pathb-current-api-clean-install/
+          retention-days: 30
+          if-no-files-found: error
+
   corrected-020-reference:
     name: Corrected phase020 synthetic catalog derivation (LOCAL SQL2022 ONLY)
     needs: combined-source
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && !contains(github.event.head_commit.message, '[catalog-source-only]')
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && !contains(github.event.head_commit.message, '[catalog-source-only]') && !contains(github.event.head_commit.message, '[pathb-clean-install]')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -430,7 +592,7 @@ jobs:
   frontend-gated-candidate:
     name: Dual OFF / ON_NONDEPLOY frontend artifact (no deployment)
     needs: combined-source
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && !contains(github.event.head_commit.message, '[catalog-source-only]')
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && !contains(github.event.head_commit.message, '[catalog-source-only]') && !contains(github.event.head_commit.message, '[pathb-clean-install]')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
