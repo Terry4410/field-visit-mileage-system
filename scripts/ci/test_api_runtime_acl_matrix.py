@@ -31,6 +31,17 @@ class ApiRuntimeAclMatrixTests(unittest.TestCase):
             for permission in ("SELECT", "INSERT", "UPDATE", "DELETE"):
                 self.assertIn(row[permission], {"YES", "NO"})
 
+    def test_route_governance_dml_matches_real_api_lifecycle(self):
+        by_table = {row["table"]: row for row in self.rows}
+        expected = {
+            "RouteCalculationAttempts": ("YES", "YES", "YES", "NO"),
+            "GeocodingAttempts": ("YES", "YES", "YES", "NO"),
+            "MileageGovernanceEvents": ("NO", "YES", "NO", "NO"),
+        }
+        for table, crud in expected.items():
+            self.assertIn(table, by_table)
+            self.assertEqual(tuple(by_table[table][p] for p in ("SELECT", "INSERT", "UPDATE", "DELETE")), crud)
+
     def test_runtime_history_is_read_only_and_complete_protected_set(self):
         protected = [r for r in self.rows if r["schema_phase"].startswith("PROTECTED")]
         self.assertGreaterEqual(len(protected), 3)

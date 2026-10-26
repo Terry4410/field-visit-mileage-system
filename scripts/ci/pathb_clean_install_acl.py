@@ -18,7 +18,7 @@ def rows_from(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     required = {"table", "schema_phase", "SELECT", "INSERT", "UPDATE", "DELETE", "status"}
-    if len(rows) != 30 or not rows or not required.issubset(rows[0]):
+    if len(rows) != 32 or not rows or not required.issubset(rows[0]):
         raise SystemExit("ACL_MATRIX_CONTRACT_STOP")
     if len({r["table"] for r in rows}) != len(rows):
         raise SystemExit("ACL_MATRIX_DUPLICATE_STOP")
