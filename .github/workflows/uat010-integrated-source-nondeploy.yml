@@ -274,6 +274,22 @@ jobs:
           echo "CLEAN_INSTALL_API_CANDIDATE_ROOT=$api_root" >> "$GITHUB_ENV"
           echo "FIELDVISIT_API_RUNTIME_GRANTS_SQL_FILE=$grants" >> "$GITHUB_ENV"
           echo "PATHB_RUNNER_DIR=$runner" >> "$GITHUB_ENV"
+          # The PR48 runner consumes generated source packages. Bind these exact
+          # generators through integration-ledger.json and build them before SQL DDL.
+          python3 scripts/ci/clean_install/build_sql_only_tables.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_effective_triggers.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_optionc_sql_only_tables.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_sql_only_indexes.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_007_checks.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_001_004_checks.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_optionc_final_checks.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
           dotnet build "$runner/ModelBaselineRunner.csproj" \
             --configuration Release -p:RcSourceRoot="$CLEAN_INSTALL_RC_ROOT" --nologo
       - name: Run integrated 69-table schema, minimum Runtime ACL, and current API HTTP business probes
