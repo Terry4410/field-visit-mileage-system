@@ -197,7 +197,8 @@ jobs:
             'tools/clean-install/HttpApiBusinessProbe.cs',
             'tools/clean-install/Program.cs',
             'database/clean-install/v180/00_schema_versions.sql',
-            'database/clean-install/v180/20_route_reason_check.sql'
+            'database/clean-install/v180/20_route_reason_check.sql',
+            'scripts/ci/clean_install/apply_rc_runtime_candidate.py'
           }
           assert required.issubset(ledger['integratedFiles'])
           assert all(ledger['integratedFiles'][p]['source']=='PR48' for p in required)
@@ -288,6 +289,10 @@ jobs:
           echo "CLEAN_INSTALL_API_CANDIDATE_ROOT=$api_root" >> "$GITHUB_ENV"
           echo "FIELDVISIT_API_RUNTIME_GRANTS_SQL_FILE=$grants" >> "$GITHUB_ENV"
           echo "PATHB_RUNNER_DIR=$runner" >> "$GITHUB_ENV"
+          # Apply the already accepted RC overlay only inside this disposable
+          # checkout so the test harness' EF INSERT honors enabled triggers.
+          python3 scripts/ci/clean_install/apply_rc_runtime_candidate.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
           # The PR48 runner consumes generated source packages. Bind these exact
           # generators through integration-ledger.json and build them before SQL DDL.
           python3 scripts/ci/clean_install/build_sql_only_tables.py \
@@ -362,6 +367,10 @@ jobs:
           ledger=json.loads(pathlib.Path('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
           pr48_files=['tools/clean-install/HttpApiSmoke.cs','database/clean-install/v180/00_schema_versions.sql']
           source_bindings={p:ledger['integratedFiles'][p]['sha'] for p in pr48_files}
+          overlay_path='scripts/ci/clean_install/apply_rc_runtime_candidate.py'
+          source_bindings[overlay_path]=ledger['integratedFiles'][overlay_path]['sha']
+          overlay=pathlib.Path(os.environ['CLEAN_INSTALL_OUTPUT_DIR'])/'runtime-candidate-overlay.json'
+          overlay_sha=hashlib.sha256(overlay.read_bytes()).hexdigest()
           app_context='backend/src/FieldVisit.Infrastructure/AppDbContext.cs'
           source_bindings[app_context]=subprocess.check_output(
             ['git','rev-parse',f"ae9ca02cf2d9539fe9bed61a073d60d63731cbb9:{app_context}"],text=True).strip()
@@ -372,6 +381,7 @@ jobs:
             'matrixSha256':hashlib.sha256(matrix.read_bytes()).hexdigest(),
             'apiCandidateManifestSha256':hashlib.sha256(pathlib.Path('artifacts/pathb-current-api-candidate/candidate-manifest.json').read_bytes()).hexdigest(),
             'sourceBindings':source_bindings,
+            'cleanInstallHarnessOverlaySha256':overlay_sha,
             'cleanInstallTables':69,
             'runtimePrincipal':'SQL_LOGIN; no sysadmin/db_owner/db_datawriter/db_datareader; object-scoped matrix',
             'historyDmlNegative':'SchemaVersions and SchemaMigrationDataBaselines INSERT/UPDATE/DELETE denied with SQL error 229; FieldVisitMigrationLedger denied when present',
