@@ -34,8 +34,12 @@ public static class V180UatReleaseTrust
     }
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public const string Features = "LocationReview,LowRiskDirect,ExcelReview";
+    public const string PathBFeatures = "DemoAccounts,LocationReview,LowRiskDirect,ExcelReview,OptionCCandidate,OptionCApproval,GoogleMapsRoutes,Worker";
     public const string Server = "sql-fieldvisit-jpe-uat.database.windows.net";
     public const string Database = "db-fieldvisit-uat";
+    public const string PathBServer = "sql-fieldvisit-jpe-pathb-uat.database.windows.net";
+    public const string PathBDatabase = "db-fieldvisit-pathb-uat";
+    public const string PathBProfile = "PathBNewEmpty";
     private static InvalidOperationException Denied() => new("OPTIONC_UAT_TRUST_DENIED");
     private static bool Hex(string s,int n) => s.Length==n && s.All(c=>char.IsAsciiHexDigit(c));
     public static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -56,11 +60,15 @@ public static class V180UatReleaseTrust
             || a.CandidateSourceSha!=facts.CandidateSourceSha || a.ApiSha256!=facts.ApiSha256
             || a.FrontendSha256!=facts.FrontendSha256 || a.SchemaSha256!=facts.SchemaSha256
             || a.PrincipalSidSha256!=facts.PrincipalSidSha256 || a.PrincipalName!=facts.PrincipalName
-            || a.Server!=Server || a.Database!=Database || facts.Server!=Server || facts.Database!=Database
-            || a.Features!=Features || facts.Features!=Features || facts.EngineEdition!=5
+            || a.Features!=expectedFeatures || facts.Features!=expectedFeatures || facts.EngineEdition!=5
             || !facts.EncryptedCertificateVerified || !facts.NonOwnerNoDdl) throw Denied();
-        // Only a fresh signed payload with the exact existing-010 profile can
-        // authorize the upgraded schema. An old three-marker RC remains denied.
+        var isPathB=facts.SchemaProfile==PathBProfile;
+        var expectedServer=isPathB?PathBServer:Server;
+        var expectedDatabase=isPathB?PathBDatabase:Database;
+        var expectedFeatures=isPathB?PathBFeatures:Features;
+        if(a.Server!=expectedServer || a.Database!=expectedDatabase
+            || facts.Server!=expectedServer || facts.Database!=expectedDatabase) throw Denied();
+        // Existing010 and Path B use distinct signed target profiles.
         if (facts.SchemaProfile=="Existing010Upgrade")
         {
             if(a.SchemaProfile!="Existing010Upgrade" || !Hex(a.HistoricalMarkerSha256 ?? "",64)
@@ -69,6 +77,14 @@ public static class V180UatReleaseTrust
                 || a.PromotionPackageId!=facts.PromotionPackageId
                 || a.LedgerSha256!=facts.LedgerSha256
                 || a.TableCount!=facts.TableCount || a.TableCount is null or <70 or >100)
+                throw Denied();
+        }
+        else if(facts.SchemaProfile==PathBProfile)
+        {
+            if(a.SchemaProfile!=PathBProfile || facts.TableCount!=69 || a.TableCount!=69
+                || a.HistoricalMarkerSha256 is not null || a.PromotionPackageId is not null
+                || a.LedgerSha256 is not null || facts.HistoricalMarkerSha256 is not null
+                || facts.PromotionPackageId is not null || facts.LedgerSha256 is not null)
                 throw Denied();
         }
         else if(facts.SchemaProfile is not null || a.SchemaProfile is not null
@@ -123,8 +139,7 @@ public static class V180UatReleaseTrust
     }
     private static void RequireCore(SqlConnection connection, SqlTransaction? transaction)
     {
-        if(connection.State!=ConnectionState.Open || connection.DataSource!=Server || connection.Database!=Database
-            || Environment.GetEnvironmentVariable("FIELDVISIT_UAT_ACTIVATION")!="true") throw Denied();
+        if(connection.State!=ConnectionState.Open || Environment.GetEnvironmentVariable("FIELDVISIT_UAT_ACTIVATION")!="true") throw Denied();
         var cs=new SqlConnectionStringBuilder(connection.ConnectionString);
         var tls=cs.Encrypt.ToString() is "True" or "Strict";
         if(!tls || cs.TrustServerCertificate) throw Denied();
@@ -138,9 +153,24 @@ public static class V180UatReleaseTrust
         var candidate=contract.RootElement;
         if(candidate.GetProperty("candidateSourceSha").GetString()!=UatReleaseIdentity.SourceSha) throw Denied();
         var profile=candidate.TryGetProperty("schemaProfile",out var v) ? v.GetString() : null;
-        if(profile is not (null or "Existing010Upgrade")) throw Denied();
+        if(profile is not (null or "Existing010Upgrade" or PathBProfile)) throw Denied();
         bool upgrade=profile=="Existing010Upgrade";
+        bool pathB=profile==PathBProfile;
         int expectedTables=upgrade ? candidate.GetProperty("tableCount").GetInt32() : 69;
+        var jwtKey=Environment.GetEnvironmentVariable("Auth__JwtKey") ?? "";
+        if(pathB && (Environment.GetEnvironmentVariable("Auth__Mode")!="Demo"
+            || (Environment.GetEnvironmentVariable("Auth__DemoPassword") ?? "").Length<12
+            || jwtKey.Length<32 || Environment.GetEnvironmentVariable("OPTIONC_EXECUTION_MODE")!="Uat"
+            || Environment.GetEnvironmentVariable("OptionC__Candidate__Enabled")!="true"
+            || Environment.GetEnvironmentVariable("OptionC__Approval__Enabled")!="true"
+            || Environment.GetEnvironmentVariable("BackgroundJobs__WorkerEnabled")!="true"
+            || Environment.GetEnvironmentVariable("Providers__Route")!="GoogleMaps"
+            || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GoogleMaps__ApiKey")))) throw Denied();
+        var expectedServer=pathB?PathBServer:Server;
+        var expectedDatabase=pathB?PathBDatabase:Database;
+        if(candidate.GetProperty("server").GetString()!=expectedServer
+            || candidate.GetProperty("database").GetString()!=expectedDatabase
+            || connection.DataSource!=expectedServer || connection.Database!=expectedDatabase) throw Denied();
         if(upgrade && (expectedTables<70 || expectedTables>100)) throw Denied();
         using var read=new SqlCommand("""
             SELECT CONVERT(int,SERVERPROPERTY('EngineEdition')),USER_NAME(),
@@ -193,12 +223,13 @@ public static class V180UatReleaseTrust
                 """,connection,transaction) {CommandTimeout=10};
             if(Convert.ToInt32(markers.ExecuteScalar())!=1) throw Denied();
         }
+        var runtimeFeatures=pathB?PathBFeatures:Features;
         var facts=new Facts(UatReleaseIdentity.SourceSha,api,candidate.GetProperty("frontendSha256").GetString()!,
-            schema,sid,principal,connection.DataSource,connection.Database,engine,tls,least,Features)
+            schema,sid,principal,connection.DataSource,connection.Database,engine,tls,least,runtimeFeatures)
         {
             SchemaProfile=profile,HistoricalMarkerSha256=proof?.HistoricalMarkerSha256,
             PromotionPackageId=proof?.PromotionPackageId,LedgerSha256=proof?.LedgerSha256,
-            TableCount=upgrade ? expectedTables : null
+            TableCount=upgrade || pathB ? expectedTables : null
         };
         Validate(payload,signature,key,facts,DateTimeOffset.UtcNow);
     }

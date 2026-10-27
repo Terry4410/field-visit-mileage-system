@@ -2,10 +2,13 @@
 import argparse,hashlib,json,os,subprocess,sys
 from pathlib import Path
 SERVER='sql-fieldvisit-jpe-uat.database.windows.net';DATABASE='db-fieldvisit-uat'
+PATHB_SERVER='sql-fieldvisit-jpe-pathb-uat.database.windows.net';PATHB_DATABASE='db-fieldvisit-pathb-uat'
 def sha(b): return hashlib.sha256(b).hexdigest()
-def promoted(raw,name):
+def promoted(raw,name,server=SERVER,database=DATABASE):
+ if server not in (SERVER,PATHB_SERVER) or database not in (DATABASE,PATHB_DATABASE): raise ValueError('EXACT_UAT_TARGET_REQUIRED')
+ if (server,database) not in ((SERVER,DATABASE),(PATHB_SERVER,PATHB_DATABASE)): raise ValueError('TARGET_PAIR_MISMATCH')
  text=raw.decode('utf-8-sig')
- target="IF DB_NAME()<>N'db-fieldvisit-uat' OR CONVERT(int,SERVERPROPERTY('EngineEdition'))<>5 THROW 56610,N'EXACT_UAT_TARGET_REQUIRED',1;\n"
+ target=f"IF DB_NAME()<>N'{database}' OR CONVERT(int,SERVERPROPERTY('EngineEdition'))<>5 THROW 56610,N'EXACT_UAT_TARGET_REQUIRED',1;\n"
  if name=='20_route_reason_check.sql':
   old="IF DB_NAME() NOT IN\n   (N'OptionCIsolated_FieldVisitV180CleanInstall',\n    N'OptionCIsolated_FieldVisitV180Replay')\n    THROW 56040, N'CLEAN_ROUTE_DISPOSABLE_TARGET_REQUIRED', 1;"
   if text.count(old)!=1: raise ValueError('ROUTE_TARGET_GUARD_DRIFT')
@@ -16,18 +19,20 @@ def promoted(raw,name):
   text=text.replace(old,target)
  return (target+'GO\n'+text).encode()
 def main():
- p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--target',choices=['fixture','uat'],required=True);p.add_argument('--execute',action='store_true');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--target',choices=['fixture','uat','pathb-uat'],required=True);p.add_argument('--execute',action='store_true');a=p.parse_args()
  root=a.root;planfile=root/'standalone-install-manifest.json';plan=json.loads(planfile.read_text());mode=plan[a.target]
  for x in mode['sequence']:
   assert sha((root/x['file']).read_bytes())==x['sha256'],'INSTALLER_INPUT_HASH_MISMATCH'
+ if a.target=='pathb-uat' and (mode.get('server'),mode.get('database'),mode.get('schemaProfile'))!=(PATHB_SERVER,PATHB_DATABASE,'PathBNewEmpty'): raise ValueError('PATHB_MANIFEST_TARGET_MISMATCH')
+ if a.target=='uat' and (mode.get('server'),mode.get('database'))!=(SERVER,DATABASE): raise ValueError('EXISTING010_MANIFEST_TARGET_MISMATCH')
  if not a.execute: print('INSTALLER=HASH_VERIFIED_DRY_RUN_NO_CONNECTION');return 0
  if os.environ.get('FIELDVISIT_APPROVED_INSTALL_MANIFEST')!=sha(planfile.read_bytes()): raise ValueError('EXACT_MANIFEST_EXECUTION_APPROVAL_REQUIRED')
- server,database=(SERVER,DATABASE) if a.target=='uat' else ('localhost,1433','OptionCIsolated_FieldVisitV180CleanInstall')
+ server,database=((PATHB_SERVER,PATHB_DATABASE) if a.target=='pathb-uat' else (SERVER,DATABASE)) if a.target in ('uat','pathb-uat') else ('localhost,1433','OptionCIsolated_FieldVisitV180CleanInstall')
  args=['sqlcmd','-S',server,'-d',database,'-I','-b','-l','10']
  if a.target=='fixture':args+=['-C']
  else:args+=['-N']
  if os.environ.get('SQLCMDUSER'):args+=['-U',os.environ['SQLCMDUSER']]
- elif a.target=='uat':args+=['-G']
+ elif a.target in ('uat','pathb-uat'):args+=['-G']
  else:raise ValueError('INSTALLER_IDENTITY_REQUIRED')
  def run(raw):
   r=subprocess.run(args,input=raw,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=120)

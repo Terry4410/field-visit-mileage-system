@@ -34,7 +34,7 @@ try
   }
   Console.WriteLine("UAT_RC=READONLY_PREFLIGHT_SAME_TRANSACTION_AND_WRONG_TARGET_DENIAL_PASS");
   stage="API_FRONTEND_SCHEMA_BINDING";
-  var binding=new {candidateSourceSha=UatReleaseIdentity.SourceSha,apiSha256=V180UatReleaseTrust.ApiHash(apiRoot),frontendSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(output,"frontend-release-candidate.zip"))),schemaSha256=V180UatReleaseTrust.Hash(Encoding.UTF8.GetBytes(catalog))};
+  var binding=new {candidateSourceSha=UatReleaseIdentity.SourceSha,apiSha256=V180UatReleaseTrust.ApiHash(apiRoot),frontendSha256=V180UatReleaseTrust.Hash(File.ReadAllBytes(Path.Combine(output,"frontend-release-candidate.zip"))),schemaSha256=V180UatReleaseTrust.Hash(Encoding.UTF8.GetBytes(catalog)),schemaProfile=V180UatReleaseTrust.PathBProfile,tableCount=69,server=V180UatReleaseTrust.PathBServer,database=V180UatReleaseTrust.PathBDatabase};
   File.WriteAllText(Path.Combine(apiRoot,"release-contract.json"),JsonSerializer.Serialize(binding));
   File.WriteAllText(Path.Combine(output,"release-contract.json"),JsonSerializer.Serialize(binding));
  }
@@ -47,6 +47,14 @@ try
  var payload=JsonSerializer.SerializeToUtf8Bytes(attestation,new JsonSerializerOptions(JsonSerializerDefaults.Web));
  var signature=Convert.ToHexString(HMACSHA256.HashData(key,payload));
  V180UatReleaseTrust.Validate(payload,signature,key,facts,now);
+ var pathBFacts=facts with {Server=V180UatReleaseTrust.PathBServer,Database=V180UatReleaseTrust.PathBDatabase,SchemaProfile=V180UatReleaseTrust.PathBProfile,TableCount=69,Features=V180UatReleaseTrust.PathBFeatures};
+ var pathBAttestation=attestation with {Server=pathBFacts.Server,Database=pathBFacts.Database,SchemaProfile=V180UatReleaseTrust.PathBProfile,TableCount=69,Features=V180UatReleaseTrust.PathBFeatures};
+ var pathBPayload=JsonSerializer.SerializeToUtf8Bytes(pathBAttestation,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+ V180UatReleaseTrust.Validate(pathBPayload,Convert.ToHexString(HMACSHA256.HashData(key,pathBPayload)),key,pathBFacts,now);
+ foreach(var badPathB in new[]{pathBFacts with {Server=V180UatReleaseTrust.Server,Database=V180UatReleaseTrust.Database},pathBFacts with {Server="sql-fieldvisit-jpe-prod.database.windows.net"},pathBFacts with {Database="db-fieldvisit-prod"},pathBFacts with {TableCount=68}})
+     ExpectDenied(()=>V180UatReleaseTrust.Validate(pathBPayload,Convert.ToHexString(HMACSHA256.HashData(key,pathBPayload)),key,badPathB,now));
+ ExpectDenied(()=>V180UatReleaseTrust.Validate(pathBPayload,new string('0',64),key,pathBFacts,now));
+ Console.WriteLine("UAT_RC_PATHB_SIGNED_TARGET_AND_5_DENIALS_PASS");
  var negatives=new [] { facts with {Server="unknown"},facts with {Database="production"},facts with {EngineEdition=3},facts with {EncryptedCertificateVerified=false},facts with {NonOwnerNoDdl=false},facts with {ApiSha256=new string('b',64)},facts with {FrontendSha256=new string('b',64)},facts with {SchemaSha256=new string('b',64)},facts with {PrincipalSidSha256=new string('b',64)},facts with {PrincipalName="dbo"},facts with {CandidateSourceSha=new string('b',40)},facts with {Features="all"}};
  foreach(var bad in negatives) ExpectDenied(()=>V180UatReleaseTrust.Validate(payload,signature,key,bad,now));
  ExpectDenied(()=>V180UatReleaseTrust.Validate(payload,signature,key,facts,now.AddHours(2)));

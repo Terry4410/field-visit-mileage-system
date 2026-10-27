@@ -82,6 +82,20 @@ internal static class Program
             Reject("DdlPrivilegeGranted",upgradeAttestation,upgradeFacts with {NonOwnerNoDdl=false});
             Reject("NonTlsTransport",upgradeAttestation,upgradeFacts with {EncryptedCertificateVerified=false});
             Reject("UnknownUpgradeProfile",upgradeAttestation with {SchemaProfile="Other"},upgradeFacts);
+
+            var pathBFacts=f with {Server=V180UatReleaseTrust.PathBServer,Database=V180UatReleaseTrust.PathBDatabase,SchemaProfile=V180UatReleaseTrust.PathBProfile,TableCount=69,Features=V180UatReleaseTrust.PathBFeatures};
+            var pathBAttestation=a with {Server=pathBFacts.Server,Database=pathBFacts.Database,SchemaProfile=V180UatReleaseTrust.PathBProfile,TableCount=69,Features=V180UatReleaseTrust.PathBFeatures};
+            Accept("SignedPathBNewEmpty69Table",pathBAttestation,pathBFacts);
+            Reject("PathBWrongServer",pathBAttestation,pathBFacts with {Server=V180UatReleaseTrust.Server});
+            Reject("PathBLegacyDatabase",pathBAttestation,pathBFacts with {Database=V180UatReleaseTrust.Database});
+            Reject("PathBProductionServer",pathBAttestation,pathBFacts with {Server="sql-fieldvisit-jpe-prod.database.windows.net"});
+            Reject("PathBProductionDatabase",pathBAttestation,pathBFacts with {Database="db-fieldvisit-prod"});
+            Reject("PathBWrongTableCount",pathBAttestation,pathBFacts with {TableCount=68});
+            Reject("PathBWrongFeatureFlags",pathBAttestation,pathBFacts with {Features=V180UatReleaseTrust.Features});
+            Reject("PathBWrongProfile",pathBAttestation with {SchemaProfile="Existing010Upgrade"},pathBFacts);
+            Reject("PathBHistoryMarkerInjection",pathBAttestation with {HistoricalMarkerSha256=new string('e',64)},pathBFacts);
+            Reject("PathBTamperedHmac",pathBAttestation,pathBFacts,true);
+            Console.WriteLine("PathBReleaseTrust=PASS; Cases=9; RealSQL=NOT_ACCESSED; LiveUAT=HOLD;");
             Console.WriteLine("UpgradeTrustSignedProfile=PASS; Tests="+tests+"; RealSQL=NOT_ACCESSED; LiveUAT=HOLD;");
             return 0;
         }

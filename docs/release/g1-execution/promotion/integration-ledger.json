@@ -9,7 +9,7 @@
     "PR48_CLEAN": "9ee5dacceed2bf55c39310d663f3258bcb545989",
     "PR81_HISTORY": "5bab502f20d9590d415d6a25a238d1629057989d"
   },
-  "sourceScope": "copy exact reviewed Git blobs; no edits to accepted artifacts, schema migration or application auth",
+  "sourceScope": "PR48/PR81 accepted source blobs remain preserved; Path B target, signed release trust, create-only installer and activation tooling are explicit PR83 deltas recorded below.",
   "acceptedOriginal": {
     "PR48_CI": "39998237406",
     "PR50_CI": "40086823634",
@@ -239,5 +239,31 @@
     "reviewStatus": "CI_PENDING_AND_LIVE_RUNTIME_RIGHTS_HOLD",
     "baseline": "Issue41-6393698885",
     "predecessorCompatible": true
+  },
+  "pathBOverlays": {
+    "tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs": {
+      "baseSha": "84a87a19558fa0647ce4949c1b71e3738bd00abd",
+      "sha": "712eab421b57d335946ca26db55ba1a7928f64ed"
+    },
+    "tools/uat-release-candidate/Program.cs": {
+      "baseSha": "3b4d747433367691bfc9f50a9164df30dfc1dc12",
+      "sha": "d2a544f266a9c0b835655ccd4066c665e52a5d4b"
+    },
+    "scripts/ci/uat_release/install.py": {
+      "baseSha": "d411c77479cb1bc4fc66182069db3103179ff980",
+      "sha": "5a6b7657b0c803d7ee3b55599dbd94c732f0e955"
+    },
+    "scripts/ci/uat_release/seal.py": {
+      "baseSha": "2fad66a88c2a89b1a4f91add6fb63efb00fff425",
+      "sha": "d453dc740342d1a183921474eab8d19452ebf7c4"
+    },
+    "scripts/ci/uat_release/sign_activation.py": {
+      "baseSha": "3bc354530fd4c94a03ef881496dcbaa94818578a",
+      "sha": "758d8d1e3916f0e222c089a83183b9fb5984c672"
+    },
+    "tools/uat-release-candidate/upgrade-profile-tests/Program.cs": {
+      "baseSha": "52436fd25f86d316ed5971770bd699d9a356ae1e",
+      "sha": "a33d3ac57c9ecf3abcc8b8508af586ba245fa31a"
+    }
   }
 }

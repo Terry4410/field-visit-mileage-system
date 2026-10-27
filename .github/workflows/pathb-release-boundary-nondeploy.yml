@@ -1,0 +1,47 @@
+name: Path B release boundary NONDEPLOY
+on:
+  push:
+    branches: [work/uat010-existing-rc-integration-20261025]
+    paths:
+      - 'tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs'
+      - 'tools/uat-release-candidate/upgrade-profile-tests/**'
+      - 'scripts/ci/uat_release/install.py'
+      - 'scripts/ci/uat_release/sign_activation.py'
+      - 'scripts/ci/uat_release/seal.py'
+      - 'tools/uat-release-candidate/Program.cs'
+      - 'scripts/ci/test_pathb_release_contract.py'
+      - 'docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md'
+      - 'docs/uat/BUSINESS-UAT-TEST-CASES-v1.8.0.md'
+      - '.github/workflows/pathb-release-boundary-nondeploy.yml'
+permissions:
+  contents: read
+concurrency:
+  group: pathb-release-boundary-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  pathb-release-boundary:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify installer, signed target profile and frozen Google cases
+        run: python scripts/ci/test_pathb_release_contract.py
+      - name: Compile and run signed runtime trust profiles (no SQL connection)
+        run: dotnet run --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj --configuration Release --no-launch-profile
+      - name: Prove exact source and no live connection
+        shell: python
+        run: |
+          import os,subprocess
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['GITHUB_SHA']
+          assert not os.environ.get('UAT_SQL_CONNECTION') and not os.environ.get('PRODUCTION_SQL_CONNECTION')
+          print('PATHB_RUNTIME_TRUST=OFFLINE; LIVE_SQL=NOT_ACCESSED; DEPLOYMENT=NOT_EXECUTED')

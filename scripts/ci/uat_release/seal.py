@@ -35,19 +35,24 @@ else:
  (out/'sql-install-order.json').write_text(json.dumps(order,indent=2))
  from install import promoted
  uat=out/'uat-sql';uat.mkdir(exist_ok=True)
- promoted_entries=[]
+ pathb=out/'pathb-uat-sql';pathb.mkdir(exist_ok=True)
+ existing_entries=[];pathb_entries=[]
  for item in order['sequence']:
-  raw=promoted((sql/item['file']).read_bytes(),item['file']);(uat/item['file']).write_bytes(raw)
-  promoted_entries.append({'step':item['step'],'file':'uat-sql/'+item['file'],'sha256':sha(raw),'sourceSha256':item['sha256']})
- standalone={'candidateSourceSha':os.environ['GITHUB_SHA'],'fixture':{'sequence':[{**x,'file':'sql/'+x['file']} for x in order['sequence']]},'uat':{'server':'sql-fieldvisit-jpe-uat.database.windows.net','database':'db-fieldvisit-uat','sequence':promoted_entries},'executionDefault':'DRY_RUN_ONLY_REQUIRES_SEPARATE_EXACT_MANIFEST_APPROVAL'}
+  raw=(sql/item['file']).read_bytes()
+  existing=promoted(raw,item['file']);(uat/item['file']).write_bytes(existing)
+  existing_entries.append({'step':item['step'],'file':'uat-sql/'+item['file'],'sha256':sha(existing),'sourceSha256':item['sha256']})
+  fresh=promoted(raw,item['file'],'sql-fieldvisit-jpe-pathb-uat.database.windows.net','db-fieldvisit-pathb-uat');(pathb/item['file']).write_bytes(fresh)
+  pathb_entries.append({'step':item['step'],'file':'pathb-uat-sql/'+item['file'],'sha256':sha(fresh),'sourceSha256':item['sha256']})
+ standalone={'candidateSourceSha':os.environ['GITHUB_SHA'],'fixture':{'sequence':[{**x,'file':'sql/'+x['file']} for x in order['sequence']]},'uat':{'server':'sql-fieldvisit-jpe-uat.database.windows.net','database':'db-fieldvisit-uat','sequence':existing_entries},'pathb-uat':{'server':'sql-fieldvisit-jpe-pathb-uat.database.windows.net','database':'db-fieldvisit-pathb-uat','schemaProfile':'PathBNewEmpty','sequence':pathb_entries},'executionDefault':'DRY_RUN_ONLY_REQUIRES_SEPARATE_EXACT_MANIFEST_APPROVAL'}
  (out/'standalone-install-manifest.json').write_text(json.dumps(standalone,indent=2))
  shutil.copyfile('scripts/ci/uat_release/install.py',out/'install.py');shutil.copyfile('scripts/ci/uat_release/sign_activation.py',out/'sign_activation.py')
  shutil.copyfile('docs/release/uat-release-candidate/IT-ACCEPTANCE.md',out/'IT-ACCEPTANCE.md')
+ subprocess.run([sys.executable,str(out/'install.py'),'--root',str(out),'--target','pathb-uat'],check=True)
  subprocess.run([sys.executable,str(out/'install.py'),'--root',str(out),'--target','uat'],check=True)
  subprocess.run([sys.executable,str(out/'install.py'),'--root',str(out),'--target','fixture'],check=True)
 
  shutil.copyfile(accepted/'source-code-immutable-rc.zip',out/'source-code-immutable-rc.zip')
- subprocess.run(['git','archive','--format=zip','--output='+str(out/'release-source-delta.zip'),os.environ['GITHUB_SHA'],'tools/uat-release-candidate','tools/clean-install','scripts/ci/uat_release','scripts/ci/clean_install','docs/release/uat-release-candidate','.github/workflows/uat-release-candidate-nondeploy.yml'],check=True)
+ subprocess.run(['git','archive','--format=zip','--output='+str(out/'release-source-delta.zip'),os.environ['GITHUB_SHA'],'tools/uat-release-candidate','tools/clean-install','scripts/ci/uat_release','scripts/ci/clean_install','docs/release/uat-release-candidate','docs/release/pathb','docs/uat','.github/workflows/uat-release-candidate-nondeploy.yml','.github/workflows/pathb-release-boundary-nondeploy.yml'],check=True)
  browser=json.loads((out/'browser-evidence.json').read_text());observed={x['case'] for x in browser['cases']}
  source_cases=(runtime/'docs/release/SCHEME_A_BUSINESS_UAT_ROLE_CASES_NONDEPLOY.md').read_text()
  import re
