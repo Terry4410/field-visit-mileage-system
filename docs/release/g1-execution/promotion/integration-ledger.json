@@ -267,7 +267,7 @@
     },
     "scripts/ci/uat_release/prepare_candidate.py": {
       "baseSha": "698b815360d4963bbb5a3bdc8138585b5e0da830",
-      "sha": "a18147d8bcd52559807e2948f6138b9de8151188"
+      "sha": "d8708c3c5a21e21383bb6fd6aa6076738e98917f"
     },
     "tools/uat-release-candidate/ReleaseProbe.csproj": {
       "baseSha": "009a1295e3bceee42e23a7de2360775901ee087c",
