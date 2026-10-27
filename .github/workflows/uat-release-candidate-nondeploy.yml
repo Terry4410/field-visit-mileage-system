@@ -1,0 +1,166 @@
+name: UAT release candidate focused delta (NONDEPLOY)
+on:
+  push:
+    branches: [work/minimal-clean-build-it-handover-20261019]
+    paths:
+      - 'tools/uat-release-candidate/**'
+      - 'scripts/ci/uat_release/**'
+      - 'docs/release/uat-release-candidate/**'
+      - '.github/workflows/uat-release-candidate-nondeploy.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  focused-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ACCEPTED_SHA: 39c86f03cc8d66881a78a800ded974b2f338cf07
+      ACCEPTED_RUN: '39981135659'
+      RC_SOURCE_ROOT: ${{ github.workspace }}/runtime-source
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/checkout@v4
+        with:
+          ref: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+          path: runtime-source
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Source boundary and immutable accepted artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse origin/post-uat/v1.8.0)" = d919f8a107e3dbaee919b8c4e3b463240674eaf4
+          git merge-base --is-ancestor "$ACCEPTED_SHA" HEAD
+          python3 - <<'PY'
+          import subprocess
+          allowed=('tools/uat-release-candidate/','scripts/ci/uat_release/','docs/release/uat-release-candidate/')
+          files=subprocess.check_output(['git','diff','--name-only','39c86f03cc8d66881a78a800ded974b2f338cf07','HEAD'],text=True).splitlines()
+          assert files and all(p=='.github/workflows/uat-release-candidate-nondeploy.yml' or p.startswith(allowed) for p in files)
+          print('UAT_RC=ACCEPTED_INPUTS_UNCHANGED_MINIMAL_DELTA_PASS')
+          PY
+          echo "RELEASE_OUTPUT=$RUNNER_TEMP/release-output" >> "$GITHUB_ENV"
+          echo "RELEASE_API_ROOT=$RUNNER_TEMP/release-api" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/release-output"
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-install-model-baseline-39c86f03cc8d66881a78a800ded974b2f338cf07-39981135659
+          run-id: 39981135659
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/accepted
+      - name: Verify accepted inner hashes and prepare source delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/accepted" && sha256sum --check --quiet checksums.sha256)
+          python3 scripts/ci/uat_release/prepare_candidate.py --runtime "$RC_SOURCE_ROOT" --output "$RELEASE_OUTPUT"
+          python3 -m compileall -q scripts/ci/uat_release
+          dotnet build tools/uat-release-candidate/ReleaseProbe.csproj -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release --nologo
+          dotnet publish "$RC_SOURCE_ROOT/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" -c Release --output "$RELEASE_API_ROOT" --nologo
+          dotnet build-server shutdown >/dev/null
+      - name: Build the same normal-mode Frontend with runtime gate DEFAULT OFF
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RC_SOURCE_ROOT/frontend"
+          npm ci --no-audit --no-fund
+          VITE_RELEASE_SOURCE_SHA="$GITHUB_SHA" npm run build
+          cd "$GITHUB_WORKSPACE"
+          python3 scripts/ci/uat_release/seal.py frontend
+          cd "$RC_SOURCE_ROOT/uat"
+          npm ci --no-audit --no-fund
+          browser_image="mcr.microsoft.com/playwright:v$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")-noble"
+          docker pull "$browser_image" >/dev/null
+          echo "RELEASE_BROWSER_IMAGE=$browser_image" >> "$GITHUB_ENV"
+      - name: Instantiate accepted SQL fixture for new-feature tests only
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="Aa7!$(python3 -c 'import secrets;print(secrets.token_hex(24))')"
+          echo "::add-mask::$password"
+          printf 'CLEAN_INSTALL_SQL_PASSWORD=%s\n' "$password" >> "$GITHUB_ENV"
+          export CLEAN_INSTALL_SQL_PASSWORD="$password"
+          docker run -d --name fieldvisit-uat-rc-sql --memory 3g --env MSSQL_MEMORY_LIMIT_MB=2048 --publish 127.0.0.1:1433:1433 --env ACCEPT_EULA=Y --env MSSQL_PID=Developer --env "MSSQL_SA_PASSWORD=$password" mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          for attempt in $(seq 1 60); do
+            if docker exec -e SQLCMDPASSWORD="$password" fieldvisit-uat-rc-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -I -b -l 2 -Q 'SELECT 1' >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec -e SQLCMDPASSWORD="$password" fieldvisit-uat-rc-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -I -b -d master -Q 'CREATE DATABASE [OptionCIsolated_FieldVisitV180CleanInstall];' >/dev/null 2>&1
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'accepted'
+          plan=json.loads((root/'it-sql-install-order.json').read_text())
+          prologue=b'SET ANSI_NULLS ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET ARITHABORT ON; SET CONCAT_NULL_YIELDS_NULL ON; SET QUOTED_IDENTIFIER ON; SET NUMERIC_ROUNDABORT OFF;\nGO\n'
+          for entry in plan['sequence']:
+              process=subprocess.run(['docker','exec','-i','-e','SQLCMDPASSWORD='+os.environ['CLEAN_INSTALL_SQL_PASSWORD'],'fieldvisit-uat-rc-sql','/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-C','-I','-b','-d','OptionCIsolated_FieldVisitV180CleanInstall'],input=prologue+(root/entry['file']).read_bytes(),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60)
+              if process.returncode: raise SystemExit('UAT_RC=ACCEPTED_FIXTURE_SETUP_FAILED_STEP_'+str(entry['step']))
+          print('UAT_RC=ACCEPTED_ARTIFACT_FIXTURE_READY_NO_CLEAN_INSTALL_REVALIDATION')
+          PY
+      - name: Focused final capabilities, signed trust negatives and three-role Browser API SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --no-build --no-restore --project tools/uat-release-candidate/ReleaseProbe.csproj -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release
+      - name: Seal version-bound release and IT source SQL delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat_release/seal.py final
+      - name: Remove isolated SQL container
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f fieldvisit-uat-rc-sql >/dev/null 2>&1 || true
+          if docker ps -a --format '{{.Names}}' | grep -Fxq fieldvisit-uat-rc-sql; then exit 1; fi
+          echo 'UAT_RC=DISPOSABLE_CONTAINER_CLEANUP_PASS'
+      - uses: actions/upload-artifact@v4
+        id: release-artifact
+        with:
+          name: uat-release-candidate-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-output/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Download registered release artifact for byte and package readback
+        uses: actions/download-artifact@v4
+        with:
+          name: uat-release-candidate-${{ github.sha }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/registered-readback
+      - name: Verify every downloaded inner file and nested package
+        shell: bash
+        env:
+          RELEASE_ARTIFACT_ID: ${{ steps.release-artifact.outputs.artifact-id }}
+          RELEASE_ARTIFACT_DIGEST: ${{ steps.release-artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,zipfile
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'registered-readback'
+          sha=lambda b:hashlib.sha256(b).hexdigest()
+          entries=(root/'checksums.sha256').read_text().splitlines()
+          assert entries
+          for line in entries:
+              digest,name=line.split('  ',1)
+              assert sha((root/name).read_bytes())==digest
+          for name in ['api','frontend']:
+              manifest=json.loads((root/(name+'-manifest.json')).read_text())
+              package=root/manifest['file'];assert sha(package.read_bytes())==manifest['sha256']
+              with zipfile.ZipFile(package) as archive:
+                  assert set(archive.namelist())=={x['path'] for x in manifest['files']}
+                  for item in manifest['files']:assert sha(archive.read(item['path']))==item['sha256']
+          release=json.loads((root/'release-manifest.json').read_text())
+          assert release['candidateSourceSha']==os.environ['GITHUB_SHA']
+          assert release['activationDefault']=='OFF'
+          assert len(json.loads((root/'frozen-25-coverage.json').read_text())['cases'])==25
+          print('UAT_RC=REGISTERED_ARTIFACT_DOWNLOADED_ALL_INNER_AND_NESTED_HASHES_PASS')
+          print('UAT_RC_INNER_FILE_COUNT='+str(len(entries)))
+          print('UAT_RC_ARTIFACT_ID='+os.environ['RELEASE_ARTIFACT_ID'])
+          print('UAT_RC_ARTIFACT_REGISTERED_SHA256='+os.environ['RELEASE_ARTIFACT_DIGEST'])
+          PY

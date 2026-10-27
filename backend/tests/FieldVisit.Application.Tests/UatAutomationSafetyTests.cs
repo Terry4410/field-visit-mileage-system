@@ -6,19 +6,23 @@ namespace FieldVisit.Application.Tests;
 public sealed class UatAutomationSafetyTests
 {
     [Theory]
-    [InlineData("Demo", "1.8.0-uat-candidate", true)]
-    [InlineData("demo", "2.0.0-UAT-CANDIDATE", true)]
-    [InlineData("Entra", "1.8.0-uat-candidate", false)]
-    [InlineData("Demo", "1.8.0", false)]
-    [InlineData("Demo", "", false)]
+    [InlineData("Demo", "1.8.0-uat-candidate", "true", true)]
+    [InlineData("demo", "2.0.0-UAT-CANDIDATE", "TRUE", true)]
+    [InlineData("Entra", "1.8.0-uat-candidate", "true", false)]
+    [InlineData("Demo", "1.8.0", "true", false)]
+    [InlineData("Demo", "", "true", false)]
+    [InlineData("Demo", "1.8.0-uat-candidate", null, false)]
+    [InlineData("Demo", "1.8.0-uat-candidate", "false", false)]
+    [InlineData("Demo", "1.8.0-uat-candidate", "yes", false)]
     public void Environment_gate_requires_demo_and_uat_candidate(
         string authMode,
         string version,
+        string? cleanupEnabled,
         bool expected)
     {
         Assert.Equal(
             expected,
-            UatAutomationSafety.IsEligibleEnvironment(authMode, version));
+            UatAutomationSafety.IsEligibleEnvironment(authMode, version, cleanupEnabled));
     }
 
     [Theory]

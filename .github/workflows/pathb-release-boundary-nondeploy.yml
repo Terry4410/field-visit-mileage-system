@@ -1,0 +1,121 @@
+name: Path B release boundary NONDEPLOY
+on:
+  push:
+    branches: [work/uat010-existing-rc-integration-20261025]
+    paths:
+      - 'tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs'
+      - 'tools/uat-release-candidate/upgrade-profile-tests/**'
+      - 'scripts/ci/uat_release/install.py'
+      - 'scripts/ci/uat_release/sign_activation.py'
+      - 'scripts/ci/uat_release/seal.py'
+      - 'scripts/ci/uat_release/seal_pathb_install.py'
+      - 'scripts/ci/uat_release/prepare_candidate.py'
+      - 'docs/release/pathb/**'
+      - 'docs/release/g1-execution/promotion/integration-ledger.json'
+      - 'tools/uat-release-candidate/Program.cs'
+      - 'tools/uat-release-candidate/ReleaseProbe.csproj'
+      - 'scripts/ci/test_pathb_release_contract.py'
+      - 'docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md'
+      - 'docs/uat/BUSINESS-UAT-TEST-CASES-v1.8.0.md'
+      - '.github/workflows/pathb-release-boundary-nondeploy.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pathb-release-boundary-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  pathb-release-boundary:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/checkout@v4
+        with:
+          ref: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+          path: runtime-source
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-install-model-baseline-39c86f03cc8d66881a78a800ded974b2f338cf07-39981135659
+          run-id: 39981135659
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/accepted
+      - name: Verify installer, signed target profile and frozen Google cases
+        run: python scripts/ci/test_pathb_release_contract.py
+      - name: Compile and run signed runtime trust profiles (no SQL connection)
+        run: dotnet run --project tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj --configuration Release --no-launch-profile
+      - name: Build exact API and Frontend candidate packages (NONDEPLOY; no SQL)
+        shell: bash
+        run: |
+          set -euo pipefail
+          accepted="$RUNNER_TEMP/accepted"
+          source="$GITHUB_WORKSPACE/runtime-source"
+          output="$RUNNER_TEMP/pathb-release"
+          api="$RUNNER_TEMP/pathb-api"
+          mkdir -p "$output" "$api"
+          (cd "$accepted" && sha256sum --check --quiet checksums.sha256)
+          echo "RC_SOURCE_ROOT=$source" >> "$GITHUB_ENV"
+          echo "RELEASE_OUTPUT=$output" >> "$GITHUB_ENV"
+          echo "RELEASE_API_ROOT=$api" >> "$GITHUB_ENV"
+          python scripts/ci/uat_release/prepare_candidate.py --runtime "$source" --output "$output"
+          python -m compileall -q scripts/ci/uat_release
+          dotnet build tools/uat-release-candidate/ReleaseProbe.csproj -p:RcSourceRoot="$source" --configuration Release --nologo
+          dotnet publish "$source/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" -c Release --output "$api" --nologo
+          cd "$source/frontend"
+          npm ci --no-audit --no-fund
+          VITE_RELEASE_SOURCE_SHA="$GITHUB_SHA" npm run build
+          cd "$GITHUB_WORKSPACE"
+          RC_SOURCE_ROOT="$source" RELEASE_OUTPUT="$output" RELEASE_API_ROOT="$api" python scripts/ci/uat_release/seal.py frontend
+          RELEASE_API_ROOT="$api" RELEASE_OUTPUT="$output" python - <<'PY'
+          import hashlib,json,os,pathlib,zipfile
+          api=pathlib.Path(os.environ['RELEASE_API_ROOT']);out=pathlib.Path(os.environ['RELEASE_OUTPUT'])
+          files=sorted(x for x in api.rglob('*') if x.is_file())
+          with zipfile.ZipFile(out/'api-release-candidate.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for f in files:z.write(f,f.relative_to(api).as_posix())
+          sha=lambda b:hashlib.sha256(b).hexdigest()
+          composite=sha(''.join(n+':'+sha((api/n).read_bytes())+'\n' for n in ['FieldVisit.Api.dll','FieldVisit.Application.dll','FieldVisit.Domain.dll','FieldVisit.Infrastructure.dll']).encode())
+          frontend=sha((out/'frontend-release-candidate.zip').read_bytes())
+          manifest={'candidateSourceSha':os.environ['GITHUB_SHA'],'profile':'PathBNewEmpty','apiZipSha256':sha((out/'api-release-candidate.zip').read_bytes()),'apiAssemblyCompositeSha256':composite,'frontendZipSha256':frontend,'schemaSha256':'NOT_BOUND_UNTIL_PATHB_SQL_INSTALL','activation':'OFF','liveSql':'NOT_ACCESSED','deployment':'NOT_EXECUTED'}
+          (out/'pathb-build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          PY
+          (cd "$output" && sha256sum api-release-candidate.zip frontend-release-candidate.zip pathb-build-manifest.json > checksums.sha256)
+      - name: Seal exact Path B 69-table installer package (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/ci/uat_release/seal_pathb_install.py
+          python scripts/ci/uat_release/seal_pathb_install.py --self-test
+          python scripts/ci/uat_release/seal_pathb_install.py --accepted "$RUNNER_TEMP/accepted" --build "$RELEASE_OUTPUT" --output "$RUNNER_TEMP/pathb-install-root"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-install-${{ github.sha }}
+          path: ${{ runner.temp }}/pathb-install-package.zip
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-build-${{ github.sha }}
+          path: ${{ runner.temp }}/pathb-release/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Prove exact source and no live connection
+        shell: python
+        run: |
+          import os,subprocess
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['GITHUB_SHA']
+          assert not os.environ.get('UAT_SQL_CONNECTION') and not os.environ.get('PRODUCTION_SQL_CONNECTION')
+          print('PATHB_RUNTIME_TRUST=OFFLINE; LIVE_SQL=NOT_ACCESSED; DEPLOYMENT=NOT_EXECUTED')

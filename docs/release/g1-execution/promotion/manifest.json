@@ -3,7 +3,7 @@
   "approval": "PROPOSED_NOT_AUTHORIZED",
   "rcSource": "f29affb3299828f45b1f131321779e8bea2f86a8",
   "acceptedPreparation": "8e4d3dc72a63e324b69253dff9e0cc1d7fef2273",
-  "packageId": "8ba0e373234e3b9d01f3508d55eab7639e74e846e54c15141e44686ca682806d",
+  "packageId": "42ce4c5fe02c29590778975e5d6bd85982738437c7df65a9edc9091aa787fdbe",
   "server": "sql-fieldvisit-jpe-uat",
   "database": "db-fieldvisit-uat",
   "transaction": "ALL_NINE_STEPS_AND_BACKFILL_ATOMIC",
@@ -11,7 +11,7 @@
   "offlineTestGuard": "SQL2022_Developer_only;OptionCIsolated_GUID;explicit_session_context;caller_localhost_only",
   "sourceHashes": {
     "scripts/ci/g1_promotion.py": "16b888cac3aa6c5d777a59bb3e0876e78b7915c281f34e7d92b40b5cebf27779",
-    "docs/release/g1-execution/promotion/reference.json": "e598c81c8de029e4bb9ef105814201f89cee27ad0a1fa6c667462ed6b14c9b1b",
+    "docs/release/g1-execution/promotion/reference.json": "8953d5aee071385fe3f45124f998b509a20c24b6b6c68eac0f1fe8a40a49dd2a",
     "docs/release/g1-execution/promotion/CatalogContract.sql": "569b6286426d51d3cc023e3cc879f377da66760750e92a1deeffe4ddf0dfbd52",
     "docs/release/g1-execution/promotion/HistoryContract.sql": "43edb0823340f78340c5d28733a0acea92f7087a3ac74fb7baa704a9fccb4dd8",
     "docs/release/g1-execution/promotion/LedgerContract.sql": "e6b15309cd77c5a94492de5d575cfb7e13f60c71666009185c390703d37287a0",
@@ -23,7 +23,7 @@
     "docs/release/optionc-canonical-sql-draft/candidate/1800_017/Up.sql": "59d9363b59aacad362c9dd41ca0ed0c7111d1f550972e1aae7544fd3a61abd3a",
     "docs/release/optionc-canonical-sql-draft/candidate/1800_018/Up.sql": "3b80b40f8cbeeecbd21db746ab6788f4b94500a5c69f372b254a52c42a1c0d55",
     "docs/release/optionc-canonical-sql-draft/candidate/1800_019/Up.sql": "c27ecce42d5af777c6553648a9e11ef6261d76d52f8dfc4815b50f56a551f6c4",
-    "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql": "6bbad476386d8c7353496ea850c636371ebeb9501c98cc2505ef7f4c1bf1ab53",
+    "docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql": "b64a0e63261fd7ea32a329579cb7a67c9b96bede0a71653d2b1647e0fd48401c",
     "docs/release/optionc-canonical-sql-draft/candidate/1800_014/Backfill.sql": "8ef320c4539742017c39908221bdb1b4312024f3b2f5eb0ab172b2a62c52056f",
     "database/migrations/1800_001_organization_center_team_lifecycle/Up.sql": "8e21073a1cd8bf239ad20504e670ea8c0df69cf02f630bb92f473465fbd6726c",
     "database/migrations/1800_002_person_employment_role_membership/Up.sql": "82c9e06743af010fdde97d77b7fdb3455ce51b1f1bf0c71c61174b812d2a4f87",
@@ -155,19 +155,19 @@
     {
       "proposedId": "1.8.0-020",
       "assignment": "OWNER_APPROVAL_PENDING",
-      "payloadSha256": "992eb565487f8c24535fd89b3dbdbb28ad292b62120e42287538f940c31c64a7",
-      "postCatalogSha256": "cfaaae20bde78da8ea1327fef077abeca48b7d4579303bf2cb7b62ddda22bd66",
+      "payloadSha256": "5fbd8227edec63cba1c9a90230cd8a995efee8de4d57c24d5dc94b1fdb4d1bda",
+      "postCatalogSha256": "2f6346fbc1e113eaf678f4a256a2f4f3704342b3905da4794fc658728b56d281",
       "aliases": [
         "1.8.0-EXCEL-CANONICAL-STATUS"
       ]
     }
   ],
   "files": {
-    "docs/release/g1-execution/promotion/Promotion.sql": "2ff6301bc53ee567f3e4be6ad2efc56e3ec6dedb0029883a66c2a621b04d03a8",
-    "docs/release/g1-execution/promotion/Verify.sql": "9e685255598d027ec2b6ef1a0f3a33832ae575a49a470328489465f1c876249a",
+    "docs/release/g1-execution/promotion/Promotion.sql": "dc7524e24f887358bed64903082f693557b0d7fc04a10d43b544869d089e39ca",
+    "docs/release/g1-execution/promotion/Verify.sql": "1bf5d39b0c9f1400ef8e91027dab3573e8a8e0ff609d72ceba250beb9223f2d2",
     "docs/release/g1-execution/promotion/CatalogContract.sql": "569b6286426d51d3cc023e3cc879f377da66760750e92a1deeffe4ddf0dfbd52",
     "docs/release/g1-execution/promotion/HistoryContract.sql": "43edb0823340f78340c5d28733a0acea92f7087a3ac74fb7baa704a9fccb4dd8",
     "docs/release/g1-execution/promotion/LedgerContract.sql": "e6b15309cd77c5a94492de5d575cfb7e13f60c71666009185c390703d37287a0",
-    "docs/release/g1-execution/promotion/reference.json": "e598c81c8de029e4bb9ef105814201f89cee27ad0a1fa6c667462ed6b14c9b1b"
+    "docs/release/g1-execution/promotion/reference.json": "8953d5aee071385fe3f45124f998b509a20c24b6b6c68eac0f1fe8a40a49dd2a"
   }
 }

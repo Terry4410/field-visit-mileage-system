@@ -1,0 +1,15 @@
+# Existing010Upgrade six-feature Frontend build — NONDEPLOY only
+
+**Purpose.** PR83 source keeps all six Option C compile-time Frontend flags `false`; this means a later backend/Schema GO alone cannot expose the complete UAT user interface. This gate builds two distinct static asset archives **in disposable CI directories**: default-OFF exact source, and a **NONDEPLOY** all-six-ON candidate. Neither is deployed or authorized for activation; they are not the immutable RC PR48 archive.
+
+`scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py` pins exact original flags Git blob `7c9e8482ffa2bb4a92316bff6f9e4954bf9560be`, dependency lock `2d4cc41d6b4720725b2a0ce6bd1b0d35cfd09c93`, public Demo config blob `0f81de4f4fa868c2ce188da9fff21d797ccf7071`. It insists on six and only six exact `boolean = false` declarations and replaces those exact literals to `true` in a TEMP workspace; no repository/application source is committed with ON. It runs `npm ci`, `npm run build` for both variants, validates source preservation, bundled JS, Demo configuration, distinct asset outputs, deterministic ZIP and internal file SHA-256. It emits one explicit nondeploy receipt and checksums.
+
+The OFF and ON ZIP are **candidate assets only**. They do not prove any server-side flag, test-account RBAC, live runtime, 63-table UAT010 fidelity, API SQL Principal, Google side effects, matched recovery or 25 Business UAT cases; they must not be pointed at live APIs or published until separate exact-artifact approval and live Gate PASS. Owner need not download/extract/upload anything. Do not reuse the empty-DB PR48 installer for existing UAT010.
+
+**Live G1 HOLD.** Authorized live management/runtime inspection and recoverable migration validation still mandatory; this build is not a deployment workflow. No id-token or GitHub Pages write access is granted.
+
+## Exact future runtime provenance and compiled-gate binding
+
+A review of the accepted dual Frontend artifact identified a concrete missing runtime evidence path: neither earlier bundle had a `source-sha.txt` file. The new NONDEPLOY builder now embeds `source-sha.txt` (the actual exact PR83 Git SHA) and a public, **nonsecret** `candidate-mode.json` in **each** temporary build. The mode file explicitly says `deployAllowed: false`, `approval: NOT_GRANTED`, and backend alignment UNKNOWN. The assembler verifies these files before sealing the deterministic ZIP and their hashes are included in the manifest. A future authorized read-only Pages collector may compare the actual served **source SHA + exact file bytes** to this reviewed candidate, but a source stamp *by itself* never proves an active deployment or release approval.
+
+The new verification also reads the **compiled JS assets**, not merely the TypeScript flag literals: the `leader/location-review` route, `publish-reviewed` action and canonical Excel Create review guard must each be absent in OFF and present in ON_NONDEPLOY. Unexpected Vite dead-code elimination/flag drift fails the nondeploy CI. This is a focused compile-time source proof, not a substitute for live browser, all 25 user cases, API authorization or true Azure G1.

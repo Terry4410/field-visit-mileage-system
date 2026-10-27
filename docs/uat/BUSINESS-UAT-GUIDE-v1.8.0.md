@@ -1,12 +1,12 @@
 # 外訪行程與里程管理系統 v1.8.0 — Business UAT 使用指南
 
-> **目前狀態**
+> **目前狀態 — HOLD**
 >
-> - Technical Readiness：**PASS**
-> - Business User Access：**RELEASED**
-> - Business UAT：**READY TO BEGIN / NOT YET SIGNED OFF**
-> - Internal release gates 已完成；Business UAT 結果仍須由實際 Business User 執行並記錄。
-> - 本環境僅供 UAT 使用，不是 Production。
+> - Technical Readiness：**HOLD — Path B 安全及恢復 Gate 尚未完成**
+> - Business User Access：**NOT RELEASED**
+> - Business UAT：**NO-GO / NOT STARTED**
+> - 本指南保留既有 25 項業務案例；不得以此文件表示目前已有可用環境或測試已通過。
+> - 現有 63 表／26 筆歷史資料升級（Path A）與全新隔離 UAT（Path B）分開執行。
 
 ## 1. UAT 目的
 
@@ -25,34 +25,28 @@ Business UAT（User Acceptance Testing，使用者驗收測試）的目的，是
 
 | 項目 | 內容 |
 |---|---|
-| Business UAT URL | https://terry4410.github.io/field-visit-mileage-system/ |
-| Release | UAT Candidate v1.8.0 |
-| Environment | UAT |
-| Backend | 1.8.0-uat-candidate |
-| DB Schema | 1.8.0-007 |
-| Technical readiness | PASS |
-| Deployed application source SHA | 2fe86208da6d8c10767fd6309a6d467e5448d92a |
-| P2B UAT deployment | RUN_ID=36822918652；SUCCESS |
-| Internal UAT Run20 | RUN_ID=36825062785；11/11 PASS |
-| Run17 residual cleanup | CLOSED / SUCCESS；final verify RUN_ID=36952987468 |
-| Route Provider | Mock |
+| Business UAT URL | **尚未核發；不得使用下列歷史網址** |
+| Release | PR #83 Path B 候選；尚未部署 |
+| Environment | 新隔離 UAT；尚未建立 |
+| Backend / DB | 尚未建立或配置 |
+| Technical readiness | **HOLD** |
+| Effective runtime flags | **尚未從新環境取證** |
+| Recovery rehearsal | **尚未完成** |
+| 既有資料庫 Path A | 保留 63 張表及 26 筆歷史標記；不得在 Path B 使用或覆蓋 |
 
-開始測試前，請先確認網址正確，且畫面顯示 **UAT Candidate v1.8.0**。
+不要使用任何舊版 GitHub Pages UAT 網址。正式網址及測試開始通知只會在安全 Gate、部署和回復驗證通過後提供。
 
 ## 3. 測試帳號
 
-請只使用分配給你的 UAT 測試帳號，不要使用他人的帳號，也不要輸入 Production 帳號資料。
+只可使用新隔離 UAT 建立並核准的測試帳號。此環境尚未建立，因此目前沒有可用帳號或密碼。
 
-| 角色 | UAT 帳號 |
+| 角色 | UAT 測試帳號狀態 |
 |---|---|
-| Visitor / 外訪員 | pilotv01、pilotv03 |
-| Leader / 小組長 | pilotl01、pilotl03 |
-| Admin / 管理者 | pilota01 |
-| Supervisor / 督導 | pilots02、pilots04 |
+| Visitor / 外訪員 | 尚未建立 |
+| Leader / 小組長 | 尚未建立 |
+| Admin / 管理者 | 尚未建立 |
 
-**UAT 密碼由 UAT Coordinator 透過公司核准管道另行提供。**
-
-請勿將密碼寫入測試案例、截圖檔名、Issue、Email 主旨或本 repository。
+不要使用舊環境帳號或 Production 帳號。測試憑證會在部署與角色隔離驗證後，透過 Owner 核准的私密管道交付；不得寫入測試案例、截圖檔名、Issue、Email 主旨或 repository。
 
 ## 4. 四種角色
 
@@ -117,10 +111,11 @@ Business UAT（User Acceptance Testing，使用者驗收測試）的目的，是
 ## 5.1 P2B 里程決策與正式送出規則
 
 - Visitor 可儲存 Draft，但**正式送出至少需要 2 stops**。
-- P2B 不啟用 live Google route provider；背景計算可產生 `SystemDistanceKm`，但不得預先填入 `ApprovedDistanceKm`。
+- Path B UAT 必須使用伺服器端 Google Routes provider；API Key 只由 UAT Secret 設定提供，禁止放入前端、原始碼、日誌或測試證據。Google Routes 成功時須保存系統距離及可追蹤的路線嘗試識別。
+- Google Routes 失敗時，必須留下可追蹤失敗結果並明確轉人工備援；不得靜默填入系統距離或預選人工決策。
 - Leader 核准需在畫面上明確選擇「公司里程決策依據（必選）」。
-- P2B Business UI 僅提供 **人工備援（ManualFallback）**；系統不得預選、隱藏預設或自行推論。
 - ManualFallback payload 為 `DistanceDecisionSource="ManualFallback"`、`RouteCalculationAttemptId=null`。
+- 真實 Maps 成功與失敗備援均為凍結的 UAT 驗收案例（VIS02／VIS03）；Mock、單元測試或隔離 SQL 測試不能替代。若 Google Key／服務授權尚未完成，Path B 保持 HOLD。
 - 更正若沒有改變核定里程，沿用原 Approved Snapshot 的距離決策證據；若核定里程改變，Admin close 形成新的公司距離決策。
 - Business User 不需也不應操作 SQL、migration 或 Run 17 residual cleanup。
 
@@ -199,14 +194,13 @@ Business UAT（User Acceptance Testing，使用者驗收測試）的目的，是
 - Production security / penetration test。
 - Production monitoring / SIEM。
 - Production backup / restore。
-- Real Google Routes accuracy。
-- Google live credentials。
+- Production Google Routes usage and Production credentials.
+
+Path B Business UAT still requires a controlled UAT Google Routes key and real success/failure verification for VIS02 and VIS03. UAT key, quota/billing and key restrictions must be approved before enabling the provider. This section does not waive or replace those two cases.
 - Production data migration。
 - Production master-data import。
 
-目前 Route Provider 為 **Mock**。
-
-因此，**與 Google Maps 比較實際路線距離是否完全一致，不是本次 Business UAT 的 acceptance criterion**。本次應驗證的是系統流程、欄位呈現、狀態轉換、權限與資料追蹤是否符合業務需求。
+目前 repository 的預設 Route Provider 仍為 **Mock**。Path B UAT 部署時必須透過新環境的受控設定切換到 Google Routes，並以私密 UAT Key 執行 VIS02 成功與 VIS03 失敗轉人工備援。上方兩項為必要 acceptance criteria；此段說明預設值，並不表示真實 Maps 測試已通過。
 
 ## 9. v1.8.0 Master Data 說明
 
@@ -214,7 +208,7 @@ Business UAT（User Acceptance Testing，使用者驗收測試）的目的，是
 
 `docs/release/POST-UAT-v1.8.0-UAT-MASTER-DATA-READINESS.md`
 
-目前 Business UAT 可以使用既有、受控的 UAT 資料開始測試。
+Path B 安全放行後，Business UAT 才可使用新隔離環境提供的受控資料開始測試。
 
 另有一份 master-data workbook，供未來由 Business 確認並核准下列資料：
 
@@ -266,10 +260,10 @@ Business UAT 達到可進入 sign-off 的條件如下：
 - 測試證據、Issue ID 與必要 record identifier 已完成記錄。
 - Business Owner 完成 Business UAT Sign-off 文件。
 
-在 Business Owner 正式簽核前，狀態仍是：
+在完成 Path B 安全 Gate、部署、有效旗標取證、成對復原演練並核發新網址／帳號前：
 
-**TECHNICAL READINESS = PASS**
+**TECHNICAL READINESS = HOLD**
 
-**BUSINESS USER ACCESS = RELEASED**
+**BUSINESS USER ACCESS = NOT RELEASED**
 
-**BUSINESS UAT = READY TO BEGIN / NOT YET SIGNED OFF**
+**BUSINESS UAT = NO-GO / NOT STARTED**

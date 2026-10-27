@@ -38,7 +38,7 @@
     },
     {
       "id": 20,
-      "catalog": "CFAAAE20BDE78DA8EA1327FEF077ABECA48B7D4579303BF2CB7B62DDDA22BD66"
+      "catalog": "2F6346FBC1E113EAF678F4A256A2F4F3704342B3905DA4794FC658728B56D281"
     }
   ],
   "contract": "g1-scoped-promotion-reference-v1",
@@ -47,5 +47,18 @@
     "artifactId": 12238668390,
     "zipSha256": "e5b3971ac863e99542f464c6ff01967bbc2cc596964cba0d2d83839e1c985cd0",
     "source": "feb0c9e1302a37d6a8faedd3f02aa99ddc1c54c9"
+  },
+  "corrected020Source": "PR83_B031AA1D_CORRECTED020_ISOLATED_SQL2022",
+  "liveUat010Predecessor": "NOT_VERIFIED_DO_NOT_DEPLOY",
+  "corrected020Evidence": {
+    "sourceSha": "b031aa1d7c3181cbce6b8bc0f7892eae86a43ed8",
+    "runId": 40257405586,
+    "scope": "DISPOSABLE_SQL2022_SYNTHETIC_NONDEPLOY",
+    "phase020UpSha256": "b64a0e63261fd7ea32a329579cb7a67c9b96bede0a71653d2b1647e0fd48401c",
+    "phase020PostCatalogSha256": "2F6346FBC1E113EAF678F4A256A2F4F3704342B3905DA4794FC658728B56D281",
+    "firstEightCatalogsUnchanged": true,
+    "full63TableUatFidelity": "HOLD",
+    "history26LiveParity": "HOLD",
+    "deploymentAllowed": false
   }
 }

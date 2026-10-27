@@ -1,0 +1,816 @@
+name: UAT010 combined source identity and compile NONDEPLOY
+on:
+  push:
+    branches: [work/uat010-existing-rc-integration-20261025]
+permissions:
+  contents: read
+concurrency:
+  group: uat010-integrated-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  combined-source:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact immutable source overlays and fail-closed release boundary
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,subprocess
+          p=pathlib.Path
+          def git(*a):return subprocess.check_output(['git',*a],text=True).strip()
+          j=json.loads(p('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
+          assert j['contract']=='uat010-combined-source-review-v1'
+          assert j['sourceBranches']=={'PR82_BASE':'ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','PR48_CLEAN':'9ee5dacceed2bf55c39310d663f3258bcb545989','PR81_HISTORY':'5bab502f20d9590d415d6a25a238d1629057989d'}
+          assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
+          assert subprocess.run(['git','merge-base','--is-ancestor','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD']).returncode==0
+          changed=set(git('diff','--name-only','ae9ca02cf2d9539fe9bed61a073d60d63731cbb9','HEAD').splitlines())
+          expected=set(j['integratedFiles'])|{'docs/release/g1-execution/promotion/integration-ledger.json','docs/release/g1-execution/promotion/EXISTING010-INTEGRATION-BOUNDARY.md','.github/workflows/uat010-integrated-source-nondeploy.yml','docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md','docs/release/pathb/PATHB-UAT-RELEASE.md','scripts/ci/test_pathb_release_contract.py','.github/workflows/pathb-release-boundary-nondeploy.yml','docs/uat/BUSINESS-UAT-TEST-CASES-v1.8.0.md','scripts/ci/uat010_014_readonly.py','scripts/ci/test_uat010_014_readonly.py','docs/release/g1-execution/promotion/UAT010-014-READONLY.md','scripts/ci/test_uat010_014_readonly.ps1','scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py','docs/release/g1-execution/promotion/UAT010-FRONTEND-DUAL-NONDEPLOY.md','docs/release/g1-execution/promotion/HISTORIC-API-DLL-REBUILD-NONDEPLOY.md','scripts/ci/uat010_legacy_batch_check_drift.py','docs/release/g1-execution/promotion/EXISTING010-SYNTHETIC-CHECK-DRIFT.md','scripts/ci/uat010_catalog_facets.py','scripts/ci/test_uat010_catalog_facets.py','scripts/ci/uat010_generate_facet_reference.ps1','scripts/ci/compare_uat010_schema_inventory.py','docs/release/g1-execution/promotion/EXISTING010-API-RUNTIME-ACL-OBSERVE-READONLY.sql','backend/src/FieldVisit.Api/Controllers/UatAutomationController.cs','backend/src/FieldVisit.Api/appsettings.json','backend/tests/FieldVisit.Application.Tests/UatAutomationSafetyTests.cs','scripts/ci/test_api_runtime_acl_matrix.py','scripts/ci/test_api_runtime_acl_matrix.ps1','docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.csv','docs/release/g1-execution/promotion/API-RUNTIME-SQL-GRANT-CANDIDATE.sql','docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.md','docs/release/g1-execution/promotion/Promotion.sql','docs/release/g1-execution/promotion/Verify.sql','docs/release/g1-execution/promotion/manifest.json','docs/release/g1-execution/promotion/reference.json','scripts/ci/test_existing010_full_schema_capture.py','docs/release/g1-execution/promotion/EXISTING010-FULL-SCHEMA-READONLY-ONCE.sql','docs/release/g1-execution/promotion/EXISTING010-FULL-SCHEMA-CAPTURE.md','scripts/ci/pathb_clean_install_acl.py','backend/src/FieldVisit.Infrastructure/Repositories.cs'}
+          assert len(j['integratedFiles'])==53 and changed==expected
+          guide=p('docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md').read_text()
+          assert 'Business User Access：**NOT RELEASED**' in guide
+          assert 'Business UAT：**NO-GO / NOT STARTED**' in guide
+          assert 'terry4410.github.io/field-visit-mileage-system/' not in guide
+          assert 'pilotv01' not in guide and 'pilotl01' not in guide and 'pilota01' not in guide
+          import re
+          cases=p('docs/uat/BUSINESS-UAT-TEST-CASES-v1.8.0.md').read_text()
+          case_ids=re.findall(r'^\| (VIS0[1-6]|LEAD0[1-6]|ADMIN0[1-4]|XLS0[1-5]|TRIP0[1-2]|SEC0[1-2]) \|',cases,re.M)
+          expected_case_ids=[f'VIS0{x}' for x in range(1,7)]+[f'LEAD0{x}' for x in range(1,7)]+[f'ADMIN0{x}' for x in range(1,5)]+[f'XLS0{x}' for x in range(1,6)]+[f'TRIP0{x}' for x in range(1,3)]+[f'SEC0{x}' for x in range(1,3)]
+          assert case_ids==expected_case_ids and len(case_ids)==25, 'BUSINESS_UAT_CASE_SET_STOP'
+          assert 'Technical Readiness：**PASS**' not in cases and 'Business User Access：**RELEASED**' not in cases
+          assert 'pilotv01' not in cases and 'pilotl01' not in cases and 'pilota01' not in cases and 'pilots02' not in cases
+          assert cases.count('| NOT RUN |')==25, 'BUSINESS_UAT_DEFAULT_RESULT_STOP'
+
+          acl=p('docs/release/g1-execution/promotion/EXISTING010-API-RUNTIME-ACL-OBSERVE-READONLY.sql').read_text()
+          import re
+          assert all(s in acl for s in ('PrivateApiSidHex','sys.database_role_members','SchemaVersions','SchemaMigrationDataBaselines','FieldVisitMigrationLedger','BROAD_DB_DATAWRITER_ROLE','HOLD_REQUIRES_API_BOUND_NEGATIVE_AND_POSITIVE_TEST'))
+          noncomments='\n'.join(line for line in acl.splitlines() if not line.lstrip().startswith('--'))
+          assert not re.search(r'(?im)^\s*(?:GRANT|REVOKE|DENY|EXEC(?:UTE)?|CREATE|ALTER|DROP|TRUNCATE|DELETE|UPDATE|INSERT|MERGE)\b',noncomments), 'G1_ACL_READONLY_BREACH'
+
+          assert j.get('securityDelta',{}).get('kind')=='runtime-sql-broad-writer-role-rejection'
+          assert j['securityDelta']['codePath']=='tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs'
+          trust_source=p('tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs').read_text()
+          assert trust_source.count("AND IS_ROLEMEMBER(N'db_datawriter')=0")==1, 'G1_BROAD_WRITER_ROLE_STOP'
+          assert sum(x['source']=='PR48' for x in j['integratedFiles'].values())==44
+          assert sum(x['source']=='PR81' for x in j['integratedFiles'].values())==9
+          overlays=j.get('pathBOverlays',{})
+          assert set(overlays).issubset(j['integratedFiles'])
+          for path,item in j['integratedFiles'].items():
+            assert item['sha']==overlays.get(path,{}).get('baseSha',item['sha']), 'PATHB_OVERLAY_BASE_DRIFT:'+path
+            assert git('hash-object',path)==overlays.get(path,{}).get('sha',item['sha']), 'SOURCE_OVERLAY_HASH_DRIFT:'+path
+          assert len(overlays)==8 and all(v['sha']!='PENDING' for v in overlays.values())
+          m=json.loads(p('docs/release/g1-execution/promotion/manifest.json').read_text())
+          ref=json.loads(p('docs/release/g1-execution/promotion/reference.json').read_text())
+          sql=p('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()
+          sha=hashlib.sha256(sql).hexdigest()
+          assert sha=='b64a0e63261fd7ea32a329579cb7a67c9b96bede0a71653d2b1647e0fd48401c'
+          assert m['sourceHashes']['docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql']==sha
+          assert m['steps'][-1]['postCatalogSha256'].upper()==ref['steps'][-1]['catalog'].upper()
+          assert ref['corrected020Evidence']['sourceSha']=='b031aa1d7c3181cbce6b8bc0f7892eae86a43ed8' and ref['corrected020Evidence']['deploymentAllowed'] is False
+          assert m['approval']=='PROPOSED_NOT_AUTHORIZED' and m['schema010SourceBoundBaseline']['status']=='HOLD'
+          assert j['deploymentAllowed'] is False and j['promotionPackageAligned'] is False
+          api=p('backend/src/FieldVisit.Api/Controllers/UatAutomationController.cs').read_text()
+          api_settings=json.loads(p('backend/src/FieldVisit.Api/appsettings.json').read_text())
+          assert 'config["UatAutomation:CleanupEnabled"]' in api
+          assert '&& IsCleanupEnabled(cleanupEnabled);' in api
+          assert api_settings['UatAutomation']['CleanupEnabled'] is False
+          assert not os.environ.get('UAT_SQL_CONNECTION') and not os.environ.get('PRODUCTION_SQL_CONNECTION')
+          out=p('artifacts/uat010-integrated');out.mkdir(parents=True,exist_ok=True)
+          payload={'sourceSHA':os.environ['GITHUB_SHA'],'sourceOverlays':53,'sourceIdentity':'PASS','schemaFidelity':'HOLD','promotionPackageAligned':False,'liveG1':'HOLD','deploymentAllowed':False,'azureAccess':False,'liveSqlAccess':False}
+          (out/'receipt.json').write_text(json.dumps(payload,sort_keys=True)+'\n')
+          print('SourceIntegration=PASS; Promotion=HOLD; LiveG1=HOLD; Azure=NONE;')
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Focused runtime history profile compile only
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
+        run: dotnet build tools/uat-release-candidate/upgrade-profile-tests/UpgradeProfileTests.csproj --configuration Release --nologo
+      - name: Publish exact integrated API candidate (NONDEPLOY; no runtime flags)
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/uat010-api-candidate"
+          publish="$out/publish"
+          mkdir -p "$publish"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj \
+            --configuration Release --output "$publish" --nologo
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"uat010-api-candidate"
+          publish=root/"publish"
+          settings=json.loads((publish/"appsettings.json").read_text(encoding="utf-8"))
+          assert settings["UatAutomation"]["CleanupEnabled"] is False
+          assert settings["Auth"]["Mode"]=="Demo"
+          assert settings["ConnectionStrings"]["DefaultConnection"]=="SET-IN-AZURE-APP-SERVICE"
+          assert settings["Auth"]["JwtKey"]=="SET-IN-AZURE-APP-SERVICE-AT-LEAST-32-CHARS"
+          assert settings["Auth"]["DemoPassword"]=="SET-IN-AZURE-APP-SERVICE"
+          entries=[]
+          for path in sorted(p for p in publish.rglob("*") if p.is_file()):
+              entries.append({"path":path.relative_to(publish).as_posix(),"sha256":hashlib.sha256(path.read_bytes()).hexdigest()})
+          manifest={
+              "contract":"fieldvisit-integrated-api-candidate-v1",
+              "sourceSha":os.environ["GITHUB_SHA"],
+              "state":"SOURCE_BOUND_BUILD_ONLY",
+              "deployable":False,
+              "runtimeFlags":"NOT_CONFIGURED",
+              "schemaCompatibility":"NOT_TESTED",
+              "browserBusinessUat":"NOT_RUN",
+              "cleanupEnabledDefault":False,
+              "demoLoginDefault":"Demo",
+              "embeddedSecrets":"NONE; placeholders only",
+              "files":entries
+          }
+          (root/"candidate-manifest.json").write_text(json.dumps(manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+          lines=[f"{item['sha256']}  publish/{item['path']}" for item in entries]
+          lines.append(f"{hashlib.sha256((root/'candidate-manifest.json').read_bytes()).hexdigest()}  candidate-manifest.json")
+          (root/"files.sha256").write_text("\n".join(lines)+"\n",encoding="utf-8")
+          PY
+          (
+            cd "$out"
+            sha256sum --check --quiet files.sha256
+          )
+          echo "API_CANDIDATE=SOURCE_BOUND_BUILD_ONLY; DEPLOYABLE=NO; LIVE_SQL=NONE; FLAGS=NOT_CONFIGURED;"
+      - uses: actions/upload-artifact@v4
+        if: ${{ success() && !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
+        with:
+          name: uat010-integrated-api-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/uat010-api-candidate/
+          retention-days: 30
+          if-no-files-found: error
+      - name: UAT automation cleanup default-off gate tests
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release --nologo --filter FullyQualifiedName~UatAutomationSafetyTests
+      - name: Python source syntax and focused 014 preflight source guard
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ci/uat_release/prepare_candidate.py scripts/ci/uat_release/sign_activation.py scripts/ci/g1_promotion.py scripts/ci/uat010_014_readonly.py
+          python3 -m unittest discover -s scripts/ci -p test_uat010_014_readonly.py -v
+          python3 -m unittest scripts/ci/test_api_runtime_acl_matrix.py -v
+          python3 -m unittest scripts/ci/test_existing010_full_schema_capture.py -v
+          python3 scripts/ci/uat010_014_readonly.py --output artifacts/uat010-integrated/014-preflight.sql
+          test -s artifacts/uat010-integrated/014-preflight.sql
+          echo 'UAT010_014_Preflight=SOURCE_BOUND_ONLY; LiveG1=HOLD;'
+          python3 -m unittest discover -s scripts/ci -p test_uat010_catalog_facets.py -v
+          pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile("scripts/ci/uat010_generate_facet_reference.ps1",[ref]$tokens,[ref]$errors); if ($errors.Count -ne 0) { throw "G1_FACET_SCRIPT_SYNTAX_STOP" }; Write-Output "G1FacetPowerShellSyntax=PASS"'
+      - name: Fail-closed source-only proof of historical 1700_005 ImportBatches CHECK mismatch
+        if: ${{ !contains(github.event.head_commit.message, '[pathb-clean-install]') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat010_legacy_batch_check_drift.py --self-test --output artifacts/uat010-integrated/legacy-status-source-audit.json
+          ( cd artifacts/uat010-integrated && sha256sum --check --quiet legacy-status-source-audit.sha256 )
+          echo 'Existing010FixtureStatus=CONFLICT_PROVEN_SOURCE_ONLY; LiveG1=HOLD;'
+      - name: Bind sanitized receipt
+        if: success()
+        run: cd artifacts/uat010-integrated && sha256sum receipt.json > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-integrated-source-${{ github.sha }}
+          path: artifacts/uat010-integrated/
+          retention-days: 30
+          if-no-files-found: error
+
+  pathb-current-api-clean-install-nondeploy:
+    name: Current PR83 API + object ACL on integrated 69-table SQL2022 clean install (NONDEPLOY)
+    needs: combined-source
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && contains(github.event.head_commit.message, '[pathb-clean-install]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      CLEAN_INSTALL_RC_SHA: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact integrated API and clean-schema source bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          ledger=json.loads(pathlib.Path('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
+          assert ledger['sourceBranches']['PR48_CLEAN']=='9ee5dacceed2bf55c39310d663f3258bcb545989'
+          required={
+            'tools/clean-install/HttpApiSmoke.cs',
+            'tools/clean-install/HttpApiRoleProbe.cs',
+            'tools/clean-install/HttpApiBusinessProbe.cs',
+            'tools/clean-install/Program.cs',
+            'database/clean-install/v180/00_schema_versions.sql',
+            'database/clean-install/v180/20_route_reason_check.sql',
+            'scripts/ci/clean_install/apply_rc_runtime_candidate.py'
+          }
+          assert required.issubset(ledger['integratedFiles'])
+          assert all(ledger['integratedFiles'][p]['source']=='PR48' for p in required)
+          for p in required:
+            assert subprocess.check_output(['git','hash-object',p],text=True).strip()==ledger['integratedFiles'][p]['sha']
+          app_context='backend/src/FieldVisit.Infrastructure/AppDbContext.cs'
+          pinned_app_context='fff038e9b2a8ce884fddad0a44da0252baa35571'
+          base='ae9ca02cf2d9539fe9bed61a073d60d63731cbb9'
+          assert subprocess.check_output(['git','hash-object',app_context],text=True).strip()==pinned_app_context
+          assert subprocess.check_output(['git','rev-parse',f'{base}:{app_context}'],text=True).strip()==pinned_app_context
+          generators=[
+            'scripts/ci/clean_install/build_sql_only_tables.py',
+            'scripts/ci/clean_install/build_effective_triggers.py',
+            'scripts/ci/clean_install/build_optionc_sql_only_tables.py',
+            'scripts/ci/clean_install/build_sql_only_indexes.py',
+            'scripts/ci/clean_install/build_007_checks.py',
+            'scripts/ci/clean_install/build_001_004_checks.py',
+            'scripts/ci/clean_install/build_optionc_final_checks.py'
+          ]
+          for path in generators:
+            entry=ledger['integratedFiles'].get(path)
+            assert entry and entry['source']=='PR48', f'PATHB_GENERATOR_SOURCE_MISSING:{path}'
+            assert subprocess.check_output(['git','hash-object',path],text=True).strip()==entry['sha']
+          assert ledger['deploymentAllowed'] is False
+          print('Current API exact SHA + immutable PR48 clean-schema source binding: PASS')
+          print('Path B source package generator inventory/pins: PASS')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: 9d431ea318fcec34f04f3cc36a8fb6d01d00c48a
+          path: pathb-runtime-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Confirm accepted RC schema source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pathb-runtime-source rev-parse HEAD)" = "$CLEAN_INSTALL_RC_SHA"
+          test -f pathb-runtime-source/backend/src/FieldVisit.Infrastructure/AppDbContext.cs
+          echo "CLEAN_INSTALL_RC_ROOT=$GITHUB_WORKSPACE/pathb-runtime-source" >> "$GITHUB_ENV"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Start isolated SQL Server 2022 and create masked ephemeral admin credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          sql_password="Aa7!$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+          printf 'CLEAN_INSTALL_SQL_PASSWORD=%s\n' "$sql_password" >> "$GITHUB_ENV"
+          printf '::add-mask::%s\n' "$sql_password"
+          docker run --detach --name fieldvisit-pathb-sql2022 \
+            --publish 127.0.0.1:1433:1433 \
+            --env ACCEPT_EULA=Y --env MSSQL_PID=Developer \
+            --env "MSSQL_SA_PASSWORD=$sql_password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null 2>&1
+          unset sql_password
+          echo 'PATHB_SQL2022=EPHEMERAL_LOCAL_ONLY'
+      - name: Wait for isolated SQL Server 2022 readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if docker exec fieldvisit-pathb-sql2022 /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo 'PATHB_SQL2022_READY=PASS'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'PATHB_SQL2022_READY=FAIL' >&2
+          exit 1
+      - name: Build exact PR83 API and prepare matrix-restricted clean-install runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ci/pathb_clean_install_acl.py
+          python3 scripts/ci/pathb_clean_install_acl.py --self-test
+          api_root="$RUNNER_TEMP/pathb-current-api"
+          output="$RUNNER_TEMP/pathb-clean-install-output"
+          runner="$GITHUB_WORKSPACE/.pathb-clean-install-runner"
+          grants="$RUNNER_TEMP/pathb-runtime-grants.sql"
+          mkdir -p "$api_root" "$output"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj \
+            --configuration Release --output "$api_root" --nologo
+          python3 scripts/ci/pathb_clean_install_acl.py \
+            --repo "$GITHUB_WORKSPACE" --runner "$runner" --grants "$grants"
+          echo "CLEAN_INSTALL_OUTPUT_DIR=$output" >> "$GITHUB_ENV"
+          echo "CLEAN_INSTALL_API_CANDIDATE_ROOT=$api_root" >> "$GITHUB_ENV"
+          echo "FIELDVISIT_API_RUNTIME_GRANTS_SQL_FILE=$grants" >> "$GITHUB_ENV"
+          echo "PATHB_RUNNER_DIR=$runner" >> "$GITHUB_ENV"
+          # Apply the already accepted RC overlay only inside this disposable
+          # checkout so the test harness' EF INSERT honors enabled triggers.
+          python3 scripts/ci/clean_install/apply_rc_runtime_candidate.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          # The PR48 runner consumes generated source packages. Bind these exact
+          # generators through integration-ledger.json and build them before SQL DDL.
+          python3 scripts/ci/clean_install/build_sql_only_tables.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_effective_triggers.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_optionc_sql_only_tables.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_sql_only_indexes.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_007_checks.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_001_004_checks.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          python3 scripts/ci/clean_install/build_optionc_final_checks.py \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$output"
+          dotnet build "$runner/ModelBaselineRunner.csproj" \
+            --configuration Release -p:RcSourceRoot="$CLEAN_INSTALL_RC_ROOT" --nologo
+      - name: Run integrated 69-table schema, minimum Runtime ACL, and current API HTTP business probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet "$PATHB_RUNNER_DIR/bin/Release/net8.0/ModelBaselineRunner.dll" \
+            --rc-root "$CLEAN_INSTALL_RC_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+          echo 'CurrentPR83API=REAL_HTTP_TO_SQL2022; RuntimePrincipal=OBJECT_SCOPED_MATRIX; Deployment=NONE'
+      - name: Seal exact API bytes used by the successful isolated ACL run
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,shutil,subprocess
+          source=pathlib.Path(os.environ['CLEAN_INSTALL_API_CANDIDATE_ROOT'])
+          settings=json.loads((source/'appsettings.json').read_text(encoding='utf-8'))
+          assert settings['UatAutomation']['CleanupEnabled'] is False
+          assert settings['Auth']['Mode']=='Demo'
+          assert settings['ConnectionStrings']['DefaultConnection']=='SET-IN-AZURE-APP-SERVICE'
+          assert settings['Auth']['JwtKey']=='SET-IN-AZURE-APP-SERVICE-AT-LEAST-32-CHARS'
+          assert settings['Auth']['DemoPassword']=='SET-IN-AZURE-APP-SERVICE'
+          root=pathlib.Path('artifacts/pathb-current-api-candidate')
+          root.mkdir(parents=True,exist_ok=False)
+          publish=root/'publish'
+          shutil.copytree(source,publish)
+          files=[{'path':p.relative_to(publish).as_posix(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+                 for p in sorted(publish.rglob('*')) if p.is_file()]
+          manifest={
+            'contract':'fieldvisit-pathb-api-candidate-after-isolated-acl-v1',
+            'sourceSha':os.environ['GITHUB_SHA'],
+            'state':'TESTED_BUILD_CANDIDATE_NONDEPLOY',
+            'deployable':False,
+            'apiBytes':'exact publish output used for SQL2022 HTTP probes',
+            'cleanInstallSchema':'PR48-derived 69-table SQL2022 disposable schema; runtime ACL probe passed',
+            'runtimePrincipal':'object-scoped SELECT plus CRUD candidate; no broad database roles',
+            'cleanupEnabledDefault':False,
+            'authMode':'Demo only in disposable CI; placeholder credential values in package',
+            'azureRuntimeFlags':'NOT_VERIFIED',
+            'excelImport':'NOT_TESTED',
+            'worker':'DISABLED_NOT_TESTED',
+            'fullBusinessUat':'NOT_RUN',
+            'liveSql':'NONE',
+            'azure':'NONE',
+            'files':files
+          }
+          (root/'candidate-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          checks=[f"{x['sha256']}  publish/{x['path']}" for x in files]
+          checks.append(f"{hashlib.sha256((root/'candidate-manifest.json').read_bytes()).hexdigest()}  candidate-manifest.json")
+          (root/'checksums.sha256').write_text('\n'.join(checks)+'\n')
+          subprocess.run(['sha256sum','--check','--quiet','checksums.sha256'],cwd=root,check=True)
+          print('PathBApiCandidate=EXACT_TESTED_BYTES_SEALED; DEPLOYABLE=NO; SECRETS=PLACEHOLDERS_ONLY')
+      - name: Seal sanitized Path B test receipt
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,subprocess
+          matrix=pathlib.Path('docs/release/g1-execution/promotion/API-RUNTIME-SQL-CRUD-MATRIX.csv')
+          ledger=json.loads(pathlib.Path('docs/release/g1-execution/promotion/integration-ledger.json').read_text())
+          pr48_files=['tools/clean-install/HttpApiSmoke.cs','database/clean-install/v180/00_schema_versions.sql']
+          source_bindings={p:ledger['integratedFiles'][p]['sha'] for p in pr48_files}
+          overlay_path='scripts/ci/clean_install/apply_rc_runtime_candidate.py'
+          source_bindings[overlay_path]=ledger['integratedFiles'][overlay_path]['sha']
+          overlay=pathlib.Path(os.environ['CLEAN_INSTALL_OUTPUT_DIR'])/'runtime-candidate-overlay.json'
+          overlay_sha=hashlib.sha256(overlay.read_bytes()).hexdigest()
+          app_context='backend/src/FieldVisit.Infrastructure/AppDbContext.cs'
+          source_bindings[app_context]=subprocess.check_output(
+            ['git','rev-parse',f"ae9ca02cf2d9539fe9bed61a073d60d63731cbb9:{app_context}"],text=True).strip()
+          receipt={
+            'contract':'fieldvisit-pathb-current-api-clean-install-acl-v1',
+            'sourceSha':os.environ['GITHUB_SHA'],
+            'schemaSourceRcSha':os.environ['CLEAN_INSTALL_RC_SHA'],
+            'matrixSha256':hashlib.sha256(matrix.read_bytes()).hexdigest(),
+            'apiCandidateManifestSha256':hashlib.sha256(pathlib.Path('artifacts/pathb-current-api-candidate/candidate-manifest.json').read_bytes()).hexdigest(),
+            'sourceBindings':source_bindings,
+            'cleanInstallHarnessOverlaySha256':overlay_sha,
+            'cleanInstallTables':69,
+            'runtimePrincipal':'SQL_LOGIN; no sysadmin/db_owner/db_datawriter/db_datareader; object-scoped matrix',
+            'historyDmlNegative':'SchemaVersions and SchemaMigrationDataBaselines INSERT/UPDATE/DELETE denied with SQL error 229; FieldVisitMigrationLedger denied when present',
+            'selectScope':'57 PR82-base EF ToTable objects plus object-scoped matrix-only reads (SchemaVersions, SchemaMigrationDataBaselines, Option C SQL-only tables, optional FieldVisitMigrationLedger)',
+            'httpFlows':'Visitor/Leader/Admin login, role denials, same-clean-DB visitor trip and location approval probes',
+            'runtimeFlags':'Demo=enabled only in ephemeral CI; OptionCCandidate=enabled only for isolated SQL test; Worker=false; CleanupEnabled remains source-default false and cleanup endpoint not called',
+            'azureRuntimeFlags':'NOT_VERIFIED',
+            'excelImport':'NOT_TESTED',
+            'worker':'DISABLED_NOT_TESTED',
+            'azure':'NONE','liveSql':'NONE','deployment':'NONE',
+            'existingUatPreserved':True,'existing010':'NOT_TESTED'
+          }
+          out=pathlib.Path('artifacts/pathb-current-api-clean-install')
+          out.mkdir(parents=True,exist_ok=False)
+          (out/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          (out/'checksums.sha256').write_text(hashlib.sha256((out/'receipt.json').read_bytes()).hexdigest()+'  receipt.json\n')
+          subprocess.run(['sha256sum','--check','--quiet','checksums.sha256'],cwd=out,check=True)
+          print('PathBExactSource=PASS; SQL2022RuntimeACL=PASS; Azure=NONE; BusinessUAT=NO_GO')
+      - name: Remove disposable SQL2022 container
+        if: always()
+        shell: bash
+        run: docker rm -f fieldvisit-pathb-sql2022 >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: pathb-current-api-clean-install-acl-${{ github.sha }}
+          path: artifacts/pathb-current-api-clean-install/
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: pathb-current-api-candidate-${{ github.sha }}
+          path: artifacts/pathb-current-api-candidate/
+          retention-days: 30
+          if-no-files-found: error
+
+  corrected-020-reference:
+    name: Corrected phase020 synthetic catalog derivation (LOCAL SQL2022 ONLY)
+    needs: combined-source
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && !contains(github.event.head_commit.message, '[catalog-source-only]') && !contains(github.event.head_commit.message, '[pathb-clean-install]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      E1_R1_REQUIRED: '1'
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify source is a true descendant of accepted PR82
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor ae9ca02cf2d9539fe9bed61a073d60d63731cbb9 HEAD
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          echo 'ReferenceTarget=DISPOSABLE_SQL2022_ONLY; Azure=NONE;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Prepare isolated SQL client using verified official PSGallery only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $gallery = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue
+          if ($null -eq $gallery) {
+            Register-PSRepository -Default -ErrorAction Stop
+            $gallery = Get-PSRepository -Name PSGallery -ErrorAction Stop
+          }
+          if ($gallery.SourceLocation.TrimEnd('/') -ne 'https://www.powershellgallery.com/api/v2') {
+            throw 'G1_SQL_CLIENT_REPOSITORY_ORIGIN_STOP'
+          }
+          Install-Module SqlServer -RequiredVersion 22.4.5.1 -Scope CurrentUser -Force -AllowClobber -Repository PSGallery -ErrorAction Stop *> $null
+          Import-Module SqlServer -RequiredVersion 22.4.5.1 -ErrorAction Stop
+          if ((Get-Module SqlServer).Version.ToString() -ne '22.4.5.1') {
+            throw 'G1_SQL_CLIENT_VERSION_STOP'
+          }
+          Write-Output 'G1SqlClient=OFFICIAL_PSGALLERY_EXACT_MODULE_PASS; Azure=NONE;'
+      - name: Start ephemeral SQL2022 Developer on localhost
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 24)!G1a"
+          connection="Server=localhost,1433;Database=master;User Id=sa;Password=${password};Encrypt=False;TrustServerCertificate=True;Connect Timeout=5;ConnectRetryCount=0"
+          echo "::add-mask::$password"
+          echo "::add-mask::$connection"
+          envfile="$RUNNER_TEMP/g1-reference-sql.env"
+          umask 077
+          printf 'ACCEPT_EULA=Y\nMSSQL_PID=Developer\nMSSQL_SA_PASSWORD=%s\n' "$password" > "$envfile"
+          docker run -d --name uat010-ref-local -p 127.0.0.1:1433:1433 --env-file "$envfile" mcr.microsoft.com/mssql/server:2022-latest > /dev/null
+          rm -f "$envfile"
+          ready=0
+          for _ in $(seq 1 24); do
+            if docker exec -e "SQLCMDPASSWORD=$password" uat010-ref-local /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -l 3 -Q 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+            sleep 5
+          done
+          test "$ready" = 1
+          printf 'E1_R1_SQL_CONNECTION=%s\n' "$connection" >> "$GITHUB_ENV"
+          echo 'EphemeralSQL=READY; Target=LOCAL_ONLY;'
+      - name: Run source-bound API SQL ACL matrix with restricted Runtime principal (LOCAL SQL2022 ONLY)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/ci/test_api_runtime_acl_matrix.ps1
+      - name: Seal and upload isolated API ACL receipt
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s artifacts/uat010-api-acl/receipt.json
+          cd artifacts/uat010-api-acl
+          sha256sum receipt.json > checksums.sha256
+          sha256sum --check --quiet checksums.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-api-runtime-acl-nondeploy-${{ github.sha }}
+          path: artifacts/uat010-api-acl/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Derive corrected 020 synthetic catalog without touching frozen reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode Reference
+      - name: Assert previous eight stages unchanged and label result SYNTHETIC
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib
+          p=pathlib.Path
+          old=json.loads(p('docs/release/g1-execution/promotion/reference.json').read_text())
+          new=json.loads(p('artifacts/observed-reference.json').read_text())
+          assert old['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert new['fixture']==old['fixture']
+          assert new['initial'].upper()==old['initial'].upper()
+          assert new['emptyLedger'].upper()==old['emptyLedger'].upper()
+          assert [x['id'] for x in new['steps']]==[11,12,14,15,16,17,18,19,20]
+          for oldstep,newstep in zip(old['steps'][:8],new['steps'][:8]):
+            assert oldstep['id']==newstep['id'] and oldstep['catalog'].upper()==newstep['catalog'].upper()
+          corrected020=new['steps'][8]['catalog'].upper()
+          assert len(corrected020)==64 and all(c in '0123456789ABCDEF' for c in corrected020)
+          assert corrected020==old['steps'][8]['catalog'].upper()
+          sql=p('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()
+          assert hashlib.sha256(sql).hexdigest()=='b64a0e63261fd7ea32a329579cb7a67c9b96bede0a71653d2b1647e0fd48401c'
+          assert b"Confirming" in sql
+          out=p('artifacts/uat010-corrected020')
+          out.mkdir(parents=True,exist_ok=True)
+          payload={'contract':'corrected020-synthetic-reference-v1','sourceSha':os.environ['GITHUB_SHA'],'sourceScope':'ISOLATED_SQL2022_SYNTHETIC_NOT_LIVE_UAT','originalReferenceSha256':hashlib.sha256(p('docs/release/g1-execution/promotion/reference.json').read_bytes()).hexdigest(),'phase020SqlSha256':hashlib.sha256(sql).hexdigest(),'firstEightCatalogsUnchanged':True,'phase020CatalogSha256':corrected020,'livePredecessorFidelity':'HOLD','releaseGate':'HOLD','azureAccess':False,'liveSqlAccess':False}
+          (out/'reference.json').write_text(json.dumps(payload,sort_keys=True,indent=2)+'\n')
+          print('Corrected020SyntheticReference=PASS; FirstEightCatalogs=UNCHANGED; Phase020Catalog='+corrected020+'; LiveUAT=HOLD;')
+      - name: Regenerate deterministic synthetic-only promotion candidate in ephemeral checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path
+          original=p('docs/release/g1-execution/promotion/reference.json')
+          current=json.loads(original.read_text())
+          produced=json.loads(p('artifacts/observed-reference.json').read_text())
+          assert current['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert [x['catalog'].upper() for x in current['steps'][:8]]==[x['catalog'].upper() for x in produced['steps'][:8]]
+          assert current['initial'].upper()==produced['initial'].upper()
+          assert current['emptyLedger'].upper()==produced['emptyLedger'].upper()
+          assert produced['steps'][-1]['catalog'].upper()=='2F6346FBC1E113EAF678F4A256A2F4F3704342B3905DA4794FC658728B56D281'
+          current['steps'][-1]['catalog']=produced['steps'][-1]['catalog']
+          current['corrected020Source']='PR83_B031AA1D_CORRECTED020_ISOLATED_SQL2022'
+          current['liveUat010Predecessor']='NOT_VERIFIED_DO_NOT_DEPLOY'
+          original.write_text(json.dumps(current,indent=2)+'\n')
+          print('SyntheticReference020=BOUND; OriginalSourceReference=UNCHANGED_IN_GIT; UAT010=HOLD;')
+          PY
+          python3 scripts/ci/g1_promotion.py build
+          python3 scripts/ci/g1_promotion.py verify
+      - name: Four focused synthetic 26-history promotion and rollback regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode HistoryCompatibility
+      - name: Execute focused SOURCE-BOUND 014 SELECT-only preflight on disposable SQL2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat010_014_readonly.py --output artifacts/uat010-014/014-preflight.sql
+          pwsh -NoProfile -File scripts/ci/test_uat010_014_readonly.ps1
+      - name: Seal NONDEPLOY synthetic package only
+        shell: python
+        run: |
+          import hashlib,json,os,pathlib,shutil
+          p=pathlib.Path
+          root=p('docs/release/g1-execution/promotion')
+          manifest=json.loads((root/'manifest.json').read_text())
+          ref=json.loads((root/'reference.json').read_text())
+          up20=p('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql')
+          digest=lambda f:hashlib.sha256(f.read_bytes()).hexdigest()
+          assert manifest['approval']=='PROPOSED_NOT_AUTHORIZED'
+          assert manifest['schema010SourceBoundBaseline']['status']=='HOLD'
+          assert manifest['schema010SourceBoundBaseline']['syntheticReferenceAcceptedAsUatBaseline'] is False
+          assert ref['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert ref['liveUat010Predecessor']=='NOT_VERIFIED_DO_NOT_DEPLOY'
+          assert manifest['sourceHashes'][str(up20)]==digest(up20)
+          assert manifest['steps'][-1]['postCatalogSha256'].upper()=='2F6346FBC1E113EAF678F4A256A2F4F3704342B3905DA4794FC658728B56D281'
+          assert manifest['packageId']==manifest['steps'][0]['payloadSha256'] or len(manifest['packageId'])==64
+          files=['Promotion.sql','Verify.sql','manifest.json','reference.json','CatalogContract.sql','HistoryContract.sql','LedgerContract.sql']
+          for f in files:
+            assert manifest['files'][str(root/f)]==digest(root/f) if f!='manifest.json' else True
+          dest=p('artifacts/uat010-synthetic-promotion')
+          dest.mkdir(parents=True,exist_ok=True)
+          for f in files:shutil.copyfile(root/f,dest/f)
+          receipt={'contract':'uat010-corrected020-synthetic-promotion-v1','sourceSha':os.environ['GITHUB_SHA'],'releaseAllowed':False,'liveUatSqlAccess':False,'azureAccess':False,'predecessorSourceFidelity':'HOLD','apiPrincipal':'UNKNOWN','recoveryPair':'HOLD','syntheticHistory4Cases':'PASS','origin':'DISPOSABLE_SQL2022_ONLY','packageId':manifest['packageId'],'fileSha256':{f:digest(dest/f) for f in files}}
+          (dest/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          print('Corrected020OfflinePromotion=BUILT_AND_HISTORY4_PASS; RealUAT010=HOLD; Deploy=DENIED;')
+      - name: Derive isolated one-facet historical 1700_005 Confirming contrast (NO LIVE UAT)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture=scripts/ci/run_full_candidate_migration.ps1
+          save="$RUNNER_TEMP/uat010-pr50-synthetic-fixture.original"
+          cp "$fixture" "$save"
+          trap 'cp "$save" scripts/ci/run_full_candidate_migration.ps1; rm -f "$save"' EXIT
+          python3 - <<'PY'
+          import pathlib
+          path=pathlib.Path('scripts/ci/run_full_candidate_migration.ps1')
+          old="N'Previewed',N'Confirmed',N'PartiallyFailed'))"
+          new="N'Previewed',N'Confirming',N'Confirmed',N'PartiallyFailed'))"
+          source=path.read_text()
+          assert source.count(old)==1 and source.count(new)==0, 'G1_FROZEN_FIXTURE_SHAPE_STOP'
+          path.write_text(source.replace(old,new,1))
+          print('OneFacetFixture=1700_005_Confirming_INJECTED_EPHEMERAL_ONLY; OriginalPR50=UNCHANGED_IN_GIT;')
+          PY
+          pwsh -NoProfile -File scripts/ci/test_g1_promotion.ps1 -Mode Reference
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          p=pathlib.Path
+          prior=json.loads(p('docs/release/g1-execution/promotion/reference.json').read_text())
+          observed=json.loads(p('artifacts/observed-reference.json').read_text())
+          assert prior['fixture']=='SYNTHETIC_SCOPED_MIGRATION_CONTRACT_NOT_UAT_OR_150_BASELINE'
+          assert observed['fixture']==prior['fixture']
+          assert len(observed['steps'])==9
+          assert [x['id'] for x in observed['steps']]==[11,12,14,15,16,17,18,19,20]
+          assert observed['initial'].upper()!=prior['initial'].upper(), 'G1_EXPECTED_SOURCE_CONTRAST_MISSING'
+          result={
+            'contract':'existing010-1700_005-one-facet-source-contrast-nondeploy-v1',
+            'liveUatSqlQueried':False,'azureAccess':False,'sqlWriteToLiveUat':False,
+            'syntheticChange':'CK_ImportBatches_Status_ADD_Confirming_ONLY',
+            'baselineBefore':prior['initial'].upper(),
+            'baselineAfterOneFacetCorrection':observed['initial'].upper(),
+            'baselineDiffers':True,
+            'actual63TableCatalogCompared':False,
+            'actual26HistoricalRowsCompared':False,
+            'allTriggerBodiesCompared':False,
+            'originalPR50ReferenceChangedInGit':False,
+            'releaseAuthorized':False,'businessUat':'NO_GO','g1':'HOLD'
+          }
+          dest=p('artifacts/uat010-corrected020/1700-005-one-facet-contrast.json')
+          dest.write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
+          print('HistoricalBatchCheckOneFacet=DIFFERENT_INITIAL_HASH_CONFIRMED; RealUAT=NOT_ACCESSED; Migration=DENIED;')
+          PY
+      - name: Source-derived 1700_005 scoped facet reference (DISPOSABLE SQL2022 ONLY)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File scripts/ci/uat010_generate_facet_reference.ps1
+      - name: Seal scoped historical CHECK reference checksums
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts/uat010-corrected020
+          sha256sum scoped-historical-check-facets.json scoped-live-status-NOT-EXECUTED.sql > scoped-facets-checksums.sha256
+          sha256sum --check --quiet scoped-facets-checksums.sha256
+          echo 'ScopedHistoricalCheckFacet=SEALED; Full63Table=HOLD; Azure=NONE;'
+      - name: Bind synthetic-only package file checksums
+        if: success()
+        shell: bash
+        run: |
+          cd artifacts/uat010-synthetic-promotion
+          sha256sum Promotion.sql Verify.sql manifest.json reference.json CatalogContract.sql HistoryContract.sql LedgerContract.sql receipt.json > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-corrected020-promotion-nondeploy-${{ github.sha }}
+          path: artifacts/uat010-synthetic-promotion/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Stop disposable SQL
+        if: always()
+        shell: bash
+        run: docker rm -f uat010-ref-local >/dev/null 2>&1 || true
+      - name: Bind sanitized source-derived synthetic receipt
+        if: success()
+        shell: bash
+        run: |
+          cd artifacts/uat010-corrected020
+          sha256sum reference.json > checksums.sha256
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-corrected020-synthetic-${{ github.sha }}
+          path: artifacts/uat010-corrected020/
+          retention-days: 30
+          if-no-files-found: error
+
+  frontend-gated-candidate:
+    name: Dual OFF / ON_NONDEPLOY frontend artifact (no deployment)
+    needs: combined-source
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/uat010-existing-rc-integration-20261025' && !contains(github.event.head_commit.message, '[catalog-source-only]') && !contains(github.event.head_commit.message, '[pathb-clean-install]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Check exact six-flag source and reject any overlay drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py --self-test
+      - name: Build and independently seal isolated dual frontend bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/uat_release/build_optionc_frontend_dual_nondeploy.py
+      - name: Prove git source remains OFF / not committed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object frontend/src/optionc-approval-flags.ts)" = 7c9e8482ffa2bb4a92316bff6f9e4954bf9560be
+          git diff --exit-code -- frontend/src frontend/public/config.js
+          cd artifacts/uat010-frontend-dual
+          sha256sum --check --quiet checksums.sha256
+          echo 'FrontendSource=UNCHANGED_OFF; DualCandidate=SEALED_NONDEPLOY;'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: uat010-optionc-frontend-dual-NONDEPLOY-${{ github.sha }}
+          path: artifacts/uat010-frontend-dual/
+          retention-days: 30
+          if-no-files-found: error
+
+  legacy-api-dll-hash-nondeploy:
+    name: 10-13 deployed API DLL source reproducibility (HASH ONLY; ACCEPTED RECEIPT, DO NOT RERUN)
+    needs: combined-source
+    # Exact-SHA Run40148778658 already finalized MISMATCH_HOLD; never spend another runner on this fixed result.
+    if: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: db235938b8b13ca8a65ab3b525de1df10d911645
+          persist-credentials: false
+      - name: Verify pinned deployed source and no live target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = db235938b8b13ca8a65ab3b525de1df10d911645
+          test "$GITHUB_REF" = refs/heads/work/uat010-existing-rc-integration-20261025
+          test -z "$(printenv UAT_SQL_CONNECTION || true)"
+          test -z "$(printenv PRODUCTION_SQL_CONNECTION || true)"
+          echo 'Source=EXACT_20261013; Deployment=FORBIDDEN;'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.425'
+      - name: Build and publish historic source ONLY in disposable GitHub runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj --nologo
+          dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore --nologo
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-build --nologo -o ./publish
+          test -s publish/FieldVisit.Api.dll
+      - name: Compare observed UAT DLL hash with rebuilt DLL, store receipt ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          observed='da3d658d01d076e7b4026638fb1157779466e0f8b83e5efee51ad7106b288418'
+          actual=hashlib.sha256(pathlib.Path('publish/FieldVisit.Api.dll').read_bytes()).hexdigest()
+          equivalent=actual==observed
+          root=pathlib.Path('artifacts/uat010-old-api-dll-hash-only')
+          root.mkdir(parents=True,exist_ok=False)
+          data={'contract':'uat010-old-api-dll-hash-only-nondeploy-v1',
+            'historicDeployRun':38334707319,
+            'historicSourceSha':'db235938b8b13ca8a65ab3b525de1df10d911645',
+            'reviewHeadSha':os.environ['GITHUB_SHA'],
+            'observedLivePublishedDllSha256':observed,
+            'reproducedDllSha256':actual,
+            'byteEquivalent':equivalent,
+            'result':'MATCH' if equivalent else 'MISMATCH_HOLD',
+            'fullPublishArchiveExists':False,
+            'rollbackReady':False,'sqlPrincipal':'UNKNOWN',
+            'azureAccess':False,'deploymentAllowed':False,'liveSqlAccess':False,
+            'g1':'HOLD','businessUat':'NO_GO'}
+          target=root/'receipt.json'
+          target.write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
+          (root/'checksums.sha256').write_text(
+            hashlib.sha256(target.read_bytes()).hexdigest()+'  receipt.json\n')
+          print('LegacyApiDll=' + data['result'] +
+                '; BinaryUpload=NONE; Azure=NONE; Rollback=HOLD;')
+          PY
+          ( cd artifacts/uat010-old-api-dll-hash-only && sha256sum -c --quiet checksums.sha256 )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: old-api-dll-hash-receipt-NONDEPLOY
+          path: artifacts/uat010-old-api-dll-hash-only/
+          retention-days: 30
+          if-no-files-found: error

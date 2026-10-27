@@ -1,76 +1,71 @@
-# 外訪行程與里程管理系統 v1.8.0 — Business UAT 測試案例
+# Field Visit v1.8.0 — Business UAT 25 項測試案例
 
-> **狀態**
+> **目前狀態：HOLD — Path B 尚未通過安全與恢復 Gate。**
 >
-> - Technical Readiness：**PASS**
-> - Business User Access：**RELEASED**
-> - Business UAT：**READY TO BEGIN / NOT YET SIGNED OFF**
-> - Internal release gates 已完成；下列 Business case 結果仍須由 Business User 實際執行，因此預設維持 **NOT RUN**。
-> - 所有案例執行前，請確認使用的是 UAT 環境與指定 UAT 帳號。
+> 此表保留 Owner 指定的 25 個案例。全部為 **NOT RUN**；隔離 SQL2022 測試不等於 Business UAT。新隔離環境部署、角色帳號及技術 Gate 通過前，Business User 不得開始測試。
 
-## 使用方式
+## 使用規則
 
-1. 依 Case ID 執行案例。
-2. `Actual Result` 請記錄實際觀察結果。
-3. `Result` 僅使用：**PASS / FAIL / BLOCKED / NOT RUN**。
-4. FAIL 或 BLOCKED 必須填入 `Issue ID`。
-5. 涉及新增資料時，請使用可辨識的 UAT prefix，例如 `UAT-YYYYMMDD-Tester-xxx`。
-6. 不要為了完成案例而修改既有基準主檔；若缺少安全測試資料，應記錄 BLOCKED。
+- 只在新隔離 Business UAT 網址執行，禁止使用舊 UAT 或 Production。
+- 各案例記錄實際觀察、測試資料識別碼及結果：PASS、FAIL、BLOCKED 或 NOT RUN。
+- 只有 Business User 實際完成瀏覽器至 API／SQL 流程並確認結果，才能記 PASS。
+- 失敗或阻塞需記錄 Issue；不要在此文件、GitHub 或截圖中記錄密碼、Token 或其他秘密。
+- Google Maps 路線成功與失敗轉人工備援都必須實際驗證；Mock 或單元測試不能替代。
+- 需由 Owner 執行實體 iPhone 測試。所有既有資料只讀，不得用於測試寫入。
 
-## Mandatory P0 Cases
+## VIS — Visitor（6 項）
 
-| Case ID | Priority | Role | Scenario | Steps | Expected Result | Actual Result | Result | Issue ID |
-|---|---|---|---|---|---|---|---|---|
-| LOGIN-01 | P0 | Visitor / 外訪員 | Visitor login and navigation | 1. 使用 `pilotv01` 登入。<br>2. 確認登入後首頁。<br>3. 檢查側邊 / 手機可用選單。 | 可存取「今日行程」與「歷史紀錄」，且不出現未授權角色功能。 |  | NOT RUN |  |
-| LOGIN-02 | P0 | Leader / 小組長 | Leader login and navigation | 1. 使用 `pilotl01` 登入。<br>2. 逐一檢查角色選單。 | 可存取「小組總覽 / 行程審核 / 行程查詢 / 地點管理」。 |  | NOT RUN |  |
-| LOGIN-03 | P0 | Admin / 管理者 | Admin login and navigation | 1. 使用 `pilota01` 登入。<br>2. 逐一檢查管理者選單。 | 應正好可看到並開啟：管理儀表板、人員與權限、小組與成員、地點主檔、專案管理、拜訪形式、補助費率、行程查詢、更正管理。 |  | NOT RUN |  |
-| LOGIN-04 | P0 | Supervisor / 督導 | Supervisor login | 1. 使用 `pilots02` 登入。<br>2. 檢查可用選單。<br>3. 確認沒有可修改主檔或業務資料的操作。 | 可使用「查詢總覽 / 行程查詢」，且不提供 edit / master-data action。 |  | NOT RUN |  |
-| VIS-01 | P0 | Visitor / 外訪員 | Visitor saves Draft | 1. 建立新行程。<br>2. 輸入可辨識的 UAT 備註。<br>3. 儲存為 Draft。<br>4. 到歷史紀錄查詢。 | Draft 儲存成功，且可在歷史紀錄中找到。 |  | NOT RUN |  |
-| VIS-02 | P0 | Visitor / 外訪員 | 2-stop trip using existing locations | 1. 建立 2-stop 行程。<br>2. 使用既有正式地點。<br>3. 視情況選擇 Project / Visit Type。<br>4. 輸入 claimed mileage。<br>5. 送出。<br>6. 記錄 Trip No。 | 行程送出成功，狀態與資料正確，Trip No 可記錄並後續追蹤。 |  | NOT RUN |  |
-| VIS-03 | P0 | Visitor / 外訪員 | Temporary business location | 1. 建立測試行程。<br>2. 加入臨時業務地點。<br>3. 儲存或送出並重新檢視。 | 臨時地點可加入行程，且不會被無聲轉成 Production master data。 |  | NOT RUN |  |
-| VIS-04 | P0 | Visitor / 外訪員 | Formal submission requires at least 2 stops | 1. 建立只有 1 stop 的測試行程。<br>2. 儲存 Draft。<br>3. 嘗試正式送出。<br>4. 補成至少 2 stops 後再次送出。 | Draft 可保留；**正式送出必須至少 2 stops**。1-stop submit 必須 fail closed；補足 2 stops 後才可送出。 |  | NOT RUN |  |
-| VIS-05 | P0 | Visitor / 外訪員 | Draft edit / delete | 1. 僅使用本次新建 UAT Draft。<br>2. 修改欄位並儲存。<br>3. 再建立一筆可安全刪除的 UAT Draft。<br>4. 刪除指定 Draft。 | 修改成功；刪除只影響指定的 UAT Draft，不影響其他紀錄。 |  | NOT RUN |  |
-| LEAD-01 | P0 | Leader / 小組長 | Leader sees Visitor submitted trip | 1. Visitor 先完成 VIS-02。<br>2. Leader 使用授權帳號登入。<br>3. 於審核 / 清單中尋找該 Trip No。 | 可看到正確 Visitor、Team 與 Trip 資料。 |  | NOT RUN |  |
-| LEAD-02 | P0 | Leader / 小組長 | System mileage processing for 2+ stop trip | 1. 使用指定 2+ stop UAT Trip。<br>2. 依目前畫面觸發 / 等候系統里程處理。<br>3. 查看處理結果。 | 指定 UAT Trip 的背景工作建立並完成成功；不要求 Google 路線距離準確度。 |  | NOT RUN |  |
-| LEAD-03 | P0 | Leader / 小組長 | Leader approves designated trip | 1. 開啟指定待審 Trip。<br>2. 檢視里程、費率、補助。<br>3. 在「公司里程決策依據（必選）」明確勾選 **人工備援 / ManualFallback**。<br>4. 完成核准。 | 未明確選擇時不可核准；選擇 ManualFallback 後狀態變為 Approved，並留下治理證據；P2B 不要求 live Google provider。 |  | NOT RUN |  |
-| LEAD-04 | P0 | Leader / 小組長 | Leader returns designated trip | 1. 使用另一筆指定 UAT Trip。<br>2. 輸入退回原因。<br>3. 退回。 | Visitor 可看到 Returned 狀態與退回原因。 |  | NOT RUN |  |
-| VIS-06 | P0 | Visitor / 外訪員 | Visitor edits Returned trip and resubmits | 1. 開啟 LEAD-04 退回的 Trip。<br>2. 修改指定內容。<br>3. 重新送出。 | Returned Trip 可修改並再次送出，且狀態正確更新。 |  | NOT RUN |  |
-| QUERY-01 | P0 | Leader / 小組長 | Leader query | 1. 開啟行程查詢。<br>2. 依序測試 date、visitor、keyword、project、visit type、status（如適用）。<br>3. 檢查組合條件。 | 各篩選條件與組合篩選正確套用，結果符合 Leader 授權範圍。 |  | NOT RUN |  |
-| QUERY-02 | P0 | Admin / 管理者 | Admin query | 1. Admin 開啟行程查詢。<br>2. 使用可辨識的查詢條件。<br>3. 檢查跨小組結果。 | 可查看組織層級授權資料，且結果符合條件。 |  | NOT RUN |  |
-| QUERY-03 | P0 | Supervisor / 督導 | Supervisor query | 1. Supervisor 開啟行程查詢。<br>2. 使用至少兩種篩選條件。<br>3. 檢查結果與可操作控制項。 | 授權範圍內的唯讀查詢正常，沒有資料修改功能。 |  | NOT RUN |  |
-| QUERY-04 | P0 | Leader / Admin / Supervisor | Excel export | 1. 套用可辨識的查詢條件。<br>2. 執行 Excel 匯出。<br>3. 開啟下載檔並與查詢結果比對。 | Excel 代表目前完整 applied query 的結果，而不是只有目前畫面 page。 |  | NOT RUN |  |
-| QUERY-05 | P0 | Leader / Admin / Supervisor | PDF export | 1. 套用可辨識的查詢條件。<br>2. 執行 PDF 匯出。<br>3. 檢查內容與中文字型。 | PDF 代表目前完整 applied query，且繁體中文可正常閱讀。 |  | NOT RUN |  |
-| CORR-01 | P0 | Visitor / 外訪員 | Open Approved trip correction request | 1. 找到指定 Approved Trip。<br>2. 建立更正申請。<br>3. 記錄更正原因與必要識別碼。 | 可建立更正申請；原 Approved record 保留作為歷史參考。 |  | NOT RUN |  |
-| CORR-02 | P0 | Leader / 小組長 | Leader reviews correction | 1. 開啟 CORR-01 更正案件。<br>2. 依目前規則判斷是否涉及財務影響。<br>3. 執行 Leader 審核。 | 非財務更正可依目前規則完成；財務更正於適用時繼續送 Admin。 |  | NOT RUN |  |
-| CORR-03 | P0 | Admin / 管理者 | Admin closes financial correction | 1. 使用指定需 Admin 處理的財務更正。<br>2. 檢查原資料。<br>3. 完成結案。 | 產生新的 Snapshot version；原 Snapshot 仍保留。 |  | NOT RUN |  |
-| CORR-04 | P0 | Admin / Leader / Supervisor | Query corrected trip | 1. 查詢 CORR-03 的 Trip。<br>2. 檢查最新 Snapshot。<br>3. 檢查歷史版本。 | 最新 Snapshot 可見，且歷史沒有被覆寫。 |  | NOT RUN |  |
-| SUP-01 | P0 | Supervisor / 督導 | Supervisor read-only enforcement | 1. 查詢授權資料。<br>2. 測試 Excel / PDF 匯出。<br>3. 檢查是否存在 Admin / Leader mutation controls。 | 查詢與匯出可用；不得出現管理或修改業務資料的控制項。 |  | NOT RUN |  |
-| MOBILE-01 | P0 | Visitor / 外訪員 | Visitor iPhone / mobile layout | 1. 使用約手機寬度的瀏覽器或 iPhone。<br>2. 使用 Visitor 登入。<br>3. 檢查手機導覽。<br>4. 開啟主要表單與 modal。 | Mobile navigation 可見；「首頁 / 紀錄」可使用；表單與 modal 不依賴 desktop-only 操作。 |  | NOT RUN |  |
-| E2E-01 | P0 | Cross-role | End-to-end business journey | 1. Visitor 建立 2-stop Trip。<br>2. Submit。<br>3. Leader 執行 system mileage。<br>4. Leader Approve。<br>5. Supervisor / Admin Query。<br>6. Export。<br>7. Visitor correction。<br>8. Leader review。<br>9. 若為 financial correction，由 Admin close。<br>10. Query latest Snapshot。<br>11. 記錄 Trip No、Correction ID（如適用）、Snapshot Version。 | 同一筆 business record 可由建立一路追蹤至核准、查詢、匯出、更正與最新 Snapshot；歷史脈絡可辨識。 |  | NOT RUN |  |
+| ID | 業務驗證 | 通過條件 | 實際結果／證據 | 結果 | Issue |
+|---|---|---|---|---|---|
+| VIS01 | Visitor 登入、導覽及草稿 | Visitor 僅看到授權功能；建立、修改、重開及刪除本次測試草稿均正確。 |  | NOT RUN |  |
+| VIS02 | 多站點行程及 Google Maps 成功 | 建立至少兩站點行程；實際 Maps 路線計算成功，距離與站點順序可檢視，系統里程保存正確。 |  | NOT RUN |  |
+| VIS03 | 路線失敗轉人工備援 | 造成或使用可控的路線服務失敗；保存可追蹤失敗證據並轉人工備援，不得靜默填入系統距離。 |  | NOT RUN |  |
+| VIS04 | 退回行程修改與重送 | Visitor 修改 Leader 退回的行程後可重送；狀態、版本及退回原因歷程正確。 |  | NOT RUN |  |
+| VIS05 | 正式及臨時地點 | 行程可使用已核准地點及臨時地點；臨時地點不會未經核准寫入正式主檔。 |  | NOT RUN |  |
+| VIS06 | 自身歷史及資料隔離 | Visitor 能查自己的歷史；直接查詢其他組織／小組或其他人資料時被拒絕。 |  | NOT RUN |  |
 
-## Controlled P1 Admin Cases
+## LEAD — Leader（6 項）
 
-> **僅指定 Admin UAT tester 可執行。**
->
-> 只使用本次新建且帶 UAT prefix 的 records。不要為了完成案例而修改既有 baseline pilot accounts 或既有基準 rate / master data。
+| ID | 業務驗證 | 通過條件 | 實際結果／證據 | 結果 | Issue |
+|---|---|---|---|---|---|
+| LEAD01 | 授權小組待審行程 | Leader 只看到任期及授權小組範圍內的行程，資料與 Visitor 提交內容一致。 |  | NOT RUN |  |
+| LEAD02 | 行程里程處理 | 多站點行程的背景里程作業可完成；結果與失敗狀態可追蹤，不產生重複或錯誤資料。 |  | NOT RUN |  |
+| LEAD03 | 最終核定里程及核准 | Leader 檢視依據並明確設定最終核定里程；核准結果及必要的距離決策證據正確。 |  | NOT RUN |  |
+| LEAD04 | 退回及稽核歷程 | Leader 可填寫退回原因；Visitor 看到相同原因，稽核紀錄保留操作者、時間及狀態轉換。 |  | NOT RUN |  |
+| LEAD05 | 小組長歷史查詢限任期 | 現任／歷任 Leader 的歷史查詢只涵蓋其授權任期；任期外資料不可讀取。 |  | NOT RUN |  |
+| LEAD06 | 跨小組及競態隔離 | 跨小組操作被拒絕；兩個並行審核或過期版本提交時，只有合法的一次生效，資料及稽核一致。 |  | NOT RUN |  |
 
-| Case ID | Priority | Role | Scenario | Steps | Expected Result | Actual Result | Result | Issue ID |
-|---|---|---|---|---|---|---|---|---|
-| ADM-01 | P1 | Admin / 管理者 | Create / edit / deactivate UAT Project | 1. 建立新的 UAT-prefixed Project。<br>2. 修改允許欄位。<br>3. 依規則停用該測試 Project。 | 新增、修改、停用只影響指定 UAT Project，狀態與畫面一致。 |  | NOT RUN |  |
-| ADM-02 | P1 | Admin / 管理者 | Create / edit / reorder / deactivate UAT Visit Type | 1. 建立新的 UAT-prefixed Visit Type。<br>2. 修改內容。<br>3. 調整順序。<br>4. 停用該測試 Visit Type。 | 指定 UAT Visit Type 可依規則新增、修改、排序與停用，不影響既有 baseline。 |  | NOT RUN |  |
-| ADM-03 | P1 | Admin / 管理者 | Create / edit designated UAT Location | 1. 建立新的 UAT-prefixed Location。<br>2. 修改可編輯欄位。<br>3. 重新查詢。 | 指定 UAT Location 建立與修改成功，資料可正確查詢。 |  | NOT RUN |  |
-| ADM-04 | P1 | Admin / 管理者 | Validate User / Role / Team Scope screen | 1. 開啟人員與權限。<br>2. 檢查指定 UAT 使用者的 role / team scope 顯示。<br>3. 除非另有明確核准，不變更 baseline pilot accounts。 | 畫面可正確呈現 User / Role / Team Scope；不因測試而修改 baseline pilot accounts。 |  | NOT RUN |  |
-| ADM-05 | P1 | Admin / 管理者 | Mileage rate change impact warning | 1. 開啟補助費率功能。<br>2. 使用專用、安全的 UAT rate dataset 才執行變更測試。<br>3. 檢查 impact warning / 生效規則。 | 不得僅為通過測試而改既有 baseline rate。若沒有專用安全 UAT rate dataset，可記為 BLOCKED，原因：「Dedicated rate test data required.」 |  | NOT RUN |  |
+## ADMIN — Admin（4 項）
 
-## Evidence 要求
+| ID | 業務驗證 | 通過條件 | 實際結果／證據 | 結果 | Issue |
+|---|---|---|---|---|---|
+| ADMIN01 | 地點建立及疑似重複 | Admin 建立測試地點；相同或近似資料顯示疑似重複提示，不會靜默新增重複主檔。 |  | NOT RUN |  |
+| ADMIN02 | 地點合併 | 經核准的合併保留來源與目標關聯、行程參照及稽核軌跡；不相關地點不受影響。 |  | NOT RUN |  |
+| ADMIN03 | 高風險管理操作審核 | 高風險新增、變更或合併按核准流程執行；未核准前不生效，核准人與變更內容可追溯。 |  | NOT RUN |  |
+| ADMIN04 | Admin／HR 不得自審 | 建立者或提出者不能核准自己的高風險操作；不同角色與組織範圍按授權隔離。 |  | NOT RUN |  |
 
-每一個 mandatory case 執行後，Business User 應至少記錄：
+## XLS — Excel 匯入與報表（5 項）
 
-- Result：PASS / FAIL / BLOCKED / NOT RUN。
-- FAIL / BLOCKED 時的 Issue ID。
-- 必要時附 Screenshot。
-- 涉及行程時記錄 Trip No。
-- 涉及更正時記錄 Correction ID。
-- 涉及 Snapshot 時記錄 Snapshot Version。
+| ID | 業務驗證 | 通過條件 | 實際結果／證據 | 結果 | Issue |
+|---|---|---|---|---|---|
+| XLS01 | 合法 Excel 匯入預覽 | 合法測試檔預覽欄位、列數及錯誤提示正確；預覽階段不寫入資料。 |  | NOT RUN |  |
+| XLS02 | Excel 匯入完成及來源追蹤 | 核准後匯入預期資料；來源批次、操作者及結果可追蹤，重複提交不重複寫入。 |  | NOT RUN |  |
+| XLS03 | 無效資料及部分錯誤 | 缺欄、錯誤格式及無效參照依契約回報；無效資料不被靜默接受，資料庫保持一致。 |  | NOT RUN |  |
+| XLS04 | 查詢結果匯出 | Leader／Admin 在授權範圍內匯出完整篩選結果；Excel／報表與查詢條件及資料筆數相符。 |  | NOT RUN |  |
+| XLS05 | 匯入及報表權限隔離 | Visitor、未授權角色及跨組織使用者無法匯入或匯出超出權限的資料；拒絕事件可追蹤。 |  | NOT RUN |  |
 
-Business UAT 尚未執行完成前，不應將本文件標示為 signed off。
+## TRIP — 完整行程及裝置操作（2 項）
+
+| ID | 業務驗證 | 通過條件 | 實際結果／證據 | 結果 | Issue |
+|---|---|---|---|---|---|
+| TRIP01 | Visitor → Leader 完整行程 | 透過瀏覽器完成草稿、多站點送出、Leader 核定里程與結案；SQL 資料、狀態快照及稽核紀錄一致。 |  | NOT RUN |  |
+| TRIP02 | iPhone 操作與錯誤復原 | Owner 在實體 iPhone 驗證登入、建立／檢視／送出與審核頁面；網路錯誤或重複操作不造成錯誤或重複資料。 |  | NOT RUN |  |
+
+## SEC — 權限及資料完整性（2 項）
+
+| ID | 業務驗證 | 通過條件 | 實際結果／證據 | 結果 | Issue |
+|---|---|---|---|---|---|
+| SEC01 | 角色、組織及小組隔離 | Visitor、Leader、Admin／HR 的讀寫及核准權限符合角色；跨角色、跨組織、跨小組及自我核准均被阻止。 |  | NOT RUN |  |
+| SEC02 | 歷史資料、競態及稽核完整性 | 歷史資料與核准紀錄不被改寫；重複／過期請求及錯誤流程 fail closed；操作軌跡完整。 |  | NOT RUN |  |
+
+**案例總數：25（VIS 6、LEAD 6、ADMIN 4、XLS 5、TRIP 2、SEC 2）。**
