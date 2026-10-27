@@ -8,6 +8,7 @@ on:
       - 'scripts/ci/uat_release/install.py'
       - 'scripts/ci/uat_release/sign_activation.py'
       - 'scripts/ci/uat_release/seal.py'
+      - 'scripts/ci/uat_release/seal_pathb_install.py'
       - 'scripts/ci/uat_release/prepare_candidate.py'
       - 'docs/release/pathb/**'
       - 'docs/release/g1-execution/promotion/integration-ledger.json'
@@ -92,6 +93,19 @@ jobs:
           (out/'pathb-build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
           PY
           (cd "$output" && sha256sum api-release-candidate.zip frontend-release-candidate.zip pathb-build-manifest.json > checksums.sha256)
+      - name: Seal exact Path B 69-table installer package (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/ci/uat_release/seal_pathb_install.py
+          python scripts/ci/uat_release/seal_pathb_install.py --self-test
+          python scripts/ci/uat_release/seal_pathb_install.py --accepted "$RUNNER_TEMP/accepted" --build "$RELEASE_OUTPUT" --output "$RUNNER_TEMP/pathb-install-root"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-install-${{ github.sha }}
+          path: ${{ runner.temp }}/pathb-install-package.zip
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         with:
           name: pathb-build-${{ github.sha }}
