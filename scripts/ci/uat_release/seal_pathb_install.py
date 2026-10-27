@@ -63,7 +63,7 @@ def seal_zip(root: Path, destination: Path) -> str:
 def self_test() -> None:
     route = b"IF DB_NAME() NOT IN\n   (N'OptionCIsolated_FieldVisitV180CleanInstall',\n    N'OptionCIsolated_FieldVisitV180Replay')\n    THROW 56040, N'CLEAN_ROUTE_DISPOSABLE_TARGET_REQUIRED', 1;\n"
     got = promoted(route, "20_route_reason_check.sql")
-    assert got.count(f"DB_NAME()<>N'{DATABASE}'".encode()) == 1
+    assert got.count(f"DB_NAME()<>N'{DATABASE}'".encode()) == 2
     caps = b"IF DB_NAME() NOT LIKE N'OptionCIsolated[_]%' THROW 56600,N'DISPOSABLE_ONLY',1;\n"
     assert f"DB_NAME()<>N'{DATABASE}'".encode() in promoted(caps, "60_final_functional_capabilities.sql")
     try:
