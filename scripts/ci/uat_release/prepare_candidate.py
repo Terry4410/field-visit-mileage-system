@@ -91,6 +91,23 @@ def main():
  for name in ['V180UatReleaseTrust.cs','V180UatExisting010HistoryTrust.cs','SchemaFingerprint.sql']:
   write(infra+name,(ROOT/'tools/uat-release-candidate/runtime'/name).read_bytes())
  write(infra+'UatReleaseIdentity.g.cs','namespace FieldVisit.Infrastructure; public static class UatReleaseIdentity { public const string SourceSha="'+source+'"; }\n')
+ path='backend/src/FieldVisit.Api/Program.cs';old=(rc/path).read_text()
+ marker='var app=builder.Build();';assert old.count(marker)==1
+ startup='''var app=builder.Build();
+var pathBReleaseContract=Path.Combine(AppContext.BaseDirectory,"release-contract.json");
+if(!File.Exists(pathBReleaseContract)) throw new InvalidOperationException("PATHB_RELEASE_CONTRACT_REQUIRED");
+using(var releaseContract=JsonDocument.Parse(File.ReadAllBytes(pathBReleaseContract)))
+{
+    if(releaseContract.RootElement.GetProperty("schemaProfile").GetString()!="PathBNewEmpty")
+        throw new InvalidOperationException("PATHB_RELEASE_PROFILE_REQUIRED");
+    var trustConnectionString=builder.Configuration.GetConnectionString("DefaultConnection");
+    if(string.IsNullOrWhiteSpace(trustConnectionString)) throw new InvalidOperationException("PATHB_CONNECTION_REQUIRED");
+    await using var trustConnection=new SqlConnection(trustConnectionString);
+    await trustConnection.OpenAsync();
+    V180UatReleaseTrust.Require(trustConnection);
+}
+'''
+ write(path,old.replace(marker,startup))
  file=rc/infra/'FieldVisit.Infrastructure.csproj';old=file.read_text()
  assert '</Project>' in old
  write(infra+file.name,old.replace('</Project>','<ItemGroup><EmbeddedResource Include="SchemaFingerprint.sql" LogicalName="FieldVisit.Release.SchemaFingerprint.sql" /></ItemGroup></Project>'))

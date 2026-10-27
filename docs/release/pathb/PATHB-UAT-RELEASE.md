@@ -19,7 +19,7 @@ Names are proposed deterministic names. Azure name availability and quota must b
 ## Install and activation gates
 
 - Installer target `pathb-uat` binds the exact Path B SQL host/database, checks the target database is empty, requires SQL Engine Edition 5, and uses create-only scripts. The existing `uat` target remains fixed to the old Existing010 database.
-- Runtime attestation binds the source SHA, API and frontend package hashes, 69-table schema hash, SQL principal SID/name, exact Path B host/database, TLS validation, and `PathBNewEmpty` profile.
+- API startup refuses to serve without a `PathBNewEmpty` release contract and runs the signed SQL trust preflight before listening. Runtime attestation binds source SHA, API and frontend package hashes, 69-table schema hash, SQL principal SID/name, exact Path B host/database, TLS validation, and profile.
 - Runtime trust denies the old UAT server, Production, unknown targets, wrong schema counts, wrong signatures, or a non-runtime principal with owner/DDL/broad-writer privileges.
 - Path B UAT Option C execution requires `OPTIONC_EXECUTION_MODE=Uat`, signed activation, `OptionC__Candidate__Enabled=true`, `OptionC__Approval__Enabled=true`, worker enabled, `Providers__Route=GoogleMaps`, and a non-empty Google key supplied only through the private app setting. Missing values fail closed.
 - Runtime SQL principal receives only the tested object-level grants; a separate one-time migration operator runs the create-only installer and then loses DDL privileges. No API Runtime membership in `db_owner` or `db_datawriter`.

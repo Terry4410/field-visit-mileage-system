@@ -25,6 +25,7 @@ elif profile!='PathBNewEmpty':
     assert c.get('schemaProfile') in (None,'NewEmpty')
     assert not any(k in c or k in f for k in ['historicalMarkerSha256','promotionPackageId','ledgerSha256','tableCount'])
 if profile=='PathBNewEmpty':
+    assert f.get('releaseProfile')=='PathBNewEmpty'
     assert c.get('tableCount')==69 and f.get('tableCount')==69
     assert f.get('optionCExecutionMode')=='Uat'
     assert f.get('demoAuthEnabled') is True and f.get('optionCCandidateEnabled') is True

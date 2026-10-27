@@ -158,7 +158,8 @@ public static class V180UatReleaseTrust
         bool pathB=profile==PathBProfile;
         int expectedTables=upgrade ? candidate.GetProperty("tableCount").GetInt32() : 69;
         var jwtKey=Environment.GetEnvironmentVariable("Auth__JwtKey") ?? "";
-        if(pathB && (Environment.GetEnvironmentVariable("Auth__Mode")!="Demo"
+        if(pathB && (Environment.GetEnvironmentVariable("FIELDVISIT_UAT_PROFILE")!=PathBProfile
+            || Environment.GetEnvironmentVariable("Auth__Mode")!="Demo"
             || (Environment.GetEnvironmentVariable("Auth__DemoPassword") ?? "").Length<12
             || jwtKey.Length<32 || Environment.GetEnvironmentVariable("OPTIONC_EXECUTION_MODE")!="Uat"
             || Environment.GetEnvironmentVariable("OptionC__Candidate__Enabled")!="true"

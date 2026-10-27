@@ -44,7 +44,7 @@ def main():
 
         key='11'*32
         contract={'candidateSourceSha':'a'*40,'apiSha256':'b'*64,'frontendSha256':'c'*64,'schemaSha256':'d'*64,'schemaProfile':'PathBNewEmpty','tableCount':69,'server':PATHB_SERVER,'database':PATHB_DB}
-        facts={'server':PATHB_SERVER,'database':PATHB_DB,'engineEdition':5,'nonOwnerNoDdl':True,'encryptedCertificateVerified':True,'schemaSha256':'d'*64,'principalSidSha256':'e'*64,'principalName':'fieldvisit_runtime','tableCount':69,'optionCExecutionMode':'Uat','demoAuthEnabled':True,'optionCCandidateEnabled':True,'optionCApprovalEnabled':True,'workerEnabled':True,'routeProvider':'GoogleMaps','googleApiKeyPresent':True}
+        facts={'server':PATHB_SERVER,'database':PATHB_DB,'engineEdition':5,'nonOwnerNoDdl':True,'encryptedCertificateVerified':True,'schemaSha256':'d'*64,'principalSidSha256':'e'*64,'principalName':'fieldvisit_runtime','tableCount':69,'optionCExecutionMode':'Uat','releaseProfile':'PathBNewEmpty','demoAuthEnabled':True,'optionCCandidateEnabled':True,'optionCApprovalEnabled':True,'workerEnabled':True,'routeProvider':'GoogleMaps','googleApiKeyPresent':True}
         (root/'contract.json').write_text(json.dumps(contract));(root/'facts.json').write_text(json.dumps(facts))
         out=root/'attestation.json';env=os.environ.copy();env['FIELDVISIT_UAT_TRUST_KEY']=key
         p=run([PY,str(SIGN),'--contract',str(root/'contract.json'),'--inspected-facts',str(root/'facts.json'),'--output',str(out)],env)
@@ -58,6 +58,8 @@ def main():
         run([PY,str(SIGN),'--contract',str(root/'contract.json'),'--inspected-facts',str(root/'facts.json'),'--output',str(root/'wrong-flags.json')],env,ok=False)
 
     guide=GUIDE.read_text();cases=CASES.read_text()
+    prepare=(ROOT/'scripts/ci/uat_release/prepare_candidate.py').read_text()
+    assert 'PATHB_RELEASE_CONTRACT_REQUIRED' in prepare and 'V180UatReleaseTrust.Require(trustConnection)' in prepare
     assert 'VIS02' in cases and 'Google Maps 成功' in cases and 'VIS03' in cases and '路線失敗轉人工備援' in cases
     assert 'Google Routes provider' in guide and 'Mock、單元測試' in guide and 'Path B 保持 HOLD' in guide
     assert cases.count('| NOT RUN |')==25
