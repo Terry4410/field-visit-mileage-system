@@ -96,7 +96,7 @@ def main():
  startup='''var app=builder.Build();
 var pathBReleaseContract=Path.Combine(AppContext.BaseDirectory,"release-contract.json");
 if(!File.Exists(pathBReleaseContract)) throw new InvalidOperationException("PATHB_RELEASE_CONTRACT_REQUIRED");
-using(var releaseContract=JsonDocument.Parse(File.ReadAllBytes(pathBReleaseContract)))
+using(var releaseContract=System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(pathBReleaseContract)))
 {
     if(releaseContract.RootElement.GetProperty("schemaProfile").GetString()!="PathBNewEmpty")
         throw new InvalidOperationException("PATHB_RELEASE_PROFILE_REQUIRED");
