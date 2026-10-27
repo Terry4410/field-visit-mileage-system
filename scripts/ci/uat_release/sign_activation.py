@@ -26,6 +26,7 @@ elif profile!='PathBNewEmpty':
     assert not any(k in c or k in f for k in ['historicalMarkerSha256','promotionPackageId','ledgerSha256','tableCount'])
 if profile=='PathBNewEmpty':
     assert c.get('tableCount')==69 and f.get('tableCount')==69
+    assert f.get('optionCExecutionMode')=='Uat'
     assert f.get('demoAuthEnabled') is True and f.get('optionCCandidateEnabled') is True
     assert f.get('optionCApprovalEnabled') is True and f.get('workerEnabled') is True
     assert f.get('routeProvider')=='GoogleMaps' and f.get('googleApiKeyPresent') is True

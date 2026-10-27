@@ -54,6 +54,10 @@ public static class V180UatReleaseTrust
         var actual=HMACSHA256.HashData(key,payload);
         if (!CryptographicOperations.FixedTimeEquals(actual,Convert.FromHexString(signature))) throw Denied();
         var a=JsonSerializer.Deserialize<Attestation>(payload,Json) ?? throw Denied();
+        var isPathB=facts.SchemaProfile==PathBProfile;
+        var expectedServer=isPathB?PathBServer:Server;
+        var expectedDatabase=isPathB?PathBDatabase:Database;
+        var expectedFeatures=isPathB?PathBFeatures:Features;
         if (a.NotBefore>now || a.Expires<=now || a.Expires-a.NotBefore>TimeSpan.FromHours(24)
             || !Hex(a.CandidateSourceSha,40) || !Hex(a.ApiSha256,64) || !Hex(a.FrontendSha256,64)
             || !Hex(a.SchemaSha256,64) || !Hex(a.PrincipalSidSha256,64)
@@ -62,10 +66,6 @@ public static class V180UatReleaseTrust
             || a.PrincipalSidSha256!=facts.PrincipalSidSha256 || a.PrincipalName!=facts.PrincipalName
             || a.Features!=expectedFeatures || facts.Features!=expectedFeatures || facts.EngineEdition!=5
             || !facts.EncryptedCertificateVerified || !facts.NonOwnerNoDdl) throw Denied();
-        var isPathB=facts.SchemaProfile==PathBProfile;
-        var expectedServer=isPathB?PathBServer:Server;
-        var expectedDatabase=isPathB?PathBDatabase:Database;
-        var expectedFeatures=isPathB?PathBFeatures:Features;
         if(a.Server!=expectedServer || a.Database!=expectedDatabase
             || facts.Server!=expectedServer || facts.Database!=expectedDatabase) throw Denied();
         // Existing010 and Path B use distinct signed target profiles.
