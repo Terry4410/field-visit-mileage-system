@@ -10,6 +10,7 @@ on:
       - 'scripts/ci/uat_release/seal.py'
       - 'scripts/ci/uat_release/prepare_candidate.py'
       - 'docs/release/pathb/**'
+      - 'docs/release/g1-execution/promotion/integration-ledger.json'
       - 'tools/uat-release-candidate/Program.cs'
       - 'tools/uat-release-candidate/ReleaseProbe.csproj'
       - 'scripts/ci/test_pathb_release_contract.py'
