@@ -79,7 +79,7 @@ jobs:
           VITE_RELEASE_SOURCE_SHA="$GITHUB_SHA" npm run build
           cd "$GITHUB_WORKSPACE"
           RC_SOURCE_ROOT="$source" RELEASE_OUTPUT="$output" RELEASE_API_ROOT="$api" python scripts/ci/uat_release/seal.py frontend
-          python - <<'PY'
+          RELEASE_API_ROOT="$api" RELEASE_OUTPUT="$output" python - <<'PY'
           import hashlib,json,os,pathlib,zipfile
           api=pathlib.Path(os.environ['RELEASE_API_ROOT']);out=pathlib.Path(os.environ['RELEASE_OUTPUT'])
           files=sorted(x for x in api.rglob('*') if x.is_file())
