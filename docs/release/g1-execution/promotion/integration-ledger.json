@@ -259,7 +259,7 @@
     },
     "scripts/ci/uat_release/sign_activation.py": {
       "baseSha": "3bc354530fd4c94a03ef881496dcbaa94818578a",
-      "sha": "bb66cabf1dd87dda748c340dfffb9b65b3ac782c"
+      "sha": "1274cd5ad6fa52c9a7a823324b908cbe9ffb113a"
     },
     "tools/uat-release-candidate/upgrade-profile-tests/Program.cs": {
       "baseSha": "52436fd25f86d316ed5971770bd699d9a356ae1e",
