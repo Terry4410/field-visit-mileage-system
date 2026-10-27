@@ -62,7 +62,7 @@ jobs:
           for path,item in j['integratedFiles'].items():
             assert item['sha']==overlays.get(path,{}).get('baseSha',item['sha']), 'PATHB_OVERLAY_BASE_DRIFT:'+path
             assert git('hash-object',path)==overlays.get(path,{}).get('sha',item['sha']), 'SOURCE_OVERLAY_HASH_DRIFT:'+path
-          assert len(overlays)==7 and all(v['sha']!='PENDING' for v in overlays.values())
+          assert len(overlays)==8 and all(v['sha']!='PENDING' for v in overlays.values())
           m=json.loads(p('docs/release/g1-execution/promotion/manifest.json').read_text())
           ref=json.loads(p('docs/release/g1-execution/promotion/reference.json').read_text())
           sql=p('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()

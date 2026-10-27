@@ -11,6 +11,7 @@ on:
       - 'scripts/ci/uat_release/prepare_candidate.py'
       - 'docs/release/pathb/**'
       - 'tools/uat-release-candidate/Program.cs'
+      - 'tools/uat-release-candidate/ReleaseProbe.csproj'
       - 'scripts/ci/test_pathb_release_contract.py'
       - 'docs/uat/BUSINESS-UAT-GUIDE-v1.8.0.md'
       - 'docs/uat/BUSINESS-UAT-TEST-CASES-v1.8.0.md'
