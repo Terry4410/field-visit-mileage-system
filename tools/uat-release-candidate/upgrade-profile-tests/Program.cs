@@ -95,6 +95,15 @@ internal static class Program
             Reject("PathBWrongProfile",pathBAttestation with {SchemaProfile="Existing010Upgrade"},pathBFacts);
             Reject("PathBHistoryMarkerInjection",pathBAttestation with {HistoricalMarkerSha256=new string('e',64)},pathBFacts);
             Reject("PathBTamperedHmac",pathBAttestation,pathBFacts,true);
+            var pathBRecoveryFacts=pathBFacts with {Database=V180UatReleaseTrust.PathBRecoveryDatabase,SchemaProfile=V180UatReleaseTrust.PathBRecoveryProfile};
+            var pathBRecoveryAttestation=pathBAttestation with {Database=pathBRecoveryFacts.Database,SchemaProfile=V180UatReleaseTrust.PathBRecoveryProfile};
+            Accept("SignedPathBRecoveryRestoreDatabase",pathBRecoveryAttestation,pathBRecoveryFacts);
+            Reject("PathBRecoveryPrimaryDatabaseDenied",pathBRecoveryAttestation,pathBRecoveryFacts with {Database=V180UatReleaseTrust.PathBDatabase});
+            Reject("PathBRecoveryLegacyDatabaseDenied",pathBRecoveryAttestation,pathBRecoveryFacts with {Server=V180UatReleaseTrust.Server,Database=V180UatReleaseTrust.Database});
+            Reject("PathBRecoveryProductionServerDenied",pathBRecoveryAttestation,pathBRecoveryFacts with {Server="sql-fieldvisit-jpe-prod.database.windows.net"});
+            Reject("PathBRecoveryProductionDatabaseDenied",pathBRecoveryAttestation,pathBRecoveryFacts with {Database="db-fieldvisit-prod"});
+            Reject("PathBRecoveryProfileSwapDenied",pathBRecoveryAttestation with {SchemaProfile=V180UatReleaseTrust.PathBProfile},pathBRecoveryFacts);
+            Console.WriteLine("PathBRecoveryTrust=PASS; Cases=6; ExactTemporaryTarget=db-fieldvisit-pathb-restore-uat; RealSQL=NOT_ACCESSED; LiveUAT=HOLD;");
             Console.WriteLine("PathBReleaseTrust=PASS; Cases=9; RealSQL=NOT_ACCESSED; LiveUAT=HOLD;");
             Console.WriteLine("UpgradeTrustSignedProfile=PASS; Tests="+tests+"; RealSQL=NOT_ACCESSED; LiveUAT=HOLD;");
             return 0;

@@ -98,7 +98,8 @@ var pathBReleaseContract=Path.Combine(AppContext.BaseDirectory,"release-contract
 if(!File.Exists(pathBReleaseContract)) throw new InvalidOperationException("PATHB_RELEASE_CONTRACT_REQUIRED");
 using(var releaseContract=System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(pathBReleaseContract)))
 {
-    if(releaseContract.RootElement.GetProperty("schemaProfile").GetString()!="PathBNewEmpty")
+    var releaseProfile=releaseContract.RootElement.GetProperty("schemaProfile").GetString();
+    if(releaseProfile is not ("PathBNewEmpty" or "PathBRecovery"))
         throw new InvalidOperationException("PATHB_RELEASE_PROFILE_REQUIRED");
     var trustConnectionString=builder.Configuration.GetConnectionString("DefaultConnection");
     if(string.IsNullOrWhiteSpace(trustConnectionString)) throw new InvalidOperationException("PATHB_CONNECTION_REQUIRED");

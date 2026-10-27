@@ -39,7 +39,9 @@ public static class V180UatReleaseTrust
     public const string Database = "db-fieldvisit-uat";
     public const string PathBServer = "sql-fieldvisit-jpe-pathb-uat.database.windows.net";
     public const string PathBDatabase = "db-fieldvisit-pathb-uat";
+    public const string PathBRecoveryDatabase = "db-fieldvisit-pathb-restore-uat";
     public const string PathBProfile = "PathBNewEmpty";
+    public const string PathBRecoveryProfile = "PathBRecovery";
     private static InvalidOperationException Denied() => new("OPTIONC_UAT_TRUST_DENIED");
     private static bool Hex(string s,int n) => s.Length==n && s.All(c=>char.IsAsciiHexDigit(c));
     public static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -54,9 +56,9 @@ public static class V180UatReleaseTrust
         var actual=HMACSHA256.HashData(key,payload);
         if (!CryptographicOperations.FixedTimeEquals(actual,Convert.FromHexString(signature))) throw Denied();
         var a=JsonSerializer.Deserialize<Attestation>(payload,Json) ?? throw Denied();
-        var isPathB=facts.SchemaProfile==PathBProfile;
+        var isPathB=facts.SchemaProfile is PathBProfile or PathBRecoveryProfile;
         var expectedServer=isPathB?PathBServer:Server;
-        var expectedDatabase=isPathB?PathBDatabase:Database;
+        var expectedDatabase=facts.SchemaProfile==PathBRecoveryProfile?PathBRecoveryDatabase:isPathB?PathBDatabase:Database;
         var expectedFeatures=isPathB?PathBFeatures:Features;
         if (a.NotBefore>now || a.Expires<=now || a.Expires-a.NotBefore>TimeSpan.FromHours(24)
             || !Hex(a.CandidateSourceSha,40) || !Hex(a.ApiSha256,64) || !Hex(a.FrontendSha256,64)
@@ -79,9 +81,9 @@ public static class V180UatReleaseTrust
                 || a.TableCount!=facts.TableCount || a.TableCount is null or <70 or >100)
                 throw Denied();
         }
-        else if(facts.SchemaProfile==PathBProfile)
+        else if(facts.SchemaProfile is PathBProfile or PathBRecoveryProfile)
         {
-            if(a.SchemaProfile!=PathBProfile || facts.TableCount!=69 || a.TableCount!=69
+            if(a.SchemaProfile!=facts.SchemaProfile || facts.TableCount!=69 || a.TableCount!=69
                 || a.HistoricalMarkerSha256 is not null || a.PromotionPackageId is not null
                 || a.LedgerSha256 is not null || facts.HistoricalMarkerSha256 is not null
                 || facts.PromotionPackageId is not null || facts.LedgerSha256 is not null)
@@ -153,12 +155,12 @@ public static class V180UatReleaseTrust
         var candidate=contract.RootElement;
         if(candidate.GetProperty("candidateSourceSha").GetString()!=UatReleaseIdentity.SourceSha) throw Denied();
         var profile=candidate.TryGetProperty("schemaProfile",out var v) ? v.GetString() : null;
-        if(profile is not (null or "Existing010Upgrade" or PathBProfile)) throw Denied();
+        if(profile is not (null or "Existing010Upgrade" or PathBProfile or PathBRecoveryProfile)) throw Denied();
         bool upgrade=profile=="Existing010Upgrade";
-        bool pathB=profile==PathBProfile;
+        bool pathB=profile is PathBProfile or PathBRecoveryProfile;
         int expectedTables=upgrade ? candidate.GetProperty("tableCount").GetInt32() : 69;
         var jwtKey=Environment.GetEnvironmentVariable("Auth__JwtKey") ?? "";
-        if(pathB && (Environment.GetEnvironmentVariable("FIELDVISIT_UAT_PROFILE")!=PathBProfile
+        if(pathB && (Environment.GetEnvironmentVariable("FIELDVISIT_UAT_PROFILE")!=profile
             || Environment.GetEnvironmentVariable("Auth__Mode")!="Demo"
             || (Environment.GetEnvironmentVariable("Auth__DemoPassword") ?? "").Length<12
             || jwtKey.Length<32 || Environment.GetEnvironmentVariable("OPTIONC_EXECUTION_MODE")!="Uat"
@@ -168,7 +170,7 @@ public static class V180UatReleaseTrust
             || Environment.GetEnvironmentVariable("Providers__Route")!="GoogleMaps"
             || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GoogleMaps__ApiKey")))) throw Denied();
         var expectedServer=pathB?PathBServer:Server;
-        var expectedDatabase=pathB?PathBDatabase:Database;
+        var expectedDatabase=profile==PathBRecoveryProfile?PathBRecoveryDatabase:pathB?PathBDatabase:Database;
         if(candidate.GetProperty("server").GetString()!=expectedServer
             || candidate.GetProperty("database").GetString()!=expectedDatabase
             || connection.DataSource!=expectedServer || connection.Database!=expectedDatabase) throw Denied();

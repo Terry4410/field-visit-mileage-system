@@ -5,7 +5,8 @@ from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--contract',type=Path,required=True);p.add_argument('--inspected-facts',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
 c=json.loads(a.contract.read_text());f=json.loads(a.inspected_facts.read_text())
 profile=c.get('schemaProfile')
-targets={'Existing010Upgrade':('sql-fieldvisit-jpe-uat.database.windows.net','db-fieldvisit-uat'),'PathBNewEmpty':('sql-fieldvisit-jpe-pathb-uat.database.windows.net','db-fieldvisit-pathb-uat'),None:('sql-fieldvisit-jpe-uat.database.windows.net','db-fieldvisit-uat'),'NewEmpty':('sql-fieldvisit-jpe-uat.database.windows.net','db-fieldvisit-uat')}
+targets={'Existing010Upgrade':('sql-fieldvisit-jpe-uat.database.windows.net','db-fieldvisit-uat'),'PathBNewEmpty':('sql-fieldvisit-jpe-pathb-uat.database.windows.net','db-fieldvisit-pathb-uat'),
+'PathBRecovery':('sql-fieldvisit-jpe-pathb-uat.database.windows.net','db-fieldvisit-pathb-restore-uat'),None:('sql-fieldvisit-jpe-uat.database.windows.net','db-fieldvisit-uat'),'NewEmpty':('sql-fieldvisit-jpe-uat.database.windows.net','db-fieldvisit-uat')}
 assert profile in targets
 assert (f['server'],f['database'])==targets[profile]
 assert f['engineEdition']==5 and f['nonOwnerNoDdl'] and f['encryptedCertificateVerified']

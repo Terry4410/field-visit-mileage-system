@@ -243,7 +243,7 @@
   "pathBOverlays": {
     "tools/uat-release-candidate/runtime/V180UatReleaseTrust.cs": {
       "baseSha": "84a87a19558fa0647ce4949c1b71e3738bd00abd",
-      "sha": "a8a548ddf21ffbd34863fbbb12936bc003d492f0"
+      "sha": "4377cc9b48f2b5f49b4e00aa82f13cbc0e28cef1"
     },
     "tools/uat-release-candidate/Program.cs": {
       "baseSha": "3b4d747433367691bfc9f50a9164df30dfc1dc12",
@@ -259,15 +259,15 @@
     },
     "scripts/ci/uat_release/sign_activation.py": {
       "baseSha": "3bc354530fd4c94a03ef881496dcbaa94818578a",
-      "sha": "ce4d0672462c419ddc9c66c7e93653e0defc7849"
+      "sha": "bb66cabf1dd87dda748c340dfffb9b65b3ac782c"
     },
     "tools/uat-release-candidate/upgrade-profile-tests/Program.cs": {
       "baseSha": "52436fd25f86d316ed5971770bd699d9a356ae1e",
-      "sha": "a33d3ac57c9ecf3abcc8b8508af586ba245fa31a"
+      "sha": "f6477283f1a9130e159f87e8299ef55a3c5fd159"
     },
     "scripts/ci/uat_release/prepare_candidate.py": {
       "baseSha": "698b815360d4963bbb5a3bdc8138585b5e0da830",
-      "sha": "d8708c3c5a21e21383bb6fd6aa6076738e98917f"
+      "sha": "bef507c71ad83dd5695854427dd42e34cabc06aa"
     },
     "tools/uat-release-candidate/ReleaseProbe.csproj": {
       "baseSha": "009a1295e3bceee42e23a7de2360775901ee087c",

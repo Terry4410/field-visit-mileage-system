@@ -35,7 +35,7 @@ The frozen 25-case matrix retains VIS02 real Google Routes success and VIS03 rea
 2. Install exact 69-table schema into the new Path B SQL database, apply object-level runtime ACL, then sign activation facts.
 3. Enable only the Path B settings listed above; create separate Visitor/Leader/Admin demo test actors with unique nonproduction credentials.
 4. Preserve API ZIP, frontend ZIP, SQL installer package, schema/ACL manifests, activation profile and timestamps under a private recovery store; take SQL backup/PITR point after install and before Business data.
-5. Restore to an isolated secondary target, reapply exact API/frontend packages, run health/role/SQL smoke checks, and record all three component hashes. Only a matching API+frontend+database profile counts as recovery rehearsal.
+5. Restore to the fixed isolated database `db-fieldvisit-pathb-restore-uat` on the Path B server. Generate a `PathBRecovery` release contract and HMAC attestation using the exact same candidate SHA, API/frontend package hashes, recovered 69-table schema hash and Runtime principal SID. The same API binaries must pass startup trust on this exact recovery profile; production, old UAT, primary-database substitution and unknown targets must fail. Reapply the same Frontend package, run health/role/SQL smoke checks, record all component hashes, then return the app to the primary `PathBNewEmpty` contract and re-verify before publishing the URL. The recovery SQL database and private backup storage are temporary and must not receive user traffic.
 6. Keep old Existing010 database and its 63 tables/26 markers untouched throughout.
 
 ## Stop / recovery criteria

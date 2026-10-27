@@ -12,6 +12,7 @@ CASES=ROOT/'docs/uat/BUSINESS-UAT-TEST-CASES-v1.8.0.md'
 PY=sys.executable
 PATHB_SERVER='sql-fieldvisit-jpe-pathb-uat.database.windows.net'
 PATHB_DB='db-fieldvisit-pathb-uat'
+PATHB_RECOVERY_DB='db-fieldvisit-pathb-restore-uat'
 OLD_SERVER='sql-fieldvisit-jpe-uat.database.windows.net'
 OLD_DB='db-fieldvisit-uat'
 
@@ -52,6 +53,16 @@ def main():
         raw=out.read_bytes();sig=out.with_suffix('.signature').read_text()
         assert hmac.compare_digest(hmac.new(bytes.fromhex(key),raw,hashlib.sha256).hexdigest(),sig)
         att=json.loads(raw);assert att['server']==PATHB_SERVER and att['database']==PATHB_DB and att['schemaProfile']=='PathBNewEmpty' and att['tableCount']==69
+        contract['schemaProfile']='PathBRecovery';contract['database']=PATHB_RECOVERY_DB
+        facts['database']=PATHB_RECOVERY_DB;facts['releaseProfile']='PathBRecovery'
+        (root/'contract.json').write_text(json.dumps(contract));(root/'facts.json').write_text(json.dumps(facts))
+        recovery_out=root/'recovery-attestation.json'
+        p=run([PY,str(SIGN),'--contract',str(root/'contract.json'),'--inspected-facts',str(root/'facts.json'),'--output',str(recovery_out)],env)
+        assert 'SIGNED_NOT_ACTIVATED' in p.stdout
+        recovery=json.loads(recovery_out.read_bytes())
+        assert recovery['server']==PATHB_SERVER and recovery['database']==PATHB_RECOVERY_DB and recovery['schemaProfile']=='PathBRecovery' and recovery['tableCount']==69
+        facts['database']=PATHB_DB;(root/'facts.json').write_text(json.dumps(facts))
+        run([PY,str(SIGN),'--contract',str(root/'contract.json'),'--inspected-facts',str(root/'facts.json'),'--output',str(root/'recovery-wrong-target.json')],env,ok=False)
         facts['server']=OLD_SERVER;facts['database']=OLD_DB;(root/'facts.json').write_text(json.dumps(facts))
         run([PY,str(SIGN),'--contract',str(root/'contract.json'),'--inspected-facts',str(root/'facts.json'),'--output',str(root/'wrong.json')],env,ok=False)
         facts['server']=PATHB_SERVER;facts['database']=PATHB_DB;facts['routeProvider']='Mock';(root/'facts.json').write_text(json.dumps(facts))
