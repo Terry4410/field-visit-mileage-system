@@ -2,6 +2,7 @@ using FieldVisit.Application;
 using FieldVisit.Domain;
 using FieldVisit.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 
 namespace FieldVisit.Infrastructure;
 
@@ -494,10 +495,29 @@ public sealed class MasterRepository(AppDbContext db) : IMasterRepository
 
     public async Task<Location?> GetOperationalLocationAsync(int id, CancellationToken ct)
     {
-        // This is deliberately distinct from historical/non-operational reads.
-        // A pending or abandoned canonical reservation must not become usable
-        // through a direct LocationId supplied to Trip or mileage endpoints.
-        await V180OptionCCreateReservationGuard.RequireUnreservedDraftAsync(db, id, ct);
+        // A pending or abandoned canonical request must not be usable from a
+        // caller-supplied LocationId. An independently reviewed, Published
+        // reservation is the approved operational state and must remain usable.
+        if (await V180OptionCCreateReservationGuard.HasValidatedSchemaAsync(db, ct))
+        {
+            var connection = db.Database.GetDbConnection() as SqlConnection
+                ?? throw new InvalidOperationException("OPTIONC_RESERVATION_SQLSERVER_REQUIRED");
+            await using var check = new SqlCommand("""
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM dbo.LocationCreateReservations cr
+                    JOIN dbo.Locations l ON l.LocationId=cr.LocationId
+                    WHERE cr.LocationId=@location
+                      AND (cr.ReservationStatus<>N'Published'
+                           OR l.ApprovalStatus<>N'Approved'
+                           OR l.IsActive<>1)
+                ) THEN 1 ELSE 0 END;
+                """, connection);
+            check.Parameters.AddWithValue("@location", id);
+            if (Convert.ToInt32(await check.ExecuteScalarAsync(ct)) != 0)
+                throw new InvalidOperationException(
+                    "LOCATION_CANONICAL_CREATE_RESERVATION_REQUIRES_REVIEW");
+        }
         return await db.Locations.AsNoTracking()
             .FirstOrDefaultAsync(x => x.LocationId == id, ct);
     }
