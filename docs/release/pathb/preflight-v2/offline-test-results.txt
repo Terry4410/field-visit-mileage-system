@@ -1,0 +1,59 @@
+test_adapter_cli_suppresses_raw_output (test_compatibility.Compatibility.test_adapter_cli_suppresses_raw_output) ... ok
+test_ambient_identity_rejected (test_compatibility.Compatibility.test_ambient_identity_rejected) ... ok
+test_bad_target_auth_tls_options_rejected (test_compatibility.Compatibility.test_bad_target_auth_tls_options_rejected) ... ok
+test_bytes_stdin_token_file_tls_and_argv (test_compatibility.Compatibility.test_bytes_stdin_token_file_tls_and_argv) ... ok
+test_classifier_failure_preserves_original_exit (test_compatibility.Compatibility.test_classifier_failure_preserves_original_exit) ... ok
+test_deadline_before_process (test_compatibility.Compatibility.test_deadline_before_process) ... ok
+test_error_exit_sqlstate_redaction_and_terminal (test_compatibility.Compatibility.test_error_exit_sqlstate_redaction_and_terminal) ... ok
+test_full_subprocess_chain_unmodified_installer_adapter_fake_backend (test_compatibility.Compatibility.test_full_subprocess_chain_unmodified_installer_adapter_fake_backend) ... ok
+test_original_16_calls_14_layer_order_prologue (test_compatibility.Compatibility.test_original_16_calls_14_layer_order_prologue) ... ok
+test_original_dryrun_and_authorization_no_child (test_compatibility.Compatibility.test_original_dryrun_and_authorization_no_child) ... ok
+test_original_stops_at_every_failure_including_all14layers (test_compatibility.Compatibility.test_original_stops_at_every_failure_including_all14layers) ... ok
+test_original_timeout_stops_no_next_layer (test_compatibility.Compatibility.test_original_timeout_stops_no_next_layer) ... ok
+test_outer_once_and_independent_cleanup_synthetic (test_compatibility.Compatibility.test_outer_once_and_independent_cleanup_synthetic) ... ok
+test_replay_blocked (test_compatibility.Compatibility.test_replay_blocked) ... ok
+test_single_writer_lock (test_compatibility.Compatibility.test_single_writer_lock) ... ok
+test_timeout_kills_child_and_is_terminal (test_compatibility.Compatibility.test_timeout_kills_child_and_is_terminal) ... ok
+test_token_permissions_and_symlink_rejected (test_compatibility.Compatibility.test_token_permissions_and_symlink_rejected) ... ok
+test_wrong_payload_and_binary_rejected (test_compatibility.Compatibility.test_wrong_payload_and_binary_rejected) ... ok
+test_bootstrap_chunked_binary_integrity_and_no_sql (test_controls.Controls.test_bootstrap_chunked_binary_integrity_and_no_sql) ... ok
+test_budget_fixed_clock_no_machine_speed_assumption (test_controls.Controls.test_budget_fixed_clock_no_machine_speed_assumption) ... ok
+test_catalog_hash_and_hidden_disabled_metadata (test_controls.Controls.test_catalog_hash_and_hidden_disabled_metadata) ... ok
+test_child_classifier_failure_retains_exit (test_controls.Controls.test_child_classifier_failure_retains_exit) ... ok
+test_child_failure_retains_exit_and_sanitizes (test_controls.Controls.test_child_failure_retains_exit_and_sanitizes) ... ok
+test_child_timeout_kills_process_no_retry (test_controls.Controls.test_child_timeout_kills_process_no_retry) ... ok
+test_deadline_no_spawn (test_controls.Controls.test_deadline_no_spawn) ... ok
+test_exact_config_and_control_binding (test_controls.Controls.test_exact_config_and_control_binding) ... ok
+test_full_supervisor_partial_failure_stops_and_cleans_synthetic (test_controls.Controls.test_full_supervisor_partial_failure_stops_and_cleans_synthetic) ... ok
+test_full_supervisor_short_token_no_sql_synthetic (test_controls.Controls.test_full_supervisor_short_token_no_sql_synthetic) ... ok
+test_full_supervisor_success_all16_and_two_postchecks_synthetic (test_controls.Controls.test_full_supervisor_success_all16_and_two_postchecks_synthetic) ... ok
+test_independent_cleanup_process_and_watchdog (test_controls.Controls.test_independent_cleanup_process_and_watchdog) ... ok
+test_management_is_get_only_and_wrong_subscription_holds (test_controls.Controls.test_management_is_get_only_and_wrong_subscription_holds) ... ok
+test_marker_present_with_zero_user_tables_fails_closed (test_controls.Controls.test_marker_present_with_zero_user_tables_fails_closed) ... ok
+test_once_exclusive_no_automatic_recreation (test_controls.Controls.test_once_exclusive_no_automatic_recreation) ... ok
+test_one_select_invocation_budget_and_no_mutating_sql (test_controls.Controls.test_one_select_invocation_budget_and_no_mutating_sql) ... ok
+test_original_adapter_bytes_remain_approved (test_controls.Controls.test_original_adapter_bytes_remain_approved) ... ok
+test_partial_schema_without_user_tables_fails_closed (test_controls.Controls.test_partial_schema_without_user_tables_fails_closed) ... ok
+test_preflight_accepts_five_without_rewriting_historical_auxiliary (test_controls.Controls.test_preflight_accepts_five_without_rewriting_historical_auxiliary) ... ok
+test_preflight_rejects_each_bad_safety_gate (test_controls.Controls.test_preflight_rejects_each_bad_safety_gate) ... ok
+test_seal_failure_precedes_management_once_guard_and_token (test_controls.Controls.test_seal_failure_precedes_management_once_guard_and_token) ... ok
+test_token_fifty_minutes_exact_threshold (test_controls.Controls.test_token_fifty_minutes_exact_threshold) ... ok
+test_token_owner_tenant_audience_and_notbefore (test_controls.Controls.test_token_owner_tenant_audience_and_notbefore) ... ok
+test_transport_default_no_azure_or_token (test_controls.Controls.test_transport_default_no_azure_or_token) ... ok
+test_transport_split_prompt_and_secret_echo_guard (test_controls.Controls.test_transport_split_prompt_and_secret_echo_guard) ... ok
+test_unknown_or_missing_metadata_fails_closed (test_controls.Controls.test_unknown_or_missing_metadata_fails_closed) ... ok
+test_cross_version_and_target_rejected (test_seal_verifier.SealFixture.test_cross_version_and_target_rejected) ... ok
+test_different_blob_inner_and_download_names_pass (test_seal_verifier.SealFixture.test_different_blob_inner_and_download_names_pass) ... ok
+test_index_size_and_sql_layer_rejected (test_seal_verifier.SealFixture.test_index_size_and_sql_layer_rejected) ... ok
+test_member_content_and_path_rejected (test_seal_verifier.SealFixture.test_member_content_and_path_rejected) ... ok
+test_package_and_seal_hash_tampering_rejected (test_seal_verifier.SealFixture.test_package_and_seal_hash_tampering_rejected) ... ok
+test_size_and_manifest_binding_rejected (test_seal_verifier.SealFixture.test_size_and_manifest_binding_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 50 tests in 6.857s
+
+OK
+INSTALLER=HASH_VERIFIED_DRY_RUN_NO_CONNECTION
+INSTALLER=FINAL_FOURTEEN_LAYER_SCOPE_PASS
+INSTALLER=FINAL_FOURTEEN_LAYER_SCOPE_PASS
+INSTALLER=HASH_VERIFIED_DRY_RUN_NO_CONNECTION

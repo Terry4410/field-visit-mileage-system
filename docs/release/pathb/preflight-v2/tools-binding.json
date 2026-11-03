@@ -1,0 +1,16 @@
+{
+  "packages": [
+    {"name":"msodbcsql18","url":"https://packages.microsoft.com/debian/12/prod/pool/main/m/msodbcsql18/msodbcsql18_18.6.1.1-1_amd64.deb","sha256":"cd217d3bf471d521dac6886456e6c758c21d4f84f88f7adf48ef672c70e57cb0"},
+    {"name":"mssql-tools18","url":"https://packages.microsoft.com/debian/12/prod/pool/main/m/mssql-tools18/mssql-tools18_18.6.1.1-1_amd64.deb","sha256":"c90c16188a533576d0c3b0f4af82cb679edccd369e2626b928998918840c7787"},
+    {"name":"libltdl7","url":"https://deb.debian.org/debian/pool/main/libt/libtool/libltdl7_2.4.7-7~deb12u1_amd64.deb","sha256":"8070b550321d4bd1c298f52f75374898d39112b709026d2ea5362ef1277b775a"},
+    {"name":"libodbc2","url":"https://deb.debian.org/debian/pool/main/u/unixodbc/libodbc2_2.3.11-2+deb12u1_amd64.deb","sha256":"0af106cc7545f86bfa2d6f4fe644b98470704e73568feb395e07d5d60eeaefe4"},
+    {"name":"libodbcinst2","url":"https://deb.debian.org/debian/pool/main/u/unixodbc/libodbcinst2_2.3.11-2+deb12u1_amd64.deb","sha256":"416463622a35f7e981577f0c817a3d6148a7eb99225d5f9cf433187be3f91c33"}
+  ],
+  "files": {
+    "opt/microsoft/msodbcsql18/lib64/libmsodbcsql-18.6.so.1.1":"bfc10e264cf1b065485a472bb8186a57566a0b98cbf6712bf2fad48b6a9f369c",
+    "opt/mssql-tools18/bin/sqlcmd":"4234f2b7db28e68b3f216712ab9fb016229823c111e008dc97749a8ae9190609",
+    "usr/lib/x86_64-linux-gnu/libltdl.so.7.3.2":"eefec20eb69408b2c76922cf95ee307f89d8ce1d33890689631cb0086fecc17e",
+    "usr/lib/x86_64-linux-gnu/libodbc.so.2.0.0":"94de4cd1acf7718eaf88873af551b92beee6a0643e21ad3d1726bc6fd8fb4619",
+    "usr/lib/x86_64-linux-gnu/libodbcinst.so.2.0.0":"ef8c8cf9be0885fac22a101a3e8075b598ab6e1efdf78f3b2754e748708e884c"
+  }
+}

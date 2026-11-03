@@ -1,0 +1,159 @@
+{
+  "release": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "server": "sql-fieldvisit-jpe-pathb-uat.database.windows.net",
+  "database": "db-fieldvisit-pathb-uat",
+  "app": "api-fieldvisit-pathb-uat",
+  "package_sha256": "5a0c956d4ef5c88e0ff49d2d606ee9c1cb34e81e7f0c0f85b5aea8c5743e5828",
+  "manifest_sha256": "e94c76952eebdf55e56ab6fffa9b1dd0dfc38ec1c4ae79cae36dfacb83c1a9c9",
+  "installer_sha256": "b38f124391d89351f2da6dd01cc4a93e7a515ac4bbda79b6746d5211ce44ba4f",
+  "adapter_sha256": "703d04bffa6542d80a214bd257adb221f86fdc45aee38981267239fc913596e4",
+  "run_id": "pathb-p3-install-d6c2208-once1",
+  "total_seconds": 3600,
+  "sql_seconds": 2400,
+  "cleanup_seconds": 300,
+  "expiry_buffer_seconds": 300,
+  "minimum_token_ttl_seconds": 3000,
+  "child_seconds": 110,
+  "preflight_sha256": "e87dbd54d4740254b6f0041fe330cc4af71e51a214964c39e1001c4437075add",
+  "layers": [
+    {
+      "file": "pathb-uat-sql/model-baseline.sql",
+      "sha256": "8cce0c97b707c8c47012617fe037dd423ef7183720aef5d71eff54b4ccf829a7"
+    },
+    {
+      "file": "pathb-uat-sql/00_schema_versions.sql",
+      "sha256": "26ef6ee675130d39d9b78b0855bf023d90676a71f49aac4c34ae162a6236195e"
+    },
+    {
+      "file": "pathb-uat-sql/sql-only-core-tables.sql",
+      "sha256": "f88840befedaf4bdbe69aa6b5d32c3d431865b2ddc11b952a0b8991fc6a2095b"
+    },
+    {
+      "file": "pathb-uat-sql/effective-source-triggers.sql",
+      "sha256": "fe33cff5940fe3c9d020aa93ff01380ab390b686c92dc0ac23bb7c77b2374bed"
+    },
+    {
+      "file": "pathb-uat-sql/optionc-sql-only-candidates.sql",
+      "sha256": "ef0cb7d76201aedcc4681cbf6fa3ed9fd23a1dd06e3b873e8fcfaa1f21362798"
+    },
+    {
+      "file": "pathb-uat-sql/sql-only-extra-indexes.sql",
+      "sha256": "7098909416c18f708dc6360c5798b3864a6b904c9cb06a323cc4d6b8e71a7b6c"
+    },
+    {
+      "file": "pathb-uat-sql/20_route_reason_check.sql",
+      "sha256": "f5d1353e6c1f06396d096501dbcec0b4418e377bd1cfcd0aca5c15166c4c39b0"
+    },
+    {
+      "file": "pathb-uat-sql/007_source_checks.sql",
+      "sha256": "c70fc7f0327fe81de06cb2388601075232e359ba8b391e73be52645c9712a539"
+    },
+    {
+      "file": "pathb-uat-sql/001_004_source_checks.sql",
+      "sha256": "71fd588421b0fda17734d300fadfe723038fbcaa11f4a0081bb22cbdfb9de4de"
+    },
+    {
+      "file": "pathb-uat-sql/005_indexable_facets.sql",
+      "sha256": "ec40d911490c9872c7e53fa815113eaaeb70f483a87fb7d4f98cf7f4ebfa76de"
+    },
+    {
+      "file": "pathb-uat-sql/005_source_controls.sql",
+      "sha256": "f3afb663ad44f70f590fb660ea37ef6d093d7305d22b9e71476caa7c27bd12a0"
+    },
+    {
+      "file": "pathb-uat-sql/optionc-final-target-checks.sql",
+      "sha256": "119053a0c1f0dd77ab7912b96edbc492e29eb07e236dbe3e47f35d726cb56829"
+    },
+    {
+      "file": "pathb-uat-sql/40_clean_install_017_capability.sql",
+      "sha256": "c16b20dddd86afd25f380f239f2e9f293df30dbb47406af69e5ff34c1a3f9a65"
+    },
+    {
+      "file": "pathb-uat-sql/60_final_functional_capabilities.sql",
+      "sha256": "58c9e43f080fd939ecc07a4286404908568588780d6c375754035974d6b63396"
+    }
+  ],
+  "payload_sha256": [
+    "f0ebcc67ce71694172da1aa55504373c66c4a2315ea39de229503fd28a1a9faf",
+    "4810ca544178027c89febdcde15d1a90a32dcb2f3352dc55df48a7c48c0f0e25",
+    "63e2d5b88bea21c94aa393e7f745e2062ecd7b9eaa02b4f026fb65ea9583e0bf",
+    "3b49c0dcaa01fd7ed29e3f0ca6335b70881a9a30ca97ee3c128aefe2b4f84f03",
+    "23370af2871b1b07b249c74c00084769bffb28cb3fb84c0546c6639cba13f1c0",
+    "2c09cfc710c590a1cf2a80c4d5326defc0cbdabb3fec0314a482749197ef4017",
+    "6021775bb6d67e34b6c9d92a08bbc18f71c69ab6ec6c2c3bb2ab2ee33fc2c76b",
+    "7df2f41b76c15b84d0aab64168e80d2938e31d9c1ef4223e70b43a9add889e8a",
+    "3813f8437e18f29ddb27430c3d6d272f8c23977442730417cf201da129a865f6",
+    "44f3c7444c26fd957eb08243cf9a14ed30372a8c9d33f12195830ccdab8228f9",
+    "abe54422483f02c253041c890a4720a5fa88d9653fa6cfdd14f53ca96baf0d04",
+    "c5fe5f04b5e3fdb3a2b04f89585f5b9cd60c2cad559dacf7681028f3071a5818",
+    "5cbef97ae5200d4860488b38b1c094bce00d0408bc161beaa66bb2f5b82bf901",
+    "519f031e7ae42c28adadf3c771560a0ae5893759199a90d58f50351313ceecec",
+    "d11f98f6f4595c2fc38ec8b6bf746ab64abae9f754f4ff6a194031f351ac87b6",
+    "871f2054367e184414412473a7dd0efc30f7f1256409e607c0a160d288cca3e8"
+  ],
+  "owner_oid_sha256": "2e3687eea0c142b70b4923094ea37c2e8a17f97815db894b58ae60379fccd604",
+  "tenant_sha256": "976f4269f73c61a6c7b15538a6518272f937428e59fdd8f87d606a8501d74c9c",
+  "tools": {
+    "packages": [
+      {
+        "name": "msodbcsql18",
+        "url": "https://packages.microsoft.com/debian/12/prod/pool/main/m/msodbcsql18/msodbcsql18_18.6.1.1-1_amd64.deb",
+        "sha256": "cd217d3bf471d521dac6886456e6c758c21d4f84f88f7adf48ef672c70e57cb0"
+      },
+      {
+        "name": "mssql-tools18",
+        "url": "https://packages.microsoft.com/debian/12/prod/pool/main/m/mssql-tools18/mssql-tools18_18.6.1.1-1_amd64.deb",
+        "sha256": "c90c16188a533576d0c3b0f4af82cb679edccd369e2626b928998918840c7787"
+      },
+      {
+        "name": "libltdl7",
+        "url": "https://deb.debian.org/debian/pool/main/libt/libtool/libltdl7_2.4.7-7~deb12u1_amd64.deb",
+        "sha256": "8070b550321d4bd1c298f52f75374898d39112b709026d2ea5362ef1277b775a"
+      },
+      {
+        "name": "libodbc2",
+        "url": "https://deb.debian.org/debian/pool/main/u/unixodbc/libodbc2_2.3.11-2+deb12u1_amd64.deb",
+        "sha256": "0af106cc7545f86bfa2d6f4fe644b98470704e73568feb395e07d5d60eeaefe4"
+      },
+      {
+        "name": "libodbcinst2",
+        "url": "https://deb.debian.org/debian/pool/main/u/unixodbc/libodbcinst2_2.3.11-2+deb12u1_amd64.deb",
+        "sha256": "416463622a35f7e981577f0c817a3d6148a7eb99225d5f9cf433187be3f91c33"
+      }
+    ],
+    "files": {
+      "opt/microsoft/msodbcsql18/lib64/libmsodbcsql-18.6.so.1.1": "bfc10e264cf1b065485a472bb8186a57566a0b98cbf6712bf2fad48b6a9f369c",
+      "opt/mssql-tools18/bin/sqlcmd": "4234f2b7db28e68b3f216712ab9fb016229823c111e008dc97749a8ae9190609",
+      "usr/lib/x86_64-linux-gnu/libltdl.so.7.3.2": "eefec20eb69408b2c76922cf95ee307f89d8ce1d33890689631cb0086fecc17e",
+      "usr/lib/x86_64-linux-gnu/libodbc.so.2.0.0": "94de4cd1acf7718eaf88873af551b92beee6a0643e21ad3d1726bc6fd8fb4619",
+      "usr/lib/x86_64-linux-gnu/libodbcinst.so.2.0.0": "ef8c8cf9be0885fac22a101a3e8075b598ab6e1efdf78f3b2754e748708e884c"
+    }
+  },
+  "control_sha256": {
+    "supervisor.py": "035b87acb4dd602a40f3edc67c5fa4d01f8fb79934fc5993eb1594ba7db660d6",
+    "cleanup.py": "602bf925d1f26268d403d52d4e54ef74c5ddfcb3d9b98b479a73cec510fc2494",
+    "transport.py": "98baa1caa79dd67136a85b67fc8feabd2f13bf154b3a72f3785041ac8129ef1e",
+    "seal_verifier.py": "33d8bd044839a9b549a39eeeb2fd2616e0663bca0a7df41a78fdd49ab5480597"
+  },
+  "subscription_sha256": "7dca8e3016693051656ddfa5efa77b92c2f0ea679ab140eb237a818c130d1b47",
+  "readback_sha256": {
+    "postcheck.sql": "dbfdc865f1998682a04e9b009398e3652a436aaeaa32d5cd362f333e1875b1ef",
+    "schema-fingerprint.sql": "3c18fc1cf67d298a53919fc824b03ae6c1bf014a97c754c2f7cc90335b096c18"
+  },
+  "seal_sha256": "a37dc3c7fbf1f805639fb72a76cc788bd9bec1f0f9933e07909e2eacae5c4a5f",
+  "seal_package_file": "pathb-sql-install-package.zip",
+  "blob_object_name": "pathb-sql-install-package-d6c220877b9976b6-20261027.zip",
+  "empty_metadata_fields": [
+    "user_objects",
+    "nonbuiltin_schemas",
+    "user_types",
+    "database_triggers",
+    "user_xml_collections",
+    "fulltext_catalogs",
+    "external_data_sources",
+    "database_scoped_credentials",
+    "security_policies",
+    "database_extended_properties",
+    "marker_or_ledger_objects"
+  ]
+}
