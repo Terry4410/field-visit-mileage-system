@@ -1,0 +1,24 @@
+{
+  "status": "CANDIDATE_OFFLINE_NONDEPLOY_OWNER_APPROVAL_REQUIRED",
+  "approved_release": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "config_sha256": "c73f8f2bf5ac3b420a846c26d349664bee24870f15bafb79f3d1f78629a469e1",
+  "files": {
+    "README.md": "72034378ea0a028056fb74d92d89bdb671fe7e9e567e492d8ae023ab5b301a5f",
+    "supervisor.py": "035b87acb4dd602a40f3edc67c5fa4d01f8fb79934fc5993eb1594ba7db660d6",
+    "transport.py": "98baa1caa79dd67136a85b67fc8feabd2f13bf154b3a72f3785041ac8129ef1e",
+    "cleanup.py": "602bf925d1f26268d403d52d4e54ef74c5ddfcb3d9b98b479a73cec510fc2494",
+    "token_adapter.py": "703d04bffa6542d80a214bd257adb221f86fdc45aee38981267239fc913596e4",
+    "seal_verifier.py": "33d8bd044839a9b549a39eeeb2fd2616e0663bca0a7df41a78fdd49ab5480597",
+    "preflight.sql": "e87dbd54d4740254b6f0041fe330cc4af71e51a214964c39e1001c4437075add",
+    "config.json": "c73f8f2bf5ac3b420a846c26d349664bee24870f15bafb79f3d1f78629a469e1",
+    "install.py": "b38f124391d89351f2da6dd01cc4a93e7a515ac4bbda79b6746d5211ce44ba4f",
+    "postcheck.sql": "dbfdc865f1998682a04e9b009398e3652a436aaeaa32d5cd362f333e1875b1ef",
+    "schema-fingerprint.sql": "3c18fc1cf67d298a53919fc824b03ae6c1bf014a97c754c2f7cc90335b096c18",
+    "tools-binding.json": "d0165ffe8f4886a0813a5a2c07f1b8507196f20b69dfe58760cc05ef57d6fb50",
+    "test_controls.py": "dab5a697d3af48e3ad5196ff7bb830dcb0341c6785b0e10ef4ce8809bc20dc64",
+    "test_compatibility.py": "4e558b1a42307027ea5dbbe97aefd7b2a1ac81b96af2e016eafec9fc11870b86",
+    "test_seal_verifier.py": "7e88a832255ffa365c1d7039d72add1bfced8f48da4a0ee54473ea7d993a1075",
+    "offline-test-results.txt": "30cf0f1340a9318f345a0449a4008c934a5a2805f6768768b56dcec5e363d353",
+    "original-integrity-results.txt": "402f2cd41046fac8b47181a5970066a4b4fdbfe1cdcb0483b45c1d3f96e82b5c"
+  }
+}
