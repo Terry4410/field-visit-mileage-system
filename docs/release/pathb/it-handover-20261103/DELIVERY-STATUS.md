@@ -39,8 +39,11 @@
 Cloud Shell cannot directly reach the private SQL endpoint. GitHub-hosted runners
 do not provide an approved private route. Kudu command endpoints or a temporary
 migration API would require a new token-handling/deployment design and therefore
-are not the fast path. Portal built-in SSH is the only existing no-new-resource
-alternative worth proving if CLI exec remains unavailable.
+are not the fast path. Microsoft documents that the Portal browser terminal and
+`az webapp exec` both use Kudu as the authenticated proxy. Portal is therefore a
+different client path to the same existing control plane, not an independent
+executor. One fixed read-only Portal connection proof is the only no-new-resource
+alternative worth trying before changing a project constraint.
 
 ## Work that can proceed in parallel
 
