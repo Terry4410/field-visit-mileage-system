@@ -27,7 +27,7 @@ class Tests(unittest.TestCase):
 
     def test_binding_index_requires_independent_sha(self):
         cfg = self.root / "executor_config.json"
-        cfg.write_bytes(b"{}")
+        cfg.write_text('{"approved_release":"d6c220877b9976b6478d85b5171d4e06293595ae","max_sql_calls":19}')
         binding = self.root / "binding-index.json"
         binding.write_text('{"contract":"FIELDVISIT_PATHB_P3_FINAL_BINDING_V1","files":{}}')
         with patch.object(p, "CFG_SHA", p.sha_file(cfg)):
