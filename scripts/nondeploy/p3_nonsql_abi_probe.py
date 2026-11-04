@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 
 CFG_SHA = "c6e6e76906216e92e7573f3e4d00f37984ec7921d78389ee2268c37f22364472"
+BINDING_SHA = "6d31c5699de177d09dd02c2f6fefb28937adf3a574bbcf2b4940979783eac233"
 RELEASE = "d6c220877b9976b6478d85b5171d4e06293595ae"
 EXPECTED_NAMES = ("msodbcsql18", "mssql-tools18", "libltdl7", "libodbc2", "libodbcinst2")
 REQUIRED_COMMANDS = ("dpkg-deb", "readelf")
@@ -51,9 +52,13 @@ def fixed_bundle(bundle):
     require(sha_file(raw) == CFG_SHA)
     cfg = read_json(raw)
     require(cfg["approved_release"] == RELEASE and cfg["max_sql_calls"] == 19)
-    binding = read_json(bundle / "binding-index.json")
+    binding_file = bundle / "binding-index.json"
+    regular(binding_file)
+    require(sha_file(binding_file) == BINDING_SHA)
+    binding = read_json(binding_file)
     require(binding["contract"] == "FIELDVISIT_PATHB_P3_FINAL_BINDING_V1")
     require(binding["approved_release"] == RELEASE)
+    require(len(binding["files"]) == 13)
     require(binding["files"]["executor_config.json"] == CFG_SHA)
     for name, expected in binding["files"].items():
         require(re.fullmatch(r"[A-Za-z0-9._-]+", name) is not None)
