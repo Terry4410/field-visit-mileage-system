@@ -1,0 +1,40 @@
+{
+  "contract": "fieldvisit-pathb-it-handover-v1",
+  "generatedDateTaipei": "2026-11-03",
+  "applicationVersion": "1.8.0",
+  "applicationSourceSha": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "sourceTreeItemCount": 858,
+  "sourceIncludes": ["backend", "frontend", "database", "docs", "uat", "scripts", "tools", ".github/workflows"],
+  "acceptedCiRuns": [40438452922, 40438452961],
+  "artifacts": [
+    {"id": 12705590592, "name": "pathb-build-d6c220877b9976b6478d85b5171d4e06293595ae", "sha256": "5cc23ff55fbb7ef86b7c00aa3a695326f012c8f96a2b1793f82c2e737ec6894a", "bytes": 51343876, "expiresUtc": "2026-11-26T02:28:00Z"},
+    {"id": 12705345764, "name": "uat010-integrated-api-candidate-d6c220877b9976b6478d85b5171d4e06293595ae", "sha256": "323da7400698f8d03ee456c07273b9de7fe63a127a41dd8a6e14e55edbbbc084", "bytes": 52622135, "expiresUtc": "2026-11-26T02:28:35Z"},
+    {"id": 12705635708, "name": "uat010-optionc-frontend-dual-NONDEPLOY-d6c220877b9976b6478d85b5171d4e06293595ae", "sha256": "743182631cddc98037e3a967e1c7b1fc4c447505721f77864a2bd234bb0d63b7", "bytes": 389908, "expiresUtc": "2026-11-26T02:29:26Z"},
+    {"id": 12705610691, "name": "uat010-integrated-source-d6c220877b9976b6478d85b5171d4e06293595ae", "sha256": "64a89c368e6b5cb2feaa333187683bc6c7d7947b6bd67aa9f22f570a8157fbba", "bytes": 2724, "expiresUtc": "2026-11-26T02:29:00Z"},
+    {"id": 12705785455, "name": "uat010-api-runtime-acl-nondeploy-d6c220877b9976b6478d85b5171d4e06293595ae", "sha256": "890c269852ba4239f60e70d30a7f3e64aca4561902924c62b6159b7de796ec19", "bytes": 749, "expiresUtc": "2026-11-26T02:29:53Z"},
+    {"id": 12705890376, "name": "uat010-corrected020-promotion-nondeploy-d6c220877b9976b6478d85b5171d4e06293595ae", "sha256": "832ea7f2bd8e18fcb4cd509b133a35f8439ba8d7cb624708e67c48213784072f", "bytes": 29248, "expiresUtc": "2026-11-26T02:30:10Z"},
+    {"id": 12705107107, "name": "uat010-corrected020-synthetic-d6c220877b9976b6478d85b5171d4e06293595ae", "sha256": "b6db5aeb8c8c97e899e1295d1d6c2351228788243ac2b469f2f0895d23eba0dc", "bytes": 4307, "expiresUtc": "2026-11-26T02:30:12Z"}
+  ],
+  "schema": {
+    "profile": "PathBNewEmpty",
+    "expectedUserTables": 69,
+    "expectedMarkers": 3,
+    "packageSha256": "5a0c956d4ef5c88e0ff49d2d606ee9c1cb34e81e7f0c0f85b5aea8c5743e5828",
+    "manifestSha256": "e94c76952eebdf55e56ab6fffa9b1dd0dfc38ec1c4ae79cae36dfacb83c1a9c9",
+    "sealSha256": "a37dc3c7fbf1f805639fb72a76cc788bd9bec1f0f9933e07909e2eacae5c4a5f",
+    "installerSha256": "b38f124391d89351f2da6dd01cc4a93e7a515ac4bbda79b6746d5211ce44ba4f",
+    "sqlLayerCount": 14,
+    "status": "NOT_INSTALLED_OR_NOT_VERIFIED"
+  },
+  "target": {
+    "resourceGroup": "rg-fieldvisit-uat",
+    "apiApp": "api-fieldvisit-pathb-uat",
+    "sqlServer": "sql-fieldvisit-jpe-pathb-uat.database.windows.net",
+    "database": "db-fieldvisit-pathb-uat",
+    "legacyDatabaseForbidden": "db-fieldvisit-uat"
+  },
+  "auth": {"uatMode": "Demo", "roles": ["Visitor", "Leader", "Admin"], "productionEntraSsoOwner": "IT"},
+  "currentDecision": "IT_HANDOVER_READY_BUSINESS_UAT_NO_GO",
+  "latestEvidenceComment": 6594045913
+}
+
