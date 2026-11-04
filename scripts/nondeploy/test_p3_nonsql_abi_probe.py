@@ -25,6 +25,15 @@ class Tests(unittest.TestCase):
         with self.assertRaises(p.Hold):
             p.fixed_bundle(self.root)
 
+    def test_binding_index_requires_independent_sha(self):
+        cfg = self.root / "executor_config.json"
+        cfg.write_bytes(b"{}")
+        binding = self.root / "binding-index.json"
+        binding.write_text('{"contract":"FIELDVISIT_PATHB_P3_FINAL_BINDING_V1","files":{}}')
+        with patch.object(p, "CFG_SHA", p.sha_file(cfg)):
+            with self.assertRaises(p.Hold):
+                p.fixed_bundle(self.root)
+
     def test_symlink_config_rejected(self):
         (self.root/"target").write_text("{}")
         (self.root/"executor_config.json").symlink_to("target")
