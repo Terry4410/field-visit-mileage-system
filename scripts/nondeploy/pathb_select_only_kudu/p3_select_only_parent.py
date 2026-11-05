@@ -119,32 +119,47 @@ def main():
     if not args.live or not args.authorization or not args.distribution or not args.distribution_sha256:
         print("SELECT_ONLY_LIVE=HOLD_AUTHORIZATION", flush=True); return 2
     stage_path=None; session=None; verify_session=None; token=""; result="HOLD"; staged=False; cleaned=False; cleanup_verified=False; instance=None; file_hashes=None; deadline=None
+    stop_stage="AUTHORIZATION"; token_requested=False; token_sent=False
     try:
         need(re.fullmatch(r"[a-f0-9]{64}", args.distribution_sha256 or "") is not None, "AUTHORIZATION_HOLD")
         distribution=Path(args.distribution)
         need(distribution.is_file() and not distribution.is_symlink() and h(distribution.read_bytes())==args.distribution_sha256, "DISTRIBUTION_HOLD")
         load_authorization(Path(args.authorization), args.distribution_sha256)
+        stop_stage="ACCOUNT"
         validate_account(az_json(["account","show"]))
+        stop_stage="OWNER"
         validate_owner(az_json(["ad","signed-in-user","show"]))
+        stop_stage="APP_TARGET"
         validate_app(az_json(["webapp","show","-g",RG,"-n",APP]))
+        stop_stage="CLI_VERSION"
         validate_cli_version(az_json(["version"]))
+        stop_stage="INSTANCE"
         instances=az_json(["webapp","list-instances","-g",RG,"-n",APP])
         instance=select_single_instance(instances)
+        stop_stage="LOCAL_STAGE"
         stage_path, stage, file_hashes=exact_stage(root)
         deadline=time.monotonic()+MAX_SECONDS
+        stop_stage="KUDU_CHANNEL"
         session=KuduExecSession(instance, deadline=deadline); session.start(); session.establish_safe_channel(); session.stage_archive(stage, h(stage)); staged=True
+        stop_stage="APP_READINESS"
         session.send_public(f"python3 {REMOTE_STAGE}/p3_select_only_app.py --kudu-pty\n".encode(), "SELECT_RUNNER_SENT")
         session.expect_fixed(b"FV_P3_TOKENS_READY", 240, "SELECT_TOKEN_READY")
+        stop_stage="TOKEN_REQUEST"
+        token_requested=True
         token_record=az_json(["account","get-access-token","--resource",SQL_AUDIENCE], timeout=65)
         token=token_record.get("accessToken", ""); validate_token(token)
+        stop_stage="TOKEN_HANDOFF"
         session.send_secret_line(token, validator=lambda value: validate_token(value), audit_code="SQL_TOKEN_SENT"); token=""
+        token_sent=True; stop_stage="SELECT_RECEIPT"
         expect_exact_line(session, b"FV_P3_FINAL_RESULT=PASS_SELECT_ONLY", 150)
+        stop_stage="CLEANUP"
         session.send_public(cleanup_command(file_hashes), "CLEANUP_SENT"); expect_exact_line(session,b"FV_SELECT_ONLY_CLEANUP=PASS",30); cleaned=True
         session.close(); session=None
         verify_session=KuduExecSession(instance, deadline=deadline); verify_session.start(); verify_session.establish_safe_channel()
         verify_session.send_public(cleanup_command(file_hashes, verify_only=True), "CLEANUP_VERIFY_SENT")
         verify_session.expect_fixed(b"FV_INDEPENDENT_CLEANUP=PASS", 30, "CLEANUP_VERIFIED")
         cleanup_verified=True
+        stop_stage="COMPLETE"
         result="PASS"
     except Exception:
         result="HOLD"
@@ -167,6 +182,9 @@ def main():
         if verify_session is not None: verify_session.close()
         if stage_path is not None: stage_path.unlink(missing_ok=True)
         print("SELECT_ONLY_LIVE="+result, flush=True)
+        print("STOP_STAGE="+stop_stage, flush=True)
+        print("TOKEN_REQUEST="+("YES" if token_requested else "NO"), flush=True)
+        print("TOKEN_HANDOFF="+("YES" if token_sent else "NO"), flush=True)
         print("SQL_CALL_COUNT="+("1" if result=="PASS" else "0_OR_1_UNKNOWN"), flush=True)
         print("REMOTE_CLEANUP="+("PASS" if cleaned and cleanup_verified else "HOLD_OR_UNKNOWN"), flush=True)
         print("AUTO_RETRY=FORBIDDEN", flush=True)
