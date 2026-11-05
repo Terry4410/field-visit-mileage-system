@@ -1,0 +1,13 @@
+{
+  "contract": "FIELDVISIT_PATHB_KUDU_CHANNEL_DIAGNOSTIC_V1",
+  "approved": false,
+  "distribution_sha256": "REPLACE_WITH_EXACT_CANDIDATE_ZIP_SHA256",
+  "resource_group": "rg-fieldvisit-uat",
+  "app": "api-fieldvisit-pathb-uat",
+  "instance_sha256": "REPLACE_WITH_FRESH_UNIQUE_INSTANCE_SHA256",
+  "max_seconds": 600,
+  "max_sessions": 2,
+  "payload_count": 1,
+  "not_before": "REPLACE_WITH_UTC_START_Z",
+  "expires_at": "REPLACE_WITH_UTC_EXPIRY_Z"
+}
