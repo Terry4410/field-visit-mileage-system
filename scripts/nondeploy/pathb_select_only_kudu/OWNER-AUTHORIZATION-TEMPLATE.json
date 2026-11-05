@@ -1,0 +1,8 @@
+{
+  "contract": "FIELDVISIT_PATHB_SELECT_ONLY_KUDU_V1",
+  "approved": false,
+  "distribution_sha256": "FILL_AFTER_FINAL_ZIP",
+  "server": "sql-fieldvisit-jpe-pathb-uat.database.windows.net",
+  "database": "db-fieldvisit-pathb-uat",
+  "max_sql_calls": 1
+}
