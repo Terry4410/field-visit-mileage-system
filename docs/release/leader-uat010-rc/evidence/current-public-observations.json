@@ -1,0 +1,23 @@
+{
+  "observedAt": "2026-10-16T15:45:36.890152+00:00",
+  "method": "PUBLIC_STATIC_AND_LIVENESS_GET_ONLY",
+  "actualUatSqlExecuted": false,
+  "observations": {
+    "pagesStamp": {
+      "status": 200,
+      "sha256": "ec85be4bff59919761a04ee7f8f6506846f708afb93280882a5ca44c0a2e7554",
+      "sourceSha": "0899f3996618c4b2bd02ecd659c76fdd07cc91ed"
+    },
+    "pagesConfig": {
+      "status": 200,
+      "sha256": "f1bae11fdf3da5fe5980b740238d069f60302d3e5e2e3a9f45e9cd94d484a0ab"
+    },
+    "apiLive": {
+      "status": 200,
+      "sha256": "9d8491b76f5a842b593443765635e8f5c16dac5ad8dfc638357c5b22f0fb9fc1"
+    },
+    "apiStamp": {
+      "status": 404
+    }
+  }
+}

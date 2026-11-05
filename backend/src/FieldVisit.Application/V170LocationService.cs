@@ -132,7 +132,7 @@ public sealed class V170LocationService(
 
     public Task<V170LocationMaintenanceDto> UpdateMaintenanceAsync(
         int locationId,V170LocationMaintenanceUpdateRequest request,CancellationToken ct)
-        => locations.UpdateMaintenanceAsync(RequirePickerUser(),V170LocationPickerRules.EnsureLocationId(locationId),request,ct);
+        => locations.UpdateMaintenanceAsync(RequireAdmin(),V170LocationPickerRules.EnsureLocationId(locationId),request,ct);
 
     public async Task<V170LocationMaintenanceDto> AddNoteAsync(
         int locationId,V170LocationNoteRequest request,CancellationToken ct)

@@ -135,7 +135,7 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     [Fact]
     public async Task Geocoding_cancellation_after_provider_invocation_terminalizes_without_replay()
     {
-        var fixture = Fixture.Leader();
+        var fixture = Fixture.Admin();
         using var callerCancellation = new CancellationTokenSource();
         fixture.GeocodingProvider.ThrowIfCancelled = true;
         fixture.GeocodingProvider.OnCall = _ => callerCancellation.Cancel();
@@ -201,7 +201,7 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
     [Fact]
     public async Task Geocoding_is_committed_then_called_once_and_selects_only_current_hash()
     {
-        var fixture = Fixture.Leader();
+        var fixture = Fixture.Admin();
         fixture.GeocodingProvider.OnCall = _ => Assert.True(fixture.UnitOfWork.SaveCount >= 1);
 
         var result = await fixture.Service.GeocodeLocationAsync(fixture.Location.LocationId, default);
@@ -247,6 +247,15 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         Assert.Equal("LeaderAdjusted", V180MileageGovernanceRules.RequireDecisionSource("LeaderAdjusted"));
         Assert.Equal("ManualFallback", V180MileageGovernanceRules.RequireDecisionSource("ManualFallback"));
         Assert.Throws<InvalidOperationException>(() => V180MileageGovernanceRules.RequireDecisionSource("Claimed"));
+    }
+
+    [Fact]
+    public async Task Draft_only_leader_cannot_invoke_published_geocoding_provider()
+    {
+        var fixture = Fixture.Leader();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.GeocodeLocationAsync(fixture.Location.LocationId, default));
+        Assert.Equal(0, fixture.GeocodingProvider.CallCount);
+        Assert.Empty(fixture.Governance.GeocodingAttempts);
     }
 
     private sealed class Fixture
@@ -318,6 +327,12 @@ public sealed class V180GoogleMileageOrchestrationPrimitiveTests
         public static Fixture Leader()
         {
             var user = UserDto("leader");
+            return new Fixture(user, TripEntity(2, TripStatuses.Submitted, "Car"), Snapshot());
+        }
+
+        public static Fixture Admin()
+        {
+            var user = UserDto("admin");
             return new Fixture(user, TripEntity(2, TripStatuses.Submitted, "Car"), Snapshot());
         }
 
