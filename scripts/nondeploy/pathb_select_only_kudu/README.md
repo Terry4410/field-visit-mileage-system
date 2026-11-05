@@ -19,3 +19,8 @@ at most two Kudu sessions (run/cleanup and independent cleanup readback), and
 set a 600-second total deadline.
 
 No live Azure/Token/SQL operation was performed while producing this package.
+
+The v2 delta parses the real Azure CLI instance shape from `name` (never the
+ARM `id`) and emits only fixed `STOP_STAGE`, `TOKEN_REQUEST`, and
+`TOKEN_HANDOFF` labels. This preserves secrecy while distinguishing a pre-token
+control failure from a possible SQL-start UNKNOWN.
