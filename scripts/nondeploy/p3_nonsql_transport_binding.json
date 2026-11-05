@@ -1,0 +1,27 @@
+{
+  "contract": "FIELDVISIT_P3_NONSQL_TRANSPORT_BINDING_V1",
+  "approved_release": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "resource_group": "rg-fieldvisit-uat",
+  "app": "api-fieldvisit-pathb-uat",
+  "max_duration_seconds": 600,
+  "max_live_transport_attempts": 1,
+  "max_ssh_sessions": 2,
+  "sql_token_select_ddl_blob_marker": "FORBIDDEN",
+  "transport_file": "p3_nonsql_ssh_transport.py",
+  "authorization_pins": [
+    "transport_sha256",
+    "binding_sha256",
+    "handoff_sha256",
+    "instance_id_sha256"
+  ],
+  "files": {
+    "p3_nonsql_stage_handler.py": {
+      "sha256": "36c21c4d57b957b21b54110329dba7a6dcd9079ec61e0850b1c2bfec41b9b006",
+      "git_blob_sha1": "9a8227d79e320e46233452247417f657414787a6"
+    },
+    "p3_nonsql_abi_probe.py": {
+      "sha256": "df1eacaa9990110fb41bf23e4bc96f5d5225a78f3d5ecec3931ced8e73101291",
+      "git_blob_sha1": "df52dde16ae13bec46682437e6cdf56e286af6bf"
+    }
+  }
+}
