@@ -1,0 +1,24 @@
+Field Visit Path B Kudu recovery delta — offline evidence
+UTC date: 2026-11-05
+
+Command:
+python3 -m py_compile p3_kudu_transport.py p3_kudu_channel_diagnostic.py test_kudu_channel_recovery.py
+python3 -m unittest -v test_select_only_delta.py test_kudu_channel_recovery.py
+
+Result:
+- Python compilation: PASS
+- Existing SELECT-only delta tests: 16/16 PASS
+- Kudu recovery incremental tests: 16/16 PASS
+- Combined focused suite: 32/32 PASS
+
+Negative coverage includes command-echo marker rejection, partial marker
+rejection, larger-line rejection, stale-buffer rejection, mid-line boundary
+rejection, unapproved remote path rejection, instance-bound short-lived
+authorization rejection, and inert default execution.
+
+Live Azure/Kudu: NOT RUN
+Credential acquisition: NOT RUN
+Database connection/query: NOT RUN
+Installer/migration: NOT RUN
+Storage object or once-state operation: NOT RUN
+Deployment/resource/RBAC change: NOT RUN
