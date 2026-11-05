@@ -24,3 +24,23 @@ The v2 delta parses the real Azure CLI instance shape from `name` (never the
 ARM `id`) and emits only fixed `STOP_STAGE`, `TOKEN_REQUEST`, and
 `TOKEN_HANDOFF` labels. This preserves secrecy while distinguishing a pre-token
 control failure from a possible SQL-start UNKNOWN.
+
+## Kudu channel recovery delta (NONDEPLOY)
+
+`p3_kudu_transport.py` now sends `stty -echo` separately from the readiness
+probe and accepts readiness only as a complete independent LF/CRLF line after
+the current phase boundary. Command echoes, partial strings, larger lines and
+stale buffered markers are rejected.
+
+`p3_kudu_channel_diagnostic.py` is a distinct authorization-locked entrypoint.
+It can stage one deterministic non-sensitive file only under
+`/tmp/fv-pathb-kudu-channel-diagnostic-v1-20261105`, then use a second session
+to verify or remove only that exact owned directory. Its only public receipt is
+`PROCESS_START`, `ECHO_READY`, `STAGE_READY`, and `OWNED_CLEANUP`, each with a
+fixed `PASS`, `HOLD`, or `UNKNOWN` value. Without `--live` and a short-lived
+external authorization record it exits HOLD without contacting Azure.
+
+This recovery delta does not invoke the SELECT-only parent and has no
+credential acquisition, database connection, frozen installer, migration,
+storage-object, or deployment path. A new exact-artifact Owner authorization
+is required before any live diagnostic.
