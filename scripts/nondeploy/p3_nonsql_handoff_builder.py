@@ -45,7 +45,7 @@ def regular_file(path):
     demand(path.is_file() and not path.is_symlink() and path.stat().st_nlink == 1)
 
 def git_blob_sha1(raw):
-    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + bytes([0]) + raw).hexdigest()
 
 def inspect_stage(raw):
     demand(len(raw) <= MAX_STAGE_BYTES)
