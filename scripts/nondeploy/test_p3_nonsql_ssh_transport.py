@@ -257,4 +257,43 @@ class Tests(unittest.TestCase):
             t.management_preflight("sub",instance["id"])
 
 
+    def test_login_echo_off_must_finish_before_marker_is_emitted(self):
+        # An echoed compound shell line must not be accepted as confirmation.
+        # Verify the second prompt is observed after the standalone stty call,
+        # before the marker command is ever sent.
+        s=t.SSH.__new__(t.SSH)
+        s.password=b"synthetic-secret"
+        sent=[]
+        expected=[]
+        def fake_send(raw):
+            sent.append(raw)
+        def fake_expect(pattern, seconds):
+            expected.append(pattern)
+            if len(expected)==2:
+                self.assertEqual(sent, [b"synthetic-secret\\n"])
+            elif len(expected)==3:
+                self.assertEqual(sent[-1], b"stty -echo\\n")
+                self.assertEqual(len(sent), 2)
+            elif len(expected)==4:
+                self.assertEqual(len(sent), 3)
+                self.assertIn(b"FV_NONSQL_ECHO_OFF=",sent[2])
+                self.assertNotIn(b"FV_NONSQL_ECHO_OFF=",sent[1])
+            return b""
+        with patch.object(s,"send",side_effect=fake_send),patch.object(s,"expect",side_effect=fake_expect):
+            s.login("a"*32)
+        self.assertEqual(len(expected),4)
+        self.assertEqual(sent[1],b"stty -echo\\n")
+        self.assertIn(b"(?m)^root@",expected[2])
+        self.assertTrue(expected[3].startswith(b"(?m)^FV_NONSQL_ECHO_OFF="))
+        self.assertEqual(s.password,b"\\0"*len(b"synthetic-secret"))
+
+    def test_echo_marker_requires_complete_line(self):
+        operation="b"*32
+        marker=("FV_NONSQL_ECHO_OFF="+operation).encode()
+        pattern=rb"(?m)^"+t.re.escape(marker)+rb"\\r?$"
+        self.assertIsNone(t.re.search(pattern,b"printf '"+marker+b"\\\\n'\\r\\n"))
+        self.assertIsNone(t.re.search(pattern,b"prefix "+marker+b"\\r\\n"))
+        self.assertIsNotNone(t.re.search(pattern,marker+b"\\r\\n"))
+
+
 if __name__ == "__main__": unittest.main()
