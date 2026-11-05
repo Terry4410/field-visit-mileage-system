@@ -11,6 +11,7 @@ import io
 import json
 import os
 from pathlib import Path
+from p3_nonsql_abi_probe import CFG_SHA, BINDING_SHA, RELEASE, EXPECTED_NAMES
 import stat
 import zipfile
 
@@ -62,6 +63,25 @@ def inspect_stage(raw):
             demand(not stat.S_ISLNK(mode) and not stat.S_ISDIR(mode))
             total += entry.file_size
         demand(total <= 160 * 1024 * 1024)
+        # Revalidate the sealed source and the exact five package digests,
+        # rather than trusting only the untrusted stage ZIP's layout.
+        records = {x.filename: z.read(x) for x in members}
+        demand(hashlib.sha256(records["executor_config.json"]).hexdigest() == CFG_SHA)
+        demand(hashlib.sha256(records["binding-index.json"]).hexdigest() == BINDING_SHA)
+        cfg = json.loads(records["executor_config.json"])
+        binding = json.loads(records["binding-index.json"])
+        demand(cfg["approved_release"] == RELEASE and cfg["max_sql_calls"] == 19)
+        demand(binding["contract"] == "FIELDVISIT_PATHB_P3_FINAL_BINDING_V1")
+        demand(binding["approved_release"] == RELEASE)
+        demand(len(binding["files"]) == 13)
+        demand(set(binding["files"]) == DATA_MEMBERS - {"binding-index.json"} - {
+            "debs/" + name + ".deb" for name in EXPECTED_NAMES})
+        for name, expected in binding["files"].items():
+            demand(hashlib.sha256(records[name]).hexdigest() == expected)
+        demand(tuple(x["name"] for x in cfg["tools"]) == EXPECTED_NAMES)
+        for tool in cfg["tools"]:
+            demand(hashlib.sha256(records["debs/" + tool["name"] + ".deb"]).hexdigest()
+                   == tool["sha256"])
 
 def build(source_dir, stage):
     regular_file(stage)
