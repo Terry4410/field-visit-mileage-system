@@ -46,3 +46,12 @@ public interface IV170AccessControl
         int resultCount,
         CancellationToken ct);
 }
+
+/// <summary>Revalidates export identity and effective authorization against current server state.</summary>
+public interface IReportExportAuthorizationService
+{
+    Task<CurrentUserDto> AuthorizeAsync(
+        IReadOnlyCollection<string> allowedRoles,
+        string? format,
+        CancellationToken ct);
+}

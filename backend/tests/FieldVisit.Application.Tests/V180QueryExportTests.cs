@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.IO.Compression;
 using FieldVisit.Api.Controllers;
 using FieldVisit.Application;
 using Microsoft.AspNetCore.Mvc;
@@ -11,22 +12,28 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180QueryExportTests
 {
     [Fact]
-    public void Workbook_has_filter_metadata_and_preserves_leading_zeros_as_text()
+    public async Task Workbook_has_filter_metadata_and_preserves_leading_zeros_as_text()
     {
-        var controller = new V180QueryExportController(null!, null!, null!, null!, null!, null!);
+        var controller = BuildController();
         var method = typeof(V180QueryExportController).GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var result = (FileContentResult)method.Invoke(controller,
-            ["人事資料", new { Keyword = "test" }, new[] { "工號", "姓名" },
-             new[] { new[] { "00123", "=HYPERLINK(\"http://evil\")" } }.AsEnumerable(), "全組織"])!;
+        var result = await InvokeWorkbook(method, controller,
+            ["人事資料", new { Keyword = "test" }, new[] { "工號", "姓名", "Email" },
+             new[] { new[] { "00123", "=HYPERLINK(\"http://evil\")", "synthetic@example.invalid" } }.AsEnumerable(), "全組織"]);
         Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", result.ContentType);
         using var stream = new MemoryStream(result.FileContents);
         using var book = new XSSFWorkbook(stream);
-        Assert.Equal("工號", book.GetSheet("查詢結果").GetRow(0).GetCell(0).StringCellValue);
-        Assert.Equal("00123", book.GetSheet("查詢結果").GetRow(1).GetCell(0).StringCellValue);
-        var safeCell = book.GetSheet("查詢結果").GetRow(1).GetCell(1);
+        Assert.Equal(3, book.NumberOfSheets);
+        Assert.Equal("業務查詢資料", book.GetSheetAt(0).SheetName);
+        Assert.Equal("原始資料", book.GetSheetAt(1).SheetName);
+        Assert.Equal("欄位對照表", book.GetSheetAt(2).SheetName);
+        Assert.Equal("工號", book.GetSheet("業務查詢資料").GetRow(0).GetCell(0).StringCellValue);
+        Assert.Equal("EmployeeNo", book.GetSheet("業務查詢資料").GetRow(1).GetCell(0).StringCellValue);
+        Assert.Equal("00123", book.GetSheet("業務查詢資料").GetRow(2).GetCell(0).StringCellValue);
+        var safeCell = book.GetSheet("業務查詢資料").GetRow(2).GetCell(1);
         Assert.Equal(CellType.String, safeCell.CellType);
         Assert.Equal("=HYPERLINK(\"http://evil\")", safeCell.StringCellValue);
-        Assert.Contains("test", book.GetSheet("匯出資訊").GetRow(2).GetCell(1).StringCellValue);
+        Assert.Equal("=HYPERLINK(\"http://evil\")", book.GetSheet("原始資料").GetRow(1).GetCell(1).StringCellValue);
+        Assert.Contains("Users.Email", book.GetSheet("欄位對照表").GetRow(3).GetCell(2).StringCellValue);
     }
 
     [Fact]
@@ -73,16 +80,28 @@ public sealed class V180QueryExportTests
     }
 
     [Fact]
-    public void Filename_is_distinct_and_sanitized_for_excel_download()
+    public async Task Filename_is_distinct_and_sanitized_for_excel_download()
     {
-        var controller = new V180QueryExportController(null!,null!,null!,null!,null!,null!);
+        var controller = BuildController();
         var method = typeof(V180QueryExportController)
             .GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var result = (FileContentResult)method.Invoke(controller,
-            ["人事完整履歷/2026", new { Keyword = "test" }, new[]{"欄位"},
-             new[]{ new[]{"=1+1"} }.AsEnumerable(), "全組織"])!;
-        Assert.StartsWith("FieldVisit_人事完整履歷_2026_全組織_",result.FileDownloadName);
+        var result = await InvokeWorkbook(method, controller,
+            ["小組", new { Keyword = "test" }, new[]{"小組代碼"},
+             new[]{ new[]{"=1+1"} }.AsEnumerable(), "全組織"]);
+        Assert.StartsWith("FieldVisit_小組_全組織_",result.FileDownloadName);
         Assert.EndsWith(".xlsx",result.FileDownloadName);
+    }
+
+    [Fact]
+    public async Task Visit_type_export_denies_unclassified_scope_with_controlled_403()
+    {
+        var controller = BuildController();
+        var result = await controller.VisitTypes(CancellationToken.None);
+        var denied = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, denied.StatusCode);
+        var body = System.Text.Json.JsonSerializer.Serialize(denied.Value);
+        Assert.Contains("REPORT_EXPORT_VISIT_TYPES_SCOPE_HOLD", body);
+        Assert.DoesNotContain("InvalidOperationException", body);
     }
 
     [Fact]
@@ -102,18 +121,114 @@ public sealed class V180QueryExportTests
     }
 
     [Fact]
-    public void Single_sheet_workbook_includes_final_row_count_metadata()
+    public async Task Single_sheet_workbook_includes_final_row_count_metadata()
     {
-        var controller = new V180QueryExportController(null!, null!, null!, null!, null!, null!);
+        var controller = BuildController();
         var method = typeof(V180QueryExportController)
             .GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var output = (FileContentResult)method.Invoke(controller,
+        SetLegacy(controller);
+        var output = await InvokeWorkbook(method, controller,
             ["人事資料", new { Keyword = "test" }, new[] { "工號" },
              new[] { new[] { "001" }, new[] { "002" } }.AsEnumerable(), "全組織"])!;
         using var data = new MemoryStream(output.FileContents);
         using var book = new XSSFWorkbook(data);
         Assert.Equal("符合查詢筆數", book.GetSheet("匯出資訊").GetRow(5).GetCell(0).StringCellValue);
         Assert.Equal("2", book.GetSheet("匯出資訊").GetRow(5).GetCell(1).StringCellValue);
+    }
+
+    [Fact]
+    public async Task Bilingual_workbook_freezes_headers_and_adds_sortable_filters_to_authorized_rows()
+    {
+        var controller = BuildController();
+        var method = typeof(V180QueryExportController).GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var output = await InvokeWorkbook(method, controller,
+            ["小組", new { Keyword = "北" }, new[] { "小組代碼", "小組名稱", "成員人數" },
+             new[] { new[] { "001", "北區", "3" } }.AsEnumerable(), "全組織"])!;
+        using var stream = new MemoryStream(output.FileContents);
+        using var book = new XSSFWorkbook(stream);
+        var business = book.GetSheet("業務查詢資料");
+        Assert.Equal(3, business.LastRowNum + 1);
+        Assert.Equal("MemberCount", business.GetRow(1).GetCell(2).StringCellValue);
+        Assert.Equal("001", business.GetRow(2).GetCell(0).StringCellValue);
+        Assert.NotNull(business.GetRow(1).GetCell(0).CellStyle);
+        using var packageStream = new MemoryStream();
+        book.Write(packageStream);
+        using var archive = new ZipArchive(new MemoryStream(packageStream.ToArray()), ZipArchiveMode.Read);
+        using var worksheet = new StreamReader(archive.GetEntry("xl/worksheets/sheet1.xml")!.Open());
+        Assert.Contains("autoFilter", worksheet.ReadToEnd());
+        Assert.Contains("Teams.TeamCode", book.GetSheet("欄位對照表").GetRow(1).GetCell(2).StringCellValue);
+        Assert.Equal("001", book.GetSheet("原始資料").GetRow(1).GetCell(0).StringCellValue);
+    }
+
+    [Fact]
+    public async Task Bilingual_writer_fails_closed_when_a_report_column_has_no_verified_mapping()
+    {
+        var method = typeof(V180QueryExportController).GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var controller = BuildController();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => InvokeWorkbook(method, controller,
+            ["小組", new { }, new[] { "小組代碼", "未核定欄位" }, Array.Empty<string[]>().AsEnumerable(), "全組織"]));
+        Assert.Contains("REPORT_EXPORT_COLUMN_MAP_MISSING", error.Message);
+    }
+
+    [Fact]
+    public async Task Synthetic_bilingual_excel_samples_are_written_when_ci_artifact_directory_is_configured()
+    {
+        var directory = Environment.GetEnvironmentVariable("PACKAGE_A_SAMPLE_OUTPUT_DIR");
+        if (string.IsNullOrWhiteSpace(directory)) return;
+        Directory.CreateDirectory(directory);
+        var controller = BuildController();
+        var method = typeof(V180QueryExportController).GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var samples = new[]
+        {
+            ("人事資料", new[] { "工號", "姓名", "Email" }, new[] { "SYNTH-001", "合成範例員工", "synthetic@example.invalid" }, "personnel-summary-synthetic.xlsx"),
+            ("小組", new[] { "小組代碼", "小組名稱", "啟用", "成員人數" }, new[] { "SYNTH-T01", "合成北區小組", "是", "3" }, "teams-synthetic.xlsx")
+        };
+        foreach (var sample in samples)
+        {
+            var output = await InvokeWorkbook(method, controller,
+                [sample.Item1, new { Synthetic = true }, sample.Item2, new[] { sample.Item3 }, "合成資料"]);
+            await File.WriteAllBytesAsync(Path.Combine(directory, sample.Item4), output.FileContents);
+        }
+    }
+
+    private static void SetLegacy(V180QueryExportController controller)
+    {
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        context.Request.QueryString = new Microsoft.AspNetCore.Http.QueryString("?legacy=true");
+        controller.ControllerContext = new ControllerContext { HttpContext = context };
+    }
+
+    private static async Task<FileContentResult> InvokeWorkbook(MethodInfo method, V180QueryExportController controller, object?[] arguments)
+    {
+        var task = (Task<IActionResult>)method.Invoke(controller, arguments)!;
+        return (FileContentResult)await task;
+    }
+
+    private static V180QueryExportController BuildController()
+    {
+        var repository = DispatchProxy.Create<IV160FinalRepository, ExportAuditProxy>();
+        var controller = new V180QueryExportController(null!, repository, new ExportCurrentUser(), null!, null!, new ExportAuthorization());
+        controller.ControllerContext = new ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
+        return controller;
+    }
+
+    public class ExportAuditProxy : DispatchProxy
+    {
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) =>
+            targetMethod?.Name == nameof(IV160FinalRepository.AuditReportExportAsync)
+                ? Task.CompletedTask
+                : throw new NotSupportedException(targetMethod?.Name);
+    }
+
+    private sealed class ExportCurrentUser : ICurrentUserService
+    {
+        public CurrentUserDto GetRequired() => new(1, "T001", "Test", null, 1, null, null, ["admin"]);
+    }
+
+    private sealed class ExportAuthorization : IReportExportAuthorizationService
+    {
+        public Task<CurrentUserDto> AuthorizeAsync(IReadOnlyCollection<string> allowedRoles, string? format, CancellationToken ct) =>
+            Task.FromResult(new CurrentUserDto(1, "T001", "Test", null, 1, null, null, ["admin"]));
     }
 
     [Fact]
@@ -189,9 +304,9 @@ public sealed class V180QueryExportTests
     }
 
     [Fact]
-    public void Five_sheet_workbook_roundtrips_without_lookup_and_preserves_source_records()
+    public async Task Five_sheet_workbook_roundtrips_without_lookup_and_preserves_source_records()
     {
-        var controller = new V180QueryExportController(null!, null!, null!, null!, null!, null!);
+        var controller = BuildController();
         var sheetType = typeof(V180QueryExportController)
             .GetNestedType("ExportSheet", BindingFlags.NonPublic)!;
         var list = (System.Collections.IList)Activator.CreateInstance(
@@ -213,8 +328,9 @@ public sealed class V180QueryExportTests
             ["角色", "11", "00123"], ["小組", "21", "00123"], ["小組", "22", "00123"]);
         var method = typeof(V180QueryExportController)
             .GetMethod("WorkbookSheets", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var output = (FileContentResult)method.Invoke(controller,
+        var task = (Task<IActionResult>)method.Invoke(controller,
             ["人事完整履歷", new { Scope = "全組織" }, list, "全組織"])!;
+        var output = (FileContentResult)await task;
         using var stream = new MemoryStream(output.FileContents);
         using var workbook = new XSSFWorkbook(stream);
         Assert.Equal(5, workbook.NumberOfSheets);

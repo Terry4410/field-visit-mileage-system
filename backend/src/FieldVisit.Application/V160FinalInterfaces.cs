@@ -32,6 +32,7 @@ public interface IV160FinalRepository
 
     Task<DashboardSummaryDto> GetDashboardAsync(CurrentUserDto user, CancellationToken ct);
     Task AuditExportAsync(CurrentUserDto user, string format, TripQueryRequest request, int count, CancellationToken ct);
+    Task AuditReportExportAsync(CurrentUserDto user, string reportCode, int count, CancellationToken ct);
 }
 
 public interface IReportDocumentService

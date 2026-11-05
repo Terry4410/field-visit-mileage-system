@@ -936,7 +936,17 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
 
     public async Task AuditExportAsync(CurrentUserDto user, string format, TripQueryRequest request, int count, CancellationToken ct)
     {
-        AddAudit(user.UserId, "Report", null, "ReportExport", new { Format = format, Filters = request, Count = count });
+        // Filter keywords may contain employee, location or business data.
+        // Audit the operation and volume only; never serialize filter payloads.
+        AddAudit(user.UserId, "Report", null, "ReportExport", new { ReportCode = "TRIP_MILEAGE", Format = format, Count = count });
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task AuditReportExportAsync(CurrentUserDto user, string reportCode, int count, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(reportCode) || reportCode.Length > 50 || count < 0)
+            throw new InvalidOperationException("REPORT_EXPORT_AUDIT_INVALID");
+        AddAudit(user.UserId, "Report", null, "ReportExport", new { ReportCode = reportCode, Count = count });
         await db.SaveChangesAsync(ct);
     }
 

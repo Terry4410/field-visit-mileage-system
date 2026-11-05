@@ -9,7 +9,8 @@ public sealed class V160FinalService(
     IBackgroundJobSignal backgroundJobSignal,
     IV170AccessControl access,
     ITripRepository? trips = null,
-    IV180CorrectionClosureService? correctionClosure = null)
+    IV180CorrectionClosureService? correctionClosure = null,
+    IReportExportAuthorizationService? exportAuthorization = null)
 {
     public async Task<PagedResult<TripQueryRowDto>> QueryTripsAsync(
         TripQueryRequest request,
@@ -35,12 +36,16 @@ public sealed class V160FinalService(
 
     public async Task<ReportExportContext> ExportAsync(string format, TripQueryRequest request, CancellationToken ct)
     {
-        var user = current.GetRequired();
-
-        await access.EnsureExportAllowedAsync(
-            user,
+        var authorizer = exportAuthorization
+            ?? throw new UnauthorizedAccessException("報表即時授權服務尚未設定。");
+        var user = await authorizer.AuthorizeAsync(
+            ["visitor", "leader", "admin", "supervisor"],
             format,
             ct);
+        if (user.Roles.Contains("leader", StringComparer.OrdinalIgnoreCase)
+            && (!request.StartDate.HasValue || request.StartDate.Value < BusinessTime.Today))
+            throw new UnauthorizedAccessException(
+                "REPORT_EXPORT_HISTORICAL_TEAM_POLICY_HOLD：小組長歷史行程匯出須待核定歷史授權規則。");
 
         var normalized = NormalizeQuery(request) with { Page = 1, PageSize = 100000 };
         var result = await repository.QueryTripsAsync(user, normalized, true, ct);
@@ -50,8 +55,26 @@ public sealed class V160FinalService(
             "pdf" => await reports.CreatePdfAsync(result.Items, normalized, user, ct),
             _ => throw new InvalidOperationException("只支援 xlsx 或 pdf。")
         };
+        var latestUser = await authorizer.AuthorizeAsync(
+            ["visitor", "leader", "admin", "supervisor"],
+            format,
+            ct);
+        if (!SameExportScope(user, latestUser))
+            throw new UnauthorizedAccessException("行程匯出期間授權範圍已變更，請重新查詢後下載。");
         await repository.AuditExportAsync(user, format, normalized, result.TotalCount, ct);
         return file;
+    }
+
+    private static bool SameExportScope(CurrentUserDto before, CurrentUserDto after)
+    {
+        static string DataScopeKey(DataScopeDto x) =>
+            $"{x.ScopeType}:{x.OrganizationId}:{x.TeamId}";
+        return before.UserId == after.UserId
+            && before.OrganizationId == after.OrganizationId
+            && before.Roles.SequenceEqual(after.Roles, StringComparer.OrdinalIgnoreCase)
+            && before.TeamIds.OrderBy(x => x).SequenceEqual(after.TeamIds.OrderBy(x => x))
+            && (before.DataScopes ?? []).Select(DataScopeKey).OrderBy(x => x, StringComparer.Ordinal)
+                .SequenceEqual((after.DataScopes ?? []).Select(DataScopeKey).OrderBy(x => x, StringComparer.Ordinal));
     }
 
     public Task<CorrectionDraftDto> GetCorrectionDraftAsync(long tripId, CancellationToken ct) =>
