@@ -69,6 +69,19 @@ class DeltaTests(unittest.TestCase):
     def test_installer_entry_is_disabled(self):
         with self.assertRaises(transport.TransportHold): transport.runner_command("a"*64)
 
+    def test_real_azure_instance_shape_uses_name_not_arm_id(self):
+        row={"id":"/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/a/instances/worker", "name":"worker-12345678"}
+        self.assertEqual(transport.select_single_instance([row]),"worker-12345678")
+
+    def test_ambiguous_instance_name_and_instanceid_holds(self):
+        with self.assertRaises(transport.TransportHold):
+            transport.select_single_instance([{"name":"worker-12345678","instanceId":"other-12345678"}])
+
+    def test_safe_stage_labels_are_static(self):
+        source=(app.ROOT/"p3_select_only_parent.py").read_text()
+        for label in ("AUTHORIZATION","ACCOUNT","OWNER","APP_TARGET","CLI_VERSION","INSTANCE","LOCAL_STAGE","KUDU_CHANNEL","APP_READINESS","TOKEN_REQUEST","TOKEN_HANDOFF","SELECT_RECEIPT","CLEANUP","COMPLETE"):
+            self.assertIn('"'+label+'"',source)
+
     def test_live_sources_have_no_storage_blob_marker_or_installer_call(self):
         text=(app.ROOT/"p3_select_only_app.py").read_text()+ (app.ROOT/"p3_select_only_parent.py").read_text()
         for forbidden in ("get-access-token --resource https://storage.azure.com", "p3_app_installer_runner.py --execute", "once_marker", "blob marker"):
