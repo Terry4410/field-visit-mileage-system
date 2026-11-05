@@ -270,9 +270,9 @@ class Tests(unittest.TestCase):
         def fake_expect(pattern, seconds):
             expected.append(pattern)
             if len(expected)==2:
-                self.assertEqual(sent, [b"synthetic-secret\\n"])
+                self.assertEqual(sent, [b"synthetic-secret\n"])
             elif len(expected)==3:
-                self.assertEqual(sent[-1], b"stty -echo\\n")
+                self.assertEqual(sent[-1], b"stty -echo\n")
                 self.assertEqual(len(sent), 2)
             elif len(expected)==4:
                 self.assertEqual(len(sent), 3)
@@ -282,18 +282,18 @@ class Tests(unittest.TestCase):
         with patch.object(s,"send",side_effect=fake_send),patch.object(s,"expect",side_effect=fake_expect):
             s.login("a"*32)
         self.assertEqual(len(expected),4)
-        self.assertEqual(sent[1],b"stty -echo\\n")
+        self.assertEqual(sent[1],b"stty -echo\n")
         self.assertIn(b"(?m)^root@",expected[2])
         self.assertTrue(expected[3].startswith(b"(?m)^FV_NONSQL_ECHO_OFF="))
-        self.assertEqual(s.password,b"\\0"*len(b"synthetic-secret"))
+        self.assertEqual(s.password,b"\0"*len(b"synthetic-secret"))
 
     def test_echo_marker_requires_complete_line(self):
         operation="b"*32
         marker=("FV_NONSQL_ECHO_OFF="+operation).encode()
         pattern=rb"(?m)^"+t.re.escape(marker)+rb"\r?$"
-        self.assertIsNone(t.re.search(pattern,b"printf '"+marker+b"\\\\n'\\r\\n"))
-        self.assertIsNone(t.re.search(pattern,b"prefix "+marker+b"\\r\\n"))
-        self.assertIsNotNone(t.re.search(pattern,marker+b"\\r\\n"))
+        self.assertIsNone(t.re.search(pattern,b"printf '"+marker+b"\\\n'\r\n"))
+        self.assertIsNone(t.re.search(pattern,b"prefix "+marker+b"\r\n"))
+        self.assertIsNotNone(t.re.search(pattern,marker+b"\r\n"))
 
 
 if __name__ == "__main__": unittest.main()
