@@ -39,6 +39,7 @@ MIN_AZURE_CLI = (2, 90, 0)
 SHELL = "/bin/bash"
 TRANSPORT_CONTRACT = "FIELDVISIT_PATHB_P3_KUDU_STDIN_TRANSPORT_V1"
 REMOTE_STAGE = "/tmp/fv-pathb-select-only-live-v1-20261105"
+DIAGNOSTIC_REMOTE_STAGE = "/tmp/fv-pathb-kudu-channel-diagnostic-v1-20261105"
 MAX_STAGE_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 FRAME_WIDTH = 76
@@ -172,6 +173,34 @@ def validate_stage_archive(stage: bytes) -> list[str]:
         raise TransportHold("STAGE_ARCHIVE_HOLD") from exc
 
 
+def consume_exact_marker_line(buffer: bytes, marker: bytes, *, after: int = 0
+                              ) -> tuple[bool, bytes]:
+    """Consume only a complete independent marker line after a boundary."""
+
+    require(isinstance(buffer, bytes) and isinstance(marker, bytes),
+            "PROTOCOL_STATE_HOLD")
+    require(bool(marker) and b"\n" not in marker and b"\r" not in marker,
+            "PROTOCOL_STATE_HOLD")
+    require(isinstance(after, int) and 0 <= after <= len(buffer),
+            "PROTOCOL_STATE_HOLD")
+    cursor = after
+    if cursor and buffer[cursor - 1:cursor] not in {b"\n", b"\r"}:
+        end = buffer.find(b"\n", cursor)
+        if end < 0:
+            return False, buffer
+        cursor = end + 1
+    while True:
+        end = buffer.find(b"\n", cursor)
+        if end < 0:
+            return False, buffer
+        line = buffer[cursor:end]
+        if line.endswith(b"\r"):
+            line = line[:-1]
+        if line == marker:
+            return True, buffer[end + 1:]
+        cursor = end + 1
+
+
 def iter_stage_frame(stage: bytes, expected_sha256: str) -> Iterator[bytes]:
     """Yield an ASCII-only exact frame suitable for the interactive PTY."""
 
@@ -224,7 +253,8 @@ def decode_stage_frame(frame: Iterable[bytes], expected_sha256: str,
     return raw
 
 
-def remote_bootstrap_command(expected_sha256: str, expected_size: int) -> bytes:
+def remote_bootstrap_command(expected_sha256: str, expected_size: int, *,
+                             remote_stage: str = REMOTE_STAGE) -> bytes:
     """Return a fixed, non-secret receiver command for interactive stdin.
 
     The generated receiver verifies the complete frame in memory before its
@@ -236,7 +266,10 @@ def remote_bootstrap_command(expected_sha256: str, expected_size: int) -> bytes:
             "STAGE_HASH_HOLD")
     require(isinstance(expected_size, int) and 0 < expected_size <= MAX_STAGE_BYTES,
             "STAGE_SIZE_HOLD")
+    require(remote_stage in {REMOTE_STAGE, DIAGNOSTIC_REMOTE_STAGE},
+            "STAGE_PATH_HOLD")
     source = f'''import base64,hashlib,io,os,re,sys,zipfile\nfrom pathlib import Path,PurePosixPath\ndef req(value):\n if not value:raise SystemExit(90)\nroot=Path({REMOTE_STAGE!r})\nsize={expected_size}\nexpected={expected_sha256!r}\nmax_bytes={MAX_STAGE_BYTES}\nheader=sys.stdin.buffer.readline(256)\nwant=("FV_KUDU_STAGE_V1 %d %s\\n"%(size,expected)).encode("ascii")\nreq(header==want)\nparts=[];total=0\nwhile True:\n line=sys.stdin.buffer.readline({FRAME_WIDTH + 2})\n req(bool(line))\n if line==b"FV_KUDU_STAGE_END\\n":break\n req(line.endswith(b"\\n") and 1<len(line)<={FRAME_WIDTH + 1})\n chunk=line[:-1];req(re.fullmatch(rb"[A-Za-z0-9+/=]+",chunk) is not None)\n total+=len(chunk);req(total<=((max_bytes+2)//3)*4)\n parts.append(chunk)\nraw=base64.b64decode(b"".join(parts),validate=True)\nreq(len(raw)==size and hashlib.sha256(raw).hexdigest()==expected)\nwith zipfile.ZipFile(io.BytesIO(raw)) as z:\n infos=z.infolist();names=[i.filename for i in infos]\n req(bool(names) and len(names)==len(set(names)))\n for item in infos:\n  p=PurePosixPath(item.filename);mode=(item.external_attr>>16)&0o170000\n  req(not item.is_dir() and not p.is_absolute() and ".." not in p.parts and mode!=0o120000 and item.file_size<=max_bytes)\n req(not root.exists() and not root.is_symlink())\n old=os.umask(0o077)\n try:\n  root.mkdir(mode=0o700)\n  for item in infos:\n   target=root/PurePosixPath(item.filename);target.parent.mkdir(parents=True,exist_ok=True)\n   fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n   with os.fdopen(fd,"wb") as f:f.write(z.read(item.filename))\n finally:os.umask(old)\nprint("FV_KUDU_STAGE_READY",flush=True)\n'''
+    source = source.replace(repr(REMOTE_STAGE), repr(remote_stage), 1)
     encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
     command = (
         "python3 -c \"import base64;exec(compile(base64.b64decode('"
@@ -322,7 +355,7 @@ class KuduExecSession:
         finally:
             os.close(slave)
         self.fd = master
-        self.audit.append("KUDU_PROCESS_STARTED")
+        self.audit.append("PROCESS_START")
 
     def _check_secret_echo(self) -> None:
         for secret in self._secrets:
@@ -360,24 +393,31 @@ class KuduExecSession:
         """Disable remote echo before any secret can be supplied."""
 
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
+        boundary = len(self.buffer)
+        self.send_public(b"stty -echo\n", "ECHO_DISABLE_SENT")
         self.send_public(
-            b"stty -echo; umask 077; printf 'FV_KUDU_CHANNEL_READY\\n'\n",
-            "ECHO_DISABLE_SENT",
+            b"umask 077\nprintf '%s\\n' FV_KUDU_CHANNEL_READY\n",
+            "ECHO_PROBE_SENT",
         )
-        self.expect_fixed(b"FV_KUDU_CHANNEL_READY", 30, "KUDU_CHANNEL_READY")
+        self.expect_fixed(b"FV_KUDU_CHANNEL_READY", 30, "ECHO_READY",
+                          after=boundary)
 
-    def stage_archive(self, stage: bytes, expected_sha256: str) -> None:
+    def stage_archive(self, stage: bytes, expected_sha256: str, *,
+                      remote_stage: str = REMOTE_STAGE) -> None:
         """Send one hash-bound non-secret stage, then advance exactly once."""
 
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
         _validate_stage(stage, expected_sha256)
         validate_stage_archive(stage)
-        self.send_public(remote_bootstrap_command(expected_sha256, len(stage)),
+        boundary = len(self.buffer)
+        self.send_public(remote_bootstrap_command(expected_sha256, len(stage),
+                                                  remote_stage=remote_stage),
                          "STAGE_RECEIVER_SENT")
         for chunk in iter_stage_frame(stage, expected_sha256):
             self._write_all(chunk)
         self.audit.append("STAGE_FRAME_SENT")
-        self.expect_fixed(b"FV_KUDU_STAGE_READY", 300, "STAGE_READY")
+        self.expect_fixed(b"FV_KUDU_STAGE_READY", 300, "STAGE_READY",
+                          after=boundary)
         self.state.advance("CHANNEL", "STAGED")
 
     def send_secret_line(self, token: str, *, validator: Callable[[str], object],
@@ -406,17 +446,25 @@ class KuduExecSession:
         if self._token_count == 2:
             self.state.advance("STAGED", "TOKENS")
 
-    def expect_fixed(self, marker: bytes, seconds: float, audit_code: str) -> None:
+    def expect_fixed(self, marker: bytes, seconds: float, audit_code: str, *,
+                     after: int | None = None) -> None:
         require(marker in {
             b"FV_KUDU_CHANNEL_READY", b"FV_KUDU_STAGE_READY",
             b"FV_P3_TOKENS_READY", b"FV_P3_FINAL_RESULT=",
             b"FV_INDEPENDENT_CLEANUP=PASS",
+            b"FV_KUDU_OWNED_CLEANUP=PASS",
+            b"FV_KUDU_OWNED_CLEANUP_VERIFIED=PASS",
         }, "PROTOCOL_STATE_HOLD")
+        boundary = len(self.buffer) if after is None else after
+        require(isinstance(boundary, int) and 0 <= boundary <= len(self.buffer),
+                "PROTOCOL_STATE_HOLD")
         end = min(self.deadline, self._clock() + seconds)
         while self._clock() < end:
             self._check_secret_echo()
-            if marker in self.buffer:
-                self.buffer = self.buffer.split(marker, 1)[1]
+            found, remaining = consume_exact_marker_line(
+                self.buffer, marker, after=boundary)
+            if found:
+                self.buffer = remaining
                 self.audit.append(audit_code)
                 return
             readable = select.select([self.fd], [], [], 0.2)[0]
