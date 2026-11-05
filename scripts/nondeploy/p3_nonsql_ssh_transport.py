@@ -293,8 +293,12 @@ class SSH:
         self.send(self.password + b"\n")
         self.expect(rb"(?m)^root@[^\r\n]*#[ ]*", 30)
         marker = ("FV_NONSQL_ECHO_OFF=" + operation_id).encode()
-        self.send(b"stty -echo; printf '" + marker + b"\\n'\n")
-        self.expect(re.escape(marker), 10)
+        # First wait for the shell to complete stty: matching a marker in an
+        # echoed compound command could otherwise falsely prove echo was off.
+        self.send(b"stty -echo\n")
+        self.expect(rb"(?m)^root@[^\\r\\n]*#[ ]*", 10)
+        self.send(b"printf '" + marker + b"\\n'\n")
+        self.expect(rb"(?m)^" + re.escape(marker) + rb"\\r?$", 10)
         self.password = b"\0" * len(self.password)
 
     def close(self):
