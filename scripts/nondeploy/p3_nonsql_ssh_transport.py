@@ -185,7 +185,7 @@ class Tunnel:
     def __enter__(self):
         argv = ["az", "webapp", "create-remote-connection", "--subscription", self.subscription,
                 "-g", RG, "-n", APP, "--instance", self.instance, "--port", str(self.port),
-                "--timeout", "60", "--only-show-errors"]
+                "--timeout", "60"]
         self.proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      start_new_session=True)
         for stream in (self.proc.stdout, self.proc.stderr):

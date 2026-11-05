@@ -168,6 +168,28 @@ class Tests(unittest.TestCase):
         for forbidden in ("get-access-token","storage blob","sql server","p3_app_installer_runner.py --execute"):
             self.assertNotIn(forbidden,source)
 
+    def test_tunnel_uses_exact_instance_and_keeps_credential_out_of_argv(self):
+        class Proc:
+            def __init__(self):
+                self.stdout=tempfile.TemporaryFile();self.stderr=tempfile.TemporaryFile();self.pid=123;self.live=True
+                self.stdout.write(b"SSH is available { username: root, password: synthetic-secret }\n");self.stdout.seek(0)
+            def poll(self): return None if self.live else 0
+            def wait(self,timeout=None): self.live=False;return 0
+        class Socket:
+            def __enter__(self): return self
+            def __exit__(self,*_): pass
+        proc=Proc();seen=[]
+        def popen(argv,**kwargs): seen.extend(argv);return proc
+        with patch.object(t.subprocess,"Popen",side_effect=popen),\
+             patch.object(t.select,"select",return_value=([proc.stdout,proc.stderr],[],[])),\
+             patch.object(t.socket,"create_connection",return_value=Socket()):
+            tunnel=t.Tunnel("sub","exact-instance",51329);self.assertIs(tunnel.__enter__(),tunnel)
+            self.assertEqual(bytes(tunnel.password),b"synthetic-secret")
+            proc.live=False;tunnel.__exit__()
+            proc.stdout.close();proc.stderr.close()
+        self.assertIn("--instance",seen);self.assertIn("exact-instance",seen)
+        self.assertNotIn("synthetic-secret",seen);self.assertNotIn("--only-show-errors",seen)
+
     def prepare_execute(self):
         binding=self.write_json("binding.json",self.binding)
         handoff=self.root/"handoff.zip";handoff.write_bytes(self.handoff)
