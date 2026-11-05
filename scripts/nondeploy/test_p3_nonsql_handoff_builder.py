@@ -41,6 +41,7 @@ class HandoffTests(unittest.TestCase):
             self.assertEqual(manifest['remote_sql_token_ddl'], 'FORBIDDEN')
 
     def test_unknown_script_digest_holds(self):
+        # Bypass only stage-format decoding so this test reaches source pinning.
         with patch.object(h, 'inspect_stage'), self.assertRaises(h.Hold):
             h.build(self.src, self.stage)
 
