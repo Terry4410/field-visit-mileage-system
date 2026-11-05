@@ -110,7 +110,9 @@ def select_single_instance(records: object) -> str:
     require(len(records) == 1, "INSTANCE_NOT_EXACTLY_ONE")
     row = records[0]
     require(isinstance(row, Mapping), "INSTANCE_LIST_HOLD")
-    candidates = [row.get("id"), row.get("instanceId")]
+    # Azure CLI returns the runnable worker identifier as ``name``.  ``id`` is
+    # the ARM resource ID and must never be passed to --instance.
+    candidates = [row.get("name"), row.get("instanceId")]
     values = [str(value) for value in candidates if value not in (None, "")]
     require(bool(values) and len(set(values)) == 1, "INSTANCE_ID_HOLD")
     instance = values[0]
