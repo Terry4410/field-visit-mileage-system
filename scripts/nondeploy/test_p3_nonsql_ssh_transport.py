@@ -291,9 +291,8 @@ class Tests(unittest.TestCase):
         operation="b"*32
         marker=("FV_NONSQL_ECHO_OFF="+operation).encode()
         pattern=rb"(?m)^"+t.re.escape(marker)+rb"\r?$"
-        self.assertIsNone(t.re.search(pattern,b"printf '"+marker+b"\\\n'\r\n"))
+        self.assertIsNone(t.re.search(pattern,b"printf '"+marker+b"' echoed"))
         self.assertIsNone(t.re.search(pattern,b"prefix "+marker+b"\r\n"))
         self.assertIsNotNone(t.re.search(pattern,marker+b"\r\n"))
-
 
 if __name__ == "__main__": unittest.main()
