@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import termios
+from owner_catalog_durable_receipt_REVIEW_ONLY import store as durable_store
 
 BASE = Path('/tmp/fv-pathb-p3-kudu-install-d6c2208-v3-work/tools')
 SQLCMD = BASE/'opt/mssql-tools18/bin/sqlcmd'
@@ -34,8 +35,8 @@ SERVER = 'sql-fieldvisit-jpe-pathb-uat.database.windows.net'
 DB = 'db-fieldvisit-pathb-uat'
 # The claim MUST NOT be cleared on failure. A new separate Blob claim is required
 # before this child can ever be live approved, because /home may be CIFS.
-CLAIM = Path('/home/LogFiles/fv-pathb-owner-catalog-v1-20261109.claim')
-RECEIPT = Path('/home/LogFiles/fv-pathb-owner-catalog-v1-20261109.receipt')
+CLAIM_PREFIX = '/home/LogFiles/fv-pathb-owner-catalog-r4-'
+
 SQL_SHA = 'd5a4f5825cd95227661921ed8577882053998f0fb103c49b64658f69ccca39b0'
 
 
@@ -85,13 +86,15 @@ def sanitize_sql_result(raw):
     return 'CATALOG_69_CANDIDATE_POSTCHECK_REQUIRED'
 
 
-def terminal(status):
-    msg='OWNER_SQL_CATALOG='+status+'\nINSTALLER=NOT_RUN\nDDL=NO\nRETRY=FORBIDDEN\n'
+def terminal(status, operation_id, candidate_sha, sql_attempted):
+    """Persist the sanitized result before reporting it; never overwrite or replay."""
     try:
-        fd=os.open(str(RECEIPT),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-        with os.fdopen(fd,'w') as f: f.write(msg)
-    except OSError: pass
-    print(msg,flush=True)
+        durable_store(operation_id, candidate_sha, status, sql_attempted)
+    except Exception:
+        print('OWNER_SQL_CATALOG=HOLD_RECEIPT_PERSISTENCE\nINSTALLER=NOT_RUN\nDDL=NO\nRETRY=FORBIDDEN', flush=True)
+        return False
+    print('OWNER_SQL_CATALOG=' + status + '\nINSTALLER=NOT_RUN\nDDL=NO\nRETRY=FORBIDDEN', flush=True)
+    return True
 
 
 def verify_noecho_tty_and_signal(stdin=None, stdout=None):
@@ -115,13 +118,19 @@ def verify_noecho_tty_and_signal(stdin=None, stdout=None):
         return False
 
 
-def candidate_execute(sql_path, sql_sha, blob_claim_verified=False):
+def candidate_execute(sql_path, sql_sha, operation_id, blob_claim_verified=False):
     """Reference execution path. No active caller. Requires two independent gates."""
-    if not blob_claim_verified or not re.fullmatch(r'[0-9a-f]{64}', str(sql_sha)):
-        terminal('HOLD_DURABLE_ONCE_GUARD')
+    if not isinstance(operation_id, str) or not re.fullmatch(r'[0-9a-f]{32}', operation_id):
         return 1
+    if not re.fullmatch(r'[0-9a-f]{64}', str(sql_sha)):
+        return 1
+    if not blob_claim_verified:
+        terminal('HOLD_DURABLE_ONCE_GUARD', operation_id, sql_sha, False)
+        return 1
+    claim = Path(CLAIM_PREFIX + operation_id + '.claim')
+    receipt = Path('/home/LogFiles/fv-pathb-owner-catalog-r4-' + operation_id + '.json')
     try:
-        if CLAIM.exists() or RECEIPT.exists():
+        if claim.exists() or receipt.exists():
             return 1
         if not stat_regular_sha(Path(sql_path),sql_sha):
             raise RuntimeError('SQL_HASH')
@@ -129,10 +138,10 @@ def candidate_execute(sql_path, sql_sha, blob_claim_verified=False):
             raise RuntimeError('TOOLS_HASH')
         # Claim BEFORE token handling. This filesystem claim is secondary; only
         # external conditional-create Blob claim is the durable primary gate.
-        fd=os.open(str(CLAIM),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        fd=os.open(str(claim),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'w') as f:f.write('CONSUMED\n')
     except Exception:
-        terminal('HOLD_PRECHECK')
+        terminal('HOLD_PRECHECK', operation_id, sql_sha, False)
         return 1
     ram=None
     try:
@@ -158,6 +167,7 @@ def candidate_execute(sql_path, sql_sha, blob_claim_verified=False):
         args=[str(SQLCMD),'-S',SERVER,'-d',DB,'-I','-b','-l','30','-t','30',
               '-Nm','-G','-P',str(tokenfile),'-h','-1','-W','-w','65535',
               '-i',str(sql_path)]
+        sql_attempted = True  # fail closed once process launch is attempted
         proc=subprocess.Popen(args,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE,env=env,start_new_session=True)
         try:
@@ -167,13 +177,13 @@ def candidate_execute(sql_path, sql_sha, blob_claim_verified=False):
             raise RuntimeError('SQL_TIMEOUT')
         if proc.returncode!=0:
             # Do not print stderr or stdout, not even a filtered excerpt.
-            terminal('HOLD_SQL_LOGIN_OR_QUERY')
+            terminal('HOLD_SQL_LOGIN_OR_QUERY', operation_id, sql_sha, True)
             return 1
         result=sanitize_sql_result(stdout)
-        terminal(result)
-        return 0 if result in ('EMPTY_CATALOG_CANDIDATE', 'CATALOG_69_CANDIDATE_POSTCHECK_REQUIRED') else 1
+        saved = terminal(result, operation_id, sql_sha, True)
+        return 0 if saved and result in ('EMPTY_CATALOG_CANDIDATE', 'CATALOG_69_CANDIDATE_POSTCHECK_REQUIRED') else 1
     except Exception:
-        terminal('HOLD_OPERATION')
+        terminal('HOLD_OPERATION', operation_id, sql_sha, bool(locals().get('sql_attempted', False)))
         return 1
     finally:
         if ram and ram.exists() and not ram.is_symlink():
@@ -183,7 +193,7 @@ def candidate_execute(sql_path, sql_sha, blob_claim_verified=False):
 
 def main():
     # Hard nondeploy lock. Must never remove without review and new exact SHA authorization.
-    terminal('HOLD_REVIEW_ONLY_NOT_EXECUTABLE')
+    print('OWNER_SQL_CATALOG=HOLD_REVIEW_ONLY_NOT_EXECUTABLE')
     return 1
 
 if __name__ == '__main__':sys.exit(main())
