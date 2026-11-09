@@ -1,20 +1,29 @@
-# Offline verification — 2026-11-09 UTC
+# Path B R4 durable catalog — offline verification, 2026-11-09
 
-- Python compile: PASS
-- Focused security/integration/unit tests: 62/62 PASS
-- Candidate ZIP CRC: PASS (3/3 members)
-- Candidate ZIP SHA-256: `025a054b18440996a9cec51c020f69e7eb4bee1b2482f86ffacd1b01932bb4a6`
-- Binding index SHA-256: `e1120fcaa2c6faac5120dfcd4219f73f8039f8bfd46000633d7cac2503baae03`
-- Azure/Token/Blob/SSH/SQL: NOT RUN
-- Installer/DDL/DML/deployment/RBAC/network change: NOT RUN
+- Immutable R3 base: `d34a248394c2a583966fd7bf376a7f97827113c0`; **R3 consumed and unchanged**
+- R4 branch: `work/pathb-uat-catalog-durable-integration-reviewonly-20261109`
+- Python unit/security/integration contract tests: **82/82 PASS** (isolated offline reconstruction)
+- Candidate deterministic ZIP, four members, zip CRC: **PASS**
+- Candidate ZIP SHA-256: `c3317aeb4a61ce69c685986aedb1cbb711563f379446619a8a13437691ad3693`
+- Binding SHA-256: `bb90f177e3c5dbc0556324ad0f0004d3fc07ab798cc980eee238f0a92cbea13a`
+- Exact fixed SQL SHA-256: `d5a4f5825cd95227661921ed8577882053998f0fb103c49b64658f69ccca39b0`
+- R4 unique Blob marker: `operator-once/pathb-owner-catalog-once-r4-durable-20261109.json`
 
-The tests cover deterministic build and byte binding, tamper rejection, exact
-Owner/tenant/audience/`nbf`/TTL token validation, one-token counters, exact App
-resource and unique instance checks, complete-line terminal markers, pinned SSH
-host configuration, no-echo readiness, atomic conditional Blob create, unknown
-claim handling, local O_EXCL journal, fixed catalog result shape, partial schema
-rejection, five pinned SQL tool files, cleanup scope, and no replay.
+## Targeted integration checks
+One operation-specific local claim and immutable receipt; candidate hash
+correctly bound to receipt; ZIP+manifest includes receipt module; Parent,
+Adapter and Child agree on a new R4 namespace; success never printed before
+receipt persistence; persistence failure yields HOLD; invalid Operation ID or
+unproven Blob claim never reaches SQL; stale R3 authority cannot satisfy R4
+authorization decision. Existing R3 target, SSH and token scope safeguards
+retained and regression-tested offline.
 
-The live adapter remains authorization-locked. A fresh authorization must bind
-the eventual branch HEAD, adapter SHA, candidate SHA, binding SHA, exact instance
-ID hash, operation ID, and an expiry no more than 30 minutes in the future.
+## Not established
+- No App Service `/home/LogFiles` fsync/ownership validation in a real Azure instance.
+- No real SSH, Token, Blob, SQL, SQLCMD, cloud disconnect or recovery execution.
+- No real 69-table/fingerprint/API/Business UAT proof.
+- No independently authorized R4 one-shot live attempt.
+
+Do not run any live adapter from this record. R3 and prior one-shots stay
+consumed. Any new live attempt requires separate exact-version security review
+and explicit Owner authorization. IT documentation remains deferred.
