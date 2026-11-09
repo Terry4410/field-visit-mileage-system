@@ -513,7 +513,7 @@ class LiveAdapter:
                    "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
                    "raise SystemExit(m.candidate_execute('" + sql_name + "','" +
                    self.manifest['files'][sql_name] + "','" +
-                   self.auth['operation_id'] + "',blob_claim_verified=True))\"\n")
+                   self.auth['operation_id'] + "','" + sha256(self.raw) + "',blob_claim_verified=True))\"\n")
         self.session.buf = b''
         self.session.send(command.encode())
         self.session.expect_line(b'FV_OWNER_ECHO_OFF=PASS', 60)
