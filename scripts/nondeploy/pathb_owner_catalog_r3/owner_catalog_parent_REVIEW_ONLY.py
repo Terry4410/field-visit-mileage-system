@@ -23,7 +23,7 @@ DATABASE = 'db-fieldvisit-pathb-uat'
 STORAGE_ACCOUNT = 'stfvsc261026a'
 CONTAINER = 'schema-evidence'
 # Unique new marker, not any consumed v2/v3/MI marker.
-MARKER = 'operator-once/pathb-owner-catalog-once-r3-20261109.json'
+MARKER = 'operator-once/pathb-owner-catalog-once-r4-durable-20261109.json'
 HOST_FP = 'SHA256:qlMlSfV+nfx3Y5BdqQC+4WY1VFChCdRZMjqE+T/NgOI'
 OWNER_SHA = '2e3687eea0c142b70b4923094ea37c2e8a17f97815db894b58ae60379fccd604'
 TENANT_SHA = '976f4269f73c61a6c7b15538a6518272f937428e59fdd8f87d606a8501d74c9c'
