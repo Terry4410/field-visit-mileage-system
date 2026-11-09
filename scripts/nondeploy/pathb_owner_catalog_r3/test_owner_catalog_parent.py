@@ -11,7 +11,7 @@ class ParentContract(unittest.TestCase):
         self.assertEqual(p.APP,'api-fieldvisit-pathb-uat')
         self.assertEqual(p.DATABASE,'db-fieldvisit-pathb-uat')
     def test_marker_new(self):
-        self.assertIn('r3-20261109',p.MARKER)
+        self.assertIn('r4-durable-20261109',p.MARKER)
         self.assertNotIn('v3-',p.MARKER)
     def test_blob_conditional_create(self):
         q=p.claim_request('x'*120,'a'*64)
