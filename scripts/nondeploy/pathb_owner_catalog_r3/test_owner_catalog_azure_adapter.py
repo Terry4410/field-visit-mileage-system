@@ -158,7 +158,7 @@ class AdapterContractTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text())['status'], 'ATTEMPTED')
 
     def test_remote_cleanup_is_exact_owned_root_only(self):
-        self.assertIn("re.fullmatch(r'/tmp/fv-owner-catalog-r3-[0-9a-f]{32}'", a.REMOTE_CLEANUP)
+        self.assertIn("re.fullmatch(r'/tmp/fv-owner-catalog-r4-[0-9a-f]{32}'", a.REMOTE_CLEANUP)
         self.assertIn("st.st_uid!=os.geteuid()", a.REMOTE_CLEANUP)
         self.assertIn("if refs>1", a.REMOTE_CLEANUP)
         self.assertNotIn('*', a.REMOTE_CLEANUP)
