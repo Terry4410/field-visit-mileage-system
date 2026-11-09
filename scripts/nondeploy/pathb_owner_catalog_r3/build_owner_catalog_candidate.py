@@ -12,7 +12,8 @@ from owner_catalog_azure_adapter_REVIEW_ONLY import (
 )
 
 FILES = ('owner_sql_catalog_child_REVIEW_ONLY.py',
-         'pathb_catalog_readonly_REVIEW_ONLY.sql')
+         'pathb_catalog_readonly_REVIEW_ONLY.sql',
+         'owner_catalog_durable_receipt_REVIEW_ONLY.py')
 CONTROLS = ('owner_catalog_azure_adapter_REVIEW_ONLY.py',
             'owner_catalog_integration_REVIEW_ONLY.py',
             'owner_catalog_parent_REVIEW_ONLY.py')
