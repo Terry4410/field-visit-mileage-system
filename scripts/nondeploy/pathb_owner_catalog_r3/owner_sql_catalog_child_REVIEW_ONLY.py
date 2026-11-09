@@ -118,14 +118,14 @@ def verify_noecho_tty_and_signal(stdin=None, stdout=None):
         return False
 
 
-def candidate_execute(sql_path, sql_sha, operation_id, blob_claim_verified=False):
+def candidate_execute(sql_path, sql_sha, operation_id, candidate_sha, blob_claim_verified=False):
     """Reference execution path. No active caller. Requires two independent gates."""
     if not isinstance(operation_id, str) or not re.fullmatch(r'[0-9a-f]{32}', operation_id):
         return 1
-    if not re.fullmatch(r'[0-9a-f]{64}', str(sql_sha)):
+    if not re.fullmatch(r'[0-9a-f]{64}', str(sql_sha)) or not re.fullmatch(r'[0-9a-f]{64}', str(candidate_sha)):
         return 1
     if not blob_claim_verified:
-        terminal('HOLD_DURABLE_ONCE_GUARD', operation_id, sql_sha, False)
+        terminal('HOLD_DURABLE_ONCE_GUARD', operation_id, candidate_sha, False)
         return 1
     claim = Path(CLAIM_PREFIX + operation_id + '.claim')
     receipt = Path('/home/LogFiles/fv-pathb-owner-catalog-r4-' + operation_id + '.json')
@@ -141,7 +141,7 @@ def candidate_execute(sql_path, sql_sha, operation_id, blob_claim_verified=False
         fd=os.open(str(claim),os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'w') as f:f.write('CONSUMED\n')
     except Exception:
-        terminal('HOLD_PRECHECK', operation_id, sql_sha, False)
+        terminal('HOLD_PRECHECK', operation_id, candidate_sha, False)
         return 1
     ram=None
     try:
@@ -177,13 +177,13 @@ def candidate_execute(sql_path, sql_sha, operation_id, blob_claim_verified=False
             raise RuntimeError('SQL_TIMEOUT')
         if proc.returncode!=0:
             # Do not print stderr or stdout, not even a filtered excerpt.
-            terminal('HOLD_SQL_LOGIN_OR_QUERY', operation_id, sql_sha, True)
+            terminal('HOLD_SQL_LOGIN_OR_QUERY', operation_id, candidate_sha, True)
             return 1
         result=sanitize_sql_result(stdout)
-        saved = terminal(result, operation_id, sql_sha, True)
+        saved = terminal(result, operation_id, candidate_sha, True)
         return 0 if saved and result in ('EMPTY_CATALOG_CANDIDATE', 'CATALOG_69_CANDIDATE_POSTCHECK_REQUIRED') else 1
     except Exception:
-        terminal('HOLD_OPERATION', operation_id, sql_sha, bool(locals().get('sql_attempted', False)))
+        terminal('HOLD_OPERATION', operation_id, candidate_sha, bool(locals().get('sql_attempted', False)))
         return 1
     finally:
         if ram and ram.exists() and not ram.is_symlink():
