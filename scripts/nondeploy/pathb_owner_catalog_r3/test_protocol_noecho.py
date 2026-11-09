@@ -41,6 +41,6 @@ class ProtocolTests(unittest.TestCase):
         with open('/dev/null') as f:
             self.assertFalse(module.verify_noecho_tty_and_signal(f,f))
     def test_reviewonly_main_remains_locked(self):
-        self.assertIn("terminal('HOLD_REVIEW_ONLY_NOT_EXECUTABLE')", SOURCE.read_text())
+        self.assertIn("print('OWNER_SQL_CATALOG=HOLD_REVIEW_ONLY_NOT_EXECUTABLE')", SOURCE.read_text())
 
 if __name__=='__main__':unittest.main()
