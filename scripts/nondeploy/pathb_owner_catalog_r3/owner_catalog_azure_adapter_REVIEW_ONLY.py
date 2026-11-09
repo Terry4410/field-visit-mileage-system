@@ -34,12 +34,12 @@ from owner_catalog_parent_REVIEW_ONLY import (
 )
 
 RELEASE = 'd6c220877b9976b6478d85b5171d4e06293595ae'
-CONTRACT = 'FIELDVISIT_PATHB_OWNER_CATALOG_R3_V1'
-BINDING_CONTRACT = 'FIELDVISIT_PATHB_OWNER_CATALOG_R3_BINDING_V1'
-AUTH_DECISION = 'OWNER_APPROVED_PATHB_OWNER_CATALOG_R3_EXACT_SHA_ONCE'
+CONTRACT = 'FIELDVISIT_PATHB_OWNER_CATALOG_R4_DURABLE_V1'
+BINDING_CONTRACT = 'FIELDVISIT_PATHB_OWNER_CATALOG_R4_DURABLE_BINDING_V1'
+AUTH_DECISION = 'OWNER_APPROVED_PATHB_OWNER_CATALOG_R4_DURABLE_EXACT_SHA_ONCE'
 MAX_DURATION = 600
 MAX_CANDIDATE_BYTES = 2 * 1024 * 1024
-REMOTE_PREFIX = '/tmp/fv-owner-catalog-r3-'
+REMOTE_PREFIX = '/tmp/fv-owner-catalog-r4-'
 STORAGE_AUDIENCE = {'https://storage.azure.com/', 'https://storage.azure.com'}
 SQL_AUDIENCE = {'https://database.windows.net/', 'https://database.windows.net'}
 SAFE_TERMINALS = frozenset((
@@ -47,7 +47,7 @@ SAFE_TERMINALS = frozenset((
     'HOLD_SQL_LOGIN_OR_QUERY', 'HOLD_OPERATION', 'HOLD_PRECHECK',
     'HOLD_RESULT_SHAPE', 'HOLD_SQL_TARGET_OR_METADATA',
     'HOLD_PARTIAL_OR_INCONSISTENT', 'HOLD_RESULT_INCONSISTENT',
-    'HOLD_DURABLE_ONCE_GUARD',
+    'HOLD_DURABLE_ONCE_GUARD', 'HOLD_RECEIPT_PERSISTENCE',
 ))
 
 
@@ -87,7 +87,8 @@ def inspect_candidate(raw, binding):
     """Validate every candidate byte locally before an Azure command is run."""
     demand(isinstance(raw, bytes) and 0 < len(raw) <= MAX_CANDIDATE_BYTES)
     expected = {'manifest.json', 'owner_sql_catalog_child_REVIEW_ONLY.py',
-                'pathb_catalog_readonly_REVIEW_ONLY.sql'}
+                'pathb_catalog_readonly_REVIEW_ONLY.sql',
+                'owner_catalog_durable_receipt_REVIEW_ONLY.py'}
     records = {}
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         items = archive.infolist()
@@ -371,7 +372,7 @@ from pathlib import Path
 root=Path(sys.argv[1]);expected=sys.argv[2];op=sys.argv[3];limit=2097152
 def need(v):
  if not v:raise RuntimeError()
-need(re.fullmatch(r'/tmp/fv-owner-catalog-r3-[0-9a-f]{32}',str(root)) is not None)
+need(re.fullmatch(r'/tmp/fv-owner-catalog-r4-[0-9a-f]{32}',str(root)) is not None)
 need(not root.exists() and not root.is_symlink())
 old=os.umask(0o077);root.mkdir(mode=0o700);os.umask(old)
 need(root.stat().st_uid==os.geteuid() and stat.S_IMODE(root.stat().st_mode)==0o700)
@@ -388,10 +389,10 @@ with os.fdopen(fd,'wb') as out:
   total+=len(part);need(total<=declared);digest.update(part);out.write(part)
 need(total==declared and digest.hexdigest()==expected)
 with zipfile.ZipFile(target) as z:
- names=z.namelist();need(len(names)==3 and len(set(names))==3)
- need(set(names)=={'manifest.json','owner_sql_catalog_child_REVIEW_ONLY.py','pathb_catalog_readonly_REVIEW_ONLY.sql'})
- manifest=json.loads(z.read('manifest.json'));need(manifest['contract']=='FIELDVISIT_PATHB_OWNER_CATALOG_R3_V1')
- for name in ('manifest.json','owner_sql_catalog_child_REVIEW_ONLY.py','pathb_catalog_readonly_REVIEW_ONLY.sql'):
+ names=z.namelist();need(len(names)==4 and len(set(names))==4)
+ need(set(names)=={'manifest.json','owner_sql_catalog_child_REVIEW_ONLY.py','pathb_catalog_readonly_REVIEW_ONLY.sql','owner_catalog_durable_receipt_REVIEW_ONLY.py'})
+ manifest=json.loads(z.read('manifest.json'));need(manifest['contract']=='FIELDVISIT_PATHB_OWNER_CATALOG_R4_DURABLE_V1')
+ for name in ('manifest.json','owner_sql_catalog_child_REVIEW_ONLY.py','pathb_catalog_readonly_REVIEW_ONLY.sql','owner_catalog_durable_receipt_REVIEW_ONLY.py'):
   raw=z.read(name);p=root/name;fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
   with os.fdopen(fd,'wb') as output:output.write(raw)
  for name,want in manifest['files'].items():need(hashlib.sha256((root/name).read_bytes()).hexdigest()==want)
@@ -402,9 +403,9 @@ print('FV_OWNER_STAGE_READY='+op,flush=True)
 REMOTE_CLEANUP = r'''import json,os,re,shutil,stat,sys
 from pathlib import Path
 root=Path(sys.argv[1]);op=sys.argv[2];status='HOLD'
-allowed={'candidate.zip','manifest.json','owner_sql_catalog_child_REVIEW_ONLY.py','pathb_catalog_readonly_REVIEW_ONLY.sql','__pycache__'}
+allowed={'candidate.zip','manifest.json','owner_sql_catalog_child_REVIEW_ONLY.py','pathb_catalog_readonly_REVIEW_ONLY.sql','owner_catalog_durable_receipt_REVIEW_ONLY.py','__pycache__'}
 try:
- if re.fullmatch(r'/tmp/fv-owner-catalog-r3-[0-9a-f]{32}',str(root)) is None:raise RuntimeError()
+ if re.fullmatch(r'/tmp/fv-owner-catalog-r4-[0-9a-f]{32}',str(root)) is None:raise RuntimeError()
  if root.exists():
   if root.is_symlink() or not root.is_dir():raise RuntimeError()
   st=root.stat()
@@ -511,7 +512,8 @@ class LiveAdapter:
                    "s=importlib.util.spec_from_file_location('owner_child','" + child_name + "');"
                    "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
                    "raise SystemExit(m.candidate_execute('" + sql_name + "','" +
-                   self.manifest['files'][sql_name] + "',blob_claim_verified=True))\"\n")
+                   self.manifest['files'][sql_name] + "','" +
+                   self.auth['operation_id'] + "',blob_claim_verified=True))\"\n")
         self.session.buf = b''
         self.session.send(command.encode())
         self.session.expect_line(b'FV_OWNER_ECHO_OFF=PASS', 60)
