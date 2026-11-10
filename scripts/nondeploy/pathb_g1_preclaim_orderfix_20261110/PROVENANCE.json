@@ -1,0 +1,14 @@
+{
+  "contract": "FIELDVISIT_PATHB_G1_PRECLAIM_ORDERFIX_PROVENANCE_V1",
+  "status": "NONDEPLOY",
+  "approved_release": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "base_candidate_commit": "1050afb0b4d41fa2140668a5ddeaf59c029ff02f",
+  "base_candidate_zip_sha256": "8cc7a5aa4d888d1958380137ea6af46bf02d329b89850e7b27dcb26c0ac08141",
+  "base_candidate_binding_sha256": "302216e00544d5dfcf0821fa362e2b0f6aebb7e0125121509f8bdfc8fabb6c45",
+  "handoff_zip_sha256": "ee9182c96f03ea218a85b8a8e16b2330a0dac6f93c8ecce4800b0be6fa093039",
+  "handoff_source_sha256": "c41287fb36e4fe3582b4175f30d266d716db47db5da883e8814b86fcec4f3a26",
+  "handoff_test_sha256": "0053f381532c5dff8546d3e9f2eb14ef51c9c451e53c477d5cfe15bff134bf67",
+  "accepted_focused_tests": "24/24 PASS",
+  "live_authorization": "NOT_GRANTED_BY_THIS_RECORD",
+  "azure_sql_execution": "NOT_RUN"
+}
