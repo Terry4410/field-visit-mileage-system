@@ -1,0 +1,15 @@
+{
+  "contract": "FIELDVISIT_PATHB_G1_OUTER_SQL_TARGET_JSON_FIX_V1",
+  "status": "NONDEPLOY",
+  "approved_release": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "base_g1_commit": "1050afb0b4d41fa2140668a5ddeaf59c029ff02f",
+  "base_candidate_sha256": "8cc7a5aa4d888d1958380137ea6af46bf02d329b89850e7b27dcb26c0ac08141",
+  "base_candidate_binding_sha256": "302216e00544d5dfcf0821fa362e2b0f6aebb7e0125121509f8bdfc8fabb6c45",
+  "files": {
+    "README.md": "7db105ddc553d250c9edec4d3d6d046c005147154a40b5875f15bb30743b837f",
+    "TEST-RESULTS.txt": "8a3aa5d7a1d4dc81d8614a83d15dfd94f61f651837f4ee9a962eafa34df62231",
+    "g1_cloudshell_launcher_fixed.sh": "e082d7173875944c0fcdaa5b1bda146b55fdaf28e9bdf17f4cc601aa4d7fec90",
+    "g1_cloudshell_launcher_original_recovered.sh": "123a499792efdb415c7417ec0bc30151506efbf0775de4bbcf75bd5766533b24",
+    "test_g1_cloudshell_launcher_sql_target.py": "ede05288689435e9e4645484102ff4a569966660222ef3c0da4c69c3e726dfac"
+  }
+}
