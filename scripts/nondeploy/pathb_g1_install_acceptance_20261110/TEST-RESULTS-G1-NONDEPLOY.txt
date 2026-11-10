@@ -1,0 +1,8 @@
+G1_FOCUSED_OFFLINE_TESTS=41_OF_41_PASS
+----------------------------------------------------------------------
+Ran 41 tests in 0.017s
+
+OK
+
+ORIGINAL_CI_NOT_RERUN=YES
+AZURE_SQL_BLOB_DDL_NOT_EXECUTED=YES
