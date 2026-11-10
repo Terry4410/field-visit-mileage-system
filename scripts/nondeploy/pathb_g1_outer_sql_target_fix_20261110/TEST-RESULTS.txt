@@ -1,0 +1,26 @@
+Path B G1 outer SQL-target entry correction — focused offline results
+Date (UTC): 2026-11-10
+Scope: NONDEPLOY; no Azure, SSH, Token, Blob, SQL, DDL or installer execution
+
+Command:
+  python3 -m unittest -v test_g1_cloudshell_launcher_sql_target.py
+
+Result:
+  8/8 PASS
+
+Covered:
+  - both recovered and fixed launcher pass bash syntax validation
+  - exact historical TSV/read boundary is present once in recovered source
+  - only SQL-target acquisition/validation block changed (plus provenance comments)
+  - Azure CLI command failure is no longer discarded
+  - exact expected JSON succeeds
+  - wrong FQDN, PNA or TLS fails closed
+  - missing, null, extra and malformed JSON fails closed
+  - artifact, binding, Owner, Tenant, App and authorization constants unchanged
+
+Historical live-state conclusion:
+  The prior fixed label proves the outer composite gate stopped. Because the
+  original wrapper discarded the Azure CLI exit status and did not retain its
+  three parsed values, it cannot establish which subcondition failed. No more
+  specific historical cause is claimed.
+
