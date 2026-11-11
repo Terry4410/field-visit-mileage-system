@@ -1,0 +1,19 @@
+{
+  "contract": "FIELDVISIT_PATHB_G1_TOOL2_PRECLAIM_HANDOFF_NONDEPLOY_V1",
+  "approved_release": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "baseline_commit": "f85dc629bef21dce9ee0aa7c57b3f22ca3a3bd59",
+  "original_candidate_sha256": "8cc7a5aa4d888d1958380137ea6af46bf02d329b89850e7b27dcb26c0ac08141",
+  "original_candidate_binding_sha256": "302216e00544d5dfcf0821fa362e2b0f6aebb7e0125121509f8bdfc8fabb6c45",
+  "files": {
+    "FieldVisit_PathB_G1_Consolidated_SQLCMD_ArgFix_SafetyFix_NONDEPLOY_20261110.zip": "8cc7a5aa4d888d1958380137ea6af46bf02d329b89850e7b27dcb26c0ac08141",
+    "PROVENANCE.json": "aa7b2c5266cfe49b7021d8df6cf230ecce8680d8c8556cea11779eb8621385fa",
+    "README-FIRST.md": "4d830e67f1da0df93c5a282299715c977370b4541894b39a3481eef548917f80",
+    "SECURITY-REVIEW.md": "c7c4019202a29283f4c2661e84a9e36f024d3bd9d8f49a051e79af8e3ef164b2",
+    "TEST-RESULTS.txt": "b387a92777d24128b620f84fc5277ada25d8df4c810e9ec8e511ac570a71fd1c",
+    "g1_preclaim_tools.py": "5f2d49e3165c3506176d8c30e465462c23dcd8460ba7544331b54b2cbb4898e0",
+    "g1_preverified_parent.py": "3ddafa1cb0bbf435d5111a5f9e01d8b616ef757030bd5799e3fbabd6951e18d7",
+    "g1_tool2_preclaim_handoff.py": "f4206bb0ab4705584a10ca2d3f9c7a0a87a5fb9c63bc6fcf3919285cfa7093d2",
+    "test_g1_tool2_preclaim_fix.py": "4db79cd345e2f363ec4b1e69388832d2c881763a400aae1a2f7163fc867b5516"
+  },
+  "live_execution_authorized": false
+}

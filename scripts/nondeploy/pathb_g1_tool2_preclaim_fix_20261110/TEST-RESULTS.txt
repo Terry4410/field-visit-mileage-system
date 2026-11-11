@@ -1,0 +1,37 @@
+FIELD VISIT PATH B G1 TOOL_2 PRECLAIM FIX
+Scope: focused offline tests only; no Azure/Token/Blob/SSH/SQL/DDL.
+
+Command:
+  python -m unittest -v test_g1_tool2_preclaim_fix.py
+
+Result:
+  17 tests run
+  17 PASS
+  0 FAIL
+
+Covered:
+  - five-package success including exact TOOL_2 geofence transition
+  - TOOL_2 HTTP failure safe classification
+  - unapproved and second redirects rejected
+  - SHA-256 mismatch rejected
+  - declared/actual size mismatch rejected
+  - symlink destination and unsafe cache rejected
+  - Parent consumes exact preverified bytes without network
+  - all package acquisition occurs before claim and Parent launch
+  - package failure creates no claim and launches no Parent
+  - consumed Operation ID cannot be reused
+  - Parent failure/timeout/unknown exit has one invocation and no retry
+  - original Candidate and binding remain unchanged
+  - frozen installer, Blob guard and SQL files remain bound and unchanged
+
+Integrity check:
+  python g1_tool2_preclaim_handoff.py \
+    --candidate FieldVisit_PathB_G1_Consolidated_SQLCMD_ArgFix_SafetyFix_NONDEPLOY_20261110.zip \
+    --check
+
+Observed:
+  G1_LOCAL_INTEGRITY=PASS
+  G1_ZIP_MEMBERS=37
+  G1_PARENT=NOT_LAUNCHED
+  G1_LIVE=NOT_AUTHORIZED
+

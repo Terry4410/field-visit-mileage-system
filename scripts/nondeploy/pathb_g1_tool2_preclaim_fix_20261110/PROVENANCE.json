@@ -1,0 +1,9 @@
+{
+  "approved_release": "d6c220877b9976b6478d85b5171d4e06293595ae",
+  "baseline_commit": "f85dc629bef21dce9ee0aa7c57b3f22ca3a3bd59",
+  "baseline_handoff_sha256": "ee9182c96f03ea218a85b8a8e16b2330a0dac6f93c8ecce4800b0be6fa093039",
+  "original_candidate_sha256": "8cc7a5aa4d888d1958380137ea6af46bf02d329b89850e7b27dcb26c0ac08141",
+  "original_candidate_binding_sha256": "302216e00544d5dfcf0821fa362e2b0f6aebb7e0125121509f8bdfc8fabb6c45",
+  "scope": "NONDEPLOY_TOOL2_PRECLAIM_HANDOFF_ONLY",
+  "live_execution_authorized": false
+}
