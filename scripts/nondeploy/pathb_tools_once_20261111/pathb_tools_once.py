@@ -27,7 +27,7 @@ TOOLS = [
     {'name':'mssql-tools18','url':'https://packages.microsoft.com/debian/12/prod/pool/main/m/mssql-tools18/mssql-tools18_18.6.1.1-1_amd64.deb','sha256':'c90c16188a533576d0c3b0f4af82cb679edccd369e2626b928998918840c7787'},
     {'name':'libltdl7','url':'https://deb.debian.org/debian/pool/main/libt/libtool/libltdl7_2.4.7-7~deb12u1_amd64.deb','sha256':'8070b550321d4bd1c298f52f75374898d39112b709026d2ea5362ef1277b775a'},
     {'name':'libodbc2','url':'https://deb.debian.org/debian/pool/main/u/unixodbc/libodbc2_2.3.11-2+deb12u1_amd64.deb','sha256':'0af106cc7545f86bfa2d6f4fe644b98470704e73568feb395e07d5d60eeaefe4'},
-    {'name':'libodbcinst2','url':'https://deb.debian.org/debian/pool/main/u/unixodbc/libodbcinst2/libodbcinst2_2.3.11-2+deb12u1_amd64.deb','sha256':'416463622a35f7e981577f0c817a3d6148a7eb99225d5f9cf433187be3f91c33'},
+    {'name':'libodbcinst2','url':'https://deb.debian.org/debian/pool/main/u/unixodbc/libodbcinst2_2.3.11-2+deb12u1_amd64.deb','sha256':'416463622a35f7e981577f0c817a3d6148a7eb99225d5f9cf433187be3f91c33'},
 ]
 
 class Stop(Exception): pass
