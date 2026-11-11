@@ -36,18 +36,18 @@ class Hold(Exception):
 
 # Allowlisted, ambiguous -> UNCLASSIFIED. Never print raw client output.
 ERROR_PATTERNS = {
-    'CLIENT_DRIVER_OR_DSN': (r'\\bIM002\\b', r'\\bIM003\\b', r'can.t open lib', r'data source name not found', r'driver.*could not be loaded'),
+    'CLIENT_DRIVER_OR_DSN': (r'\bIM002\b', r'\bIM003\b', r'can.t open lib', r'data source name not found', r'driver.*could not be loaded'),
     'TLS_OR_CERT': (r'certificate verify failed', r'certificate chain.*not trusted', r'ssl provider', r'tls.*handshake'),
-    'NETWORK_OR_TIMEOUT': (r'\\bHYT00\\b', r'\\bHYT01\\b', r'\\b08001\\b', r'\\b08S01\\b', r'login timeout expired', r'tcp provider'),
-    'SQL_LOGIN_OR_PERMISSION': (r'\\b28000\\b', r'\\b18456\\b', r'login failed for user', r'\\bpermission was denied\\b', r'\\b229\\b'),
-    'SQL_SYNTAX_OR_OBJECT': (r'incorrect syntax near', r'invalid object name', r'\\b208\\b', r'\\b102\\b'),
+    'NETWORK_OR_TIMEOUT': (r'\bHYT00\b', r'\bHYT01\b', r'\b08001\b', r'\b08S01\b', r'login timeout expired', r'tcp provider'),
+    'SQL_LOGIN_OR_PERMISSION': (r'\b28000\b', r'\b18456\b', r'login failed for user', r'\bpermission was denied\b', r'\b229\b'),
+    'SQL_SYNTAX_OR_OBJECT': (r'incorrect syntax near', r'invalid object name', r'\b208\b', r'\b102\b'),
     'SQLCMD_USAGE': (r'unknown option', r'unrecognized option', r'invalid option', r'^usage: sqlcmd'),
 }
 
 def categorize_sqlcmd_failure(stdout, stderr):
     if not isinstance(stdout, bytes) or not isinstance(stderr, bytes):
         return 'UNCLASSIFIED'
-    msg = (stdout[:65536] + b'\\n' + stderr[:65536]).decode('utf-8', 'replace')
+    msg = (stdout[:65536] + b'\n' + stderr[:65536]).decode('utf-8', 'replace')
     found = [category for category, patterns in ERROR_PATTERNS.items()
              if any(re.search(pattern, msg, re.I | re.M) for pattern in patterns)]
     return found[0] if len(found) == 1 else 'UNCLASSIFIED'
