@@ -19,11 +19,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Build deterministic source-only ZIP and verify binding
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import hashlib, json, pathlib, zipfile, subprocess
+          import hashlib, json, pathlib, zipfile, subprocess, os
           root = pathlib.Path('scripts/nondeploy/pathb_g1_install_acceptance_20261110')
           binding_path = root / 'binding-index.json'
           binding = json.loads(binding_path.read_bytes())
@@ -50,7 +52,8 @@ jobs:
                   assert hashlib.sha256(z.read(name)).hexdigest() == want
           sha = hashlib.sha256(out.read_bytes()).hexdigest()
           provenance = {'scope':'NONDEPLOY_SOURCE_ONLY_NOT_LIVE_DISTRIBUTION',
-              'source_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+              'source_commit':os.environ['SOURCE_HEAD_SHA'],
+              'checkout_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
               'source_zip_sha256':sha,
               'binding_index_sha256':entries['binding-index.json'],
               'source_files':len(entries),
