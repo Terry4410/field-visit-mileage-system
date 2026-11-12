@@ -52,10 +52,29 @@ def ssh_tunnel_args(instance, port, subscription):
             '--subscription',subscription,'--instance',instance,'--port',str(port)]
 
 
+def validate_host_key_scan(raw, port):
+    """Only trust one ED25519 key for the exact loopback tunnel host and port."""
+    if not raw:
+        raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD')
+    if type(port) is not int or not 1024 <= port <= 65535 or len(raw) > 4096:
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+    lines = raw.splitlines()
+    if len(lines) != 1:
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+    fields = lines[0].split()
+    expected_host = ('[127.0.0.1]:' + str(port)).encode('ascii')
+    if (len(fields) != 3 or fields[0] != expected_host or
+            fields[1] != b'ssh-ed25519' or
+            re.fullmatch(rb'[A-Za-z0-9+/]+={0,2}', fields[2]) is None):
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+
+
 def validate_tunnel_host_fingerprint(observed):
-    """Fail closed, emitting only a fixed code; never accept an unknown host."""
+    """Require a single key and the exact pinned fingerprint; never trust extras."""
     if not observed:
         raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD')
+    if len(observed.splitlines()) != 1:
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
     try:
         pinned_host_fingerprint(observed)
     except Exception:
@@ -103,8 +122,7 @@ class AppSshTunnel:
                                     stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=True)
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
                 raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD') from None
-            if not scan.stdout or len(scan.stdout)>4096:
-                raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD')
+            validate_host_key_scan(scan.stdout, port)
             fd=os.open(self.known_hosts,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
             with os.fdopen(fd,'wb') as f:f.write(scan.stdout)
             fingerprint=subprocess.run(['ssh-keygen','-lf',str(self.known_hosts)],
