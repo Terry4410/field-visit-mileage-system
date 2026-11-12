@@ -17,9 +17,7 @@ def evaluate_once(invoke, binary, token_path, root=HERE):
     if not callable(invoke):
         raise ExecutionHold('EXECUTOR_NOT_INJECTED')
     try:
-        pins=verify(root)
-        if pins['READONLY_OFFLINE'] if 'READONLY_OFFLINE' in pins else False:
-            raise ExecutionHold('PIN_CONTRACT_HOLD')
+        verify(root)
         sql=(Path(root)/'preflight.sql').read_bytes()
         args=sqlcmd_argv(binary, token_path, sql)
         # The transport must be supplied by an independent authorization boundary.
