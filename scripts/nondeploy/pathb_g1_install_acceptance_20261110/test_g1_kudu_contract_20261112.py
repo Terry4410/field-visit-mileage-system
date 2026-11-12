@@ -47,6 +47,58 @@ class KuduContractTests(unittest.TestCase):
             child.verify_authorization(auth, "b" * 64, "c" * 64,
                                        parent.ident("worker-instance-0123456789"))
 
+    def test_owner_pre_authorization_rejects_bad_scope_before_management(self):
+        """No Azure calls on missing, expired or wrong Owner authorization."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        valid = {
+            "operation_id": "a" * 32,
+            "contract": parent.CONTRACT,
+            "decision": parent.DECISION,
+            "artifact_sha256": "b" * 64,
+            "binding_index_sha256": "c" * 64,
+            "server": parent.SERVER,
+            "database": parent.DATABASE,
+            "installation_attempts": 1,
+            "instance_sha256": parent.ident("worker-instance-0123456789"),
+            "not_before": (now - datetime.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "expires_at": (now + datetime.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "auth.json"
+            for change in ("missing", "expired", "wrong_scope", "wrong_instance_format"):
+                with self.subTest(change=change):
+                    auth = dict(valid)
+                    if change == "expired":
+                        auth["not_before"] = (now - datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        auth["expires_at"] = (now - datetime.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    elif change == "wrong_scope":
+                        auth["server"] = "unapproved.example"
+                    elif change == "wrong_instance_format":
+                        auth["instance_sha256"] = "not-a-hash"
+                    if change != "missing":
+                        path.write_text(json.dumps(auth), encoding="utf-8")
+                    elif path.exists():
+                        path.unlink()
+                    with self.assertRaises((parent.Hold, FileNotFoundError)):
+                        parent.validate_authorization(path, "b" * 64, "c" * 64, None)
+            path.write_text(json.dumps(valid), encoding="utf-8")
+            parent.validate_authorization(path, "b" * 64, "c" * 64, None)
+            parent.validate_authorization(path, "b" * 64, "c" * 64, "worker-instance-0123456789")
+            with self.assertRaises(parent.Hold):
+                parent.validate_authorization(path, "b" * 64, "c" * 64, "wrong-instance")
+
+    def test_parent_execute_pre_authorization_precedes_management(self):
+        """Static source ordering prevents a regression to Azure-before-auth."""
+        import inspect
+        source = inspect.getsource(parent.execute)
+        pre = source.index('stop = "PRE_AUTHORIZATION"')
+        first = source.index('validate_authorization(args.authorization', pre)
+        management = source.index('instance, facts = management(cfg)', first)
+        second = source.index('validate_authorization(args.authorization', management)
+        self.assertLess(pre, first)
+        self.assertLess(first, management)
+        self.assertLess(management, second)
+
     def test_blob_marker_is_new_and_guard_checks_old_g1(self):
         self.assertNotEqual(guard.NEW_BLOB, guard.PRIOR_G1_INSTALL_BLOB)
         self.assertEqual(guard.RUN_ID, "pathb-g1-original-installer-single-kudu-20261112")
