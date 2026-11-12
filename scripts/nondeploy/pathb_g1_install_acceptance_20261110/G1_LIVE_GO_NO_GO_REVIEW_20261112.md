@@ -18,7 +18,7 @@
 ## Exact remaining blockers — do not infer PASS
 
 1. **Independent security review:** the actual Kudu transport, durable one-time claim, disconnection/receipt behavior, exact file binding, and cleanup must be independently approved. Offline tests do not establish live Kudu or SQL reachability.
-2. **Complete live delivery contract:** source-only artifact is not a separately approved full live distribution. The original SQL package and seal are retrieved only in the live path, and the five pinned tool packages are downloaded there. Old Tool2 Launcher SHA pins refer to consumed/stale material and must never be replayed.
+2. **Live distribution approval, not another packager:** independent local test of downloaded Artifact `13950109647` confirmed `validate_binding`, `validate_local_source`, and `validate_distribution_archive` all PASS (exit 0). The 22-member source ZIP is compatible with the parent `--distribution` input when extracted into the verified local source directory. The parent builds the remote Stage during an authorized live run by retrieving the frozen original SQL package, seal and five pinned tool packages. **No separate prebuilt full Stage ZIP is required by this interface**, but the source ZIP is not approved for live use and end-to-end transport/one-time-claim safety remains unverified. Old Tool2 Launcher pins are stale/consumed and must never be replayed.
 3. **Current SQL schema:** UNKNOWN. The exact integrated original pre-DDL SELECT22 must prove the database empty before any DDL. Prior SELECT attempts and once-only claims are not reusable.
 4. **Fresh, exact, short-lived Owner authorization:** requires independently reviewed exact distribution SHA, binding SHA, new Kudu contract/decision, exact App/SQL target and instance, unique operation ID, <=30-minute validity, one attempt. The code's approval constant does **not** grant approval.
 5. **No new Azure resources or IT handover:** no VM/ACI/Bastion/NAT/VPN, deployment, merge, RBAC, Token, SQL, Blob, or old-claim replay without separately authorized live execution.
@@ -27,7 +27,7 @@
 
 - **SOURCE_ONLY_OFFLINE = PASS**
 - **INDEPENDENT_LIVE_SECURITY_REVIEW = PENDING**
-- **COMPLETE_LIVE_DISTRIBUTION = NOT_APPROVED**
+- **SOURCE_DISTRIBUTION_INTERFACE = OFFLINE_PASS; LIVE_USE = NOT_APPROVED**
 - **G1 LIVE = HOLD**
 - **SQL CATALOG = UNKNOWN**
 - **BUSINESS UAT = 0/25, NO-GO**
