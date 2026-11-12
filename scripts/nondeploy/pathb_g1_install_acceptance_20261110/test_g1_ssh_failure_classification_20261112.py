@@ -56,11 +56,11 @@ stub_contract.RG = 'rg-fieldvisit-uat'
 stub_contract.ssh_interactive_args = lambda p, h: ['ssh', '-tt', '-o', 'StrictHostKeyChecking=yes']
 stub_contract.pinned_host_fingerprint = pinned_host_fingerprint
 stub_contract.check_owner_account = lambda _r: True
-sys.modules['p3_kudu_transport'] = stub_kudu
-sys.modules['p3_ssh_transport_contract'] = stub_contract
-spec = importlib.util.spec_from_file_location('p3_g1_pinned_ssh', ROOT/'p3_g1_pinned_ssh.py')
-ssh = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ssh)
+with patch.dict(sys.modules, {'p3_kudu_transport': stub_kudu,
+                              'p3_ssh_transport_contract': stub_contract}):
+    spec = importlib.util.spec_from_file_location('p3_g1_pinned_ssh', ROOT/'p3_g1_pinned_ssh.py')
+    ssh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ssh)
 
 class TestG1SshFailureClassification(unittest.TestCase):
     def assert_hold(self, code, callback):
