@@ -50,7 +50,7 @@ def verify(root=HERE):
              EXPECTED_RELEASE, EXPECTED_SQL))
     sql = sql_path.read_text(encoding='utf-8')
     # The SQL is immutable by SHA. This check is only a second, defense-in-depth guard.
-    require(re.match(r'^SET NOCOUNT ON;\\s*SELECT\\s', sql, re.I) is not None)
+    require(re.match(r'^SET NOCOUNT ON;\s*SELECT\s', sql, re.I) is not None)
     require(sql.rstrip().endswith('@@SPID;'))
     return {'SOURCE_BINDING': 'PASS', 'PINNED_SQL': 'PASS',
             'EXACT_TARGET': 'PASS', 'LIVE_TRANSPORT': 'NOT_IMPLEMENTED',
