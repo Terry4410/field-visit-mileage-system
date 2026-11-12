@@ -25,8 +25,8 @@ class TestKuduPTY(unittest.TestCase):
                 return 0  # The fake child is not running.
         def fake_popen(argv, *, stdin, stdout, stderr, start_new_session):
             self.assertEqual(argv[:3], ["az", "webapp", "exec"])
-            self.assertIs(stdin, stdout)
-            self.assertIs(stdin, stderr)
+            self.assertEqual(stdin, stdout)
+            self.assertEqual(stdin, stderr)
             self.assertTrue(start_new_session)
             proc = FakeProcess(stdin)
             holders.append(proc)
