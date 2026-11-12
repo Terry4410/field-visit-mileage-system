@@ -361,15 +361,21 @@ class KuduExecSession:
     def start(self) -> None:
         self.state.begin()
         master, slave = pty.openpty()
-        attrs = termios.tcgetattr(slave)
-        attrs[3] &= ~termios.ECHO
-        termios.tcsetattr(slave, termios.TCSANOW, attrs)
         try:
+            attrs = termios.tcgetattr(slave)
+            # ECHO and canonical line buffering must both be disabled before
+            # transferring up to 16 KiB Owner tokens through this PTY.
+            attrs[3] &= ~(termios.ECHO | termios.ICANON)
+            attrs[6][termios.VMIN] = 1
+            attrs[6][termios.VTIME] = 0
+            termios.tcsetattr(slave, termios.TCSANOW, attrs)
             self.proc = self._popen(interactive_exec_args(self.instance), stdin=slave,
                                     stdout=slave, stderr=slave, start_new_session=True)
-        except Exception as exc:
+        except Exception:
+            # Covers termios setup as well as process creation failure.
+            # Never expose underlying CLI/PTY exceptions or leave open FDs.
             os.close(master)
-            raise TransportHold("KUDU_PROCESS_HOLD") from exc
+            raise TransportHold("KUDU_PROCESS_HOLD") from None
         finally:
             os.close(slave)
         self.fd = master
@@ -442,7 +448,7 @@ class KuduExecSession:
 
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
         boundary = len(self.buffer)
-        self.send_public(b"stty -echo\n", "ECHO_DISABLE_SENT")
+        self.send_public(b"stty -echo -icanon min 1 time 0\n", "ECHO_DISABLE_SENT")
         self.send_public(
             b"umask 077\nprintf '\\n%s\\n' FV_KUDU_CHANNEL_READY\n",
             "ECHO_PROBE_SENT",
