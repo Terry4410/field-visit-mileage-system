@@ -1,5 +1,7 @@
 """NONDEPLOY G1 Kudu contract regression tests; no Azure/SQL/Blob/Token calls."""
 import datetime
+import hashlib
+import subprocess
 import json
 import tempfile
 import unittest
@@ -76,6 +78,31 @@ class KuduContractTests(unittest.TestCase):
                          "worker-instance-0123456789")
         self.assertNotIn("execute", args)
         self.assertNotIn("all", args)
+
+    def test_nested_debs_cleanup_accepts_exact_tree_and_rejects_extras(self):
+        """Local-only subprocess: verify exact nested debs, fail closed on extras."""
+        for extra in (False, True):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as directory:
+                stage = Path(directory) / "stage"
+                stage.mkdir(mode=0o700)
+                (stage / "debs").mkdir()
+                (stage / "debs" / "tool.deb").write_bytes(b"synthetic-deb")
+                (stage / "runner.py").write_bytes(b"synthetic-runner")
+                if extra:
+                    (stage / "debs" / "unbound.deb").write_bytes(b"extra")
+                hashes = {
+                    "debs/tool.deb": hashlib.sha256(b"synthetic-deb").hexdigest(),
+                    "runner.py": hashlib.sha256(b"synthetic-runner").hexdigest(),
+                }
+                with patch.object(parent, "REMOTE_STAGE", str(stage)), \
+                     patch.object(parent, "REMOTE_WORK", str(Path(directory) / "work")), \
+                     patch.object(parent, "REMOTE_RAM", str(Path(directory) / "ram")):
+                    command = parent.cleanup_command(hashes).decode("ascii")
+                result = subprocess.run(command, shell=True, capture_output=True,
+                                        text=True, timeout=10)
+                expected = "HOLD" if extra else "PASS"
+                self.assertIn("FV_KUDU_OWNED_CLEANUP=" + expected, result.stdout)
+                self.assertEqual(stage.exists(), extra)
 
     def test_parent_uses_kudu_not_the_consumed_ssh_parent(self):
         src = (Path(__file__).resolve().parent / "p3_kudu_cloudshell_parent.py").read_text()
