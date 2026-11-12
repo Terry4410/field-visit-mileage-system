@@ -22,9 +22,7 @@
     "schema-fingerprint.sql": "3c18fc1cf67d298a53919fc824b03ae6c1bf014a97c754c2f7cc90335b096c18",
     "seal_verifier.py": "33d8bd044839a9b549a39eeeb2fd2616e0663bca0a7df41a78fdd49ab5480597",
     "token_adapter.py": "703d04bffa6542d80a214bd257adb221f86fdc45aee38981267239fc913596e4",
-    "token_adapter_g1_REVIEW_ONLY.py": "81476f61146629664e23c59bf5a9b862efb10d6857d80f151ec8a4ec53dc565d",
-    "pathb_readonly_isolated_gate.py": "662a0a611c9ef9c15e8bad720ce738f909fd9b24814b7ca7f5272c0b53906038",
-    "test_pathb_readonly_isolated_gate.py": "ace742dfcb0a636806c24ee5f00d9307a597c148717d6c0e08de294175d7e27c"
+    "token_adapter_g1_REVIEW_ONLY.py": "81476f61146629664e23c59bf5a9b862efb10d6857d80f151ec8a4ec53dc565d"
   },
   "source_consumed_v3_sha256": "95f973e5f6401285b45c76df98b10404ea055df23e0e86a465b7162c4061d0fa"
 }
