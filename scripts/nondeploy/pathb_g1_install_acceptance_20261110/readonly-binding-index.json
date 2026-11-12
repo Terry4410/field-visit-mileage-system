@@ -7,6 +7,8 @@
     "pathb_readonly_isolated_gate.py": "662a0a611c9ef9c15e8bad720ce738f909fd9b24814b7ca7f5272c0b53906038",
     "test_pathb_readonly_isolated_gate.py": "ace742dfcb0a636806c24ee5f00d9307a597c148717d6c0e08de294175d7e27c",
     "pathb_readonly_sql_contract.py": "43f8810135c80b0f76b2b597c7242979653648af07e049b03605a9f44b2bd4a9",
-    "test_pathb_readonly_sql_contract.py": "5e58f0e2db0246c3e2af1838d986030755abbb6053c15c921f9abe3930730d22"
+    "test_pathb_readonly_sql_contract.py": "5e58f0e2db0246c3e2af1838d986030755abbb6053c15c921f9abe3930730d22",
+    "pathb_readonly_receipt_parser.py": "896f533cb5a64e6b6a02cf40632608482530e2ca5b2b29cc902ceb1003326f5e",
+    "test_pathb_readonly_receipt_parser.py": "578b6aed6b39ba9518efd983b0e0a954ea3b8a09d7615fc9002d5a36884503d0"
   }
 }
