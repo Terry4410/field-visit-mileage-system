@@ -47,7 +47,8 @@ class Tests(unittest.TestCase):
         self.assertIn('g1-original-installer-single',blob.NEW_BLOB)
         self.assertNotEqual(blob.NEW_BLOB,blob.PRIOR_V3_INSTALL_BLOB)
         self.assertNotEqual(blob.NEW_BLOB,blob.PRIOR_V2_INSTALL_BLOB)
-        self.assertEqual(parent.TRANSPORT,'OFFICIAL_AZ_WEBAPP_SSH_PINNED_V1')
+        self.assertNotEqual(blob.NEW_BLOB,blob.PRIOR_G1_INSTALL_BLOB)
+        self.assertEqual(parent.TRANSPORT,'OFFICIAL_AZ_WEBAPP_EXEC_APP_KUDU_V1')
         self.assertEqual(parent.REMOTE_STAGE,stage.REMOTE_STAGE)
 
     def test_only_pinned_instance_tunnel(self):
@@ -60,14 +61,19 @@ class Tests(unittest.TestCase):
         self.assertEqual(argv[argv.index('--subscription')+1],'12345678-1234-1234-1234-123456789012')
         with self.assertRaises(stage.TransportHold):ssh.ssh_tunnel_args('../abc',57311,'12345678-1234-1234-1234-123456789012')
 
-    def test_SSH_interface_provides_existing_safe_parent_methods(self):
+    def test_exact_instance_kudu_interface_and_parent_child_contract(self):
         for name in ('start','await_cli_shell_banner','establish_safe_channel',
                      'stage_archive','send_secret_line','expect_fixed','mark_sql_started',
                      'mark_complete','close'):
-            self.assertTrue(callable(getattr(ssh.SshExecSession,name)))
+            self.assertTrue(callable(getattr(stage.KuduExecSession,name)))
         src=(HERE/'p3_kudu_cloudshell_parent.py').read_text()
-        self.assertIn('return SshExecSession(instance, deadline=deadline)',src)
-        self.assertNotIn('return KuduExecSession(instance, deadline=deadline)',src)
+        child_src=(HERE/'p3_app_installer_runner.py').read_text()
+        self.assertIn('return KuduExecSession(instance, deadline=deadline)',src)
+        self.assertNotIn('return SshExecSession(instance, deadline=deadline)',src)
+        self.assertEqual(parent.CONTRACT, 'FIELDVISIT_PATHB_G1_KUDU_INSTALL_V1')
+        self.assertIn('exec_transport',child_src)
+        self.assertIn('PROTECTED_OWNER_KUDU',blob.REQUIRED_PRE_DDL_GATES)
+        self.assertNotIn('PROTECTED_OWNER_SSH',blob.REQUIRED_PRE_DDL_GATES)
 
     def test_no_hardcoded_ssh_password_in_deliverable(self):
         src='\n'.join((HERE/n).read_text() for n in json.loads((HERE/'binding-index.json').read_text())['files']
@@ -108,7 +114,7 @@ class Tests(unittest.TestCase):
             self.assertTrue(guard.new_key_available)
             self.assertEqual([c[1] for c in calls],
                              [blob.PRIOR_INSTALL_BLOB,blob.PRIOR_V2_INSTALL_BLOB,
-                              blob.PRIOR_V3_INSTALL_BLOB,blob.NEW_BLOB])
+                              blob.PRIOR_V3_INSTALL_BLOB,blob.PRIOR_G1_INSTALL_BLOB,blob.NEW_BLOB])
             guard2=blob.OneTimeInstallBlobGuard('dummy-owner-token',request=lambda *args:blob.Response(404))
             guard2.predecessors_verified=True
             with self.assertRaises(blob.InstallGuardHold):guard2.check_available()
