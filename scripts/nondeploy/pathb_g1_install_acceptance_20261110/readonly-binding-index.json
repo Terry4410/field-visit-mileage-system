@@ -1,0 +1,10 @@
+{
+  "contract": "FIELDVISIT_PATHB_NONDEPLOY_READONLY_GATE_V1",
+  "base_commit": "d1cb3b966132458ce17cca0d1df4b5d33c286857",
+  "base_binding_sha256": "9bed28cfb112e0582b8bb7e9fca668362c21c58c9d4b20ecae679fad84f623eb",
+  "preflight_sha256": "e87dbd54d4740254b6f0041fe330cc4af71e51a214964c39e1001c4437075add",
+  "files": {
+    "pathb_readonly_isolated_gate.py": "662a0a611c9ef9c15e8bad720ce738f909fd9b24814b7ca7f5272c0b53906038",
+    "test_pathb_readonly_isolated_gate.py": "ace742dfcb0a636806c24ee5f00d9307a597c148717d6c0e08de294175d7e27c"
+  }
+}
