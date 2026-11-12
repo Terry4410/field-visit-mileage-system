@@ -13,7 +13,7 @@
     "p3_g1_pinned_ssh.py": "a11fd1f66a699a322e10612326739b47ab9dbd6a038f4d03ec3a16adf6b8707c",
     "p3_historical_blob_evidence.py": "f54b4772b02c0ec73e94938ae5527df6ba75697bc71a610a2a51b66b48d96ff2",
     "p3_install_gates.py": "b2fdb3188adea556cb024978d63e2003b1a63169773e1eca55f79b98742c0f65",
-    "p3_kudu_cloudshell_parent.py": "5ce0ab4cdada29402fcf3d7349d2e30526f29138e0c9438bd2c4477edc478002",
+    "p3_kudu_cloudshell_parent.py": "1e6bb27449dfeb55920bf65d375f8fc979af2a1d671614094769fbb462863101",
     "p3_kudu_transport.py": "895915ca9823ff1f5bc98dfb00bc98c6218b84aa2d55d69ec704d6ced6ed4536",
     "p3_ssh_stage.py": "4606e08de4ad4dd5e3a105d9c162434be2d5a5ef82f5e38129adfc95cd0c7301",
     "p3_ssh_transport_contract.py": "2f07537ec0c676f9e668e8f7770b0ac347a1842b31dc5c393c2d08bfa85d5b00",
