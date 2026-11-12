@@ -9,6 +9,12 @@ on:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_pty_safety_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_app_installer_runner.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_blob_guard.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_integrated_delivery.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_contract_20261112.py
       - .github/workflows/pathb-g1-pr86-offline-tests.yml
   pull_request:
     branches:
@@ -18,6 +24,12 @@ on:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_pty_safety_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_app_installer_runner.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_blob_guard.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_integrated_delivery.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_contract_20261112.py
       - .github/workflows/pathb-g1-pr86-offline-tests.yml
 
 permissions:
@@ -45,4 +57,18 @@ jobs:
           python3 -m unittest discover \
             -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 \
             -p 'test_g1_*_20261112.py' \
+            -v
+      - name: Compile original G1 integration and new Kudu contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m py_compile p3_kudu_cloudshell_parent.py p3_app_installer_runner.py p3_blob_guard.py test_g1_integrated_delivery.py test_g1_kudu_contract_20261112.py
+      - name: Run original G1 integration regression (offline only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover \
+            -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 \
+            -p 'test_g1_integrated_delivery.py' \
             -v
