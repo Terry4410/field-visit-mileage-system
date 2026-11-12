@@ -119,8 +119,11 @@ def validate_authorization(path, artifact_sha, binding_sha, instance, now=None):
             "AUTHORIZATION_SCOPE_HOLD")
     require(re.fullmatch(r'[0-9a-f]{32}',str(auth.get('operation_id',''))) is not None,
             'AUTHORIZATION_OPERATION_HOLD')
-    require(auth["instance_sha256"] == ident(instance),
+    require(re.fullmatch(r"[a-f0-9]{64}", str(auth["instance_sha256"])) is not None,
             "AUTHORIZATION_INSTANCE_HOLD")
+    if instance is not None:
+        require(auth["instance_sha256"] == ident(instance),
+                "AUTHORIZATION_INSTANCE_HOLD")
     try:
         start = datetime.fromisoformat(auth["not_before"].replace("Z", "+00:00")).timestamp()
         end = datetime.fromisoformat(auth["expires_at"].replace("Z", "+00:00")).timestamp()
@@ -280,8 +283,13 @@ def execute(args):
         binding, binding_sha = validate_binding(HERE)
         validate_distribution_archive(distribution, binding)
         cfg = load(HERE / "executor_config.json")
+        # Reject missing, expired, or mismatched Owner scope before ANY Azure call.
+        stop = "PRE_AUTHORIZATION"
+        validate_authorization(args.authorization, args.artifact_sha256,
+                               binding_sha, None)
         stop = "MANAGEMENT"
         instance, facts = management(cfg)
+        # Fresh instance identity is only available after authorized management GETs.
         validate_authorization(args.authorization, args.artifact_sha256,
                                binding_sha, instance)
         deadline = time.monotonic() + cfg["total_deadline_seconds"]
