@@ -5,6 +5,7 @@ import subprocess
 import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -78,6 +79,30 @@ class KuduContractTests(unittest.TestCase):
                          "worker-instance-0123456789")
         self.assertNotIn("execute", args)
         self.assertNotIn("all", args)
+
+    def test_distribution_archive_rejects_unbound_and_tampered_members(self):
+        """No Azure: ZIP must exactly match every binding member."""
+        root = Path(parent.__file__).resolve().parent
+        binding, _ = parent.validate_binding(root)
+        expected = sorted(set(binding["files"]) | {"binding-index.json"})
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "source.zip"
+            def make_archive(extra=False, tamper=False):
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    for name in expected:
+                        data = (root / name).read_bytes()
+                        if tamper and name == "binding-index.json":
+                            data += b"tampered"
+                        archive.writestr(name, data)
+                    if extra:
+                        archive.writestr("unexpected.txt", b"unbound")
+            make_archive()
+            parent.validate_distribution_archive(archive_path, binding)
+            for extra, tamper in ((True, False), (False, True)):
+                with self.subTest(extra=extra, tamper=tamper):
+                    make_archive(extra=extra, tamper=tamper)
+                    with self.assertRaises(parent.Hold):
+                        parent.validate_distribution_archive(archive_path, binding)
 
     def test_nested_debs_cleanup_accepts_exact_tree_and_rejects_extras(self):
         """Local-only subprocess: verify exact nested debs, fail closed on extras."""
