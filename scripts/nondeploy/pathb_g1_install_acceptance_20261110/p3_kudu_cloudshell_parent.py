@@ -80,6 +80,27 @@ def validate_binding(root):
     return binding, digest(raw)
 
 
+def validate_distribution_archive(distribution, binding):
+    """Fail closed on ZIP content, not only the Owner-pinned outer digest."""
+    expected = dict(binding["files"])
+    expected["binding-index.json"] = digest((HERE / "binding-index.json").read_bytes())
+    try:
+        with zipfile.ZipFile(distribution) as archive:
+            infos = archive.infolist()
+            names = [item.filename for item in infos]
+            require(len(names) == len(expected) and set(names) == set(expected),
+                    "DISTRIBUTION_MEMBERS_HOLD")
+            for item in infos:
+                require(not item.is_dir() and not (item.external_attr >> 16 & 0o170000) == 0o120000,
+                        "DISTRIBUTION_ENTRY_HOLD")
+                require(item.file_size <= 4 * 1024 * 1024,
+                        "DISTRIBUTION_SIZE_HOLD")
+                require(digest(archive.read(item)) == expected[item.filename],
+                        "DISTRIBUTION_MEMBER_HASH_HOLD")
+    except (OSError, zipfile.BadZipFile, RuntimeError, ValueError, KeyError) as exc:
+        raise Hold("DISTRIBUTION_FORMAT_HOLD") from exc
+
+
 def validate_authorization(path, artifact_sha, binding_sha, instance, now=None):
     auth = load(path)
     required = {"operation_id","contract", "decision", "artifact_sha256",
@@ -257,6 +278,7 @@ def execute(args):
                 "DISTRIBUTION_HOLD")
         validate_local_source(HERE)
         binding, binding_sha = validate_binding(HERE)
+        validate_distribution_archive(distribution, binding)
         cfg = load(HERE / "executor_config.json")
         stop = "MANAGEMENT"
         instance, facts = management(cfg)
