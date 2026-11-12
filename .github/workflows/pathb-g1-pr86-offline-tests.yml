@@ -44,6 +44,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Show changed parent SHA for binding update
+        run: sha256sum scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
       - name: Compile only changed Python sources and tests
         shell: bash
         run: |
@@ -72,8 +74,6 @@ jobs:
             -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 \
             -p 'test_g1_integrated_delivery.py' \
             -v
-      - name: Show changed parent SHA for binding update
-        run: sha256sum scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
       - name: Build deterministic source-only ZIP and verify binding
         env:
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
