@@ -80,6 +80,35 @@ class KuduContractTests(unittest.TestCase):
         self.assertNotIn("execute", args)
         self.assertNotIn("all", args)
 
+    def test_full_remote_stage_shape_offline_with_synthetic_dependencies(self):
+        """Prove the parent creates the exact nested 5-tool Stage, no live calls."""
+        root = Path(parent.__file__).resolve().parent
+        binding, _ = parent.validate_binding(root)
+        cfg = json.loads((root / "executor_config.json").read_text("utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / "debs").mkdir()
+            (work / "original.zip").write_bytes(b"synthetic-only-not-real-sql")
+            (work / "original.seal.json").write_bytes(b"{}")
+            authorization = work / "synthetic-authorization.json"
+            authorization.write_bytes(b"{}")
+            for item in cfg["tools"]:
+                (work / "debs" / (item["name"] + ".deb")).write_bytes(b"synthetic-deb")
+            stage, hashes = parent.build_stage(work, binding, authorization,
+                                                {"synthetic": True})
+            names = kudu.validate_stage_archive(stage.read_bytes())
+            expected = (set(binding["files"]) |
+                        {"binding-index.json", "executor_config.json",
+                         "original.zip", "original.seal.json",
+                         "live-facts.json", "owner-authorization.json"} |
+                        {"debs/" + item["name"] + ".deb" for item in cfg["tools"]})
+            self.assertEqual(set(names), expected)
+            self.assertEqual(len(names), len(expected))
+            self.assertEqual(set(hashes), expected)
+            with zipfile.ZipFile(stage) as archive:
+                for name, value in hashes.items():
+                    self.assertEqual(hashlib.sha256(archive.read(name)).hexdigest(), value)
+
     def test_distribution_archive_rejects_unbound_and_tampered_members(self):
         """No Azure: ZIP must exactly match every binding member."""
         root = Path(parent.__file__).resolve().parent
