@@ -1,0 +1,48 @@
+name: Path B G1 SSH-Kudu offline regressions
+
+on:
+  push:
+    branches:
+      - work/pathb-g1-ssh-failclosed-nondeploy-20261112
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_g1_pinned_ssh.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_pty_safety_20261112.py
+      - .github/workflows/pathb-g1-pr86-offline-tests.yml
+  pull_request:
+    branches:
+      - work/pathb-g1-tool2-preclaim-fix-nondeploy-20261110
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_g1_pinned_ssh.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_pty_safety_20261112.py
+      - .github/workflows/pathb-g1-pr86-offline-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  focused-offline-tests:
+    name: Python stdlib regression tests only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile only changed Python sources and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m py_compile p3_g1_pinned_ssh.py p3_kudu_transport.py test_g1_ssh_failure_classification_20261112.py test_g1_kudu_pty_safety_20261112.py
+      - name: Run exact SSH and Kudu tests (no Azure, SQL, Blob, token or deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover \
+            -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 \
+            -p 'test_g1_*_20261112.py' \
+            -v
