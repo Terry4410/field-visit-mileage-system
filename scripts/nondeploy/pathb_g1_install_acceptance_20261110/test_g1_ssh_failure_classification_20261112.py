@@ -17,6 +17,7 @@ CODES = {
     'SSH_TUNNEL_TIMEOUT_HOLD', 'SSH_TUNNEL_SETUP_HOLD',
     'SSH_HOST_KEY_NOT_OBSERVED_HOLD', 'SSH_HOST_KEY_MISMATCH_HOLD',
     'SSH_SESSION_SPAWN_HOLD', 'INSTANCE_ID_HOLD',
+    'SSH_HOST_KEY_AMBIGUOUS_HOLD',
 }
 
 class TransportHold(Exception):
@@ -85,6 +86,34 @@ class TestG1SshFailureClassification(unittest.TestCase):
     def test_only_exact_pinned_tunnel_key_is_accepted(self):
         self.assertIsNone(ssh.validate_tunnel_host_fingerprint(
             ('256 '+HOST_FP+' test-host').encode('ascii')))
+
+    def test_single_exact_scan_host_and_key_shape(self):
+        raw = b'[127.0.0.1]:50000 ssh-ed25519 QUJDRA==\n'
+        self.assertIsNone(ssh.validate_host_key_scan(raw, 50000))
+
+    def test_multiple_scan_keys_rejected_before_trust(self):
+        row = b'[127.0.0.1]:50000 ssh-ed25519 QUJDRA==\n'
+        self.assert_hold('SSH_HOST_KEY_AMBIGUOUS_HOLD',
+                         lambda: ssh.validate_host_key_scan(row + row, 50000))
+
+    def test_wrong_scan_host_or_port_rejected(self):
+        self.assert_hold('SSH_HOST_KEY_AMBIGUOUS_HOLD',
+                         lambda: ssh.validate_host_key_scan(
+                             b'[127.0.0.1]:50001 ssh-ed25519 QUJDRA==\n', 50000))
+        self.assert_hold('SSH_HOST_KEY_AMBIGUOUS_HOLD',
+                         lambda: ssh.validate_host_key_scan(
+                             b'[evil.example]:50000 ssh-ed25519 QUJDRA==\n', 50000))
+
+    def test_unexpected_key_algorithm_rejected(self):
+        self.assert_hold('SSH_HOST_KEY_AMBIGUOUS_HOLD',
+                         lambda: ssh.validate_host_key_scan(
+                             b'[127.0.0.1]:50000 ssh-rsa QUJDRA==\n', 50000))
+
+    def test_multiple_fingerprint_lines_cannot_whitelist_other_keys(self):
+        self.assert_hold('SSH_HOST_KEY_AMBIGUOUS_HOLD',
+                         lambda: ssh.validate_tunnel_host_fingerprint(
+                             ('256 ' + HOST_FP + ' trusted (ED25519)\n' +
+                              '256 SHA256:WRONG other (ED25519)\n').encode('ascii')))
 
     def test_inner_transport_hold_survives_session_start(self):
         session = ssh.SshExecSession('fixed-instance', deadline=999999999)
