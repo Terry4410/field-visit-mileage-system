@@ -38,7 +38,7 @@ def owner_subscription_id():
             raise ValueError()
         return subscription
     except Exception:
-        raise TransportHold('KUDU_CHANNEL_CLOSED') from None
+        raise TransportHold('SSH_OWNER_CONTEXT_HOLD') from None
 
 
 def ssh_tunnel_args(instance, port, subscription):
@@ -50,6 +50,35 @@ def ssh_tunnel_args(instance, port, subscription):
         raise TransportHold('INSTANCE_ID_HOLD')
     return ['az','webapp','create-remote-connection','-g',RG,'-n',APP,
             '--subscription',subscription,'--instance',instance,'--port',str(port)]
+
+
+def validate_host_key_scan(raw, port):
+    """Only trust one ED25519 key for the exact loopback tunnel host and port."""
+    if not raw:
+        raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD')
+    if type(port) is not int or not 1024 <= port <= 65535 or len(raw) > 4096:
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+    lines = raw.splitlines()
+    if len(lines) != 1:
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+    fields = lines[0].split()
+    expected_host = ('[127.0.0.1]:' + str(port)).encode('ascii')
+    if (len(fields) != 3 or fields[0] != expected_host or
+            fields[1] != b'ssh-ed25519' or
+            re.fullmatch(rb'[A-Za-z0-9+/]+={0,2}', fields[2]) is None):
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+
+
+def validate_tunnel_host_fingerprint(observed):
+    """Require a single key and the exact pinned fingerprint; never trust extras."""
+    if not observed:
+        raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD')
+    if len(observed.splitlines()) != 1:
+        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+    try:
+        pinned_host_fingerprint(observed)
+    except Exception:
+        raise TransportHold('SSH_HOST_KEY_MISMATCH_HOLD') from None
 
 
 class AppSshTunnel:
@@ -75,7 +104,7 @@ class AppSshTunnel:
             for s in (self.proc.stdout,self.proc.stderr):os.set_blocking(s.fileno(),False)
             captured=b'';end=min(self.deadline,time.monotonic()+60)
             while time.monotonic()<end:
-                if self.proc.poll() is not None:raise TransportHold('KUDU_CHANNEL_CLOSED')
+                if self.proc.poll() is not None:raise TransportHold('SSH_TUNNEL_EXIT_HOLD')
                 for stream in select.select([self.proc.stdout,self.proc.stderr],[],[],.2)[0]:
                     captured=(captured+(stream.read(4096) or b''))[-32768:]
                 match=re.search(rb'username:\s*root\s*,\s*password:\s*([^\s}\r\n]{1,128})',captured,re.I)
@@ -85,17 +114,20 @@ class AppSshTunnel:
                         with socket.create_connection(('127.0.0.1',port),timeout=.2):pass
                         break
                     except OSError:pass
-            else:raise TransportHold('KUDU_CHANNEL_TIMEOUT')
+            else:raise TransportHold('SSH_TUNNEL_TIMEOUT_HOLD')
             self.known_hosts_dir=tempfile.TemporaryDirectory(prefix='fv-g1-hostkey-')
             self.known_hosts=Path(self.known_hosts_dir.name)/'known_hosts'
-            scan=subprocess.run(['ssh-keyscan','-p',str(port),'-t','ed25519','127.0.0.1'],
-                                stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=True)
-            if not scan.stdout or len(scan.stdout)>4096:raise TransportHold('KUDU_CHANNEL_CLOSED')
+            try:
+                scan=subprocess.run(['ssh-keyscan','-p',str(port),'-t','ed25519','127.0.0.1'],
+                                    stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=True)
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
+                raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD') from None
+            validate_host_key_scan(scan.stdout, port)
             fd=os.open(self.known_hosts,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
             with os.fdopen(fd,'wb') as f:f.write(scan.stdout)
             fingerprint=subprocess.run(['ssh-keygen','-lf',str(self.known_hosts)],
                                        capture_output=True,timeout=20,check=True)
-            pinned_host_fingerprint(fingerprint.stdout)
+            validate_tunnel_host_fingerprint(fingerprint.stdout)
             return self
         except TransportHold:
             # Any failure after Popen may leave the Azure tunnel alive.
@@ -104,7 +136,7 @@ class AppSshTunnel:
             raise
         except Exception:
             self.close()
-            raise TransportHold('KUDU_CHANNEL_CLOSED') from None
+            raise TransportHold('SSH_TUNNEL_SETUP_HOLD') from None
 
     def close(self):
         if self.password is not None:
@@ -133,21 +165,25 @@ class SshExecSession(KuduExecSession):
             self.tunnel=AppSshTunnel(self.instance,self.deadline).start()
             argv=ssh_interactive_args(self.tunnel.port,self.tunnel.known_hosts)
             master,slave=pty.openpty()
-            attrs=termios.tcgetattr(slave)
-            # SSH token handoff must not be truncated at PTY canonical 4096B.
-            attrs[3]&=~(termios.ECHO|termios.ICANON)
-            attrs[6][termios.VMIN]=1
-            attrs[6][termios.VTIME]=0
-            termios.tcsetattr(slave,termios.TCSANOW,attrs)
+            self.fd=master  # Superclass closes master even if PTY/SSH setup fails.
             try:
+                attrs=termios.tcgetattr(slave)
+                # SSH token handoff must not be truncated at PTY canonical 4096B.
+                attrs[3]&=~(termios.ECHO|termios.ICANON)
+                attrs[6][termios.VMIN]=1
+                attrs[6][termios.VTIME]=0
+                termios.tcsetattr(slave,termios.TCSANOW,attrs)
                 self.proc=subprocess.Popen(argv,stdin=slave,stdout=slave,stderr=slave,
                                            start_new_session=True)
-            finally:os.close(slave)
-            self.fd=master
+            finally:
+                os.close(slave)
             self.audit.append('PROCESS_START')
+        except TransportHold:
+            self.close()
+            raise
         except Exception:
             self.close()
-            raise TransportHold('KUDU_PROCESS_HOLD') from None
+            raise TransportHold('SSH_SESSION_SPAWN_HOLD') from None
 
     def _await(self,pattern,seconds):
         rx=re.compile(pattern,re.I)

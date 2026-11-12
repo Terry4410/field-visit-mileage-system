@@ -1,0 +1,132 @@
+name: Path B G1 SSH-Kudu offline regressions
+
+on:
+  push:
+    branches:
+      - work/pathb-g1-ssh-failclosed-nondeploy-20261112
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_g1_pinned_ssh.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_pty_safety_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_app_installer_runner.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_blob_guard.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_integrated_delivery.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_contract_20261112.py
+      - .github/workflows/pathb-g1-pr86-offline-tests.yml
+  pull_request:
+    branches:
+      - work/pathb-g1-tool2-preclaim-fix-nondeploy-20261110
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_g1_pinned_ssh.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_pty_safety_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_app_installer_runner.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_blob_guard.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_integrated_delivery.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_contract_20261112.py
+      - .github/workflows/pathb-g1-pr86-offline-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  focused-offline-tests:
+    name: Python stdlib regression tests only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Show changed parent SHA for binding update
+        run: sha256sum scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
+      - name: Compile only changed Python sources and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m py_compile p3_g1_pinned_ssh.py p3_kudu_transport.py test_g1_ssh_failure_classification_20261112.py test_g1_kudu_pty_safety_20261112.py
+      - name: Run exact SSH and Kudu tests (no Azure, SQL, Blob, token or deploy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover \
+            -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 \
+            -p 'test_g1_*_20261112.py' \
+            -v
+      - name: Compile original G1 integration and new Kudu contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m py_compile p3_kudu_cloudshell_parent.py p3_app_installer_runner.py p3_blob_guard.py test_g1_integrated_delivery.py test_g1_kudu_contract_20261112.py
+      - name: Run original G1 integration regression (offline only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover \
+            -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 \
+            -p 'test_g1_integrated_delivery.py' \
+            -v
+      - name: Build deterministic source-only ZIP and verify binding
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib, zipfile, subprocess, os
+          root = pathlib.Path('scripts/nondeploy/pathb_g1_install_acceptance_20261110')
+          binding_path = root / 'binding-index.json'
+          binding = json.loads(binding_path.read_bytes())
+          assert binding['contract'] == 'FIELDVISIT_PATHB_G1_ORIGINAL_BINDING_V1'
+          assert binding['approved_release'] == 'd6c220877b9976b6478d85b5171d4e06293595ae'
+          entries = dict(binding['files'])
+          assert len(entries) >= 20
+          for name, want in entries.items():
+              assert '/' not in name and chr(92) not in name and name not in ('.', '..')
+              p = root / name
+              assert p.is_file() and not p.is_symlink(), name
+              assert hashlib.sha256(p.read_bytes()).hexdigest() == want, name
+          entries['binding-index.json'] = hashlib.sha256(binding_path.read_bytes()).hexdigest()
+          out = pathlib.Path('pathb-g1-pr86-source-only.zip')
+          with zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for name in sorted(entries):
+                  info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                  info.compress_type = zipfile.ZIP_DEFLATED
+                  info.external_attr = 0o100644 << 16
+                  z.writestr(info, (root / name).read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+          with zipfile.ZipFile(out) as z:
+              assert sorted(z.namelist()) == sorted(entries)
+              for name, want in entries.items():
+                  assert hashlib.sha256(z.read(name)).hexdigest() == want
+          sha = hashlib.sha256(out.read_bytes()).hexdigest()
+          provenance = {'scope':'NONDEPLOY_SOURCE_ONLY_NOT_LIVE_DISTRIBUTION',
+              'source_commit':os.environ['SOURCE_HEAD_SHA'],
+              'checkout_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+              'source_zip_sha256':sha,
+              'binding_index_sha256':entries['binding-index.json'],
+              'source_files':len(entries),
+              'azure':'NOT_RUN','token':'NOT_REQUESTED','sql':'NOT_RUN',
+              'ddl':'NOT_RUN','blob':'NOT_TOUCHED','deploy':'NOT_RUN'}
+          pathlib.Path('pathb-g1-pr86-source-provenance.json').write_text(
+              json.dumps(provenance, indent=2, sort_keys=True) + chr(10))
+          print('SOURCE_ONLY_ZIP_SHA256=' + sha)
+          print('BINDING_INDEX_SHA256=' + entries['binding-index.json'])
+          print('SOURCE_FILE_COUNT=' + str(len(entries)))
+          print('LIVE_INSTALL_DISTRIBUTION=NOT_BUILT')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-g1-pr86-nondeploy-source
+          path: |
+            pathb-g1-pr86-source-only.zip
+            pathb-g1-pr86-source-provenance.json
+          retention-days: 30
+          if-no-files-found: error

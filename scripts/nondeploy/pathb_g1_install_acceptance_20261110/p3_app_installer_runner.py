@@ -15,7 +15,7 @@ ROOT=Path('/tmp/fv-pathb-g1-original-installer-20261110-work')
 RAM=Path('/dev/shm/fv-pathb-g1-original-installer-20261110')
 SERVER='sql-fieldvisit-jpe-pathb-uat.database.windows.net'
 DATABASE='db-fieldvisit-pathb-uat'
-EXPECTED_APPROVAL='OWNER_APPROVED_PATHB_G1_ORIGINAL_INSTALLER_SINGLE'
+EXPECTED_APPROVAL='OWNER_APPROVED_PATHB_G1_KUDU_NEW_EXACT_ONCE'
 RUNTIME_OWNER=b'FIELDVISIT_PATHB_G1_ORIGINAL_INSTALLER_V1\n'
 INSTALLER_GROUP_CLEARED=True
 
@@ -42,7 +42,7 @@ def verify_authorization(auth,artifact_sha,binding_sha,instance_sha,now=None):
         'server','database','installation_attempts','instance_sha256',
         'not_before','expires_at','operation_id'},'OWNER_AUTHORIZATION_SHAPE')
     require(auth.get('decision')==EXPECTED_APPROVAL,'OWNER_AUTHORIZATION_MISSING')
-    require(auth.get('contract')=='FIELDVISIT_PATHB_G1_INSTALL_V1','OWNER_AUTHORIZATION_CONTRACT')
+    require(auth.get('contract')=='FIELDVISIT_PATHB_G1_KUDU_INSTALL_V1','OWNER_AUTHORIZATION_CONTRACT')
     require(auth.get('artifact_sha256')==artifact_sha,'OWNER_ARTIFACT_NOT_APPROVED')
     require(auth.get('binding_index_sha256')==binding_sha,'OWNER_BINDING_NOT_APPROVED')
     require(auth.get('server')==SERVER and auth.get('database')==DATABASE,'OWNER_TARGET_NOT_APPROVED')
@@ -231,7 +231,7 @@ def verified_pre_ddl_gates(evidence, *, sql_expires, storage_expires, deadline, 
     observed={
         'EXACT_ORIGINAL_PACKAGE': evidence.get('package_sha_verified') is True,
         'MANIFEST_SEAL_14_LAYERS': evidence.get('seal_and_layers_verified') is True,
-        'PROTECTED_OWNER_SSH': evidence.get('protected_ssh_stage_verified') is True,
+        'PROTECTED_OWNER_KUDU': evidence.get('protected_kudu_stage_verified') is True,
         'OWNER_SQL_TOKEN_TTL': (evidence.get('owner_sql_token_verified') is True and
                                  sql_expires-now_wall>=required_time+300 and
                                  storage_expires-now_wall>=300),
@@ -258,10 +258,10 @@ def run(args):
         require(not os.path.lexists(ROOT) and not os.path.lexists(RAM),'STALE_RUNTIME_STATE')
         ROOT.mkdir(mode=0o700);RAM.mkdir(mode=0o700)
         private_write(ROOT/'.fv-p3-owned',RUNTIME_OWNER);private_write(RAM/'.fv-p3-owned',RUNTIME_OWNER)
-        require(facts=={'server':SERVER,'database':DATABASE,'app':'api-fieldvisit-pathb-uat','pna':'Disabled','firewall_count':0,'owner_admin_match':True,'private_sql_ip':'10.90.2.4','ssh_transport':'OFFICIAL_AZ_WEBAPP_SSH_PINNED_V1','instance_sha256':facts.get('instance_sha256'),'observed_at':facts.get('observed_at')},'MANAGEMENT_FACTS')
+        require(facts=={'server':SERVER,'database':DATABASE,'app':'api-fieldvisit-pathb-uat','pna':'Disabled','firewall_count':0,'owner_admin_match':True,'private_sql_ip':'10.90.2.4','exec_transport':'OFFICIAL_AZ_WEBAPP_EXEC_APP_KUDU_V1','instance_sha256':facts.get('instance_sha256'),'observed_at':facts.get('observed_at')},'MANAGEMENT_FACTS')
         require(re.fullmatch(r'[a-f0-9]{64}',str(facts['instance_sha256'])) is not None,'MANAGEMENT_FACTS')
         require(0<=time.time()-float(facts['observed_at'])<=180,'MANAGEMENT_FACTS_STALE')
-        ips={x[4][0] for x in socket.getaddrinfo(SERVER,1433,type=socket.SOCK_STREAM)};require(ips=={facts['private_sql_ip']},'PRIVATE_DNS');evidence.update(private_dns_verified=True,protected_ssh_stage_verified=(facts['ssh_transport']=='OFFICIAL_AZ_WEBAPP_SSH_PINNED_V1'))
+        ips={x[4][0] for x in socket.getaddrinfo(SERVER,1433,type=socket.SOCK_STREAM)};require(ips=={facts['private_sql_ip']},'PRIVATE_DNS');evidence.update(private_dns_verified=True,protected_kudu_stage_verified=(facts['exec_transport']=='OFFICIAL_AZ_WEBAPP_EXEC_APP_KUDU_V1'))
         validate_local_source(HERE)
         package=(HERE/'original.zip').read_bytes();seal=(HERE/'original.seal.json').read_bytes()
         require(digest(package)==cfg['package_sha256'] and digest(seal)==cfg['seal_sha256'],'ORIGINAL_BLOB_HASH')
