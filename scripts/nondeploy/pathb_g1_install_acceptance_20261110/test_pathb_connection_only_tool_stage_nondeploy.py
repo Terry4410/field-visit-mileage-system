@@ -99,6 +99,51 @@ class OfflineStageTests(unittest.TestCase):
         with self.assertRaisesRegex(stage.OfflineHold, "HOLD_EXTRACTED_LINK"):
             stage.stage_offline(self.cfg, self.debs, extractor=bad_extractor)
 
+
+    def test_exact_microsoft_driver_registration_links_rebased_safely(self):
+        unpack = self.root / "exact-links"
+        unpack.mkdir()
+        self.extract(self.debs / "msodbcsql18.deb", unpack)
+        hashes_before = {item["name"]: digest(
+            (self.debs / (item["name"] + ".deb")).read_bytes())
+            for item in self.cfg["tools"]}
+        for rel in stage.MSODBC_REGISTRATION_LINKS:
+            link = unpack / rel
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to("/" + stage.TOOL_FILE_NAMES[0])
+        stage.normalize_pinned_msodbc_registration_links(unpack, self.cfg)
+        stage.inspect_extracted_paths(unpack)
+        driver = unpack / stage.TOOL_FILE_NAMES[0]
+        for rel in stage.MSODBC_REGISTRATION_LINKS:
+            link = unpack / rel
+            self.assertTrue(link.is_symlink())
+            self.assertFalse(os.path.isabs(os.readlink(link)))
+            self.assertEqual(link.resolve(strict=True), driver.resolve(strict=True))
+        self.assertEqual(hashes_before, {item["name"]: digest(
+            (self.debs / (item["name"] + ".deb")).read_bytes())
+            for item in self.cfg["tools"]})
+
+    def test_unknown_absolute_registration_link_remains_forbidden(self):
+        unpack = self.root / "unknown-link"
+        unpack.mkdir()
+        self.extract(self.debs / "msodbcsql18.deb", unpack)
+        link = unpack / stage.MSODBC_REGISTRATION_LINKS[0]
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to("/etc/passwd")
+        with self.assertRaisesRegex(stage.OfflineHold, "^HOLD_EXTRACTED_LINK$"):
+            stage.normalize_pinned_msodbc_registration_links(unpack, self.cfg)
+
+    def test_rebased_driver_link_fails_if_driver_sha_is_wrong(self):
+        unpack = self.root / "hash-mismatch"
+        unpack.mkdir()
+        self.extract(self.debs / "msodbcsql18.deb", unpack)
+        (unpack / stage.TOOL_FILE_NAMES[0]).write_bytes(b"not pinned")
+        link = unpack / stage.MSODBC_REGISTRATION_LINKS[0]
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to("/" + stage.TOOL_FILE_NAMES[0])
+        with self.assertRaisesRegex(stage.OfflineHold, "^HOLD_PINNED_DRIVER_HASH$"):
+            stage.normalize_pinned_msodbc_registration_links(unpack, self.cfg)
+
     def test_unexpected_binary_list_fails(self):
         self.cfg["tool_files"]["unexpected/path"] = digest(b"foo")
         with self.assertRaisesRegex(stage.OfflineHold, "HOLD_BINARY_LIST"):
