@@ -18,32 +18,13 @@ class HandoffHold(Exception):
     pass
 
 
-def handoff_once(session, *, stage_bytes, stage_sha, nonce, sql_token):
-    """One fixed stage, one remote receiver, one nonce-bound SQL Token frame.
+def handoff_once(*args, **kwargs):
+    """Obsolete direct-Token flow is prohibited: no durable Blob Claim proof.
 
-    Session start/identity/SSH trust and Token acquisition must ALREADY
-    have been approved and independently bound. No automatic retry.
+    This retained symbol only fails closed for compatibility with offline
+    callers. Never stage, request a token or execute SQL through this path.
     """
-    if (not isinstance(session, Select22StageSession)
-            or session.state.state != "CHANNEL"
-            or session.state.attempts != 1):
-        raise HandoffHold("CHANNEL_NOT_BOUND")
-    try:
-        # Stage SHA is verified against actual bytes BEFORE any stage transfer.
-        session.stage_select22_archive(stage_bytes, stage_sha)
-        session.send_public(select22_remote_command(nonce),
-                            "SELECT22_REMOTE_COMMAND_SENT")
-        expect_ready(session)
-        session.send_select22_frame_once(sql_token, nonce)
-        session.mark_sql_started()
-        receipt = read_status(session)
-        # COMPLETE means sanitized receipt obtained, NOT schema/SQL success.
-        session.mark_complete()
-        return receipt
-    except Exception:
-        session.state.unknown()
-        raise HandoffHold("SELECT22_HANDOFF_HOLD") from None
-
+    raise HandoffHold("EXTERNAL_STORAGE_CLAIM_REQUIRED")
 
 
 def handoff_after_storage_claim_once(
