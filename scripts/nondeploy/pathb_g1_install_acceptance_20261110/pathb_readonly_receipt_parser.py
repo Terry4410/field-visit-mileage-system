@@ -6,6 +6,7 @@ An empty result, ambiguous rows, or a partial schema fails closed.
 from dataclasses import dataclass
 
 EXPECTED_DB = 'db-fieldvisit-pathb-uat'
+EXPECTED_SERVER = 'sql-fieldvisit-jpe-pathb-uat'
 COUNTS = (7, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)
 EXPECTED_COLUMNS = 22
 
@@ -30,7 +31,9 @@ def parse_preflight(raw):
         parts = [p.strip() for p in lines[0].split('|')]
         if len(parts) != EXPECTED_COLUMNS or parts[0] != 'FV_SQL':
             raise ValueError('columns')
-        if parts[2] != EXPECTED_DB or not parts[1] or parts[3] != '5':
+        if (parts[2] != EXPECTED_DB or
+                parts[1].lower().split('.')[0] != EXPECTED_SERVER or
+                parts[3] != '5'):
             raise ValueError('target')
         if not parts[4] or not all(c in '0123456789abcdefABCDEF' for c in parts[4]):
             raise ValueError('sid-shape')
