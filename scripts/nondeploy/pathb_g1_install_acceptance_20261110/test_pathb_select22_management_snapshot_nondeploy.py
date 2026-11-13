@@ -25,9 +25,9 @@ class SnapshotTests(unittest.TestCase):
         supplied.update(changes)
         # The test never uses real Owner IDs or credentials: only fake digests.
         with patch("p3_ssh_transport_contract.SUB_SHA",
-                   gate._hash(self.account["id"])), \\
+                   gate._hash(self.account["id"])), \
              patch("p3_ssh_transport_contract.TENANT_SHA",
-                   gate._hash(self.account["tenantId"])), \\
+                   gate._hash(self.account["tenantId"])), \
              patch.object(gate, "OWNER_SHA", gate._hash(self.owner["id"])):
             return gate.verify_snapshot(**supplied)
 
