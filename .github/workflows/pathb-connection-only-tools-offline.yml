@@ -130,12 +130,22 @@ jobs:
           from pathb_connection_only_tool_stage_nondeploy import load_bound_config
           from pathb_select22_isolated_stage_nondeploy import build_stage, verify_stage
 
-          class NoRedirect(HTTPRedirectHandler):
-              def redirect_request(self, *args, **kwargs):
-                  return None
+          class HTTPSOnlyRedirect(HTTPRedirectHandler):
+              def __init__(self):
+                  super().__init__()
+                  self.redirects = 0
+
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  dest = urlparse(newurl)
+                  self.redirects += 1
+                  if (self.redirects > 3 or dest.scheme != "https"
+                      or not dest.hostname or dest.username or dest.password
+                      or dest.port not in (None, 443)):
+                      raise ValueError("OFFICIAL_REDIRECT_HOLD")
+                  return super().redirect_request(req, fp, code, msg, headers, newurl)
 
           config = load_bound_config()
-          opener = build_opener(NoRedirect, HTTPSHandler(context=ssl.create_default_context()))
+          opener = build_opener(HTTPSOnlyRedirect(), HTTPSHandler(context=ssl.create_default_context()))
           output = Path(os.environ["GITHUB_WORKSPACE"]) / "select22-verified"
           output.mkdir(mode=0o700)
           with tempfile.TemporaryDirectory(prefix="select22-pinned-debs-") as temp:
@@ -165,8 +175,10 @@ jobs:
                                   raise ValueError("PACKAGE_OVERSIZE")
                               digest.update(chunk)
                               fout.write(chunk)
-                  except Exception:
-                      raise SystemExit("OFFICIAL_PACKAGE_RETRIEVAL_HOLD_" + name) from None
+                  except Exception as exc:
+                      code = getattr(exc, "code", None)
+                      reason = ("HTTP_" + str(code)) if type(code) is int else "TRANSPORT_OR_REDIRECT"
+                      raise SystemExit("OFFICIAL_PACKAGE_RETRIEVAL_HOLD_" + name + "_" + reason) from None
                   if digest.hexdigest() != item["sha256"]:
                       raise SystemExit("PINNED_PACKAGE_SHA_HOLD_" + name)
                   print("VERIFIED_OFFICIAL_DEB_" + name.replace("-", "_").upper() + "=PASS")
