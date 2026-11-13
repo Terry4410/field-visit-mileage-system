@@ -5,8 +5,8 @@ No live CLI, Azure management, SSH, downloader, Blob, installer or SQL on import
 Only an independently reviewed, explicit caller may call run_once after it has
 authenticated and pinned the private App channel, identity and target instance.
 
-Reuses exact bound G1 tooling + SQL bytes, existing durable one-use claim,
-existing SQL-client process-group guard and redacting receipt parser.
+Reuses exact bound G1 tooling + SQL bytes and the existing one-use claim,
+with an isolated SELECT-only SQL process-group guard and redacting parser.
 NOT approved for live execution merely because tests pass.
 """
 from __future__ import annotations
@@ -28,9 +28,8 @@ from pathb_readonly_isolated_gate import verify as verify_exact_query
 from pathb_readonly_receipt_parser import parse_preflight, ReceiptHold
 from pathb_readonly_sql_contract import sqlcmd_argv
 from p3_ssh_transport_contract import validate_owner_token
-# Importing the frozen G1 child has no live side effects. ONLY its bounded
-# sql_call process-group guard is reused; never call its run/main/installer.
-from p3_app_installer_runner import sql_call
+# Narrow SELECT-only process guard: no G1 Installer/Blob imports.
+from pathb_select22_bounded_sql_nondeploy import sql_select22_once
 
 
 class Select22Hold(Exception):
@@ -131,9 +130,8 @@ def run_once(*, debs_dir, claim_dir, sql_token, invoke_sql=None):
                     handle.flush()
                     os.fsync(handle.fileno())
                 sql_token = None
-                # The original G1 sql_call uses a managed subprocess group,
-                # bounded communication and *no* retry. It never runs Installer.
-                caller = invoke_sql if invoke_sql is not None else sql_call
+                # Isolated SELECT-only process guard: bounded group and no retry.
+                caller = invoke_sql if invoke_sql is not None else sql_select22_once
                 raw = caller(binary, env, token_path, sql,
                              time.monotonic() + 110, 1)
                 _require(isinstance(raw, bytes) and len(raw) <= 8192,
