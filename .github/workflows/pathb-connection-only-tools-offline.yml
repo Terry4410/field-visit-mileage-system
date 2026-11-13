@@ -1,0 +1,60 @@
+name: Path B Connection Only G1 tool stage OFFLINE
+on:
+  push:
+    branches:
+      - work/pathb-connection-only-offline-plan-20261113
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_connection_only_tool_stage_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_connection_only_tool_stage_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/CONNECTION_ONLY_OFFLINE_PLAN.md
+      - .github/workflows/pathb-connection-only-tools-offline.yml
+  pull_request:
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_connection_only_tool_stage_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_connection_only_tool_stage_nondeploy.py
+      - .github/workflows/pathb-connection-only-tools-offline.yml
+permissions:
+  contents: read
+jobs:
+  verify-stdlib-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify frozen G1 files remain bound
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          base=pathlib.Path("scripts/nondeploy/pathb_g1_install_acceptance_20261110")
+          binding=json.loads((base/"binding-index.json").read_text())
+          mismatches=[name for name,want in binding["files"].items()
+                      if hashlib.sha256((base/name).read_bytes()).hexdigest()!=want]
+          print("FROZEN_BINDING_MISMATCH_COUNT="+str(len(mismatches)))
+          assert not mismatches
+          PY
+      - name: Offline stdlib unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m py_compile pathb_connection_only_tool_stage_nondeploy.py test_pathb_connection_only_tool_stage_nondeploy.py
+          python3 -m unittest -v test_pathb_connection_only_tool_stage_nondeploy.py
+          python3 pathb_connection_only_tool_stage_nondeploy.py --check-config
+      - name: Missing debs fail closed, zero connections
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          set +e
+          output=$(python3 pathb_connection_only_tool_stage_nondeploy.py --offline-stage --debs-dir /nonexistent-pathb-debs)
+          code=$?
+          set -e
+          test "$code" -eq 1
+          printf '%s\n' "$output" | grep -Fx 'TOOL_STAGE=HOLD_DEBS_ABSENT'
+          printf '%s\n' "$output" | grep -Fx 'SQL_CONNECTION=NO'
+          echo 'MISSING_PACKAGE_FAIL_CLOSED=PASS'
+          echo 'AZURE_TOKEN_SQL_INSTALLER_BLOB=NOT_RUN'
