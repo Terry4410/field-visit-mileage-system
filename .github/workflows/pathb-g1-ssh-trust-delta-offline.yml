@@ -68,6 +68,13 @@ jobs:
               for name, expected in binding['files'].items():
                   assert hashlib.sha256(z.read(name)).hexdigest() == expected, name
               assert z.read('binding-index.json') == index.read_bytes()
+          import sys
+          sys.path.insert(0, str(root.resolve()))
+          from p3_kudu_cloudshell_parent import validate_binding, validate_distribution_archive
+          parent_binding, parent_sha = validate_binding(root)
+          assert parent_sha == hashlib.sha256(index.read_bytes()).hexdigest()
+          validate_distribution_archive(output, parent_binding)
+          print('PARENT_NATIVE_DISTRIBUTION_VERIFY=PASS')
           print('CANDIDATE_BINDING_SHA256=' + hashlib.sha256(index.read_bytes()).hexdigest())
           print('CANDIDATE_DISTRIBUTION_SHA256=' + hashlib.sha256(output.read_bytes()).hexdigest())
           print('CANDIDATE_MEMBERS=' + str(len(members)))
