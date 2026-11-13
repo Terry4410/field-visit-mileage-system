@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parent
-HOST_FP = 'SHA256:qlMlSfV+nfx3Y5BdqQC+4WY1VFChCdRZMjqE+T/NgOI'
+HOST_FP = 'SHA256:FKM/np9YzcuZaOsPqy3TL4gcae0szuZ3Z0dEG06KyZk'
 CODES = {
     'SSH_OWNER_CONTEXT_HOLD', 'SSH_TUNNEL_EXIT_HOLD',
     'SSH_TUNNEL_TIMEOUT_HOLD', 'SSH_TUNNEL_SETUP_HOLD',
