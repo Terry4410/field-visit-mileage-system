@@ -102,3 +102,89 @@ jobs:
           printf '%s\n' "$output" | grep -Fx 'SQL_CONNECTION=NO'
           echo 'MISSING_PACKAGE_FAIL_CLOSED=PASS'
           echo 'AZURE_TOKEN_SQL_INSTALLER_BLOB=NOT_RUN'
+
+  build-verified-real-stage:
+    name: Build real pinned Select22 NONDEPLOY stage
+    if: github.event_name == 'push'
+    needs: verify-stdlib-only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One-time pinned official .deb retrieval and exact ZIP verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import ssl
+          import tempfile
+          from urllib.parse import urlparse
+          from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+
+          from pathb_connection_only_tool_stage_nondeploy import load_bound_config
+          from pathb_select22_isolated_stage_nondeploy import build_stage, verify_stage
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          config = load_bound_config()
+          opener = build_opener(NoRedirect, HTTPSHandler(context=ssl.create_default_context()))
+          output = Path(os.environ["GITHUB_WORKSPACE"]) / "select22-verified"
+          output.mkdir(mode=0o700)
+          with tempfile.TemporaryDirectory(prefix="select22-pinned-debs-") as temp:
+              debdir = Path(temp)
+              for item in config["tools"]:
+                  name = item["name"]
+                  parsed = urlparse(item["url"])
+                  if (parsed.scheme != "https"
+                      or parsed.hostname not in {"packages.microsoft.com", "deb.debian.org"}
+                      or parsed.port not in (None, 443)
+                      or parsed.username or parsed.password or parsed.query or parsed.fragment
+                      or not parsed.path.endswith(".deb")):
+                      raise SystemExit("OFFICIAL_PACKAGE_URL_HOLD")
+                  target = debdir / (name + ".deb")
+                  digest = hashlib.sha256()
+                  total = 0
+                  try:
+                      with opener.open(Request(item["url"], headers={"User-Agent": "PathB-SELECT22-pinned-nondeploy"}), timeout=30) as response, target.open("xb") as fout:
+                          if response.status != 200:
+                              raise ValueError("HTTP_NOT_200")
+                          while True:
+                              chunk = response.read(1024 * 1024)
+                              if not chunk:
+                                  break
+                              total += len(chunk)
+                              if total > 75_000_000:
+                                  raise ValueError("PACKAGE_OVERSIZE")
+                              digest.update(chunk)
+                              fout.write(chunk)
+                  except Exception:
+                      raise SystemExit("OFFICIAL_PACKAGE_RETRIEVAL_HOLD_" + name) from None
+                  if digest.hexdigest() != item["sha256"]:
+                      raise SystemExit("PINNED_PACKAGE_SHA_HOLD_" + name)
+                  print("VERIFIED_OFFICIAL_DEB_" + name.replace("-", "_").upper() + "=PASS")
+              stage, sha = build_stage(debdir)
+              receipt = verify_stage(stage, sha)
+              if receipt["packages"] != 5:
+                  raise SystemExit("STAGE_PACKAGE_COUNT_HOLD")
+              (output / "select22-stage.zip").write_bytes(stage)
+              (output / "SHA256SUMS.txt").write_text(sha + "  select22-stage.zip\n", encoding="ascii")
+              print("SELECT22_REAL_STAGE_SHA256=" + sha)
+              print("SELECT22_REAL_STAGE_BYTES=" + str(len(stage)))
+              print("ORIGINAL_INSTALLER=NOT_INCLUDED")
+              print("AZURE_BLOB_SQL_TOKEN_DDL_DEPLOY=NOT_RUN")
+          PY
+      - name: Publish SHA-verified NONDEPLOY delivery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-select22-verified-stage
+          path: select22-verified/
+          if-no-files-found: error
+          retention-days: 7
