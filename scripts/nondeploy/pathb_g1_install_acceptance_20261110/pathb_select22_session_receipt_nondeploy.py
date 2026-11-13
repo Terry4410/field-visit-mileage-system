@@ -11,10 +11,11 @@ from p3_kudu_transport import TransportHold
 from pathb_select22_receipt_bridge_nondeploy import PREFIX, parse_receipt
 
 READY = b"FV_SELECT22_READY"
+EARLY_HOLD = b'FV_SELECT22_SANITIZED_V1={"status":"HOLD"}'
 MAX_BUFFER = 8192
 
 
-def _read_matching_line(session, match, seconds):
+def _read_matching_line(session, match, seconds, *, abort_on_early_hold=False):
     end = min(session.deadline, time.monotonic() + seconds)
     while time.monotonic() < end:
         session._check_secret_echo()
@@ -24,6 +25,8 @@ def _read_matching_line(session, match, seconds):
                 break
             cursor += len(raw)
             line = raw[:-1].removesuffix(b"\r")
+            if abort_on_early_hold and line == EARLY_HOLD:
+                raise TransportHold("PROTOCOL_STATE_HOLD")
             if match(line):
                 session.buffer = session.buffer[cursor:]
                 return line + b"\n"
@@ -46,7 +49,8 @@ def _read_matching_line(session, match, seconds):
 def expect_ready(session):
     if session.state.state != "STAGED":
         raise TransportHold("PROTOCOL_STATE_HOLD")
-    _read_matching_line(session, lambda line: line == READY, 45)
+    _read_matching_line(session, lambda line: line == READY, 45,
+                        abort_on_early_hold=True)
     session.audit.append("SELECT22_READY")
 
 
