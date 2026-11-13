@@ -156,5 +156,62 @@ def run_once(*, debs_dir, claim_dir, sql_token, invoke_sql=None):
         raise Select22Hold("SELECT22_ONCE_HOLD") from None
 
 
+
+def run_after_external_claim_once(*, debs_dir, sql_token, invoke_sql=None):
+    """App-side SELECT22 after the trusted Parent confirmed a durable Blob claim.
+
+    SECURITY BOUNDARY: this App method does NOT authorize or create the Blob.
+    The separately reviewed, pinned-SSH Owner Parent MUST first consume and
+    independently GET-verify the exact external Blob claim BEFORE requesting
+    the SQL Token. No standalone Live CLI is exposed here. The old /home
+    POSIX once-guard is NOT weakened or used in this separate mode.
+
+    Only a short-lived 0600 SQL Token file is created in /dev/shm and
+    deleted before returning. /dev/shm is NEVER treated as a durable claim.
+    """
+    try:
+        _require(isinstance(sql_token, str), "TOKEN_SHAPE_HOLD")
+        cfg = load_bound_config()
+        gates = verify_exact_query()
+        _require(gates["PINNED_SQL"] == "PASS", "SQL_BINDING_HOLD")
+        root = Path(__file__).resolve().parent
+        sql = (root / "preflight.sql").read_bytes()
+        _require(sha256_file(root / "preflight.sql") == cfg["preflight_sha256"],
+                 "SQL_HASH_HOLD")
+        validate_owner_token(sql_token, "sql", time.time())
+        _require(len(verify_packages(Path(debs_dir), cfg)) == 5,
+                 "TOOLS_NOT_READY_HOLD")
+        with tempfile.TemporaryDirectory(prefix="fv-pathb-select22-tool-") as tooltmp, \
+             tempfile.TemporaryDirectory(prefix="fv-pathb-select22-token-",
+                                         dir="/dev/shm") as secret_tmp:
+            toolroot = Path(tooltmp)
+            secretroot = Path(secret_tmp)
+            _require(stat.S_IMODE(secretroot.stat().st_mode) == 0o700
+                     and secretroot.stat().st_uid == os.geteuid(),
+                     "TOKEN_TEMP_DIR_HOLD")
+            binary, env = _stage_verified_tools(cfg, debs_dir, toolroot)
+            tokenfile = secretroot / "sql-token"
+            sqlcmd_argv(binary, tokenfile, sql)
+            fd = os.open(tokenfile,
+                         os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                         getattr(os, "O_NOFOLLOW", 0),
+                         0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(sql_token.encode("utf-16le"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            sql_token = None
+            caller = invoke_sql if invoke_sql is not None else sql_select22_once
+            raw = caller(binary, env, tokenfile, sql,
+                         time.monotonic() + 110, 1)
+            _require(type(raw) is bytes and len(raw) <= 8192,
+                     "SQL_RESULT_SHAPE_HOLD")
+            return parse_preflight(raw)
+    except Exception:
+        # Keep both raw SQL output and any secret from exception output.
+        raise Select22Hold("SELECT22_EXTERNAL_CLAIM_APP_HOLD") from None
+    finally:
+        sql_token = None
+
 if __name__ == "__main__":
     raise SystemExit("NONDEPLOY_NO_LIVE_ENTRYPOINT")
