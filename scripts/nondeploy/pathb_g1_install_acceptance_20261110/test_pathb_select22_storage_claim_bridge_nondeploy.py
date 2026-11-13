@@ -32,9 +32,7 @@ class LazyBridgeTests(unittest.TestCase):
         self.assertEqual(self.events, [])
 
     def test_one_token_after_put_begins_and_before_get(self):
-        with mock.patch.object(bridge, "exact_https_response",
-                               wraps=bridge.exact_https_response), \\
-             mock.patch("pathb_select22_storage_https_nondeploy.validate_owner_token",
+        with mock.patch("pathb_select22_storage_https_nondeploy.validate_owner_token",
                         return_value=True):
             result = self.guard().consume(self.claim)
         self.assertEqual(result["claim"], "PASS")
