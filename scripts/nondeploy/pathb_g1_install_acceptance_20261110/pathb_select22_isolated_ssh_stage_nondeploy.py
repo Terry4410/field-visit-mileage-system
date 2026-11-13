@@ -54,7 +54,7 @@ class Select22StageSession(Select22SshSession):
             self.state.advance("CHANNEL", "STAGED")
         except Exception:
             self.state.unknown()
-            raise TransportHold("STAGE_CHANNEL_HOLD") from None
+            raise TransportHold("KUDU_CHANNEL_CLOSED") from None
 
     def stage_archive(self, *args, **kwargs):
         """Disable inherited G1 installer stage path."""
