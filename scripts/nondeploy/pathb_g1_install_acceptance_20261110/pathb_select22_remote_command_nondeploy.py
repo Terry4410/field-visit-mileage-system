@@ -21,7 +21,7 @@ class RemoteCommandHold(Exception):
 
 
 def _source(nonce, stage_root):
-    return f'''import sys\nsys.path.insert(0,{stage_root!r})\nsys.stdout.buffer.write(b"FV_SELECT22_READY\\\\n");sys.stdout.buffer.flush()\ntry:\n from pathb_select22_receipt_bridge_nondeploy import app_receive_once\n frame=sys.stdin.buffer.readline(17001)\n out=app_receive_once(frame,{nonce!r},debs_dir={stage_root!r}+"/debs",claim_dir={CLAIM_DIR!r})\nexcept Exception:\n out={HOLD_WIRE!r}\nsys.stdout.buffer.write(out);sys.stdout.buffer.flush()\n'''
+    return f'''import sys\nsys.path.insert(0,{stage_root!r})\nsys.stdout.buffer.write(b"FV_SELECT22_READY\\n");sys.stdout.buffer.flush()\ntry:\n from pathb_select22_receipt_bridge_nondeploy import app_receive_once\n frame=sys.stdin.buffer.readline(17001)\n out=app_receive_once(frame,{nonce!r},debs_dir={stage_root!r}+"/debs",claim_dir={CLAIM_DIR!r})\nexcept Exception:\n out={HOLD_WIRE!r}\nsys.stdout.buffer.write(out);sys.stdout.buffer.flush()\n'''
 
 
 def select22_remote_command(nonce):
