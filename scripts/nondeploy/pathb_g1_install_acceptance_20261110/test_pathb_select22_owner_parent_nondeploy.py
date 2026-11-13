@@ -6,6 +6,7 @@ from unittest import mock
 import pathb_select22_owner_parent_nondeploy as parent
 from pathb_select22_isolated_ssh_stage_nondeploy import Select22StageSession
 from pathb_select22_storage_once_nondeploy import OnceGuard
+from pathb_select22_management_snapshot_nondeploy import VerifiedManagement
 
 
 class ParentTests(unittest.TestCase):
@@ -19,6 +20,9 @@ class ParentTests(unittest.TestCase):
         self.e = parent.Evidence(
             parent.TARGET, parent.OWNER_SHA, self.digest,
             hashlib.sha256(self.session.instance.lower().encode()).hexdigest(),
+            VerifiedManagement(self.session.instance,
+                               hashlib.sha256(self.session.instance.lower().encode()).hexdigest(),
+                               parent.TARGET[1], parent.TARGET[2]),
             True, True, True, True, True, True, True, True)
 
     def test_composition_propagates_only_after_exact_gates(self):
@@ -49,6 +53,12 @@ class ParentTests(unittest.TestCase):
                         parent.preflight(replace(self.e, **{flag: False}),
                                          self.stage, self.session, self.guard,
                                          lambda: None)
+
+    def test_missing_management_snapshot_fails_closed(self):
+        with mock.patch.object(parent, "STAGE_SHA", self.digest):
+            with self.assertRaises(parent.ParentHold):
+                parent.preflight(replace(self.e, management_snapshot=None),
+                                 self.stage, self.session, self.guard, lambda: None)
 
     def test_wrong_identity_instance_or_target_rejected(self):
         with mock.patch.object(parent, "STAGE_SHA", self.digest):
