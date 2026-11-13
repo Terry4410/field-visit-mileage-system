@@ -9,7 +9,7 @@ staging remain OUTSIDE this module. No install path exists.
 import json
 
 from pathb_readonly_stdin_frame_20261113 import decode_frame
-from pathb_select22_app_once_candidate import run_once
+from pathb_select22_app_once_candidate import run_once, run_after_external_claim_once
 
 
 PREFIX = b"FV_SELECT22_SANITIZED_V1="
@@ -82,6 +82,28 @@ def app_receive_once(frame, expected_nonce, *, debs_dir, claim_dir,
         # Never expose raw token, SQL row, session SID, or transport error.
         return encode_receipt(HOLD)
 
+
+
+def app_receive_after_external_claim(frame, expected_nonce, *, debs_dir,
+                                     invoke_sql=None):
+    """New App receiver only for a separately verified external-claim Parent.
+
+    This method does not check or mutate the Blob. The approved Owner Parent
+    MUST confirm the exact-key conditional PUT and matching GET BEFORE
+    requesting SQL Token and delivering the nonce-bound frame over pinned SSH.
+    The App creates only a short-lived token file, no local durable claim.
+    """
+    try:
+        token = decode_frame(frame, expected_nonce)
+        receipt = run_after_external_claim_once(
+            debs_dir=debs_dir, sql_token=token, invoke_sql=invoke_sql)
+        return encode_receipt({
+            "status": "PASS", "sql_target": receipt.sql_target,
+            "connection": receipt.connection, "schema": receipt.schema,
+            "next_action": receipt.next_action,
+        })
+    except Exception:
+        return encode_receipt(HOLD)
 
 if __name__ == "__main__":
     raise SystemExit("NONDEPLOY_NO_LIVE_ENTRYPOINT")
