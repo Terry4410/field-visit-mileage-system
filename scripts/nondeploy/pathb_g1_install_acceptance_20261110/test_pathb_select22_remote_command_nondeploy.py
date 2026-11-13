@@ -95,7 +95,7 @@ class CommandTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0)
             self.assertEqual(
                 completed.stdout,
-                candidate.HOLD_WIRE)
+                b"FV_SELECT22_READY\n" + candidate.HOLD_WIRE)
             self.assertNotIn(TOKEN.encode(), completed.stdout)
             self.assertEqual(completed.stderr, b"")
 
@@ -111,9 +111,8 @@ class CommandTests(unittest.TestCase):
                 capture_output=True, timeout=5)
             self.assertEqual(completed.returncode, 0)
             self.assertNotIn(b"private error", completed.stdout)
-            self.assertEqual(
-                completed.stdout,
-                b'FV_SELECT22_READY\nFV_SELECT22_SANITIZED_V1={"status":"HOLD"}\n')
+            self.assertEqual(completed.stdout, candidate.HOLD_WIRE)
+            self.assertNotIn(b"FV_SELECT22_READY", completed.stdout)
 
 
 if __name__ == "__main__":
