@@ -168,5 +168,39 @@ class CandidateTests(unittest.TestCase):
         self.assertIn("NONDEPLOY_NO_LIVE_ENTRYPOINT", Path(candidate.__file__).read_text())
 
 
+
+    def test_external_blob_claim_mode_uses_ephemeral_token_only(self):
+        # This App path is only safe after a separately verified Owner Parent
+        # durable Blob claim; no standalone Live CLI exists.
+        with mock.patch.object(candidate, "_check_private_claim_dir",
+                               side_effect=AssertionError("no CIFS claim allowed")):
+            receipt = candidate.run_after_external_claim_once(
+                debs_dir=self.debs, sql_token=self.token, invoke_sql=self.invoke)
+        self.assertEqual(receipt.schema, "EMPTY_CANDIDATE")
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse(self.calls[0][2].exists())
+        self.assertFalse((self.claim_dir / "readonly-sql-attempt-spent").exists())
+
+    def test_external_mode_one_failing_sql_call_cleans_secret_and_does_not_retry(self):
+        seen = []
+        def fail(binary, env, tokenfile, sql, deadline, index):
+            seen.append(tokenfile)
+            self.assertTrue(tokenfile.is_file())
+            raise TimeoutError("sensitive auth unknown")
+        with self.assertRaisesRegex(candidate.Select22Hold,
+                                    "^SELECT22_EXTERNAL_CLAIM_APP_HOLD$"):
+            candidate.run_after_external_claim_once(
+                debs_dir=self.debs, sql_token=self.token, invoke_sql=fail)
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(seen[0].exists())
+
+    def test_external_mode_missing_pinned_package_never_spawns_sql(self):
+        (self.debs / "libodbc2.deb").unlink()
+        with self.assertRaises(candidate.Select22Hold):
+            candidate.run_after_external_claim_once(
+                debs_dir=self.debs, sql_token=self.token, invoke_sql=self.invoke)
+        self.assertEqual(self.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
