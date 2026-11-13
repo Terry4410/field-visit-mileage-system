@@ -1,0 +1,23 @@
+name: Path B G1 readonly offline binding (nondeploy)
+on:
+  push:
+    branches:
+      - work/pathb-g1-readonly-transfer-nondeploy-20261113
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify immutable preflight and fail-closed offline contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m unittest -v test_pathb_readonly_offline_binding_20261113.py
+          python3 pathb_readonly_offline_binding_20261113.py
