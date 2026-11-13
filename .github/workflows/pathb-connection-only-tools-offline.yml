@@ -182,8 +182,29 @@ jobs:
                   if digest.hexdigest() != item["sha256"]:
                       raise SystemExit("PINNED_PACKAGE_SHA_HOLD_" + name)
                   print("VERIFIED_OFFICIAL_DEB_" + name.replace("-", "_").upper() + "=PASS")
-              if stage_offline(config, debdir) != "PASS":
-                  raise SystemExit("REAL_PINNED_BINARY_EXTRACTION_HOLD")
+              try:
+                  if stage_offline(config, debdir) != "PASS":
+                      raise ValueError("stage not verified")
+              except Exception:
+                  # Pure package metadata; never dump environment/identity/tokens.
+                  import subprocess
+                  with tempfile.TemporaryDirectory(prefix="select22-links-only-") as inspect:
+                      tree = Path(inspect)
+                      for item in config["tools"]:
+                          subprocess.run(["dpkg-deb", "-x", str(debdir / (item["name"] + ".deb")), str(tree)],
+                                         check=True, capture_output=True, timeout=30)
+                      seen = 0
+                      for link in tree.rglob("*"):
+                          if not link.is_symlink():
+                              continue
+                          raw = os.readlink(link)
+                          target = (link.parent / raw).resolve(strict=False)
+                          if os.path.isabs(raw) or not target.is_relative_to(tree):
+                              seen += 1
+                              if seen <= 20:
+                                  print("PINNED_DEB_LINK_" + str(link.relative_to(tree)) + "=" + raw)
+                      print("PINNED_DEB_UNSAFE_LINK_COUNT=" + str(seen))
+                  raise SystemExit("REAL_PINNED_BINARY_EXTRACTION_HOLD") from None
               print("REAL_PINNED_BINARY_HASHES_5_OF_5=PASS")
               stage, sha = build_stage(debdir)
               receipt = verify_stage(stage, sha)
