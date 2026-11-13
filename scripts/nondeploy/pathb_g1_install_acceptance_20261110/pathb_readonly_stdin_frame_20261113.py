@@ -23,11 +23,19 @@ def encode_frame(token, nonce):
     return (json.dumps({"protocol": PROTOCOL, "nonce": nonce,
                         "sql_token": token}, separators=(",", ":")) + "\n").encode("ascii")
 
+def _unique_fields(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate field")
+        obj[key] = value
+    return obj
+
 def decode_frame(raw, expected_nonce):
     if not isinstance(raw, bytes) or len(raw) > 17000 or not raw.endswith(b"\n"):
         raise FrameHold("FRAME_SHAPE_HOLD")
     try:
-        obj = json.loads(raw.decode("ascii"))
+        obj = json.loads(raw.decode("ascii"), object_pairs_hook=_unique_fields)
     except (UnicodeError, ValueError) as exc:
         raise FrameHold("FRAME_PARSE_HOLD") from None
     if (not isinstance(obj, dict)
