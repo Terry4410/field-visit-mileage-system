@@ -21,6 +21,13 @@ class ReceiptReaderTests(unittest.TestCase):
         self.assertEqual(self.s.buffer, b"")
         self.assertEqual(self.s.audit[-1], "SELECT22_READY")
 
+    def test_remote_rejects_pre_ready_hold_before_storage_claim(self):
+        # An App that fails to import or validate tools must not burn a Blob claim.
+        self.s.buffer = b'FV_SELECT22_SANITIZED_V1={"status":"HOLD"}\n'
+        with self.assertRaisesRegex(TransportHold, "^PROTOCOL_STATE_HOLD$"):
+            subject.expect_ready(self.s)
+        self.assertNotIn("SELECT22_READY", self.s.audit)
+
     def test_fake_ready_substring_cannot_pass(self):
         self.s.buffer = b"prefix-FV_SELECT22_READY\n"
         # The next read is simulated disconnected; no second protocol attempt.
