@@ -29,6 +29,8 @@ on:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_select22_storage_once_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_storage_once_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/CONNECTION_ONLY_OFFLINE_PLAN.md
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_select22_owner_parent_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_owner_parent_nondeploy.py
       - .github/workflows/pathb-connection-only-tools-offline.yml
   pull_request:
     paths:
@@ -56,6 +58,8 @@ on:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_handoff_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_select22_storage_once_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_storage_once_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_select22_owner_parent_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_owner_parent_nondeploy.py
       - .github/workflows/pathb-connection-only-tools-offline.yml
 permissions:
   contents: read
@@ -85,8 +89,8 @@ jobs:
         run: |
           set -euo pipefail
           cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
-          python3 -m py_compile pathb_connection_only_tool_stage_nondeploy.py test_pathb_connection_only_tool_stage_nondeploy.py pathb_select22_app_once_candidate.py test_pathb_select22_app_once_candidate.py pathb_select22_ssh_session_nondeploy.py test_pathb_select22_ssh_session_nondeploy.py pathb_select22_receipt_bridge_nondeploy.py test_pathb_select22_receipt_bridge_nondeploy.py pathb_select22_persistent_claim_gate_nondeploy.py test_pathb_select22_persistent_claim_gate_nondeploy.py pathb_select22_bounded_sql_nondeploy.py test_pathb_select22_bounded_sql_nondeploy.py pathb_select22_isolated_stage_nondeploy.py test_pathb_select22_isolated_stage_nondeploy.py pathb_select22_isolated_ssh_stage_nondeploy.py test_pathb_select22_isolated_ssh_stage_nondeploy.py pathb_select22_remote_command_nondeploy.py test_pathb_select22_remote_command_nondeploy.py pathb_select22_session_receipt_nondeploy.py test_pathb_select22_session_receipt_nondeploy.py pathb_select22_handoff_nondeploy.py test_pathb_select22_handoff_nondeploy.py pathb_select22_storage_once_nondeploy.py test_pathb_select22_storage_once_nondeploy.py
-          python3 -m unittest -v test_pathb_connection_only_tool_stage_nondeploy.py test_pathb_select22_app_once_candidate.py test_pathb_select22_ssh_session_nondeploy.py test_pathb_select22_receipt_bridge_nondeploy.py test_pathb_select22_persistent_claim_gate_nondeploy.py test_pathb_select22_bounded_sql_nondeploy.py test_pathb_select22_isolated_stage_nondeploy.py test_pathb_select22_isolated_ssh_stage_nondeploy.py test_pathb_select22_remote_command_nondeploy.py test_pathb_select22_session_receipt_nondeploy.py test_pathb_select22_handoff_nondeploy.py test_pathb_select22_storage_once_nondeploy.py
+          python3 -m py_compile pathb_connection_only_tool_stage_nondeploy.py test_pathb_connection_only_tool_stage_nondeploy.py pathb_select22_app_once_candidate.py test_pathb_select22_app_once_candidate.py pathb_select22_ssh_session_nondeploy.py test_pathb_select22_ssh_session_nondeploy.py pathb_select22_receipt_bridge_nondeploy.py test_pathb_select22_receipt_bridge_nondeploy.py pathb_select22_persistent_claim_gate_nondeploy.py test_pathb_select22_persistent_claim_gate_nondeploy.py pathb_select22_bounded_sql_nondeploy.py test_pathb_select22_bounded_sql_nondeploy.py pathb_select22_isolated_stage_nondeploy.py test_pathb_select22_isolated_stage_nondeploy.py pathb_select22_isolated_ssh_stage_nondeploy.py test_pathb_select22_isolated_ssh_stage_nondeploy.py pathb_select22_remote_command_nondeploy.py test_pathb_select22_remote_command_nondeploy.py pathb_select22_session_receipt_nondeploy.py test_pathb_select22_session_receipt_nondeploy.py pathb_select22_handoff_nondeploy.py test_pathb_select22_handoff_nondeploy.py pathb_select22_storage_once_nondeploy.py test_pathb_select22_storage_once_nondeploy.py pathb_select22_owner_parent_nondeploy.py test_pathb_select22_owner_parent_nondeploy.py
+          python3 -m unittest -v test_pathb_connection_only_tool_stage_nondeploy.py test_pathb_select22_app_once_candidate.py test_pathb_select22_ssh_session_nondeploy.py test_pathb_select22_receipt_bridge_nondeploy.py test_pathb_select22_persistent_claim_gate_nondeploy.py test_pathb_select22_bounded_sql_nondeploy.py test_pathb_select22_isolated_stage_nondeploy.py test_pathb_select22_isolated_ssh_stage_nondeploy.py test_pathb_select22_remote_command_nondeploy.py test_pathb_select22_session_receipt_nondeploy.py test_pathb_select22_handoff_nondeploy.py test_pathb_select22_storage_once_nondeploy.py test_pathb_select22_owner_parent_nondeploy.py
           python3 pathb_connection_only_tool_stage_nondeploy.py --check-config
       - name: Missing debs fail closed, zero connections
         shell: bash
@@ -105,7 +109,7 @@ jobs:
 
   build-verified-real-stage:
     name: Build real pinned Select22 NONDEPLOY stage
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[parent-gate-only]')
     needs: verify-stdlib-only
     runs-on: ubuntu-24.04
     timeout-minutes: 12
