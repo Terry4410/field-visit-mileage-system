@@ -100,7 +100,7 @@ class StageSshTests(unittest.TestCase):
              mock.patch.object(session, "send_public"), \
              mock.patch.object(session, "_write_all",
                                side_effect=TimeoutError("secret channel error")):
-            with self.assertRaisesRegex(TransportHold, "^STAGE_CHANNEL_HOLD$"):
+            with self.assertRaisesRegex(TransportHold, "^KUDU_CHANNEL_CLOSED$"):
                 session.stage_select22_archive(raw, sha)
             self.assertEqual(session.state.state, "UNKNOWN")
             with self.assertRaises(TransportHold):
