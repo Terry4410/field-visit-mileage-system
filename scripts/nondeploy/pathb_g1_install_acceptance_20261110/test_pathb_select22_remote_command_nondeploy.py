@@ -31,10 +31,10 @@ class CommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             mock_module = Path(temp) / "pathb_select22_receipt_bridge_nondeploy.py"
             mock_module.write_text(
-                "def app_receive_once(frame, nonce, **kwargs):\n"
+                "def app_receive_after_external_claim(frame, nonce, **kwargs):\n"
                 "    assert frame.endswith(b'\\n')\n"
                 "    assert nonce == " + repr(NONCE) + "\n"
-                "    assert kwargs['claim_dir']=='/home/fv-pathb-select22-claims'\n"
+                "    assert kwargs['debs_dir'].endswith('/debs')\n"
                 "    return b'FV_SELECT22_SANITIZED_V1={\"status\":\"HOLD\"}\\n'\n")
             code = candidate._source(NONCE, temp)
             completed = subprocess.run(
