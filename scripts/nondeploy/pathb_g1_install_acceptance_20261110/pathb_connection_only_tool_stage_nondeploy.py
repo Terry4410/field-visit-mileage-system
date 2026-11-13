@@ -95,6 +95,44 @@ def verify_packages(debs_dir, cfg):
     return files
 
 
+
+
+# The signed Microsoft ODBC 18.6.1.1-1 Debian package contains exactly two
+# absolute registration links to its pinned driver. Rebase ONLY these two
+# links to their equivalent *in-tree* relative targets in the private
+# temporary extraction. Never alter the original .deb bytes or accept other
+# absolute symlinks. The actual driver is separately SHA-256 pinned.
+MSODBC_REGISTRATION_LINKS = (
+    "usr/lib64/libmsodbcsql-18.so",
+    "usr/lib/libmsodbcsql-18.so",
+)
+
+
+def normalize_pinned_msodbc_registration_links(root, cfg):
+    """Constrain official absolute registration links to the isolated tree."""
+    root = Path(root)
+    driver = root / TOOL_FILE_NAMES[0]
+    require(is_regular_without_links(driver), "HOLD_PINNED_DRIVER")
+    require(driver.resolve(strict=True).is_relative_to(root.resolve(strict=True)),
+            "HOLD_PINNED_DRIVER")
+    require(sha256_file(driver) == cfg["tool_files"][TOOL_FILE_NAMES[0]],
+            "HOLD_PINNED_DRIVER_HASH")
+    original = "/" + TOOL_FILE_NAMES[0]
+    for rel in MSODBC_REGISTRATION_LINKS:
+        path = root / rel
+        if path.is_symlink():
+            actual = os.readlink(path)
+            safe_relative = os.path.relpath(driver, path.parent)
+            if actual == original:
+                path.unlink()
+                path.symlink_to(safe_relative)
+            else:
+                require(actual == safe_relative, "HOLD_EXTRACTED_LINK")
+            require(path.resolve(strict=True) == driver.resolve(strict=True),
+                    "HOLD_EXTRACTED_LINK")
+        else:
+            require(not os.path.lexists(path), "HOLD_EXTRACTED_LINK")
+
 def inspect_extracted_paths(root):
     """Allow in-tree relative Debian links; reject absolute or escaping links."""
     base = root.resolve(strict=True)
@@ -133,6 +171,7 @@ def stage_offline(cfg, debs_dir, *, extractor=None):
             tools.mkdir(mode=0o700)
             for package in packages:
                 extractor(package, tools)
+                normalize_pinned_msodbc_registration_links(tools, cfg)
                 inspect_extracted_paths(tools)
             for rel, expected in cfg["tool_files"].items():
                 posix = PurePosixPath(rel)
