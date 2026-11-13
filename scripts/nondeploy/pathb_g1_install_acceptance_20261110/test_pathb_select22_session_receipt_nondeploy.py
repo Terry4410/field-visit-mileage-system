@@ -25,7 +25,7 @@ class ReceiptReaderTests(unittest.TestCase):
         self.s.buffer = b"prefix-FV_SELECT22_READY\n"
         # The next read is simulated disconnected; no second protocol attempt.
         with self.assertRaises(TransportHold), \
-             mock.patch.object(subject.select, "select", return_value=[]):
+             mock.patch.object(subject.select, "select", return_value=([], [], [])):
             subject.expect_ready(self.s)
 
     def test_receipt_exact_empty_candidate(self):
