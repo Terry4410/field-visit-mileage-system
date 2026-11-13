@@ -1,0 +1,26 @@
+name: Path B G1 SSH trust delta offline only
+on:
+  push:
+    branches:
+      - work/pathb-g1-ssh-trust-delta-nondeploy-20261113
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_ssh_trust_delta_20261113.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_ssh_trust_delta_20261113.py
+      - .github/workflows/pathb-g1-ssh-trust-delta-offline.yml
+permissions:
+  contents: read
+jobs:
+  stdlib-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and test exact delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m py_compile pathb_ssh_trust_delta_20261113.py test_pathb_ssh_trust_delta_20261113.py
+          python3 -m unittest -v test_pathb_ssh_trust_delta_20261113.py
