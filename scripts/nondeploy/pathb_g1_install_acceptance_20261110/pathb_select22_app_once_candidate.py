@@ -20,7 +20,8 @@ import time
 
 from pathb_connection_only_tool_stage_nondeploy import (
     load_bound_config, verify_packages, inspect_extracted_paths,
-    TOOL_FILE_NAMES, sha256_file, require as require_offline, OfflineHold,
+    TOOL_FILE_NAMES, sha256_file, normalize_pinned_msodbc_registration_links,
+    require as require_offline, OfflineHold,
 )
 from pathb_readonly_durable_once_20261113 import consume_once
 from pathb_select22_persistent_claim_gate_nondeploy import verify_persistent_claim_dir
@@ -56,6 +57,7 @@ def _stage_verified_tools(cfg, debs_dir, sandbox):
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, check=True, timeout=30,
         )
+        normalize_pinned_msodbc_registration_links(tools, cfg)
         inspect_extracted_paths(tools)
     for rel, want in cfg["tool_files"].items():
         target = tools / rel
