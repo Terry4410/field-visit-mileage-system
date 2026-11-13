@@ -23,6 +23,7 @@ from pathb_connection_only_tool_stage_nondeploy import (
     TOOL_FILE_NAMES, sha256_file, require as require_offline, OfflineHold,
 )
 from pathb_readonly_durable_once_20261113 import consume_once
+from pathb_select22_persistent_claim_gate_nondeploy import verify_persistent_claim_dir
 from pathb_readonly_isolated_gate import verify as verify_exact_query
 from pathb_readonly_receipt_parser import parse_preflight, ReceiptHold
 from pathb_readonly_sql_contract import sqlcmd_argv
@@ -42,21 +43,8 @@ def _require(condition, label):
 
 
 def _check_private_claim_dir(folder):
-    path = Path(folder)
-    try:
-        info = path.lstat()
-        _require(stat.S_ISDIR(info.st_mode), "PRIVATE_DIR_HOLD")
-        _require(info.st_uid == os.geteuid()
-                 and stat.S_IMODE(info.st_mode) == 0o700,
-                 "PRIVATE_DIR_HOLD")
-        # Prevent externally chosen or old work roots. Caller creates a fresh
-        # 0700 owner-only directory under /dev/shm for this exact attempt.
-        _require(path.resolve().parent == Path("/dev/shm"), "PRIVATE_DIR_HOLD")
-        _require(path.name.startswith("fv-pathb-select22-"), "PRIVATE_DIR_HOLD")
-    except OSError:
-        raise Select22Hold("PRIVATE_DIR_HOLD") from None
-    return path
-
+    """An ephemeral /dev/shm one-use claim cannot survive an App restart."""
+    return verify_persistent_claim_dir(folder)
 
 def _stage_verified_tools(cfg, debs_dir, sandbox):
     """Verify all five hashes before unpacking and all outputs after unpacking."""
