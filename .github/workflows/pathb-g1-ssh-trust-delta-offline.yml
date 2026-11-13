@@ -6,6 +6,8 @@ on:
     paths:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_ssh_trust_delta_20261113.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_ssh_trust_delta_20261113.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_ssh_transport_contract.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
       - .github/workflows/pathb-g1-ssh-trust-delta-offline.yml
 permissions:
   contents: read
@@ -22,5 +24,5 @@ jobs:
         run: |
           set -euo pipefail
           cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
-          python3 -m py_compile pathb_ssh_trust_delta_20261113.py test_pathb_ssh_trust_delta_20261113.py
-          python3 -m unittest -v test_pathb_ssh_trust_delta_20261113.py
+          python3 -m py_compile pathb_ssh_trust_delta_20261113.py test_pathb_ssh_trust_delta_20261113.py p3_ssh_transport_contract.py p3_g1_pinned_ssh.py test_g1_ssh_failure_classification_20261112.py
+          python3 -m unittest -v test_pathb_ssh_trust_delta_20261113.py test_g1_ssh_failure_classification_20261112.py
