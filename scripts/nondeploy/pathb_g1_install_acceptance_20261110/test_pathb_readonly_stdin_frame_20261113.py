@@ -18,6 +18,10 @@ class FrameTests(unittest.TestCase):
         raw = encode_frame(FAKE, NONCE).replace(b'"sql_token":', b'"storage_token":"secret","sql_token":')
         with self.assertRaises(FrameHold):
             decode_frame(raw, NONCE)
+    def test_reject_duplicate_token_key(self):
+        raw = encode_frame(FAKE, NONCE).replace(b'"sql_token":', b'"sql_token":"spoof", "sql_token":')
+        with self.assertRaises(FrameHold):
+            decode_frame(raw, NONCE)
     def test_reject_oversized_frame(self):
         with self.assertRaises(FrameHold):
             decode_frame(b"x" * 17001, NONCE)
