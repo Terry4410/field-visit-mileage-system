@@ -19,5 +19,5 @@ jobs:
         run: |
           set -euo pipefail
           cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
-          python3 -m unittest -v test_pathb_readonly_offline_binding_20261113.py test_pathb_readonly_once_contract_20261113.py test_pathb_readonly_receipt_security_20261113.py test_pathb_readonly_stdin_frame_20261113.py
+          python3 -m unittest -v test_pathb_readonly_offline_binding_20261113.py test_pathb_readonly_once_contract_20261113.py test_pathb_readonly_receipt_security_20261113.py test_pathb_readonly_stdin_frame_20261113.py test_pathb_readonly_oneshot_transport_20261113.py
           python3 pathb_readonly_offline_binding_20261113.py
