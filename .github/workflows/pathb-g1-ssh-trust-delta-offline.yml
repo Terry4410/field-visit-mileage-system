@@ -38,6 +38,9 @@ jobs:
           binding = json.loads((root / 'binding-index.json').read_text())
           changed = [name for name, want in binding['files'].items() if hashlib.sha256((root / name).read_bytes()).hexdigest() != want]
           print('BINDING_MISMATCH_COUNT=' + str(len(changed)))
-          for name in changed: print('BINDING_MISMATCH_FILE=' + name)
+          for name in changed:
+              print('BINDING_MISMATCH_FILE=' + name)
+              print('BINDING_EXPECTED_SHA256=' + binding['files'][name])
+              print('BINDING_ACTUAL_SHA256=' + hashlib.sha256((root / name).read_bytes()).hexdigest())
           assert not changed, 'Frozen distribution binding requires new approved candidate'
           PY
