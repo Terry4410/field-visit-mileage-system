@@ -1,0 +1,89 @@
+name: Path B G1 SSH trust delta offline only
+on:
+  push:
+    branches:
+      - work/pathb-g1-ssh-trust-delta-nondeploy-20261113
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_ssh_trust_delta_20261113.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_ssh_trust_delta_20261113.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_ssh_transport_contract.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_parent_ssh_binding_20261113.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_failure_classification_20261112.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
+      - .github/workflows/pathb-g1-ssh-trust-delta-offline.yml
+permissions:
+  contents: read
+jobs:
+  stdlib-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and test exact delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/nondeploy/pathb_g1_install_acceptance_20261110
+          python3 -m py_compile pathb_ssh_trust_delta_20261113.py test_pathb_ssh_trust_delta_20261113.py p3_ssh_transport_contract.py p3_g1_pinned_ssh.py p3_kudu_cloudshell_parent.py test_g1_ssh_failure_classification_20261112.py test_g1_parent_ssh_binding_20261113.py
+          python3 -m unittest -v test_pathb_ssh_trust_delta_20261113.py test_g1_ssh_failure_classification_20261112.py test_g1_parent_ssh_binding_20261113.py
+      - name: Audit frozen binding drift (offline only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('scripts/nondeploy/pathb_g1_install_acceptance_20261110')
+          binding = json.loads((root / 'binding-index.json').read_text())
+          changed = [name for name, want in binding['files'].items() if hashlib.sha256((root / name).read_bytes()).hexdigest() != want]
+          print('BINDING_MISMATCH_COUNT=' + str(len(changed)))
+          for name in changed:
+              print('BINDING_MISMATCH_FILE=' + name)
+              print('BINDING_EXPECTED_SHA256=' + binding['files'][name])
+              print('BINDING_ACTUAL_SHA256=' + hashlib.sha256((root / name).read_bytes()).hexdigest())
+          assert not changed, 'Frozen distribution binding requires new approved candidate'
+          PY
+
+      - name: Build and verify candidate distribution ZIP (offline only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib, zipfile
+          root = pathlib.Path('scripts/nondeploy/pathb_g1_install_acceptance_20261110')
+          index = root / 'binding-index.json'
+          binding = json.loads(index.read_bytes())
+          members = sorted([*binding['files'], 'binding-index.json'])
+          output = pathlib.Path('pathb-g1-ssh-candidate-nondeploy.zip')
+          with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+              for name in members:
+                  info = zipfile.ZipInfo(name, date_time=(2026, 11, 13, 0, 0, 0))
+                  info.compress_type = zipfile.ZIP_DEFLATED
+                  info.external_attr = 0o100644 << 16
+                  z.writestr(info, (root / name).read_bytes())
+          with zipfile.ZipFile(output) as z:
+              assert sorted(z.namelist()) == members
+              for name, expected in binding['files'].items():
+                  assert hashlib.sha256(z.read(name)).hexdigest() == expected, name
+              assert z.read('binding-index.json') == index.read_bytes()
+          import sys
+          sys.path.insert(0, str(root.resolve()))
+          from p3_kudu_cloudshell_parent import validate_binding, validate_distribution_archive
+          parent_binding, parent_sha = validate_binding(root)
+          assert parent_sha == hashlib.sha256(index.read_bytes()).hexdigest()
+          validate_distribution_archive(output, parent_binding)
+          print('PARENT_NATIVE_DISTRIBUTION_VERIFY=PASS')
+          print('CANDIDATE_BINDING_SHA256=' + hashlib.sha256(index.read_bytes()).hexdigest())
+          print('CANDIDATE_DISTRIBUTION_SHA256=' + hashlib.sha256(output.read_bytes()).hexdigest())
+          print('CANDIDATE_MEMBERS=' + str(len(members)))
+          print('CANDIDATE_OFFLINE_VERIFY=PASS')
+          PY
+      - name: Upload verified nondeploy candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-g1-ssh-candidate-nondeploy
+          path: pathb-g1-ssh-candidate-nondeploy.zip
+          if-no-files-found: error
+          retention-days: 7
