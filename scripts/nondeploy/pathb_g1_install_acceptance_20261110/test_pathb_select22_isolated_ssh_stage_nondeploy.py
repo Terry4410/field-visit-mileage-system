@@ -51,13 +51,6 @@ class StageSshTests(unittest.TestCase):
         raw, sha = sample_zip()
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp) / "stage"
-            corrupt = raw + b"bad"
-            code = stage._bootstrap_source(sha, len(raw), str(dest))
-            run = subprocess.run([sys.executable, "-c", code],
-                                 input=b"".join(iter_stage_frame(raw, sha)) + corrupt,
-                                 capture_output=True, timeout=5)
-            # The added bytes remain after the exact END marker, so they are not
-            # a ZIP corruption. Force a truly mismatched trusted expected hash.
             wrong = stage._bootstrap_source("0" * 64, len(raw), str(dest))
             run = subprocess.run([sys.executable, "-c", wrong],
                                  input=b"".join(iter_stage_frame(raw, sha)),
