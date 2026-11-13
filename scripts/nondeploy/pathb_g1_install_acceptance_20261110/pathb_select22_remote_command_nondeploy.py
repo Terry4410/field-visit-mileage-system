@@ -2,6 +2,7 @@
 
 The parent may construct an inert public command ONLY for the isolated
 verified SELECT22 stage, after external Owner authorization/instance checks.
+The Owner Parent MUST consume external Blob claim before requesting SQL Token.
 The command does not contain a token. A future live caller must send exactly
 one SQL-only nonce-bound frame over the existing pinned SSH and read a single
 redacted receipt. No G1 Installer, Blob, Azure calls or second SQL query.
@@ -11,7 +12,6 @@ import re
 
 from pathb_select22_isolated_ssh_stage_nondeploy import SELECT22_STAGE
 
-CLAIM_DIR = "/home/fv-pathb-select22-claims"
 READY = b"FV_SELECT22_READY"
 HOLD_WIRE = b'FV_SELECT22_SANITIZED_V1={"status":"HOLD"}\n'
 
@@ -21,7 +21,7 @@ class RemoteCommandHold(Exception):
 
 
 def _source(nonce, stage_root):
-    return f'''import sys\nsys.path.insert(0,{stage_root!r})\nsys.stdout.buffer.write(b"FV_SELECT22_READY\\n");sys.stdout.buffer.flush()\ntry:\n from pathb_select22_receipt_bridge_nondeploy import app_receive_once\n frame=sys.stdin.buffer.readline(17001)\n out=app_receive_once(frame,{nonce!r},debs_dir={stage_root!r}+"/debs",claim_dir={CLAIM_DIR!r})\nexcept Exception:\n out={HOLD_WIRE!r}\nsys.stdout.buffer.write(out);sys.stdout.buffer.flush()\n'''
+    return f'''import sys\nsys.path.insert(0,{stage_root!r})\nsys.stdout.buffer.write(b"FV_SELECT22_READY\\n");sys.stdout.buffer.flush()\ntry:\n from pathb_select22_receipt_bridge_nondeploy import app_receive_after_external_claim\n frame=sys.stdin.buffer.readline(17001)\n out=app_receive_after_external_claim(frame,{nonce!r},debs_dir={stage_root!r}+"/debs")\nexcept Exception:\n out={HOLD_WIRE!r}\nsys.stdout.buffer.write(out);sys.stdout.buffer.flush()\n'''
 
 
 def select22_remote_command(nonce):
