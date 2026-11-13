@@ -9,6 +9,7 @@ import re
 from pathb_select22_handoff_nondeploy import handoff_after_storage_claim_once
 from pathb_select22_isolated_ssh_stage_nondeploy import Select22StageSession
 from pathb_select22_storage_once_nondeploy import OnceGuard
+from pathb_select22_management_snapshot_nondeploy import VerifiedManagement
 
 STAGE_SHA = "ff63702ae5c5fdbd63ed0ecffe609463824ccb3f96fb7441c7a231638a588b8b"
 OWNER_SHA = "2e3687eea0c142b70b4923094ea37c2e8a17f97815db894b58ae60379fccd604"
@@ -27,6 +28,7 @@ class Evidence:
     owner_oid_sha256: str
     stage_sha256: str
     instance_sha256: str
+    management_snapshot: VerifiedManagement
     tenant_verified: bool
     subscription_verified: bool
     unique_instance_verified: bool
@@ -50,6 +52,12 @@ def preflight(evidence, stage_bytes, session, storage_guard, sql_provider):
     good = (
         evidence.target == TARGET and evidence.owner_oid_sha256 == OWNER_SHA and
         evidence.stage_sha256 == STAGE_SHA and type(stage_bytes) is bytes and
+        type(evidence.management_snapshot) is VerifiedManagement and
+        evidence.management_snapshot.read_only_verified is True and
+        evidence.management_snapshot.app == TARGET[1] and
+        evidence.management_snapshot.sql_server == TARGET[2] and
+        evidence.management_snapshot.instance_sha256 == evidence.instance_sha256 and
+        evidence.management_snapshot.instance == session.instance and
         hashlib.sha256(stage_bytes).hexdigest() == STAGE_SHA and
         isinstance(evidence.instance_sha256, str) and
         re.fullmatch("[0-9a-f]{64}", evidence.instance_sha256) is not None and
