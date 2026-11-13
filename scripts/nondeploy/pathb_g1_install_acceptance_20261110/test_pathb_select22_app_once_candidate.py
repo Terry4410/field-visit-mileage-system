@@ -46,9 +46,20 @@ class CandidateTests(unittest.TestCase):
         self.patcher_auth = mock.patch.object(candidate, "validate_owner_token")
         self.patcher_tools = mock.patch.object(candidate, "_stage_verified_tools",
                                                side_effect=self.fake_stage)
-        for patcher in (self.patcher_config, self.patcher_auth, self.patcher_tools):
+        # Synthetic /dev/shm unit-test seam only. Production requires a
+        # verified persistent /home mount and rejects this test path.
+        self.patcher_claim = mock.patch.object(candidate, "_check_private_claim_dir",
+                                               side_effect=self.fake_claim_gate)
+        for patcher in (self.patcher_config, self.patcher_auth,
+                        self.patcher_tools, self.patcher_claim):
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def fake_claim_gate(self, folder):
+        path = Path(folder)
+        if stat.S_IMODE(path.stat().st_mode) != 0o700:
+            raise candidate.Select22Hold("PRIVATE_DIR_HOLD")
+        return path
 
     def fake_stage(self, cfg, debs, sandbox):
         binary = sandbox / "sqlcmd"
