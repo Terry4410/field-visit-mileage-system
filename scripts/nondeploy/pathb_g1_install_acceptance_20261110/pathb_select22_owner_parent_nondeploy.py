@@ -6,7 +6,6 @@ evidence. These caller-supplied values are NOT themselves proof of approval.
 from dataclasses import dataclass
 import hashlib
 import re
-from pathb_select22_handoff_nondeploy import handoff_after_storage_claim_once
 from pathb_select22_isolated_ssh_stage_nondeploy import Select22StageSession
 from pathb_select22_storage_once_nondeploy import OnceGuard
 from pathb_select22_management_snapshot_nondeploy import VerifiedManagement
@@ -57,11 +56,11 @@ def preflight(evidence, stage_bytes, session, storage_guard, sql_provider):
         evidence.management_snapshot.app == TARGET[1] and
         evidence.management_snapshot.sql_server == TARGET[2] and
         evidence.management_snapshot.instance_sha256 == evidence.instance_sha256 and
+        isinstance(session, Select22StageSession) and
         evidence.management_snapshot.instance == session.instance and
         hashlib.sha256(stage_bytes).hexdigest() == STAGE_SHA and
         isinstance(evidence.instance_sha256, str) and
         re.fullmatch("[0-9a-f]{64}", evidence.instance_sha256) is not None and
-        isinstance(session, Select22StageSession) and
         session.state.state == "CHANNEL" and session.state.attempts == 1 and
         hashlib.sha256(session.instance.lower().encode()).hexdigest()
         == evidence.instance_sha256 and
@@ -74,18 +73,20 @@ def preflight(evidence, stage_bytes, session, storage_guard, sql_provider):
 
 def handoff_candidate(evidence, *, stage_bytes, session, nonce,
                       storage_guard, sql_token_provider):
-    """Only composed after externally authenticated, exact Owner checks.
+    """NONDEPLOY validation only; never dispatch Blob or SQL with flag evidence.
 
-    This is NOT a runnable Live Owner Parent. It has no authentication,
-    SSH connection setup, Azure Storage HTTPS client or token provider.
-    Calling it with fabricated Evidence is unsafe and never authorized.
+    The earlier implementation invoked the live-capable handoff after merely
+    checking caller-supplied booleans and a constructible dataclass. Those
+    cannot establish the current Azure Owner identity or an actual one-use
+    Storage write grant. No trustworthy Live Parent is wired to this module.
+    Always HOLD even when the synthetic preflight passes.
+
+    A separately approved and independently authenticated executor may use
+    the existing lower-level Blob-first transport, but must NOT treat this
+    function, its flags, or its tested dataclasses as execution authorization.
     """
     preflight(evidence, stage_bytes, session, storage_guard, sql_token_provider)
-    return handoff_after_storage_claim_once(
-        session, stage_bytes=stage_bytes, stage_sha=STAGE_SHA,
-        nonce=nonce, instance_sha256=evidence.instance_sha256,
-        storage_guard=storage_guard, sql_token_provider=sql_token_provider,
-        owner_storage_approved=True)
+    raise ParentHold("PARENT_LIVE_EXECUTION_NOT_RELEASED")
 
 
 if __name__ == "__main__":
