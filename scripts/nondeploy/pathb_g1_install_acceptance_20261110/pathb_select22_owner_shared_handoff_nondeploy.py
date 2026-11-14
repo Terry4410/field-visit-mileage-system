@@ -16,6 +16,7 @@ from pathb_select22_ssh_session_nondeploy import Select22SshSession
 from pathb_select22_owner_shared_receiver_nondeploy import command
 from pathb_select22_session_receipt_nondeploy import expect_ready, read_status
 from pathb_select22_storage_once_nondeploy import OnceGuard, prepare
+from pathb_select22_receipt_bridge_nondeploy import EMPTY, NONEMPTY
 from pathb_select22_owner_shared_parent_nondeploy import plan, review_frozen
 
 
@@ -72,6 +73,10 @@ def handoff_shared_after_external_claim_once(
             token = None
         session.mark_sql_started()
         receipt = read_status(session)
+        # A syntactically valid HOLD is NOT a completed successful SELECT.
+        # Only the two exact sanitized schema receipts may mark COMPLETE.
+        if type(receipt) is not dict or receipt not in (EMPTY, NONEMPTY):
+            raise SharedHandoffHold("SHARED_OWNER_RECEIPT_HOLD")
         session.mark_complete()
         return receipt
     except Exception:
