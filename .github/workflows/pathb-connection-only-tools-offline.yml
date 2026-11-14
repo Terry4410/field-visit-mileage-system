@@ -30,7 +30,7 @@ on:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_storage_once_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/CONNECTION_ONLY_OFFLINE_PLAN.md
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_select22_owner_parent_nondeploy.py
-      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_owner_parent_nondeploy.py test_pathb_select22_management_snapshot_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_owner_parent_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_select22_management_snapshot_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_pathb_select22_management_snapshot_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/pathb_select22_storage_https_nondeploy.py
