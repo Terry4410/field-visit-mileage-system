@@ -1,7 +1,8 @@
 """Pure, NONDEPLOY SQL read-only transport contract. No live entrypoint.
 
 Constructs a pinned sqlcmd argument vector for an eventual separately authorized
-executor. This module does not spawn processes, read tokens, access Azure or SQL,
+executor. Entra ID (-G) login timeout is 30 seconds as Microsoft recommends;
+the independent child process retains its existing 110-second hard ceiling. This module does not spawn processes, read tokens, access Azure or SQL,
 or import the installer. It is intentionally not a complete live transport.
 """
 from pathlib import Path
@@ -24,7 +25,7 @@ def sqlcmd_argv(binary, token_path, sql_bytes):
         raise ReadonlyHold('TOKEN_PATH_HOLD')
     if binary == token_path:
         raise ReadonlyHold('PATH_COLLISION_HOLD')
-    return [str(binary), '-S', SERVER, '-d', DATABASE, '-I', '-b', '-l', '10',
+    return [str(binary), '-S', SERVER, '-d', DATABASE, '-I', '-b', '-l', '30',
             '-G', '-P', str(token_path), '-Nm', '-h', '-1', '-W', '-w', '65535', '-s', '|']
 
 if __name__ == '__main__':
