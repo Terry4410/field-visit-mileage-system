@@ -59,6 +59,27 @@ class CliBindingTests(unittest.TestCase):
         self.assertEqual(result["ssh_process_identity"], "NOT_ATTESTED")
         self.assertEqual(result["live_release"], "HOLD")
 
+    def test_nonfinite_clock_rejected_without_runner_calls(self):
+        calls = []
+        for invalid in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaisesRegex(c.OwnerCliBindingHold, "CLI_OWNER_TIME_HOLD"):
+                c.verify_cli_owner_once(runner=lambda command: calls.append(command), now=invalid)
+        self.assertEqual(calls, [])
+
+    def test_synthetic_expiry_before_not_before_is_hold(self):
+        with mock.patch.object(c, "_digest", side_effect=lambda s: {
+            "sub":"S","tenant":"T","owner":"O"}.get(s, "wrong")), \
+             mock.patch.object(c, "SUB_SHA", "S"), \
+             mock.patch.object(c, "TENANT_SHA", "T"), \
+             mock.patch.object(c, "OWNER_SHA", "O"):
+            def runner(command):
+                if command == c.SUBSCRIPTION_COMMAND:
+                    return {"id":"sub","tenantId":"tenant","user":{"type":"user"}}
+                return {"accessToken":jwt({"oid":"owner","tid":"tenant",
+                                            "aud":c.ARM_AUDIENCE,"nbf":20000,"exp":15000})}
+            with self.assertRaisesRegex(c.OwnerCliBindingHold, "CLI_OWNER_BINDING_HOLD"):
+                c.verify_cli_owner_once(runner=runner, now=10000)
+
     def test_live_release_remains_blocked(self):
         with self.assertRaises(c.OwnerCliBindingHold):
             c.release_live(owner=True, token=True, ssh=True)
