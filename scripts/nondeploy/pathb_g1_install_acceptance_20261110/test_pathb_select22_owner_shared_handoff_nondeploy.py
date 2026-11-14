@@ -47,10 +47,10 @@ class SharedHandoffTests(unittest.TestCase):
             self.events.append("RECEIPT")
             return EMPTY
         with mock.patch.object(self.session, "send_public",
-                               side_effect=lambda *_: self.events.append("COMMAND")), \\
+                               side_effect=lambda *_: self.events.append("COMMAND")), \
              mock.patch.object(self.session, "send_select22_frame_once",
-                               side_effect=send), \\
-             mock.patch.object(h, "expect_ready", side_effect=ready_fn), \\
+                               side_effect=send), \
+             mock.patch.object(h, "expect_ready", side_effect=ready_fn), \
              mock.patch.object(h, "read_status", side_effect=recv):
             return h.handoff_shared_after_external_claim_once(
                 self.session, nonce=NONCE,
