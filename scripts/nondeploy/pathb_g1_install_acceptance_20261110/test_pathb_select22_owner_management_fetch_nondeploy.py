@@ -53,5 +53,57 @@ class ManagementCollectorTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class GraphOwnerCandidateTests(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.records = [
+            {"id": "fake-subscription"}, {"id": "fake-owner"},
+            {"name": owner.APP}, [{"name": "instance01234567"}],
+            {"name": owner.SQL_RESOURCE},
+        ]
+
+    def fake(self, argv):
+        self.calls.append(tuple(argv))
+        return self.records[len(self.calls) - 1]
+
+    def test_graph_me_exact_five_reads_and_no_legacy_replay(self):
+        with mock.patch.object(owner, "verify_snapshot",
+                               return_value="OFFLINE_ONLY") as verify:
+            self.assertEqual(
+                owner.collect_graph_me_management_once(reader=self.fake),
+                "OFFLINE_ONLY")
+            verify.assert_called_once()
+        self.assertEqual(self.calls, list(owner.GRAPH_COMMANDS))
+        self.assertNotIn(owner.OWNER_USER, self.calls)
+        self.assertEqual(self.calls.count(owner.GRAPH_ME), 1)
+        self.assertTrue(all("get-access-token" not in part
+                            for command in self.calls for part in command))
+
+    def test_graph_failure_stops_without_fallback_or_retry(self):
+        def fake(argv):
+            self.calls.append(tuple(argv))
+            if tuple(argv) == owner.GRAPH_ME:
+                raise RuntimeError("fake sensitive Graph access error")
+            return self.records[len(self.calls) - 1]
+        with self.assertRaisesRegex(
+                owner.OwnerFetchHold, "^SELECT22_GRAPH_OWNER_HOLD$"):
+            owner.collect_graph_me_management_once(reader=fake)
+        self.assertEqual(self.calls, [owner.OWNER_ACCOUNT, owner.GRAPH_ME])
+
+    def test_graph_invalid_owner_evidence_rejected(self):
+        with mock.patch.object(owner, "verify_snapshot",
+                               side_effect=ValueError("fake untrusted OID")):
+            with self.assertRaisesRegex(
+                    owner.OwnerFetchHold, "^SELECT22_GRAPH_OWNER_HOLD$"):
+                owner.collect_graph_me_management_once(reader=self.fake)
+        self.assertEqual(self.calls, list(owner.GRAPH_COMMANDS))
+
+    def test_graph_noncallable_fails_before_any_reads(self):
+        with self.assertRaisesRegex(
+                owner.OwnerFetchHold, "^SELECT22_GRAPH_OWNER_HOLD$"):
+            owner.collect_graph_me_management_once(reader=None)
+        self.assertEqual(self.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
