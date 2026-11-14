@@ -55,7 +55,8 @@ def verify_snapshot(*, account, signed_in_owner, app, instances, sql_server):
                 or sql_server.get("publicNetworkAccess") != "Disabled"
                 or sql_server.get("minimalTlsVersion") != "1.2"):
             raise ValueError()
-        return VerifiedManagement(instance, _hash(instance), APP, SERVER,\n                                  read_only_verified=True)
+        return VerifiedManagement(instance, _hash(instance), APP, SERVER,
+                                  read_only_verified=True)
     except Exception:
         raise SnapshotHold("SELECT22_MANAGEMENT_SNAPSHOT_HOLD") from None
 
