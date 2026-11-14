@@ -22,7 +22,8 @@ class ParentTests(unittest.TestCase):
             hashlib.sha256(self.session.instance.lower().encode()).hexdigest(),
             VerifiedManagement(self.session.instance,
                                hashlib.sha256(self.session.instance.lower().encode()).hexdigest(),
-                               parent.TARGET[1], parent.TARGET[2],\n                               read_only_verified=True),
+                               parent.TARGET[1], parent.TARGET[2],
+                               read_only_verified=True),
             True, True, True, True, True, True, True, True)
 
     def test_all_synthetic_flags_still_cannot_release_live_handoff(self):
