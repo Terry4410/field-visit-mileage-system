@@ -47,6 +47,12 @@ class ManagementCollectorTests(unittest.TestCase):
                 owner.collect_exact_management(reader=self.fake)
         self.assertEqual(self.calls, list(owner.COMMANDS))
 
+    def test_default_reader_does_not_invoke_azure(self):
+        with self.assertRaisesRegex(
+                owner.OwnerFetchHold, "^SELECT22_MANAGEMENT_FETCH_HOLD$"):
+            owner.collect_exact_management()
+        self.assertEqual(self.calls, [])
+
     def test_noncallable_reader_fails_before_any_action(self):
         with self.assertRaises(owner.OwnerFetchHold):
             owner.collect_exact_management(reader=None)
@@ -97,6 +103,12 @@ class GraphOwnerCandidateTests(unittest.TestCase):
                     owner.OwnerFetchHold, "^SELECT22_GRAPH_OWNER_HOLD$"):
                 owner.collect_graph_me_management_once(reader=self.fake)
         self.assertEqual(self.calls, list(owner.GRAPH_COMMANDS))
+
+    def test_graph_default_reader_does_not_invoke_azure(self):
+        with self.assertRaisesRegex(
+                owner.OwnerFetchHold, "^SELECT22_GRAPH_OWNER_HOLD$"):
+            owner.collect_graph_me_management_once()
+        self.assertEqual(self.calls, [])
 
     def test_graph_noncallable_fails_before_any_reads(self):
         with self.assertRaisesRegex(
