@@ -35,6 +35,12 @@ class SnapshotTests(unittest.TestCase):
         result = self._validate()
         self.assertEqual(result.instance, "instance01234567")
         self.assertEqual(result.sql_server, gate.SERVER)
+        self.assertIs(result.read_only_verified, True)
+
+    def test_unverified_constructible_record_defaults_false(self):
+        record = gate.VerifiedManagement(
+            "synthetic-instance", "f"*64, gate.APP, gate.SERVER)
+        self.assertIs(record.read_only_verified, False)
 
     def test_multiple_instances_rejected(self):
         with self.assertRaises(gate.SnapshotHold):
