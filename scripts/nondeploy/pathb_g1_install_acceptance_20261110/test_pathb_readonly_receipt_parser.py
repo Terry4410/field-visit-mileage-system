@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathb_readonly_receipt_parser import parse_preflight, ReceiptHold
 
 def row(**changes):
-    fields=['FV_SQL','synthetic-server','db-fieldvisit-pathb-uat','5',
+    fields=['FV_SQL','sql-fieldvisit-jpe-pathb-uat','db-fieldvisit-pathb-uat','5',
             'AABBCC','0','1','0','TRUE','FEDAUTH','TCP']+['0']*11
     for key,value in changes.items(): fields[int(key)]=value
     return ('|'.join(fields)+'\n').encode()
@@ -29,6 +29,15 @@ class ReceiptTests(unittest.TestCase):
         for value in bad:
             with self.subTest(length=len(value)),self.assertRaises(ReceiptHold):
                 parse_preflight(value)
+    def test_missing_metadata_visibility_never_reports_empty(self):
+        for table_count in ('0', '69'):
+            with self.subTest(table_count=table_count), self.assertRaises(ReceiptHold):
+                parse_preflight(row(**{'5':'0','6':'0','7':table_count}))
+
+    def test_database_control_can_establish_metadata_visibility(self):
+        rec=parse_preflight(row(**{'5':'1','6':'0'}))
+        self.assertEqual(rec.schema,'EMPTY_CANDIDATE')
+
     def test_no_runtime_or_secret_output(self):
         tree=ast.parse(Path(__import__('pathb_readonly_receipt_parser').__file__).read_text())
         imports=set()
