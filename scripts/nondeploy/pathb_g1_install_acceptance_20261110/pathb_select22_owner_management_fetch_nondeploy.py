@@ -24,6 +24,16 @@ APP_INSTANCES = ("webapp", "list-instances", "-g", RG, "-n", APP)
 SQL_GET = ("sql", "server", "show", "-g", RG, "-n", SQL_RESOURCE)
 COMMANDS = (OWNER_ACCOUNT, OWNER_USER, APP_GET, APP_INSTANCES, SQL_GET)
 
+# Separate *candidate*, not a fallback for the consumed signed-in-user attempt.
+# Microsoft Graph /me resolves the current delegated sign-in principal at the
+# Graph service. Its id is independently checked by verify_snapshot.
+# Official Azure CLI az rest may implicitly acquire a Graph audience token:
+# this requires FRESH, exact Owner authorization before any live invocation.
+# A Graph error is terminal HOLD; never attempt the old CLI path afterward.
+GRAPH_ME = ("rest", "--method", "get", "--url",
+            "https://graph.microsoft.com/v1.0/me?$select=id")
+GRAPH_COMMANDS = (OWNER_ACCOUNT, GRAPH_ME, APP_GET, APP_INSTANCES, SQL_GET)
+
 
 def collect_exact_management(*, reader=az):
     """One ordered read per target; fail closed, no retries or raw exceptions.
@@ -42,6 +52,28 @@ def collect_exact_management(*, reader=az):
             instances=data[3], sql_server=data[4])
     except Exception:
         raise OwnerFetchHold("SELECT22_MANAGEMENT_FETCH_HOLD") from None
+
+
+def collect_graph_me_management_once(*, reader=az):
+    """Separate 5-read Graph-/me Owner evidence candidate; NEVER auto-fallback.
+
+    NONDEPLOY only. The Graph call is a new Azure invocation and may acquire
+    an implicit delegated Graph token; prior approvals DO NOT authorize it.
+    Returned values are not cryptographically sealed against a fake reader.
+    An audited future Parent must pin the Azure CLI provenance, fresh Owner
+    approval and exact source, or fail closed. This function proves neither.
+    """
+    if not callable(reader):
+        raise OwnerFetchHold("SELECT22_GRAPH_OWNER_HOLD")
+    try:
+        data = []
+        for command in GRAPH_COMMANDS:
+            data.append(reader(list(command)))
+        return verify_snapshot(
+            account=data[0], signed_in_owner=data[1], app=data[2],
+            instances=data[3], sql_server=data[4])
+    except Exception:
+        raise OwnerFetchHold("SELECT22_GRAPH_OWNER_HOLD") from None
 
 
 if __name__ == "__main__":
