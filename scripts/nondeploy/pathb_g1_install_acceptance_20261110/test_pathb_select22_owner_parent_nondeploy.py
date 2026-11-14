@@ -25,16 +25,26 @@ class ParentTests(unittest.TestCase):
                                parent.TARGET[1], parent.TARGET[2]),
             True, True, True, True, True, True, True, True)
 
-    def test_composition_propagates_only_after_exact_gates(self):
+    def test_all_synthetic_flags_still_cannot_release_live_handoff(self):
+        """Even forged PASS flags never call Blob, stage or SQL providers."""
         with mock.patch.object(parent, "STAGE_SHA", self.digest):
-            with mock.patch.object(parent, "handoff_after_storage_claim_once",
-                                   return_value="OFFLINE") as flow:
-                result = parent.handoff_candidate(
-                    self.e, stage_bytes=self.stage, session=self.session,
-                    nonce="0"*32, storage_guard=self.guard,
-                    sql_token_provider=lambda: self.fail("no token"))
-                self.assertEqual(result, "OFFLINE")
-                flow.assert_called_once()
+            with mock.patch.object(self.session, "stage_select22_archive") as stage:
+                with self.assertRaisesRegex(
+                    parent.ParentHold, "^PARENT_LIVE_EXECUTION_NOT_RELEASED$"):
+                    parent.handoff_candidate(
+                        self.e, stage_bytes=self.stage, session=self.session,
+                        nonce="0"*32, storage_guard=self.guard,
+                        sql_token_provider=lambda: self.fail("no token"))
+                stage.assert_not_called()
+                self.assertEqual(self.session.state.state, "CHANNEL")
+
+    def test_invalid_session_returns_sanitized_hold(self):
+        with mock.patch.object(parent, "STAGE_SHA", self.digest):
+            with self.assertRaises(parent.ParentHold):
+                parent.preflight(
+                    self.e, self.stage, None, self.guard,
+                    lambda: self.fail("no token"))
+
 
     def test_unpinned_stage_rejected(self):
         with self.assertRaises(parent.ParentHold):
