@@ -107,6 +107,44 @@ class SharedHandoffTests(unittest.TestCase):
             self.dispatch(guard=OnceGuard(mismatch))
         self.assertEqual(self.events, ["COMMAND", "READY", "PUT", "GET"])
 
+    def test_hold_receipt_is_terminal_unknown_not_complete(self):
+        from pathb_select22_receipt_bridge_nondeploy import HOLD
+        with self.assertRaisesRegex(h.SharedHandoffHold,
+                                    "SHARED_OWNER_TERMINAL_HOLD"):
+            self.dispatch_with_status(HOLD)
+        self.assertEqual(self.session.state.state, "UNKNOWN")
+
+    def dispatch_with_status(self, status):
+        def send(frame, nonce):
+            self.events.append("FRAME")
+            self.session.state.advance("STAGED", "TOKENS")
+        def recv(session):
+            self.events.append("RECEIPT")
+            return status
+        with mock.patch.object(self.session, "send_public",
+                               side_effect=lambda *_: self.events.append("COMMAND")), \
+             mock.patch.object(self.session, "send_select22_frame_once",
+                               side_effect=send), \
+             mock.patch.object(h, "expect_ready",
+                               side_effect=lambda *_: self.events.append("READY")), \
+             mock.patch.object(h, "read_status", side_effect=recv):
+            return h.handoff_shared_after_external_claim_once(
+                self.session, nonce=NONCE, instance_sha256=self.instance_hash,
+                storage_guard=OnceGuard(self.storage_request),
+                sql_token_provider=lambda: self.events.append("SQL_TOKEN") or TOKEN,
+                owner_new_grant_attested=True)
+
+    def test_unrecognized_receipt_cannot_mark_complete(self):
+        with self.assertRaises(h.SharedHandoffHold):
+            self.dispatch_with_status({"status": "PASS", "schema": "UNTRUSTED"})
+        self.assertEqual(self.session.state.state, "UNKNOWN")
+
+    def test_nonempty_schema_receipt_is_successful_but_requires_reconciliation(self):
+        from pathb_select22_receipt_bridge_nondeploy import NONEMPTY
+        result = self.dispatch_with_status(NONEMPTY)
+        self.assertEqual(result["schema"], "NONEMPTY_OR_PARTIAL")
+        self.assertEqual(self.session.state.state, "COMPLETE")
+
     def test_live_release_is_not_exposed(self):
         with self.assertRaisesRegex(h.SharedHandoffHold, "OWNER_LIVE_PARENT_NOT_RELEASED"):
             h.release_live(owner=True, blob_grant=True, sql=True)
