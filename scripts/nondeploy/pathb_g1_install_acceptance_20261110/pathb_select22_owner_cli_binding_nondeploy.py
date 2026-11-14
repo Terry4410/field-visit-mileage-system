@@ -10,8 +10,7 @@ The only entry is an explicitly supplied trusted CLI runner, without default.
 import base64
 import hashlib
 import json
-import re
-import time
+import math
 
 from p3_ssh_transport_contract import OWNER_SHA, TENANT_SHA, SUB_SHA
 
@@ -41,7 +40,7 @@ def verify_cli_owner_once(*, runner=None, now=None):
     """
     if not callable(runner):
         raise OwnerCliBindingHold("CLI_OWNER_READER_NOT_RELEASED")
-    if type(now) not in (int, float) or now < 0:
+    if type(now) not in (int, float) or not math.isfinite(now) or now < 0:
         raise OwnerCliBindingHold("CLI_OWNER_TIME_HOLD")
     # Never fall back to Graph, Az PowerShell or an older consumed operation.
     try:
@@ -77,7 +76,9 @@ def verify_cli_owner_once(*, runner=None, now=None):
             raise ValueError()
         if (_digest(oid) != OWNER_SHA or _digest(tid) != TENANT_SHA
                 or aud.rstrip("/") != ARM_AUDIENCE
-                or nbf > now + 30 or exp - now < 300):
+                or not math.isfinite(nbf) or not math.isfinite(exp)
+                or nbf > now + 30 or exp - now < 300
+                or exp <= nbf):
             raise ValueError()
         return {
             "cli_subscription": "PASS",
