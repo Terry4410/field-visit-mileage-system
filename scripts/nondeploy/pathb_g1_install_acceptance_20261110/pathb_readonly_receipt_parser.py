@@ -41,6 +41,11 @@ def parse_preflight(raw):
             raise ValueError('connection')
         if parts[5] not in ('0', '1') or parts[6] not in ('0', '1'):
             raise ValueError('permissions')
+        # Azure SQL catalog visibility is privilege-filtered. Without
+        # database CONTROL or VIEW DEFINITION, all zero counts do NOT prove
+        # an empty database. Refuse both EMPTY and NONEMPTY classifications.
+        if parts[5] != '1' and parts[6] != '1':
+            raise ValueError('metadata-not-visible')
         counts = [int(parts[i]) for i in COUNTS]
         if any(x < 0 or x > 1000000000 for x in counts):
             raise ValueError('counts')
