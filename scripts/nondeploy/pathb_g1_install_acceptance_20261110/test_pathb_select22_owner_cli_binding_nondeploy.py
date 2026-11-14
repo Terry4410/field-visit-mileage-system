@@ -29,9 +29,9 @@ class CliBindingTests(unittest.TestCase):
         calls = []
         # Synthetically bypass only the pins; no live CLI or Azure occurs.
         with mock.patch.object(c, "_digest", side_effect=lambda s: {
-            "sub":"subhash", "tenant":"tenanthash", "owner":"ownerhash"}.get(s, "wrong")), \\
-             mock.patch.object(c, "SUB_SHA", "subhash"), \\
-             mock.patch.object(c, "TENANT_SHA", "tenanthash"), \\
+            "sub":"subhash", "tenant":"tenanthash", "owner":"ownerhash"}.get(s, "wrong")), \
+             mock.patch.object(c, "SUB_SHA", "subhash"), \
+             mock.patch.object(c, "TENANT_SHA", "tenanthash"), \
              mock.patch.object(c, "OWNER_SHA", "ownerhash"):
             def runner(command):
                 calls.append(command)
@@ -45,9 +45,9 @@ class CliBindingTests(unittest.TestCase):
 
     def test_synthetic_matching_claims_are_not_authentication(self):
         with mock.patch.object(c, "_digest", side_effect=lambda s: {
-            "sub":"S","tenant":"T","owner":"O"}.get(s, "wrong")), \\
-             mock.patch.object(c, "SUB_SHA", "S"), \\
-             mock.patch.object(c, "TENANT_SHA", "T"), \\
+            "sub":"S","tenant":"T","owner":"O"}.get(s, "wrong")), \
+             mock.patch.object(c, "SUB_SHA", "S"), \
+             mock.patch.object(c, "TENANT_SHA", "T"), \
              mock.patch.object(c, "OWNER_SHA", "O"):
             def runner(command):
                 if command == c.SUBSCRIPTION_COMMAND:
