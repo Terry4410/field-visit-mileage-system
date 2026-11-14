@@ -10,6 +10,9 @@ class ReadonlySQLContractTests(unittest.TestCase):
         args=contract.sqlcmd_argv(Path('/verified/sqlcmd'), Path('/ram/sql-token'), raw)
         self.assertEqual(args[args.index('-S')+1],contract.SERVER)
         self.assertEqual(args[args.index('-d')+1],contract.DATABASE)
+        self.assertEqual(args[args.index('-l')+1], '30')
+        self.assertEqual(args.count('-G'), 1)
+        self.assertEqual(args.count('-Nm'), 1)
         self.assertNotIn('--execute',args)
     def test_modified_sql_holds(self):
         with self.assertRaises(contract.ReadonlyHold):
