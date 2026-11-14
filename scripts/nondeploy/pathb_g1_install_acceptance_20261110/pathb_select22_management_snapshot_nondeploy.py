@@ -28,7 +28,7 @@ class VerifiedManagement:
     instance_sha256: str
     app: str
     sql_server: str
-    read_only_verified: bool = True
+    read_only_verified: bool = False
 
 
 def verify_snapshot(*, account, signed_in_owner, app, instances, sql_server):
@@ -55,7 +55,7 @@ def verify_snapshot(*, account, signed_in_owner, app, instances, sql_server):
                 or sql_server.get("publicNetworkAccess") != "Disabled"
                 or sql_server.get("minimalTlsVersion") != "1.2"):
             raise ValueError()
-        return VerifiedManagement(instance, _hash(instance), APP, SERVER)
+        return VerifiedManagement(instance, _hash(instance), APP, SERVER,\n                                  read_only_verified=True)
     except Exception:
         raise SnapshotHold("SELECT22_MANAGEMENT_SNAPSHOT_HOLD") from None
 
