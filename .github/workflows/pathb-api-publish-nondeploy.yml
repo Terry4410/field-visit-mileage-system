@@ -1,0 +1,48 @@
+name: Path B API Publish Candidate (NONDEPLOY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pathb-api-publish-nondeploy
+  cancel-in-progress: false
+jobs:
+  build-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish API without deployment
+        run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --runtime linux-x64 --self-contained false --output /tmp/pathb-api-publish
+      - name: Verify publish output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/pathb-api-publish/FieldVisit.Api.dll
+          test -s /tmp/pathb-api-publish/FieldVisit.Api.deps.json
+          test -s /tmp/pathb-api-publish/FieldVisit.Api.runtimeconfig.json
+          test ! -e /tmp/pathb-api-publish/hostingstart.html
+          echo 'PATHB_API_PUBLISH=PASS'
+          echo 'AZURE_ACTION=NO'
+          echo 'SQL_ACTION=NO'
+          echo 'DEPLOYMENT=NO'
+      - name: Package immutable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/pathb-api-publish
+          zip -qr "$GITHUB_WORKSPACE/pathb-api-publish.zip" .
+          cd "$GITHUB_WORKSPACE"
+          sha256sum pathb-api-publish.zip
+      - name: Upload candidate artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-api-publish-nondeploy
+          path: pathb-api-publish.zip
+          retention-days: 14
+          if-no-files-found: error
