@@ -85,6 +85,45 @@ class KuduV2OnlyTests(unittest.TestCase):
                 self.assertNotIn(('HEAD',guard.NEW_BLOB),calls)
                 self.assertFalse(any(method=='PUT' for method,_ in calls))
 
+    def test_actual_https_guard_allows_only_reading_prior_ssh_marker(self):
+        # The original fake request tests bypassed the real HTTPS target filter.
+        # Mock the network boundary itself: no Azure or credentials involved.
+        reply=Mock()
+        reply.status=404
+        reply.getheader.side_effect=lambda key,default='': (
+            'BlobNotFound' if key=='x-ms-error-code' else default)
+        reply.read.return_value=b''
+        client=Mock()
+        client.getresponse.return_value=reply
+        with patch.object(guard,'validate_owner_storage_token',return_value=True), \
+             patch.object(guard.ssl,'create_default_context',return_value=object()), \
+             patch.object(guard.http.client,'HTTPSConnection',return_value=client):
+            send=guard.pinned_http_request('NONSECRET_FAKE')
+            old=send('HEAD',guard.PRIOR_G1_SSH_BLOB,{'Authorization':'NONSECRET_FAKE'})
+            self.assertEqual((old.status,old.error_code),(404,'BlobNotFound'))
+            client.request.assert_called_once()
+            self.assertIn(guard.PRIOR_G1_SSH_BLOB,client.request.call_args.args[1])
+            calls=client.request.call_count
+            for target in (guard.PRIOR_G1_SSH_BLOB,guard.PRIOR_G1_KUDU_BLOB,
+                           guard.PRIOR_G1_INSTALL_BLOB):
+                with self.assertRaises(guard.InstallGuardHold):
+                    send('PUT',target,{'If-None-Match':'*'},b'bad')
+                with self.assertRaises(guard.InstallGuardHold):
+                    send('GET',target,{},b'')
+            with self.assertRaises(guard.InstallGuardHold):
+                send('PUT',guard.NEW_BLOB,{},b'bad')
+            with self.assertRaises(guard.InstallGuardHold):
+                send('DELETE',guard.NEW_BLOB,{},b'')
+            self.assertEqual(client.request.call_count,calls)
+
+    def test_https_allowlist_all_predecessor_read_targets(self):
+        # Static fail-closed source-level check, not a live Storage probe.
+        import inspect
+        src=inspect.getsource(guard.pinned_http_request)
+        self.assertIn('PRIOR_G1_SSH_BLOB',src)
+        self.assertIn('predecessor_select_markers',src)
+        self.assertIn("blob_name == NEW_BLOB",src)
+
     def test_shell_hash_challenge_not_a_cli_banner(self):
         s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
         s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
