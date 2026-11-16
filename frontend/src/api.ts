@@ -17,8 +17,8 @@ export function resolveApiBase(raw: string | undefined, frontendHost: string): s
     catch { throw new Error("Path B UAT API 網址無效，已停止連線。"); }
     if (url.protocol !== "https:" || url.hostname.toLowerCase() !== PATHB_API_HOST ||
         url.port || url.username || url.password || url.search || url.hash ||
-        (url.pathname.replace(/\\/+$/, "") !== "" &&
-         url.pathname.replace(/\\/+$/, "") !== "/api/v1")) {
+        (url.pathname.replace(/\/+$/, "") !== "" &&
+         url.pathname.replace(/\/+$/, "") !== "/api/v1")) {
       throw new Error("Path B UAT API 目標不符，已停止連線。");
     }
     return `https://${PATHB_API_HOST}/api/v1`;
@@ -28,8 +28,8 @@ export function resolveApiBase(raw: string | undefined, frontendHost: string): s
       return "http://localhost:5080/api/v1";
     throw new Error("API 設定缺失，已停止連線。");
   }
-  const base = value.replace(/\\/+$/, "");
-  return /\\/api\\/v1$/i.test(base) ? base : `${base}/api/v1`;
+  const base = value.replace(/\/+$/, "");
+  return /\/api\/v1$/i.test(base) ? base : `${base}/api/v1`;
 }
 
 export const apiBase = () => resolveApiBase(window.APP_CONFIG?.API_BASE_URL, window.location.hostname);
