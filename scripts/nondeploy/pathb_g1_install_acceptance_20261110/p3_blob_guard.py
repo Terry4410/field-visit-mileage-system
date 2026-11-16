@@ -282,9 +282,28 @@ def pinned_http_request(storage_token):
     """
     validate_owner_storage_token(storage_token)
     def send(method, blob_name, headers, body=b''):
-        require(method in ('HEAD', 'GET', 'PUT') and
-                blob_name in (NEW_BLOB, PRIOR_G1_KUDU_BLOB, PRIOR_G1_INSTALL_BLOB, PRIOR_INSTALL_BLOB, PRIOR_V2_INSTALL_BLOB, PRIOR_V3_INSTALL_BLOB, *(x[0] for x in PREDECESSORS)),
-                'BLOB_METHOD_OR_NAME_DENIED')
+        # Separate immutable read targets from the ONLY writable one-use key.
+        # The old SSH marker must be HEAD-readable; never writable or replayed.
+        prior_install_markers = (
+            PRIOR_G1_SSH_BLOB, PRIOR_G1_KUDU_BLOB, PRIOR_G1_INSTALL_BLOB,
+            PRIOR_INSTALL_BLOB, PRIOR_V2_INSTALL_BLOB, PRIOR_V3_INSTALL_BLOB,
+        )
+        predecessor_select_markers = tuple(item[0] for item in PREDECESSORS)
+        if method == 'PUT':
+            allowed = (blob_name == NEW_BLOB and isinstance(body, bytes)
+                       and 0 < len(body) <= MAX_RESPONSE_BYTES
+                       and headers.get('If-None-Match') == '*'
+                       and headers.get('x-ms-blob-type') == 'BlockBlob'
+                       and headers.get('Content-Length') == str(len(body)))
+        elif method == 'HEAD':
+            allowed = (blob_name in (NEW_BLOB, *prior_install_markers)
+                       and body == b'')
+        elif method == 'GET':
+            allowed = (blob_name in (NEW_BLOB, *predecessor_select_markers)
+                       and body == b'')
+        else:
+            allowed = False
+        require(allowed, 'BLOB_METHOD_OR_NAME_DENIED')
         c = http.client.HTTPSConnection(ACCOUNT + '.blob.core.windows.net',
                                        timeout=18, context=ssl.create_default_context())
         try:
