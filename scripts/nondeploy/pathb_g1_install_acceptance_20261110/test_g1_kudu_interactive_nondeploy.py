@@ -190,6 +190,23 @@ class KuduV2OnlyTests(unittest.TestCase):
         self.assertEqual(e.exception.code,'KUDU_SECRET_ECHO')
         self.assertEqual(s._token_count,0)
 
+    def test_exact_nonce_accepts_only_bounded_shell_prompt_prefix(self):
+        nonce_digest = hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
+        expected = ('FV_G1_KUDU_SHELL:' + nonce_digest).encode()
+        prefix = b'root@worker:/home/site/wwwroot# '
+        find = KuduExecSession._consume_shell_challenge
+        for frame in (expected + b'\r\n',
+                      prefix + expected + b'\r\n',
+                      b'Connecting...\r\n' + prefix + expected + b'\r\n'):
+            ok, remaining = find(frame + b'next', expected)
+            self.assertTrue(ok)
+            self.assertEqual(remaining, b'next')
+        for frame in (b'garbage:' + expected + b'\r\n',
+                      prefix + expected + b'TRAILING\r\n',
+                      prefix + expected[:24] + b'\r\n',
+                      b'root@worker:/home/site/wwwroot# oops ' + expected + b'\r\n'):
+            self.assertFalse(find(frame, expected)[0])
+
     def test_real_local_pty_interactive_shell_nonce_handshake(self):
         """Exercise the actual PTY/read/write lifecycle, without Azure or Tokens."""
         import shutil
