@@ -128,13 +128,54 @@ class KuduV2OnlyTests(unittest.TestCase):
         s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
         s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
         digest=hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
+        reads=[b'Opening remote shell...\\r\\nroot@sample:/home/site/wwwroot# ',
+               ('\\nFV_G1_KUDU_SHELL:'+digest+'\\n').encode()]
         with patch.object(transport.secrets,'token_hex',return_value=NONCE),\
              patch.object(s,'send_public') as sent,\
              patch.object(transport.select,'select',return_value=([123],[],[])),\
-             patch.object(transport.os,'read',return_value=('\nFV_G1_KUDU_SHELL:'+digest+'\n').encode()):
+             patch.object(transport.os,'read',side_effect=reads):
             s.await_cli_shell_banner(seconds=2)
         self.assertNotIn(digest.encode(),sent.call_args.args[0])
+        self.assertIn('SHELL_PROMPT_OBSERVED',s.audit)
         self.assertIn('CLI_SHELL_BANNER_READY',s.audit)
+
+    def test_shell_prompt_parser_rejects_cli_progress_and_fake_challenge(self):
+        match=KuduExecSession._remote_shell_prompt_present
+        self.assertTrue(match(b'Connected\\r\\nroot@worker:/home/site/wwwroot# '))
+        self.assertTrue(match(b'\\n# '))
+        for invalid in (b'',b'Connecting to remote shell...\\n',
+                        b'Authentication required: password:',
+                        b'root@worker:/# password:', b'\\nFV_G1_KUDU_SHELL:abc\\n',
+                        b'\\nother output # unrelated'):
+            self.assertFalse(match(invalid))
+
+    def test_does_not_send_challenge_before_actual_prompt(self):
+        s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        digest=hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
+        chunks=[b'Connecting...\\r\\n',
+                b'root@worker:/home/site/wwwroot# ',
+                ('\\nFV_G1_KUDU_SHELL:'+digest+'\\n').encode()]
+        with patch.object(transport.secrets,'token_hex',return_value=NONCE),\
+             patch.object(s,'send_public') as sent,\
+             patch.object(transport.select,'select',return_value=([123],[],[])),\
+             patch.object(transport.os,'read',side_effect=chunks):
+            s.await_cli_shell_banner(seconds=3)
+        self.assertEqual(sent.call_count,1)
+        self.assertIn('SHELL_PROMPT_OBSERVED',s.audit)
+        self.assertIn('CLI_SHELL_BANNER_READY',s.audit)
+
+    def test_no_remote_prompt_fails_without_sending_commands(self):
+        s=KuduExecSession('a'*20,deadline=100,clock=iter(range(100)).__next__)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        with patch.object(s,'send_public') as sent,\
+             patch.object(transport.select,'select',return_value=([123],[],[])),\
+             patch.object(transport.os,'read',return_value=b'CLI startup...\\n'):
+            with self.assertRaises(TransportHold) as e:
+                s.await_cli_shell_banner(seconds=3)
+        self.assertEqual(e.exception.code,'KUDU_CHANNEL_TIMEOUT')
+        sent.assert_not_called()
+        self.assertEqual(s._token_count,0)
 
     def test_echoed_command_denied(self):
         s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
