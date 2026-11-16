@@ -7,6 +7,8 @@ remote connection. Retrieves the ephemeral SSH credential only from the
 approved Azure CLI tunnel process; never includes it in source, args, env or
 published output. No Azure operations on import.
 """
+import base64
+import binascii
 import json
 import os
 from pathlib import Path
@@ -53,20 +55,45 @@ def ssh_tunnel_args(instance, port, subscription):
 
 
 def validate_host_key_scan(raw, port):
-    """Only trust one ED25519 key for the exact loopback tunnel host and port."""
-    if not raw:
+    """Return one canonical known_hosts line, only if every observed key agrees.
+
+    Multiple identical ED25519 records are harmless duplicates; differing keys,
+    hostnames, ports, key types or invalid wire formats remain a hard HOLD. The
+    caller must independently verify the exact pinned SHA-256 fingerprint before
+    any authentication. This function never approves a new/unpinned host key.
+    """
+    if not isinstance(raw, bytes) or not raw:
         raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD')
     if type(port) is not int or not 1024 <= port <= 65535 or len(raw) > 4096:
         raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
     lines = raw.splitlines()
-    if len(lines) != 1:
+    if not 1 <= len(lines) <= 8:
         raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
-    fields = lines[0].split()
     expected_host = ('[127.0.0.1]:' + str(port)).encode('ascii')
-    if (len(fields) != 3 or fields[0] != expected_host or
-            fields[1] != b'ssh-ed25519' or
-            re.fullmatch(rb'[A-Za-z0-9+/]+={0,2}', fields[2]) is None):
-        raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+    canonical = None
+    for line in lines:
+        if not line or len(line) >= 4096:
+            raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+        fields = line.split()
+        if (len(fields) != 3 or fields[0] != expected_host or
+                fields[1] != b'ssh-ed25519' or
+                line != b' '.join(fields) or
+                re.fullmatch(rb'[A-Za-z0-9+/]+={0,2}', fields[2]) is None):
+            raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+        try:
+            wire = base64.b64decode(fields[2], validate=True)
+        except (binascii.Error, ValueError):
+            raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD') from None
+        # SSH wire format: string("ssh-ed25519") + string(32-byte public key).
+        if (len(wire) != 51 or wire[:4] != b'\x00\x00\x00\x0b' or
+                wire[4:15] != b'ssh-ed25519' or
+                wire[15:19] != b'\x00\x00\x00\x20' or
+                base64.b64encode(wire) != fields[2]):
+            raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+        if canonical is not None and canonical != line:
+            raise TransportHold('SSH_HOST_KEY_AMBIGUOUS_HOLD')
+        canonical = line
+    return canonical + b'\n'
 
 
 def validate_tunnel_host_fingerprint(observed):
@@ -122,9 +149,9 @@ class AppSshTunnel:
                                     stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=True)
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
                 raise TransportHold('SSH_HOST_KEY_NOT_OBSERVED_HOLD') from None
-            validate_host_key_scan(scan.stdout, port)
+            canonical_hosts = validate_host_key_scan(scan.stdout, port)
             fd=os.open(self.known_hosts,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-            with os.fdopen(fd,'wb') as f:f.write(scan.stdout)
+            with os.fdopen(fd,'wb') as f:f.write(canonical_hosts)
             fingerprint=subprocess.run(['ssh-keygen','-lf',str(self.known_hosts)],
                                        capture_output=True,timeout=20,check=True)
             validate_tunnel_host_fingerprint(fingerprint.stdout)

@@ -87,7 +87,7 @@ def invoke(config, argv, raw, *, journal_request=None):
 def main():
     try:
         config=json.loads(private_file(os.environ['FV_ADAPTER_CONFIG']).read_text())
-        if config.get('g1_live_approval') != 'OWNER_APPROVED_PATHB_G1_ORIGINAL_INSTALLER_SINGLE':
+        if config.get('g1_live_approval') != 'OWNER_APPROVED_PATHB_G1_SSH_NEW_EXACT_ONCE':
             raise ValueError('G1_NOT_AUTHORIZED')
         from p3_g1_blob_transport import build_request_from_private_storage_token
         journal_request=build_request_from_private_storage_token(config['g1_storage_token_file'])
