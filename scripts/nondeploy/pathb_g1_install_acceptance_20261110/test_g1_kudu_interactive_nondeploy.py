@@ -190,6 +190,30 @@ class KuduV2OnlyTests(unittest.TestCase):
         self.assertEqual(e.exception.code,'KUDU_SECRET_ECHO')
         self.assertEqual(s._token_count,0)
 
+    def test_real_local_pty_interactive_shell_nonce_handshake(self):
+        """Exercise the actual PTY/read/write lifecycle, without Azure or Tokens."""
+        import shutil
+        import time
+        bash = shutil.which('bash')
+        self.assertIsNotNone(bash)
+        # A private bash in the GitHub runner stands in for a remote shell.
+        # No Azure CLI, network, SQL, Storage, credentials, or installer.
+        command = ['/usr/bin/env', 'PS1=root@worker:/home/site/wwwroot# ',
+                   bash, '--noprofile', '--norc', '-i']
+        s = KuduExecSession('a'*20, deadline=time.monotonic()+15)
+        try:
+            with patch.object(transport, 'interactive_exec_args', return_value=command):
+                s.start()
+                s.await_cli_shell_banner(seconds=6)
+                s.establish_safe_channel()
+            self.assertIn('SHELL_PROMPT_OBSERVED', s.audit)
+            self.assertIn('CLI_SHELL_BANNER_READY', s.audit)
+            self.assertIn('ECHO_READY', s.audit)
+            self.assertEqual(s._token_count, 0)
+            self.assertEqual(s.state.state, 'CHANNEL')
+        finally:
+            s.close()
+
     def test_no_live_when_missing_auth(self):
         with tempfile.TemporaryDirectory() as d:
             f=Path(d)/'none.json';f.write_text('{}')
