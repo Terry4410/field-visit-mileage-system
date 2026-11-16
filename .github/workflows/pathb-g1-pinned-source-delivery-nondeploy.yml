@@ -18,6 +18,8 @@ on:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/token_adapter_g1_REVIEW_ONLY.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_contract_reconcile_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_g1_pinned_ssh.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_ssh_hostkey_dedupe_nondeploy.py
 
 permissions:
   contents: read
@@ -39,6 +41,7 @@ jobs:
         run: |
           python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_pinned_source_distribution_nondeploy.py' -v
           python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_ssh_contract_reconcile_nondeploy.py' -v
+          python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_ssh_hostkey_dedupe_nondeploy.py' -v
       - name: Build pinned byte-exact source-only ZIP
         shell: bash
         run: |
