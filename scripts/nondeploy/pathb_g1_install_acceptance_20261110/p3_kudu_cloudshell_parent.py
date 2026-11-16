@@ -319,6 +319,13 @@ def execute(args):
                     old["historical_immutability_proven"] is False and
                     old["historical_parent_execution_proven"] is False,
                     "HISTORICAL_BLOB_HOLD")
+            # Refresh the same exact Owner/App/PE facts after potentially slow downloads.
+            # Fail closed if the App instance changed; never substitute an instance.
+            stop = "FRESH_MANAGEMENT"
+            fresh_instance, facts = management(cfg)
+            require(fresh_instance == instance, "INSTANCE_CHANGED_HOLD")
+            validate_authorization(args.authorization, args.artifact_sha256,
+                                   binding_sha, fresh_instance)
             stop = "STAGE"
             stage_file, member_hashes = build_stage(work, binding,
                                                      Path(args.authorization), facts)
@@ -329,6 +336,12 @@ def execute(args):
             session.establish_safe_channel()
             session.stage_archive(stage_bytes, digest(stage_bytes))
             staged = True
+            # Runner enforces a 180s management-facts freshness window. Do not
+            # launch it with already-expired facts after Kudu handshaking/staging.
+            require(0 <= time.time() - facts["observed_at"] <= 180,
+                    "MANAGEMENT_FACTS_STALE_HOLD")
+            validate_authorization(args.authorization, args.artifact_sha256,
+                                   binding_sha, instance)
             session.send_public(runner_command(args.artifact_sha256),
                                 "P3_RUNNER_SENT")
             session.expect_fixed(b"FV_P3_TOKENS_READY", 300, "TOKENS_READY")
