@@ -1,6 +1,9 @@
 name: Path B G1 pinned source distribution NONDEPLOY
 
 on:
+  pull_request:
+    branches:
+      - work/pathb-g1-ssh-trust-delta-nondeploy-20261113
   push:
     branches:
       - work/pathb-g1-pinned-source-delivery-nondeploy-20261116
