@@ -467,7 +467,7 @@ class KuduExecSession:
             buffer[-2048:],
         ) is not None
 
-    def await_cli_shell_banner(self, seconds: float = 45) -> None:
+    def await_cli_shell_banner(self, seconds: float = 120) -> None:
         """Wait for an actual shell prompt BEFORE the one in-band challenge.
 
         Starting the local 'az webapp exec' process does not mean the remote
@@ -537,7 +537,7 @@ class KuduExecSession:
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
         self.send_public(b"stty -echo -icanon min 1 time 0\n", "ECHO_DISABLE_SENT")
         self.send_public(b"umask 077\n", "UMASK_SET_SENT")
-        self._challenge(tag="ECHO", seconds=30, no_echo=True)
+        self._challenge(tag="ECHO", seconds=120, no_echo=True)
 
     def stage_archive(self, stage: bytes, expected_sha256: str, *,
                       remote_stage: str = REMOTE_STAGE) -> None:
@@ -553,7 +553,7 @@ class KuduExecSession:
         for chunk in iter_stage_frame(stage, expected_sha256):
             self._write_all(chunk)
         self.audit.append("STAGE_FRAME_SENT")
-        self.expect_fixed(b"FV_KUDU_STAGE_READY", 300, "STAGE_READY",
+        self.expect_fixed(b"FV_KUDU_STAGE_READY", 600, "STAGE_READY",
                           after=boundary)
         self.state.advance("CHANNEL", "STAGED")
 
