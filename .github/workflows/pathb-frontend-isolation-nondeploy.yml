@@ -29,3 +29,8 @@ jobs:
       - name: TypeScript and production build (no deployment)
         run: npm run build
         working-directory: frontend
+      - name: Prepare Path B static artifact (NONDEPLOY)
+        run: node scripts/prepare-pathb-artifact.mjs
+        working-directory: frontend
+      - name: Verify no deployment action
+        run: test -f frontend/dist/config.js && grep -F 'api-fieldvisit-pathb-uat.azurewebsites.net/api/v1' frontend/dist/config.js
