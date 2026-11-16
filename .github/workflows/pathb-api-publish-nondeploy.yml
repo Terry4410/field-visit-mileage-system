@@ -23,14 +23,18 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "d6c220877b9976b6478d85b5171d4e06293595ae"
           grep -q '1.8.0' backend/src/FieldVisit.Api/Program.cs
+          grep -Fq 'MapGet("/health/live"' backend/src/FieldVisit.Api/Program.cs
+          grep -Fq 'MapGet("/health/ready"' backend/src/FieldVisit.Api/Program.cs
+          grep -Fq 'HttpPost("auth/demo-login")' backend/src/FieldVisit.Api/Controllers/AuthController.cs
           test -f backend/src/FieldVisit.Api/Controllers/UatAutomationController.cs
           echo 'SOURCE_RELEASE=PASS'
+          echo 'API_ROUTES_STATIC=PASS'
           echo 'SOURCE_SHA=d6c220877b9976b6478d85b5171d4e06293595ae'
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Restore and run existing API unit tests (offline from Azure and SQL)
+      - name: Run existing API unit tests with no injected Azure credentials
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release
       - name: Install Traditional Chinese PDF font from Ubuntu packages
         shell: bash
