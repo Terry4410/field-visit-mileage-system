@@ -75,11 +75,11 @@ class KuduV2OnlyTests(unittest.TestCase):
         cfg={'server':parent.SERVER}
         owner={'id':'owner'}
         # Preserve real identity hash logic, without contacting Azure.
-        with patch.object(parent,'OWNER_SHA',parent.ident('owner')), \\
-             patch.object(parent,'check_owner_account',return_value=None), \\
-             patch.object(parent,'validate_cli_version',return_value=None), \\
-             patch.object(parent,'select_single_instance',return_value='instance'), \\
-             patch.object(parent,'private_endpoint_ip',return_value='10.90.2.4'):
+        with (patch.object(parent,'OWNER_SHA',parent.ident('owner')),
+              patch.object(parent,'check_owner_account',return_value=None),
+              patch.object(parent,'validate_cli_version',return_value=None),
+              patch.object(parent,'select_single_instance',return_value='instance'),
+              patch.object(parent,'private_endpoint_ip',return_value='10.90.2.4')):
             for count in (0,1,2):
                 server={'fullyQualifiedDomainName':parent.SERVER,
                         'publicNetworkAccess':'Disabled','minimalTlsVersion':'1.2',
