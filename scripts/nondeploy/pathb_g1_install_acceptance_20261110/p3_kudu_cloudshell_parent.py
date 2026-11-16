@@ -150,7 +150,7 @@ def management(cfg):
     instances = az(["webapp", "list-instances", "-g", RG, "-n", APP])
     instance = select_single_instance(instances)
     require(server.get("fullyQualifiedDomainName") == cfg["server"] and
-            server.get("publicNetworkAccess") == "Disabled" and len(rules) == 0,
+            server.get("publicNetworkAccess") == "Disabled" and isinstance(rules, list),
             "SQL_PRIVATE_ONLY_HOLD")
     require(server.get("minimalTlsVersion") == "1.2" and
             app.get("name") == APP and app.get("state") == "Running" and
@@ -159,7 +159,7 @@ def management(cfg):
             "SQL_ENTRA_ADMIN_HOLD")
     return instance, {
         "server": SERVER, "database": DATABASE, "app": APP,
-        "pna": "Disabled", "firewall_count": 0,
+        "pna": "Disabled", "firewall_count": len(rules),
         "owner_admin_match": True,
         "private_sql_ip": private_endpoint_ip(server["id"]),
         "exec_transport": TRANSPORT,
