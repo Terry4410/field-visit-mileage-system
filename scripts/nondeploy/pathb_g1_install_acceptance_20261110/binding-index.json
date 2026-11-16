@@ -13,7 +13,7 @@
     "p3_g1_pinned_ssh.py": "5dad028d6ac109819453c55070d14443161024b89ee8a75387c0e942cddc7818",
     "p3_historical_blob_evidence.py": "f54b4772b02c0ec73e94938ae5527df6ba75697bc71a610a2a51b66b48d96ff2",
     "p3_install_gates.py": "b2fdb3188adea556cb024978d63e2003b1a63169773e1eca55f79b98742c0f65",
-    "p3_kudu_cloudshell_parent.py": "6c9659a591c3925eb633b0d5bc50c562673a0c00527f9f0b3b7d1323f0f37365",
+    "p3_kudu_cloudshell_parent.py": "7a5acc125b00f5b818acbaef356946c7f5e711629db8105f2a78cf36cb0aec7c",
     "p3_kudu_transport.py": "24c25246836013a77d202c2851e978fdede70f4c98f3190848b96a5cfedf44ef",
     "p3_ssh_stage.py": "4606e08de4ad4dd5e3a105d9c162434be2d5a5ef82f5e38129adfc95cd0c7301",
     "p3_ssh_transport_contract.py": "99ba75809f48a771b08a3764516d0e22933555438f6a2a37309af9033d1759bc",
@@ -22,7 +22,8 @@
     "schema-fingerprint.sql": "3c18fc1cf67d298a53919fc824b03ae6c1bf014a97c754c2f7cc90335b096c18",
     "seal_verifier.py": "33d8bd044839a9b549a39eeeb2fd2616e0663bca0a7df41a78fdd49ab5480597",
     "token_adapter.py": "703d04bffa6542d80a214bd257adb221f86fdc45aee38981267239fc913596e4",
-    "token_adapter_g1_REVIEW_ONLY.py": "92e39bf80685cae04c8d49cffc96ebe872d8c6b78a2b620d1ecda95fd9a626a5"
+    "token_adapter_g1_REVIEW_ONLY.py": "92e39bf80685cae04c8d49cffc96ebe872d8c6b78a2b620d1ecda95fd9a626a5",
+    "test_g1_kudu_interactive_nondeploy.py": "81566323aefdfb597b663b710a4e4844c5e0137e073aa431950524343d702811"
   },
   "source_consumed_v3_sha256": "95f973e5f6401285b45c76df98b10404ea055df23e0e86a465b7162c4061d0fa"
 }
