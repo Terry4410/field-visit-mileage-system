@@ -136,6 +136,18 @@ def validate_authorization(path, artifact_sha, binding_sha, instance, now=None):
     return auth
 
 
+
+def validate_launch_window(facts, authorization, artifact_sha, binding_sha,
+                           instance, now=None):
+    """Fail closed before runner launch on stale facts or expired Owner grant."""
+    clock = time.time() if now is None else float(now)
+    observed = facts.get("observed_at")
+    require(type(observed) in (int, float) and
+            0 <= clock - observed <= 180, "MANAGEMENT_FACTS_STALE_HOLD")
+    validate_authorization(authorization, artifact_sha, binding_sha,
+                           instance, now=clock)
+
+
 def management(cfg):
     account = az(["account", "show"])
     check_owner_account(account)
@@ -338,10 +350,8 @@ def execute(args):
             staged = True
             # Runner enforces a 180s management-facts freshness window. Do not
             # launch it with already-expired facts after Kudu handshaking/staging.
-            require(0 <= time.time() - facts["observed_at"] <= 180,
-                    "MANAGEMENT_FACTS_STALE_HOLD")
-            validate_authorization(args.authorization, args.artifact_sha256,
-                                   binding_sha, instance)
+            validate_launch_window(facts, args.authorization,
+                                   args.artifact_sha256, binding_sha, instance)
             session.send_public(runner_command(args.artifact_sha256),
                                 "P3_RUNNER_SENT")
             session.expect_fixed(b"FV_P3_TOKENS_READY", 300, "TOKENS_READY")
