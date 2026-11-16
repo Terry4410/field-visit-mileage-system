@@ -18,7 +18,7 @@ APPROVED_RELEASE = "d6c220877b9976b6478d85b5171d4e06293595ae"
 EXPECTED_CONTRACT = "FIELDVISIT_PATHB_G1_ORIGINAL_BINDING_V1"
 INSTALLER_SHA = "b38f124391d89351f2da6dd01cc4a93e7a515ac4bbda79b6746d5211ce44ba4f"
 PACKAGE_SHA = "5a0c956d4ef5c88e0ff49d2d606ee9c1cb34e81e7f0c0f85b5aea8c5743e5828"
-SEAL_SHA = "a37dc3c7fbf1f805639fb72a76cc788bd9bec1f0f9933e079e2eacae5c4a5f"
+SEAL_SHA = "a37dc3c7fbf1f805639fb72a76cc788bd9bec1f0f9933e07909e2eacae5c4a5f"
 EXPECTED_TARGET = ("api-fieldvisit-pathb-uat",
                    "sql-fieldvisit-jpe-pathb-uat.database.windows.net",
                    "db-fieldvisit-pathb-uat")
