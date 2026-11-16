@@ -70,6 +70,71 @@ class KuduV2OnlyTests(unittest.TestCase):
                 with self.assertRaises(parent.Hold):parent.validate_authorization(f,'b'*64,'c'*64,None,now=now)
                 with self.assertRaises(runner.Hold):runner.verify_authorization(bad,'b'*64,'c'*64,'d'*64,now=now)
 
+    def test_firewall_management_private_only_zero_one_and_reject_public(self):
+        from p3_ssh_transport_contract import OWNER_SHA
+        cfg={'server':parent.SERVER}
+        owner={'id':'owner'}
+        # Preserve real identity hash logic, without contacting Azure.
+        with patch.object(parent,'OWNER_SHA',parent.ident('owner')), \\
+             patch.object(parent,'check_owner_account',return_value=None), \\
+             patch.object(parent,'validate_cli_version',return_value=None), \\
+             patch.object(parent,'select_single_instance',return_value='instance'), \\
+             patch.object(parent,'private_endpoint_ip',return_value='10.90.2.4'):
+            for count in (0,1,2):
+                server={'fullyQualifiedDomainName':parent.SERVER,
+                        'publicNetworkAccess':'Disabled','minimalTlsVersion':'1.2',
+                        'id':'/subscriptions/example/sql'}
+                responses={'account show':{},'ad signed-in-user':owner,
+                           'version':{},'sql server show':server,
+                           'sql server firewall-rule':[{}]*count,
+                           'sql server ad-admin':[{'sid':'owner'}],
+                           'webapp show':{'name':parent.APP,'state':'Running',
+                                          'virtualNetworkSubnetId':'subnet'},
+                           'webapp list-instances':[{}]}
+                def fake_az(args):
+                    key=' '.join(args[:3])
+                    if args[:2]==['account','show']:key='account show'
+                    if args[:3]==['ad','signed-in-user','show']:key='ad signed-in-user'
+                    if args[0]=='version':key='version'
+                    if args[:3]==['sql','server','show']:key='sql server show'
+                    if args[:3]==['sql','server','firewall-rule']:key='sql server firewall-rule'
+                    if args[:3]==['sql','server','ad-admin']:key='sql server ad-admin'
+                    if args[:2]==['webapp','show']:key='webapp show'
+                    if args[:2]==['webapp','list-instances']:key='webapp list-instances'
+                    return responses[key]
+                with patch.object(parent,'az',side_effect=fake_az):
+                    _,facts=parent.management(cfg)
+                    self.assertEqual(facts['firewall_count'],count)
+                    server['publicNetworkAccess']='Enabled'
+                    with self.assertRaises(parent.Hold):parent.management(cfg)
+
+    def test_launch_window_freshness_and_authorization_boundaries(self):
+        grant=dict(operation_id='a'*32,contract=parent.CONTRACT,
+            decision=parent.DECISION,artifact_sha256='b'*64,
+            binding_index_sha256='c'*64,server=parent.SERVER,
+            database=parent.DATABASE,installation_attempts=1,
+            instance_sha256=parent.ident('instance'),
+            not_before='2026-11-16T00:00:00Z',
+            expires_at='2026-11-16T00:30:00Z')
+        from datetime import datetime, timezone
+        start=datetime(2026,11,16,tzinfo=timezone.utc).timestamp()
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'grant.json';p.write_text(json.dumps(grant))
+            for age in (0,179,180):
+                parent.validate_launch_window({'observed_at':start+200-age},
+                    p,'b'*64,'c'*64,'instance',now=start+200)
+            for age in (181,-1):
+                with self.assertRaises(parent.Hold):
+                    parent.validate_launch_window({'observed_at':start+200-age},
+                        p,'b'*64,'c'*64,'instance',now=start+200)
+            for now in (start-1,start+1801):
+                with self.assertRaises(parent.Hold):
+                    parent.validate_launch_window({'observed_at':now},
+                        p,'b'*64,'c'*64,'instance',now=now)
+            for now in (start,start+1800):
+                parent.validate_launch_window({'observed_at':now},
+                    p,'b'*64,'c'*64,'instance',now=now)
+
     def test_predecessor_markers_never_put(self):
         for target in (guard.PRIOR_G1_KUDU_BLOB,guard.PRIOR_G1_SSH_BLOB):
             for status in (200,503):
