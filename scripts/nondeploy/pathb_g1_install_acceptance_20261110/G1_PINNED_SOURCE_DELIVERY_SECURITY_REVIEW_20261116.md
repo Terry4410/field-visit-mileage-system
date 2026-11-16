@@ -10,7 +10,7 @@
 - Frozen original installer: SHA-256 `b38f124391d89351f2da6dd01cc4a93e7a515ac4bbda79b6746d5211ce44ba4f`.
 - Frozen preflight SQL: SHA-256 `e87dbd54d4740254b6f0041fe330cc4af71e51a214964c39e1001c4437075add`.
 - Original SQL package expected SHA-256 `5a0c956d4ef5c88e0ff49d2d606ee9c1cb34e81e7f0c0f85b5aea8c5743e5828`.
-- Original SQL seal expected SHA-256 `a37dc3c7fbf1f805639fb72a76cc788bd9bec1f0f9933e079e2eacae5c4a5f`.
+- Original SQL seal expected SHA-256 `a37dc3c7fbf1f805639fb72a76cc788bd9bec1f0f9933e07909e2eacae5c4a5f`.
 - Existing installer contract: up to 19 SQL calls, 14 immutable SQL layers, expected 69 user tables and 3 `SchemaVersions` markers. These counts are **expectations**, not live installation evidence.
 
 ## What this delta does (offline only)
