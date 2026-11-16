@@ -1,0 +1,50 @@
+name: Path B G1 pinned source distribution NONDEPLOY
+
+on:
+  push:
+    branches:
+      - work/pathb-g1-pinned-source-delivery-nondeploy-20261116
+    paths:
+      - .github/workflows/pathb-g1-pinned-source-delivery-nondeploy.yml
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/g1_pinned_source_distribution_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_pinned_source_distribution_nondeploy.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/G1_PINNED_SOURCE_DELIVERY_SECURITY_REVIEW_20261116.md
+
+permissions:
+  contents: read
+
+jobs:
+  immutable-source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact NONDEPLOY candidate without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run native parent and fail-closed offline tests
+        run: |
+          python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_pinned_source_distribution_nondeploy.py' -v
+      - name: Build pinned byte-exact source-only ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          python scripts/nondeploy/pathb_g1_install_acceptance_20261110/g1_pinned_source_distribution_nondeploy.py --output output/pathb-g1-source-only.zip | tee output/g1-source-only-receipt.txt
+          grep -qx 'G1_SOURCE_DELIVERY=OFFLINE_PASS' output/g1-source-only-receipt.txt
+          grep -qx 'ORIGINAL_14_LAYER_SQL_BLOB=NOT_INCLUDED' output/g1-source-only-receipt.txt
+          grep -qx 'LIVE_SQL_DDL_TOKEN_BLOB_AZURE_DEPLOY=NOT_RUN' output/g1-source-only-receipt.txt
+          sha256sum output/pathb-g1-source-only.zip
+      - name: Upload only source-only NONDEPLOY artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-g1-source-only-nondeploy
+          path: |
+            output/pathb-g1-source-only.zip
+            output/g1-source-only-receipt.txt
+          retention-days: 14
+          if-no-files-found: error
