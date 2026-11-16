@@ -17,9 +17,33 @@ concurrency:
   group: pathb-swa-production-single-release
   cancel-in-progress: false
 jobs:
+  input-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      approved: ${{ steps.gate.outputs.approved }}
+    steps:
+      - name: Evaluate inputs without secrets or deployment
+        id: gate
+        env:
+          APPROVAL: ${{ inputs.owner_approval }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          RUN_REF: ${{ github.ref }}
+          RUN_EVENT: ${{ github.event_name }}
+        shell: bash
+        run: |
+          if [[ "$RUN_EVENT" == "workflow_dispatch" && "$RUN_REF" == "refs/heads/main" && "$APPROVAL" == "DEPLOY_PATHB_SWA_ONCE" && "$ARTIFACT_ID" == "14195477350" ]]; then
+            echo 'approved=true' >> "$GITHUB_OUTPUT"
+            echo 'INPUT_GATE=PASS'
+          else
+            echo 'approved=false' >> "$GITHUB_OUTPUT"
+            echo 'INPUT_GATE=HOLD'
+          fi
+          echo 'DEPLOYMENT=NO'
   verify-and-deploy:
+    needs: input-preflight
     # Deliberately inactive on feature branches and PR events.
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.owner_approval == 'DEPLOY_PATHB_SWA_ONCE' && inputs.artifact_id == '14195477350' }}
+    if: ${{ needs.input-preflight.outputs.approved == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: pathb-swa-production
