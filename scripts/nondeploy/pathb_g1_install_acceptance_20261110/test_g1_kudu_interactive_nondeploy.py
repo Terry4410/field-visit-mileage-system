@@ -120,10 +120,10 @@ class KuduV2OnlyTests(unittest.TestCase):
         start=datetime(2026,11,16,tzinfo=timezone.utc).timestamp()
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'grant.json';p.write_text(json.dumps(grant))
-            for age in (0,179,180):
+            for age in (0,899,900):
                 parent.validate_launch_window({'observed_at':start+200-age},
                     p,'b'*64,'c'*64,'instance',now=start+200)
-            for age in (181,-1):
+            for age in (901,-1):
                 with self.assertRaises(parent.Hold):
                     parent.validate_launch_window({'observed_at':start+200-age},
                         p,'b'*64,'c'*64,'instance',now=start+200)
@@ -134,6 +134,20 @@ class KuduV2OnlyTests(unittest.TestCase):
             for now in (start,start+1800):
                 parent.validate_launch_window({'observed_at':now},
                     p,'b'*64,'c'*64,'instance',now=now)
+
+    def test_kudu_timeouts_are_bounded_without_extending_sql_budget(self):
+        import inspect
+        import p3_kudu_transport as kt
+        self.assertEqual(inspect.signature(kt.KuduExecSession.await_cli_shell_banner)
+                         .parameters['seconds'].default,120)
+        source=(ROOT/'p3_kudu_transport.py').read_text()
+        self.assertIn('self._challenge(tag="ECHO", seconds=120, no_echo=True)',source)
+        self.assertIn('self.expect_fixed(b"FV_KUDU_STAGE_READY", 600',source)
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        self.assertEqual(cfg['sql_deadline_seconds'],2400)
+        self.assertEqual(cfg['total_deadline_seconds'],3600)
+        self.assertEqual(cfg['cleanup_reserve_seconds'],300)
+        self.assertEqual(cfg['minimum_token_ttl_seconds'],3000)
 
     def test_predecessor_markers_never_put(self):
         for target in (guard.PRIOR_G1_KUDU_BLOB,guard.PRIOR_G1_SSH_BLOB):
