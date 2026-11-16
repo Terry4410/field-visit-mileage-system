@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - work/pathb-g1-ssh-trust-delta-nondeploy-20261113
+      - work/pathb-g1-pinned-source-delivery-nondeploy-20261116
   push:
     branches:
       - work/pathb-g1-pinned-source-delivery-nondeploy-20261116
@@ -14,6 +15,8 @@ on:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/G1_PINNED_SOURCE_DELIVERY_SECURITY_REVIEW_20261116.md
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_cloudshell_parent.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_app_installer_runner.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_interactive_nondeploy.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_blob_guard.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/token_adapter_g1_REVIEW_ONLY.py
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
@@ -41,6 +44,7 @@ jobs:
         run: |
           python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_pinned_source_distribution_nondeploy.py' -v
           python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_ssh_contract_reconcile_nondeploy.py' -v
+          python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_kudu_interactive_nondeploy.py' -v
           python -m unittest discover -s scripts/nondeploy/pathb_g1_install_acceptance_20261110 -p 'test_g1_ssh_hostkey_dedupe_nondeploy.py' -v
       - name: Build pinned byte-exact source-only ZIP
         shell: bash
