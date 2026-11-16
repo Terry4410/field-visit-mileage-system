@@ -1,11 +1,38 @@
 const TOKEN = "fieldvisit_uat_token";
 
-const normalizeBase = (raw:string) => {
-  const base=(raw||"http://localhost:5080").replace(/\/+$/,"");
-  return /\/api\/v1$/i.test(base)?base:`${base}/api/v1`;
-};
+const PATHB_FRONTEND_HOST = "ashy-water-021992f00.2.azurestaticapps.net";
+const PATHB_API_HOST = "api-fieldvisit-pathb-uat.azurewebsites.net";
 
-export const apiBase=()=>normalizeBase(window.APP_CONFIG?.API_BASE_URL||"http://localhost:5080");
+/**
+ * Fail closed on the Path B UAT hostname. Never silently use localhost,
+ * legacy UAT, or an arbitrary origin when the runtime config is missing.
+ * This is a NONDEPLOY guard; it does not change Azure or prove API reachability.
+ */
+export function resolveApiBase(raw: string | undefined, frontendHost: string): string {
+  const value = raw?.trim();
+  if (frontendHost.toLowerCase() === PATHB_FRONTEND_HOST) {
+    if (!value) throw new Error("Path B UAT API 設定缺失，已停止連線。");
+    let url: URL;
+    try { url = new URL(value); }
+    catch { throw new Error("Path B UAT API 網址無效，已停止連線。"); }
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== PATHB_API_HOST ||
+        url.port || url.username || url.password || url.search || url.hash ||
+        (url.pathname.replace(/\\/+$/, "") !== "" &&
+         url.pathname.replace(/\\/+$/, "") !== "/api/v1")) {
+      throw new Error("Path B UAT API 目標不符，已停止連線。");
+    }
+    return `https://${PATHB_API_HOST}/api/v1`;
+  }
+  if (!value) {
+    if (frontendHost === "localhost" || frontendHost === "127.0.0.1")
+      return "http://localhost:5080/api/v1";
+    throw new Error("API 設定缺失，已停止連線。");
+  }
+  const base = value.replace(/\\/+$/, "");
+  return /\\/api\\/v1$/i.test(base) ? base : `${base}/api/v1`;
+}
+
+export const apiBase = () => resolveApiBase(window.APP_CONFIG?.API_BASE_URL, window.location.hostname);
 export const getToken=()=>sessionStorage.getItem(TOKEN);
 export const setToken=(v:string)=>sessionStorage.setItem(TOKEN,v);
 export const clearToken=()=>sessionStorage.removeItem(TOKEN);
