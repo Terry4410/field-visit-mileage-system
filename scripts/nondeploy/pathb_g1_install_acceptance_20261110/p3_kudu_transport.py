@@ -23,6 +23,7 @@ import os
 import pty
 import re
 import select
+import secrets
 import signal
 import subprocess
 import termios
@@ -381,35 +382,54 @@ class KuduExecSession:
         self.fd = master
         self.audit.append("PROCESS_START")
 
-    def await_cli_shell_banner(self, seconds: float = 45) -> None:
-        """Wait for this exact app/instance CLI handshake before sending stdin.
+    def _challenge(self, *, tag: str, seconds: float, no_echo: bool = False) -> None:
+        """Prove a command executed in this interactive shell, not just a CLI banner.
 
-        These CLI messages are a timing/provenance prerequisite, NOT proof that
-        the remote shell obeyed commands; ECHO_READY independently proves that.
-        Never log or return the raw terminal buffer.
+        The expected SHA-256 marker does not occur in stdin; an echoed command
+        cannot forge it. No token or remote stage is sent during this phase.
         """
-        require(self.state.state == "CHANNEL" and self.fd is not None,
-                "PROTOCOL_STATE_HOLD")
+        require(self.state.state == "CHANNEL" and self.fd is not None and
+                tag in {"SHELL", "ECHO"}, "PROTOCOL_STATE_HOLD")
+        nonce = secrets.token_hex(16)
+        expression = "FV_G1_KUDU_" + tag + ":" + nonce
+        expected = ("FV_G1_KUDU_" + tag + ":" +
+                    hashlib.sha256(expression.encode("ascii")).hexdigest()).encode("ascii")
+        code = ('import hashlib;print("FV_G1_KUDU_' + tag + ':"+'
+                'hashlib.sha256(b"' + expression + '").hexdigest())')
+        command = ("python3 -c '" + code + "'\n").encode("ascii")
+        # Do not take the presence of a startup banner as a security receipt.
+        # The CLI is already bound to --target app and the exact unique instance.
+        self.send_public(command, "KUDU_" + tag + "_CHALLENGE_SENT")
         end = min(self.deadline, self._clock() + seconds)
-        expected_app = ('Starting interactive shell session for "' + APP + '"').encode()
-        expected_instance = ('Instance Id   : ' + self.instance).encode()
         while self._clock() < end:
-            lines = [v.rstrip(b"\r") for v in self.buffer.split(b"\n")[:-1]]
-            if expected_app in lines and expected_instance in lines:
-                self.audit.append("CLI_SHELL_BANNER_READY")
+            self._check_secret_echo()
+            if no_echo and command.rstrip(b"\n") in self.buffer:
+                raise TransportHold("KUDU_SECRET_ECHO")
+            found, remaining = consume_exact_marker_line(self.buffer, expected)
+            if found:
+                self.buffer = remaining
+                self.audit.append("CLI_SHELL_BANNER_READY" if tag == "SHELL" else "ECHO_READY")
                 return
             readable = select.select([self.fd], [], [], 0.2)[0]
             if readable:
                 try:
                     chunk = os.read(self.fd, 65536)
-                except Exception as exc:
-                    raise TransportHold("KUDU_CHANNEL_CLOSED") from exc
+                except Exception:
+                    raise TransportHold("KUDU_CHANNEL_CLOSED") from None
                 require(bool(chunk), "KUDU_CHANNEL_CLOSED")
                 self.buffer += chunk
                 require(len(self.buffer) <= MAX_OUTPUT_BYTES, "KUDU_OUTPUT_LIMIT")
             elif self.proc is None or self.proc.poll() is not None:
                 raise TransportHold("KUDU_CHANNEL_CLOSED")
         raise TransportHold("KUDU_CHANNEL_TIMEOUT")
+
+    def await_cli_shell_banner(self, seconds: float = 45) -> None:
+        """Use an in-band nonce/hash challenge instead of version-specific UI text.
+
+        This validates command execution, not a cryptographic attestation of
+        Azure identity. The latter remains bound by Owner and instance checks.
+        """
+        self._challenge(tag="SHELL", seconds=seconds)
 
     def _check_secret_echo(self) -> None:
         for secret in self._secrets:
@@ -444,17 +464,15 @@ class KuduExecSession:
         self.audit.append(audit_code)
 
     def establish_safe_channel(self) -> None:
-        """Disable remote echo before any secret can be supplied."""
+        """Disable terminal echo, then require an unechoed dynamic proof.
 
+        Unlike a static marker, the expected SHA is absent from the input
+        command. No token or archive may be transferred until this passes.
+        """
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
-        boundary = len(self.buffer)
         self.send_public(b"stty -echo -icanon min 1 time 0\n", "ECHO_DISABLE_SENT")
-        self.send_public(
-            b"umask 077\nprintf '\\n%s\\n' FV_KUDU_CHANNEL_READY\n",
-            "ECHO_PROBE_SENT",
-        )
-        self.expect_fixed(b"FV_KUDU_CHANNEL_READY", 30, "ECHO_READY",
-                          after=boundary)
+        self.send_public(b"umask 077\n", "UMASK_SET_SENT")
+        self._challenge(tag="ECHO", seconds=30, no_echo=True)
 
     def stage_archive(self, stage: bytes, expected_sha256: str, *,
                       remote_stage: str = REMOTE_STAGE) -> None:
