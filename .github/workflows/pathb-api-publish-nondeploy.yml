@@ -30,8 +30,25 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Restore and run existing API unit tests (offline from Azure and SQL)
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release
+      - name: Install Traditional Chinese PDF font from Ubuntu packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-cjk
       - name: Publish API without deployment
         run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --runtime linux-x64 --self-contained false --output /tmp/pathb-api-publish
+      - name: Preserve required Traditional Chinese report font
+        shell: bash
+        run: |
+          set -euo pipefail
+          font=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+          test -s "$font"
+          mkdir -p /tmp/pathb-api-publish/fonts
+          cp "$font" /tmp/pathb-api-publish/fonts/NotoSansCJK-Regular.ttc
+          test -s /tmp/pathb-api-publish/fonts/NotoSansCJK-Regular.ttc
       - name: Verify publish output
         shell: bash
         run: |
