@@ -1,0 +1,82 @@
+name: Path B API Publish Candidate (NONDEPLOY)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pathb-api-publish-nondeploy
+  cancel-in-progress: false
+jobs:
+  build-only:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned v1.8.0 release source
+        uses: actions/checkout@v4
+        with:
+          ref: d6c220877b9976b6478d85b5171d4e06293595ae
+          persist-credentials: false
+      - name: Verify pinned release source, refuse main v1.6.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d6c220877b9976b6478d85b5171d4e06293595ae"
+          grep -q '1.8.0' backend/src/FieldVisit.Api/Program.cs
+          grep -Fq 'MapGet("/health/live"' backend/src/FieldVisit.Api/Program.cs
+          grep -Fq 'MapGet("/health/ready"' backend/src/FieldVisit.Api/Program.cs
+          grep -Fq 'HttpPost("auth/demo-login")' backend/src/FieldVisit.Api/Controllers/AuthController.cs
+          test -f backend/src/FieldVisit.Api/Controllers/UatAutomationController.cs
+          echo 'SOURCE_RELEASE=PASS'
+          echo 'API_ROUTES_STATIC=PASS'
+          echo 'SOURCE_SHA=d6c220877b9976b6478d85b5171d4e06293595ae'
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run existing API unit tests with no injected Azure credentials
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release
+      - name: Install Traditional Chinese PDF font from Ubuntu packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-cjk
+      - name: Publish API without deployment
+        run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --runtime linux-x64 --self-contained false --output /tmp/pathb-api-publish
+      - name: Preserve required Traditional Chinese report font
+        shell: bash
+        run: |
+          set -euo pipefail
+          font=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+          test -s "$font"
+          mkdir -p /tmp/pathb-api-publish/fonts
+          cp "$font" /tmp/pathb-api-publish/fonts/NotoSansCJK-Regular.ttc
+          test -s /tmp/pathb-api-publish/fonts/NotoSansCJK-Regular.ttc
+      - name: Verify publish output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s /tmp/pathb-api-publish/FieldVisit.Api.dll
+          test -s /tmp/pathb-api-publish/FieldVisit.Api.deps.json
+          test -s /tmp/pathb-api-publish/FieldVisit.Api.runtimeconfig.json
+          test ! -e /tmp/pathb-api-publish/hostingstart.html
+          echo 'PATHB_API_PUBLISH=PASS'
+          echo 'AZURE_ACTION=NO'
+          echo 'SQL_ACTION=NO'
+          echo 'DEPLOYMENT=NO'
+      - name: Package immutable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/pathb-api-publish
+          zip -qr "$GITHUB_WORKSPACE/pathb-api-publish.zip" .
+          cd "$GITHUB_WORKSPACE"
+          sha256sum pathb-api-publish.zip
+      - name: Upload candidate artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-api-publish-nondeploy
+          path: pathb-api-publish.zip
+          retention-days: 14
+          if-no-files-found: error
