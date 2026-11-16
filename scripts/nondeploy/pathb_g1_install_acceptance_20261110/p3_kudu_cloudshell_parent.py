@@ -143,7 +143,7 @@ def validate_launch_window(facts, authorization, artifact_sha, binding_sha,
     clock = time.time() if now is None else float(now)
     observed = facts.get("observed_at")
     require(type(observed) in (int, float) and
-            0 <= clock - observed <= 180, "MANAGEMENT_FACTS_STALE_HOLD")
+            0 <= clock - observed <= 900, "MANAGEMENT_FACTS_STALE_HOLD")
     validate_authorization(authorization, artifact_sha, binding_sha,
                            instance, now=clock)
 
@@ -348,7 +348,7 @@ def execute(args):
             session.establish_safe_channel()
             session.stage_archive(stage_bytes, digest(stage_bytes))
             staged = True
-            # Runner enforces a 180s management-facts freshness window. Do not
+            # Runner enforces a 900s management-facts freshness window. Do not
             # launch it with already-expired facts after Kudu handshaking/staging.
             validate_launch_window(facts, args.authorization,
                                    args.artifact_sha256, binding_sha, instance)
