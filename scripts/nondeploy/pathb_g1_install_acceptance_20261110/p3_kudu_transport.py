@@ -382,6 +382,33 @@ class KuduExecSession:
         self.fd = master
         self.audit.append("PROCESS_START")
 
+    @classmethod
+    def _consume_shell_challenge(cls, buffer: bytes, expected: bytes) -> tuple[bool, bytes]:
+        """Consume an exact dynamic digest on a line, optionally after an actual prompt.
+
+        Interactive PTYs commonly print the next command's result on the same
+        line as the prior bare PS1 prompt (which has no newline). The original
+        exact-line parser rejected that genuine result and timed out. The only
+        allowed prefix is the same tightly constrained shell prompt checked
+        during admission; arbitrary preceding text and trailing bytes are NOT
+        accepted. No echo of the expected digest exists in the sent command.
+        """
+        require(isinstance(buffer, bytes) and isinstance(expected, bytes) and
+                0 < len(expected) <= 256 and b"\n" not in expected,
+                "PROTOCOL_STATE_HOLD")
+        cursor = 0
+        for raw in buffer.splitlines(keepends=True):
+            if not raw.endswith(b"\n"):
+                break
+            line = raw[:-1].removesuffix(b"\r")
+            if line == expected or (
+                line.endswith(expected) and
+                cls._remote_shell_prompt_present(line[:-len(expected)])
+            ):
+                return True, buffer[cursor + len(raw):]
+            cursor += len(raw)
+        return False, buffer
+
     def _challenge(self, *, tag: str, seconds: float, no_echo: bool = False) -> None:
         """Prove a command executed in this interactive shell, not just a CLI banner.
 
@@ -405,7 +432,7 @@ class KuduExecSession:
             self._check_secret_echo()
             if no_echo and command.rstrip(b"\n") in self.buffer:
                 raise TransportHold("KUDU_SECRET_ECHO")
-            found, remaining = consume_exact_marker_line(self.buffer, expected)
+            found, remaining = self._consume_shell_challenge(self.buffer, expected)
             if found:
                 self.buffer = remaining
                 self.audit.append("CLI_SHELL_BANNER_READY" if tag == "SHELL" else "ECHO_READY")
