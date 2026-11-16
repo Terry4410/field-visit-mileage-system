@@ -1,0 +1,38 @@
+name: Path B G1 Shell Readiness (NONDEPLOY)
+on:
+  push:
+    branches:
+      - work/pathb-g1-shell-ready-integrated-nondeploy-20261116
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_interactive_nondeploy.py
+      - .github/workflows/pathb-g1-shell-ready-nondeploy.yml
+  pull_request:
+    branches:
+      - work/pathb-g1-kudu-interactive-v2-nondeploy-20261116
+    paths:
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_interactive_nondeploy.py
+      - .github/workflows/pathb-g1-shell-ready-nondeploy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  offline-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Syntax check transport and tests
+        run: |
+          python3 -m py_compile             scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py             scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_interactive_nondeploy.py
+      - name: Execute no-cloud offline contract tests
+        working-directory: scripts/nondeploy/pathb_g1_install_acceptance_20261110
+        run: python3 -m unittest -v test_g1_kudu_interactive_nondeploy
+
+# No Azure login, token, secrets, App access, Blob operations, SQL, deployment,
+# artifact installation, action dispatch or protected branch merge.
