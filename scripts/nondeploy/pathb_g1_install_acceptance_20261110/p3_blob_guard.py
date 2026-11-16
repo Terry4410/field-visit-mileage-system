@@ -24,7 +24,8 @@ ACCOUNT = 'stfvsc261026a'
 CONTAINER = 'schema-evidence'
 PRIOR_G1_INSTALL_BLOB = 'operator-once/pathb-g1-original-installer-single-20261110.json'
 PRIOR_G1_KUDU_BLOB = 'operator-once/pathb-g1-original-installer-single-kudu-20261112.json'
-NEW_BLOB = 'operator-once/pathb-g1-original-installer-single-ssh-20261116.json'
+PRIOR_G1_SSH_BLOB = 'operator-once/pathb-g1-original-installer-single-ssh-20261116.json'
+NEW_BLOB = 'operator-once/pathb-g1-original-installer-kudu-interactive-v2-20261116.json'
 PRIOR_V3_INSTALL_BLOB = 'operator-once/pathb-p3-kudu-install-d6c2208-v3-20261109.json'
 PRIOR_INSTALL_BLOB = 'operator-once/pathb-p3-kudu-install-d6c2208-v1-20261106.json'
 PRIOR_V2_INSTALL_BLOB = 'operator-once/pathb-p3-kudu-install-d6c2208-v2-20261109.json'
@@ -42,11 +43,11 @@ SELECT_SHA = 'e87dbd54d4740254b6f0041fe330cc4af71e51a214964c39e1001c4437075add'
 OWNER_OID_SHA = '2e3687eea0c142b70b4923094ea37c2e8a17f97815db894b58ae60379fccd604'
 TENANT_SHA = '976f4269f73c61a6c7b15538a6518272f937428e59fdd8f87d606a8501d74c9c'
 STORAGE_AUDIENCE = 'https://storage.azure.com'
-CONTRACT = 'FIELDVISIT_PATHB_G1_ORIGINAL_INSTALL_BLOB_SSH_ONCE_V1'
-RUN_ID = 'pathb-g1-original-installer-single-ssh-20261116'
+CONTRACT = 'FIELDVISIT_PATHB_G1_ORIGINAL_INSTALL_BLOB_KUDU_INTERACTIVE_V2_ONCE'
+RUN_ID = 'pathb-g1-original-installer-kudu-interactive-v2-20261116'
 MAX_RESPONSE_BYTES = 8192
 REQUIRED_PRE_DDL_GATES = (
-    'EXACT_ORIGINAL_PACKAGE', 'MANIFEST_SEAL_14_LAYERS', 'PROTECTED_OWNER_SSH',
+    'EXACT_ORIGINAL_PACKAGE', 'MANIFEST_SEAL_14_LAYERS', 'PROTECTED_OWNER_KUDU_INTERACTIVE',
     'OWNER_SQL_TOKEN_TTL', 'PRIVATE_DNS_TLS', 'EXACT_SQL_IDENTITY',
     'FRESH_22_FIELD_DATABASE_EMPTY', 'INSTALLER_DRY_RUN', 'SQL_BUDGET',
 )
@@ -76,8 +77,8 @@ class Response:
 
 def validate_owner_storage_token(token, *, now=None):
     """Validate claims of a token delivered by the separately authenticated
-    Owner Azure CLI -> pinned SSH channel. This is NOT JWT signature validation:
-    caller must also prove original trusted token provenance and SSH binding.
+    Owner Azure CLI -> pinned, interactive Kudu app channel. This is NOT JWT signature validation:
+    caller must also prove original trusted token provenance and Kudu channel binding.
     """
     require(isinstance(token, str) and len(token) > 50, 'STORAGE_TOKEN_NOT_VALIDATED')
     try:
@@ -200,6 +201,9 @@ class OneTimeInstallBlobGuard:
         prior_kudu = self._call('HEAD', PRIOR_G1_KUDU_BLOB, self.headers(), code='PRIOR_KUDU_G1_MARKER_UNKNOWN')
         require(prior_kudu.status == 404 and prior_kudu.error_code == 'BlobNotFound',
                 'PRIOR_KUDU_G1_MARKER_PRESENT_OR_UNKNOWN')
+        prior_ssh = self._call('HEAD', PRIOR_G1_SSH_BLOB, self.headers(), code='PRIOR_SSH_G1_MARKER_UNKNOWN')
+        require(prior_ssh.status == 404 and prior_ssh.error_code == 'BlobNotFound',
+                'PRIOR_SSH_G1_MARKER_PRESENT_OR_UNKNOWN')
         r = self._call('HEAD', NEW_BLOB, self.headers(), code='INSTALL_MARKER_HEAD_UNKNOWN')
         if r.status == 404 and r.error_code == 'BlobNotFound':
             self.new_key_available = True
@@ -278,9 +282,28 @@ def pinned_http_request(storage_token):
     """
     validate_owner_storage_token(storage_token)
     def send(method, blob_name, headers, body=b''):
-        require(method in ('HEAD', 'GET', 'PUT') and
-                blob_name in (NEW_BLOB, PRIOR_G1_KUDU_BLOB, PRIOR_G1_INSTALL_BLOB, PRIOR_INSTALL_BLOB, PRIOR_V2_INSTALL_BLOB, PRIOR_V3_INSTALL_BLOB, *(x[0] for x in PREDECESSORS)),
-                'BLOB_METHOD_OR_NAME_DENIED')
+        # Separate immutable read targets from the ONLY writable one-use key.
+        # The old SSH marker must be HEAD-readable; never writable or replayed.
+        prior_install_markers = (
+            PRIOR_G1_SSH_BLOB, PRIOR_G1_KUDU_BLOB, PRIOR_G1_INSTALL_BLOB,
+            PRIOR_INSTALL_BLOB, PRIOR_V2_INSTALL_BLOB, PRIOR_V3_INSTALL_BLOB,
+        )
+        predecessor_select_markers = tuple(item[0] for item in PREDECESSORS)
+        if method == 'PUT':
+            allowed = (blob_name == NEW_BLOB and isinstance(body, bytes)
+                       and 0 < len(body) <= MAX_RESPONSE_BYTES
+                       and headers.get('If-None-Match') == '*'
+                       and headers.get('x-ms-blob-type') == 'BlockBlob'
+                       and headers.get('Content-Length') == str(len(body)))
+        elif method == 'HEAD':
+            allowed = (blob_name in (NEW_BLOB, *prior_install_markers)
+                       and body == b'')
+        elif method == 'GET':
+            allowed = (blob_name in (NEW_BLOB, *predecessor_select_markers)
+                       and body == b'')
+        else:
+            allowed = False
+        require(allowed, 'BLOB_METHOD_OR_NAME_DENIED')
         c = http.client.HTTPSConnection(ACCOUNT + '.blob.core.windows.net',
                                        timeout=18, context=ssl.create_default_context())
         try:

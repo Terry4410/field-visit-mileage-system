@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authorization-locked Path B G1 installer parent using pinned App SSH tunnel.
+"""Authorization-locked Path B G1 installer parent using Kudu interactive shell.
 
 Importing this module has no side effects.  Live mode remains unavailable
 without a separately signed-off exact distribution SHA, binding SHA, unique
@@ -26,19 +26,18 @@ HERE = Path(__file__).resolve().parent
 from p3_g1_owner_management import az, blob_download, download_once, private_endpoint_ip
 from p3_historical_blob_evidence import verify_readonly as verify_historical_blobs
 from p3_install_gates import digest, validate_local_source, validate_original_package
-from p3_kudu_transport import (REMOTE_STAGE, TransportHold,
+from p3_kudu_transport import (KuduExecSession, REMOTE_STAGE, TransportHold,
                                runner_command, safe_code, select_single_instance,
                                validate_cli_version)
-from p3_g1_pinned_ssh import SshExecSession
 from p3_ssh_stage import strict_seal_crossbinding
 from p3_ssh_transport_contract import (APP, OWNER_SHA, RG, check_owner_account,
                                        validate_owner_token)
 
 SERVER = "sql-fieldvisit-jpe-pathb-uat.database.windows.net"
 DATABASE = "db-fieldvisit-pathb-uat"
-CONTRACT = "FIELDVISIT_PATHB_G1_SSH_INSTALL_V1"
-DECISION = "OWNER_APPROVED_PATHB_G1_SSH_NEW_EXACT_ONCE"
-TRANSPORT = "OFFICIAL_AZ_WEBAPP_SSH_PINNED_V1"
+CONTRACT = "FIELDVISIT_PATHB_G1_KUDU_INTERACTIVE_INSTALL_V2"
+DECISION = "OWNER_APPROVED_PATHB_G1_KUDU_INTERACTIVE_V2_NEW_EXACT_ONCE"
+TRANSPORT = "OFFICIAL_AZ_WEBAPP_KUDU_INTERACTIVE_V2"
 REMOTE_WORK = "/tmp/fv-pathb-g1-original-installer-20261110-work"
 REMOTE_RAM = "/dev/shm/fv-pathb-g1-original-installer-20261110"
 MAX_RECEIPT_BYTES = 16384
@@ -272,7 +271,7 @@ def execute(args):
         require(instance is not None and deadline is not None and sessions_opened < 2,
                 "KUDU_SESSION_CAP_HOLD")
         sessions_opened += 1
-        return SshExecSession(instance, deadline=deadline)
+        return KuduExecSession(instance, deadline=deadline)
     try:
         require(re.fullmatch(r"[a-f0-9]{64}", args.artifact_sha256 or "") is not None,
                 "ARTIFACT_SHA_HOLD")
