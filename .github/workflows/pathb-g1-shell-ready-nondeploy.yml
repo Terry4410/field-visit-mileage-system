@@ -35,6 +35,47 @@ jobs:
       - name: Execute no-cloud offline contract tests
         working-directory: scripts/nondeploy/pathb_g1_install_acceptance_20261110
         run: python3 -m unittest -v test_g1_kudu_interactive_nondeploy
+      - name: Assemble and validate exact source-only G1 candidate
+        working-directory: scripts/nondeploy/pathb_g1_install_acceptance_20261110
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
+          from p3_kudu_cloudshell_parent import validate_binding, validate_distribution_archive
+
+          root = Path('.')
+          index, binding_sha = validate_binding(root)
+          assert len(index['files']) >= 20
+          names = sorted(index['files']) + ['binding-index.json']
+          archive = root / 'PathB_G1_ShellReady_NONDEPLOY_Source.zip'
+          with ZipFile(archive, 'w') as z:
+              for name in names:
+                  info = ZipInfo(name, date_time=(2026, 11, 16, 0, 0, 0))
+                  info.compress_type = ZIP_DEFLATED
+                  info.external_attr = (0o100644 << 16)
+                  z.writestr(info, (root / name).read_bytes())
+          validate_distribution_archive(archive, index)
+          raw = archive.read_bytes()
+          package_sha = hashlib.sha256(raw).hexdigest()
+          (root / 'PathB_G1_ShellReady_NONDEPLOY_Source.sha256').write_text(
+              package_sha + '  ' + archive.name + '\n', encoding='ascii'
+          )
+          print('SOURCE_ONLY_BINDING_SHA256=' + binding_sha)
+          print('SOURCE_ONLY_ARCHIVE_SHA256=' + package_sha)
+          print('SOURCE_ONLY_BINDING_FILES=' + str(len(names)))
+          print('SOURCE_ONLY_VALIDATION=PASS')
+          PY
+      - name: Upload immutable source-only candidate (never execute)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-g1-shell-ready-nondeploy-source-${{ github.sha }}
+          path: |
+            scripts/nondeploy/pathb_g1_install_acceptance_20261110/PathB_G1_ShellReady_NONDEPLOY_Source.zip
+            scripts/nondeploy/pathb_g1_install_acceptance_20261110/PathB_G1_ShellReady_NONDEPLOY_Source.sha256
+          retention-days: 7
+          if-no-files-found: error
 
 # No Azure login, token, secrets, App access, Blob operations, SQL, deployment,
 # artifact installation, action dispatch or protected branch merge.
