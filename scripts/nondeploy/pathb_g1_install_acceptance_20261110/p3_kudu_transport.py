@@ -423,13 +423,51 @@ class KuduExecSession:
                 raise TransportHold("KUDU_CHANNEL_CLOSED")
         raise TransportHold("KUDU_CHANNEL_TIMEOUT")
 
-    def await_cli_shell_banner(self, seconds: float = 45) -> None:
-        """Use an in-band nonce/hash challenge instead of version-specific UI text.
+    @staticmethod
+    def _remote_shell_prompt_present(buffer: bytes) -> bool:
+        """Conservative prompt hint; never sufficient to authorize a command.
 
-        This validates command execution, not a cryptographic attestation of
-        Azure identity. The latter remains bound by Owner and instance checks.
+        Require a complete, trailing main-container shell prompt, not a CLI
+        progress line, warning, password request or historical terminal text.
+        A nonstandard/colored PS1 deliberately fails closed. The later
+        unpredictable nonce/hash challenge is still mandatory.
         """
-        self._challenge(tag="SHELL", seconds=seconds)
+        if not isinstance(buffer, bytes):
+            return False
+        return re.search(
+            rb"(?:^|[\r\n])(?:[A-Za-z][A-Za-z0-9._-]{0,63}@"
+            rb"[A-Za-z0-9._-]{1,100}:[^\r\n\x00-\x1f]{0,128})?[#$] ?$",
+            buffer[-2048:],
+        ) is not None
+
+    def await_cli_shell_banner(self, seconds: float = 45) -> None:
+        """Wait for an actual shell prompt BEFORE the one in-band challenge.
+
+        Starting the local 'az webapp exec' process does not mean the remote
+        shell is ready. Commands written during startup may be silently lost.
+        One bounded session, one challenge, no retries, no tokens or stage
+        until both prompt hint and nonce/hash verification have succeeded.
+        """
+        require(self.state.state == "CHANNEL" and self.fd is not None,
+                "PROTOCOL_STATE_HOLD")
+        end = min(self.deadline, self._clock() + seconds)
+        while self._clock() < end:
+            if self._remote_shell_prompt_present(self.buffer):
+                self.audit.append("SHELL_PROMPT_OBSERVED")
+                self._challenge(tag="SHELL", seconds=max(0, end - self._clock()))
+                return
+            readable = select.select([self.fd], [], [], 0.2)[0]
+            if readable:
+                try:
+                    chunk = os.read(self.fd, 65536)
+                except Exception:
+                    raise TransportHold("KUDU_CHANNEL_CLOSED") from None
+                require(bool(chunk), "KUDU_CHANNEL_CLOSED")
+                self.buffer += chunk
+                require(len(self.buffer) <= MAX_OUTPUT_BYTES, "KUDU_OUTPUT_LIMIT")
+            elif self.proc is None or self.proc.poll() is not None:
+                raise TransportHold("KUDU_CHANNEL_CLOSED")
+        raise TransportHold("KUDU_CHANNEL_TIMEOUT")
 
     def _check_secret_echo(self) -> None:
         for secret in self._secrets:
