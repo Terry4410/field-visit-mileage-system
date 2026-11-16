@@ -267,6 +267,26 @@ class KuduV2OnlyTests(unittest.TestCase):
                                  {'public-fixture.txt'})
                 shutil.rmtree(remote)
 
+    def test_remote_owned_cleanup_source_is_syntactically_and_scope_safe(self):
+        """The generated cleanup must HOLD safely when remote state is unexpected."""
+        import ast
+        import base64
+        import re
+        for verify_only in (False, True):
+            command = parent.cleanup_command(
+                {'public-fixture.txt': 'a'*64}, verify_only=verify_only)
+            encoded = re.search(rb"base64\.b64decode\('([A-Za-z0-9+/=]+)'\)", command)
+            self.assertIsNotNone(encoded)
+            source = base64.b64decode(encoded.group(1)).decode('utf-8')
+            ast.parse(source, filename='<g1-owned-cleanup>', mode='exec')
+            self.assertNotIn('OWNER_SQL_TOKEN', source)
+            self.assertNotIn('OWNER_STORAGE_TOKEN', source)
+            if not verify_only:
+                # Both children and expected_root must remain guarded by 'if ok'.
+                self.assertIn('\n  children=set(os.listdir(r))', source)
+                self.assertIn('\n  expected_root=', source)
+                self.assertIn('\n  ok=children==expected_root', source)
+
     def test_no_live_when_missing_auth(self):
         with tempfile.TemporaryDirectory() as d:
             f=Path(d)/'none.json';f.write_text('{}')
