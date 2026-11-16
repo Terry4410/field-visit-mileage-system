@@ -231,6 +231,42 @@ class KuduV2OnlyTests(unittest.TestCase):
         finally:
             s.close()
 
+    def test_real_local_pty_archive_stage_no_cloud(self):
+        """Transport exact hash-bound ZIP into a local shell; never connect Azure."""
+        import io
+        import shutil
+        import time
+        import zipfile
+        bash = shutil.which('bash')
+        self.assertIsNotNone(bash)
+        remote = Path(transport.REMOTE_STAGE)
+        self.assertFalse(remote.exists())
+        self.assertFalse(remote.is_symlink())
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as z:
+            z.writestr('public-fixture.txt', b'NO_SECRET_NO_SQL')
+        payload = buf.getvalue()
+        digest = hashlib.sha256(payload).hexdigest()
+        command = ['/usr/bin/env', 'PS1=root@worker:/home/site/wwwroot# ',
+                   bash, '--noprofile', '--norc', '-i']
+        s = KuduExecSession('a'*20, deadline=time.monotonic()+20)
+        try:
+            with patch.object(transport, 'interactive_exec_args', return_value=command):
+                s.start()
+                s.await_cli_shell_banner(seconds=6)
+                s.establish_safe_channel()
+                s.stage_archive(payload, digest)
+            self.assertEqual(s.state.state, 'STAGED')
+            self.assertEqual((remote / 'public-fixture.txt').read_bytes(),
+                             b'NO_SECRET_NO_SQL')
+            self.assertEqual(s._token_count, 0)
+        finally:
+            s.close()
+            if remote.is_dir() and not remote.is_symlink():
+                self.assertEqual({p.name for p in remote.iterdir()},
+                                 {'public-fixture.txt'})
+                shutil.rmtree(remote)
+
     def test_no_live_when_missing_auth(self):
         with tempfile.TemporaryDirectory() as d:
             f=Path(d)/'none.json';f.write_text('{}')
