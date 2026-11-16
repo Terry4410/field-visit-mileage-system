@@ -5,6 +5,7 @@ on:
       - work/pathb-g1-shell-ready-integrated-nondeploy-20261116
     paths:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_interactive_nondeploy.py
       - .github/workflows/pathb-g1-shell-ready-nondeploy.yml
   pull_request:
@@ -12,6 +13,7 @@ on:
       - work/pathb-g1-kudu-interactive-v2-nondeploy-20261116
     paths:
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/p3_kudu_transport.py
+      - scripts/nondeploy/pathb_g1_install_acceptance_20261110/binding-index.json
       - scripts/nondeploy/pathb_g1_install_acceptance_20261110/test_g1_kudu_interactive_nondeploy.py
       - .github/workflows/pathb-g1-shell-ready-nondeploy.yml
 
