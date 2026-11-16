@@ -1,4 +1,4 @@
-"""NONDEPLOY: pure SSH G1 contract and consumed-marker regression; zero Azure/SQL."""
+"""NONDEPLOY: G1 Kudu V2 contract and original SSH negative regression; zero Azure/SQL."""
 import hashlib
 import json
 import tempfile
@@ -17,15 +17,15 @@ OLD_KUDU_KEY = 'operator-once/pathb-g1-original-installer-single-kudu-20261112.j
 
 class SSHOnceContract(unittest.TestCase):
     def test_same_transport_and_new_auth(self):
-        self.assertEqual(parent.TRANSPORT,'OFFICIAL_AZ_WEBAPP_SSH_PINNED_V1')
-        self.assertEqual(parent.CONTRACT,'FIELDVISIT_PATHB_G1_SSH_INSTALL_V1')
+        self.assertEqual(parent.TRANSPORT,'OFFICIAL_AZ_WEBAPP_KUDU_INTERACTIVE_V2')
+        self.assertEqual(parent.CONTRACT,'FIELDVISIT_PATHB_G1_KUDU_INTERACTIVE_INSTALL_V2')
         self.assertEqual(parent.DECISION,runner.EXPECTED_APPROVAL)
         self.assertNotEqual(parent.DECISION,'OWNER_APPROVED_PATHB_G1_ORIGINAL_INSTALLER_SINGLE')
-        self.assertNotIn('KUDU',parent.DECISION)
+        self.assertIn('KUDU_INTERACTIVE_V2',parent.DECISION)
 
     def test_all_preddl_gates_ssh_only(self):
         evidence=dict(package_sha_verified=True,seal_and_layers_verified=True,
-            protected_ssh_stage_verified=True,owner_sql_token_verified=True,
+            protected_kudu_stage_verified=True,owner_sql_token_verified=True,
             private_dns_verified=True,fresh_sql_tls_verified=True,
             fresh_sql_identity_verified=True,fresh_empty_verified=True,
             installer_dry_run_verified=True,sql_call_count=1)
@@ -33,7 +33,7 @@ class SSHOnceContract(unittest.TestCase):
                 now_wall=90000,now_mono=90000)
         self.assertEqual(set(runner.verified_pre_ddl_gates(evidence,**kw)),
                          set(guard.REQUIRED_PRE_DDL_GATES))
-        evidence['protected_ssh_stage_verified']=False
+        evidence['protected_kudu_stage_verified']=False
         with self.assertRaises(runner.Hold):
             runner.verified_pre_ddl_gates(evidence,**kw)
 
@@ -51,7 +51,8 @@ class SSHOnceContract(unittest.TestCase):
             runner.verify_authorization(good,'b'*64,'c'*64,'d'*64,now=now)
             for bad in [dict(good,contract='FIELDVISIT_PATHB_G1_KUDU_INSTALL_V1'),
                         dict(good,decision='OWNER_APPROVED_PATHB_G1_KUDU_NEW_EXACT_ONCE'),
-                        dict(good,decision='OWNER_APPROVED_PATHB_G1_ORIGINAL_INSTALLER_SINGLE')]:
+                        dict(good,decision='OWNER_APPROVED_PATHB_G1_ORIGINAL_INSTALLER_SINGLE'),
+                        dict(good,decision='OWNER_APPROVED_PATHB_G1_SSH_NEW_EXACT_ONCE')]:
                 file.write_text(json.dumps(bad))
                 with self.assertRaises(parent.Hold):
                     parent.validate_authorization(file,'b'*64,'c'*64,None,now=now)
@@ -66,9 +67,10 @@ class SSHOnceContract(unittest.TestCase):
     def test_new_marker_distinct_old_kudu_protected(self):
         self.assertEqual(guard.PRIOR_G1_KUDU_BLOB,OLD_KUDU_KEY)
         self.assertNotEqual(guard.NEW_BLOB,guard.PRIOR_G1_KUDU_BLOB)
-        self.assertTrue(guard.NEW_BLOB.endswith('-ssh-20261116.json'))
-        self.assertIn('PROTECTED_OWNER_SSH',guard.REQUIRED_PRE_DDL_GATES)
-        self.assertNotIn('PROTECTED_OWNER_KUDU',guard.REQUIRED_PRE_DDL_GATES)
+        self.assertNotEqual(guard.NEW_BLOB,guard.PRIOR_G1_SSH_BLOB)
+        self.assertTrue(guard.NEW_BLOB.endswith('-kudu-interactive-v2-20261116.json'))
+        self.assertIn('PROTECTED_OWNER_KUDU_INTERACTIVE',guard.REQUIRED_PRE_DDL_GATES)
+        self.assertNotIn('PROTECTED_OWNER_SSH',guard.REQUIRED_PRE_DDL_GATES)
 
     def test_prior_kudu_present_or_unknown_stops_no_put(self):
         for status in [200,503]:
@@ -95,7 +97,7 @@ class SSHOnceContract(unittest.TestCase):
         g.predecessors_verified=True
         g.check_available()
         self.assertTrue(g.new_key_available)
-        self.assertEqual(seen[-2:],[('HEAD',OLD_KUDU_KEY),('HEAD',guard.NEW_BLOB)])
+        self.assertEqual(seen[-3:],[('HEAD',OLD_KUDU_KEY),('HEAD',guard.PRIOR_G1_SSH_BLOB),('HEAD',guard.NEW_BLOB)])
         self.assertFalse(any(method=='PUT' for method,_ in seen))
 
     def test_unverified_ssh_host_key_rejected(self):
