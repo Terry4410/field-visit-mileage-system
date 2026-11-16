@@ -34,3 +34,10 @@ jobs:
         working-directory: frontend
       - name: Verify no deployment action
         run: test -f frontend/dist/config.js && grep -F 'api-fieldvisit-pathb-uat.azurewebsites.net/api/v1' frontend/dist/config.js
+      - name: Upload isolated Path B static artifact (NONDEPLOY)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-frontend-static-nondeploy
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
