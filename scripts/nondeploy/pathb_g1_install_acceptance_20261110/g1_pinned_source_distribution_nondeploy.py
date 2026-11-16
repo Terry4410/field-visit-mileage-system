@@ -96,8 +96,10 @@ def build_source_only(root: Path, output: Path) -> tuple[str, str, int]:
     _require(not output.exists() and not output.is_symlink(),
              "OUTPUT_ALREADY_EXISTS")
     _require(output.parent.is_dir(), "OUTPUT_PARENT_HOLD")
+    created_by_this_call = False
     try:
         with ZipFile(output, mode="x", compression=ZIP_STORED) as archive:
+            created_by_this_call = True
             for name, data in sorted(members.items()):
                 info = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = ZIP_STORED
@@ -115,7 +117,7 @@ def build_source_only(root: Path, output: Path) -> tuple[str, str, int]:
         return _digest(output.read_bytes()), binding_sha, len(members)
     except Exception:
         # Only remove the file this invocation exclusively created.
-        if output.is_file() and not output.is_symlink():
+        if created_by_this_call and output.is_file() and not output.is_symlink():
             output.unlink()
         raise
 
