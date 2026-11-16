@@ -36,8 +36,8 @@ from p3_ssh_transport_contract import (APP, OWNER_SHA, RG, check_owner_account,
 
 SERVER = "sql-fieldvisit-jpe-pathb-uat.database.windows.net"
 DATABASE = "db-fieldvisit-pathb-uat"
-CONTRACT = "FIELDVISIT_PATHB_G1_KUDU_INSTALL_V1"
-DECISION = "OWNER_APPROVED_PATHB_G1_KUDU_NEW_EXACT_ONCE"
+CONTRACT = "FIELDVISIT_PATHB_G1_SSH_INSTALL_V1"
+DECISION = "OWNER_APPROVED_PATHB_G1_SSH_NEW_EXACT_ONCE"
 TRANSPORT = "OFFICIAL_AZ_WEBAPP_SSH_PINNED_V1"
 REMOTE_WORK = "/tmp/fv-pathb-g1-original-installer-20261110-work"
 REMOTE_RAM = "/dev/shm/fv-pathb-g1-original-installer-20261110"
