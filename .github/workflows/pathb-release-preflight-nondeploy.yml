@@ -1,0 +1,32 @@
+name: Path B Release Preflight (NONDEPLOY)
+on:
+  pull_request:
+    branches:
+      - work/pathb-connection-only-offline-plan-20261113
+    paths:
+      - '.github/workflows/pathb-release-preflight-nondeploy.yml'
+      - 'scripts/nondeploy/verify_pathb_static_artifact.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pathb-release-preflight-nondeploy
+  cancel-in-progress: false
+jobs:
+  offline-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned, previously validated artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14195477350/zip > /tmp/pathb-pinned.zip
+      - name: Verify pinned artifact offline (no secrets)
+        run: python3 scripts/nondeploy/verify_pathb_static_artifact.py /tmp/pathb-pinned.zip
+      - name: Assert nondeployment
+        run: |
+          echo 'DEPLOYMENT=NO'
+          echo 'AZURE_TOKEN_ACCESS=NO'

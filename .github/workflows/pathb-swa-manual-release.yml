@@ -1,0 +1,51 @@
+name: Path B SWA Manual Release (OWNER APPROVAL REQUIRED)
+on:
+  workflow_dispatch:
+    inputs:
+      owner_approval:
+        description: 'Enter DEPLOY_PATHB_SWA_ONCE only after explicit separate Owner approval'
+        required: true
+        type: string
+      artifact_id:
+        description: 'Pinned GitHub artifact ID'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pathb-swa-production-single-release
+  cancel-in-progress: false
+jobs:
+  verify-and-deploy:
+    # Deliberately inactive on feature branches and PR events.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.owner_approval == 'DEPLOY_PATHB_SWA_ONCE' && inputs.artifact_id == '14195477350' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pathb-swa-production
+    steps:
+      - name: Check out verified release gate
+        uses: actions/checkout@v4
+      - name: Fetch pinned artifact only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14195477350/zip > /tmp/pathb.zip
+      - name: Validate pinned archive before secret access
+        run: python3 scripts/nondeploy/verify_pathb_static_artifact.py /tmp/pathb.zip
+      - name: Unpack pinned static assets
+        run: |
+          mkdir -p pathb-dist
+          unzip -q /tmp/pathb.zip -d pathb-dist
+          test -f pathb-dist/index.html
+          test -f pathb-dist/config.js
+      - name: Deploy only Path B SWA (separate Owner approval required)
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_PATHB_UAT }}
+          repo_token: ${{ github.token }}
+          action: upload
+          app_location: pathb-dist
+          skip_app_build: true
+          skip_api_build: true
+          output_location: ''
+          production_branch: main

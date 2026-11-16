@@ -1,0 +1,56 @@
+name: Path B Frontend Isolation (NONDEPLOY)
+on:
+  pull_request:
+    branches:
+      - work/pathb-connection-only-offline-plan-20261113
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/pathb-frontend-isolation-nondeploy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Frontend regression tests
+        run: npm test
+        working-directory: frontend
+      - name: TypeScript and production build (no deployment)
+        run: npm run build
+        working-directory: frontend
+      - name: Prepare Path B static artifact (NONDEPLOY)
+        run: node scripts/prepare-pathb-artifact.mjs
+        working-directory: frontend
+      - name: Verify no deployment action
+        run: test -f frontend/dist/config.js && grep -F 'api-fieldvisit-pathb-uat.azurewebsites.net/api/v1' frontend/dist/config.js
+      - name: Upload isolated Path B static artifact (NONDEPLOY)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-frontend-static-nondeploy
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Inspect manual release guard (NONDEPLOY)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path(".github/workflows/pathb-swa-manual-release.yml").read_text()
+          assert "workflow_dispatch:" in s
+          assert "pull_request:" not in s and "push:" not in s
+          assert "refs/heads/main" in s
+          assert "inputs.artifact_id == '14195477350'" in s
+          assert "environment: pathb-swa-production" in s
+          assert "AZURE_STATIC_WEB_APPS_API_TOKEN_PATHB_UAT" in s
+          print("RELEASE_WORKFLOW_STATIC_GUARD=PASS; DEPLOYMENT=NO")
+          PY
