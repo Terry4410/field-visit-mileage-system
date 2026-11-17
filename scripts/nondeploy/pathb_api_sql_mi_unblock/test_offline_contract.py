@@ -49,6 +49,25 @@ class ContractTests(unittest.TestCase):
         self.assertIn("GRANT CONNECT TO", WRITE)
         self.assertIn("CREATE USER ", WRITE)
 
+    def test_security_principal_inventory_visibility_and_sid_shape(self):
+        # VIEW DEFINITION by itself cannot certify that all other users are visible.
+        for source in (READ, WRITE):
+            self.assertIn("N'ALTER ANY USER'", source)
+            self.assertIn("PATHB_SECURITY_PRINCIPAL_VISIBILITY_HOLD", source)
+            self.assertIn("DATALENGTH([sid]) NOT IN (16, 18)", source)
+            self.assertIn("SUBSTRING([sid], 17, 2) <> 0xAADE", source)
+            self.assertIn("authentication_type_desc", source)
+            self.assertIn("PATHB_EXTERNAL_SID_SHAPE_HOLD", source)
+        self.assertIn("PATHB_MI_GRANT_DUPLICATE_IDENTITY_HOLD", WRITE)
+
+    def test_schema_readback_includes_frozen_constraint_trigger_safety(self):
+        for source in (READ, WRITE):
+            self.assertIn("sys.check_constraints", source)
+            self.assertIn("sys.foreign_keys", source)
+            self.assertIn("sys.triggers", source)
+            self.assertIn("sys.sql_modules", source)
+            self.assertIn("tr.is_disabled = 1 OR m.definition IS NULL", source)
+
     def test_no_automatic_remote_execution(self):
         for source in (READ, WRITE, README):
             self.assertNotIn("az login", source)
