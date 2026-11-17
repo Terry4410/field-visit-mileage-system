@@ -149,6 +149,84 @@ class KuduV2OnlyTests(unittest.TestCase):
         self.assertEqual(cfg['cleanup_reserve_seconds'],300)
         self.assertEqual(cfg['minimum_token_ttl_seconds'],3000)
 
+    def test_microsoft_geofence_one_https_302_and_exact_original_path(self):
+        # Mock all I/O: never download Microsoft packages from CI.
+        import io
+        import urllib.request
+        import p3_g1_owner_management as owner
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        original=cfg['tools'][1]['url']
+        redirected=original.replace('https://packages.microsoft.com/',
+            'https://pmc-geofence.trafficmanager.net/',1)
+        payload=b'LOCAL_MOCK_MS_SQL_DEB'
+        handlers=[]
+        def make_opener(handler):
+            handlers.append(handler)
+            return Mock(open=Mock(return_value=io.BytesIO(payload)))
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(owner.urllib.request,'build_opener',side_effect=make_opener):
+            target=Path(folder)/'mssql-tools18.deb'
+            owner.download_once(original,target,hashlib.sha256(payload).hexdigest())
+            self.assertEqual(target.read_bytes(),payload)
+        self.assertEqual(len(handlers),1)
+        handler=handlers[0]
+        req=urllib.request.Request(original)
+        follow=handler.redirect_request(req,None,302,'Found',{},redirected)
+        self.assertIsNotNone(follow)
+        self.assertEqual(follow.full_url,redirected)
+        self.assertIsNone(handler.redirect_request(follow,None,302,'Found',{},redirected))
+
+    def test_microsoft_geofence_rejects_all_other_redirects(self):
+        import io
+        import urllib.request
+        import p3_g1_owner_management as owner
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        original=cfg['tools'][1]['url']
+        good=original.replace('https://packages.microsoft.com/',
+            'https://pmc-geofence.trafficmanager.net/',1)
+        handlers=[]
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(owner.urllib.request,'build_opener',side_effect=lambda h:
+                (handlers.append(h) or Mock(open=Mock(return_value=io.BytesIO(b'x'))))):
+            owner.download_once(original,Path(folder)/'tool.deb',hashlib.sha256(b'x').hexdigest())
+        req=urllib.request.Request(original)
+        blocked=(
+            good.replace('https:','http:',1),
+            good.replace('pmc-geofence.trafficmanager.net','other.trafficmanager.net',1),
+            good.replace('pmc-geofence.trafficmanager.net','pmc-geofence.trafficmanager.net.evil.example',1),
+            good.replace('.net/', '.net:443/',1),
+            good.replace('.net/', '.net:444/',1),
+            good.replace('.net/', '.net/other/',1),
+            good+'?version=changed',
+            good+'#fragment',
+            good.replace('https://','https://user@',1),
+        )
+        for url in blocked:
+            with self.subTest(url=url):
+                self.assertIsNone(type(handlers[0])().redirect_request(
+                    req,None,302,'Found',{},url))
+        self.assertIsNone(type(handlers[0])().redirect_request(
+            req,None,301,'Moved',{},good))
+        self.assertIsNone(type(handlers[0])().redirect_request(
+            req,None,307,'Temporary',{},good))
+        # Debian mirror redirects are deliberately NOT enabled.
+        debian=cfg['tools'][2]['url']
+        self.assertIsNone(type(handlers[0])().redirect_request(
+            urllib.request.Request(debian),None,302,'Found',{},good))
+
+    def test_offline_download_sha_mismatch_never_writes_file(self):
+        import io
+        import p3_g1_owner_management as owner
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        original=cfg['tools'][1]['url']
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(owner.urllib.request,'build_opener',
+                return_value=Mock(open=Mock(return_value=io.BytesIO(b'wrong')))):
+            target=Path(folder)/'should-not-exist.deb'
+            with self.assertRaises(owner.ManagementHold):
+                owner.download_once(original,target,hashlib.sha256(b'expected').hexdigest())
+            self.assertFalse(target.exists())
+
     def test_predecessor_markers_never_put(self):
         for target in (guard.PRIOR_G1_KUDU_BLOB,guard.PRIOR_G1_SSH_BLOB):
             for status in (200,503):
