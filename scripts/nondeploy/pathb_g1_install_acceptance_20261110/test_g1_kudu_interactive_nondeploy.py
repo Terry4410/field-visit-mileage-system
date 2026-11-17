@@ -1010,7 +1010,7 @@ class ClaimUnknownCrossPrIntegrationTests(unittest.TestCase):
                 parent.validate_final_receipt(dict(row,**delta))
 
 
-class RemoteResiduePreflightNondeloyTests(unittest.TestCase):
+class RemoteResiduePreflightNondeployTests(unittest.TestCase):
     """Only local PTY/process/filesystem fixtures: no Azure/Token/SQL/Blob."""
 
     def _local_session(self):
@@ -1070,9 +1070,9 @@ class RemoteResiduePreflightNondeloyTests(unittest.TestCase):
             def callback(raw,audit):
                 prefix='FV_G1_REMOTE_RESIDUE_'+status+':'
                 digest=hashlib.sha256((prefix+nonce).encode()).hexdigest()
-                s.buffer=('\\n'+prefix+digest+'\\n').encode()
+                s.buffer=('\n'+prefix+digest+'\n').encode()
             return callback
-        with patch.object(transport.secrets,'token_hex',return_value=nonce), \\
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \
              patch.object(s,'send_public',side_effect=send_for('CLEAR')):
             s.require_clean_remote('PRETOKEN')
             s.require_clean_remote('PRESTAGE')
@@ -1081,11 +1081,11 @@ class RemoteResiduePreflightNondeloyTests(unittest.TestCase):
         held=KuduExecSession('a'*20,deadline=100,clock=lambda:1)
         held.state.begin();held.fd=124;held.proc=Mock()
         held.audit+=['ECHO_READY','ECHO_READY']
-        with patch.object(transport.secrets,'token_hex',return_value=nonce), \\
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \
              patch.object(held,'send_public',side_effect=lambda raw,code:
-                 setattr(held,'buffer', ('\\nFV_G1_REMOTE_RESIDUE_HOLD:'+
+                 setattr(held,'buffer', ('\nFV_G1_REMOTE_RESIDUE_HOLD:'+
                  hashlib.sha256(('FV_G1_REMOTE_RESIDUE_HOLD:'+nonce).encode()).hexdigest()+
-                 '\\n').encode())):
+                 '\n').encode())):
             with self.assertRaises(TransportHold) as ctx:
                 held.require_clean_remote('PRETOKEN')
         self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
@@ -1098,12 +1098,12 @@ class RemoteResiduePreflightNondeloyTests(unittest.TestCase):
         s.state.begin();s.fd=125;s.proc=Mock();s.proc.poll.return_value=None
         s.audit+=['ECHO_READY','ECHO_READY']
         stale=('FV_G1_REMOTE_RESIDUE_CLEAR:'+hashlib.sha256(
-            ('FV_G1_REMOTE_RESIDUE_CLEAR:'+nonce).encode()).hexdigest()+'\\n').encode()
+            ('FV_G1_REMOTE_RESIDUE_CLEAR:'+nonce).encode()).hexdigest()+'\n').encode()
         s.buffer=stale
-        with patch.object(transport.secrets,'token_hex',return_value=nonce), \\
-             patch.object(s,'send_public'), \\
-             patch.object(transport.select,'select',return_value=([125],[],[])), \\
-             patch.object(transport.os,'read',return_value=b'not-the-proof\\n'):
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \
+             patch.object(s,'send_public'), \
+             patch.object(transport.select,'select',return_value=([125],[],[])), \
+             patch.object(transport.os,'read',return_value=b'not-the-proof\n'):
             with self.assertRaises(TransportHold) as e:
                 s.require_clean_remote('PRETOKEN')
         self.assertEqual(e.exception.code,'KUDU_CHANNEL_TIMEOUT')

@@ -399,7 +399,7 @@ def clean():
 status = 'CLEAR' if clean() else 'HOLD'
 prefix = 'FV_G1_REMOTE_RESIDUE_' + status + ':'
 proof = hashlib.sha256((prefix + nonce).encode('ascii')).hexdigest()
-print('\\n' + prefix + proof, flush=True)
+print('\n' + prefix + proof, flush=True)
 '''
     source = source.replace('__PATHS__', repr(REMOTE_RESIDUE_PATHS))
     source = source.replace('__NONCE__', repr(nonce))
