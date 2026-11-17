@@ -38,14 +38,30 @@ def download_once(url,path,expected):
     _require(u.scheme=='https' and u.hostname in {'packages.microsoft.com','deb.debian.org'}
              and not u.username and not u.password and not u.fragment
              and isinstance(expected,str) and len(expected)==64)
-    # Reject redirects to an unpinned host and oversized opaque responses.
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self,*args,**kwargs):return None
-    opener=urllib.request.build_opener(NoRedirect())
+    # Microsoft documents ONE SQL-package geofence 302 to this exact host.
+    # Never follow a second hop, a downgrade, another host/path, or a Debian redirect.
+    class PinnedGeoRedirect(urllib.request.HTTPRedirectHandler):
+        def __init__(self):
+            super().__init__()
+            self.used=False
+
+        def redirect_request(self,req,fp,code,msg,headers,newurl):
+            target=urllib.parse.urlsplit(newurl)
+            if (self.used or code!=302 or req.get_method()!='GET' or
+                    req.full_url!=url or u.netloc!='packages.microsoft.com' or
+                    target.scheme!='https' or
+                    target.netloc!='pmc-geofence.trafficmanager.net' or
+                    target.path!=u.path or target.query!=u.query or
+                    target.fragment or target.username or target.password):
+                return None
+            self.used=True
+            return super().redirect_request(req,fp,code,msg,headers,newurl)
+
+    opener=urllib.request.build_opener(PinnedGeoRedirect())
     try:
-        response=opener.open(urllib.request.Request(url,headers={
-            'User-Agent':'fieldvisit-g1-original-install/1'}),timeout=90)
-        data=response.read(75_000_001)
+        with opener.open(urllib.request.Request(url,headers={
+                'User-Agent':'fieldvisit-g1-original-install/1'}),timeout=90) as response:
+            data=response.read(75_000_001)
     except Exception:raise ManagementHold('G1_DOWNLOAD_HOLD') from None
     _require(len(data)<=75_000_000 and digest(data)==expected)
     path=Path(path)
