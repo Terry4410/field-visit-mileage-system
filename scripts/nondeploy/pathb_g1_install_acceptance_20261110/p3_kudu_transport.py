@@ -44,6 +44,7 @@ DIAGNOSTIC_REMOTE_STAGE = "/tmp/fv-pathb-kudu-channel-diagnostic-v1-20261105"
 MAX_STAGE_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 FRAME_WIDTH = 76
+STAGE_BATCH_LINES = 1024  # bound public-stage output before next receipt
 
 SAFE_CODES = frozenset({
     "AZ_CLI_VERSION_HOLD",
@@ -277,7 +278,7 @@ def remote_bootstrap_command(expected_sha256: str, expected_size: int, *,
             "STAGE_SIZE_HOLD")
     require(remote_stage in {REMOTE_STAGE, DIAGNOSTIC_REMOTE_STAGE},
             "STAGE_PATH_HOLD")
-    source = f'''import base64,hashlib,io,os,re,sys,zipfile\nfrom pathlib import Path,PurePosixPath\ndef req(value):\n if not value:raise SystemExit(90)\nroot=Path({REMOTE_STAGE!r})\nsize={expected_size}\nexpected={expected_sha256!r}\nmax_bytes={MAX_STAGE_BYTES}\nheader=sys.stdin.buffer.readline(256)\nwant=("FV_KUDU_STAGE_V1 %d %s\\n"%(size,expected)).encode("ascii")\nreq(header==want)\nparts=[];total=0\nwhile True:\n line=sys.stdin.buffer.readline({FRAME_WIDTH + 2})\n req(bool(line))\n if line==b"FV_KUDU_STAGE_END\\n":break\n req(line.endswith(b"\\n") and 1<len(line)<={FRAME_WIDTH + 1})\n chunk=line[:-1];req(re.fullmatch(rb"[A-Za-z0-9+/=]+",chunk) is not None)\n total+=len(chunk);req(total<=((max_bytes+2)//3)*4)\n parts.append(chunk)\nraw=base64.b64decode(b"".join(parts),validate=True)\nreq(len(raw)==size and hashlib.sha256(raw).hexdigest()==expected)\nwith zipfile.ZipFile(io.BytesIO(raw)) as z:\n infos=z.infolist();names=[i.filename for i in infos]\n req(bool(names) and len(names)==len(set(names)))\n for item in infos:\n  p=PurePosixPath(item.filename);mode=(item.external_attr>>16)&0o170000\n  req(not item.is_dir() and not p.is_absolute() and ".." not in p.parts and mode!=0o120000 and item.file_size<=max_bytes)\n req(not root.exists() and not root.is_symlink())\n old=os.umask(0o077)\n try:\n  root.mkdir(mode=0o700)\n  for item in infos:\n   target=root/PurePosixPath(item.filename);target.parent.mkdir(parents=True,exist_ok=True)\n   fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n   with os.fdopen(fd,"wb") as f:f.write(z.read(item.filename))\n finally:os.umask(old)\nprint("\\nFV_KUDU_STAGE_READY",flush=True)\n'''
+    source = f'''import base64,hashlib,io,os,re,sys,zipfile\nfrom pathlib import Path,PurePosixPath\ndef req(value):\n if not value:raise SystemExit(90)\nroot=Path({REMOTE_STAGE!r})\nsize={expected_size}\nexpected={expected_sha256!r}\nmax_bytes={MAX_STAGE_BYTES}\nheader=sys.stdin.buffer.readline(256)\nwant=("FV_KUDU_STAGE_V1 %d %s\\n"%(size,expected)).encode("ascii")\nreq(header==want)\nparts=[];total=0\nwhile True:\n line=sys.stdin.buffer.readline({FRAME_WIDTH + 2})\n req(bool(line))\n if line==b"FV_KUDU_STAGE_END\\n":break\n req(line.endswith(b"\\n") and 1<len(line)<={FRAME_WIDTH + 1})\n chunk=line[:-1];req(re.fullmatch(rb"[A-Za-z0-9+/=]+",chunk) is not None)\n total+=len(chunk);req(total<=((max_bytes+2)//3)*4)\n parts.append(chunk)\n if len(parts)%1024==0:print('FV_KUDU_STAGE_CHUNK_READY',flush=True)\nraw=base64.b64decode(b"".join(parts),validate=True)\nreq(len(raw)==size and hashlib.sha256(raw).hexdigest()==expected)\nwith zipfile.ZipFile(io.BytesIO(raw)) as z:\n infos=z.infolist();names=[i.filename for i in infos]\n req(bool(names) and len(names)==len(set(names)))\n for item in infos:\n  p=PurePosixPath(item.filename);mode=(item.external_attr>>16)&0o170000\n  req(not item.is_dir() and not p.is_absolute() and ".." not in p.parts and mode!=0o120000 and item.file_size<=max_bytes)\n req(not root.exists() and not root.is_symlink())\n old=os.umask(0o077)\n try:\n  root.mkdir(mode=0o700)\n  for item in infos:\n   target=root/PurePosixPath(item.filename);target.parent.mkdir(parents=True,exist_ok=True)\n   fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n   with os.fdopen(fd,"wb") as f:f.write(z.read(item.filename))\n finally:os.umask(old)\nprint("\\nFV_KUDU_STAGE_READY",flush=True)\n'''
     source = source.replace(repr(REMOTE_STAGE), repr(remote_stage), 1)
     encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
     command = (
@@ -528,6 +529,36 @@ class KuduExecSession:
             require(0 < count <= min(4096, len(raw) - offset), "KUDU_WRITE_HOLD")
             offset += count
 
+    def _write_stage_public(self, raw: bytes) -> None:
+        """Full-duplex stage-only public write; no secret token is handled here."""
+        require(self.fd is not None and isinstance(raw, bytes), "KUDU_WRITE_HOLD")
+        offset = 0
+        while offset < len(raw):
+            remaining = self.deadline - self._clock()
+            require(remaining > 0, "KUDU_CHANNEL_TIMEOUT")
+            readable, writable, _ = select.select(
+                [self.fd], [self.fd], [], min(0.2, remaining))
+            if readable:
+                try:
+                    chunk = os.read(self.fd, 65536)
+                except Exception:
+                    raise TransportHold("KUDU_CHANNEL_CLOSED") from None
+                require(bool(chunk), "KUDU_CHANNEL_CLOSED")
+                self.buffer += chunk
+                require(len(self.buffer) <= MAX_OUTPUT_BYTES, "KUDU_OUTPUT_LIMIT")
+            if writable:
+                try:
+                    count = os.write(self.fd, raw[offset:offset + 4096])
+                except (BlockingIOError, InterruptedError):
+                    continue
+                except Exception:
+                    raise TransportHold("KUDU_WRITE_HOLD") from None
+                require(0 < count <= min(4096, len(raw) - offset),
+                        "KUDU_WRITE_HOLD")
+                offset += count
+            if self.proc is None or self.proc.poll() is not None:
+                raise TransportHold("KUDU_CHANNEL_CLOSED")
+
     def send_public(self, raw: bytes, audit_code: str) -> None:
         require(re.fullmatch(r"[A-Z0-9_]{3,80}", audit_code) is not None,
                 "PROTOCOL_STATE_HOLD")
@@ -559,11 +590,28 @@ class KuduExecSession:
         self.send_public(remote_bootstrap_command(expected_sha256, len(stage),
                                                   remote_stage=remote_stage),
                          "STAGE_RECEIVER_SENT")
-        for chunk in iter_stage_frame(stage, expected_sha256):
-            self._write_all(chunk)
+        frames = iter_stage_frame(stage, expected_sha256)
+        self._write_stage_public(next(frames))
+        batch = bytearray()
+        count = 0
+        for chunk in frames:
+            if chunk == b"FV_KUDU_STAGE_END\n":
+                if batch:
+                    self._write_stage_public(bytes(batch))
+                    batch.clear()
+                self._write_stage_public(chunk)
+                break
+            batch.extend(chunk)
+            count += 1
+            if count % STAGE_BATCH_LINES == 0:
+                checkpoint = len(self.buffer)
+                self._write_stage_public(bytes(batch))
+                batch.clear()
+                self.expect_fixed(b"FV_KUDU_STAGE_CHUNK_READY", 600,
+                                  "STAGE_CHUNK_READY", after=checkpoint)
         self.audit.append("STAGE_FRAME_SENT")
         self.expect_fixed(b"FV_KUDU_STAGE_READY", 600, "STAGE_READY",
-                          after=boundary)
+                          after=0)
         self.state.advance("CHANNEL", "STAGED")
 
     def send_secret_line(self, token: str, *, validator: Callable[[str], object],
@@ -597,6 +645,7 @@ class KuduExecSession:
         require(marker in {
             b"FV_KUDU_CHANNEL_READY", b"FV_KUDU_STAGE_READY",
             b"FV_P3_TOKENS_READY", b"FV_P3_SQL_TOKEN_RECEIVED",
+            b"FV_KUDU_STAGE_CHUNK_READY",
             b"FV_P3_FINAL_RESULT=",
             b"FV_INDEPENDENT_CLEANUP=PASS",
             b"FV_KUDU_OWNED_CLEANUP=PASS",
