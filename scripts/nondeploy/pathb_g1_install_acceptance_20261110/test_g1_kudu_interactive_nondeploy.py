@@ -171,10 +171,14 @@ class KuduV2OnlyTests(unittest.TestCase):
         self.assertEqual(len(handlers),1)
         handler=handlers[0]
         req=urllib.request.Request(original)
-        follow=handler.redirect_request(req,None,302,'Found',{},redirected)
-        self.assertIsNotNone(follow)
-        self.assertEqual(follow.full_url,redirected)
-        self.assertIsNone(handler.redirect_request(follow,None,302,'Found',{},redirected))
+        # Both original unparameterized and Microsoft's real ?geofence=true
+        # Location are permitted, but only as the FIRST 302 hop.
+        for location in (redirected, redirected+'?geofence=true'):
+            h=type(handler)()
+            follow=h.redirect_request(req,None,302,'Found',{},location)
+            self.assertIsNotNone(follow)
+            self.assertEqual(follow.full_url,location)
+            self.assertIsNone(h.redirect_request(follow,None,302,'Found',{},location))
 
     def test_microsoft_geofence_rejects_all_other_redirects(self):
         import io
@@ -198,6 +202,10 @@ class KuduV2OnlyTests(unittest.TestCase):
             good.replace('.net/', '.net:444/',1),
             good.replace('.net/', '.net/other/',1),
             good+'?version=changed',
+            good+'?geofence=false',
+            good+'?geofence=true&other=1',
+            good+'?geofence=true&geofence=true',
+            good+'?geofence=TRUE',
             good+'#fragment',
             good.replace('https://','https://user@',1),
         )
