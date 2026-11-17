@@ -257,7 +257,7 @@ def validate_final_receipt(obj):
             0 <= obj["sql_call_count"] <= 19 and
             isinstance(obj.get("layer_progress"), int) and
             0 <= obj["layer_progress"] <= 14 and
-            obj.get("marker") in {"NOT_CONSUMED", "CONSUMED"} and
+            obj.get("marker") in {"NOT_CONSUMED", "CONSUMED", "UNKNOWN"} and
             obj.get("cleanup") in {"PASS", "HOLD"},
             "FINAL_RECEIPT_SHAPE_HOLD")
     fields=('sql_calls_started','sql_calls_completed','sql_outcome')

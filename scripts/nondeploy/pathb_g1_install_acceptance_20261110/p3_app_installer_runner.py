@@ -363,6 +363,9 @@ def run(args):
         # Final budget check occurs *before* the single irreversible PUT.
         require(min(sql_exp,storage_exp)-time.time()>=2600,'PRE_DDL_TOKEN_TTL')
         require(deadline-time.monotonic()>=16*120+2*110+60,'PRE_DDL_SQL_BUDGET')
+        # An ambiguous conditional PUT or lost readback may have consumed the claim.
+        # Once this boundary is entered, UNKNOWN is terminal: NEVER retry.
+        result['marker']='UNKNOWN'
         require(guard.consume(gates)==claim_sha,'BLOB_CLAIM_SHA_MISMATCH')
         result['marker']='CONSUMED'
         storage_token=None

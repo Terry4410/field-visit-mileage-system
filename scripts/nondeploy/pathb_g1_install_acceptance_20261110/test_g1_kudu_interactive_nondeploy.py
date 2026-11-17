@@ -962,4 +962,51 @@ class RunnerFailureClassificationTests(unittest.TestCase):
         self.assertEqual(safe(None),'UNKNOWN')
         self.assertEqual(safe({'status':'PASS'}),'NOT_APPLICABLE')
 
+
+class ClaimUnknownCrossPrIntegrationTests(unittest.TestCase):
+    """Integrate the already-reviewed PR #97 one-shot claim safety delta."""
+
+    def test_runner_marks_unknown_before_one_irreversible_put(self):
+        source=(ROOT/'p3_app_installer_runner.py').read_text()
+        before=source.index("result['marker']='UNKNOWN'")
+        put=source.index('guard.consume(gates)')
+        after=source.index("result['marker']='CONSUMED'")
+        self.assertLess(before,put)
+        self.assertLess(put,after)
+        self.assertEqual(source.count('guard.consume(gates)'),1)
+        self.assertNotIn("result['marker']='NOT_CONSUMED'",source[before:])
+
+    def test_claim_lost_put_or_readback_is_terminal_no_retry(self):
+        for lose in ('PUT','GET'):
+            with self.subTest(fault=lose):
+                calls=[]
+                def request(method,name,headers,body=b''):
+                    calls.append(method)
+                    if method=='PUT':
+                        if lose=='PUT':raise OSError('synthetic lost PUT receipt')
+                        return guard.Response(201,'"fixture-etag"')
+                    if method=='GET':
+                        raise OSError('synthetic lost readback')
+                    raise AssertionError('unexpected method')
+                with patch.object(guard,'validate_owner_storage_token',return_value=True):
+                    g=guard.OneTimeInstallBlobGuard('FAKE_NO_SECRET',request=request)
+                g.predecessors_verified=True;g.new_key_available=True
+                gates={k:'PASS' for k in guard.REQUIRED_PRE_DDL_GATES}
+                g.prepare(gates,operation_id='a'*32,artifact_sha256='b'*64,
+                          instance_sha256='c'*64)
+                with self.assertRaises(guard.InstallGuardHold):g.consume(gates)
+                with self.assertRaises(guard.InstallGuardHold):g.consume(gates)
+                self.assertEqual(calls,['PUT'] if lose=='PUT' else ['PUT','GET'])
+                self.assertTrue(g.creation_attempted)
+
+    def test_parent_accepts_unknown_only_for_hold(self):
+        row={'status':'HOLD','sql_call_count':1,'layer_progress':0,
+             'marker':'UNKNOWN','cleanup':'PASS',
+             'sql_calls_started':1,'sql_calls_completed':1,
+             'sql_outcome':'CONFIRMED'}
+        self.assertEqual(parent.validate_final_receipt(row),row)
+        for delta in ({'status':'PASS'}, {'marker':'BOGUS'}):
+            with self.subTest(delta=delta), self.assertRaises(parent.Hold):
+                parent.validate_final_receipt(dict(row,**delta))
+
 if __name__=='__main__':unittest.main()
