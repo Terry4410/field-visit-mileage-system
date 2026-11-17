@@ -797,6 +797,55 @@ class TokenHandoffAcknowledgementTests(unittest.TestCase):
     def test_real_local_pty_acknowledged_second_input_is_received(self):
         self.assertTrue(self._pty_tokens(batched=False))
 
+    def test_immediate_storage_after_ack_survives_delayed_reader(self):
+        """Synthetic PTY race: sender does not wait for the next read."""
+        import os, pty, subprocess, select, signal, sys, time
+        script=(
+            'import getpass,termios,time\n'
+            'import p3_app_installer_runner as runner\n'
+            'f=termios.tcgetattr(0)\n'
+            'f[3]&=~(termios.ECHO|termios.ICANON)\n'
+            'f[6][termios.VMIN]=1;f[6][termios.VTIME]=0\n'
+            'termios.tcsetattr(0,termios.TCSANOW,f)\n'
+            'getpass.getpass("FIRST:")\n'
+            'runner.require_stable_token_tty()\n'
+            'print("ACK",flush=True)\n'
+            'time.sleep(.08)\n'
+            'received=runner.read_storage_token_no_flush()\n'
+            'print("SECOND_LEN="+str(len(received)),flush=True)\n'
+        )
+        master,slave=pty.openpty()
+        proc=subprocess.Popen([sys.executable,'-c',script],cwd=str(ROOT),
+                              stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
+        os.close(slave)
+        def until(marker,limit=3.0):
+            seen=b'';deadline=time.monotonic()+limit
+            while time.monotonic()<deadline:
+                if select.select([master],[],[],.05)[0]:
+                    try: part=os.read(master,4096)
+                    except OSError: break
+                    seen+=part
+                    if marker in seen: return seen
+            return seen
+        try:
+            self.assertIn(b'FIRST:',until(b'FIRST:'))
+            os.write(master,b'SYNTHETIC_SQL\n')
+            self.assertIn(b'ACK',until(b'ACK'))
+            os.write(master,b'SYNTHETIC_STORAGE\n')
+            out=until(b'SECOND_LEN=17')
+            self.assertIn(b'SECOND_LEN=17',out)
+            self.assertNotIn(b'SYNTHETIC_STORAGE',out)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid,signal.SIGKILL)
+            proc.wait(timeout=5)
+            os.close(master)
+
+    def test_storage_reader_refuses_non_tty(self):
+        with patch.object(runner.os,'isatty',return_value=False):
+            with self.assertRaises(runner.Hold):
+                runner.require_stable_token_tty()
+
     def test_fixed_ack_marker_requires_exact_one_token_state(self):
         session=KuduExecSession('a'*20, deadline=100, clock=lambda:1)
         session.state.begin()
@@ -819,10 +868,12 @@ class TokenHandoffAcknowledgementTests(unittest.TestCase):
         runner_source=(ROOT/'p3_app_installer_runner.py').read_text()
         x=runner_source.index("sql_token=getpass.getpass('OWNER_SQL_TOKEN:')")
         y=runner_source.index("print('\\nFV_P3_SQL_TOKEN_RECEIVED',flush=True)")
-        z=runner_source.index("storage_token=getpass.getpass('OWNER_STORAGE_TOKEN:')")
+        z=runner_source.index("storage_token=read_storage_token_no_flush()")
         self.assertLess(x,y)
         self.assertLess(y,z)
         self.assertIn("sql_exp=token_exp(sql_token,'sql',time.time())",runner_source[x:y])
+        self.assertIn('require_stable_token_tty()',runner_source[x:y])
+        self.assertNotIn("getpass.getpass('OWNER_STORAGE_TOKEN:')",runner_source)
 
 class SqlAttemptTelemetryTests(unittest.TestCase):
     def test_validated_started_completed_unknown(self):
