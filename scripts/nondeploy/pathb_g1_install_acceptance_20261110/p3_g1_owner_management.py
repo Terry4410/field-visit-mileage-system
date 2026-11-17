@@ -51,7 +51,8 @@ def download_once(url,path,expected):
                     req.full_url!=url or u.netloc!='packages.microsoft.com' or
                     target.scheme!='https' or
                     target.netloc!='pmc-geofence.trafficmanager.net' or
-                    target.path!=u.path or\n                    target.query not in (u.query, 'geofence=true') or
+                    target.path!=u.path or
+                    target.query not in (u.query, 'geofence=true') or
                     target.fragment or target.username or target.password):
                 return None
             self.used=True
