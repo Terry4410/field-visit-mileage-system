@@ -482,7 +482,7 @@ def execute(args):
         print("SQL_TOKEN_REQUEST=" + ("YES" if sql_requested else "NO"))
         print("STORAGE_TOKEN_REQUEST=" + ("YES" if storage_requested else "NO"))
         print("SQL_CALL_COUNT=" + (str(receipt["sql_call_count"])
-                                   if receipt is not None else "0_OR_1_UNKNOWN"))
+                                   if receipt is not None else "UNKNOWN"))
         print("LAYER_PROGRESS=" + (str(receipt["layer_progress"])
                                   if receipt is not None else "UNKNOWN"))
         print("BLOB_MARKER=" + (receipt.get("marker", "UNKNOWN")

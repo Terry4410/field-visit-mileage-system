@@ -660,6 +660,8 @@ class StorageCheckpointOnlyTests(unittest.TestCase):
                     data=output.getvalue()
                     self.assertIn('STOP_STAGE='+expected,data)
                     self.assertIn('SQL_TOKEN_REQUEST=NO',data)
+                    self.assertIn('SQL_CALL_COUNT=UNKNOWN',data)
+                    self.assertNotIn('0_OR_1_UNKNOWN',data)
                     self.assertIn('AUTO_RETRY=FORBIDDEN',data)
                     self.assertNotIn('SENSITIVE_',data)
                     self.assertNotIn('DO_NOT_LOG_ME',data)
