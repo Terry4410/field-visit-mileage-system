@@ -6,7 +6,7 @@ authorization record bound to the final distribution SHA and this bundle's
 binding index.  Tokens are read without echo from Kudu stdin, never argv/env.
 """
 import argparse, base64, getpass, hashlib, json, os, re, shutil, signal
-import socket, stat, subprocess, sys, time, uuid, zipfile
+import socket, stat, subprocess, sys, termios, time, uuid, zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -62,6 +62,33 @@ def verify_bundle(binding):
     for name,expected in binding['files'].items():
         p=HERE/name;require(p.is_file() and not p.is_symlink() and digest(p.read_bytes())==expected,'BINDING_FILE_HASH')
     return True
+def require_stable_token_tty():
+    """Inspect the already-established no-echo PTY, without changing its mode."""
+    require(os.isatty(0),'STORAGE_TOKEN_TTY_HOLD')
+    flags=termios.tcgetattr(0)[3]
+    require(not (flags & (termios.ECHO | termios.ICANON)),
+            'STORAGE_TOKEN_TTY_MODE_HOLD')
+
+def read_storage_token_no_flush():
+    """Bounded raw input: never reconfigure or flush buffered Token input."""
+    require_stable_token_tty()
+    raw=bytearray()
+    try:
+        while len(raw) <= 16384:
+            chunk=os.read(0,1)
+            require(bool(chunk),'STORAGE_TOKEN_READ_EOF')
+            if chunk == b'\n':
+                require(bool(raw),'STORAGE_TOKEN_EMPTY')
+                try:
+                    return raw.decode('ascii')
+                except UnicodeDecodeError as exc:
+                    raise Hold('STORAGE_TOKEN_ASCII_HOLD') from exc
+            raw.extend(chunk)
+        raise Hold('STORAGE_TOKEN_LENGTH_HOLD')
+    finally:
+        for pos in range(len(raw)):
+            raw[pos]=0
+
 def token_exp(token,kind,now):
     validate_owner_token(token,kind,now)
     try:return float(json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'==='))['exp'])
@@ -289,8 +316,10 @@ def run(args):
         # Parent sends Storage token only after observing this exact receipt.
         sql_token=getpass.getpass('OWNER_SQL_TOKEN:')
         sql_exp=token_exp(sql_token,'sql',time.time())
+        # No terminal mode changes are permitted after this acknowledgement.
+        require_stable_token_tty()
         print('\nFV_P3_SQL_TOKEN_RECEIVED',flush=True)
-        storage_token=getpass.getpass('OWNER_STORAGE_TOKEN:')
+        storage_token=read_storage_token_no_flush()
         now=time.time();storage_exp=token_exp(storage_token,'storage',now)
         require(min(sql_exp,storage_exp)-now>=cfg['minimum_token_ttl_seconds'],'TOKEN_TTL');evidence['owner_sql_token_verified']=True
         tokenfile=RAM/'sql-token';private_write(tokenfile,sql_token.encode('utf-16le'));sql_token=None
