@@ -752,6 +752,78 @@ class StorageTokenSubgateTests(unittest.TestCase):
                                                checkpoint=stages.append)
                 self.assertEqual(stages[-1],label)
 
+
+class TokenHandoffAcknowledgementTests(unittest.TestCase):
+    """Synthetic tokens only. Reproduces terminal input loss and exercises ack gate."""
+    @staticmethod
+    def _pty_tokens(batched):
+        import os, pty, subprocess, select, signal, sys, time
+        script = (
+            'import getpass; a=getpass.getpass("FIRST:"); '
+            'print("ACK",flush=True); b=getpass.getpass("SECOND:"); '
+            'print("DONE",flush=True)'
+        )
+        master, slave = pty.openpty()
+        proc = subprocess.Popen([sys.executable, '-c', script], stdin=slave,
+                                stdout=slave, stderr=slave, start_new_session=True)
+        os.close(slave)
+        def until(marker, limit=3.0):
+            seen=b'';deadline=time.monotonic()+limit
+            while time.monotonic()<deadline:
+                if select.select([master], [], [], 0.05)[0]:
+                    try: chunk=os.read(master,4096)
+                    except OSError: break
+                    if not chunk: break
+                    seen+=chunk
+                    if marker in seen: return True
+            return False
+        try:
+            if not until(b'FIRST:'): return False
+            os.write(master, b'SYNTHETIC_SQL\n' +
+                     (b'SYNTHETIC_STORAGE\n' if batched else b''))
+            if not until(b'SECOND:'): return False
+            if not batched:
+                os.write(master,b'SYNTHETIC_STORAGE\n')
+            return until(b'DONE', 1.0)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+            os.close(master)
+
+    def test_real_local_pty_batched_input_can_be_discarded(self):
+        self.assertFalse(self._pty_tokens(batched=True))
+
+    def test_real_local_pty_acknowledged_second_input_is_received(self):
+        self.assertTrue(self._pty_tokens(batched=False))
+
+    def test_fixed_ack_marker_requires_exact_one_token_state(self):
+        session=KuduExecSession('a'*20, deadline=100, clock=lambda:1)
+        session.state.begin()
+        session.state.advance('CHANNEL','STAGED')
+        session.fd=123
+        session.buffer=b'FV_P3_SQL_TOKEN_RECEIVED\n'
+        with self.assertRaises(TransportHold):
+            session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK')
+        session._token_count=1
+        session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK')
+        self.assertEqual(session.audit[-1], 'SQL_TOKEN_ACK')
+
+    def test_parent_never_sends_storage_token_before_sql_ack(self):
+        source=(ROOT/'p3_kudu_cloudshell_parent.py').read_text()
+        a=source.index('session.send_secret_line(sql_token, validator=')
+        b=source.index('session.expect_fixed(b"FV_P3_SQL_TOKEN_RECEIVED"')
+        c=source.index('session.send_secret_line(storage_token, validator=')
+        self.assertLess(a,b)
+        self.assertLess(b,c)
+        runner_source=(ROOT/'p3_app_installer_runner.py').read_text()
+        x=runner_source.index("sql_token=getpass.getpass('OWNER_SQL_TOKEN:')")
+        y=runner_source.index("print('\\nFV_P3_SQL_TOKEN_RECEIVED',flush=True)")
+        z=runner_source.index("storage_token=getpass.getpass('OWNER_STORAGE_TOKEN:')")
+        self.assertLess(x,y)
+        self.assertLess(y,z)
+        self.assertIn("sql_exp=token_exp(sql_token,'sql',time.time())",runner_source[x:y])
+
 class RunnerFailureClassificationTests(unittest.TestCase):
     def test_only_fixed_failure_category_is_exposed(self):
         safe=parent.safe_runner_failure_category

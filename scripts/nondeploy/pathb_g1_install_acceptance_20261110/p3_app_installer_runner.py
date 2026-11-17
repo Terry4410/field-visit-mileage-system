@@ -274,8 +274,14 @@ def run(args):
         require(dry.returncode==0 and b'HASH_VERIFIED_DRY_RUN_NO_CONNECTION' in dry.stdout,'INSTALLER_DRY_RUN');evidence['installer_dry_run_verified']=True
         binary,env=stage_tools(cfg)
         print('\nFV_P3_TOKENS_READY',flush=True)
-        sql_token=getpass.getpass('OWNER_SQL_TOKEN:');storage_token=getpass.getpass('OWNER_STORAGE_TOKEN:')
-        now=time.time();sql_exp=token_exp(sql_token,'sql',now);storage_exp=token_exp(storage_token,'storage',now)
+        # A second getpass call may discard bytes already queued on the PTY.
+        # A fixed receipt after *validated* SQL token reception is mandatory:
+        # Parent sends Storage token only after observing this exact receipt.
+        sql_token=getpass.getpass('OWNER_SQL_TOKEN:')
+        sql_exp=token_exp(sql_token,'sql',time.time())
+        print('\nFV_P3_SQL_TOKEN_RECEIVED',flush=True)
+        storage_token=getpass.getpass('OWNER_STORAGE_TOKEN:')
+        now=time.time();storage_exp=token_exp(storage_token,'storage',now)
         require(min(sql_exp,storage_exp)-now>=cfg['minimum_token_ttl_seconds'],'TOKEN_TTL');evidence['owner_sql_token_verified']=True
         tokenfile=RAM/'sql-token';private_write(tokenfile,sql_token.encode('utf-16le'));sql_token=None
         deadline=min(started+cfg['total_deadline_seconds']-cfg['cleanup_reserve_seconds'],time.monotonic()+cfg['sql_deadline_seconds'])

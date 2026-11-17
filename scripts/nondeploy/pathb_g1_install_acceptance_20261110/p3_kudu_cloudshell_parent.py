@@ -405,6 +405,10 @@ def execute(args):
                                      validate_owner_token(token, "sql", time.time()),
                                      audit_code="SQL_TOKEN_SENT")
             sql_token = None
+            # Runner validates the SQL token and finishes its first getpass
+            # before Parent sends the Storage token. No secret in this receipt.
+            session.expect_fixed(b"FV_P3_SQL_TOKEN_RECEIVED", 120,
+                                 "SQL_TOKEN_ACK")
             session.send_secret_line(storage_token, validator=lambda token:
                                      validate_owner_token(token, "storage", time.time()),
                                      audit_code="STORAGE_TOKEN_SENT")

@@ -596,11 +596,15 @@ class KuduExecSession:
                      after: int | None = None) -> None:
         require(marker in {
             b"FV_KUDU_CHANNEL_READY", b"FV_KUDU_STAGE_READY",
-            b"FV_P3_TOKENS_READY", b"FV_P3_FINAL_RESULT=",
+            b"FV_P3_TOKENS_READY", b"FV_P3_SQL_TOKEN_RECEIVED",
+            b"FV_P3_FINAL_RESULT=",
             b"FV_INDEPENDENT_CLEANUP=PASS",
             b"FV_KUDU_OWNED_CLEANUP=PASS",
             b"FV_KUDU_OWNED_CLEANUP_VERIFIED=PASS",
         }, "PROTOCOL_STATE_HOLD")
+        if marker == b"FV_P3_SQL_TOKEN_RECEIVED":
+            require(self.state.state == "STAGED" and self._token_count == 1 and
+                    audit_code == "SQL_TOKEN_ACK", "PROTOCOL_STATE_HOLD")
         boundary = len(self.buffer) if after is None else after
         require(isinstance(boundary, int) and 0 <= boundary <= len(self.buffer),
                 "PROTOCOL_STATE_HOLD")
