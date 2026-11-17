@@ -32,28 +32,44 @@ def observed_blob_etag(obj, expected_name):
     must(isinstance(etag, str) and len(etag) > 2, 'HISTORICAL_ETAG_MISSING')
     return etag
 
-def verify_readonly(cfg, azure_json, storage_token, *, now=None, request=None):
+def verify_readonly(cfg, azure_json, storage_token, *, now=None, request=None,
+                    checkpoint=None):
     """Check two exact current objects and authenticated content + ETag.
 
     azure_json(args)-> parsed JSON from an authenticated, read-only Azure CLI.
     request is injectable ONLY for unit tests. Production uses pinned TLS REST.
     No Blob PUT/DELETE or non-GET request is made here.
+    checkpoint receives only static stage labels; never tokens, IDs or contents.
     """
+    must(checkpoint is None or callable(checkpoint), 'HISTORICAL_CHECKPOINT_INVALID')
+    def stage(label):
+        if checkpoint is not None:
+            checkpoint(label)
     must(cfg.get('storage_account')==ACCOUNT and cfg.get('storage_container')==CONTAINER,
          'HISTORICAL_STORAGE_TARGET')
     now=time.time() if now is None else now
     expected={}
+    indices={name:i for i,(name,_) in enumerate(PREDECESSORS,1)}
     for name,_ in PREDECESSORS:
+        label='STORAGE_BLOB_'+str(indices[name])
+        stage(label+'_METADATA_CLI')
         record=azure_json(['storage','blob','show','--account-name',ACCOUNT,
                            '--container-name',CONTAINER,'--name',name,
                            '--auth-mode','login'])
+        stage(label+'_METADATA_VALIDATE')
         expected[name]=observed_blob_etag(record,name)
+    stage('STORAGE_HTTPS_CLIENT_INIT')
     actual_request=pinned_http_request(storage_token) if request is None else request
     def safe_request(method,name,headers,body=b''):
         must(method=='GET' and name in expected and not body,'HISTORICAL_READ_ONLY')
+        label='STORAGE_BLOB_'+str(indices[name])
+        stage(label+'_GET')
         res=actual_request(method,name,headers,body)
+        stage(label+'_ETAG_CHECK')
         must(getattr(res,'etag',None)==expected[name], 'HISTORICAL_ETAG_MISMATCH')
+        stage(label+'_CONTENT_CHECK')
         return res
+    stage('STORAGE_GUARD_INIT')
     guard=OneTimeInstallBlobGuard(storage_token,request=safe_request)
     guard.check_predecessors()  # Existing frozen semantic/identity integrity checks
     must(guard.predecessors_verified,'HISTORICAL_CONTENT_NOT_VERIFIED')

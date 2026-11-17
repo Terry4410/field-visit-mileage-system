@@ -462,4 +462,206 @@ class KuduV2OnlyTests(unittest.TestCase):
             'b38f124391d89351f2da6dd01cc4a93e7a515ac4bbda79b6746d5211ce44ba4f')
         parent.validate_binding(ROOT)
 
+
+class StorageCheckpointOnlyTests(unittest.TestCase):
+    """Synthetic-only: no az, networking, credentials, Blob write or installer."""
+
+    @staticmethod
+    def _config():
+        return {'storage_account': guard.ACCOUNT,
+                'storage_container': guard.CONTAINER}
+
+    @staticmethod
+    def _predecessor_body(name, attempt):
+        obj = {
+            'contract': 'FIELDVISIT_PATHB_SELECT22_BLOB_ONCE_V1',
+            'status': 'CONSUMED_BEFORE_SQL',
+            'run_id': 'pathb-select22-manual-v2-20261103',
+            'release': guard.RELEASE,
+            'server': guard.SERVER, 'database': guard.DATABASE,
+            'owner_oid_sha256': guard.OWNER_OID_SHA,
+            'preflight_sha256': guard.SELECT_SHA,
+            'started_at_utc': 1760000000,
+            'invocation_nonce': 'a' * 32,
+        }
+        if attempt is not None:
+            obj['attempt_id'] = attempt
+        return json.dumps(obj, sort_keys=True).encode()
+
+    def _run_guard(self, *, break_at=None):
+        import p3_historical_blob_evidence as historical
+        events, cli_calls, rest_calls = [], [], []
+        predecessor = list(guard.PREDECESSORS)
+        def cli(args):
+            self.assertEqual(args[:3], ['storage','blob','show'])
+            self.assertIn('--auth-mode', args)
+            self.assertEqual(args[-1], 'login')
+            name = args[args.index('--name')+1]
+            cli_calls.append(name)
+            if break_at == 'CLI1' and len(cli_calls) == 1:
+                raise RuntimeError('SENSITIVE_RAW_CLI_OUTPUT_DO_NOT_EXPOSE')
+            if break_at == 'CLI2' and len(cli_calls) == 2:
+                raise RuntimeError('SENSITIVE_RAW_CLI_OUTPUT_DO_NOT_EXPOSE')
+            if break_at == 'METADATA2' and len(cli_calls) == 2:
+                return {'name': 'not-the-pinned-name', 'properties': {'etag':'"etag-2"'}}
+            return {'name': name, 'properties': {'etag':'"etag-%d"'%len(cli_calls)}}
+        def http(method,name,headers,body=b''):
+            self.assertEqual(method,'GET')
+            self.assertEqual(body,b'')
+            rest_calls.append(name)
+            idx = 1 if name == predecessor[0][0] else 2
+            if break_at == 'GET1' and idx == 1:
+                raise RuntimeError('SENSITIVE_GET_EXCEPTION_DO_NOT_EXPOSE')
+            if break_at == 'GET2' and idx == 2:
+                raise RuntimeError('SENSITIVE_GET_EXCEPTION_DO_NOT_EXPOSE')
+            etag = '"etag-%d"'%idx
+            if break_at == 'ETAG1' and idx == 1:
+                etag = '"mismatched"'
+            content = self._predecessor_body(name,predecessor[idx-1][1])
+            if break_at == 'CONTENT1' and idx == 1:
+                content = b'{not-json:'
+            return guard.Response(200,etag,content,'')
+        with patch.object(guard,'validate_owner_storage_token',return_value=True):
+            ret=historical.verify_readonly(self._config(),cli,'FAKE_TOKEN',
+                                           request=http,checkpoint=events.append)
+        return ret,events,cli_calls,rest_calls
+
+    def test_historical_two_blob_success_labels_and_unchanged_contract(self):
+        ret, events, meta, gets = self._run_guard()
+        self.assertEqual(ret['current_head_get_contract'],'PASS')
+        self.assertEqual(len(meta),2)
+        self.assertEqual(gets,[name for name,_ in guard.PREDECESSORS])
+        self.assertEqual(events,[
+            'STORAGE_BLOB_1_METADATA_CLI','STORAGE_BLOB_1_METADATA_VALIDATE',
+            'STORAGE_BLOB_2_METADATA_CLI','STORAGE_BLOB_2_METADATA_VALIDATE',
+            'STORAGE_HTTPS_CLIENT_INIT','STORAGE_GUARD_INIT',
+            'STORAGE_BLOB_1_GET','STORAGE_BLOB_1_ETAG_CHECK',
+            'STORAGE_BLOB_1_CONTENT_CHECK',
+            'STORAGE_BLOB_2_GET','STORAGE_BLOB_2_ETAG_CHECK',
+            'STORAGE_BLOB_2_CONTENT_CHECK'])
+        self.assertTrue(set(events).issubset(parent.STORAGE_CHECKPOINTS))
+        self.assertFalse(any('operator-once/' in event for event in events))
+
+    def test_metadata_cli_failure_classifies_exact_blob(self):
+        for fault, phase in [('CLI1','STORAGE_BLOB_1_METADATA_CLI'),
+                             ('CLI2','STORAGE_BLOB_2_METADATA_CLI')]:
+            with self.subTest(fault=fault):
+                events=[]
+                import p3_historical_blob_evidence as historical
+                def bad_cli(args):
+                    events.append(args[args.index('--name')+1])
+                    if len(events) == int(fault[-1]):raise RuntimeError('PRIVATE_ERROR')
+                    return {'name':events[-1], 'properties':{'etag':'"e"'}}
+                logs=[]
+                with self.assertRaises(RuntimeError):
+                    historical.verify_readonly(self._config(),bad_cli,'FAKE',
+                        request=lambda *a:None,checkpoint=logs.append)
+                self.assertEqual(logs[-1],phase)
+                self.assertEqual(len(events),int(fault[-1]))
+
+    def test_blob_metadata_identity_failure_classified(self):
+        import p3_historical_blob_evidence as historical
+        logs=[]
+        names=[n for n,_ in guard.PREDECESSORS]
+        def cli(args):
+            name=args[args.index('--name')+1]
+            if name==names[1]: return {'name':'wrong','properties':{'etag':'"e"'}}
+            return {'name':name,'properties':{'etag':'"e"'}}
+        with self.assertRaises(historical.HistoricalEvidenceHold):
+            historical.verify_readonly(self._config(),cli,'FAKE',
+                 request=lambda *a:None,checkpoint=logs.append)
+        self.assertEqual(logs[-1],'STORAGE_BLOB_2_METADATA_VALIDATE')
+
+    def test_http_get_etag_and_content_fail_closed(self):
+        import p3_historical_blob_evidence as historical
+        cases=[('GET1','STORAGE_BLOB_1_GET'),
+               ('GET2','STORAGE_BLOB_2_GET'),
+               ('ETAG1','STORAGE_BLOB_1_ETAG_CHECK'),
+               ('CONTENT1','STORAGE_BLOB_1_CONTENT_CHECK')]
+        for fault, label in cases:
+            with self.subTest(fault=fault):
+                logs=[]; cnt=[0]
+                def cli(args):
+                    cnt[0]+=1
+                    name=args[args.index('--name')+1]
+                    return {'name':name,'properties':{'etag':'"etag-%d"'%cnt[0]}}
+                getcount=[0]
+                def http(method,name,headers,body=b''):
+                    self.assertEqual(method,'GET')
+                    getcount[0]+=1
+                    if fault==('GET%d'%getcount[0]):raise RuntimeError('DO_NOT_LOG_ME')
+                    if fault=='ETAG1':return guard.Response(200,'"wrong"',b'{}')
+                    if fault=='CONTENT1':return guard.Response(200,'"etag-1"',b'{broken')
+                    idx=getcount[0]
+                    return guard.Response(200,'"etag-%d"'%idx,
+                        self._predecessor_body(name,guard.PREDECESSORS[idx-1][1]))
+                with patch.object(guard,'validate_owner_storage_token',return_value=True):
+                    with self.assertRaises(Exception):
+                        historical.verify_readonly(self._config(),cli,'FAKE',
+                                                  request=http,checkpoint=logs.append)
+                self.assertEqual(logs[-1],label)
+                self.assertFalse(any('DO_NOT_LOG_ME' in x for x in logs))
+
+    def test_parent_stage_catch_reports_fixed_label_and_never_secret(self):
+        from types import SimpleNamespace
+        from contextlib import redirect_stdout
+        import io
+        pkg=b'LOCAL_TEST_PACKAGE';seal=b'LOCAL_TEST_SEAL'
+        cfg={'total_deadline_seconds':3600,
+             'package_blob':'test-pkg','seal_blob':'test-seal',
+             'package_sha256':hashlib.sha256(pkg).hexdigest(),
+             'seal_sha256':hashlib.sha256(seal).hexdigest(),
+             'tools':[]}
+        def blob_dl(_,name,output):
+            Path(output).write_bytes(pkg if name=='test-pkg' else seal)
+        cases=[('CLI','STORAGE_TOKEN_CLI'),
+               ('RESPONSE','STORAGE_TOKEN_RESPONSE'),
+               ('VALIDATE','STORAGE_TOKEN_VALIDATE'),
+               ('BLOB2','STORAGE_BLOB_2_CONTENT_CHECK'),
+               ('RESULT','STORAGE_HISTORICAL_RESULT')]
+        with tempfile.TemporaryDirectory() as d:
+            f=Path(d)/'fake-source.zip';f.write_bytes(b'FAKE_NONSECRET_ZIP')
+            args=SimpleNamespace(distribution=str(f),
+                                 artifact_sha256=hashlib.sha256(f.read_bytes()).hexdigest(),
+                                 authorization=str(Path(d)/'never-opened'))
+            for fault, expected in cases:
+                with self.subTest(fault=fault):
+                    def az_mock(commands):
+                        self.assertEqual(commands[:2],['account','get-access-token'])
+                        if fault=='CLI':raise RuntimeError('SENSITIVE_CLI_ERROR')
+                        if fault=='RESPONSE':return {}
+                        return {'accessToken':'SENSITIVE_TOKEN_NEVER_PRINT'}
+                    def token_validator(*a):
+                        if fault=='VALIDATE':raise RuntimeError('SENSITIVE_CLAIMS')
+                    def hist(*a,**kw):
+                        if fault=='BLOB2':
+                            kw['checkpoint']('STORAGE_BLOB_2_CONTENT_CHECK')
+                            raise RuntimeError('SENSITIVE_BLOB_DATA')
+                        if fault=='RESULT':return {'current_head_get_contract':'HOLD',
+                                 'historical_immutability_proven':False,
+                                 'historical_parent_execution_proven':False}
+                        raise AssertionError('SHOULD_NOT_CALL')
+                    with patch.object(parent,'validate_local_source'), \
+                         patch.object(parent,'validate_binding',return_value=({'files':{}},'b'*64)), \
+                         patch.object(parent,'validate_distribution_archive'), \
+                         patch.object(parent,'load',return_value=cfg), \
+                         patch.object(parent,'validate_authorization'), \
+                         patch.object(parent,'management',return_value=('INSTANCE',{'observed_at':0})), \
+                         patch.object(parent,'blob_download',side_effect=blob_dl), \
+                         patch.object(parent,'validate_original_package'), \
+                         patch.object(parent,'strict_seal_crossbinding'), \
+                         patch.object(parent,'az',side_effect=az_mock), \
+                         patch.object(parent,'validate_owner_token',side_effect=token_validator), \
+                         patch.object(parent,'verify_historical_blobs',side_effect=hist):
+                        output=io.StringIO()
+                        with redirect_stdout(output):
+                            result=parent.execute(args)
+                    self.assertEqual(result,1)
+                    data=output.getvalue()
+                    self.assertIn('STOP_STAGE='+expected,data)
+                    self.assertIn('SQL_TOKEN_REQUEST=NO',data)
+                    self.assertIn('AUTO_RETRY=FORBIDDEN',data)
+                    self.assertNotIn('SENSITIVE_',data)
+                    self.assertNotIn('DO_NOT_LOG_ME',data)
+
 if __name__=='__main__':unittest.main()

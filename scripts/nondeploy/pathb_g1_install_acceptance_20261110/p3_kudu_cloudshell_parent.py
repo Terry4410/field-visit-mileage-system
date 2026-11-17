@@ -42,6 +42,17 @@ REMOTE_WORK = "/tmp/fv-pathb-g1-original-installer-20261110-work"
 REMOTE_RAM = "/dev/shm/fv-pathb-g1-original-installer-20261110"
 MAX_RECEIPT_BYTES = 16384
 
+# Fixed, nonsecret Storage failure classes. No error messages, claims or Blob data.
+STORAGE_CHECKPOINTS = frozenset({
+    'STORAGE_BLOB_1_METADATA_CLI', 'STORAGE_BLOB_1_METADATA_VALIDATE',
+    'STORAGE_BLOB_2_METADATA_CLI', 'STORAGE_BLOB_2_METADATA_VALIDATE',
+    'STORAGE_HTTPS_CLIENT_INIT', 'STORAGE_GUARD_INIT',
+    'STORAGE_BLOB_1_GET', 'STORAGE_BLOB_1_ETAG_CHECK',
+    'STORAGE_BLOB_1_CONTENT_CHECK',
+    'STORAGE_BLOB_2_GET', 'STORAGE_BLOB_2_ETAG_CHECK',
+    'STORAGE_BLOB_2_CONTENT_CHECK',
+})
+
 
 class Hold(Exception):
     pass
@@ -278,6 +289,10 @@ def execute(args):
     instance = None
     sessions_opened = 0
     deadline = None
+    def set_storage_checkpoint(label):
+        nonlocal stop
+        require(label in STORAGE_CHECKPOINTS, 'STORAGE_CHECKPOINT_HOLD')
+        stop = label
     def new_session():
         nonlocal sessions_opened
         require(instance is not None and deadline is not None and sessions_opened < 2,
@@ -321,12 +336,20 @@ def execute(args):
             for item in cfg["tools"]:
                 download_once(item["url"], work / "debs" / (item["name"] + ".deb"),
                               item["sha256"])
-            stop = "STORAGE_EVIDENCE"
+            stop = "STORAGE_TOKEN_CLI"
             storage_requested = True
-            storage_token = az(["account", "get-access-token", "--resource",
-                                "https://storage.azure.com/"])["accessToken"]
+            token_response = az(["account", "get-access-token", "--resource",
+                                 "https://storage.azure.com/"])
+            stop = "STORAGE_TOKEN_RESPONSE"
+            require(isinstance(token_response, dict) and
+                    isinstance(token_response.get("accessToken"), str),
+                    "STORAGE_TOKEN_RESPONSE_HOLD")
+            storage_token = token_response["accessToken"]
+            stop = "STORAGE_TOKEN_VALIDATE"
             validate_owner_token(storage_token, "storage", time.time())
-            old = verify_historical_blobs(cfg, az, storage_token)
+            old = verify_historical_blobs(cfg, az, storage_token,
+                                          checkpoint=set_storage_checkpoint)
+            stop = "STORAGE_HISTORICAL_RESULT"
             require(old["current_head_get_contract"] == "PASS" and
                     old["historical_immutability_proven"] is False and
                     old["historical_parent_execution_proven"] is False,
