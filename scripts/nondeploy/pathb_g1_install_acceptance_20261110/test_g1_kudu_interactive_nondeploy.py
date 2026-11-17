@@ -631,7 +631,7 @@ class StorageCheckpointOnlyTests(unittest.TestCase):
                         if fault=='CLI':raise RuntimeError('SENSITIVE_CLI_ERROR')
                         if fault=='RESPONSE':return {}
                         return {'accessToken':'SENSITIVE_TOKEN_NEVER_PRINT'}
-                    def token_validator(*a):
+                    def token_validator(*a,**kw):
                         if fault=='VALIDATE':raise RuntimeError('SENSITIVE_CLAIMS')
                     def hist(*a,**kw):
                         if fault=='BLOB2':
@@ -663,5 +663,66 @@ class StorageCheckpointOnlyTests(unittest.TestCase):
                     self.assertIn('AUTO_RETRY=FORBIDDEN',data)
                     self.assertNotIn('SENSITIVE_',data)
                     self.assertNotIn('DO_NOT_LOG_ME',data)
+
+
+class StorageTokenSubgateTests(unittest.TestCase):
+    """Only generated mock JWTs; no actual Azure token or identity is used."""
+    def _fake_token(self, **kw):
+        import base64
+        payload=dict(oid='fixture_owner',tid='fixture_tenant',
+                     aud='https://storage.azure.com',nbf=999900,exp=1004000)
+        payload.update(kw)
+        b64=lambda b:base64.urlsafe_b64encode(b).decode().rstrip('=')
+        return b64(b'{}')+'.'+b64(json.dumps(payload).encode())+'.'+b64(b'sig')
+
+    def test_single_expiration_boundary_and_identical_fail_closed_code(self):
+        import p3_ssh_transport_contract as trust
+        with patch.object(trust,'OWNER_SHA',hashlib.sha256(b'fixture_owner').hexdigest()), \
+             patch.object(trust,'TENANT_SHA',hashlib.sha256(b'fixture_tenant').hexdigest()):
+            for ttl,ok in ((3020,True),(3000,True),(2990,False)):
+                with self.subTest(ttl=ttl):
+                    stages=[];t=self._fake_token(exp=1000000+ttl)
+                    if ok:
+                        self.assertTrue(trust.validate_owner_token(t,'storage',1000000,
+                                                                     checkpoint=stages.append))
+                        self.assertTrue(trust.validate_owner_token(t,'storage',1000000))
+                    else:
+                        with self.assertRaises(trust.Hold) as raised:
+                            trust.validate_owner_token(t,'storage',1000000,
+                                                       checkpoint=stages.append)
+                        self.assertEqual(str(raised.exception),'TOKEN_OWNER_AUDIENCE_OR_TTL')
+                        with self.assertRaises(trust.Hold):
+                            trust.validate_owner_token(t,'storage',1000000)
+                    self.assertEqual(stages[-1],'STORAGE_TOKEN_TTL')
+                    self.assertTrue(set(stages).issubset(parent.STORAGE_CHECKPOINTS))
+
+    def test_failure_reason_labels_are_static_and_stop_at_exact_gate(self):
+        import p3_ssh_transport_contract as trust
+        good_owner=hashlib.sha256(b'fixture_owner').hexdigest()
+        good_tenant=hashlib.sha256(b'fixture_tenant').hexdigest()
+        with patch.object(trust,'OWNER_SHA',good_owner), \
+             patch.object(trust,'TENANT_SHA',good_tenant):
+            cases=[
+                ({'oid':'incorrect'},'STORAGE_TOKEN_OWNER'),
+                ({'tid':'incorrect'},'STORAGE_TOKEN_TENANT'),
+                ({'aud':'https://database.windows.net'},'STORAGE_TOKEN_AUDIENCE'),
+                ({'nbf':1000031},'STORAGE_TOKEN_NBF'),
+                ({'exp':1002999},'STORAGE_TOKEN_TTL'),
+            ]
+            for changes,expected in cases:
+                with self.subTest(expected=expected):
+                    stages=[]
+                    with self.assertRaises(trust.Hold) as raised:
+                        trust.validate_owner_token(self._fake_token(**changes),'storage',
+                                                   1000000,checkpoint=stages.append)
+                    self.assertEqual(stages[-1],expected)
+                    self.assertEqual(str(raised.exception),'TOKEN_OWNER_AUDIENCE_OR_TTL')
+            for text_value,label in [('bad.token','STORAGE_TOKEN_CLAIMS'),
+                                     ('','STORAGE_TOKEN_CLAIMS')]:
+                stages=[]
+                with self.assertRaises(trust.Hold):
+                    trust.validate_owner_token(text_value,'storage',1000000,
+                                               checkpoint=stages.append)
+                self.assertEqual(stages[-1],label)
 
 if __name__=='__main__':unittest.main()

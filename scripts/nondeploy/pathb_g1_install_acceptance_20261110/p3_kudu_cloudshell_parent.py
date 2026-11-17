@@ -51,6 +51,9 @@ STORAGE_CHECKPOINTS = frozenset({
     'STORAGE_BLOB_1_CONTENT_CHECK',
     'STORAGE_BLOB_2_GET', 'STORAGE_BLOB_2_ETAG_CHECK',
     'STORAGE_BLOB_2_CONTENT_CHECK',
+    'STORAGE_TOKEN_KIND', 'STORAGE_TOKEN_SHAPE', 'STORAGE_TOKEN_CLAIMS',
+    'STORAGE_TOKEN_OWNER', 'STORAGE_TOKEN_TENANT', 'STORAGE_TOKEN_AUDIENCE',
+    'STORAGE_TOKEN_NBF', 'STORAGE_TOKEN_TTL',
 })
 
 
@@ -346,7 +349,8 @@ def execute(args):
                     "STORAGE_TOKEN_RESPONSE_HOLD")
             storage_token = token_response["accessToken"]
             stop = "STORAGE_TOKEN_VALIDATE"
-            validate_owner_token(storage_token, "storage", time.time())
+            validate_owner_token(storage_token, "storage", time.time(),
+                                 checkpoint=set_storage_checkpoint)
             old = verify_historical_blobs(cfg, az, storage_token,
                                           checkpoint=set_storage_checkpoint)
             stop = "STORAGE_HISTORICAL_RESULT"

@@ -70,9 +70,20 @@ def pinned_host_fingerprint(output):
     if HOST_FP not in text.split():raise Hold('SSH_HOST_KEY_MISMATCH')
     return True
 
-def validate_owner_token(jwt,kind,now):
+def validate_owner_token(jwt,kind,now,*,checkpoint=None):
+    """Preserve all prior fail-closed decisions; optionally report fixed stages.
+
+    Only the exact G1 Parent passes a checkpoint callback; it accepts no dynamic
+    values, and the callback must not print token contents or claim values.
+    """
+    def mark(label):
+        if checkpoint is not None:
+            checkpoint(label)
+    mark('STORAGE_TOKEN_KIND')
     if kind not in ALLOWED_AUDIENCES:raise Hold('TOKEN_KIND')
+    mark('STORAGE_TOKEN_SHAPE')
     if not isinstance(jwt,str) or not jwt.isascii() or len(jwt)>16384:raise Hold('TOKEN_SHAPE')
+    mark('STORAGE_TOKEN_CLAIMS')
     try:
         segments=jwt.split('.')
         if len(segments)!=3 or not all(segments):raise ValueError()
@@ -85,9 +96,16 @@ def validate_owner_token(jwt,kind,now):
         aud=str(claims['aud']).rstrip('/')
     except Exception as ex:
         raise Hold('TOKEN_CLAIMS') from ex
-    if (digest(oid.encode())!=OWNER_SHA or digest(tid.encode())!=TENANT_SHA
-            or aud!=ALLOWED_AUDIENCES[kind] or nbf>now+30 or exp-now<3000):
-        raise Hold('TOKEN_OWNER_AUDIENCE_OR_TTL')
+    mark('STORAGE_TOKEN_OWNER')
+    if digest(oid.encode())!=OWNER_SHA:raise Hold('TOKEN_OWNER_AUDIENCE_OR_TTL')
+    mark('STORAGE_TOKEN_TENANT')
+    if digest(tid.encode())!=TENANT_SHA:raise Hold('TOKEN_OWNER_AUDIENCE_OR_TTL')
+    mark('STORAGE_TOKEN_AUDIENCE')
+    if aud!=ALLOWED_AUDIENCES[kind]:raise Hold('TOKEN_OWNER_AUDIENCE_OR_TTL')
+    mark('STORAGE_TOKEN_NBF')
+    if nbf>now+30:raise Hold('TOKEN_OWNER_AUDIENCE_OR_TTL')
+    mark('STORAGE_TOKEN_TTL')
+    if exp-now<3000:raise Hold('TOKEN_OWNER_AUDIENCE_OR_TTL')
     return True
 
 def validate_staging_root(root):
