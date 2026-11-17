@@ -409,7 +409,8 @@ class KuduExecSession:
             cursor += len(raw)
         return False, buffer
 
-    def _challenge(self, *, tag: str, seconds: float, no_echo: bool = False) -> None:
+    def _challenge(self, *, tag: str, seconds: float, no_echo: bool = False,
+                   disable_echo_first: bool = False) -> None:
         """Prove a command executed in this interactive shell, not just a CLI banner.
 
         The expected SHA-256 marker does not occur in stdin; an echoed command
@@ -424,6 +425,11 @@ class KuduExecSession:
         code = ('import hashlib;print("FV_G1_KUDU_' + tag + ':"+'
                 'hashlib.sha256(b"' + expression + '").hexdigest())')
         command = ("python3 -c '" + code + "'\n").encode("ascii")
+        if disable_echo_first:
+            require(tag == "ECHO" and not no_echo, "PROTOCOL_STATE_HOLD")
+            # One ordered remote shell command. The nonce/hash receipt proves
+            # stty and umask completed before another challenge is sent.
+            command = (b"stty -echo -icanon min 1 time 0 && umask 077 && " + command)
         # Do not take the presence of a startup banner as a security receipt.
         # The CLI is already bound to --target app and the exact unique instance.
         self.send_public(command, "KUDU_" + tag + "_CHALLENGE_SENT")
@@ -535,8 +541,11 @@ class KuduExecSession:
         command. No token or archive may be transferred until this passes.
         """
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
-        self.send_public(b"stty -echo -icanon min 1 time 0\n", "ECHO_DISABLE_SENT")
-        self.send_public(b"umask 077\n", "UMASK_SET_SENT")
+        # Never pipeline a no-echo challenge behind an unacknowledged stty.
+        # Kudu PTY latency can leave a subsequent command echoed even if the
+        # earlier stty eventually succeeds. The first authenticated receipt
+        # proves completion; the second independently proves echo is off.
+        self._challenge(tag="ECHO", seconds=120, disable_echo_first=True)
         self._challenge(tag="ECHO", seconds=120, no_echo=True)
 
     def stage_archive(self, stage: bytes, expected_sha256: str, *,

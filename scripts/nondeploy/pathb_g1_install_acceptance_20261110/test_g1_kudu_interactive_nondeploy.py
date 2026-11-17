@@ -355,6 +355,31 @@ class KuduV2OnlyTests(unittest.TestCase):
         self.assertEqual(e.exception.code,'KUDU_SECRET_ECHO')
         self.assertEqual(s._token_count,0)
 
+    def test_echo_disable_must_be_acknowledged_before_no_echo_probe(self):
+        """Synthetic delayed shell: old pipelined stty/challenge could echo."""
+        s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        sent=[]
+        digest=hashlib.sha256(('FV_G1_KUDU_ECHO:'+NONCE).encode()).hexdigest()
+        marker=('FV_G1_KUDU_ECHO:'+digest+'\n').encode()
+        def send(raw,audit):
+            sent.append((audit,raw))
+            # Before stty acknowledgment the terminal may echo the *public*
+            # disable command. After its proof, the next command must not echo.
+            if len(sent)==1:
+                self.assertTrue(raw.startswith(b'stty -echo -icanon min 1 time 0 && umask 077 && '))
+                s.buffer=raw+marker
+            else:
+                self.assertEqual(audit,'KUDU_ECHO_CHALLENGE_SENT')
+                self.assertFalse(raw.startswith(b'stty '))
+                s.buffer=marker
+        with patch.object(transport.secrets,'token_hex',return_value=NONCE),\
+             patch.object(s,'send_public',side_effect=send):
+            s.establish_safe_channel()
+        self.assertEqual(len(sent),2)
+        self.assertEqual(s.audit.count('ECHO_READY'),2)
+        self.assertEqual(s._token_count,0)
+
     def test_exact_nonce_accepts_only_bounded_shell_prompt_prefix(self):
         nonce_digest = hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
         expected = ('FV_G1_KUDU_SHELL:' + nonce_digest).encode()
