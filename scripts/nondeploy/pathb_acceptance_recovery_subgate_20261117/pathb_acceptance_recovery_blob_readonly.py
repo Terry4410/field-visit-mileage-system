@@ -80,7 +80,9 @@ def main() -> int:
                 instance = select_single_instance(
                     az_json("webapp", "list-instances", "-g", RG, "-n", APP)
                 )
-                current_instance_sha = ident(instance)
+                # Verify the current Owner and single live App instance here.
+                # The consumed G1 Claim belongs to a historical instance and
+                # must not be invalidated solely by a subsequent App recycle.
                 result[active_subgate] = "PASS"
 
                 active_subgate = "STORAGE_TOKEN_REQUEST"
@@ -123,6 +125,11 @@ def main() -> int:
                         body = resp.read(limit + 1)
                         if len(body) > limit:
                             raise RuntimeError("SIZE")
+                        # A bare 404 could mean a missing container or an
+                        # otherwise untrusted endpoint, not an absent Blob.
+                        if (resp.status == 404
+                                and resp.getheader("x-ms-error-code", "") != "BlobNotFound"):
+                            raise RuntimeError("UNCLASSIFIED_404")
                         return resp.status, resp.getheader("ETag", ""), body
                     finally:
                         conn.close()
@@ -139,12 +146,13 @@ def main() -> int:
                 operation_id = claim.get("operation_id")
                 instance_sha = claim.get("instance_sha256")
                 artifact_sha = claim.get("artifact_sha256")
-                if (artifact_sha != SOURCE_SHA or instance_sha != current_instance_sha
+                if (artifact_sha != SOURCE_SHA
+                        or not re.fullmatch(r"[0-9a-f]{64}", str(instance_sha or ""))
                         or not re.fullmatch(r"[0-9a-f]{32}", str(operation_id or ""))):
                     result["CLAIM"] = "HOLD"
                     raise RuntimeError("CLAIM_SCOPE")
                 claim_sha = recovery.verify_original_claim(
-                    claim_raw, operation_id, SOURCE_SHA, current_instance_sha
+                    claim_raw, operation_id, SOURCE_SHA, instance_sha
                 )
                 result[active_subgate] = "PASS"
                 active_subgate = None

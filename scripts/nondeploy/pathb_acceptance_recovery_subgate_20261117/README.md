@@ -22,7 +22,19 @@ failure classification for these fixed subgates:
 - `CLAIM_GET`
 - `CLAIM_CONTENT_VALIDATION`
 
-Each subgate reports only `PASS`, `HOLD`, or `NOT_RUN`. The existing stop on the
+Each subgate reports only `PASS`, `HOLD`, or `NOT_RUN`.
+
+Independent NONDEPLOY safety clarifications:
+- The authenticated **current** App worker is checked independently from the
+  immutable Claim's **historical** worker. A post-G1 restart must not by itself
+  invalidate a valid consumed Claim. Its historical digest is format-checked and
+  verified by the original exact Claim validator without substituting the
+  current App instance.
+- HTTP 404 from exact Claim/postcheck Blob GET proves absence only with
+  `x-ms-error-code: BlobNotFound`. Generic, missing-code, and unrelated 404s
+  remain UNKNOWN/HOLD; they must never become evidence of a missing Claim.
+
+The existing stop on the
 first failure, single Storage-token request, exact GET allowlist, no retries, and
 no Blob writes remain unchanged. Raw errors, tokens, Owner identity, Claim
 content, and business data are never printed.
@@ -38,7 +50,8 @@ The negative tests inject all Azure/Blob dependencies. They never execute the
 recovered wrapper as a live program and never contact Azure. They verify every
 subgate failure, 404 versus transport-unknown handling, redaction, exact Claim
 and postcheck GET targets, and that no later Token or Blob request occurs after a
-failure.
+failure. Additional offline cases cover App instance rollover, malformed
+historical Claim binding, generic Claim 404, and postcheck 404 ambiguity.
 
 ## Authorization boundary
 

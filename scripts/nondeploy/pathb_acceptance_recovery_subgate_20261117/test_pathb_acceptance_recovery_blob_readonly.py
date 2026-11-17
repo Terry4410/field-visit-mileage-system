@@ -45,16 +45,21 @@ class Receipt:
 
 
 class FakeResponse:
-    def __init__(self, status, body=b"", etag='"etag"'):
+    def __init__(self, status, body=b"", etag='"etag"', error_code=None):
         self.status = status
         self._body = body
         self._etag = etag
+        self._error_code = error_code
 
     def read(self, _limit):
         return self._body
 
     def getheader(self, name, default=""):
-        return self._etag if name == "ETag" else default
+        if name == "ETag":
+            return self._etag
+        if name == "x-ms-error-code":
+            return self._error_code if self._error_code is not None else default
+        return default
 
 
 class RecoverySubgateTests(unittest.TestCase):
@@ -102,7 +107,7 @@ class RecoverySubgateTests(unittest.TestCase):
                 raise RuntimeError("RAW_CLAIM_SECRET_MUST_NOT_APPEAR")
             if (raw != self.claim_raw or operation_id != self.operation_id
                     or artifact_sha != wrapper.SOURCE_SHA
-                    or instance_sha != ident(self.instance)):
+                    or instance_sha != self.claim["instance_sha256"]):
                 raise RuntimeError("claim mismatch")
             return self.claim_sha
 
@@ -284,12 +289,68 @@ class RecoverySubgateTests(unittest.TestCase):
         self.assertEqual(len(self.http_calls), 1)
 
         self.setUp()
-        values = self.run_wrapper(http_plan=[FakeResponse(404)])
+        values = self.run_wrapper(http_plan=[FakeResponse(404, error_code="BlobNotFound")])
         self.assertEqual(values["CLAIM_GET"], "HOLD")
         self.assertEqual(values["CLAIM"], "ABSENT")
         self.assertEqual(values["CLAIM_CONTENT_VALIDATION"], "NOT_RUN")
         self.assertEqual(self.token_requests, 1)
         self.assertEqual(len(self.http_calls), 1)
+
+    def test_generic_404_does_not_claim_blob_absence(self):
+        for error_code in (None, "ContainerNotFound", "AuthorizationFailure"):
+            with self.subTest(error_code=error_code):
+                self.setUp()
+                values = self.run_wrapper(
+                    http_plan=[FakeResponse(404, error_code=error_code)]
+                )
+                self.assertEqual(values["CLAIM_GET"], "HOLD")
+                self.assertEqual(values["CLAIM"], "UNKNOWN")
+                self.assertEqual(values["CLAIM_CONTENT_VALIDATION"], "NOT_RUN")
+                self.assertEqual(self.token_requests, 1)
+                self.assertEqual(len(self.http_calls), 1)
+
+    def test_live_app_recycle_keeps_valid_historical_claim(self):
+        prior_instance_sha = self.claim["instance_sha256"]
+        self.instance = {"name": "recycled-instance-2"}
+        self.assertNotEqual(ident(self.instance), prior_instance_sha)
+        ledger = self.fake_modules()["g1_blob_call_journal_REVIEW_ONLY"]
+        postcheck = ledger.construct_postcheck(
+            self.operation_id, self.claim_sha, self.fingerprint
+        ).payload
+        values = self.run_wrapper(http_plan=[
+            FakeResponse(200, self.claim_raw), FakeResponse(200, postcheck),
+        ])
+        self.assertEqual(values["OWNER_INSTANCE_BINDING"], "PASS")
+        self.assertEqual(values["CLAIM_CONTENT_VALIDATION"], "PASS")
+        self.assertEqual(values["ACCESS"], "PASS")
+        self.assertEqual(values["DURABLE_RECEIPT"], "PASS")
+        self.assertEqual(self.token_requests, 1)
+        self.assertEqual(len(self.http_calls), 2)
+
+    def test_malformed_historical_instance_digest_stops_before_second_get(self):
+        raw = json.dumps(dict(self.claim, instance_sha256="not-a-sha"),
+                         separators=(",", ":")).encode()
+        values = self.run_wrapper(http_plan=[FakeResponse(200, raw)])
+        self.assertEqual(values["CLAIM_GET"], "PASS")
+        self.assertEqual(values["CLAIM_CONTENT_VALIDATION"], "HOLD")
+        self.assertEqual(values["ACCESS"], "HOLD")
+        self.assertEqual(self.token_requests, 1)
+        self.assertEqual(len(self.http_calls), 1)
+
+    def test_generic_postcheck_404_is_unknown_not_absent(self):
+        for error_code in (None, "ContainerNotFound"):
+            with self.subTest(error_code=error_code):
+                self.setUp()
+                values = self.run_wrapper(http_plan=[
+                    FakeResponse(200, self.claim_raw),
+                    FakeResponse(404, error_code=error_code),
+                ])
+                self.assertEqual(values["CLAIM"], "PASS")
+                self.assertEqual(values["ACCESS"], "PASS")
+                self.assertEqual(values["DURABLE_RECEIPT"], "UNKNOWN")
+                self.assertEqual(values["EXTERNAL_LEDGER"], "UNKNOWN")
+                self.assertEqual(self.token_requests, 1)
+                self.assertEqual(len(self.http_calls), 2)
 
     def test_claim_content_failure_stops_after_single_exact_claim_get(self):
         bad_claim = json.dumps({"operation_id": self.operation_id}).encode()
