@@ -375,13 +375,19 @@ def clean():
             if not pid.isdecimal() or int(pid) in (me, parent):
                 continue
             try:
+                # G1 child processes run under the same App-container UID.
+                # Do not mistake host/runner service PIDs owned by others for
+                # inaccessible App child processes in a shared test namespace.
+                if os.stat('/proc/' + pid).st_uid != os.geteuid():
+                    continue
                 with open('/proc/' + pid + '/cmdline','rb') as handle:
                     argv = handle.read(32769)
                 # Truncated argv cannot establish process absence.
                 if len(argv)>32768 or any(needle in argv for needle in needles):
                     return False
-                # Old installer bootstrap may hide paths in Base64 argv.
-                if b'base64.b64decode(' in argv and b'exec(compile(' in argv:
+                # Match only our pinned Base64 bootstrap labels; an unrelated
+                # Base64 command is not evidence of a G1 residue process.
+                if b"'fv-kudu-stage','exec'" in argv or b"'p3-cleanup','exec'" in argv:
                     return False
                 cwd = os.readlink('/proc/' + pid + '/cwd')
                 if any(cwd==p or cwd.startswith(p + '/') for p in paths):

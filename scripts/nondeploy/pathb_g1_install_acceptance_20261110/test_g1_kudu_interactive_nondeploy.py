@@ -711,7 +711,10 @@ class StorageCheckpointOnlyTests(unittest.TestCase):
                                  'historical_immutability_proven':False,
                                  'historical_parent_execution_proven':False}
                         raise AssertionError('SHOULD_NOT_CALL')
-                    with patch.object(parent,'validate_local_source'), \
+                    fake_channel=Mock()
+                    fake_channel.audit=['PRETOKEN_REMOTE_CLEAR']
+                    with patch.object(parent,'KuduExecSession',return_value=fake_channel), \
+                         patch.object(parent,'validate_local_source'), \
                          patch.object(parent,'validate_binding',return_value=({'files':{}},'b'*64)), \
                          patch.object(parent,'validate_distribution_archive'), \
                          patch.object(parent,'load',return_value=cfg), \
@@ -1026,6 +1029,41 @@ class RemoteResiduePreflightNondeployTests(unittest.TestCase):
             s.establish_safe_channel()
         return s
 
+
+    def test_pretoken_fail_closed_no_download_or_token(self):
+        """A failed remote inspection must stop before all G1 access tokens."""
+        from types import SimpleNamespace
+        from contextlib import redirect_stdout
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            archive=Path(d)/'fixture.zip'
+            archive.write_bytes(b'LOCAL_NON_SECRET')
+            args=SimpleNamespace(distribution=str(archive),
+                artifact_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+                authorization=str(Path(d)/'not-used'))
+            channel=Mock()
+            channel.audit=['ECHO_READY','ECHO_READY']
+            channel.require_clean_remote.side_effect=TransportHold('REMOTE_RESIDUE_HOLD')
+            with patch.object(parent,'validate_local_source'), \
+                 patch.object(parent,'validate_binding',return_value=({'files':{}},'b'*64)), \
+                 patch.object(parent,'validate_distribution_archive'), \
+                 patch.object(parent,'load',return_value={'total_deadline_seconds':3600}), \
+                 patch.object(parent,'validate_authorization'), \
+                 patch.object(parent,'management',return_value=('INSTANCE',{'observed_at':0})), \
+                 patch.object(parent,'KuduExecSession',return_value=channel), \
+                 patch.object(parent,'blob_download') as download, \
+                 patch.object(parent,'az') as az:
+                output=io.StringIO()
+                with redirect_stdout(output):
+                    status=parent.execute(args)
+            self.assertEqual(status,1)
+            self.assertIn('STOP_STAGE=TRANSPORT_REMOTE_RESIDUE_HOLD',output.getvalue())
+            self.assertIn('STORAGE_TOKEN_REQUEST=NO',output.getvalue())
+            self.assertIn('SQL_TOKEN_REQUEST=NO',output.getvalue())
+            channel.require_clean_remote.assert_called_once_with('PRETOKEN')
+            download.assert_not_called()
+            az.assert_not_called()
+
     def test_source_scope_readonly_and_nonce_never_echoable(self):
         import ast, base64, re
         nonce = 'ab'*16
@@ -1055,7 +1093,7 @@ class RemoteResiduePreflightNondeployTests(unittest.TestCase):
                  code.index('session.require_clean_remote("PRESTAGE")'),
                  code.index('session.stage_archive(stage_bytes')]
         self.assertEqual(indices,sorted(indices))
-        self.assertEqual(code.count('session = new_session()'),1)
+        self.assertEqual(code.count('\n            session = new_session()\n'),1)
         self.assertEqual(code.count('session.require_clean_remote("PRETOKEN")'),1)
         self.assertEqual(code.count('session.require_clean_remote("PRESTAGE")'),1)
         self.assertNotIn('session.send_secret_line',code[:indices[4]])
@@ -1137,7 +1175,7 @@ class RemoteResiduePreflightNondeployTests(unittest.TestCase):
 
     def test_process_and_symlink_residue_fail_closed(self):
         import os, shutil, subprocess, tempfile
-        target=Path(transport.REMOTE_WORK)
+        target=Path(parent.REMOTE_WORK)
         self.assertFalse(os.path.lexists(target))
         with tempfile.TemporaryDirectory() as folder:
             target.symlink_to(folder)
