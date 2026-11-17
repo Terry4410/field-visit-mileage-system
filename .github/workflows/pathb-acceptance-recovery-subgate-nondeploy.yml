@@ -1,0 +1,38 @@
+name: Path B Acceptance Recovery Subgates (NONDEPLOY)
+
+on:
+  push:
+    branches:
+      - work/pathb-acceptance-recovery-subgate-nondeploy-20261117
+    paths:
+      - scripts/nondeploy/pathb_acceptance_recovery_subgate_20261117/**
+      - .github/workflows/pathb-acceptance-recovery-subgate-nondeploy.yml
+  pull_request:
+    branches:
+      - work/pathb-g1-storage-checkpoint-nondeploy-20261117
+    paths:
+      - scripts/nondeploy/pathb_acceptance_recovery_subgate_20261117/**
+      - .github/workflows/pathb-acceptance-recovery-subgate-nondeploy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  offline-subgate-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify recovered source and candidate manifest
+        working-directory: scripts/nondeploy/pathb_acceptance_recovery_subgate_20261117
+        run: sha256sum --check SHA256SUMS
+      - name: Compile source and tests
+        run: python3 -m py_compile scripts/nondeploy/pathb_acceptance_recovery_subgate_20261117/*.py
+      - name: Run injected no-cloud negative tests
+        run: python3 -m unittest -v scripts/nondeploy/pathb_acceptance_recovery_subgate_20261117/test_pathb_acceptance_recovery_blob_readonly.py
+
+# No Azure login, credentials, secrets, Token, Blob, SQL, installer, deployment,
+# action dispatch, protected-branch write, merge, or live Recovery execution.
