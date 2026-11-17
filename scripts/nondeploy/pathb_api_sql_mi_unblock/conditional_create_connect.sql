@@ -27,12 +27,26 @@ IF @objectId IS NULL OR @clientId IS NULL
    OR @objectId = '00000000-0000-0000-0000-000000000000'
    OR @clientId = '00000000-0000-0000-0000-000000000000'
     THROW 57103, N'PATHB_MI_GRANT_PRIVATE_IDENTITY_HOLD', 1;
+IF COALESCE(HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'ALTER ANY USER'), 0) <> 1
+    THROW 57108, N'PATHB_SECURITY_PRINCIPAL_VISIBILITY_HOLD', 1;
+IF EXISTS (SELECT 1 FROM sys.database_principals
+           WHERE [type] IN (N'E', N'X')
+             AND ([sid] IS NULL OR DATALENGTH([sid]) NOT IN (16, 18)
+                  OR (DATALENGTH([sid]) = 18 AND SUBSTRING([sid], 17, 2) <> 0xAADE)
+                  OR COALESCE(authentication_type_desc, N'') <> N'EXTERNAL'))
+    THROW 57109, N'PATHB_EXTERNAL_SID_SHAPE_HOLD', 1;
 IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
    OR (SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID(N'dbo')) <> 69
    OR (SELECT COUNT(*) FROM dbo.SchemaVersions) <> 3
    OR (SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN (
        N'1.8.0-CREATE-LOWRISK', N'1.8.0-LOWRISK-DIRECT',
        N'1.8.0-EXCEL-CANONICAL-STATUS')) <> 3
+   OR EXISTS (SELECT 1 FROM sys.check_constraints WHERE is_disabled = 1 OR is_not_trusted = 1)
+   OR EXISTS (SELECT 1 FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1)
+   OR EXISTS (SELECT 1 FROM sys.triggers tr
+              LEFT JOIN sys.sql_modules m ON m.object_id = tr.object_id
+              WHERE tr.parent_class = 1 AND tr.is_ms_shipped = 0
+                AND (tr.is_disabled = 1 OR m.definition IS NULL))
     THROW 57104, N'PATHB_MI_GRANT_SCHEMA_HOLD', 1;
 -- A hidden mapping, direct user, alias, login-based mapping, group entitlement,
 -- or collision must stop before this one-time write, not be renamed/dropped.
@@ -60,6 +74,12 @@ BEGIN TRY
           AND TRY_CONVERT(uniqueidentifier, SUBSTRING([sid], 1, 16))
                IN (@objectId, @clientId)) <> 1
         THROW 57106, N'PATHB_MI_GRANT_POSTCHECK_HOLD', 1;
+    IF (SELECT COUNT(*) FROM sys.database_principals p
+        WHERE p.[type] = N'E'
+          AND DATALENGTH(p.[sid]) IN (16, 18)
+          AND TRY_CONVERT(uniqueidentifier, SUBSTRING(p.[sid], 1, 16))
+              IN (@objectId, @clientId)) <> 1
+        THROW 57110, N'PATHB_MI_GRANT_DUPLICATE_IDENTITY_HOLD', 1;
     COMMIT TRANSACTION;
     SELECT N'PATHB_MI_USER_AND_CONNECT_CANDIDATE_APPLIED' AS code,
            N'LIVE_API_LOGIN_STILL_UNVERIFIED' AS state;
