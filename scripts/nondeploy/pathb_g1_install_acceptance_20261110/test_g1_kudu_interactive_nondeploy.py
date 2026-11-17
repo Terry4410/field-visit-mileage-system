@@ -824,6 +824,31 @@ class TokenHandoffAcknowledgementTests(unittest.TestCase):
         self.assertLess(y,z)
         self.assertIn("sql_exp=token_exp(sql_token,'sql',time.time())",runner_source[x:y])
 
+class SqlAttemptTelemetryTests(unittest.TestCase):
+    def test_validated_started_completed_unknown(self):
+        base={'status':'HOLD','sql_call_count':0,'layer_progress':0,
+              'marker':'NOT_CONSUMED','cleanup':'PASS'}
+        for started,done,outcome in ((0,0,'NOT_STARTED'),(1,0,'UNKNOWN'),
+                                     (3,2,'UNKNOWN'),(1,1,'CONFIRMED')):
+            self.assertEqual(parent.validate_final_receipt(dict(base,
+                sql_calls_started=started,sql_calls_completed=done,
+                sql_outcome=outcome))['sql_outcome'],outcome)
+        for extra in ({'sql_calls_started':1,'sql_calls_completed':2,'sql_outcome':'UNKNOWN'},
+                      {'sql_calls_started':1,'sql_calls_completed':0,'sql_outcome':'CONFIRMED'},
+                      {'sql_calls_started':True,'sql_calls_completed':0,'sql_outcome':'UNKNOWN'},
+                      {'sql_calls_started':1,'sql_calls_completed':0,'sql_outcome':'TOKEN_SECRET'},
+                      {'sql_calls_started':1}):
+            with self.subTest(extra=extra),self.assertRaises(parent.Hold):
+                parent.validate_final_receipt(dict(base,**extra))
+
+    def test_runner_ledger_before_cleanup_and_no_sql_dispatch_assertion(self):
+        source=(ROOT/'p3_app_installer_runner.py').read_text()
+        self.assertLess(source.index('SQL_CALLS_STARTED = max(SQL_CALLS_STARTED, index)'),
+                        source.index('p=subprocess.Popen(args,stdin=subprocess.PIPE'))
+        self.assertIn("reserved=ledger.get('next')",source)
+        self.assertIn("SQL_CALLS_STARTED=max(SQL_CALLS_STARTED,1+reserved)",source)
+        self.assertIn("result['sql_outcome']=",source)
+
 class RunnerFailureClassificationTests(unittest.TestCase):
     def test_only_fixed_failure_category_is_exposed(self):
         safe=parent.safe_runner_failure_category
