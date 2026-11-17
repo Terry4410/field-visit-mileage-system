@@ -804,9 +804,9 @@ class TokenHandoffAcknowledgementTests(unittest.TestCase):
         session.fd=123
         session.buffer=b'FV_P3_SQL_TOKEN_RECEIVED\n'
         with self.assertRaises(TransportHold):
-            session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK')
+            session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK', after=0)
         session._token_count=1
-        session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK')
+        session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK', after=0)
         self.assertEqual(session.audit[-1], 'SQL_TOKEN_ACK')
 
     def test_parent_never_sends_storage_token_before_sql_ack(self):
