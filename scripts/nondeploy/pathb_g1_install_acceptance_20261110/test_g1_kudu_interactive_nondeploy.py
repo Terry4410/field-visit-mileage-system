@@ -752,4 +752,19 @@ class StorageTokenSubgateTests(unittest.TestCase):
                                                checkpoint=stages.append)
                 self.assertEqual(stages[-1],label)
 
+class RunnerFailureClassificationTests(unittest.TestCase):
+    def test_only_fixed_failure_category_is_exposed(self):
+        safe=parent.safe_runner_failure_category
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'TOKEN_TTL',
+                         'raw_error':'private secret here'}}),'TOKEN_TTL')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'PRE_DDL_EVIDENCE_MISSING'}}),
+                         'PRE_DDL_EVIDENCE_MISSING')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'secret\nTOKEN=ABC'}}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'a'*101}}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':12}}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD','failure':'SECRET'}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD'}),'UNKNOWN')
+        self.assertEqual(safe(None),'UNKNOWN')
+        self.assertEqual(safe({'status':'PASS'}),'NOT_APPLICABLE')
+
 if __name__=='__main__':unittest.main()
