@@ -82,14 +82,19 @@ def stage_tools(cfg):
          'ODBCSYSINI':str(odbc),'ODBCINI':'odbc.ini','ODBCINSTINI':'odbcinst.ini',
          'LD_LIBRARY_PATH':':'.join([str(toolroot/'opt/microsoft/msodbcsql18/lib64'),str(toolroot/'usr/lib/x86_64-linux-gnu')])}
     return binary,env
+SQL_CALLS_STARTED = 0
+SQL_CALLS_COMPLETED = 0
+
 def sql_call(binary,env,tokenfile,raw,deadline,index):
     """Guard EACH non-installer SQL client, including preflight/postchecks.
 
     SQL completion remains UNKNOWN after a timeout or forced termination;
     process-group cleanup is NEVER evidence that SQL Server rolled back DDL.
     """
-    global INSTALLER_GROUP_CLEARED
+    global INSTALLER_GROUP_CLEARED, SQL_CALLS_STARTED, SQL_CALLS_COMPLETED
     require(time.monotonic()<deadline,'SQL_DEADLINE')
+    # Attempt entered; a subprocess start is not proof of SQL execution.
+    SQL_CALLS_STARTED = max(SQL_CALLS_STARTED, index)
     args=[str(binary),'-S',SERVER,'-d',DATABASE,'-I','-b','-l','10','-G','-P',str(tokenfile),'-Nm','-h','-1','-W','-w','65535','-s','|']
     INSTALLER_GROUP_CLEARED=False
     p=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
@@ -109,6 +114,7 @@ def sql_call(binary,env,tokenfile,raw,deadline,index):
         # A successful direct client exit cannot certify its descendants exited.
         if _group_alive(p.pid):
             raise Hold('SQL_CLIENT_DESCENDANTS_AFTER_EXIT')
+        SQL_CALLS_COMPLETED = max(SQL_CALLS_COMPLETED, index)
         return out
     finally:
         stopped=_stop_installer_group(p.pid,p)
@@ -248,7 +254,10 @@ def verified_pre_ddl_gates(evidence, *, sql_expires, storage_expires, deadline, 
     return {name:'PASS' for name,passed in observed.items() if passed}
 
 def run(args):
-    started=time.monotonic();evidence={};result={'status':'HOLD','sql_call_count':0,'layer_progress':0,'marker':'NOT_CONSUMED'}
+    global SQL_CALLS_STARTED, SQL_CALLS_COMPLETED
+    SQL_CALLS_STARTED = SQL_CALLS_COMPLETED = 0
+    started=time.monotonic();evidence={};result={'status':'HOLD','sql_call_count':0,'layer_progress':0,'marker':'NOT_CONSUMED',
+        'sql_calls_started':0,'sql_calls_completed':0,'sql_outcome':'NOT_STARTED'}
     sql_token=storage_token=None
     try:
         cfg=load_json(HERE/'executor_config.json');binding_raw=(HERE/'binding-index.json').read_bytes();binding=json.loads(binding_raw)
@@ -346,6 +355,25 @@ def run(args):
     except Exception as e:
         code=str(e);result['failure']={'category':code if re.fullmatch('[A-Z0-9_]{3,100}',code) else 'CONTROL_FAILURE_DETAILS_SUPPRESSED'}
     finally:
+        # Adapter fsyncs "next" before dispatch, so it means reserved
+        # invocation, not proof the database received or completed SQL.
+        try:
+            state_path=ROOT/'adapter-state.json'
+            if SQL_CALLS_COMPLETED >= 1 and state_path.is_file() and not state_path.is_symlink():
+                ledger=load_json(state_path)
+                reserved=ledger.get('next')
+                entries=ledger.get('records')
+                if type(reserved) is int and 0 <= reserved <= 16 and isinstance(entries,list) and len(entries) <= reserved:
+                    SQL_CALLS_STARTED=max(SQL_CALLS_STARTED,1+reserved)
+                    completed=sum(1 for row in entries if isinstance(row,dict) and
+                                  type(row.get('child_exit')) is int and row.get('timeout') is False)
+                    SQL_CALLS_COMPLETED=max(SQL_CALLS_COMPLETED,1+completed)
+        except Exception:
+            pass  # Missing evidence remains UNKNOWN; never claim rollback.
+        result['sql_calls_started']=SQL_CALLS_STARTED
+        result['sql_calls_completed']=min(SQL_CALLS_COMPLETED,SQL_CALLS_STARTED)
+        result['sql_outcome']=('NOT_STARTED' if SQL_CALLS_STARTED==0 else
+             'CONFIRMED' if SQL_CALLS_STARTED==SQL_CALLS_COMPLETED else 'UNKNOWN')
         sql_token=storage_token=None
         if not INSTALLER_GROUP_CLEARED:
             # Preserve all runtime evidence/token files in their guarded directories;
