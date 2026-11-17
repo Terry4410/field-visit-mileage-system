@@ -259,6 +259,7 @@ def run(args):
     started=time.monotonic();evidence={};result={'status':'HOLD','sql_call_count':0,'layer_progress':0,'marker':'NOT_CONSUMED',
         'sql_calls_started':0,'sql_calls_completed':0,'sql_outcome':'NOT_STARTED'}
     sql_token=storage_token=None
+    installer_invoked=False
     try:
         cfg=load_json(HERE/'executor_config.json');binding_raw=(HERE/'binding-index.json').read_bytes();binding=json.loads(binding_raw)
         facts=load_json(HERE/'live-facts.json')
@@ -337,6 +338,7 @@ def run(args):
         result['marker']='CONSUMED'
         storage_token=None
         # The next step after consumption is the original frozen installer.
+        installer_invoked=True
         proc=run_installer_managed([sys.executable,str(package_root/'install.py'),'--root',str(package_root),'--target','pathb-uat','--execute'],runenv,max(1,deadline-time.monotonic()))
         journal=load_json(state);result['sql_call_count']=1+int(journal.get('next',0));result['layer_progress']=max(0,min(14,int(journal.get('next',0))-1));result['journal']=journal.get('records',[])
         require(proc.returncode==0 and journal.get('next')==16 and len(journal.get('records',[]))==16,'INSTALLER_PARTIAL_OR_FAILED')
@@ -372,8 +374,12 @@ def run(args):
             pass  # Missing evidence remains UNKNOWN; never claim rollback.
         result['sql_calls_started']=SQL_CALLS_STARTED
         result['sql_calls_completed']=min(SQL_CALLS_COMPLETED,SQL_CALLS_STARTED)
+        # An invoked installer without a complete durable adapter ledger has
+        # unknown outcome even if the standalone preflight already succeeded.
+        installer_complete=(not installer_invoked or SQL_CALLS_COMPLETED >= 17)
         result['sql_outcome']=('NOT_STARTED' if SQL_CALLS_STARTED==0 else
-             'CONFIRMED' if SQL_CALLS_STARTED==SQL_CALLS_COMPLETED else 'UNKNOWN')
+             'CONFIRMED' if SQL_CALLS_STARTED==SQL_CALLS_COMPLETED and installer_complete
+             else 'UNKNOWN')
         sql_token=storage_token=None
         if not INSTALLER_GROUP_CLEARED:
             # Preserve all runtime evidence/token files in their guarded directories;
