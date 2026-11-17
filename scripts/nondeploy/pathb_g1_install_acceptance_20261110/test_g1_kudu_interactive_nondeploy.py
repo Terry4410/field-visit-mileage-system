@@ -457,6 +457,51 @@ class KuduV2OnlyTests(unittest.TestCase):
                                  {'public-fixture.txt'})
                 shutil.rmtree(remote)
 
+    def test_real_local_pty_large_batched_stage_no_cloud(self):
+        """Incompressible stage must be acknowledged in bounded public chunks."""
+        import io, os, shutil, time, zipfile
+        bash = shutil.which("bash")
+        self.assertIsNotNone(bash)
+        remote = Path(transport.REMOTE_STAGE)
+        self.assertFalse(remote.exists())
+        data = os.urandom(280000)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as z:
+            z.writestr("large-public-fixture.dat", data)
+        archive = buf.getvalue()
+        command = ["/usr/bin/env", "PS1=root@worker:/home/site/wwwroot# ",
+                   bash, "--noprofile", "--norc", "-i"]
+        session = KuduExecSession("a"*20, deadline=time.monotonic()+90)
+        try:
+            with patch.object(transport, "interactive_exec_args", return_value=command):
+                session.start()
+                session.await_cli_shell_banner(seconds=8)
+                session.establish_safe_channel()
+                session.stage_archive(archive, hashlib.sha256(archive).hexdigest())
+            self.assertGreaterEqual(session.audit.count("STAGE_CHUNK_READY"), 4)
+            self.assertEqual((remote/"large-public-fixture.dat").read_bytes(), data)
+            self.assertEqual(session._token_count, 0)
+        finally:
+            session.close()
+            if remote.is_dir() and not remote.is_symlink():
+                self.assertEqual({p.name for p in remote.iterdir()}, {"large-public-fixture.dat"})
+                shutil.rmtree(remote)
+
+    def test_public_stage_drain_fails_closed_on_output_cap(self):
+        import time
+        session = KuduExecSession("a"*20, deadline=time.monotonic()+10)
+        session.state.begin()
+        session.fd = 123
+        session.proc = Mock()
+        session.proc.poll.return_value = None
+        session.buffer = b"X" * transport.MAX_OUTPUT_BYTES
+        with patch.object(transport.select, "select", return_value=([123], [], [])), \
+             patch.object(transport.os, "read", return_value=b"X"):
+            with self.assertRaises(TransportHold) as ctx:
+                session._write_stage_public(b"PUBLIC")
+        self.assertEqual(ctx.exception.code, "KUDU_OUTPUT_LIMIT")
+        self.assertEqual(session._token_count, 0)
+
     def test_remote_owned_cleanup_source_is_syntactically_and_scope_safe(self):
         """The generated cleanup must HOLD safely when remote state is unexpected."""
         import ast
