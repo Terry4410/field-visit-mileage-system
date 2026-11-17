@@ -41,6 +41,16 @@ SHELL = "/bin/sh"
 TRANSPORT_CONTRACT = "FIELDVISIT_PATHB_P3_KUDU_STDIN_TRANSPORT_V1"
 REMOTE_STAGE = "/tmp/fv-pathb-g1-original-installer-20261110-stage"
 DIAGNOSTIC_REMOTE_STAGE = "/tmp/fv-pathb-kudu-channel-diagnostic-v1-20261105"
+# Only pre-existing, source-scoped paths are observed; no /tmp globbing/deletion.
+REMOTE_RESIDUE_PATHS = (
+    REMOTE_STAGE,
+    "/tmp/fv-pathb-g1-original-installer-20261110-work",
+    "/dev/shm/fv-pathb-g1-original-installer-20261110",
+    DIAGNOSTIC_REMOTE_STAGE,
+    "/tmp/fv-pathb-p3-kudu-install-d6c2208-v1",
+    "/tmp/fv-pathb-p3-kudu-install-d6c2208-v1-work",
+    "/dev/shm/fv-pathb-p3-kudu-install-d6c2208-v1",
+)
 MAX_STAGE_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 FRAME_WIDTH = 76
@@ -65,6 +75,7 @@ SAFE_CODES = frozenset({
     "KUDU_OUTPUT_LIMIT",
     "KUDU_SECRET_ECHO",
     "KUDU_WRITE_HOLD",
+    "REMOTE_RESIDUE_HOLD",
     "STAGE_SHAPE_HOLD",
     "STAGE_SIZE_HOLD",
     "STAGE_HASH_HOLD",
@@ -338,6 +349,65 @@ class OnceOnlyState:
         require(self.state in {"COMPLETE", "CLEANED"}, "UNKNOWN_COMMIT_HOLD")
 
 
+def remote_residue_probe_command(nonce: str) -> bytes:
+    """Read-only, no Token, no stage/write, no cleanup: one closed-scoped probe.
+
+    The remote emits a dynamic SHA receipt only after examining the existing
+    filesystem/process namespace. The exact proof digest is absent from stdin.
+    """
+    require(re.fullmatch(r"[a-f0-9]{32}", nonce or "") is not None,
+            "PROTOCOL_STATE_HOLD")
+    source = r'''import hashlib,os
+paths = (__PATHS__)
+nonce = __NONCE__
+def clean():
+    # lexists detects normal files, directories and even broken symlinks.
+    if any(os.path.lexists(path) for path in paths):
+        return False
+    needles = tuple(path.encode('utf-8') for path in paths) + (
+        b'p3_app_installer_runner.py', b'token_adapter_g1_REVIEW_ONLY.py',
+    )
+    me = os.getpid()
+    parent = os.getppid()  # the verified interactive shell running this probe
+    try:
+        pids = os.listdir('/proc')
+        for pid in pids:
+            if not pid.isdecimal() or int(pid) in (me, parent):
+                continue
+            try:
+                with open('/proc/' + pid + '/cmdline','rb') as handle:
+                    argv = handle.read(32769)
+                # Truncated argv cannot establish process absence.
+                if len(argv)>32768 or any(needle in argv for needle in needles):
+                    return False
+                # Old installer bootstrap may hide paths in Base64 argv.
+                if b'base64.b64decode(' in argv and b'exec(compile(' in argv:
+                    return False
+                cwd = os.readlink('/proc/' + pid + '/cwd')
+                if any(cwd==p or cwd.startswith(p + '/') for p in paths):
+                    return False
+            except (FileNotFoundError, ProcessLookupError):
+                # A PID that exited before its metadata could be read is gone.
+                continue
+            except OSError:
+                # Permission failures or unknown /proc failures are HOLD.
+                return False
+        # Recheck path absence after scanning processes, without changing it.
+        return all(not os.path.lexists(path) for path in paths)
+    except Exception:
+        return False
+status = 'CLEAR' if clean() else 'HOLD'
+prefix = 'FV_G1_REMOTE_RESIDUE_' + status + ':'
+proof = hashlib.sha256((prefix + nonce).encode('ascii')).hexdigest()
+print('\\n' + prefix + proof, flush=True)
+'''
+    source = source.replace('__PATHS__', repr(REMOTE_RESIDUE_PATHS))
+    source = source.replace('__NONCE__', repr(nonce))
+    encoded = base64.b64encode(source.encode('utf-8')).decode('ascii')
+    return ("python3 -c \"import base64;exec(compile(base64.b64decode('" +
+            encoded + "'),'fv-g1-residue-preflight','exec'))\"\n").encode('ascii')
+
+
 class KuduExecSession:
     """Minimal PTY driver for an exact interactive ``az webapp exec`` process.
 
@@ -578,6 +648,55 @@ class KuduExecSession:
         # proves completion; the second independently proves echo is off.
         self._challenge(tag="ECHO", seconds=120, disable_echo_first=True)
         self._challenge(tag="ECHO", seconds=120, no_echo=True)
+
+    def require_clean_remote(self, gate: str) -> None:
+        """One safe read-only probe per gate, in the SAME authorized session.
+
+        A missing, forged, stale, or HOLD receipt must stop before any Stage,
+        SQL/Storage token handoff, Claim, or installer call. Never clean/retry.
+        """
+        require(gate in {"PRETOKEN", "PRESTAGE"} and
+                self.state.state == "CHANNEL" and self.fd is not None and
+                self._token_count == 0 and not self._secrets and
+                self.audit.count("ECHO_READY") >= 2,
+                "PROTOCOL_STATE_HOLD")
+        require(("PRETOKEN_REMOTE_CLEAR" in self.audit) == (gate == "PRESTAGE"),
+                "PROTOCOL_STATE_HOLD")
+        nonce = secrets.token_hex(16)
+        pass_prefix = "FV_G1_REMOTE_RESIDUE_CLEAR:"
+        hold_prefix = "FV_G1_REMOTE_RESIDUE_HOLD:"
+        passed = (pass_prefix + hashlib.sha256(
+            (pass_prefix + nonce).encode("ascii")).hexdigest()).encode("ascii")
+        held = (hold_prefix + hashlib.sha256(
+            (hold_prefix + nonce).encode("ascii")).hexdigest()).encode("ascii")
+        start = len(self.buffer)
+        self.send_public(remote_residue_probe_command(nonce),
+                         gate + "_REMOTE_PROBE_SENT")
+        end = min(self.deadline, self._clock() + 60)
+        while self._clock() < end:
+            self._check_secret_echo()
+            # Do not count a marker from any previous command or PTY buffer.
+            current = self.buffer[start:]
+            is_hold, _ = self._consume_shell_challenge(current, held)
+            if is_hold:
+                raise TransportHold("REMOTE_RESIDUE_HOLD")
+            is_clean, rest = self._consume_shell_challenge(current, passed)
+            if is_clean:
+                self.buffer = rest
+                self.audit.append(gate + "_REMOTE_CLEAR")
+                return
+            readable = select.select([self.fd], [], [], 0.2)[0]
+            if readable:
+                try:
+                    raw = os.read(self.fd, 65536)
+                except Exception:
+                    raise TransportHold("KUDU_CHANNEL_CLOSED") from None
+                require(bool(raw), "KUDU_CHANNEL_CLOSED")
+                self.buffer += raw
+                require(len(self.buffer) <= MAX_OUTPUT_BYTES, "KUDU_OUTPUT_LIMIT")
+            elif self.proc is None or self.proc.poll() is not None:
+                raise TransportHold("KUDU_CHANNEL_CLOSED")
+        raise TransportHold("KUDU_CHANNEL_TIMEOUT")
 
     def stage_archive(self, stage: bytes, expected_sha256: str, *,
                       remote_stage: str = REMOTE_STAGE) -> None:

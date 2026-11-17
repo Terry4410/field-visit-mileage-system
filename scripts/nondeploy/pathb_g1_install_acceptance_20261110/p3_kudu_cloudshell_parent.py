@@ -351,6 +351,14 @@ def execute(args):
         with tempfile.TemporaryDirectory(prefix="fv-p3-kudu-parent-") as raw:
             work = Path(raw)
             (work / "debs").mkdir()
+            # Same authorized Kudu session: verify read-only remote residue
+            # BEFORE explicit G1 Storage/SQL tokens or any archive staging.
+            stop = "PRETOKEN_REMOTE_RESIDUE"
+            session = new_session()
+            session.start()
+            session.await_cli_shell_banner()
+            session.establish_safe_channel()
+            session.require_clean_remote("PRETOKEN")
             stop = "ORIGINAL_PACKAGE"
             blob_download(cfg, cfg["package_blob"], work / "original.zip")
             blob_download(cfg, cfg["seal_blob"], work / "original.seal.json")
@@ -394,10 +402,11 @@ def execute(args):
             stage_file, member_hashes = build_stage(work, binding,
                                                      Path(args.authorization), facts)
             stage_bytes = stage_file.read_bytes()
-            session = new_session()
-            session.start()
-            session.await_cli_shell_banner()
-            session.establish_safe_channel()
+            # Recheck in the same protected session, immediately before staging.
+            # A concurrent leftover process/path is terminal HOLD, never cleanup.
+            stop = "PRESTAGE_REMOTE_RESIDUE"
+            session.require_clean_remote("PRESTAGE")
+            stop = "STAGE"
             session.stage_archive(stage_bytes, digest(stage_bytes))
             staged = True
             # Runner enforces a 900s management-facts freshness window. Do not

@@ -1009,4 +1009,167 @@ class ClaimUnknownCrossPrIntegrationTests(unittest.TestCase):
             with self.subTest(delta=delta), self.assertRaises(parent.Hold):
                 parent.validate_final_receipt(dict(row,**delta))
 
+
+class RemoteResiduePreflightNondeloyTests(unittest.TestCase):
+    """Only local PTY/process/filesystem fixtures: no Azure/Token/SQL/Blob."""
+
+    def _local_session(self):
+        import shutil, time
+        bash = shutil.which('bash')
+        self.assertIsNotNone(bash)
+        command = ['/usr/bin/env', 'PS1=root@worker:/home/site/wwwroot# ',
+                   bash, '--noprofile', '--norc', '-i']
+        s = KuduExecSession('a'*20, deadline=time.monotonic()+25)
+        with patch.object(transport, 'interactive_exec_args', return_value=command):
+            s.start()
+            s.await_cli_shell_banner(seconds=6)
+            s.establish_safe_channel()
+        return s
+
+    def test_source_scope_readonly_and_nonce_never_echoable(self):
+        import ast, base64, re
+        nonce = 'ab'*16
+        cmd = transport.remote_residue_probe_command(nonce)
+        mat = re.search(rb"base64\.b64decode\('([A-Za-z0-9+/=]+)'\)", cmd)
+        self.assertIsNotNone(mat)
+        source = base64.b64decode(mat.group(1)).decode('utf-8')
+        ast.parse(source, filename='<remote-readonly-residue>', mode='exec')
+        for target in (parent.REMOTE_STAGE, parent.REMOTE_WORK, parent.REMOTE_RAM):
+            self.assertIn(target, source)
+        for word in ('shutil.rmtree', 'os.remove(', 'os.unlink(',
+                     'os.mkdir(', 'subprocess.', 'get-access-token', 'sqlcmd'):
+            self.assertNotIn(word,source)
+        proof=hashlib.sha256(('FV_G1_REMOTE_RESIDUE_CLEAR:'+nonce).encode()).hexdigest()
+        self.assertNotIn(proof.encode(),cmd)
+        self.assertIn('except OSError:',source)
+        with self.assertRaises(TransportHold):
+            transport.remote_residue_probe_command('not-a-nonce')
+
+    def test_parent_order_pre_token_and_pre_stage_one_session(self):
+        import inspect
+        code=inspect.getsource(parent.execute)
+        indices=[code.index('session = new_session()'),
+                 code.index('session.require_clean_remote("PRETOKEN")'),
+                 code.index('stop = "ORIGINAL_PACKAGE"'),
+                 code.index('storage_requested = True'),
+                 code.index('session.require_clean_remote("PRESTAGE")'),
+                 code.index('session.stage_archive(stage_bytes')]
+        self.assertEqual(indices,sorted(indices))
+        self.assertEqual(code.count('session = new_session()'),1)
+        self.assertEqual(code.count('session.require_clean_remote("PRETOKEN")'),1)
+        self.assertEqual(code.count('session.require_clean_remote("PRESTAGE")'),1)
+        self.assertNotIn('session.send_secret_line',code[:indices[4]])
+
+    def test_mock_receipt_pass_hold_and_forged_rejected(self):
+        import time
+        nonce='ab'*16
+        s=KuduExecSession('a'*20,deadline=100,clock=lambda:1)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        s.audit += ['ECHO_READY','ECHO_READY']
+        def send_for(status):
+            def callback(raw,audit):
+                prefix='FV_G1_REMOTE_RESIDUE_'+status+':'
+                digest=hashlib.sha256((prefix+nonce).encode()).hexdigest()
+                s.buffer=('\\n'+prefix+digest+'\\n').encode()
+            return callback
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \\
+             patch.object(s,'send_public',side_effect=send_for('CLEAR')):
+            s.require_clean_remote('PRETOKEN')
+            s.require_clean_remote('PRESTAGE')
+        self.assertEqual(s.audit[-1],'PRESTAGE_REMOTE_CLEAR')
+        self.assertEqual(s._token_count,0)
+        held=KuduExecSession('a'*20,deadline=100,clock=lambda:1)
+        held.state.begin();held.fd=124;held.proc=Mock()
+        held.audit+=['ECHO_READY','ECHO_READY']
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \\
+             patch.object(held,'send_public',side_effect=lambda raw,code:
+                 setattr(held,'buffer', ('\\nFV_G1_REMOTE_RESIDUE_HOLD:'+
+                 hashlib.sha256(('FV_G1_REMOTE_RESIDUE_HOLD:'+nonce).encode()).hexdigest()+
+                 '\\n').encode())):
+            with self.assertRaises(TransportHold) as ctx:
+                held.require_clean_remote('PRETOKEN')
+        self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+        self.assertEqual(held._token_count,0)
+        self.assertNotIn('PRETOKEN_REMOTE_CLEAR',held.audit)
+
+    def test_stale_or_wrong_digest_cannot_approve(self):
+        nonce='ab'*16
+        s=KuduExecSession('a'*20,deadline=10,clock=iter(range(30)).__next__)
+        s.state.begin();s.fd=125;s.proc=Mock();s.proc.poll.return_value=None
+        s.audit+=['ECHO_READY','ECHO_READY']
+        stale=('FV_G1_REMOTE_RESIDUE_CLEAR:'+hashlib.sha256(
+            ('FV_G1_REMOTE_RESIDUE_CLEAR:'+nonce).encode()).hexdigest()+'\\n').encode()
+        s.buffer=stale
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \\
+             patch.object(s,'send_public'), \\
+             patch.object(transport.select,'select',return_value=([125],[],[])), \\
+             patch.object(transport.os,'read',return_value=b'not-the-proof\\n'):
+            with self.assertRaises(TransportHold) as e:
+                s.require_clean_remote('PRETOKEN')
+        self.assertEqual(e.exception.code,'KUDU_CHANNEL_TIMEOUT')
+        self.assertEqual(s._token_count,0)
+
+    def test_actual_local_pty_clear_twice_and_dirty_directory_hold(self):
+        import os
+        path=Path(transport.REMOTE_STAGE)
+        self.assertFalse(os.path.lexists(path))
+        s=self._local_session()
+        try:
+            s.require_clean_remote('PRETOKEN')
+            s.require_clean_remote('PRESTAGE')
+            self.assertEqual(s.state.state,'CHANNEL')
+            self.assertEqual(s._token_count,0)
+            self.assertNotIn('STAGE_FRAME_SENT',s.audit)
+        finally:
+            s.close()
+        path.mkdir(mode=0o700)
+        s=None
+        try:
+            s=self._local_session()
+            with self.assertRaises(TransportHold) as ctx:
+                s.require_clean_remote('PRETOKEN')
+            self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+            self.assertTrue(path.is_dir())  # no automatic cleanup
+            self.assertEqual(s._token_count,0)
+        finally:
+            if s is not None:s.close()
+            path.rmdir()
+
+    def test_process_and_symlink_residue_fail_closed(self):
+        import os, shutil, subprocess, tempfile
+        target=Path(transport.REMOTE_WORK)
+        self.assertFalse(os.path.lexists(target))
+        with tempfile.TemporaryDirectory() as folder:
+            target.symlink_to(folder)
+            s=None
+            try:
+                s=self._local_session()
+                with self.assertRaises(TransportHold) as ctx:
+                    s.require_clean_remote('PRETOKEN')
+                self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+                self.assertTrue(target.is_symlink())
+            finally:
+                if s is not None:s.close()
+                target.unlink()
+        bash=shutil.which('bash')
+        self.assertIsNotNone(bash)
+        proc=subprocess.Popen([bash,'-c','exec -a '+str(target)+' sleep 20'],
+                              stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        s=None
+        try:
+            import time
+            time.sleep(0.15)
+            self.assertIsNone(proc.poll())
+            s=self._local_session()
+            with self.assertRaises(TransportHold) as ctx:
+                s.require_clean_remote('PRETOKEN')
+            self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+        finally:
+            if s is not None:s.close()
+            proc.terminate()
+            try:proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill();proc.wait(timeout=2)
+
+
 if __name__=='__main__':unittest.main()
