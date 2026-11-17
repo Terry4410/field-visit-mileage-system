@@ -70,6 +70,171 @@ class KuduV2OnlyTests(unittest.TestCase):
                 with self.assertRaises(parent.Hold):parent.validate_authorization(f,'b'*64,'c'*64,None,now=now)
                 with self.assertRaises(runner.Hold):runner.verify_authorization(bad,'b'*64,'c'*64,'d'*64,now=now)
 
+    def test_firewall_management_private_only_zero_one_and_reject_public(self):
+        from p3_ssh_transport_contract import OWNER_SHA
+        cfg={'server':parent.SERVER}
+        owner={'id':'owner'}
+        # Preserve real identity hash logic, without contacting Azure.
+        with (patch.object(parent,'OWNER_SHA',parent.ident('owner')),
+              patch.object(parent,'check_owner_account',return_value=None),
+              patch.object(parent,'validate_cli_version',return_value=None),
+              patch.object(parent,'select_single_instance',return_value='instance'),
+              patch.object(parent,'private_endpoint_ip',return_value='10.90.2.4')):
+            for count in (0,1,2):
+                server={'fullyQualifiedDomainName':parent.SERVER,
+                        'publicNetworkAccess':'Disabled','minimalTlsVersion':'1.2',
+                        'id':'/subscriptions/example/sql'}
+                responses={'account show':{},'ad signed-in-user':owner,
+                           'version':{},'sql server show':server,
+                           'sql server firewall-rule':[{}]*count,
+                           'sql server ad-admin':[{'sid':'owner'}],
+                           'webapp show':{'name':parent.APP,'state':'Running',
+                                          'virtualNetworkSubnetId':'subnet'},
+                           'webapp list-instances':[{}]}
+                def fake_az(args):
+                    key=' '.join(args[:3])
+                    if args[:2]==['account','show']:key='account show'
+                    if args[:3]==['ad','signed-in-user','show']:key='ad signed-in-user'
+                    if args[0]=='version':key='version'
+                    if args[:3]==['sql','server','show']:key='sql server show'
+                    if args[:3]==['sql','server','firewall-rule']:key='sql server firewall-rule'
+                    if args[:3]==['sql','server','ad-admin']:key='sql server ad-admin'
+                    if args[:2]==['webapp','show']:key='webapp show'
+                    if args[:2]==['webapp','list-instances']:key='webapp list-instances'
+                    return responses[key]
+                with patch.object(parent,'az',side_effect=fake_az):
+                    _,facts=parent.management(cfg)
+                    self.assertEqual(facts['firewall_count'],count)
+                    server['publicNetworkAccess']='Enabled'
+                    with self.assertRaises(parent.Hold):parent.management(cfg)
+
+    def test_launch_window_freshness_and_authorization_boundaries(self):
+        grant=dict(operation_id='a'*32,contract=parent.CONTRACT,
+            decision=parent.DECISION,artifact_sha256='b'*64,
+            binding_index_sha256='c'*64,server=parent.SERVER,
+            database=parent.DATABASE,installation_attempts=1,
+            instance_sha256=parent.ident('instance'),
+            not_before='2026-11-16T00:00:00Z',
+            expires_at='2026-11-16T00:30:00Z')
+        from datetime import datetime, timezone
+        start=datetime(2026,11,16,tzinfo=timezone.utc).timestamp()
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'grant.json';p.write_text(json.dumps(grant))
+            for age in (0,899,900):
+                parent.validate_launch_window({'observed_at':start+200-age},
+                    p,'b'*64,'c'*64,'instance',now=start+200)
+            for age in (901,-1):
+                with self.assertRaises(parent.Hold):
+                    parent.validate_launch_window({'observed_at':start+200-age},
+                        p,'b'*64,'c'*64,'instance',now=start+200)
+            for now in (start-1,start+1801):
+                with self.assertRaises(parent.Hold):
+                    parent.validate_launch_window({'observed_at':now},
+                        p,'b'*64,'c'*64,'instance',now=now)
+            for now in (start,start+1800):
+                parent.validate_launch_window({'observed_at':now},
+                    p,'b'*64,'c'*64,'instance',now=now)
+
+    def test_kudu_timeouts_are_bounded_without_extending_sql_budget(self):
+        import inspect
+        import p3_kudu_transport as kt
+        self.assertEqual(inspect.signature(kt.KuduExecSession.await_cli_shell_banner)
+                         .parameters['seconds'].default,120)
+        source=(ROOT/'p3_kudu_transport.py').read_text()
+        self.assertIn('self._challenge(tag="ECHO", seconds=120, no_echo=True)',source)
+        self.assertIn('self.expect_fixed(b"FV_KUDU_STAGE_READY", 600',source)
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        self.assertEqual(cfg['sql_deadline_seconds'],2400)
+        self.assertEqual(cfg['total_deadline_seconds'],3600)
+        self.assertEqual(cfg['cleanup_reserve_seconds'],300)
+        self.assertEqual(cfg['minimum_token_ttl_seconds'],3000)
+
+    def test_microsoft_geofence_one_https_302_and_exact_original_path(self):
+        # Mock all I/O: never download Microsoft packages from CI.
+        import io
+        import urllib.request
+        import p3_g1_owner_management as owner
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        original=cfg['tools'][1]['url']
+        redirected=original.replace('https://packages.microsoft.com/',
+            'https://pmc-geofence.trafficmanager.net/',1)
+        payload=b'LOCAL_MOCK_MS_SQL_DEB'
+        handlers=[]
+        def make_opener(handler):
+            handlers.append(handler)
+            return Mock(open=Mock(return_value=io.BytesIO(payload)))
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(owner.urllib.request,'build_opener',side_effect=make_opener):
+            target=Path(folder)/'mssql-tools18.deb'
+            owner.download_once(original,target,hashlib.sha256(payload).hexdigest())
+            self.assertEqual(target.read_bytes(),payload)
+        self.assertEqual(len(handlers),1)
+        handler=handlers[0]
+        req=urllib.request.Request(original)
+        # Both original unparameterized and Microsoft's real ?geofence=true
+        # Location are permitted, but only as the FIRST 302 hop.
+        for location in (redirected, redirected+'?geofence=true'):
+            h=type(handler)()
+            follow=h.redirect_request(req,None,302,'Found',{},location)
+            self.assertIsNotNone(follow)
+            self.assertEqual(follow.full_url,location)
+            self.assertIsNone(h.redirect_request(follow,None,302,'Found',{},location))
+
+    def test_microsoft_geofence_rejects_all_other_redirects(self):
+        import io
+        import urllib.request
+        import p3_g1_owner_management as owner
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        original=cfg['tools'][1]['url']
+        good=original.replace('https://packages.microsoft.com/',
+            'https://pmc-geofence.trafficmanager.net/',1)
+        handlers=[]
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(owner.urllib.request,'build_opener',side_effect=lambda h:
+                (handlers.append(h) or Mock(open=Mock(return_value=io.BytesIO(b'x'))))):
+            owner.download_once(original,Path(folder)/'tool.deb',hashlib.sha256(b'x').hexdigest())
+        req=urllib.request.Request(original)
+        blocked=(
+            good.replace('https:','http:',1),
+            good.replace('pmc-geofence.trafficmanager.net','other.trafficmanager.net',1),
+            good.replace('pmc-geofence.trafficmanager.net','pmc-geofence.trafficmanager.net.evil.example',1),
+            good.replace('.net/', '.net:443/',1),
+            good.replace('.net/', '.net:444/',1),
+            good.replace('.net/', '.net/other/',1),
+            good+'?version=changed',
+            good+'?geofence=false',
+            good+'?geofence=true&other=1',
+            good+'?geofence=true&geofence=true',
+            good+'?geofence=TRUE',
+            good+'#fragment',
+            good.replace('https://','https://user@',1),
+        )
+        for url in blocked:
+            with self.subTest(url=url):
+                self.assertIsNone(type(handlers[0])().redirect_request(
+                    req,None,302,'Found',{},url))
+        self.assertIsNone(type(handlers[0])().redirect_request(
+            req,None,301,'Moved',{},good))
+        self.assertIsNone(type(handlers[0])().redirect_request(
+            req,None,307,'Temporary',{},good))
+        # Debian mirror redirects are deliberately NOT enabled.
+        debian=cfg['tools'][2]['url']
+        self.assertIsNone(type(handlers[0])().redirect_request(
+            urllib.request.Request(debian),None,302,'Found',{},good))
+
+    def test_offline_download_sha_mismatch_never_writes_file(self):
+        import io
+        import p3_g1_owner_management as owner
+        cfg=json.loads((ROOT/'executor_config.json').read_text())
+        original=cfg['tools'][1]['url']
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(owner.urllib.request,'build_opener',
+                return_value=Mock(open=Mock(return_value=io.BytesIO(b'wrong')))):
+            target=Path(folder)/'should-not-exist.deb'
+            with self.assertRaises(owner.ManagementHold):
+                owner.download_once(original,target,hashlib.sha256(b'expected').hexdigest())
+            self.assertFalse(target.exists())
+
     def test_predecessor_markers_never_put(self):
         for target in (guard.PRIOR_G1_KUDU_BLOB,guard.PRIOR_G1_SSH_BLOB):
             for status in (200,503):
@@ -128,13 +293,54 @@ class KuduV2OnlyTests(unittest.TestCase):
         s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
         s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
         digest=hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
+        reads=[b'Opening remote shell...\r\nroot@sample:/home/site/wwwroot# ',
+               ('\nFV_G1_KUDU_SHELL:'+digest+'\n').encode()]
         with patch.object(transport.secrets,'token_hex',return_value=NONCE),\
              patch.object(s,'send_public') as sent,\
              patch.object(transport.select,'select',return_value=([123],[],[])),\
-             patch.object(transport.os,'read',return_value=('\nFV_G1_KUDU_SHELL:'+digest+'\n').encode()):
+             patch.object(transport.os,'read',side_effect=reads):
             s.await_cli_shell_banner(seconds=2)
         self.assertNotIn(digest.encode(),sent.call_args.args[0])
+        self.assertIn('SHELL_PROMPT_OBSERVED',s.audit)
         self.assertIn('CLI_SHELL_BANNER_READY',s.audit)
+
+    def test_shell_prompt_parser_rejects_cli_progress_and_fake_challenge(self):
+        match=KuduExecSession._remote_shell_prompt_present
+        self.assertTrue(match(b'Connected\r\nroot@worker:/home/site/wwwroot# '))
+        self.assertTrue(match(b'\n# '))
+        for invalid in (b'',b'Connecting to remote shell...\n',
+                        b'Authentication required: password:',
+                        b'root@worker:/# password:', b'\nFV_G1_KUDU_SHELL:abc\n',
+                        b'\nother output # unrelated'):
+            self.assertFalse(match(invalid))
+
+    def test_does_not_send_challenge_before_actual_prompt(self):
+        s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        digest=hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
+        chunks=[b'Connecting...\r\n',
+                b'root@worker:/home/site/wwwroot# ',
+                ('\nFV_G1_KUDU_SHELL:'+digest+'\n').encode()]
+        with patch.object(transport.secrets,'token_hex',return_value=NONCE),\
+             patch.object(s,'send_public') as sent,\
+             patch.object(transport.select,'select',return_value=([123],[],[])),\
+             patch.object(transport.os,'read',side_effect=chunks):
+            s.await_cli_shell_banner(seconds=3)
+        self.assertEqual(sent.call_count,1)
+        self.assertIn('SHELL_PROMPT_OBSERVED',s.audit)
+        self.assertIn('CLI_SHELL_BANNER_READY',s.audit)
+
+    def test_no_remote_prompt_fails_without_sending_commands(self):
+        s=KuduExecSession('a'*20,deadline=100,clock=iter(range(100)).__next__)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        with patch.object(s,'send_public') as sent,\
+             patch.object(transport.select,'select',return_value=([123],[],[])),\
+             patch.object(transport.os,'read',return_value=b'CLI startup...\n'):
+            with self.assertRaises(TransportHold) as e:
+                s.await_cli_shell_banner(seconds=3)
+        self.assertEqual(e.exception.code,'KUDU_CHANNEL_TIMEOUT')
+        sent.assert_not_called()
+        self.assertEqual(s._token_count,0)
 
     def test_echoed_command_denied(self):
         s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
@@ -148,6 +354,103 @@ class KuduV2OnlyTests(unittest.TestCase):
             with self.assertRaises(TransportHold) as e:s.establish_safe_channel()
         self.assertEqual(e.exception.code,'KUDU_SECRET_ECHO')
         self.assertEqual(s._token_count,0)
+
+    def test_exact_nonce_accepts_only_bounded_shell_prompt_prefix(self):
+        nonce_digest = hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
+        expected = ('FV_G1_KUDU_SHELL:' + nonce_digest).encode()
+        prefix = b'root@worker:/home/site/wwwroot# '
+        find = KuduExecSession._consume_shell_challenge
+        for frame in (expected + b'\r\n',
+                      prefix + expected + b'\r\n',
+                      b'Connecting...\r\n' + prefix + expected + b'\r\n'):
+            ok, remaining = find(frame + b'next', expected)
+            self.assertTrue(ok)
+            self.assertEqual(remaining, b'next')
+        for frame in (b'garbage:' + expected + b'\r\n',
+                      prefix + expected + b'TRAILING\r\n',
+                      prefix + expected[:24] + b'\r\n',
+                      b'root@worker:/home/site/wwwroot# oops ' + expected + b'\r\n'):
+            self.assertFalse(find(frame, expected)[0])
+
+    def test_real_local_pty_interactive_shell_nonce_handshake(self):
+        """Exercise the actual PTY/read/write lifecycle, without Azure or Tokens."""
+        import shutil
+        import time
+        bash = shutil.which('bash')
+        self.assertIsNotNone(bash)
+        # A private bash in the GitHub runner stands in for a remote shell.
+        # No Azure CLI, network, SQL, Storage, credentials, or installer.
+        command = ['/usr/bin/env', 'PS1=root@worker:/home/site/wwwroot# ',
+                   bash, '--noprofile', '--norc', '-i']
+        s = KuduExecSession('a'*20, deadline=time.monotonic()+15)
+        try:
+            with patch.object(transport, 'interactive_exec_args', return_value=command):
+                s.start()
+                s.await_cli_shell_banner(seconds=6)
+                s.establish_safe_channel()
+            self.assertIn('SHELL_PROMPT_OBSERVED', s.audit)
+            self.assertIn('CLI_SHELL_BANNER_READY', s.audit)
+            self.assertIn('ECHO_READY', s.audit)
+            self.assertEqual(s._token_count, 0)
+            self.assertEqual(s.state.state, 'CHANNEL')
+        finally:
+            s.close()
+
+    def test_real_local_pty_archive_stage_no_cloud(self):
+        """Transport exact hash-bound ZIP into a local shell; never connect Azure."""
+        import io
+        import shutil
+        import time
+        import zipfile
+        bash = shutil.which('bash')
+        self.assertIsNotNone(bash)
+        remote = Path(transport.REMOTE_STAGE)
+        self.assertFalse(remote.exists())
+        self.assertFalse(remote.is_symlink())
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as z:
+            z.writestr('public-fixture.txt', b'NO_SECRET_NO_SQL')
+        payload = buf.getvalue()
+        digest = hashlib.sha256(payload).hexdigest()
+        command = ['/usr/bin/env', 'PS1=root@worker:/home/site/wwwroot# ',
+                   bash, '--noprofile', '--norc', '-i']
+        s = KuduExecSession('a'*20, deadline=time.monotonic()+20)
+        try:
+            with patch.object(transport, 'interactive_exec_args', return_value=command):
+                s.start()
+                s.await_cli_shell_banner(seconds=6)
+                s.establish_safe_channel()
+                s.stage_archive(payload, digest)
+            self.assertEqual(s.state.state, 'STAGED')
+            self.assertEqual((remote / 'public-fixture.txt').read_bytes(),
+                             b'NO_SECRET_NO_SQL')
+            self.assertEqual(s._token_count, 0)
+        finally:
+            s.close()
+            if remote.is_dir() and not remote.is_symlink():
+                self.assertEqual({p.name for p in remote.iterdir()},
+                                 {'public-fixture.txt'})
+                shutil.rmtree(remote)
+
+    def test_remote_owned_cleanup_source_is_syntactically_and_scope_safe(self):
+        """The generated cleanup must HOLD safely when remote state is unexpected."""
+        import ast
+        import base64
+        import re
+        for verify_only in (False, True):
+            command = parent.cleanup_command(
+                {'public-fixture.txt': 'a'*64}, verify_only=verify_only)
+            encoded = re.search(rb"base64\.b64decode\('([A-Za-z0-9+/=]+)'\)", command)
+            self.assertIsNotNone(encoded)
+            source = base64.b64decode(encoded.group(1)).decode('utf-8')
+            ast.parse(source, filename='<g1-owned-cleanup>', mode='exec')
+            self.assertNotIn('OWNER_SQL_TOKEN', source)
+            self.assertNotIn('OWNER_STORAGE_TOKEN', source)
+            if not verify_only:
+                # Both children and expected_root must remain guarded by 'if ok'.
+                self.assertIn('\n  children=set(os.listdir(r))', source)
+                self.assertIn('\n  expected_root=', source)
+                self.assertIn('\n  ok=children==expected_root', source)
 
     def test_no_live_when_missing_auth(self):
         with tempfile.TemporaryDirectory() as d:

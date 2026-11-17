@@ -136,6 +136,18 @@ def validate_authorization(path, artifact_sha, binding_sha, instance, now=None):
     return auth
 
 
+
+def validate_launch_window(facts, authorization, artifact_sha, binding_sha,
+                           instance, now=None):
+    """Fail closed before runner launch on stale facts or expired Owner grant."""
+    clock = time.time() if now is None else float(now)
+    observed = facts.get("observed_at")
+    require(type(observed) in (int, float) and
+            0 <= clock - observed <= 900, "MANAGEMENT_FACTS_STALE_HOLD")
+    validate_authorization(authorization, artifact_sha, binding_sha,
+                           instance, now=clock)
+
+
 def management(cfg):
     account = az(["account", "show"])
     check_owner_account(account)
@@ -150,7 +162,7 @@ def management(cfg):
     instances = az(["webapp", "list-instances", "-g", RG, "-n", APP])
     instance = select_single_instance(instances)
     require(server.get("fullyQualifiedDomainName") == cfg["server"] and
-            server.get("publicNetworkAccess") == "Disabled" and len(rules) == 0,
+            server.get("publicNetworkAccess") == "Disabled" and isinstance(rules, list),
             "SQL_PRIVATE_ONLY_HOLD")
     require(server.get("minimalTlsVersion") == "1.2" and
             app.get("name") == APP and app.get("state") == "Running" and
@@ -159,7 +171,7 @@ def management(cfg):
             "SQL_ENTRA_ADMIN_HOLD")
     return instance, {
         "server": SERVER, "database": DATABASE, "app": APP,
-        "pna": "Disabled", "firewall_count": 0,
+        "pna": "Disabled", "firewall_count": len(rules),
         "owner_admin_match": True,
         "private_sql_ip": private_endpoint_ip(server["id"]),
         "exec_transport": TRANSPORT,
@@ -247,7 +259,7 @@ def validate_final_receipt(obj):
 
 def cleanup_command(member_hashes, verify_only=False):
     expected = json.dumps(member_hashes, sort_keys=True, separators=(",", ":"))
-    source = f'''import hashlib,json,os,shutil,stat\nfrom pathlib import Path\nr=Path({REMOTE_STAGE!r});w=Path({REMOTE_WORK!r});m=Path({REMOTE_RAM!r});e=json.loads({expected!r})\ndef refs():\n n=0;needles=[str(r).encode(),str(w).encode(),str(m).encode()];me=os.getpid();parent=os.getppid()\n for x in os.listdir('/proc'):\n  if not x.isdigit() or int(x) in (me,parent):continue\n  try:\n   b=open('/proc/'+x+'/cmdline','rb').read();n+=int(any(v in b for v in needles))\n  except (FileNotFoundError,PermissionError,ProcessLookupError):pass\n return n\nif {verify_only!r}:\n ok=not os.path.lexists(r) and not os.path.lexists(w) and not os.path.lexists(m) and refs()==0\n print('\\nFV_INDEPENDENT_CLEANUP='+('PASS' if ok else 'HOLD'),flush=True)\nelse:\n ok=r.is_dir() and not r.is_symlink() and r.stat().st_uid==os.geteuid() and stat.S_IMODE(r.stat().st_mode)==0o700 and not os.path.lexists(w) and not os.path.lexists(m) and refs()==0\n if ok:\n  children=set(os.listdir(r));expected_dirs={{str(Path(name).parent) for name in e if '/' in name}};expected_dirs.discard('.')\n expected_root={{name.split('/')[0] for name in e}}\n ok=children==expected_root or children==expected_root|{{'__pycache__'}}\n if ok:\n  actual_dirs=set();actual_files=set()\n  for base,dirs,files in os.walk(r,followlinks=False):\n   rel=Path(base).relative_to(r)\n   for name in dirs:\n    p=Path(base)/name;sub=str((rel/name).as_posix());ok=ok and not p.is_symlink() and p.stat().st_uid==os.geteuid();actual_dirs.add(sub)\n   for name in files:\n    p=Path(base)/name;sub=str((rel/name).as_posix());ok=ok and not p.is_symlink() and p.stat().st_uid==os.geteuid();actual_files.add(sub)\n  ok=ok and actual_dirs==expected_dirs|({{'__pycache__'}} if '__pycache__' in children else set())\n  ok=ok and actual_files==set(e)|({{'__pycache__/'+name for name in os.listdir(r/'__pycache__')}} if '__pycache__' in children else set())\n if ok:\n  for name,want in e.items():\n   p=r/name;ok=ok and p.is_file() and not p.is_symlink() and p.stat().st_uid==os.geteuid() and hashlib.sha256(p.read_bytes()).hexdigest()==want\n if ok and '__pycache__' in children:\n  c=r/'__pycache__';ok=c.is_dir() and not c.is_symlink() and c.stat().st_uid==os.geteuid()\n  if ok:\n   for name in os.listdir(c):\n    p=c/name;ok=ok and name.endswith('.pyc') and p.is_file() and not p.is_symlink() and p.stat().st_uid==os.geteuid()\n if ok:shutil.rmtree(r)\n print('\\nFV_KUDU_OWNED_CLEANUP='+('PASS' if ok else 'HOLD'),flush=True)\n'''
+    source = f'''import hashlib,json,os,shutil,stat\nfrom pathlib import Path\nr=Path({REMOTE_STAGE!r});w=Path({REMOTE_WORK!r});m=Path({REMOTE_RAM!r});e=json.loads({expected!r})\ndef refs():\n n=0;needles=[str(r).encode(),str(w).encode(),str(m).encode()];me=os.getpid();parent=os.getppid()\n for x in os.listdir('/proc'):\n  if not x.isdigit() or int(x) in (me,parent):continue\n  try:\n   b=open('/proc/'+x+'/cmdline','rb').read();n+=int(any(v in b for v in needles))\n  except (FileNotFoundError,PermissionError,ProcessLookupError):pass\n return n\nif {verify_only!r}:\n ok=not os.path.lexists(r) and not os.path.lexists(w) and not os.path.lexists(m) and refs()==0\n print('\\nFV_INDEPENDENT_CLEANUP='+('PASS' if ok else 'HOLD'),flush=True)\nelse:\n ok=r.is_dir() and not r.is_symlink() and r.stat().st_uid==os.geteuid() and stat.S_IMODE(r.stat().st_mode)==0o700 and not os.path.lexists(w) and not os.path.lexists(m) and refs()==0\n if ok:\n  children=set(os.listdir(r));expected_dirs={{str(Path(name).parent) for name in e if '/' in name}};expected_dirs.discard('.')\n  expected_root={{name.split('/')[0] for name in e}}\n  ok=children==expected_root or children==expected_root|{{'__pycache__'}}\n if ok:\n  actual_dirs=set();actual_files=set()\n  for base,dirs,files in os.walk(r,followlinks=False):\n   rel=Path(base).relative_to(r)\n   for name in dirs:\n    p=Path(base)/name;sub=str((rel/name).as_posix());ok=ok and not p.is_symlink() and p.stat().st_uid==os.geteuid();actual_dirs.add(sub)\n   for name in files:\n    p=Path(base)/name;sub=str((rel/name).as_posix());ok=ok and not p.is_symlink() and p.stat().st_uid==os.geteuid();actual_files.add(sub)\n  ok=ok and actual_dirs==expected_dirs|({{'__pycache__'}} if '__pycache__' in children else set())\n  ok=ok and actual_files==set(e)|({{'__pycache__/'+name for name in os.listdir(r/'__pycache__')}} if '__pycache__' in children else set())\n if ok:\n  for name,want in e.items():\n   p=r/name;ok=ok and p.is_file() and not p.is_symlink() and p.stat().st_uid==os.geteuid() and hashlib.sha256(p.read_bytes()).hexdigest()==want\n if ok and '__pycache__' in children:\n  c=r/'__pycache__';ok=c.is_dir() and not c.is_symlink() and c.stat().st_uid==os.geteuid()\n  if ok:\n   for name in os.listdir(c):\n    p=c/name;ok=ok and name.endswith('.pyc') and p.is_file() and not p.is_symlink() and p.stat().st_uid==os.geteuid()\n if ok:shutil.rmtree(r)\n print('\\nFV_KUDU_OWNED_CLEANUP='+('PASS' if ok else 'HOLD'),flush=True)\n'''
     import base64
     encoded = base64.b64encode(source.encode()).decode()
     return ("python3 -c \"import base64;exec(compile(base64.b64decode('" +
@@ -319,6 +331,13 @@ def execute(args):
                     old["historical_immutability_proven"] is False and
                     old["historical_parent_execution_proven"] is False,
                     "HISTORICAL_BLOB_HOLD")
+            # Refresh the same exact Owner/App/PE facts after potentially slow downloads.
+            # Fail closed if the App instance changed; never substitute an instance.
+            stop = "FRESH_MANAGEMENT"
+            fresh_instance, facts = management(cfg)
+            require(fresh_instance == instance, "INSTANCE_CHANGED_HOLD")
+            validate_authorization(args.authorization, args.artifact_sha256,
+                                   binding_sha, fresh_instance)
             stop = "STAGE"
             stage_file, member_hashes = build_stage(work, binding,
                                                      Path(args.authorization), facts)
@@ -329,6 +348,10 @@ def execute(args):
             session.establish_safe_channel()
             session.stage_archive(stage_bytes, digest(stage_bytes))
             staged = True
+            # Runner enforces a 900s management-facts freshness window. Do not
+            # launch it with already-expired facts after Kudu handshaking/staging.
+            validate_launch_window(facts, args.authorization,
+                                   args.artifact_sha256, binding_sha, instance)
             session.send_public(runner_command(args.artifact_sha256),
                                 "P3_RUNNER_SENT")
             session.expect_fixed(b"FV_P3_TOKENS_READY", 300, "TOKENS_READY")

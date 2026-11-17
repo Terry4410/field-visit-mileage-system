@@ -382,6 +382,33 @@ class KuduExecSession:
         self.fd = master
         self.audit.append("PROCESS_START")
 
+    @classmethod
+    def _consume_shell_challenge(cls, buffer: bytes, expected: bytes) -> tuple[bool, bytes]:
+        """Consume an exact dynamic digest on a line, optionally after an actual prompt.
+
+        Interactive PTYs commonly print the next command's result on the same
+        line as the prior bare PS1 prompt (which has no newline). The original
+        exact-line parser rejected that genuine result and timed out. The only
+        allowed prefix is the same tightly constrained shell prompt checked
+        during admission; arbitrary preceding text and trailing bytes are NOT
+        accepted. No echo of the expected digest exists in the sent command.
+        """
+        require(isinstance(buffer, bytes) and isinstance(expected, bytes) and
+                0 < len(expected) <= 256 and b"\n" not in expected,
+                "PROTOCOL_STATE_HOLD")
+        cursor = 0
+        for raw in buffer.splitlines(keepends=True):
+            if not raw.endswith(b"\n"):
+                break
+            line = raw[:-1].removesuffix(b"\r")
+            if line == expected or (
+                line.endswith(expected) and
+                cls._remote_shell_prompt_present(line[:-len(expected)])
+            ):
+                return True, buffer[cursor + len(raw):]
+            cursor += len(raw)
+        return False, buffer
+
     def _challenge(self, *, tag: str, seconds: float, no_echo: bool = False) -> None:
         """Prove a command executed in this interactive shell, not just a CLI banner.
 
@@ -405,7 +432,7 @@ class KuduExecSession:
             self._check_secret_echo()
             if no_echo and command.rstrip(b"\n") in self.buffer:
                 raise TransportHold("KUDU_SECRET_ECHO")
-            found, remaining = consume_exact_marker_line(self.buffer, expected)
+            found, remaining = self._consume_shell_challenge(self.buffer, expected)
             if found:
                 self.buffer = remaining
                 self.audit.append("CLI_SHELL_BANNER_READY" if tag == "SHELL" else "ECHO_READY")
@@ -423,13 +450,51 @@ class KuduExecSession:
                 raise TransportHold("KUDU_CHANNEL_CLOSED")
         raise TransportHold("KUDU_CHANNEL_TIMEOUT")
 
-    def await_cli_shell_banner(self, seconds: float = 45) -> None:
-        """Use an in-band nonce/hash challenge instead of version-specific UI text.
+    @staticmethod
+    def _remote_shell_prompt_present(buffer: bytes) -> bool:
+        """Conservative prompt hint; never sufficient to authorize a command.
 
-        This validates command execution, not a cryptographic attestation of
-        Azure identity. The latter remains bound by Owner and instance checks.
+        Require a complete, trailing main-container shell prompt, not a CLI
+        progress line, warning, password request or historical terminal text.
+        A nonstandard/colored PS1 deliberately fails closed. The later
+        unpredictable nonce/hash challenge is still mandatory.
         """
-        self._challenge(tag="SHELL", seconds=seconds)
+        if not isinstance(buffer, bytes):
+            return False
+        return re.search(
+            rb"(?:^|[\r\n])(?:[A-Za-z][A-Za-z0-9._-]{0,63}@"
+            rb"[A-Za-z0-9._-]{1,100}:[^\r\n\x00-\x1f]{0,128})?[#$] ?$",
+            buffer[-2048:],
+        ) is not None
+
+    def await_cli_shell_banner(self, seconds: float = 120) -> None:
+        """Wait for an actual shell prompt BEFORE the one in-band challenge.
+
+        Starting the local 'az webapp exec' process does not mean the remote
+        shell is ready. Commands written during startup may be silently lost.
+        One bounded session, one challenge, no retries, no tokens or stage
+        until both prompt hint and nonce/hash verification have succeeded.
+        """
+        require(self.state.state == "CHANNEL" and self.fd is not None,
+                "PROTOCOL_STATE_HOLD")
+        end = min(self.deadline, self._clock() + seconds)
+        while self._clock() < end:
+            if self._remote_shell_prompt_present(self.buffer):
+                self.audit.append("SHELL_PROMPT_OBSERVED")
+                self._challenge(tag="SHELL", seconds=max(0, end - self._clock()))
+                return
+            readable = select.select([self.fd], [], [], 0.2)[0]
+            if readable:
+                try:
+                    chunk = os.read(self.fd, 65536)
+                except Exception:
+                    raise TransportHold("KUDU_CHANNEL_CLOSED") from None
+                require(bool(chunk), "KUDU_CHANNEL_CLOSED")
+                self.buffer += chunk
+                require(len(self.buffer) <= MAX_OUTPUT_BYTES, "KUDU_OUTPUT_LIMIT")
+            elif self.proc is None or self.proc.poll() is not None:
+                raise TransportHold("KUDU_CHANNEL_CLOSED")
+        raise TransportHold("KUDU_CHANNEL_TIMEOUT")
 
     def _check_secret_echo(self) -> None:
         for secret in self._secrets:
@@ -472,7 +537,7 @@ class KuduExecSession:
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
         self.send_public(b"stty -echo -icanon min 1 time 0\n", "ECHO_DISABLE_SENT")
         self.send_public(b"umask 077\n", "UMASK_SET_SENT")
-        self._challenge(tag="ECHO", seconds=30, no_echo=True)
+        self._challenge(tag="ECHO", seconds=120, no_echo=True)
 
     def stage_archive(self, stage: bytes, expected_sha256: str, *,
                       remote_stage: str = REMOTE_STAGE) -> None:
@@ -488,7 +553,7 @@ class KuduExecSession:
         for chunk in iter_stage_frame(stage, expected_sha256):
             self._write_all(chunk)
         self.audit.append("STAGE_FRAME_SENT")
-        self.expect_fixed(b"FV_KUDU_STAGE_READY", 300, "STAGE_READY",
+        self.expect_fixed(b"FV_KUDU_STAGE_READY", 600, "STAGE_READY",
                           after=boundary)
         self.state.advance("CHANNEL", "STAGED")
 
