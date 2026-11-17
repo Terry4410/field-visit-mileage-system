@@ -38,7 +38,7 @@ def download_once(url,path,expected):
     _require(u.scheme=='https' and u.hostname in {'packages.microsoft.com','deb.debian.org'}
              and not u.username and not u.password and not u.fragment
              and isinstance(expected,str) and len(expected)==64)
-    # Microsoft documents ONE SQL-package geofence 302 to this exact host.
+    # Microsoft documents ONE SQL-package geofence 302 to this exact host.\n    # The redirect may append the one exact query flag ?geofence=true.
     # Never follow a second hop, a downgrade, another host/path, or a Debian redirect.
     class PinnedGeoRedirect(urllib.request.HTTPRedirectHandler):
         def __init__(self):
@@ -51,7 +51,7 @@ def download_once(url,path,expected):
                     req.full_url!=url or u.netloc!='packages.microsoft.com' or
                     target.scheme!='https' or
                     target.netloc!='pmc-geofence.trafficmanager.net' or
-                    target.path!=u.path or target.query!=u.query or
+                    target.path!=u.path or\n                    target.query not in (u.query, 'geofence=true') or
                     target.fragment or target.username or target.password):
                 return None
             self.used=True
