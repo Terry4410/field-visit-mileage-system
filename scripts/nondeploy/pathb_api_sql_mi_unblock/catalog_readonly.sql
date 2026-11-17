@@ -17,6 +17,14 @@ IF @objectId IS NULL OR @clientId IS NULL
    OR @objectId = '00000000-0000-0000-0000-000000000000'
    OR @clientId = '00000000-0000-0000-0000-000000000000'
     THROW 57003, N'PATHB_PRIVATE_MI_BINDING_HOLD', 1;
+IF COALESCE(HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'ALTER ANY USER'), 0) <> 1
+    THROW 57005, N'PATHB_SECURITY_PRINCIPAL_VISIBILITY_HOLD', 1;
+IF EXISTS (SELECT 1 FROM sys.database_principals
+           WHERE [type] IN (N'E', N'X')
+             AND ([sid] IS NULL OR DATALENGTH([sid]) NOT IN (16, 18)
+                  OR (DATALENGTH([sid]) = 18 AND SUBSTRING([sid], 17, 2) <> 0xAADE)
+                  OR COALESCE(authentication_type_desc, N'') <> N'EXTERNAL'))
+    THROW 57006, N'PATHB_EXTERNAL_SID_SHAPE_HOLD', 1;
 IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
    OR (SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID(N'dbo')) <> 69
    OR (SELECT COUNT(*) FROM dbo.SchemaVersions) <> 3
@@ -25,6 +33,10 @@ IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
         N'1.8.0-EXCEL-CANONICAL-STATUS')) <> 3
    OR EXISTS (SELECT 1 FROM sys.check_constraints WHERE is_disabled = 1 OR is_not_trusted = 1)
    OR EXISTS (SELECT 1 FROM sys.foreign_keys WHERE is_disabled = 1 OR is_not_trusted = 1)
+   OR EXISTS (SELECT 1 FROM sys.triggers tr
+              LEFT JOIN sys.sql_modules m ON m.object_id = tr.object_id
+              WHERE tr.parent_class = 1 AND tr.is_ms_shipped = 0
+                AND (tr.is_disabled = 1 OR m.definition IS NULL))
     THROW 57004, N'PATHB_INSTALLED_SCHEMA_HOLD', 1;
 DECLARE @objectMatches int, @clientMatches int, @groups int, @directDenies int;
 ;WITH ExternalPrincipals AS (
