@@ -41,9 +41,20 @@ SHELL = "/bin/sh"
 TRANSPORT_CONTRACT = "FIELDVISIT_PATHB_P3_KUDU_STDIN_TRANSPORT_V1"
 REMOTE_STAGE = "/tmp/fv-pathb-g1-original-installer-20261110-stage"
 DIAGNOSTIC_REMOTE_STAGE = "/tmp/fv-pathb-kudu-channel-diagnostic-v1-20261105"
+# Only pre-existing, source-scoped paths are observed; no /tmp globbing/deletion.
+REMOTE_RESIDUE_PATHS = (
+    REMOTE_STAGE,
+    "/tmp/fv-pathb-g1-original-installer-20261110-work",
+    "/dev/shm/fv-pathb-g1-original-installer-20261110",
+    DIAGNOSTIC_REMOTE_STAGE,
+    "/tmp/fv-pathb-p3-kudu-install-d6c2208-v1",
+    "/tmp/fv-pathb-p3-kudu-install-d6c2208-v1-work",
+    "/dev/shm/fv-pathb-p3-kudu-install-d6c2208-v1",
+)
 MAX_STAGE_BYTES = 64 * 1024 * 1024
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 FRAME_WIDTH = 76
+STAGE_BATCH_LINES = 1024  # bound public-stage output before next receipt
 
 SAFE_CODES = frozenset({
     "AZ_CLI_VERSION_HOLD",
@@ -64,6 +75,7 @@ SAFE_CODES = frozenset({
     "KUDU_OUTPUT_LIMIT",
     "KUDU_SECRET_ECHO",
     "KUDU_WRITE_HOLD",
+    "REMOTE_RESIDUE_HOLD",
     "STAGE_SHAPE_HOLD",
     "STAGE_SIZE_HOLD",
     "STAGE_HASH_HOLD",
@@ -277,7 +289,7 @@ def remote_bootstrap_command(expected_sha256: str, expected_size: int, *,
             "STAGE_SIZE_HOLD")
     require(remote_stage in {REMOTE_STAGE, DIAGNOSTIC_REMOTE_STAGE},
             "STAGE_PATH_HOLD")
-    source = f'''import base64,hashlib,io,os,re,sys,zipfile\nfrom pathlib import Path,PurePosixPath\ndef req(value):\n if not value:raise SystemExit(90)\nroot=Path({REMOTE_STAGE!r})\nsize={expected_size}\nexpected={expected_sha256!r}\nmax_bytes={MAX_STAGE_BYTES}\nheader=sys.stdin.buffer.readline(256)\nwant=("FV_KUDU_STAGE_V1 %d %s\\n"%(size,expected)).encode("ascii")\nreq(header==want)\nparts=[];total=0\nwhile True:\n line=sys.stdin.buffer.readline({FRAME_WIDTH + 2})\n req(bool(line))\n if line==b"FV_KUDU_STAGE_END\\n":break\n req(line.endswith(b"\\n") and 1<len(line)<={FRAME_WIDTH + 1})\n chunk=line[:-1];req(re.fullmatch(rb"[A-Za-z0-9+/=]+",chunk) is not None)\n total+=len(chunk);req(total<=((max_bytes+2)//3)*4)\n parts.append(chunk)\nraw=base64.b64decode(b"".join(parts),validate=True)\nreq(len(raw)==size and hashlib.sha256(raw).hexdigest()==expected)\nwith zipfile.ZipFile(io.BytesIO(raw)) as z:\n infos=z.infolist();names=[i.filename for i in infos]\n req(bool(names) and len(names)==len(set(names)))\n for item in infos:\n  p=PurePosixPath(item.filename);mode=(item.external_attr>>16)&0o170000\n  req(not item.is_dir() and not p.is_absolute() and ".." not in p.parts and mode!=0o120000 and item.file_size<=max_bytes)\n req(not root.exists() and not root.is_symlink())\n old=os.umask(0o077)\n try:\n  root.mkdir(mode=0o700)\n  for item in infos:\n   target=root/PurePosixPath(item.filename);target.parent.mkdir(parents=True,exist_ok=True)\n   fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n   with os.fdopen(fd,"wb") as f:f.write(z.read(item.filename))\n finally:os.umask(old)\nprint("\\nFV_KUDU_STAGE_READY",flush=True)\n'''
+    source = f'''import base64,hashlib,io,os,re,sys,zipfile\nfrom pathlib import Path,PurePosixPath\ndef req(value):\n if not value:raise SystemExit(90)\nroot=Path({REMOTE_STAGE!r})\nsize={expected_size}\nexpected={expected_sha256!r}\nmax_bytes={MAX_STAGE_BYTES}\nheader=sys.stdin.buffer.readline(256)\nwant=("FV_KUDU_STAGE_V1 %d %s\\n"%(size,expected)).encode("ascii")\nreq(header==want)\nparts=[];total=0\nwhile True:\n line=sys.stdin.buffer.readline({FRAME_WIDTH + 2})\n req(bool(line))\n if line==b"FV_KUDU_STAGE_END\\n":break\n req(line.endswith(b"\\n") and 1<len(line)<={FRAME_WIDTH + 1})\n chunk=line[:-1];req(re.fullmatch(rb"[A-Za-z0-9+/=]+",chunk) is not None)\n total+=len(chunk);req(total<=((max_bytes+2)//3)*4)\n parts.append(chunk)\n if len(parts)%1024==0:print('\\nFV_KUDU_STAGE_CHUNK_READY',flush=True)\nraw=base64.b64decode(b"".join(parts),validate=True)\nreq(len(raw)==size and hashlib.sha256(raw).hexdigest()==expected)\nwith zipfile.ZipFile(io.BytesIO(raw)) as z:\n infos=z.infolist();names=[i.filename for i in infos]\n req(bool(names) and len(names)==len(set(names)))\n for item in infos:\n  p=PurePosixPath(item.filename);mode=(item.external_attr>>16)&0o170000\n  req(not item.is_dir() and not p.is_absolute() and ".." not in p.parts and mode!=0o120000 and item.file_size<=max_bytes)\n req(not root.exists() and not root.is_symlink())\n old=os.umask(0o077)\n try:\n  root.mkdir(mode=0o700)\n  for item in infos:\n   target=root/PurePosixPath(item.filename);target.parent.mkdir(parents=True,exist_ok=True)\n   fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n   with os.fdopen(fd,"wb") as f:f.write(z.read(item.filename))\n finally:os.umask(old)\nprint("\\nFV_KUDU_STAGE_READY",flush=True)\n'''
     source = source.replace(repr(REMOTE_STAGE), repr(remote_stage), 1)
     encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
     command = (
@@ -335,6 +347,71 @@ class OnceOnlyState:
 
     def require_known_complete(self) -> None:
         require(self.state in {"COMPLETE", "CLEANED"}, "UNKNOWN_COMMIT_HOLD")
+
+
+def remote_residue_probe_command(nonce: str) -> bytes:
+    """Read-only, no Token, no stage/write, no cleanup: one closed-scoped probe.
+
+    The remote emits a dynamic SHA receipt only after examining the existing
+    filesystem/process namespace. The exact proof digest is absent from stdin.
+    """
+    require(re.fullmatch(r"[a-f0-9]{32}", nonce or "") is not None,
+            "PROTOCOL_STATE_HOLD")
+    source = r'''import hashlib,os
+paths = (__PATHS__)
+nonce = __NONCE__
+def clean():
+    # lexists detects normal files, directories and even broken symlinks.
+    if any(os.path.lexists(path) for path in paths):
+        return False
+    needles = tuple(path.encode('utf-8') for path in paths) + (
+        b'p3_app_installer_runner.py', b'token_adapter_g1_REVIEW_ONLY.py',
+    )
+    me = os.getpid()
+    parent = os.getppid()  # the verified interactive shell running this probe
+    try:
+        pids = os.listdir('/proc')
+        for pid in pids:
+            if not pid.isdecimal() or int(pid) in (me, parent):
+                continue
+            try:
+                # G1 child processes run under the same App-container UID.
+                # Do not mistake host/runner service PIDs owned by others for
+                # inaccessible App child processes in a shared test namespace.
+                if os.stat('/proc/' + pid).st_uid != os.geteuid():
+                    continue
+                with open('/proc/' + pid + '/cmdline','rb') as handle:
+                    argv = handle.read(32769)
+                # Truncated argv cannot establish process absence.
+                if len(argv)>32768 or any(needle in argv for needle in needles):
+                    return False
+                # Match only our pinned Base64 bootstrap labels; an unrelated
+                # Base64 command is not evidence of a G1 residue process.
+                if b"'fv-kudu-stage','exec'" in argv or b"'p3-cleanup','exec'" in argv:
+                    return False
+                cwd = os.readlink('/proc/' + pid + '/cwd')
+                if any(cwd==p or cwd.startswith(p + '/') for p in paths):
+                    return False
+            except (FileNotFoundError, ProcessLookupError):
+                # A PID that exited before its metadata could be read is gone.
+                continue
+            except OSError:
+                # Permission failures or unknown /proc failures are HOLD.
+                return False
+        # Recheck path absence after scanning processes, without changing it.
+        return all(not os.path.lexists(path) for path in paths)
+    except Exception:
+        return False
+status = 'CLEAR' if clean() else 'HOLD'
+prefix = 'FV_G1_REMOTE_RESIDUE_' + status + ':'
+proof = hashlib.sha256((prefix + nonce).encode('ascii')).hexdigest()
+print('\n' + prefix + proof, flush=True)
+'''
+    source = source.replace('__PATHS__', repr(REMOTE_RESIDUE_PATHS))
+    source = source.replace('__NONCE__', repr(nonce))
+    encoded = base64.b64encode(source.encode('utf-8')).decode('ascii')
+    return ("python3 -c \"import base64;exec(compile(base64.b64decode('" +
+            encoded + "'),'fv-g1-residue-preflight','exec'))\"\n").encode('ascii')
 
 
 class KuduExecSession:
@@ -409,7 +486,8 @@ class KuduExecSession:
             cursor += len(raw)
         return False, buffer
 
-    def _challenge(self, *, tag: str, seconds: float, no_echo: bool = False) -> None:
+    def _challenge(self, *, tag: str, seconds: float, no_echo: bool = False,
+                   disable_echo_first: bool = False) -> None:
         """Prove a command executed in this interactive shell, not just a CLI banner.
 
         The expected SHA-256 marker does not occur in stdin; an echoed command
@@ -424,6 +502,11 @@ class KuduExecSession:
         code = ('import hashlib;print("FV_G1_KUDU_' + tag + ':"+'
                 'hashlib.sha256(b"' + expression + '").hexdigest())')
         command = ("python3 -c '" + code + "'\n").encode("ascii")
+        if disable_echo_first:
+            require(tag == "ECHO" and not no_echo, "PROTOCOL_STATE_HOLD")
+            # One ordered remote shell command. The nonce/hash receipt proves
+            # stty and umask completed before another challenge is sent.
+            command = (b"stty -echo -icanon min 1 time 0 && umask 077 && " + command)
         # Do not take the presence of a startup banner as a security receipt.
         # The CLI is already bound to --target app and the exact unique instance.
         self.send_public(command, "KUDU_" + tag + "_CHALLENGE_SENT")
@@ -522,6 +605,36 @@ class KuduExecSession:
             require(0 < count <= min(4096, len(raw) - offset), "KUDU_WRITE_HOLD")
             offset += count
 
+    def _write_stage_public(self, raw: bytes) -> None:
+        """Full-duplex stage-only public write; no secret token is handled here."""
+        require(self.fd is not None and isinstance(raw, bytes), "KUDU_WRITE_HOLD")
+        offset = 0
+        while offset < len(raw):
+            remaining = self.deadline - self._clock()
+            require(remaining > 0, "KUDU_CHANNEL_TIMEOUT")
+            readable, writable, _ = select.select(
+                [self.fd], [self.fd], [], min(0.2, remaining))
+            if readable:
+                try:
+                    chunk = os.read(self.fd, 65536)
+                except Exception:
+                    raise TransportHold("KUDU_CHANNEL_CLOSED") from None
+                require(bool(chunk), "KUDU_CHANNEL_CLOSED")
+                self.buffer += chunk
+                require(len(self.buffer) <= MAX_OUTPUT_BYTES, "KUDU_OUTPUT_LIMIT")
+            if writable:
+                try:
+                    count = os.write(self.fd, raw[offset:offset + 4096])
+                except (BlockingIOError, InterruptedError):
+                    continue
+                except Exception:
+                    raise TransportHold("KUDU_WRITE_HOLD") from None
+                require(0 < count <= min(4096, len(raw) - offset),
+                        "KUDU_WRITE_HOLD")
+                offset += count
+            if self.proc is None or self.proc.poll() is not None:
+                raise TransportHold("KUDU_CHANNEL_CLOSED")
+
     def send_public(self, raw: bytes, audit_code: str) -> None:
         require(re.fullmatch(r"[A-Z0-9_]{3,80}", audit_code) is not None,
                 "PROTOCOL_STATE_HOLD")
@@ -535,9 +648,61 @@ class KuduExecSession:
         command. No token or archive may be transferred until this passes.
         """
         require(self.state.state == "CHANNEL", "PROTOCOL_STATE_HOLD")
-        self.send_public(b"stty -echo -icanon min 1 time 0\n", "ECHO_DISABLE_SENT")
-        self.send_public(b"umask 077\n", "UMASK_SET_SENT")
+        # Never pipeline a no-echo challenge behind an unacknowledged stty.
+        # Kudu PTY latency can leave a subsequent command echoed even if the
+        # earlier stty eventually succeeds. The first authenticated receipt
+        # proves completion; the second independently proves echo is off.
+        self._challenge(tag="ECHO", seconds=120, disable_echo_first=True)
         self._challenge(tag="ECHO", seconds=120, no_echo=True)
+
+    def require_clean_remote(self, gate: str) -> None:
+        """One safe read-only probe per gate, in the SAME authorized session.
+
+        A missing, forged, stale, or HOLD receipt must stop before any Stage,
+        SQL/Storage token handoff, Claim, or installer call. Never clean/retry.
+        """
+        require(gate in {"PRETOKEN", "PRESTAGE"} and
+                self.state.state == "CHANNEL" and self.fd is not None and
+                self._token_count == 0 and not self._secrets and
+                self.audit.count("ECHO_READY") >= 2,
+                "PROTOCOL_STATE_HOLD")
+        require(("PRETOKEN_REMOTE_CLEAR" in self.audit) == (gate == "PRESTAGE"),
+                "PROTOCOL_STATE_HOLD")
+        nonce = secrets.token_hex(16)
+        pass_prefix = "FV_G1_REMOTE_RESIDUE_CLEAR:"
+        hold_prefix = "FV_G1_REMOTE_RESIDUE_HOLD:"
+        passed = (pass_prefix + hashlib.sha256(
+            (pass_prefix + nonce).encode("ascii")).hexdigest()).encode("ascii")
+        held = (hold_prefix + hashlib.sha256(
+            (hold_prefix + nonce).encode("ascii")).hexdigest()).encode("ascii")
+        start = len(self.buffer)
+        self.send_public(remote_residue_probe_command(nonce),
+                         gate + "_REMOTE_PROBE_SENT")
+        end = min(self.deadline, self._clock() + 60)
+        while self._clock() < end:
+            self._check_secret_echo()
+            # Do not count a marker from any previous command or PTY buffer.
+            current = self.buffer[start:]
+            is_hold, _ = self._consume_shell_challenge(current, held)
+            if is_hold:
+                raise TransportHold("REMOTE_RESIDUE_HOLD")
+            is_clean, rest = self._consume_shell_challenge(current, passed)
+            if is_clean:
+                self.buffer = rest
+                self.audit.append(gate + "_REMOTE_CLEAR")
+                return
+            readable = select.select([self.fd], [], [], 0.2)[0]
+            if readable:
+                try:
+                    raw = os.read(self.fd, 65536)
+                except Exception:
+                    raise TransportHold("KUDU_CHANNEL_CLOSED") from None
+                require(bool(raw), "KUDU_CHANNEL_CLOSED")
+                self.buffer += raw
+                require(len(self.buffer) <= MAX_OUTPUT_BYTES, "KUDU_OUTPUT_LIMIT")
+            elif self.proc is None or self.proc.poll() is not None:
+                raise TransportHold("KUDU_CHANNEL_CLOSED")
+        raise TransportHold("KUDU_CHANNEL_TIMEOUT")
 
     def stage_archive(self, stage: bytes, expected_sha256: str, *,
                       remote_stage: str = REMOTE_STAGE) -> None:
@@ -550,11 +715,28 @@ class KuduExecSession:
         self.send_public(remote_bootstrap_command(expected_sha256, len(stage),
                                                   remote_stage=remote_stage),
                          "STAGE_RECEIVER_SENT")
-        for chunk in iter_stage_frame(stage, expected_sha256):
-            self._write_all(chunk)
+        frames = iter_stage_frame(stage, expected_sha256)
+        self._write_stage_public(next(frames))
+        batch = bytearray()
+        count = 0
+        for chunk in frames:
+            if chunk == b"FV_KUDU_STAGE_END\n":
+                if batch:
+                    self._write_stage_public(bytes(batch))
+                    batch.clear()
+                self._write_stage_public(chunk)
+                break
+            batch.extend(chunk)
+            count += 1
+            if count % STAGE_BATCH_LINES == 0:
+                checkpoint = len(self.buffer)
+                self._write_stage_public(bytes(batch))
+                batch.clear()
+                self.expect_fixed(b"FV_KUDU_STAGE_CHUNK_READY", 600,
+                                  "STAGE_CHUNK_READY", after=checkpoint)
         self.audit.append("STAGE_FRAME_SENT")
         self.expect_fixed(b"FV_KUDU_STAGE_READY", 600, "STAGE_READY",
-                          after=boundary)
+                          after=0)
         self.state.advance("CHANNEL", "STAGED")
 
     def send_secret_line(self, token: str, *, validator: Callable[[str], object],
@@ -587,11 +769,16 @@ class KuduExecSession:
                      after: int | None = None) -> None:
         require(marker in {
             b"FV_KUDU_CHANNEL_READY", b"FV_KUDU_STAGE_READY",
-            b"FV_P3_TOKENS_READY", b"FV_P3_FINAL_RESULT=",
+            b"FV_P3_TOKENS_READY", b"FV_P3_SQL_TOKEN_RECEIVED",
+            b"FV_KUDU_STAGE_CHUNK_READY",
+            b"FV_P3_FINAL_RESULT=",
             b"FV_INDEPENDENT_CLEANUP=PASS",
             b"FV_KUDU_OWNED_CLEANUP=PASS",
             b"FV_KUDU_OWNED_CLEANUP_VERIFIED=PASS",
         }, "PROTOCOL_STATE_HOLD")
+        if marker == b"FV_P3_SQL_TOKEN_RECEIVED":
+            require(self.state.state == "STAGED" and self._token_count == 1 and
+                    audit_code == "SQL_TOKEN_ACK", "PROTOCOL_STATE_HOLD")
         boundary = len(self.buffer) if after is None else after
         require(isinstance(boundary, int) and 0 <= boundary <= len(self.buffer),
                 "PROTOCOL_STATE_HOLD")

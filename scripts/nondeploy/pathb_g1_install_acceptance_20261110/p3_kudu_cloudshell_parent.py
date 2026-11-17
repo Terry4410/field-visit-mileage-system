@@ -42,6 +42,20 @@ REMOTE_WORK = "/tmp/fv-pathb-g1-original-installer-20261110-work"
 REMOTE_RAM = "/dev/shm/fv-pathb-g1-original-installer-20261110"
 MAX_RECEIPT_BYTES = 16384
 
+# Fixed, nonsecret Storage failure classes. No error messages, claims or Blob data.
+STORAGE_CHECKPOINTS = frozenset({
+    'STORAGE_BLOB_1_METADATA_CLI', 'STORAGE_BLOB_1_METADATA_VALIDATE',
+    'STORAGE_BLOB_2_METADATA_CLI', 'STORAGE_BLOB_2_METADATA_VALIDATE',
+    'STORAGE_HTTPS_CLIENT_INIT', 'STORAGE_GUARD_INIT',
+    'STORAGE_BLOB_1_GET', 'STORAGE_BLOB_1_ETAG_CHECK',
+    'STORAGE_BLOB_1_CONTENT_CHECK',
+    'STORAGE_BLOB_2_GET', 'STORAGE_BLOB_2_ETAG_CHECK',
+    'STORAGE_BLOB_2_CONTENT_CHECK',
+    'STORAGE_TOKEN_KIND', 'STORAGE_TOKEN_SHAPE', 'STORAGE_TOKEN_CLAIMS',
+    'STORAGE_TOKEN_OWNER', 'STORAGE_TOKEN_TENANT', 'STORAGE_TOKEN_AUDIENCE',
+    'STORAGE_TOKEN_NBF', 'STORAGE_TOKEN_TTL',
+})
+
 
 class Hold(Exception):
     pass
@@ -236,16 +250,28 @@ def validate_final_receipt(obj):
     allowed = {"status", "sql_call_count", "layer_progress", "marker",
                "journal", "user_tables", "markers",
                "schema_fingerprint_sha256", "failure", "cleanup",
-               "elapsed_seconds"}
+               "elapsed_seconds", "sql_calls_started", "sql_calls_completed", "sql_outcome"}
     require(set(obj).issubset(allowed), "FINAL_RECEIPT_SHAPE_HOLD")
     require(obj.get("status") in {"PASS", "HOLD"} and
             isinstance(obj.get("sql_call_count"), int) and
             0 <= obj["sql_call_count"] <= 19 and
             isinstance(obj.get("layer_progress"), int) and
             0 <= obj["layer_progress"] <= 14 and
-            obj.get("marker") in {"NOT_CONSUMED", "CONSUMED"} and
+            obj.get("marker") in {"NOT_CONSUMED", "CONSUMED", "UNKNOWN"} and
             obj.get("cleanup") in {"PASS", "HOLD"},
             "FINAL_RECEIPT_SHAPE_HOLD")
+    fields=('sql_calls_started','sql_calls_completed','sql_outcome')
+    if any(field in obj for field in fields):
+        require(all(field in obj for field in fields) and
+                type(obj['sql_calls_started']) is int and
+                type(obj['sql_calls_completed']) is int and
+                0 <= obj['sql_calls_completed'] <= obj['sql_calls_started'] <= 19 and
+                obj['sql_outcome'] in {'NOT_STARTED','CONFIRMED','UNKNOWN'} and
+                (obj['sql_outcome']=='NOT_STARTED') == (obj['sql_calls_started']==0) and
+                (obj['sql_outcome']!='CONFIRMED' or
+                 obj['sql_calls_started']==obj['sql_calls_completed']) and
+                (obj['sql_outcome']!='UNKNOWN' or obj['sql_calls_started']>=1),
+                'SQL_TELEMETRY_CONTRACT_HOLD')
     if obj["status"] == "PASS":
         require(obj["sql_call_count"] == 19 and obj["layer_progress"] == 14 and
                 obj.get("marker") == "CONSUMED" and
@@ -255,6 +281,19 @@ def validate_final_receipt(obj):
                 obj.get("cleanup") == "PASS" and "failure" not in obj,
                 "FINAL_PASS_CONTRACT_HOLD")
     return obj
+
+
+def safe_runner_failure_category(receipt):
+    """Print only a bounded machine-safe category; never raw runner evidence."""
+    if not isinstance(receipt, dict) or receipt.get('status') != 'HOLD':
+        return 'NOT_APPLICABLE' if isinstance(receipt, dict) and receipt.get('status') == 'PASS' else 'UNKNOWN'
+    failure = receipt.get('failure')
+    if not isinstance(failure, dict):
+        return 'UNKNOWN'
+    category = failure.get('category')
+    if isinstance(category, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{2,99}', category):
+        return category
+    return 'UNKNOWN'
 
 
 def cleanup_command(member_hashes, verify_only=False):
@@ -278,6 +317,10 @@ def execute(args):
     instance = None
     sessions_opened = 0
     deadline = None
+    def set_storage_checkpoint(label):
+        nonlocal stop
+        require(label in STORAGE_CHECKPOINTS, 'STORAGE_CHECKPOINT_HOLD')
+        stop = label
     def new_session():
         nonlocal sessions_opened
         require(instance is not None and deadline is not None and sessions_opened < 2,
@@ -308,6 +351,14 @@ def execute(args):
         with tempfile.TemporaryDirectory(prefix="fv-p3-kudu-parent-") as raw:
             work = Path(raw)
             (work / "debs").mkdir()
+            # Same authorized Kudu session: verify read-only remote residue
+            # BEFORE explicit G1 Storage/SQL tokens or any archive staging.
+            stop = "PRETOKEN_REMOTE_RESIDUE"
+            session = new_session()
+            session.start()
+            session.await_cli_shell_banner()
+            session.establish_safe_channel()
+            session.require_clean_remote("PRETOKEN")
             stop = "ORIGINAL_PACKAGE"
             blob_download(cfg, cfg["package_blob"], work / "original.zip")
             blob_download(cfg, cfg["seal_blob"], work / "original.seal.json")
@@ -321,12 +372,21 @@ def execute(args):
             for item in cfg["tools"]:
                 download_once(item["url"], work / "debs" / (item["name"] + ".deb"),
                               item["sha256"])
-            stop = "STORAGE_EVIDENCE"
+            stop = "STORAGE_TOKEN_CLI"
             storage_requested = True
-            storage_token = az(["account", "get-access-token", "--resource",
-                                "https://storage.azure.com/"])["accessToken"]
-            validate_owner_token(storage_token, "storage", time.time())
-            old = verify_historical_blobs(cfg, az, storage_token)
+            token_response = az(["account", "get-access-token", "--resource",
+                                 "https://storage.azure.com/"])
+            stop = "STORAGE_TOKEN_RESPONSE"
+            require(isinstance(token_response, dict) and
+                    isinstance(token_response.get("accessToken"), str),
+                    "STORAGE_TOKEN_RESPONSE_HOLD")
+            storage_token = token_response["accessToken"]
+            stop = "STORAGE_TOKEN_VALIDATE"
+            validate_owner_token(storage_token, "storage", time.time(),
+                                 checkpoint=set_storage_checkpoint)
+            old = verify_historical_blobs(cfg, az, storage_token,
+                                          checkpoint=set_storage_checkpoint)
+            stop = "STORAGE_HISTORICAL_RESULT"
             require(old["current_head_get_contract"] == "PASS" and
                     old["historical_immutability_proven"] is False and
                     old["historical_parent_execution_proven"] is False,
@@ -342,10 +402,11 @@ def execute(args):
             stage_file, member_hashes = build_stage(work, binding,
                                                      Path(args.authorization), facts)
             stage_bytes = stage_file.read_bytes()
-            session = new_session()
-            session.start()
-            session.await_cli_shell_banner()
-            session.establish_safe_channel()
+            # Recheck in the same protected session, immediately before staging.
+            # A concurrent leftover process/path is terminal HOLD, never cleanup.
+            stop = "PRESTAGE_REMOTE_RESIDUE"
+            session.require_clean_remote("PRESTAGE")
+            stop = "STAGE"
             session.stage_archive(stage_bytes, digest(stage_bytes))
             staged = True
             # Runner enforces a 900s management-facts freshness window. Do not
@@ -365,6 +426,10 @@ def execute(args):
                                      validate_owner_token(token, "sql", time.time()),
                                      audit_code="SQL_TOKEN_SENT")
             sql_token = None
+            # Runner validates the SQL token and finishes its first getpass
+            # before Parent sends the Storage token. No secret in this receipt.
+            session.expect_fixed(b"FV_P3_SQL_TOKEN_RECEIVED", 120,
+                                 "SQL_TOKEN_ACK")
             session.send_secret_line(storage_token, validator=lambda token:
                                      validate_owner_token(token, "storage", time.time()),
                                      audit_code="STORAGE_TOKEN_SENT")
@@ -451,11 +516,17 @@ def execute(args):
             latest = "UNKNOWN"
         print("LAST_PUBLIC_CHANNEL_CHECKPOINT=" + latest)
         print("P3_KUDU_LIVE=" + result)
+        print("RUNNER_FAILURE_CATEGORY=" + safe_runner_failure_category(receipt))
         print("STOP_STAGE=" + re.sub(r"[^A-Z0-9_]", "_", stop)[:100])
         print("SQL_TOKEN_REQUEST=" + ("YES" if sql_requested else "NO"))
         print("STORAGE_TOKEN_REQUEST=" + ("YES" if storage_requested else "NO"))
         print("SQL_CALL_COUNT=" + (str(receipt["sql_call_count"])
-                                   if receipt is not None else "0_OR_1_UNKNOWN"))
+                                   if receipt is not None else "UNKNOWN"))
+        for field,label in (('sql_calls_started','SQL_CALLS_STARTED'),
+                            ('sql_calls_completed','SQL_CALLS_COMPLETED'),
+                            ('sql_outcome','SQL_OUTCOME')):
+            val = receipt.get(field) if receipt is not None else None
+            print(label+'='+(str(val) if val is not None else 'UNKNOWN'))
         print("LAYER_PROGRESS=" + (str(receipt["layer_progress"])
                                   if receipt is not None else "UNKNOWN"))
         print("BLOB_MARKER=" + (receipt.get("marker", "UNKNOWN")

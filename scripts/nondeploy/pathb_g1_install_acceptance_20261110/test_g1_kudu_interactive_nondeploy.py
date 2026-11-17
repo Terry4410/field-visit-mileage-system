@@ -355,6 +355,31 @@ class KuduV2OnlyTests(unittest.TestCase):
         self.assertEqual(e.exception.code,'KUDU_SECRET_ECHO')
         self.assertEqual(s._token_count,0)
 
+    def test_echo_disable_must_be_acknowledged_before_no_echo_probe(self):
+        """Synthetic delayed shell: old pipelined stty/challenge could echo."""
+        s=KuduExecSession('a'*20,deadline=300,clock=lambda:1)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        sent=[]
+        digest=hashlib.sha256(('FV_G1_KUDU_ECHO:'+NONCE).encode()).hexdigest()
+        marker=('FV_G1_KUDU_ECHO:'+digest+'\n').encode()
+        def send(raw,audit):
+            sent.append((audit,raw))
+            # Before stty acknowledgment the terminal may echo the *public*
+            # disable command. After its proof, the next command must not echo.
+            if len(sent)==1:
+                self.assertTrue(raw.startswith(b'stty -echo -icanon min 1 time 0 && umask 077 && '))
+                s.buffer=raw+marker
+            else:
+                self.assertEqual(audit,'KUDU_ECHO_CHALLENGE_SENT')
+                self.assertFalse(raw.startswith(b'stty '))
+                s.buffer=marker
+        with patch.object(transport.secrets,'token_hex',return_value=NONCE),\
+             patch.object(s,'send_public',side_effect=send):
+            s.establish_safe_channel()
+        self.assertEqual(len(sent),2)
+        self.assertEqual(s.audit.count('ECHO_READY'),2)
+        self.assertEqual(s._token_count,0)
+
     def test_exact_nonce_accepts_only_bounded_shell_prompt_prefix(self):
         nonce_digest = hashlib.sha256(('FV_G1_KUDU_SHELL:'+NONCE).encode()).hexdigest()
         expected = ('FV_G1_KUDU_SHELL:' + nonce_digest).encode()
@@ -432,6 +457,51 @@ class KuduV2OnlyTests(unittest.TestCase):
                                  {'public-fixture.txt'})
                 shutil.rmtree(remote)
 
+    def test_real_local_pty_large_batched_stage_no_cloud(self):
+        """Incompressible stage must be acknowledged in bounded public chunks."""
+        import io, os, shutil, time, zipfile
+        bash = shutil.which("bash")
+        self.assertIsNotNone(bash)
+        remote = Path(transport.REMOTE_STAGE)
+        self.assertFalse(remote.exists())
+        data = os.urandom(280000)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as z:
+            z.writestr("large-public-fixture.dat", data)
+        archive = buf.getvalue()
+        command = ["/usr/bin/env", "PS1=root@worker:/home/site/wwwroot# ",
+                   bash, "--noprofile", "--norc", "-i"]
+        session = KuduExecSession("a"*20, deadline=time.monotonic()+90)
+        try:
+            with patch.object(transport, "interactive_exec_args", return_value=command):
+                session.start()
+                session.await_cli_shell_banner(seconds=8)
+                session.establish_safe_channel()
+                session.stage_archive(archive, hashlib.sha256(archive).hexdigest())
+            self.assertGreaterEqual(session.audit.count("STAGE_CHUNK_READY"), 4)
+            self.assertEqual((remote/"large-public-fixture.dat").read_bytes(), data)
+            self.assertEqual(session._token_count, 0)
+        finally:
+            session.close()
+            if remote.is_dir() and not remote.is_symlink():
+                self.assertEqual({p.name for p in remote.iterdir()}, {"large-public-fixture.dat"})
+                shutil.rmtree(remote)
+
+    def test_public_stage_drain_fails_closed_on_output_cap(self):
+        import time
+        session = KuduExecSession("a"*20, deadline=time.monotonic()+10)
+        session.state.begin()
+        session.fd = 123
+        session.proc = Mock()
+        session.proc.poll.return_value = None
+        session.buffer = b"X" * transport.MAX_OUTPUT_BYTES
+        with patch.object(transport.select, "select", return_value=([123], [], [])), \
+             patch.object(transport.os, "read", return_value=b"X"):
+            with self.assertRaises(TransportHold) as ctx:
+                session._write_stage_public(b"PUBLIC")
+        self.assertEqual(ctx.exception.code, "KUDU_OUTPUT_LIMIT")
+        self.assertEqual(session._token_count, 0)
+
     def test_remote_owned_cleanup_source_is_syntactically_and_scope_safe(self):
         """The generated cleanup must HOLD safely when remote state is unexpected."""
         import ast
@@ -461,5 +531,710 @@ class KuduV2OnlyTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256((ROOT/'frozen_install.py.snapshot').read_bytes()).hexdigest(),
             'b38f124391d89351f2da6dd01cc4a93e7a515ac4bbda79b6746d5211ce44ba4f')
         parent.validate_binding(ROOT)
+
+
+class StorageCheckpointOnlyTests(unittest.TestCase):
+    """Synthetic-only: no az, networking, credentials, Blob write or installer."""
+
+    @staticmethod
+    def _config():
+        return {'storage_account': guard.ACCOUNT,
+                'storage_container': guard.CONTAINER}
+
+    @staticmethod
+    def _predecessor_body(name, attempt):
+        obj = {
+            'contract': 'FIELDVISIT_PATHB_SELECT22_BLOB_ONCE_V1',
+            'status': 'CONSUMED_BEFORE_SQL',
+            'run_id': 'pathb-select22-manual-v2-20261103',
+            'release': guard.RELEASE,
+            'server': guard.SERVER, 'database': guard.DATABASE,
+            'owner_oid_sha256': guard.OWNER_OID_SHA,
+            'preflight_sha256': guard.SELECT_SHA,
+            'started_at_utc': 1760000000,
+            'invocation_nonce': 'a' * 32,
+        }
+        if attempt is not None:
+            obj['attempt_id'] = attempt
+        return json.dumps(obj, sort_keys=True).encode()
+
+    def _run_guard(self, *, break_at=None):
+        import p3_historical_blob_evidence as historical
+        events, cli_calls, rest_calls = [], [], []
+        predecessor = list(guard.PREDECESSORS)
+        def cli(args):
+            self.assertEqual(args[:3], ['storage','blob','show'])
+            self.assertIn('--auth-mode', args)
+            self.assertEqual(args[-1], 'login')
+            name = args[args.index('--name')+1]
+            cli_calls.append(name)
+            if break_at == 'CLI1' and len(cli_calls) == 1:
+                raise RuntimeError('SENSITIVE_RAW_CLI_OUTPUT_DO_NOT_EXPOSE')
+            if break_at == 'CLI2' and len(cli_calls) == 2:
+                raise RuntimeError('SENSITIVE_RAW_CLI_OUTPUT_DO_NOT_EXPOSE')
+            if break_at == 'METADATA2' and len(cli_calls) == 2:
+                return {'name': 'not-the-pinned-name', 'properties': {'etag':'"etag-2"'}}
+            return {'name': name, 'properties': {'etag':'"etag-%d"'%len(cli_calls)}}
+        def http(method,name,headers,body=b''):
+            self.assertEqual(method,'GET')
+            self.assertEqual(body,b'')
+            rest_calls.append(name)
+            idx = 1 if name == predecessor[0][0] else 2
+            if break_at == 'GET1' and idx == 1:
+                raise RuntimeError('SENSITIVE_GET_EXCEPTION_DO_NOT_EXPOSE')
+            if break_at == 'GET2' and idx == 2:
+                raise RuntimeError('SENSITIVE_GET_EXCEPTION_DO_NOT_EXPOSE')
+            etag = '"etag-%d"'%idx
+            if break_at == 'ETAG1' and idx == 1:
+                etag = '"mismatched"'
+            content = self._predecessor_body(name,predecessor[idx-1][1])
+            if break_at == 'CONTENT1' and idx == 1:
+                content = b'{not-json:'
+            return guard.Response(200,etag,content,'')
+        with patch.object(guard,'validate_owner_storage_token',return_value=True):
+            ret=historical.verify_readonly(self._config(),cli,'FAKE_TOKEN',
+                                           request=http,checkpoint=events.append)
+        return ret,events,cli_calls,rest_calls
+
+    def test_historical_two_blob_success_labels_and_unchanged_contract(self):
+        ret, events, meta, gets = self._run_guard()
+        self.assertEqual(ret['current_head_get_contract'],'PASS')
+        self.assertEqual(len(meta),2)
+        self.assertEqual(gets,[name for name,_ in guard.PREDECESSORS])
+        self.assertEqual(events,[
+            'STORAGE_BLOB_1_METADATA_CLI','STORAGE_BLOB_1_METADATA_VALIDATE',
+            'STORAGE_BLOB_2_METADATA_CLI','STORAGE_BLOB_2_METADATA_VALIDATE',
+            'STORAGE_HTTPS_CLIENT_INIT','STORAGE_GUARD_INIT',
+            'STORAGE_BLOB_1_GET','STORAGE_BLOB_1_ETAG_CHECK',
+            'STORAGE_BLOB_1_CONTENT_CHECK',
+            'STORAGE_BLOB_2_GET','STORAGE_BLOB_2_ETAG_CHECK',
+            'STORAGE_BLOB_2_CONTENT_CHECK'])
+        self.assertTrue(set(events).issubset(parent.STORAGE_CHECKPOINTS))
+        self.assertFalse(any('operator-once/' in event for event in events))
+
+    def test_metadata_cli_failure_classifies_exact_blob(self):
+        for fault, phase in [('CLI1','STORAGE_BLOB_1_METADATA_CLI'),
+                             ('CLI2','STORAGE_BLOB_2_METADATA_CLI')]:
+            with self.subTest(fault=fault):
+                events=[]
+                import p3_historical_blob_evidence as historical
+                def bad_cli(args):
+                    events.append(args[args.index('--name')+1])
+                    if len(events) == int(fault[-1]):raise RuntimeError('PRIVATE_ERROR')
+                    return {'name':events[-1], 'properties':{'etag':'"e"'}}
+                logs=[]
+                with self.assertRaises(RuntimeError):
+                    historical.verify_readonly(self._config(),bad_cli,'FAKE',
+                        request=lambda *a:None,checkpoint=logs.append)
+                self.assertEqual(logs[-1],phase)
+                self.assertEqual(len(events),int(fault[-1]))
+
+    def test_blob_metadata_identity_failure_classified(self):
+        import p3_historical_blob_evidence as historical
+        logs=[]
+        names=[n for n,_ in guard.PREDECESSORS]
+        def cli(args):
+            name=args[args.index('--name')+1]
+            if name==names[1]: return {'name':'wrong','properties':{'etag':'"e"'}}
+            return {'name':name,'properties':{'etag':'"e"'}}
+        with self.assertRaises(historical.HistoricalEvidenceHold):
+            historical.verify_readonly(self._config(),cli,'FAKE',
+                 request=lambda *a:None,checkpoint=logs.append)
+        self.assertEqual(logs[-1],'STORAGE_BLOB_2_METADATA_VALIDATE')
+
+    def test_http_get_etag_and_content_fail_closed(self):
+        import p3_historical_blob_evidence as historical
+        cases=[('GET1','STORAGE_BLOB_1_GET'),
+               ('GET2','STORAGE_BLOB_2_GET'),
+               ('ETAG1','STORAGE_BLOB_1_ETAG_CHECK'),
+               ('CONTENT1','STORAGE_BLOB_1_CONTENT_CHECK')]
+        for fault, label in cases:
+            with self.subTest(fault=fault):
+                logs=[]; cnt=[0]
+                def cli(args):
+                    cnt[0]+=1
+                    name=args[args.index('--name')+1]
+                    return {'name':name,'properties':{'etag':'"etag-%d"'%cnt[0]}}
+                getcount=[0]
+                def http(method,name,headers,body=b''):
+                    self.assertEqual(method,'GET')
+                    getcount[0]+=1
+                    if fault==('GET%d'%getcount[0]):raise RuntimeError('DO_NOT_LOG_ME')
+                    if fault=='ETAG1':return guard.Response(200,'"wrong"',b'{}')
+                    if fault=='CONTENT1':return guard.Response(200,'"etag-1"',b'{broken')
+                    idx=getcount[0]
+                    return guard.Response(200,'"etag-%d"'%idx,
+                        self._predecessor_body(name,guard.PREDECESSORS[idx-1][1]))
+                with patch.object(guard,'validate_owner_storage_token',return_value=True):
+                    with self.assertRaises(Exception):
+                        historical.verify_readonly(self._config(),cli,'FAKE',
+                                                  request=http,checkpoint=logs.append)
+                self.assertEqual(logs[-1],label)
+                self.assertFalse(any('DO_NOT_LOG_ME' in x for x in logs))
+
+    def test_parent_stage_catch_reports_fixed_label_and_never_secret(self):
+        from types import SimpleNamespace
+        from contextlib import redirect_stdout
+        import io
+        pkg=b'LOCAL_TEST_PACKAGE';seal=b'LOCAL_TEST_SEAL'
+        cfg={'total_deadline_seconds':3600,
+             'package_blob':'test-pkg','seal_blob':'test-seal',
+             'package_sha256':hashlib.sha256(pkg).hexdigest(),
+             'seal_sha256':hashlib.sha256(seal).hexdigest(),
+             'tools':[]}
+        def blob_dl(_,name,output):
+            Path(output).write_bytes(pkg if name=='test-pkg' else seal)
+        cases=[('CLI','STORAGE_TOKEN_CLI'),
+               ('RESPONSE','STORAGE_TOKEN_RESPONSE'),
+               ('VALIDATE','STORAGE_TOKEN_VALIDATE'),
+               ('BLOB2','STORAGE_BLOB_2_CONTENT_CHECK'),
+               ('RESULT','STORAGE_HISTORICAL_RESULT')]
+        with tempfile.TemporaryDirectory() as d:
+            f=Path(d)/'fake-source.zip';f.write_bytes(b'FAKE_NONSECRET_ZIP')
+            args=SimpleNamespace(distribution=str(f),
+                                 artifact_sha256=hashlib.sha256(f.read_bytes()).hexdigest(),
+                                 authorization=str(Path(d)/'never-opened'))
+            for fault, expected in cases:
+                with self.subTest(fault=fault):
+                    def az_mock(commands):
+                        self.assertEqual(commands[:2],['account','get-access-token'])
+                        if fault=='CLI':raise RuntimeError('SENSITIVE_CLI_ERROR')
+                        if fault=='RESPONSE':return {}
+                        return {'accessToken':'SENSITIVE_TOKEN_NEVER_PRINT'}
+                    def token_validator(*a,**kw):
+                        if fault=='VALIDATE':raise RuntimeError('SENSITIVE_CLAIMS')
+                    def hist(*a,**kw):
+                        if fault=='BLOB2':
+                            kw['checkpoint']('STORAGE_BLOB_2_CONTENT_CHECK')
+                            raise RuntimeError('SENSITIVE_BLOB_DATA')
+                        if fault=='RESULT':return {'current_head_get_contract':'HOLD',
+                                 'historical_immutability_proven':False,
+                                 'historical_parent_execution_proven':False}
+                        raise AssertionError('SHOULD_NOT_CALL')
+                    fake_channel=Mock()
+                    fake_channel.audit=['PRETOKEN_REMOTE_CLEAR']
+                    with patch.object(parent,'KuduExecSession',return_value=fake_channel), \
+                         patch.object(parent,'validate_local_source'), \
+                         patch.object(parent,'validate_binding',return_value=({'files':{}},'b'*64)), \
+                         patch.object(parent,'validate_distribution_archive'), \
+                         patch.object(parent,'load',return_value=cfg), \
+                         patch.object(parent,'validate_authorization'), \
+                         patch.object(parent,'management',return_value=('INSTANCE',{'observed_at':0})), \
+                         patch.object(parent,'blob_download',side_effect=blob_dl), \
+                         patch.object(parent,'validate_original_package'), \
+                         patch.object(parent,'strict_seal_crossbinding'), \
+                         patch.object(parent,'az',side_effect=az_mock), \
+                         patch.object(parent,'validate_owner_token',side_effect=token_validator), \
+                         patch.object(parent,'verify_historical_blobs',side_effect=hist):
+                        output=io.StringIO()
+                        with redirect_stdout(output):
+                            result=parent.execute(args)
+                    self.assertEqual(result,1)
+                    data=output.getvalue()
+                    self.assertIn('STOP_STAGE='+expected,data)
+                    self.assertIn('SQL_TOKEN_REQUEST=NO',data)
+                    self.assertIn('SQL_CALL_COUNT=UNKNOWN',data)
+                    self.assertNotIn('0_OR_1_UNKNOWN',data)
+                    self.assertIn('AUTO_RETRY=FORBIDDEN',data)
+                    self.assertNotIn('SENSITIVE_',data)
+                    self.assertNotIn('DO_NOT_LOG_ME',data)
+
+
+class StorageTokenSubgateTests(unittest.TestCase):
+    """Only generated mock JWTs; no actual Azure token or identity is used."""
+    def _fake_token(self, **kw):
+        import base64
+        payload=dict(oid='fixture_owner',tid='fixture_tenant',
+                     aud='https://storage.azure.com',nbf=999900,exp=1004000)
+        payload.update(kw)
+        b64=lambda b:base64.urlsafe_b64encode(b).decode().rstrip('=')
+        return b64(b'{}')+'.'+b64(json.dumps(payload).encode())+'.'+b64(b'sig')
+
+    def test_single_expiration_boundary_and_identical_fail_closed_code(self):
+        import p3_ssh_transport_contract as trust
+        with patch.object(trust,'OWNER_SHA',hashlib.sha256(b'fixture_owner').hexdigest()), \
+             patch.object(trust,'TENANT_SHA',hashlib.sha256(b'fixture_tenant').hexdigest()):
+            for ttl,ok in ((3020,True),(3000,True),(2990,False)):
+                with self.subTest(ttl=ttl):
+                    stages=[];t=self._fake_token(exp=1000000+ttl)
+                    if ok:
+                        self.assertTrue(trust.validate_owner_token(t,'storage',1000000,
+                                                                     checkpoint=stages.append))
+                        self.assertTrue(trust.validate_owner_token(t,'storage',1000000))
+                    else:
+                        with self.assertRaises(trust.Hold) as raised:
+                            trust.validate_owner_token(t,'storage',1000000,
+                                                       checkpoint=stages.append)
+                        self.assertEqual(str(raised.exception),'TOKEN_OWNER_AUDIENCE_OR_TTL')
+                        with self.assertRaises(trust.Hold):
+                            trust.validate_owner_token(t,'storage',1000000)
+                    self.assertEqual(stages[-1],'STORAGE_TOKEN_TTL')
+                    self.assertTrue(set(stages).issubset(parent.STORAGE_CHECKPOINTS))
+
+    def test_failure_reason_labels_are_static_and_stop_at_exact_gate(self):
+        import p3_ssh_transport_contract as trust
+        good_owner=hashlib.sha256(b'fixture_owner').hexdigest()
+        good_tenant=hashlib.sha256(b'fixture_tenant').hexdigest()
+        with patch.object(trust,'OWNER_SHA',good_owner), \
+             patch.object(trust,'TENANT_SHA',good_tenant):
+            cases=[
+                ({'oid':'incorrect'},'STORAGE_TOKEN_OWNER'),
+                ({'tid':'incorrect'},'STORAGE_TOKEN_TENANT'),
+                ({'aud':'https://database.windows.net'},'STORAGE_TOKEN_AUDIENCE'),
+                ({'nbf':1000031},'STORAGE_TOKEN_NBF'),
+                ({'exp':1002999},'STORAGE_TOKEN_TTL'),
+            ]
+            for changes,expected in cases:
+                with self.subTest(expected=expected):
+                    stages=[]
+                    with self.assertRaises(trust.Hold) as raised:
+                        trust.validate_owner_token(self._fake_token(**changes),'storage',
+                                                   1000000,checkpoint=stages.append)
+                    self.assertEqual(stages[-1],expected)
+                    self.assertEqual(str(raised.exception),'TOKEN_OWNER_AUDIENCE_OR_TTL')
+            for text_value,label in [('bad.token','STORAGE_TOKEN_CLAIMS'),
+                                     ('','STORAGE_TOKEN_CLAIMS')]:
+                stages=[]
+                with self.assertRaises(trust.Hold):
+                    trust.validate_owner_token(text_value,'storage',1000000,
+                                               checkpoint=stages.append)
+                self.assertEqual(stages[-1],label)
+
+
+class TokenHandoffAcknowledgementTests(unittest.TestCase):
+    """Synthetic tokens only. Reproduces terminal input loss and exercises ack gate."""
+    @staticmethod
+    def _pty_tokens(batched):
+        import os, pty, subprocess, select, signal, sys, time
+        script = (
+            'import getpass; a=getpass.getpass("FIRST:"); '
+            'print("ACK",flush=True); b=getpass.getpass("SECOND:"); '
+            'print("DONE",flush=True)'
+        )
+        master, slave = pty.openpty()
+        proc = subprocess.Popen([sys.executable, '-c', script], stdin=slave,
+                                stdout=slave, stderr=slave, start_new_session=True)
+        os.close(slave)
+        def until(marker, limit=3.0):
+            seen=b'';deadline=time.monotonic()+limit
+            while time.monotonic()<deadline:
+                if select.select([master], [], [], 0.05)[0]:
+                    try: chunk=os.read(master,4096)
+                    except OSError: break
+                    if not chunk: break
+                    seen+=chunk
+                    if marker in seen: return True
+            return False
+        try:
+            if not until(b'FIRST:'): return False
+            os.write(master, b'SYNTHETIC_SQL\n' +
+                     (b'SYNTHETIC_STORAGE\n' if batched else b''))
+            if not until(b'SECOND:'): return False
+            if not batched:
+                os.write(master,b'SYNTHETIC_STORAGE\n')
+            return until(b'DONE', 1.0)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+            os.close(master)
+
+    def test_real_local_pty_batched_input_can_be_discarded(self):
+        self.assertFalse(self._pty_tokens(batched=True))
+
+    def test_real_local_pty_acknowledged_second_input_is_received(self):
+        self.assertTrue(self._pty_tokens(batched=False))
+
+    def test_immediate_storage_after_ack_survives_delayed_reader(self):
+        """Synthetic PTY race: sender does not wait for the next read."""
+        import os, pty, subprocess, select, signal, sys, time
+        script=(
+            'import getpass,termios,time\n'
+            'import p3_app_installer_runner as runner\n'
+            'f=termios.tcgetattr(0)\n'
+            'f[3]&=~(termios.ECHO|termios.ICANON)\n'
+            'f[6][termios.VMIN]=1;f[6][termios.VTIME]=0\n'
+            'termios.tcsetattr(0,termios.TCSANOW,f)\n'
+            'getpass.getpass("FIRST:")\n'
+            'runner.require_stable_token_tty()\n'
+            'print("ACK",flush=True)\n'
+            'time.sleep(.08)\n'
+            'received=runner.read_storage_token_no_flush()\n'
+            'print("SECOND_LEN="+str(len(received)),flush=True)\n'
+        )
+        master,slave=pty.openpty()
+        proc=subprocess.Popen([sys.executable,'-c',script],cwd=str(ROOT),
+                              stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
+        os.close(slave)
+        def until(marker,limit=3.0):
+            seen=b'';deadline=time.monotonic()+limit
+            while time.monotonic()<deadline:
+                if select.select([master],[],[],.05)[0]:
+                    try: part=os.read(master,4096)
+                    except OSError: break
+                    seen+=part
+                    if marker in seen: return seen
+            return seen
+        try:
+            self.assertIn(b'FIRST:',until(b'FIRST:'))
+            os.write(master,b'SYNTHETIC_SQL\n')
+            self.assertIn(b'ACK',until(b'ACK'))
+            os.write(master,b'SYNTHETIC_STORAGE\n')
+            out=until(b'SECOND_LEN=17')
+            self.assertIn(b'SECOND_LEN=17',out)
+            self.assertNotIn(b'SYNTHETIC_STORAGE',out)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid,signal.SIGKILL)
+            proc.wait(timeout=5)
+            os.close(master)
+
+    def test_storage_reader_refuses_non_tty(self):
+        with patch.object(runner.os,'isatty',return_value=False):
+            with self.assertRaises(runner.Hold):
+                runner.require_stable_token_tty()
+
+    def test_fixed_ack_marker_requires_exact_one_token_state(self):
+        session=KuduExecSession('a'*20, deadline=100, clock=lambda:1)
+        session.state.begin()
+        session.state.advance('CHANNEL','STAGED')
+        session.fd=123
+        session.buffer=b'FV_P3_SQL_TOKEN_RECEIVED\n'
+        with self.assertRaises(TransportHold):
+            session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK', after=0)
+        session._token_count=1
+        session.expect_fixed(b'FV_P3_SQL_TOKEN_RECEIVED', 1, 'SQL_TOKEN_ACK', after=0)
+        self.assertEqual(session.audit[-1], 'SQL_TOKEN_ACK')
+
+    def test_parent_never_sends_storage_token_before_sql_ack(self):
+        source=(ROOT/'p3_kudu_cloudshell_parent.py').read_text()
+        a=source.index('session.send_secret_line(sql_token, validator=')
+        b=source.index('session.expect_fixed(b"FV_P3_SQL_TOKEN_RECEIVED"')
+        c=source.index('session.send_secret_line(storage_token, validator=')
+        self.assertLess(a,b)
+        self.assertLess(b,c)
+        runner_source=(ROOT/'p3_app_installer_runner.py').read_text()
+        x=runner_source.index("sql_token=getpass.getpass('OWNER_SQL_TOKEN:')")
+        y=runner_source.index("print('\\nFV_P3_SQL_TOKEN_RECEIVED',flush=True)")
+        z=runner_source.index("storage_token=read_storage_token_no_flush()")
+        self.assertLess(x,y)
+        self.assertLess(y,z)
+        self.assertIn("sql_exp=token_exp(sql_token,'sql',time.time())",runner_source[x:y])
+        self.assertIn('require_stable_token_tty()',runner_source[x:y])
+        self.assertNotIn("getpass.getpass('OWNER_STORAGE_TOKEN:')",runner_source)
+
+class SqlAttemptTelemetryTests(unittest.TestCase):
+    def test_validated_started_completed_unknown(self):
+        base={'status':'HOLD','sql_call_count':0,'layer_progress':0,
+              'marker':'NOT_CONSUMED','cleanup':'PASS'}
+        for started,done,outcome in ((0,0,'NOT_STARTED'),(1,0,'UNKNOWN'),
+                                     (3,2,'UNKNOWN'),(1,1,'CONFIRMED'),
+                                     (1,1,'UNKNOWN')):
+            self.assertEqual(parent.validate_final_receipt(dict(base,
+                sql_calls_started=started,sql_calls_completed=done,
+                sql_outcome=outcome))['sql_outcome'],outcome)
+        for extra in ({'sql_calls_started':1,'sql_calls_completed':2,'sql_outcome':'UNKNOWN'},
+                      {'sql_calls_started':1,'sql_calls_completed':0,'sql_outcome':'CONFIRMED'},
+                      {'sql_calls_started':True,'sql_calls_completed':0,'sql_outcome':'UNKNOWN'},
+                      {'sql_calls_started':1,'sql_calls_completed':0,'sql_outcome':'TOKEN_SECRET'},
+                      {'sql_calls_started':1}):
+            with self.subTest(extra=extra),self.assertRaises(parent.Hold):
+                parent.validate_final_receipt(dict(base,**extra))
+
+    def test_runner_ledger_before_cleanup_and_no_sql_dispatch_assertion(self):
+        source=(ROOT/'p3_app_installer_runner.py').read_text()
+        self.assertLess(source.index('SQL_CALLS_STARTED = max(SQL_CALLS_STARTED, index)'),
+                        source.index('p=subprocess.Popen(args,stdin=subprocess.PIPE'))
+        self.assertIn("reserved=ledger.get('next')",source)
+        self.assertIn("SQL_CALLS_STARTED=max(SQL_CALLS_STARTED,1+reserved)",source)
+        self.assertIn("result['sql_outcome']=",source)
+        self.assertIn('installer_complete=(not installer_invoked or SQL_CALLS_COMPLETED >= 17)',source)
+
+class RunnerFailureClassificationTests(unittest.TestCase):
+    def test_only_fixed_failure_category_is_exposed(self):
+        safe=parent.safe_runner_failure_category
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'TOKEN_TTL',
+                         'raw_error':'private secret here'}}),'TOKEN_TTL')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'PRE_DDL_EVIDENCE_MISSING'}}),
+                         'PRE_DDL_EVIDENCE_MISSING')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'secret\nTOKEN=ABC'}}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':'a'*101}}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD','failure':{'category':12}}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD','failure':'SECRET'}),'UNKNOWN')
+        self.assertEqual(safe({'status':'HOLD'}),'UNKNOWN')
+        self.assertEqual(safe(None),'UNKNOWN')
+        self.assertEqual(safe({'status':'PASS'}),'NOT_APPLICABLE')
+
+
+class ClaimUnknownCrossPrIntegrationTests(unittest.TestCase):
+    """Integrate the already-reviewed PR #97 one-shot claim safety delta."""
+
+    def test_runner_marks_unknown_before_one_irreversible_put(self):
+        source=(ROOT/'p3_app_installer_runner.py').read_text()
+        before=source.index("result['marker']='UNKNOWN'")
+        put=source.index('guard.consume(gates)')
+        after=source.index("result['marker']='CONSUMED'")
+        self.assertLess(before,put)
+        self.assertLess(put,after)
+        self.assertEqual(source.count('guard.consume(gates)'),1)
+        self.assertNotIn("result['marker']='NOT_CONSUMED'",source[before:])
+
+    def test_claim_lost_put_or_readback_is_terminal_no_retry(self):
+        for lose in ('PUT','GET'):
+            with self.subTest(fault=lose):
+                calls=[]
+                def request(method,name,headers,body=b''):
+                    calls.append(method)
+                    if method=='PUT':
+                        if lose=='PUT':raise OSError('synthetic lost PUT receipt')
+                        return guard.Response(201,'"fixture-etag"')
+                    if method=='GET':
+                        raise OSError('synthetic lost readback')
+                    raise AssertionError('unexpected method')
+                with patch.object(guard,'validate_owner_storage_token',return_value=True):
+                    g=guard.OneTimeInstallBlobGuard('FAKE_NO_SECRET',request=request)
+                g.predecessors_verified=True;g.new_key_available=True
+                gates={k:'PASS' for k in guard.REQUIRED_PRE_DDL_GATES}
+                g.prepare(gates,operation_id='a'*32,artifact_sha256='b'*64,
+                          instance_sha256='c'*64)
+                with self.assertRaises(guard.InstallGuardHold):g.consume(gates)
+                with self.assertRaises(guard.InstallGuardHold):g.consume(gates)
+                self.assertEqual(calls,['PUT'] if lose=='PUT' else ['PUT','GET'])
+                self.assertTrue(g.creation_attempted)
+
+    def test_parent_accepts_unknown_only_for_hold(self):
+        row={'status':'HOLD','sql_call_count':1,'layer_progress':0,
+             'marker':'UNKNOWN','cleanup':'PASS',
+             'sql_calls_started':1,'sql_calls_completed':1,
+             'sql_outcome':'CONFIRMED'}
+        self.assertEqual(parent.validate_final_receipt(row),row)
+        for delta in ({'status':'PASS'}, {'marker':'BOGUS'}):
+            with self.subTest(delta=delta), self.assertRaises(parent.Hold):
+                parent.validate_final_receipt(dict(row,**delta))
+
+
+class RemoteResiduePreflightNondeployTests(unittest.TestCase):
+    """Only local PTY/process/filesystem fixtures: no Azure/Token/SQL/Blob."""
+
+    def _local_session(self):
+        import shutil, time
+        bash = shutil.which('bash')
+        self.assertIsNotNone(bash)
+        command = ['/usr/bin/env', 'PS1=root@worker:/home/site/wwwroot# ',
+                   bash, '--noprofile', '--norc', '-i']
+        s = KuduExecSession('a'*20, deadline=time.monotonic()+25)
+        with patch.object(transport, 'interactive_exec_args', return_value=command):
+            s.start()
+            s.await_cli_shell_banner(seconds=6)
+            s.establish_safe_channel()
+        return s
+
+
+    def test_pretoken_fail_closed_no_download_or_token(self):
+        """A failed remote inspection must stop before all G1 access tokens."""
+        from types import SimpleNamespace
+        from contextlib import redirect_stdout
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            archive=Path(d)/'fixture.zip'
+            archive.write_bytes(b'LOCAL_NON_SECRET')
+            args=SimpleNamespace(distribution=str(archive),
+                artifact_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+                authorization=str(Path(d)/'not-used'))
+            channel=Mock()
+            channel.audit=['ECHO_READY','ECHO_READY']
+            channel.require_clean_remote.side_effect=TransportHold('REMOTE_RESIDUE_HOLD')
+            with patch.object(parent,'validate_local_source'), \
+                 patch.object(parent,'validate_binding',return_value=({'files':{}},'b'*64)), \
+                 patch.object(parent,'validate_distribution_archive'), \
+                 patch.object(parent,'load',return_value={'total_deadline_seconds':3600}), \
+                 patch.object(parent,'validate_authorization'), \
+                 patch.object(parent,'management',return_value=('INSTANCE',{'observed_at':0})), \
+                 patch.object(parent,'KuduExecSession',return_value=channel), \
+                 patch.object(parent,'blob_download') as download, \
+                 patch.object(parent,'az') as az:
+                output=io.StringIO()
+                with redirect_stdout(output):
+                    status=parent.execute(args)
+            self.assertEqual(status,1)
+            self.assertIn('STOP_STAGE=TRANSPORT_REMOTE_RESIDUE_HOLD',output.getvalue())
+            self.assertIn('STORAGE_TOKEN_REQUEST=NO',output.getvalue())
+            self.assertIn('SQL_TOKEN_REQUEST=NO',output.getvalue())
+            channel.require_clean_remote.assert_called_once_with('PRETOKEN')
+            download.assert_not_called()
+            az.assert_not_called()
+
+    def test_source_scope_readonly_and_nonce_never_echoable(self):
+        import ast, base64, re
+        nonce = 'ab'*16
+        cmd = transport.remote_residue_probe_command(nonce)
+        mat = re.search(rb"base64\.b64decode\('([A-Za-z0-9+/=]+)'\)", cmd)
+        self.assertIsNotNone(mat)
+        source = base64.b64decode(mat.group(1)).decode('utf-8')
+        ast.parse(source, filename='<remote-readonly-residue>', mode='exec')
+        for target in (parent.REMOTE_STAGE, parent.REMOTE_WORK, parent.REMOTE_RAM):
+            self.assertIn(target, source)
+        for word in ('shutil.rmtree', 'os.remove(', 'os.unlink(',
+                     'os.mkdir(', 'subprocess.', 'get-access-token', 'sqlcmd'):
+            self.assertNotIn(word,source)
+        proof=hashlib.sha256(('FV_G1_REMOTE_RESIDUE_CLEAR:'+nonce).encode()).hexdigest()
+        self.assertNotIn(proof.encode(),cmd)
+        self.assertIn('except OSError:',source)
+        with self.assertRaises(TransportHold):
+            transport.remote_residue_probe_command('not-a-nonce')
+
+    def test_parent_order_pre_token_and_pre_stage_one_session(self):
+        import inspect
+        code=inspect.getsource(parent.execute)
+        indices=[code.index('session = new_session()'),
+                 code.index('session.require_clean_remote("PRETOKEN")'),
+                 code.index('stop = "ORIGINAL_PACKAGE"'),
+                 code.index('storage_requested = True'),
+                 code.index('session.require_clean_remote("PRESTAGE")'),
+                 code.index('session.stage_archive(stage_bytes')]
+        self.assertEqual(indices,sorted(indices))
+        self.assertEqual(code.count('\n            session = new_session()\n'),1)
+        self.assertEqual(code.count('session.require_clean_remote("PRETOKEN")'),1)
+        self.assertEqual(code.count('session.require_clean_remote("PRESTAGE")'),1)
+        self.assertNotIn('session.send_secret_line',code[:indices[4]])
+
+    def test_mock_receipt_pass_hold_and_forged_rejected(self):
+        import time
+        nonce='ab'*16
+        s=KuduExecSession('a'*20,deadline=100,clock=lambda:1)
+        s.state.begin();s.fd=123;s.proc=Mock();s.proc.poll.return_value=None
+        s.audit += ['ECHO_READY','ECHO_READY']
+        def send_for(status):
+            def callback(raw,audit):
+                prefix='FV_G1_REMOTE_RESIDUE_'+status+':'
+                digest=hashlib.sha256((prefix+nonce).encode()).hexdigest()
+                s.buffer=('\n'+prefix+digest+'\n').encode()
+            return callback
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \
+             patch.object(s,'send_public',side_effect=send_for('CLEAR')):
+            s.require_clean_remote('PRETOKEN')
+            s.require_clean_remote('PRESTAGE')
+        self.assertEqual(s.audit[-1],'PRESTAGE_REMOTE_CLEAR')
+        self.assertEqual(s._token_count,0)
+        held=KuduExecSession('a'*20,deadline=100,clock=lambda:1)
+        held.state.begin();held.fd=124;held.proc=Mock()
+        held.audit+=['ECHO_READY','ECHO_READY']
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \
+             patch.object(held,'send_public',side_effect=lambda raw,code:
+                 setattr(held,'buffer', ('\nFV_G1_REMOTE_RESIDUE_HOLD:'+
+                 hashlib.sha256(('FV_G1_REMOTE_RESIDUE_HOLD:'+nonce).encode()).hexdigest()+
+                 '\n').encode())):
+            with self.assertRaises(TransportHold) as ctx:
+                held.require_clean_remote('PRETOKEN')
+        self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+        self.assertEqual(held._token_count,0)
+        self.assertNotIn('PRETOKEN_REMOTE_CLEAR',held.audit)
+
+    def test_stale_or_wrong_digest_cannot_approve(self):
+        nonce='ab'*16
+        s=KuduExecSession('a'*20,deadline=10,clock=iter(range(30)).__next__)
+        s.state.begin();s.fd=125;s.proc=Mock();s.proc.poll.return_value=None
+        s.audit+=['ECHO_READY','ECHO_READY']
+        stale=('FV_G1_REMOTE_RESIDUE_CLEAR:'+hashlib.sha256(
+            ('FV_G1_REMOTE_RESIDUE_CLEAR:'+nonce).encode()).hexdigest()+'\n').encode()
+        s.buffer=stale
+        with patch.object(transport.secrets,'token_hex',return_value=nonce), \
+             patch.object(s,'send_public'), \
+             patch.object(transport.select,'select',return_value=([125],[],[])), \
+             patch.object(transport.os,'read',return_value=b'not-the-proof\n'):
+            with self.assertRaises(TransportHold) as e:
+                s.require_clean_remote('PRETOKEN')
+        self.assertEqual(e.exception.code,'KUDU_CHANNEL_TIMEOUT')
+        self.assertEqual(s._token_count,0)
+
+    def test_generated_remote_code_clear_on_isolated_process_fixture(self):
+        """Positive clean branch without assuming a GitHub runner's PID namespace."""
+        import base64, contextlib, io, os, re
+        nonce='ab'*16
+        command=transport.remote_residue_probe_command(nonce)
+        match=re.search(rb"base64\.b64decode\('([A-Za-z0-9+/=]+)'\)",command)
+        self.assertIsNotNone(match)
+        code=base64.b64decode(match.group(1)).decode('utf-8')
+        output=io.StringIO()
+        # The only modeled PIDs are this probe and its parent, as in a
+        # private container with no prior G1 processes. No cloud interactions.
+        with patch.object(os.path,'lexists',return_value=False), \
+             patch.object(os,'listdir',return_value=[str(os.getpid()),
+                                                   str(os.getppid())]), \
+             contextlib.redirect_stdout(output):
+            exec(compile(code,'<isolated-g1-preflight>','exec'),{})
+        prefix='FV_G1_REMOTE_RESIDUE_CLEAR:'
+        expected=prefix+hashlib.sha256((prefix+nonce).encode()).hexdigest()
+        self.assertEqual(output.getvalue().strip(),expected)
+
+    def test_actual_local_pty_fail_closed_on_shared_runner_and_dirty_directory(self):
+        """Real PTY: a shared CI host may correctly HOLD on unknown host PIDs."""
+        import os
+        path=Path(transport.REMOTE_STAGE)
+        self.assertFalse(os.path.lexists(path))
+        s=self._local_session()
+        try:
+            for gate in ('PRETOKEN','PRESTAGE'):
+                try:
+                    s.require_clean_remote(gate)
+                except TransportHold as exc:
+                    # Never change production to ignore unverifiable /proc.
+                    self.assertEqual(exc.code,'REMOTE_RESIDUE_HOLD')
+                    self.assertNotIn(gate+'_REMOTE_CLEAR',s.audit)
+                    break
+            self.assertEqual(s.state.state,'CHANNEL')
+            self.assertEqual(s._token_count,0)
+            self.assertNotIn('STAGE_FRAME_SENT',s.audit)
+        finally:
+            s.close()
+        path.mkdir(mode=0o700)
+        s=None
+        try:
+            s=self._local_session()
+            with self.assertRaises(TransportHold) as ctx:
+                s.require_clean_remote('PRETOKEN')
+            self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+            self.assertTrue(path.is_dir())  # no automatic cleanup
+            self.assertEqual(s._token_count,0)
+        finally:
+            if s is not None:s.close()
+            path.rmdir()
+
+    def test_process_and_symlink_residue_fail_closed(self):
+        import os, shutil, subprocess, tempfile
+        target=Path(parent.REMOTE_WORK)
+        self.assertFalse(os.path.lexists(target))
+        with tempfile.TemporaryDirectory() as folder:
+            target.symlink_to(folder)
+            s=None
+            try:
+                s=self._local_session()
+                with self.assertRaises(TransportHold) as ctx:
+                    s.require_clean_remote('PRETOKEN')
+                self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+                self.assertTrue(target.is_symlink())
+            finally:
+                if s is not None:s.close()
+                target.unlink()
+        bash=shutil.which('bash')
+        self.assertIsNotNone(bash)
+        proc=subprocess.Popen([bash,'-c','exec -a '+str(target)+' sleep 20'],
+                              stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        s=None
+        try:
+            import time
+            time.sleep(0.15)
+            self.assertIsNone(proc.poll())
+            s=self._local_session()
+            with self.assertRaises(TransportHold) as ctx:
+                s.require_clean_remote('PRETOKEN')
+            self.assertEqual(ctx.exception.code,'REMOTE_RESIDUE_HOLD')
+        finally:
+            if s is not None:s.close()
+            proc.terminate()
+            try:proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill();proc.wait(timeout=2)
+
 
 if __name__=='__main__':unittest.main()

@@ -6,7 +6,7 @@ authorization record bound to the final distribution SHA and this bundle's
 binding index.  Tokens are read without echo from Kudu stdin, never argv/env.
 """
 import argparse, base64, getpass, hashlib, json, os, re, shutil, signal
-import socket, stat, subprocess, sys, time, uuid, zipfile
+import socket, stat, subprocess, sys, termios, time, uuid, zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -62,6 +62,33 @@ def verify_bundle(binding):
     for name,expected in binding['files'].items():
         p=HERE/name;require(p.is_file() and not p.is_symlink() and digest(p.read_bytes())==expected,'BINDING_FILE_HASH')
     return True
+def require_stable_token_tty():
+    """Inspect the already-established no-echo PTY, without changing its mode."""
+    require(os.isatty(0),'STORAGE_TOKEN_TTY_HOLD')
+    flags=termios.tcgetattr(0)[3]
+    require(not (flags & (termios.ECHO | termios.ICANON)),
+            'STORAGE_TOKEN_TTY_MODE_HOLD')
+
+def read_storage_token_no_flush():
+    """Bounded raw input: never reconfigure or flush buffered Token input."""
+    require_stable_token_tty()
+    raw=bytearray()
+    try:
+        while len(raw) <= 16384:
+            chunk=os.read(0,1)
+            require(bool(chunk),'STORAGE_TOKEN_READ_EOF')
+            if chunk == b'\n':
+                require(bool(raw),'STORAGE_TOKEN_EMPTY')
+                try:
+                    return raw.decode('ascii')
+                except UnicodeDecodeError as exc:
+                    raise Hold('STORAGE_TOKEN_ASCII_HOLD') from exc
+            raw.extend(chunk)
+        raise Hold('STORAGE_TOKEN_LENGTH_HOLD')
+    finally:
+        for pos in range(len(raw)):
+            raw[pos]=0
+
 def token_exp(token,kind,now):
     validate_owner_token(token,kind,now)
     try:return float(json.loads(base64.urlsafe_b64decode(token.split('.')[1]+'==='))['exp'])
@@ -82,14 +109,19 @@ def stage_tools(cfg):
          'ODBCSYSINI':str(odbc),'ODBCINI':'odbc.ini','ODBCINSTINI':'odbcinst.ini',
          'LD_LIBRARY_PATH':':'.join([str(toolroot/'opt/microsoft/msodbcsql18/lib64'),str(toolroot/'usr/lib/x86_64-linux-gnu')])}
     return binary,env
+SQL_CALLS_STARTED = 0
+SQL_CALLS_COMPLETED = 0
+
 def sql_call(binary,env,tokenfile,raw,deadline,index):
     """Guard EACH non-installer SQL client, including preflight/postchecks.
 
     SQL completion remains UNKNOWN after a timeout or forced termination;
     process-group cleanup is NEVER evidence that SQL Server rolled back DDL.
     """
-    global INSTALLER_GROUP_CLEARED
+    global INSTALLER_GROUP_CLEARED, SQL_CALLS_STARTED, SQL_CALLS_COMPLETED
     require(time.monotonic()<deadline,'SQL_DEADLINE')
+    # Attempt entered; a subprocess start is not proof of SQL execution.
+    SQL_CALLS_STARTED = max(SQL_CALLS_STARTED, index)
     args=[str(binary),'-S',SERVER,'-d',DATABASE,'-I','-b','-l','10','-G','-P',str(tokenfile),'-Nm','-h','-1','-W','-w','65535','-s','|']
     INSTALLER_GROUP_CLEARED=False
     p=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
@@ -109,6 +141,7 @@ def sql_call(binary,env,tokenfile,raw,deadline,index):
         # A successful direct client exit cannot certify its descendants exited.
         if _group_alive(p.pid):
             raise Hold('SQL_CLIENT_DESCENDANTS_AFTER_EXIT')
+        SQL_CALLS_COMPLETED = max(SQL_CALLS_COMPLETED, index)
         return out
     finally:
         stopped=_stop_installer_group(p.pid,p)
@@ -248,8 +281,12 @@ def verified_pre_ddl_gates(evidence, *, sql_expires, storage_expires, deadline, 
     return {name:'PASS' for name,passed in observed.items() if passed}
 
 def run(args):
-    started=time.monotonic();evidence={};result={'status':'HOLD','sql_call_count':0,'layer_progress':0,'marker':'NOT_CONSUMED'}
+    global SQL_CALLS_STARTED, SQL_CALLS_COMPLETED
+    SQL_CALLS_STARTED = SQL_CALLS_COMPLETED = 0
+    started=time.monotonic();evidence={};result={'status':'HOLD','sql_call_count':0,'layer_progress':0,'marker':'NOT_CONSUMED',
+        'sql_calls_started':0,'sql_calls_completed':0,'sql_outcome':'NOT_STARTED'}
     sql_token=storage_token=None
+    installer_invoked=False
     try:
         cfg=load_json(HERE/'executor_config.json');binding_raw=(HERE/'binding-index.json').read_bytes();binding=json.loads(binding_raw)
         facts=load_json(HERE/'live-facts.json')
@@ -274,8 +311,16 @@ def run(args):
         require(dry.returncode==0 and b'HASH_VERIFIED_DRY_RUN_NO_CONNECTION' in dry.stdout,'INSTALLER_DRY_RUN');evidence['installer_dry_run_verified']=True
         binary,env=stage_tools(cfg)
         print('\nFV_P3_TOKENS_READY',flush=True)
-        sql_token=getpass.getpass('OWNER_SQL_TOKEN:');storage_token=getpass.getpass('OWNER_STORAGE_TOKEN:')
-        now=time.time();sql_exp=token_exp(sql_token,'sql',now);storage_exp=token_exp(storage_token,'storage',now)
+        # A second getpass call may discard bytes already queued on the PTY.
+        # A fixed receipt after *validated* SQL token reception is mandatory:
+        # Parent sends Storage token only after observing this exact receipt.
+        sql_token=getpass.getpass('OWNER_SQL_TOKEN:')
+        sql_exp=token_exp(sql_token,'sql',time.time())
+        # No terminal mode changes are permitted after this acknowledgement.
+        require_stable_token_tty()
+        print('\nFV_P3_SQL_TOKEN_RECEIVED',flush=True)
+        storage_token=read_storage_token_no_flush()
+        now=time.time();storage_exp=token_exp(storage_token,'storage',now)
         require(min(sql_exp,storage_exp)-now>=cfg['minimum_token_ttl_seconds'],'TOKEN_TTL');evidence['owner_sql_token_verified']=True
         tokenfile=RAM/'sql-token';private_write(tokenfile,sql_token.encode('utf-16le'));sql_token=None
         deadline=min(started+cfg['total_deadline_seconds']-cfg['cleanup_reserve_seconds'],time.monotonic()+cfg['sql_deadline_seconds'])
@@ -318,10 +363,14 @@ def run(args):
         # Final budget check occurs *before* the single irreversible PUT.
         require(min(sql_exp,storage_exp)-time.time()>=2600,'PRE_DDL_TOKEN_TTL')
         require(deadline-time.monotonic()>=16*120+2*110+60,'PRE_DDL_SQL_BUDGET')
+        # An ambiguous conditional PUT or lost readback may have consumed the claim.
+        # Once this boundary is entered, UNKNOWN is terminal: NEVER retry.
+        result['marker']='UNKNOWN'
         require(guard.consume(gates)==claim_sha,'BLOB_CLAIM_SHA_MISMATCH')
         result['marker']='CONSUMED'
         storage_token=None
         # The next step after consumption is the original frozen installer.
+        installer_invoked=True
         proc=run_installer_managed([sys.executable,str(package_root/'install.py'),'--root',str(package_root),'--target','pathb-uat','--execute'],runenv,max(1,deadline-time.monotonic()))
         journal=load_json(state);result['sql_call_count']=1+int(journal.get('next',0));result['layer_progress']=max(0,min(14,int(journal.get('next',0))-1));result['journal']=journal.get('records',[])
         require(proc.returncode==0 and journal.get('next')==16 and len(journal.get('records',[]))==16,'INSTALLER_PARTIAL_OR_FAILED')
@@ -340,6 +389,29 @@ def run(args):
     except Exception as e:
         code=str(e);result['failure']={'category':code if re.fullmatch('[A-Z0-9_]{3,100}',code) else 'CONTROL_FAILURE_DETAILS_SUPPRESSED'}
     finally:
+        # Adapter fsyncs "next" before dispatch, so it means reserved
+        # invocation, not proof the database received or completed SQL.
+        try:
+            state_path=ROOT/'adapter-state.json'
+            if SQL_CALLS_COMPLETED >= 1 and state_path.is_file() and not state_path.is_symlink():
+                ledger=load_json(state_path)
+                reserved=ledger.get('next')
+                entries=ledger.get('records')
+                if type(reserved) is int and 0 <= reserved <= 16 and isinstance(entries,list) and len(entries) <= reserved:
+                    SQL_CALLS_STARTED=max(SQL_CALLS_STARTED,1+reserved)
+                    completed=sum(1 for row in entries if isinstance(row,dict) and
+                                  type(row.get('child_exit')) is int and row.get('timeout') is False)
+                    SQL_CALLS_COMPLETED=max(SQL_CALLS_COMPLETED,1+completed)
+        except Exception:
+            pass  # Missing evidence remains UNKNOWN; never claim rollback.
+        result['sql_calls_started']=SQL_CALLS_STARTED
+        result['sql_calls_completed']=min(SQL_CALLS_COMPLETED,SQL_CALLS_STARTED)
+        # An invoked installer without a complete durable adapter ledger has
+        # unknown outcome even if the standalone preflight already succeeded.
+        installer_complete=(not installer_invoked or SQL_CALLS_COMPLETED >= 17)
+        result['sql_outcome']=('NOT_STARTED' if SQL_CALLS_STARTED==0 else
+             'CONFIRMED' if SQL_CALLS_STARTED==SQL_CALLS_COMPLETED and installer_complete
+             else 'UNKNOWN')
         sql_token=storage_token=None
         if not INSTALLER_GROUP_CLEARED:
             # Preserve all runtime evidence/token files in their guarded directories;
