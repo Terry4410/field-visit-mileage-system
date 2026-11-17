@@ -829,7 +829,8 @@ class SqlAttemptTelemetryTests(unittest.TestCase):
         base={'status':'HOLD','sql_call_count':0,'layer_progress':0,
               'marker':'NOT_CONSUMED','cleanup':'PASS'}
         for started,done,outcome in ((0,0,'NOT_STARTED'),(1,0,'UNKNOWN'),
-                                     (3,2,'UNKNOWN'),(1,1,'CONFIRMED')):
+                                     (3,2,'UNKNOWN'),(1,1,'CONFIRMED'),
+                                     (1,1,'UNKNOWN')):
             self.assertEqual(parent.validate_final_receipt(dict(base,
                 sql_calls_started=started,sql_calls_completed=done,
                 sql_outcome=outcome))['sql_outcome'],outcome)
@@ -848,6 +849,7 @@ class SqlAttemptTelemetryTests(unittest.TestCase):
         self.assertIn("reserved=ledger.get('next')",source)
         self.assertIn("SQL_CALLS_STARTED=max(SQL_CALLS_STARTED,1+reserved)",source)
         self.assertIn("result['sql_outcome']=",source)
+        self.assertIn('installer_complete=(not installer_invoked or SQL_CALLS_COMPLETED >= 17)',source)
 
 class RunnerFailureClassificationTests(unittest.TestCase):
     def test_only_fixed_failure_category_is_exposed(self):
