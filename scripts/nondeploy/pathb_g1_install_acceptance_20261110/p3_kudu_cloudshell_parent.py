@@ -250,7 +250,7 @@ def validate_final_receipt(obj):
     allowed = {"status", "sql_call_count", "layer_progress", "marker",
                "journal", "user_tables", "markers",
                "schema_fingerprint_sha256", "failure", "cleanup",
-               "elapsed_seconds"}
+               "elapsed_seconds", "sql_calls_started", "sql_calls_completed", "sql_outcome"}
     require(set(obj).issubset(allowed), "FINAL_RECEIPT_SHAPE_HOLD")
     require(obj.get("status") in {"PASS", "HOLD"} and
             isinstance(obj.get("sql_call_count"), int) and
@@ -260,6 +260,19 @@ def validate_final_receipt(obj):
             obj.get("marker") in {"NOT_CONSUMED", "CONSUMED"} and
             obj.get("cleanup") in {"PASS", "HOLD"},
             "FINAL_RECEIPT_SHAPE_HOLD")
+    fields=('sql_calls_started','sql_calls_completed','sql_outcome')
+    if any(field in obj for field in fields):
+        require(all(field in obj for field in fields) and
+                type(obj['sql_calls_started']) is int and
+                type(obj['sql_calls_completed']) is int and
+                0 <= obj['sql_calls_completed'] <= obj['sql_calls_started'] <= 19 and
+                obj['sql_outcome'] in {'NOT_STARTED','CONFIRMED','UNKNOWN'} and
+                (obj['sql_outcome']=='NOT_STARTED') == (obj['sql_calls_started']==0) and
+                (obj['sql_outcome']!='CONFIRMED' or
+                 obj['sql_calls_started']==obj['sql_calls_completed']) and
+                (obj['sql_outcome']!='UNKNOWN' or
+                 obj['sql_calls_started']>obj['sql_calls_completed']),
+                'SQL_TELEMETRY_CONTRACT_HOLD')
     if obj["status"] == "PASS":
         require(obj["sql_call_count"] == 19 and obj["layer_progress"] == 14 and
                 obj.get("marker") == "CONSUMED" and
@@ -501,6 +514,11 @@ def execute(args):
         print("STORAGE_TOKEN_REQUEST=" + ("YES" if storage_requested else "NO"))
         print("SQL_CALL_COUNT=" + (str(receipt["sql_call_count"])
                                    if receipt is not None else "UNKNOWN"))
+        for field,label in (('sql_calls_started','SQL_CALLS_STARTED'),
+                            ('sql_calls_completed','SQL_CALLS_COMPLETED'),
+                            ('sql_outcome','SQL_OUTCOME')):
+            val = receipt.get(field) if receipt is not None else None
+            print(label+'='+(str(val) if val is not None else 'UNKNOWN'))
         print("LAYER_PROGRESS=" + (str(receipt["layer_progress"])
                                   if receipt is not None else "UNKNOWN"))
         print("BLOB_MARKER=" + (receipt.get("marker", "UNKNOWN")
