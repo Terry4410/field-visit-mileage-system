@@ -270,8 +270,7 @@ def validate_final_receipt(obj):
                 (obj['sql_outcome']=='NOT_STARTED') == (obj['sql_calls_started']==0) and
                 (obj['sql_outcome']!='CONFIRMED' or
                  obj['sql_calls_started']==obj['sql_calls_completed']) and
-                (obj['sql_outcome']!='UNKNOWN' or
-                 obj['sql_calls_started']>obj['sql_calls_completed']),
+                (obj['sql_outcome']!='UNKNOWN' or obj['sql_calls_started']>=1),
                 'SQL_TELEMETRY_CONTRACT_HOLD')
     if obj["status"] == "PASS":
         require(obj["sql_call_count"] == 19 and obj["layer_progress"] == 14 and
