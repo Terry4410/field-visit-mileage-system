@@ -1147,14 +1147,41 @@ class RemoteResiduePreflightNondeployTests(unittest.TestCase):
         self.assertEqual(e.exception.code,'KUDU_CHANNEL_TIMEOUT')
         self.assertEqual(s._token_count,0)
 
-    def test_actual_local_pty_clear_twice_and_dirty_directory_hold(self):
+    def test_generated_remote_code_clear_on_isolated_process_fixture(self):
+        """Positive clean branch without assuming a GitHub runner's PID namespace."""
+        import base64, contextlib, io, os, re
+        nonce='ab'*16
+        command=transport.remote_residue_probe_command(nonce)
+        match=re.search(rb"base64\.b64decode\('([A-Za-z0-9+/=]+)'\)",command)
+        self.assertIsNotNone(match)
+        code=base64.b64decode(match.group(1)).decode('utf-8')
+        output=io.StringIO()
+        # The only modeled PIDs are this probe and its parent, as in a
+        # private container with no prior G1 processes. No cloud interactions.
+        with patch.object(os.path,'lexists',return_value=False), \
+             patch.object(os,'listdir',return_value=[str(os.getpid()),
+                                                   str(os.getppid())]), \
+             contextlib.redirect_stdout(output):
+            exec(compile(code,'<isolated-g1-preflight>','exec'),{})
+        prefix='FV_G1_REMOTE_RESIDUE_CLEAR:'
+        expected=prefix+hashlib.sha256((prefix+nonce).encode()).hexdigest()
+        self.assertEqual(output.getvalue().strip(),expected)
+
+    def test_actual_local_pty_fail_closed_on_shared_runner_and_dirty_directory(self):
+        """Real PTY: a shared CI host may correctly HOLD on unknown host PIDs."""
         import os
         path=Path(transport.REMOTE_STAGE)
         self.assertFalse(os.path.lexists(path))
         s=self._local_session()
         try:
-            s.require_clean_remote('PRETOKEN')
-            s.require_clean_remote('PRESTAGE')
+            for gate in ('PRETOKEN','PRESTAGE'):
+                try:
+                    s.require_clean_remote(gate)
+                except TransportHold as exc:
+                    # Never change production to ignore unverifiable /proc.
+                    self.assertEqual(exc.code,'REMOTE_RESIDUE_HOLD')
+                    self.assertNotIn(gate+'_REMOTE_CLEAR',s.audit)
+                    break
             self.assertEqual(s.state.state,'CHANNEL')
             self.assertEqual(s._token_count,0)
             self.assertNotIn('STAGE_FRAME_SENT',s.audit)

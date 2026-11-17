@@ -21,7 +21,7 @@
     "preflight.sql": "e87dbd54d4740254b6f0041fe330cc4af71e51a214964c39e1001c4437075add",
     "schema-fingerprint.sql": "3c18fc1cf67d298a53919fc824b03ae6c1bf014a97c754c2f7cc90335b096c18",
     "seal_verifier.py": "33d8bd044839a9b549a39eeeb2fd2616e0663bca0a7df41a78fdd49ab5480597",
-    "test_g1_kudu_interactive_nondeploy.py": "e5ee7475ad337cf3e76e299909dd02405f90febfa128ba3e6261f970179ce533",
+    "test_g1_kudu_interactive_nondeploy.py": "d6103af5bfc1a9d73bcb16e49e9076f29b009867c6cb1a65cccdead87be4151f",
     "token_adapter.py": "703d04bffa6542d80a214bd257adb221f86fdc45aee38981267239fc913596e4",
     "token_adapter_g1_REVIEW_ONLY.py": "92e39bf80685cae04c8d49cffc96ebe872d8c6b78a2b620d1ecda95fd9a626a5"
   },
