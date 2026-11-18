@@ -68,6 +68,17 @@ class ContractTests(unittest.TestCase):
             self.assertIn("sys.sql_modules", source)
             self.assertIn("tr.is_disabled = 1 OR m.definition IS NULL", source)
 
+    def test_catalog_connect_is_not_effective_login_proof(self):
+        for required in ("sys.database_role_members", "DIRECT_CONNECT_GRANT_VISIBLE",
+                         "DIRECT_ROLE_CONNECT_ENTRY_VISIBLE",
+                         "DIRECT_ROLE_CONNECT_DENY_VISIBLE",
+                         "UNKNOWN_TRANSITIVE_GROUP_ROLE_AND_LIVE_MI_LOGIN",
+                         "GROUP_MEMBERSHIP_NOT_PROVEN"):
+            self.assertIn(required, READ)
+        self.assertIn("dp.[state] IN (N'G', N'W')", READ)
+        self.assertIn("dp.[state] = N'D'", READ)
+        self.assertNotIn("EFFECTIVE_CONNECT_PASS", READ)
+
     def test_no_automatic_remote_execution(self):
         for source in (READ, WRITE, README):
             self.assertNotIn("az login", source)
