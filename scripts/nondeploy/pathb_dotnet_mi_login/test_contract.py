@@ -26,13 +26,13 @@ class FailClosedContract(unittest.TestCase):
         self.assertIn('string.Equals(uri.AbsolutePath, "/MSI/token",', SOURCE)
         self.assertIn('string.Equals(uri.AbsolutePath, "/MSI/token/",', SOURCE)
         self.assertIn('if (!allowedPath)', SOURCE)
-        # Host is an IP literal, not untrusted DNS. No arbitrary URLs or routable targets.
-        self.assertIn('IPAddress.TryParse(uri.Host, out var identityIp)', SOURCE)
-        self.assertIn('AddressFamily.InterNetwork', SOURCE)
-        self.assertIn('identityOctets[0] == 127', SOURCE)
-        self.assertIn('identityOctets[0] == 169 && identityOctets[1] == 254', SOURCE)
-        self.assertIn('if (!localHost)', SOURCE)
-        self.assertNotIn('uri.Host == "169.254.129.2"', SOURCE)
+        # Host policy must be called by production code and behavior-tested in .NET CI.
+        self.assertIn('IdentityHostPolicy.IsLocalIpv4Literal(uri.Host)', SOURCE)
+        policy = Path(__file__).with_name("IdentityHostPolicy.cs").read_text(encoding="utf-8")
+        self.assertIn('IPAddress.TryParse(host, out var address)', policy)
+        self.assertIn('AddressFamily.InterNetwork', policy)
+        self.assertIn('bytes[0] == 127', policy)
+        self.assertIn('bytes[0] == 169 && bytes[1] == 254', policy)
         self.assertNotIn('StartsWith(', SOURCE)
         self.assertNotIn('EndsWith(', SOURCE)
         for category in ('PARSE', 'SCHEME_OR_AUTHORITY', 'HOST', 'PORT', 'PATH', 'QUERY'):
