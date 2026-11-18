@@ -40,6 +40,18 @@ class ContractTests(unittest.TestCase):
         self.assertIn("ROLLBACK TRANSACTION", WRITE)
         self.assertIn("WITH OBJECT_ID", WRITE)
 
+    def test_missing_authorization_context_is_fail_closed(self):
+        for key in ("OwnerDecision", "GroupAclVerified", "OwnerSqlChannelVerified"):
+            self.assertIn(
+                "COALESCE(TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB."
+                + key + "')), N'')", WRITE)
+        # SQL three-valued logic: bare NULL <> expected evaluates UNKNOWN,
+        # so a missing gate must be converted to a nonmatching value.
+        for key in ("OwnerDecision", "GroupAclVerified", "OwnerSqlChannelVerified"):
+            self.assertNotIn(
+                "IF TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB."
+                + key + "'))", WRITE)
+
     def test_only_essential_ddl_not_broad_rights(self):
         # Accept comments mentioning forbidden rights, but never a runnable SQL GRANT/role statement.
         for forbidden in (r"(?im)^\s*GRANT\s+(?:SELECT|INSERT|UPDATE|DELETE|ALTER)",
