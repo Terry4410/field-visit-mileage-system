@@ -23,6 +23,10 @@ class FailClosedContract(unittest.TestCase):
         self.assertIn('WaitAsync(TimeSpan.FromSeconds(5))', SOURCE)
         self.assertIn('deadline.Token', SOURCE)
         self.assertIn('uri.AbsolutePath != "/MSI/token"', SOURCE)
+        for category in ('PARSE', 'SCHEME_OR_AUTHORITY', 'HOST', 'PORT', 'PATH', 'QUERY'):
+            self.assertIn('HOLD_MI_ENDPOINT_' + category, SOURCE)
+        self.assertNotIn('Console.WriteLine(uri', SOURCE)
+        self.assertNotIn('Console.WriteLine(header', SOURCE)
         self.assertIn('!string.IsNullOrEmpty(uri.Query)', SOURCE)
 
     def test_no_sql_execution_or_ef(self):
