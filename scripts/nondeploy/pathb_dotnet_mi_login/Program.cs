@@ -36,7 +36,11 @@ internal static class Program
             return Hold("HOLD_MI_ENDPOINT_HOST");
         if (uri.Port <= 0 || uri.IsDefaultPort)
             return Hold("HOLD_MI_ENDPOINT_PORT");
-        if (uri.AbsolutePath != "/MSI/token")
+        // App Service emits the same fixed route with platform-dependent case and optional final slash.
+        // Permit only that route; never accept a broader prefix or arbitrary token endpoint.
+        var allowedPath = string.Equals(uri.AbsolutePath, "/MSI/token", StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(uri.AbsolutePath, "/MSI/token/", StringComparison.OrdinalIgnoreCase);
+        if (!allowedPath)
             return Hold("HOLD_MI_ENDPOINT_PATH");
         if (!string.IsNullOrEmpty(uri.Query))
             return Hold("HOLD_MI_ENDPOINT_QUERY");
