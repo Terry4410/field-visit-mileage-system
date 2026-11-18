@@ -1,0 +1,20 @@
+name: Path B MI receiver offline-only tests
+on:
+  pull_request:
+    paths:
+      - 'scripts/nondeploy/pathb_mi_receive_contract.py'
+      - 'tests/test_pathb_mi_receive_contract.py'
+      - '.github/workflows/pathb-mi-receiver-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline negative tests (no Azure credentials)
+        run: python3 -m unittest discover -s tests -p test_pathb_mi_receive_contract.py -v
