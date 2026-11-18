@@ -4,6 +4,11 @@
 -- Azure execution requires separate Owner approval of this exact file SHA-256.
 -- Never retry after an ambiguous client outcome; use the companion readback.
 SET NOCOUNT ON;
+IF @@TRANCOUNT <> 0 OR (2 & @@OPTIONS) = 2
+BEGIN
+    RAISERROR(N'PATHB_SEED_REQUIRES_AUTOCOMMIT_SESSION_HOLD', 16, 1);
+    RETURN;
+END;
 SET XACT_ABORT ON;
 SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 
@@ -55,7 +60,8 @@ IF EXISTS (SELECT 1 FROM (VALUES
     (N'UserEmploymentPeriods',N'UserEmploymentPeriodId'),
     (N'UserEmploymentPeriods',N'UserId'),(N'UserEmploymentPeriods',N'EmploymentStatus'),
     (N'UserEmploymentPeriods',N'EffectiveFrom'),(N'UserEmploymentPeriods',N'EffectiveTo'),
-    (N'UserEmploymentPeriods',N'SourceType'),(N'UserEmploymentPeriods',N'CreatedAt'),
+    (N'UserEmploymentPeriods',N'SourceType'),(N'UserEmploymentPeriods',N'SourceReference'),
+    (N'UserEmploymentPeriods',N'CreatedAt'),
     (N'UserRoleAssignments',N'UserRoleAssignmentId'),
     (N'UserRoleAssignments',N'UserId'),(N'UserRoleAssignments',N'RoleId'),
     (N'UserRoleAssignments',N'EffectiveFrom'),(N'UserRoleAssignments',N'EffectiveTo'),
@@ -73,44 +79,29 @@ IF EXISTS (SELECT 1 FROM (VALUES
 DECLARE @allowed TABLE(TableName sysname NOT NULL, ColumnName sysname NOT NULL,
                        PRIMARY KEY(TableName, ColumnName));
 INSERT @allowed VALUES
- (N'Organizations',N'OrganizationId'),(N'Organizations',N'OrganizationCode'),
- (N'Organizations',N'OrganizationName'),(N'Organizations',N'IsActive'),
- (N'Organizations',N'EffectiveFrom'),(N'Organizations',N'EffectiveTo'),
- (N'Organizations',N'CreatedAt'),(N'Organizations',N'UpdatedAt'),
- (N'Teams',N'TeamId'),(N'Teams',N'OrganizationId'),(N'Teams',N'TeamCode'),
- (N'Teams',N'TeamName'),(N'Teams',N'IsActive'),(N'Teams',N'EffectiveFrom'),
- (N'Teams',N'EffectiveTo'),(N'Teams',N'CreatedAt'),(N'Teams',N'UpdatedAt'),
- (N'Roles',N'RoleId'),(N'Roles',N'RoleCode'),(N'Roles',N'RoleName'),
- (N'Roles',N'Description'),(N'Roles',N'IsActive'),(N'Roles',N'CreatedAt'),
- (N'Users',N'UserId'),(N'Users',N'OrganizationId'),(N'Users',N'TeamId'),
- (N'Users',N'EmployeeNo'),(N'Users',N'DisplayName'),(N'Users',N'Email'),
- (N'Users',N'EntraObjectId'),(N'Users',N'IsActive'),(N'Users',N'CreatedAt'),
- (N'Users',N'UpdatedAt'),
- (N'UserIdentityProfiles',N'UserId'),(N'UserIdentityProfiles',N'UserType'),
- (N'UserIdentityProfiles',N'UserCode'),(N'UserIdentityProfiles',N'IdentityProvider'),
- (N'UserIdentityProfiles',N'ExternalOrganization'),
- (N'UserIdentityProfiles',N'ExternalTitle'),
- (N'UserIdentityProfiles',N'AuthorizationFrom'),
- (N'UserIdentityProfiles',N'AuthorizationTo'),
- (N'UserIdentityProfiles',N'EntraTenantId'),
- (N'UserIdentityProfiles',N'EntraObjectId'),
- (N'UserIdentityProfiles',N'EmploymentId'),
- (N'UserIdentityProfiles',N'CreatedAt'),(N'UserIdentityProfiles',N'UpdatedAt'),
- (N'UserEmploymentPeriods',N'UserEmploymentPeriodId'),
+ (N'Organizations',N'OrganizationCode'),(N'Organizations',N'OrganizationName'),
+ (N'Organizations',N'IsActive'),(N'Organizations',N'EffectiveFrom'),
+ (N'Organizations',N'EffectiveTo'),(N'Organizations',N'CreatedAt'),
+ (N'Teams',N'OrganizationId'),(N'Teams',N'TeamCode'),
+ (N'Teams',N'TeamName'),(N'Teams',N'IsActive'),
+ (N'Teams',N'EffectiveFrom'),(N'Teams',N'EffectiveTo'),
+ (N'Teams',N'CreatedAt'),(N'Roles',N'RoleCode'),
+ (N'Roles',N'RoleName'),(N'Roles',N'IsActive'),
+ (N'Roles',N'CreatedAt'),(N'Users',N'OrganizationId'),
+ (N'Users',N'TeamId'),(N'Users',N'EmployeeNo'),
+ (N'Users',N'DisplayName'),(N'Users',N'IsActive'),
+ (N'Users',N'CreatedAt'),(N'UserIdentityProfiles',N'UserId'),
+ (N'UserIdentityProfiles',N'UserType'),(N'UserIdentityProfiles',N'UserCode'),
+ (N'UserIdentityProfiles',N'IdentityProvider'),(N'UserIdentityProfiles',N'CreatedAt'),
  (N'UserEmploymentPeriods',N'UserId'),(N'UserEmploymentPeriods',N'EmploymentStatus'),
  (N'UserEmploymentPeriods',N'EffectiveFrom'),(N'UserEmploymentPeriods',N'EffectiveTo'),
- (N'UserEmploymentPeriods',N'SourceType'),
- (N'UserEmploymentPeriods',N'SourceReference'),
- (N'UserEmploymentPeriods',N'CreatedAt'),(N'UserEmploymentPeriods',N'UpdatedAt'),
- (N'UserRoleAssignments',N'UserRoleAssignmentId'),
- (N'UserRoleAssignments',N'UserId'),(N'UserRoleAssignments',N'RoleId'),
- (N'UserRoleAssignments',N'EffectiveFrom'),(N'UserRoleAssignments',N'EffectiveTo'),
- (N'UserRoleAssignments',N'AssignedByUserId'),(N'UserRoleAssignments',N'CreatedAt'),
- (N'UserTeamAssignments',N'UserTeamAssignmentId'),
+ (N'UserEmploymentPeriods',N'SourceType'),(N'UserEmploymentPeriods',N'SourceReference'),
+ (N'UserEmploymentPeriods',N'CreatedAt'),(N'UserRoleAssignments',N'UserId'),
+ (N'UserRoleAssignments',N'RoleId'),(N'UserRoleAssignments',N'EffectiveFrom'),
+ (N'UserRoleAssignments',N'EffectiveTo'),(N'UserRoleAssignments',N'CreatedAt'),
  (N'UserTeamAssignments',N'UserId'),(N'UserTeamAssignments',N'TeamId'),
  (N'UserTeamAssignments',N'IsPrimary'),(N'UserTeamAssignments',N'EffectiveFrom'),
- (N'UserTeamAssignments',N'EffectiveTo'),(N'UserTeamAssignments',N'AssignedByUserId'),
- (N'UserTeamAssignments',N'CreatedAt');
+ (N'UserTeamAssignments',N'EffectiveTo'),(N'UserTeamAssignments',N'CreatedAt');
 IF EXISTS (SELECT 1 FROM sys.columns c
            JOIN sys.tables t ON t.object_id = c.object_id
            LEFT JOIN sys.default_constraints d ON d.object_id = c.default_object_id
