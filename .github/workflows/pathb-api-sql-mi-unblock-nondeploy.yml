@@ -1,0 +1,24 @@
+name: Path B API MI SQL Unblock (NONDEPLOY)
+on:
+  pull_request:
+    paths:
+      - "scripts/nondeploy/pathb_api_sql_mi_unblock/**"
+      - ".github/workflows/pathb-api-sql-mi-unblock-nondeploy.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-contract:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python static fail-closed gates (no Azure)
+        run: python3 scripts/nondeploy/pathb_api_sql_mi_unblock/test_offline_contract.py -v
+      - name: Confirm no source migration or live workflow
+        shell: bash
+        run: |
+          test -f scripts/nondeploy/pathb_api_sql_mi_unblock/catalog_readonly.sql
+          test -f scripts/nondeploy/pathb_api_sql_mi_unblock/conditional_create_connect.sql
+          echo 'NONDEPLOY_ONLY=PASS'
