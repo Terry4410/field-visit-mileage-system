@@ -22,7 +22,12 @@ class FailClosedContract(unittest.TestCase):
         self.assertIn('Pooling = false', SOURCE)
         self.assertIn('WaitAsync(TimeSpan.FromSeconds(5))', SOURCE)
         self.assertIn('deadline.Token', SOURCE)
-        self.assertIn('uri.AbsolutePath != "/MSI/token"', SOURCE)
+        self.assertIn('StringComparison.OrdinalIgnoreCase', SOURCE)
+        self.assertIn('string.Equals(uri.AbsolutePath, "/MSI/token",', SOURCE)
+        self.assertIn('string.Equals(uri.AbsolutePath, "/MSI/token/",', SOURCE)
+        self.assertIn('if (!allowedPath)', SOURCE)
+        self.assertNotIn('StartsWith(', SOURCE)
+        self.assertNotIn('EndsWith(', SOURCE)
         for category in ('PARSE', 'SCHEME_OR_AUTHORITY', 'HOST', 'PORT', 'PATH', 'QUERY'):
             self.assertIn('HOLD_MI_ENDPOINT_' + category, SOURCE)
         self.assertNotIn('Console.WriteLine(uri', SOURCE)
