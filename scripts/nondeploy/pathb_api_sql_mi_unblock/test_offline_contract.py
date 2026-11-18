@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent
 READ = (ROOT / "catalog_readonly.sql").read_text()
 WRITE = (ROOT / "conditional_create_connect.sql").read_text()
 README = (ROOT / "README.md").read_text()
+LOGIN = (ROOT / "mi_login_once.py").read_text()
 
 class ContractTests(unittest.TestCase):
     def test_readonly_does_not_mutate(self):
@@ -90,6 +91,25 @@ class ContractTests(unittest.TestCase):
         self.assertIn("dp.[state] IN (N'G', N'W')", READ)
         self.assertIn("dp.[state] = N'D'", READ)
         self.assertNotIn("EFFECTIVE_CONNECT_PASS", READ)
+
+    def test_one_shot_login_source_contract(self):
+        import ast
+        tree = ast.parse(LOGIN)
+        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+        def is_call(node, obj, method):
+            return (isinstance(node.func, ast.Attribute) and node.func.attr == method
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == obj)
+        self.assertEqual(sum(is_call(n, "urllib", "urlopen") for n in calls), 0)
+        self.assertEqual(sum(is_call(n, "pyodbc", "connect") for n in calls), 1)
+        self.assertEqual(sum(is_call(n, "socket", "getaddrinfo") for n in calls), 1)
+        self.assertEqual(sum(is_call(n, "connection", "close") for n in calls), 1)
+        for forbidden in (".execute(", ".cursor(", ".executemany(", "subprocess",
+                          "os.system", "requests.Session", "Retry(", "CREATE USER", "GRANT CONNECT"):
+            self.assertNotIn(forbidden, LOGIN)
+        for required in ("WEBSITE_INSTANCE_ID", "IDENTITY_ENDPOINT", "IDENTITY_HEADER",
+                         "ODBC Driver 18 for SQL Server", "10.90.2.4",
+                         "PASS_NO_SQL_EXECUTED", "HOLD_PRIVATE_DNS_MISMATCH"):
+            self.assertIn(required, LOGIN)
 
     def test_no_automatic_remote_execution(self):
         for source in (READ, WRITE, README):
