@@ -1,0 +1,39 @@
+name: Path B .NET MI login NONDEPLOY
+on:
+  pull_request:
+    paths:
+      - 'scripts/nondeploy/pathb_dotnet_mi_login/**'
+      - 'scripts/nondeploy/pathb_dotnet_mi_login_tests/**'
+      - '.github/workflows/pathb-dotnet-mi-login-nondeploy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Static fail-closed contract
+        run: python3 scripts/nondeploy/pathb_dotnet_mi_login/test_contract.py
+      - name: Offline host policy behavioral tests (NO candidate execution)
+        run: dotnet run --project scripts/nondeploy/pathb_dotnet_mi_login_tests/HostPolicyTests.csproj --configuration Release
+      - name: Restore and compile only (NO execution)
+        run: dotnet build scripts/nondeploy/pathb_dotnet_mi_login/PathB.MiLoginOnce.csproj --configuration Release
+      - name: Publish candidate only (NO Azure / NO deployment)
+        run: dotnet publish scripts/nondeploy/pathb_dotnet_mi_login/PathB.MiLoginOnce.csproj --configuration Release --no-restore --output /tmp/pathb-dotnet-mi-login
+      - name: Record exact candidate file hashes and sizes (NO execution)
+        run: |
+          cd /tmp/pathb-dotnet-mi-login
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/pathb-dotnet-mi-login.SHA256SUMS
+          du -sh .
+          wc -l /tmp/pathb-dotnet-mi-login.SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-dotnet-mi-login-nondeploy
+          path: |
+            /tmp/pathb-dotnet-mi-login/
+            /tmp/pathb-dotnet-mi-login.SHA256SUMS
+          retention-days: 7
