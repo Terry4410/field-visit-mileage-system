@@ -99,7 +99,8 @@ class ContractTests(unittest.TestCase):
         def is_call(node, obj, method):
             return (isinstance(node.func, ast.Attribute) and node.func.attr == method
                     and isinstance(node.func.value, ast.Name) and node.func.value.id == obj)
-        self.assertEqual(sum(isinstance(n.func, ast.Attribute) and n.func.attr == "urlopen"\n                             for n in calls), 1)
+        self.assertEqual(sum(isinstance(n.func, ast.Attribute) and n.func.attr == "urlopen"
+                             for n in calls), 1)
         self.assertEqual(sum(is_call(n, "pyodbc", "connect") for n in calls), 1)
         self.assertEqual(sum(is_call(n, "socket", "getaddrinfo") for n in calls), 1)
         self.assertEqual(sum(is_call(n, "connection", "close") for n in calls), 1)
