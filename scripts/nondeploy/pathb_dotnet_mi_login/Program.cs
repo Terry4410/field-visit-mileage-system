@@ -1,8 +1,6 @@
 // NONDEPLOY candidate. NEVER run in Azure without separate exact-artifact Owner authorization.
 // Exactly one App Service managed-identity token request and one SQL login; NO SQL commands.
 using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 
@@ -31,39 +29,36 @@ internal static class Program
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ||
             uri.Scheme != Uri.UriSchemeHttp || !string.IsNullOrEmpty(uri.UserInfo) ||
             !string.IsNullOrEmpty(uri.Fragment) || uri.Port <= 0 ||
-            (uri.Host != "127.0.0.1" && uri.Host != "localhost" &&
-             !(uri.Host == "169.254.129.2" && uri.AbsolutePath == "/MSI/token")))
+            (uri.Host != "127.0.0.1" && uri.Host != "localhost" && uri.Host != "169.254.129.2") ||
+            uri.AbsolutePath != "/MSI/token")
             return Hold("HOLD_MI_ENDPOINT_UNEXPECTED");
-        var query = uri.Query.TrimStart('?');
-        if (query.Contains("resource=", StringComparison.OrdinalIgnoreCase) ||
-            query.Contains("api-version=", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(uri.Query))
             return Hold("HOLD_MI_ENDPOINT_QUERY");
         IPAddress[] ips;
-        try { ips = await Dns.GetHostAddressesAsync(Host); }
+        try { ips = await Dns.GetHostAddressesAsync(Host).WaitAsync(TimeSpan.FromSeconds(5)); }
         catch { return Hold("HOLD_PRIVATE_DNS_UNVERIFIED"); }
         if (ips.Length == 0 || ips.Any(ip => ip.ToString() != PrivateIp))
             return Hold("HOLD_PRIVATE_DNS_MISMATCH");
 
         // Construct a single fixed token request; reject proxies and redirects.
         var builder = new UriBuilder(uri);
-        builder.Query = string.IsNullOrEmpty(query)
-            ? "resource=https%3A%2F%2Fdatabase.windows.net%2F&api-version=2019-08-01"
-            : query + "&resource=https%3A%2F%2Fdatabase.windows.net%2F&api-version=2019-08-01";
+        builder.Query = "resource=" + Uri.EscapeDataString(Audience) + "&api-version=2019-08-01";
         string token;
         try
         {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
             using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
             using var request = new HttpRequestMessage(HttpMethod.Get, builder.Uri);
             request.Headers.TryAddWithoutValidation("X-IDENTITY-HEADER", header);
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             if (response.StatusCode != HttpStatusCode.OK || response.Content.Headers.ContentLength > 16384)
                 return Hold("HOLD_MI_TOKEN_RESPONSE");
             await using var stream = await response.Content.ReadAsStreamAsync();
             using var memory = new MemoryStream();
             var buffer = new byte[4096];
             int read;
-            while ((read = await stream.ReadAsync(buffer)) > 0)
+            while ((read = await stream.ReadAsync(buffer, deadline.Token)) > 0)
             {
                 if (memory.Length + read > 16384) return Hold("HOLD_MI_TOKEN_RESPONSE");
                 memory.Write(buffer, 0, read);
@@ -88,7 +83,7 @@ internal static class Program
         try
         {
             await using var connection = new SqlConnection(cs.ConnectionString) { AccessToken = token };
-            await connection.OpenAsync();
+            await connection.OpenAsync(new CancellationTokenSource(TimeSpan.FromSeconds(8)).Token);
             await connection.CloseAsync();
         }
         catch (SqlException ex) when (ex.Number == 18456 || ex.Number == 113)
