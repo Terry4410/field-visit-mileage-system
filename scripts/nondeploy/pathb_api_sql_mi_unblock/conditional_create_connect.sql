@@ -5,11 +5,11 @@
 -- trusted Owner SQL connection and explicit Owner decision. No retry on UNKNOWN.
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
-IF TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB.OwnerDecision'))
+IF COALESCE(TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB.OwnerDecision')), N'')
        <> N'EXPLICIT_NEW_PATHB_MI_CONNECT_ONLY_ONCE_V1'
-   OR TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB.GroupAclVerified'))
+   OR COALESCE(TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB.GroupAclVerified')), N'')
        <> N'INDEPENDENTLY_VERIFIED_NO_EFFECTIVE_GROUP_LOGIN'
-   OR TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB.OwnerSqlChannelVerified'))
+   OR COALESCE(TRY_CONVERT(nvarchar(128), SESSION_CONTEXT(N'FieldVisit.PathB.OwnerSqlChannelVerified')), N'')
        <> N'EXACT_OWNER_PRIVATE_TLS_VERIFIED'
     THROW 57100, N'PATHB_MI_NEW_AUTHORIZATION_REQUIRED', 1;
 IF COALESCE(CONVERT(int, SERVERPROPERTY(N'EngineEdition')), 0) <> 5
