@@ -1,0 +1,28 @@
+name: Path B .NET MI login NONDEPLOY
+on:
+  pull_request:
+    paths:
+      - 'scripts/nondeploy/pathb_dotnet_mi_login/**'
+      - '.github/workflows/pathb-dotnet-mi-login-nondeploy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Static fail-closed contract
+        run: python3 scripts/nondeploy/pathb_dotnet_mi_login/test_contract.py
+      - name: Restore and compile only (NO execution)
+        run: dotnet build scripts/nondeploy/pathb_dotnet_mi_login/PathB.MiLoginOnce.csproj --configuration Release
+      - name: Publish candidate only (NO Azure / NO deployment)
+        run: dotnet publish scripts/nondeploy/pathb_dotnet_mi_login/PathB.MiLoginOnce.csproj --configuration Release --no-restore --output /tmp/pathb-dotnet-mi-login
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-dotnet-mi-login-nondeploy
+          path: /tmp/pathb-dotnet-mi-login/
+          retention-days: 7
