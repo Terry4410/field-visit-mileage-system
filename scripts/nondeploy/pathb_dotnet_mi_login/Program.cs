@@ -95,7 +95,11 @@ internal static class Program
         {
             await using var connection = new SqlConnection(cs.ConnectionString) { AccessToken = token };
             await connection.OpenAsync(new CancellationTokenSource(TimeSpan.FromSeconds(8)).Token);
+            // Login is independently established before the one fixed read-only metadata batch.
+            // A metadata permission failure is UNKNOWN, not evidence of an empty database.
+            var schema = await SchemaReadOnlyProbe.CheckAsync(connection);
             await connection.CloseAsync();
+            Console.WriteLine("PATHB_MI_SCHEMA=" + schema);
         }
         catch (SqlException ex) when (ex.Number == 18456 || ex.Number == 113)
         { return Hold("SQL_AUTH_DENIED_OR_DOSGUARD_UNKNOWN"); }
@@ -103,7 +107,7 @@ internal static class Program
         { return Hold("MI_LOGIN_OR_TRANSPORT_UNKNOWN"); }
         catch
         { return Hold("MI_LOGIN_UNKNOWN"); }
-        Console.WriteLine("PATHB_DOTNET_MI_LOGIN=PASS_NO_SQL_EXECUTED");
+        Console.WriteLine("PATHB_DOTNET_MI_LOGIN=PASS_LOGIN_ONE_READONLY_BATCH");
         return 0;
     }
 }
