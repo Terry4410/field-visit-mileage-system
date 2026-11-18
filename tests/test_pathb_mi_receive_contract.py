@@ -63,7 +63,7 @@ class ReceiveContractTests(unittest.TestCase):
         def swapping_stat(path, *args, **kwargs):
             if path == self.root:
                 calls["count"] += 1
-                if calls["count"] == 3:
+                if calls["count"] == 2:
                     self.root.rename(Path(self.temp.name) / "moved")
                     self.root.mkdir(mode=0o700)
             return original_stat(path, *args, **kwargs)
