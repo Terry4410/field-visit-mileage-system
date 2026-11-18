@@ -41,13 +41,24 @@ class FailClosedContract(unittest.TestCase):
         self.assertNotIn('Console.WriteLine(header', SOURCE)
         self.assertIn('!string.IsNullOrEmpty(uri.Query)', SOURCE)
 
-    def test_no_sql_execution_or_ef(self):
+    def test_single_readonly_batch_and_no_ef(self):
         for forbidden in ('ExecuteReader', 'ExecuteNonQuery', 'ExecuteScalar',
                           'SqlCommand(', 'DbContext', 'CanConnectAsync',
                           'CREATE USER', 'GRANT ', 'Task.Delay(', 'Thread.Sleep('):
             self.assertNotIn(forbidden, SOURCE)
         self.assertNotRegex(SOURCE, r'\bfor\s*\(|\bwhile\s*\(.*retry')
-        self.assertIn('PASS_NO_SQL_EXECUTED', SOURCE)
+        self.assertIn('PASS_LOGIN_ONE_READONLY_BATCH', SOURCE)
+        self.assertEqual(SOURCE.count('SchemaReadOnlyProbe.CheckAsync('), 1)
+        probe = Path(__file__).with_name("SchemaReadOnlyProbe.cs").read_text(encoding="utf-8")
+        self.assertEqual(probe.count('command.ExecuteScalarAsync('), 1)
+        self.assertIn('SCHEMA_UNKNOWN_METADATA_PERMISSION', probe)
+        self.assertIn('SCHEMA_UNKNOWN_VERSION_SELECT_PERMISSION', probe)
+        self.assertIn('SCHEMA_69_3_VISIBLE', probe)
+        self.assertIn('SCHEMA_MISMATCH_VISIBLE', probe)
+        self.assertIn('CommandTimeout = 6', probe)
+        self.assertIn('DB_NAME() <> N\'db-fieldvisit-pathb-uat\'', probe)
+        for forbidden in ('INSERT ', 'UPDATE ', 'DELETE ', 'CREATE USER', 'GRANT ', 'ALTER TABLE'):
+            self.assertNotIn(forbidden, probe)
 
     def test_secret_and_exception_suppression(self):
         self.assertNotIn('Console.Error.Write', SOURCE)
