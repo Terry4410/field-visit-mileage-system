@@ -32,16 +32,8 @@ internal static class Program
         if (uri.Scheme != Uri.UriSchemeHttp || !string.IsNullOrEmpty(uri.UserInfo) ||
             !string.IsNullOrEmpty(uri.Fragment))
             return Hold("HOLD_MI_ENDPOINT_SCHEME_OR_AUTHORITY");
-        // App Service supplies a platform-local token host; never accept arbitrary DNS names.
-        // Only literal IPv4 loopback (127/8) or IPv4 link-local (169.254/16) is eligible.
-        // No DNS resolution for the identity endpoint; no public, private-VNet or IPv6 target.
-        if (!IPAddress.TryParse(uri.Host, out var identityIp) ||
-            identityIp.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-            return Hold("HOLD_MI_ENDPOINT_HOST");
-        var identityOctets = identityIp.GetAddressBytes();
-        bool localHost = identityOctets[0] == 127 ||
-                         (identityOctets[0] == 169 && identityOctets[1] == 254);
-        if (!localHost)
+        // Reject DNS names and routable hosts; only literal IPv4 loopback/link-local.
+        if (!IdentityHostPolicy.IsLocalIpv4Literal(uri.Host))
             return Hold("HOLD_MI_ENDPOINT_HOST");
         if (uri.Port <= 0 || uri.IsDefaultPort)
             return Hold("HOLD_MI_ENDPOINT_PORT");
