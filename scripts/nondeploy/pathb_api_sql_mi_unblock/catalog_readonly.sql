@@ -39,6 +39,7 @@ IF OBJECT_ID(N'dbo.SchemaVersions', N'U') IS NULL
                 AND (tr.is_disabled = 1 OR m.definition IS NULL))
     THROW 57004, N'PATHB_INSTALLED_SCHEMA_HOLD', 1;
 DECLARE @objectMatches int, @clientMatches int, @groups int, @directDenies int;
+DECLARE @directGrants int, @roleConnectGrants int, @roleConnectDenies int;
 ;WITH ExternalPrincipals AS (
     SELECT principal_id, name, [type], [sid],
         TRY_CONVERT(uniqueidentifier, SUBSTRING([sid], 1, 16)) AS mappedGuid
@@ -56,6 +57,24 @@ FROM sys.database_principals p JOIN sys.database_permissions dp
 WHERE p.[type] = N'E' AND DATALENGTH(p.[sid]) IN (16, 18)
   AND TRY_CONVERT(uniqueidentifier, SUBSTRING(p.[sid], 1, 16)) IN (@objectId, @clientId)
   AND dp.permission_name = N'CONNECT' AND dp.[state] = N'D';
+-- These are catalog observations, NOT effective-permission proof.
+-- Only direct role memberships are counted; nested database roles, Entra
+-- transitive groups, server-level policy and live token/login remain UNKNOWN.
+SELECT @directGrants = COUNT(*)
+FROM sys.database_principals p JOIN sys.database_permissions dp
+  ON dp.grantee_principal_id = p.principal_id
+WHERE p.[type] = N'E' AND DATALENGTH(p.[sid]) IN (16, 18)
+  AND TRY_CONVERT(uniqueidentifier, SUBSTRING(p.[sid], 1, 16)) IN (@objectId, @clientId)
+  AND dp.permission_name = N'CONNECT' AND dp.[state] IN (N'G', N'W');
+SELECT @roleConnectGrants = COUNT(*),
+       @roleConnectDenies = COALESCE(SUM(CASE WHEN dp.[state] = N'D' THEN 1 ELSE 0 END), 0)
+FROM sys.database_principals p
+JOIN sys.database_role_members drm ON drm.member_principal_id = p.principal_id
+JOIN sys.database_principals rolep ON rolep.principal_id = drm.role_principal_id
+JOIN sys.database_permissions dp ON dp.grantee_principal_id = rolep.principal_id
+WHERE p.[type] = N'E' AND DATALENGTH(p.[sid]) IN (16, 18)
+  AND TRY_CONVERT(uniqueidentifier, SUBSTRING(p.[sid], 1, 16)) IN (@objectId, @clientId)
+  AND rolep.[type] = N'R' AND dp.permission_name = N'CONNECT';
 SELECT N'PATHB_MI_CATALOG' AS code,
        CASE WHEN @objectMatches > 1 OR @clientMatches > 1 OR
                       (@objectMatches > 0 AND @clientMatches > 0 AND @objectId <> @clientId)
@@ -66,4 +85,7 @@ SELECT N'PATHB_MI_CATALOG' AS code,
             ELSE N'NO_GROUP_PRINCIPALS_VISIBLE' END AS groupEvidence,
        CASE WHEN @directDenies > 0 THEN N'EXPLICIT_CONNECT_DENY_VISIBLE'
             ELSE N'NO_DIRECT_CONNECT_DENY_VISIBLE_NOT_EFFECTIVE_PROOF' END AS directConnectEvidence,
-       N'NO_LIVE_MI_LOGIN_TESTED' AS effectivePermission;
+       CASE WHEN @directGrants > 0 THEN N'DIRECT_CONNECT_GRANT_VISIBLE' ELSE N'NO_DIRECT_CONNECT_GRANT_VISIBLE' END AS directConnectGrant,
+       CASE WHEN @roleConnectGrants > 0 THEN N'DIRECT_ROLE_CONNECT_ENTRY_VISIBLE' ELSE N'NO_DIRECT_ROLE_CONNECT_ENTRY_VISIBLE' END AS directRoleConnect,
+       CASE WHEN @roleConnectDenies > 0 THEN N'DIRECT_ROLE_CONNECT_DENY_VISIBLE' ELSE N'NO_DIRECT_ROLE_CONNECT_DENY_VISIBLE' END AS directRoleDeny,
+       N'UNKNOWN_TRANSITIVE_GROUP_ROLE_AND_LIVE_MI_LOGIN' AS effectivePermission;
