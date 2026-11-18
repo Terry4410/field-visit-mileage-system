@@ -21,8 +21,16 @@ jobs:
         run: dotnet build scripts/nondeploy/pathb_dotnet_mi_login/PathB.MiLoginOnce.csproj --configuration Release
       - name: Publish candidate only (NO Azure / NO deployment)
         run: dotnet publish scripts/nondeploy/pathb_dotnet_mi_login/PathB.MiLoginOnce.csproj --configuration Release --no-restore --output /tmp/pathb-dotnet-mi-login
+      - name: Record exact candidate file hashes and sizes (NO execution)
+        run: |
+          cd /tmp/pathb-dotnet-mi-login
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/pathb-dotnet-mi-login.SHA256SUMS
+          du -sh .
+          wc -l /tmp/pathb-dotnet-mi-login.SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: pathb-dotnet-mi-login-nondeploy
-          path: /tmp/pathb-dotnet-mi-login/
+          path: |
+            /tmp/pathb-dotnet-mi-login/
+            /tmp/pathb-dotnet-mi-login.SHA256SUMS
           retention-days: 7
