@@ -66,7 +66,7 @@ FROM sys.database_principals p JOIN sys.database_permissions dp
 WHERE p.[type] = N'E' AND DATALENGTH(p.[sid]) IN (16, 18)
   AND TRY_CONVERT(uniqueidentifier, SUBSTRING(p.[sid], 1, 16)) IN (@objectId, @clientId)
   AND dp.permission_name = N'CONNECT' AND dp.[state] IN (N'G', N'W');
-SELECT @roleConnectGrants = COUNT(*),
+SELECT @roleConnectGrants = COALESCE(SUM(CASE WHEN dp.[state] IN (N'G', N'W') THEN 1 ELSE 0 END), 0),
        @roleConnectDenies = COALESCE(SUM(CASE WHEN dp.[state] = N'D' THEN 1 ELSE 0 END), 0)
 FROM sys.database_principals p
 JOIN sys.database_role_members drm ON drm.member_principal_id = p.principal_id
