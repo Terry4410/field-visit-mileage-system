@@ -69,6 +69,14 @@ def receive_once(directory: Path, name: str, payload: bytes, expected_sha256: st
         finally:
             if checkfd >= 0:
                 os.close(checkfd)
+        # Detect a directory renamed/replaced during the write. The dirfd
+        # alone pins an inode but does not prove it remains at the named path.
+        try:
+            after = directory.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise Hold("directory_disappeared") from exc
+        if directory.is_symlink() or (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino):
+            raise Hold("directory_replaced")
         return digest
     finally:
         os.close(dirfd)
