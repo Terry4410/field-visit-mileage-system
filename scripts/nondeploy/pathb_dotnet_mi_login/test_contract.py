@@ -1,6 +1,5 @@
 """Static NONDEPLOY guard. Never invokes the probe or Azure."""
 from pathlib import Path
-import re
 import unittest
 
 SOURCE = Path(__file__).with_name("Program.cs").read_text(encoding="utf-8")
@@ -21,6 +20,10 @@ class FailClosedContract(unittest.TestCase):
         self.assertIn('UseProxy = false', SOURCE)
         self.assertIn('ConnectRetryCount = 0', SOURCE)
         self.assertIn('Pooling = false', SOURCE)
+        self.assertIn('WaitAsync(TimeSpan.FromSeconds(5))', SOURCE)
+        self.assertIn('deadline.Token', SOURCE)
+        self.assertIn('uri.AbsolutePath != "/MSI/token"', SOURCE)
+        self.assertIn('!string.IsNullOrEmpty(uri.Query)', SOURCE)
 
     def test_no_sql_execution_or_ef(self):
         for forbidden in ('ExecuteReader', 'ExecuteNonQuery', 'ExecuteScalar',
@@ -40,8 +43,8 @@ class FailClosedContract(unittest.TestCase):
 
     def test_framework_reuse(self):
         self.assertIn('<TargetFramework>net8.0</TargetFramework>', PROJECT)
-        self.assertIn('FieldVisit.Infrastructure.csproj', PROJECT)
-        self.assertNotIn('PackageReference', PROJECT)
+        self.assertIn('<PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.3" />', PROJECT)
+        self.assertNotIn('ProjectReference', PROJECT)
 
 
 if __name__ == '__main__':
