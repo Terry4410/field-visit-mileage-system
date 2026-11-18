@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "nondeploy"))
 from pathb_mi_receive_contract import Hold, receive_once
@@ -54,6 +55,22 @@ class ReceiveContractTests(unittest.TestCase):
         os.chmod(self.root, 0o777)
         with self.assertRaises(Hold):
             self.receive()
+
+    def test_directory_replaced_after_write_is_hold(self):
+        original_stat = Path.stat
+        calls = {"count": 0}
+
+        def swapping_stat(path, *args, **kwargs):
+            if path == self.root:
+                calls["count"] += 1
+                if calls["count"] == 3:
+                    self.root.rename(Path(self.temp.name) / "moved")
+                    self.root.mkdir(mode=0o700)
+            return original_stat(path, *args, **kwargs)
+
+        with patch.object(Path, "stat", swapping_stat):
+            with self.assertRaises(Hold):
+                self.receive()
 
     def test_existing_symlink_target_not_followed(self):
         outside = Path(self.temp.name) / "outside"
