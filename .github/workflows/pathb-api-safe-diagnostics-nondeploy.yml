@@ -1,0 +1,42 @@
+name: Path B API Safe Diagnostics NONDEPLOY
+on:
+  pull_request:
+    paths:
+      - 'backend/src/FieldVisit.Infrastructure/DependencyInjection.cs'
+      - 'backend/src/FieldVisit.Infrastructure/SqlConnectionFailureClassifier.cs'
+      - 'scripts/nondeploy/pathb_api_safe_diagnostics_tests/**'
+      - '.github/workflows/pathb-api-safe-diagnostics-nondeploy.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-audit:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Offline classifier behavioral tests
+        run: dotnet run --project scripts/nondeploy/pathb_api_safe_diagnostics_tests/PathB.Diagnostics.Tests.csproj --configuration Release
+      - name: Build existing API
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release
+      - name: Existing application unit tests
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj --configuration Release
+      - name: Publish candidate (no Azure access)
+        run: dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj --configuration Release --no-restore -o /tmp/pathb-api-safe-candidate
+      - name: Hash and bound candidate
+        run: |
+          cd /tmp/pathb-api-safe-candidate
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/pathb-api-safe-candidate.SHA256SUMS
+          test -s /tmp/pathb-api-safe-candidate.SHA256SUMS
+          echo "NONDEPLOY_CANDIDATE=PASS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-api-safe-diagnostics-nondeploy
+          path: |
+            /tmp/pathb-api-safe-candidate/
+            /tmp/pathb-api-safe-candidate.SHA256SUMS
+          retention-days: 7
