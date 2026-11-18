@@ -26,12 +26,18 @@ internal static class Program
         var header = Environment.GetEnvironmentVariable("IDENTITY_HEADER");
         if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(header))
             return Hold("HOLD_MI_ENDPOINT_ABSENT");
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ||
-            uri.Scheme != Uri.UriSchemeHttp || !string.IsNullOrEmpty(uri.UserInfo) ||
-            !string.IsNullOrEmpty(uri.Fragment) || uri.Port <= 0 ||
-            (uri.Host != "127.0.0.1" && uri.Host != "localhost" && uri.Host != "169.254.129.2") ||
-            uri.AbsolutePath != "/MSI/token")
-            return Hold("HOLD_MI_ENDPOINT_UNEXPECTED");
+        // Ordered, non-sensitive classifications. Never output the endpoint or its parts.
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+            return Hold("HOLD_MI_ENDPOINT_PARSE");
+        if (uri.Scheme != Uri.UriSchemeHttp || !string.IsNullOrEmpty(uri.UserInfo) ||
+            !string.IsNullOrEmpty(uri.Fragment))
+            return Hold("HOLD_MI_ENDPOINT_SCHEME_OR_AUTHORITY");
+        if (uri.Host != "127.0.0.1" && uri.Host != "localhost" && uri.Host != "169.254.129.2")
+            return Hold("HOLD_MI_ENDPOINT_HOST");
+        if (uri.Port <= 0 || uri.IsDefaultPort)
+            return Hold("HOLD_MI_ENDPOINT_PORT");
+        if (uri.AbsolutePath != "/MSI/token")
+            return Hold("HOLD_MI_ENDPOINT_PATH");
         if (!string.IsNullOrEmpty(uri.Query))
             return Hold("HOLD_MI_ENDPOINT_QUERY");
         IPAddress[] ips;
