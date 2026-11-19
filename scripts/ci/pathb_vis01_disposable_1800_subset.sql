@@ -167,6 +167,10 @@ CREATE TABLE dbo.DeploymentSites
         CONSTRAINT UQ_DeploymentSites_Center_Code UNIQUE(CenterId, SiteCode)
     );
 GO
+-- Synthetic base Location stub before canonical site->location foreign key.
+CREATE TABLE dbo.Locations(LocationId int IDENTITY PRIMARY KEY,OrganizationId int NOT NULL,TeamId int NULL,LocationCode nvarchar(50) NULL,LocationName nvarchar(200) NOT NULL,LocationType nvarchar(30) NOT NULL,PostalCode nvarchar(20) NULL,City nvarchar(100) NULL,District nvarchar(100) NULL,Address nvarchar(500) NULL,PlusCode nvarchar(200) NULL,Latitude decimal(10,7) NULL,Longitude decimal(10,7) NULL,IsTemporary bit NOT NULL,ApprovalStatus nvarchar(30) NOT NULL,GeocodingStatus nvarchar(30) NOT NULL,GeocodedAt datetime2(3) NULL,CreatedByUserId int NULL,IsActive bit NOT NULL,CreatedAt datetime2(3) NOT NULL,FOREIGN KEY(OrganizationId) REFERENCES dbo.Organizations(OrganizationId),FOREIGN KEY(TeamId) REFERENCES dbo.Teams(TeamId),FOREIGN KEY(CreatedByUserId) REFERENCES dbo.Users(UserId));
+GO
+
 -- Canonical: database/migrations/1800_003_deployment_sites/Up.sql
 CREATE TABLE dbo.DeploymentSiteLocationAssignments
     (
@@ -227,8 +231,6 @@ CREATE TABLE dbo.EmploymentDeploymentSiteAssignments
     );
 GO
 -- Base 1.5 tables are unavailable as a complete canonical source: synthetic stubs below.
-CREATE TABLE dbo.Locations(LocationId int IDENTITY PRIMARY KEY,OrganizationId int NOT NULL,TeamId int NULL,LocationCode nvarchar(50) NULL,LocationName nvarchar(200) NOT NULL,LocationType nvarchar(30) NOT NULL,PostalCode nvarchar(20) NULL,City nvarchar(100) NULL,District nvarchar(100) NULL,Address nvarchar(500) NULL,PlusCode nvarchar(200) NULL,Latitude decimal(10,7) NULL,Longitude decimal(10,7) NULL,IsTemporary bit NOT NULL,ApprovalStatus nvarchar(30) NOT NULL,GeocodingStatus nvarchar(30) NOT NULL,GeocodedAt datetime2(3) NULL,CreatedByUserId int NULL,IsActive bit NOT NULL,CreatedAt datetime2(3) NOT NULL,FOREIGN KEY(OrganizationId) REFERENCES dbo.Organizations(OrganizationId),FOREIGN KEY(TeamId) REFERENCES dbo.Teams(TeamId),FOREIGN KEY(CreatedByUserId) REFERENCES dbo.Users(UserId));
-GO
 CREATE TABLE dbo.VisitTypes(VisitTypeId int IDENTITY PRIMARY KEY,VisitTypeCode nvarchar(50) NOT NULL UNIQUE,VisitTypeName nvarchar(200) NOT NULL,Description nvarchar(500) NULL,SortOrder int NOT NULL,IsActive bit NOT NULL,CreatedAt datetime2(3) NOT NULL);
 GO
 CREATE TABLE dbo.Projects(ProjectId int IDENTITY PRIMARY KEY,OrganizationId int NOT NULL,TeamId int NULL,ProjectCode nvarchar(50) NOT NULL,ProjectName nvarchar(200) NOT NULL,Description nvarchar(500) NULL,LocationMode nvarchar(30) NOT NULL,StartDate date NULL,IsActive bit NOT NULL,CreatedAt datetime2(3) NOT NULL,UNIQUE(OrganizationId,ProjectCode),FOREIGN KEY(OrganizationId) REFERENCES dbo.Organizations(OrganizationId),FOREIGN KEY(TeamId) REFERENCES dbo.Teams(TeamId));
