@@ -57,5 +57,32 @@ class Vis01AclContract(unittest.TestCase):
                       "BEGIN TRANSACTION","COMMIT TRANSACTION","ROLLBACK TRANSACTION"):
             self.assertIn(token, ACL)
 
+
+COMPLETE_ACL = (ROOT / "database/uat/FieldVisit_PathB_VIS01_Complete_Minimal_Runtime_ACL_LOCKED_TEST.sql").read_text()
+class CompleteRuntimeAclContract(unittest.TestCase):
+    def test_exact_minimum_grants(self):
+        select_names = re.findall(r"GRANT SELECT ON OBJECT::dbo\.\[(\w+)\] TO \[api-fieldvisit-pathb-uat_pathb\];", COMPLETE_ACL)
+        insert_names = re.findall(r"GRANT INSERT ON OBJECT::dbo\.\[(\w+)\] TO \[api-fieldvisit-pathb-uat_pathb\];", COMPLETE_ACL)
+        reads = {"Employments","EmploymentStatusPeriods","TeamMemberships","TeamCenterAssignments",
+           "EmploymentDeploymentSiteAssignments","TeamDeploymentSiteAssignments","DeploymentSites","Centers",
+           "DeploymentSiteLocationAssignments","Locations","VisitTrips","VisitTripStops",
+           "MileageCalculations","Projects","VisitTypes","SchemaVersions"}
+        writes = {"VisitTrips","VisitTripStops","MileageCalculations","VisitTripStatusHistory","AuditLogs"}
+        self.assertEqual(len(select_names),16)
+        self.assertEqual(set(select_names),reads)
+        self.assertEqual(len(insert_names),5)
+        self.assertEqual(set(insert_names),writes)
+    def test_locked_and_fail_closed(self):
+        stripped = re.sub(r"(?m)^--.*\n", "", COMPLETE_ACL).strip()
+        self.assertTrue(stripped.startswith("THROW 59590, 'LOCKED_REVIEW_NO_AZURE_DCL_AUTHORIZATION', 1;"))
+        for token in ("EIGHTEEN_EXACT_VIS01_TABLES_HOLD","FIVE_EXACT_DRAFT_INSERT_TABLES_HOLD",
+                      "PARTIAL_VIS01_GRANTS_HOLD_NO_WRITE","BEGIN TRANSACTION",
+                      "COMMIT TRANSACTION","ROLLBACK TRANSACTION",
+                      "API_MI_CLIENT_OR_OBJECT_SID_HOLD"):
+            self.assertIn(token,COMPLETE_ACL)
+        for forbidden in ("GRANT UPDATE","GRANT DELETE","GRANT CONTROL","ALTER ROLE",
+                          "GRANT SELECT ON DATABASE","GRANT INSERT ON DATABASE"):
+            self.assertNotIn(forbidden,COMPLETE_ACL)
+
 if __name__=="__main__":
     unittest.main()
