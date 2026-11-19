@@ -10,15 +10,15 @@
 * BuildStopsAsync -> GetOperationalLocationAsync: SELECT `Locations` and, **only where present and enabled**, optional `LocationCreateReservations`, plus SELECT `SchemaVersions` to distinguish installed optional contract; if populated Stop has ProjectId/VisitTypeId, SELECT `Projects`/`VisitTypes`.
 * INSERT new draft `VisitTrips` plus `VisitTripStops`, EF `SaveChanges`.
 * INSERT `MileageCalculations`, append `VisitTripStatusHistory` and `AuditLogs`, second `SaveChanges`.
-* GetDtoAsync -> SELECT `VisitTrips`, `VisitTripStops`, `Locations`, `MileageCalculations`; profile/team already known and context reader invoked for display. No route snapshot SELECT for Draft.
+* GetDtoAsync -> SELECT `VisitTrips`, `VisitTripStops`, `Locations`, `MileageCalculations`; profile/team already known and context reader invoked for display. No route snapshot SELECT for Draft. **Important: SQL Server real behavioral test proved that EF-style INSERT ... OUTPUT INSERTED.Identity on history/audit tables raises SQL 229 with INSERT-only; restrict SELECT to only their identity columns, not entire tables.**
 
 | dbo table | SELECT | INSERT | UPDATE | DELETE | Reason |
 |---|---|---|---|---|---|
 | VisitTrips | YES | YES | NO | NO | overlap, draft create, immediately read |
 | VisitTripStops | YES | YES | NO | NO | draft stops and GET include |
 | MileageCalculations | YES | YES | NO | NO | new calculation and GET include |
-| VisitTripStatusHistory | NO | YES | NO | NO | append-only CreateDraft history |
-| AuditLogs | NO | YES | NO | NO | append-only TripCreateDraft audit |
+| VisitTripStatusHistory | Identity column only | YES | NO | NO | EF OUTPUT INSERTED.VisitTripStatusHistoryId; no full-row SELECT |
+| AuditLogs | Identity column only | YES | NO | NO | EF OUTPUT INSERTED.AuditLogId; no full-row SELECT |
 | Projects | YES | NO | NO | NO | optional project selection and validation |
 | VisitTypes | YES | NO | NO | NO | optional visit type selection and validation |
 | SchemaVersions | YES | NO | NO | NO | optional location-reservation schema detection |
