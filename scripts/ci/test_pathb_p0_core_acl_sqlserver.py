@@ -30,7 +30,8 @@ def run(query, db="master", ok=True):
 
 # Prove the unmodified source parses and refuses the wrong engine/target.
 run("SET PARSEONLY ON;\n"+raw)
-assert "EXACT_PATHB_TARGET_HOLD" in run(raw,ok=False)
+refusal=run(raw,ok=False)
+assert "EXACT_PATHB_TARGET_HOLD" in refusal, "TARGET_GUARD_RESPONSE: "+refusal[-1800:]
 
 head, sep, rest=raw.partition("DECLARE @wanted TABLE")
 assert sep and "BEGIN TRY" in rest
