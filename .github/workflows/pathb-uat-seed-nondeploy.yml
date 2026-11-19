@@ -3,9 +3,11 @@ on:
   pull_request:
     paths:
       - 'database/uat/FieldVisit_PathB_UAT_ThreeRole_Seed_*'
+      - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_LOCKED_REVIEW.sql'
       - 'scripts/ci/pathb_uat_seed_schema.sql'
       - 'scripts/ci/run_pathb_uat_seed_sqlserver.sh'
       - 'scripts/ci/test_pathb_uat_seed_contract.py'
+      - 'scripts/ci/test_pathb_vis01_context_seed_contract.py'
       - '.github/workflows/pathb-uat-seed-nondeploy.yml'
 permissions:
   contents: read
@@ -23,6 +25,8 @@ jobs:
         with: {python-version: '3.12'}
       - name: Static source and safety contract
         run: python -m unittest scripts/ci/test_pathb_uat_seed_contract.py -v
+      - name: Static VIS01 context contract
+        run: python -m unittest scripts/ci/test_pathb_vis01_context_seed_contract.py -v
       - name: Start disposable SQL Server 2022
         shell: bash
         run: |
@@ -43,6 +47,12 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Parse complete locked VIS01 SQL without executing DML
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Context_Seed_LOCKED_REVIEW.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
       - name: Positive negative repeat collision rollback and login eligibility
         run: bash scripts/ci/run_pathb_uat_seed_sqlserver.sh
       - name: Remove disposable SQL Server
