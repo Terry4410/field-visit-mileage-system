@@ -5,6 +5,8 @@ on:
       - 'database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_REVIEW.sql'
       - 'database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_COLLATION_REVIEW.sql'
       - 'scripts/ci/test_pathb_acl_single_result_sqlserver.py'
+      - 'database/uat/PathB_UAT_P0_Core_Runtime_ACL_GRANT_REVIEW_20261119.sql'
+      - 'scripts/ci/test_pathb_p0_core_acl_sqlserver.py'
       - '.github/workflows/pathb-acl-single-result-nondeploy.yml'
 permissions:
   contents: read
@@ -39,6 +41,8 @@ jobs:
           exit 1
       - name: Validate exact source and one resultset against two collations
         run: python scripts/ci/test_pathb_acl_single_result_sqlserver.py
+      - name: Validate P0 core ACL delta against two collations and negative security paths
+        run: python scripts/ci/test_pathb_p0_core_acl_sqlserver.py
       - name: Remove disposable SQL Server
         if: always()
         run: docker rm -f pathb-acl-sql >/dev/null 2>&1 || true
