@@ -12,6 +12,8 @@ on:
       - 'scripts/ci/test_pathb_vis01_context_seed_contract.py'
       - 'scripts/ci/pathb_vis01_disposable_1800_subset.sql'
       - 'scripts/ci/test_pathb_vis01_disposable_sqlserver.py'
+      - 'scripts/ci/pathb_vis01_revised_seed_preflight.sql'
+      - 'scripts/ci/pathb_vis01_exact_revised_candidate.py'
       - 'database/uat/FieldVisit_PathB_VIS01_Complete_Minimal_Runtime_ACL_LOCKED_TEST.sql'
       - 'scripts/ci/test_pathb_vis01_minimal_runtime_acl_sqlserver.py'
       - '.github/workflows/pathb-uat-seed-nondeploy.yml'
@@ -53,6 +55,12 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Parse exact-SHA 15223-byte revised VIS01 candidate without executing DML
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; python scripts/ci/pathb_vis01_exact_revised_candidate.py; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
       - name: Parse complete locked VIS01 SQL without executing DML
         shell: bash
         run: |
