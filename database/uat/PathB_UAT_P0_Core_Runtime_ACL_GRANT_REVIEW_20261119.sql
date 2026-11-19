@@ -80,20 +80,20 @@ IF EXISTS(SELECT 1 FROM sys.database_permissions dp JOIN @members m ON m.pid=dp.
  THROW 59910,N'BROAD_SCOPE_PERMISSION_HOLD',1;
 IF EXISTS(SELECT 1 FROM sys.database_permissions dp JOIN @members m ON m.pid=dp.grantee_principal_id
  JOIN @wanted w ON (dp.class=1 AND dp.major_id=OBJECT_ID(N'dbo.'+QUOTENAME(w.table_name),N'U'))
- WHERE dp.state=N'D' AND (dp.permission_name=w.operation OR dp.permission_name=N'CONTROL'))
+ WHERE dp.state=N'D' AND (dp.permission_name COLLATE DATABASE_DEFAULT=w.operation COLLATE DATABASE_DEFAULT OR dp.permission_name=N'CONTROL'))
  THROW 59911,N'RELEVANT_DENY_HOLD',1;
 -- Direct object-level already-present permissions must match exactly 3; do not remove them.
 IF (SELECT COUNT(*) FROM @wanted w
  JOIN sys.database_permissions dp ON dp.class=1
  AND dp.major_id=OBJECT_ID(N'dbo.'+QUOTENAME(w.table_name),N'U')
- AND dp.minor_id=0 AND dp.permission_name=w.operation
+ AND dp.minor_id=0 AND dp.permission_name COLLATE DATABASE_DEFAULT=w.operation COLLATE DATABASE_DEFAULT
  AND dp.grantee_principal_id=@pid AND dp.state IN(N'G',N'W')
  WHERE w.already_granted=1)<>3
  THROW 59912,N'EXISTING_THREE_GRANTS_HOLD',1;
 -- For the 17 missing catalog grants, refuse pre-existing object, column or inherited grants.
 IF EXISTS(SELECT 1 FROM @wanted w JOIN sys.database_permissions dp
  ON dp.class=1 AND dp.major_id=OBJECT_ID(N'dbo.'+QUOTENAME(w.table_name),N'U')
- AND dp.permission_name=w.operation AND dp.grantee_principal_id IN(SELECT pid FROM @members)
+ AND dp.permission_name COLLATE DATABASE_DEFAULT=w.operation COLLATE DATABASE_DEFAULT AND dp.grantee_principal_id IN(SELECT pid FROM @members)
  AND dp.state IN(N'G',N'W')
  WHERE w.already_granted=0)
  THROW 59913,N'UNEXPECTED_EXISTING_GRANT_HOLD',1;
@@ -119,7 +119,7 @@ BEGIN TRY
  GRANT UPDATE ON OBJECT::dbo.[VisitTripStops] TO [api-fieldvisit-pathb-uat_pathb];
  IF (SELECT COUNT(*) FROM @wanted w JOIN sys.database_permissions dp ON dp.class=1
  AND dp.major_id=OBJECT_ID(N'dbo.'+QUOTENAME(w.table_name),N'U')
- AND dp.minor_id=0 AND dp.permission_name=w.operation
+ AND dp.minor_id=0 AND dp.permission_name COLLATE DATABASE_DEFAULT=w.operation COLLATE DATABASE_DEFAULT
  AND dp.grantee_principal_id=@pid AND dp.state IN(N'G',N'W'))<>20
  THROW 59914,N'TWENTY_GRANT_READBACK_HOLD',1;
  COMMIT TRANSACTION;
