@@ -41,12 +41,12 @@ class Vis01Contract(unittest.TestCase):
 ACL = (ROOT / "database/uat/FieldVisit_PathB_VIS01_Context_SELECT_ACL_LOCKED_TEST.sql").read_text()
 class Vis01AclContract(unittest.TestCase):
     def test_locked_ten_table_select_only(self):
-        content = re.sub(r"(?m)^--.*\\n", "", ACL).strip()
+        content = re.sub(r"(?m)^--.*\n", "", ACL).strip()
         self.assertTrue(content.startswith("THROW 59590, 'LOCKED_REVIEW_NO_AZURE_DCL_AUTHORIZATION', 1;"))
         expected = {"Employments","EmploymentStatusPeriods","TeamMemberships","TeamCenterAssignments",
             "EmploymentDeploymentSiteAssignments","TeamDeploymentSiteAssignments","DeploymentSites","Centers",
             "DeploymentSiteLocationAssignments","Locations"}
-        found = re.findall(r"GRANT SELECT ON OBJECT::dbo\\.(\\w+) TO \\[api-fieldvisit-pathb-uat_pathb\\];", ACL)
+        found = re.findall(r"GRANT SELECT ON OBJECT::dbo\.(\w+) TO \[api-fieldvisit-pathb-uat_pathb\];", ACL)
         self.assertEqual(len(found), 10)
         self.assertEqual(set(found), expected)
         for banned in ("GRANT INSERT","GRANT UPDATE","GRANT DELETE","CREATE USER", "ALTER ROLE"):
