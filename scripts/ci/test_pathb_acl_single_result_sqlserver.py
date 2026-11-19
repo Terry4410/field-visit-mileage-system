@@ -35,7 +35,7 @@ def run(query, db="master", ok=True, output=False):
 # Parse the original bytes using the actual SQL Server parser, without execution.
 run("SET PARSEONLY ON;\n" + sql)
 refusal = run(sql, ok=False)
-assert "PATHB_TARGET_HOLD" in refusal, "TARGET_GUARD_NOT_FAIL_CLOSED"
+assert "PATHB_TARGET_HOLD" in refusal, "TARGET_GUARD_NOT_FAIL_CLOSED: " + refusal[-1800:]
 
 # Never edit the source. The only test adaptation replaces the Azure-only
 # opening guard and external-principal lookup in memory; all 20 catalog
