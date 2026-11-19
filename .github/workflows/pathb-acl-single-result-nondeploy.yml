@@ -1,0 +1,43 @@
+name: Path B ACL single result NONDEPLOY
+on:
+  pull_request:
+    paths:
+      - 'database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_REVIEW.sql'
+      - 'scripts/ci/test_pathb_acl_single_result_sqlserver.py'
+      - '.github/workflows/pathb-acl-single-result-nondeploy.yml'
+permissions:
+  contents: read
+jobs:
+  sqlserver-acl-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Start disposable SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="Aa7!$(python -c 'import secrets;print(secrets.token_hex(24))')"
+          echo "::add-mask::$password"
+          echo "PATHB_SQL_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker run -d --name pathb-acl-sql -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e "MSSQL_SA_PASSWORD=$password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+      - name: Wait for SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            docker exec pathb-acl-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+              -P "$PATHB_SQL_PASSWORD" -C -l 2 -Q 'SELECT 1' >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Validate exact source and one resultset against two collations
+        run: python scripts/ci/test_pathb_acl_single_result_sqlserver.py
+      - name: Remove disposable SQL Server
+        if: always()
+        run: docker rm -f pathb-acl-sql >/dev/null 2>&1 || true
