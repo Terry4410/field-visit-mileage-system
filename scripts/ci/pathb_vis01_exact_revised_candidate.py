@@ -20,7 +20,13 @@ def build() -> str:
     assert gate.startswith("-- Make all schema/permission failures happen before the first write.\n")
     assert gate.endswith("\n\n")
     body = locked[locked.index("SET NOCOUNT ON;"):]
-    data = (HEADER + body.replace("DECLARE @now datetime2(3)", "\n" + gate + "DECLARE @now datetime2(3)", 1)).encode("utf-8")
+    # The locked review may already include the exact preflight; never insert it twice.
+    if gate in body:
+        assert body.count(gate) == 1, "DUPLICATE_PREFLIGHT_HOLD"
+    else:
+        assert "-- Make all schema/permission failures happen before the first write." not in body
+        body = body.replace("DECLARE @now datetime2(3)", "\n" + gate + "DECLARE @now datetime2(3)", 1)
+    data = (HEADER + body).encode("utf-8")
     assert len(data) == EXPECTED_LENGTH, f"REVISED_02_SIZE_MISMATCH: {len(data)}"
     assert sha256(data).hexdigest() == EXPECTED_SHA, "REVISED_02_EXACT_SHA_MISMATCH"
     return data.decode("utf-8")
