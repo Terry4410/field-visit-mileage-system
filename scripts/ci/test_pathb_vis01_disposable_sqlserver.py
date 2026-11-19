@@ -14,7 +14,7 @@ CONTAINER = 'pathb-seed-sql'
 
 def cmd(database: str, sql: str, *, success=True):
     assert database in ('master', 'PathBSeedCI_Positive', 'PathBSeedCI_VIS01Rollback')
-    p = subprocess.run(['docker','exec','-i',CONTAINER,'/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',PASSWORD,'-C','-b','-V','11','-d',database],input=sql,text=True,capture_output=True)
+    p = subprocess.run(['docker','exec','-i',CONTAINER,'/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',PASSWORD,'-C','-I','-b','-V','11','-d',database],input=sql,text=True,capture_output=True)
     output=p.stdout+p.stderr
     if success and p.returncode:
         raise AssertionError('EXPECTED_SUCCESS_FAILED: '+output[-3000:])
