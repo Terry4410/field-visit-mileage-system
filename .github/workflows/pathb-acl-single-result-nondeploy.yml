@@ -7,6 +7,8 @@ on:
       - 'scripts/ci/test_pathb_acl_single_result_sqlserver.py'
       - 'database/uat/PathB_UAT_P0_Core_Runtime_ACL_GRANT_REVIEW_20261119.sql'
       - 'scripts/ci/test_pathb_p0_core_acl_sqlserver.py'
+      - 'database/uat/PathB_UAT_P0_MileageGovernanceEvents_OutputId_SELECT_REVIEW_20261119.sql'
+      - 'scripts/ci/test_pathb_mileage_governance_output_acl_sqlserver.py'
       - '.github/workflows/pathb-acl-single-result-nondeploy.yml'
 permissions:
   contents: read
@@ -43,6 +45,8 @@ jobs:
         run: python scripts/ci/test_pathb_acl_single_result_sqlserver.py
       - name: Validate P0 core ACL delta against two collations and negative security paths
         run: python scripts/ci/test_pathb_p0_core_acl_sqlserver.py
+      - name: Verify mileage governance INSERT OUTPUT identity under minimal SELECT
+        run: python scripts/ci/test_pathb_mileage_governance_output_acl_sqlserver.py
       - name: Remove disposable SQL Server
         if: always()
         run: docker rm -f pathb-acl-sql >/dev/null 2>&1 || true
