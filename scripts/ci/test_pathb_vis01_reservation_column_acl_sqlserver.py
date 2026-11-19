@@ -27,13 +27,13 @@ call("""CREATE TABLE dbo.LocationCreateReservations(
  PrivatePayload nvarchar(50) NULL
 );""")
 call("INSERT dbo.SchemaVersions(VersionNumber) VALUES(N'1.8.0-CREATE-LOWRISK');")
-call("INSERT dbo.LocationCreateReservations(LocationId,ReservationStatus,PrivatePayload) VALUES (111,N'Pending',N'private'),(222,N'Published',N'private');")
+call("INSERT dbo.LocationCreateReservations(LocationId,ReservationStatus,PrivatePayload) VALUES (1,N'Pending',N'private'),(2,N'Published',N'private');")
 
 # Before narrow grants, visibility and the exact app SELECT must be denied.
 guard="""SELECT CASE WHEN EXISTS(
  SELECT 1 FROM dbo.LocationCreateReservations cr
  JOIN dbo.Locations l ON l.LocationId=cr.LocationId
- WHERE cr.LocationId=111
+ WHERE cr.LocationId=1
    AND (cr.ReservationStatus<>N'Published'
      OR l.ApprovalStatus<>N'Approved' OR l.IsActive<>1)
 ) THEN 1 ELSE 0 END;"""
