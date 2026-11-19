@@ -16,6 +16,8 @@ on:
       - 'scripts/ci/pathb_vis01_exact_revised_candidate.py'
       - 'database/uat/FieldVisit_PathB_VIS01_Complete_Minimal_Runtime_ACL_LOCKED_TEST.sql'
       - 'scripts/ci/test_pathb_vis01_minimal_runtime_acl_sqlserver.py'
+      - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_CREATEDAT_REVIEW_CANDIDATE_20261119.sql'
+      - 'scripts/ci/test_pathb_vis01_createdat_live_shape_sqlserver.py'
       - '.github/workflows/pathb-uat-seed-nondeploy.yml'
 permissions:
   contents: read
@@ -83,6 +85,8 @@ jobs:
         run: bash scripts/ci/run_pathb_uat_seed_sqlserver.sh
       - name: VIS01 actual SQL Server disposable insert and rollback contract
         run: python scripts/ci/test_pathb_vis01_disposable_sqlserver.py
+      - name: VIS01 reproduce six live mandatory CreatedAt columns in disposable SQL Server
+        run: python scripts/ci/test_pathb_vis01_createdat_live_shape_sqlserver.py
       - name: Parse locked minimum VIS01 draft runtime SQL permissions
         shell: bash
         run: |
