@@ -30,6 +30,7 @@ No percent-complete estimate based solely on CI/test totals.
 | LL-007 Late IT involvement | Postponing IT platform decisions risks building infrastructure that cannot be handed over. | Confirm database/platform versions, IIS hosting standard, AD SSO, app service identity and security gates early. IT can prepare a clean build while HR UAT is progressing. |
 | LL-008 Blind replay and unsafe repairs | An existing successful one-shot SQL installation/seed/identity operation must not be repeated just to diagnose a later runtime issue. | Reuse trusted PASS evidence; distinguish deployment, runtime identity, SELECT/DML grants, reference data and application defects. New live writes require new scope-specific Owner authorization. |
 | LL-009 Hidden maintenance ownership | 'IT will host' is not the same as 'IT will maintain application code'. | Before go-live define application bug owner, release approver, database migration owner, rollback lead and post-launch support. |
+| **LL-010 Failure to proactively compare an alternative access path** | Private-only App/Kudu/Token/transport troubleshooting persisted even though a short, narrowly authorized Azure SQL Query Editor window was a possible option. The Owner, not the assistant, identified the temporary-public-access approach. | On repeated failure, proactively compare (a) repairing the current route, (b) **an existing official tool with explicitly authorized, time-boxed minimal network access**, and (c) deferring noncritical work or IT handover. Compare time, Owner effort and security risk. Never equate a temporary public endpoint with unrestricted access or automatic permission; use only the specified client IP, encrypted authenticated access, the shortest approved window, restore **Public Network Access Disabled** and verify closure. This alternative can solve connectivity, **not** API SQL permissions or SQL correctness. |
 
 ## 3. Architecture decision (planned target, not IT sign-off)
 
@@ -50,7 +51,7 @@ Before significant work, answer briefly:
 1. Which **specific UAT or IT clean-build blocker** does it remove?
 2. What actual evidence establishes the failure class and target version/environment?
 3. Which prior PASS and one-use permissions must remain untouched?
-4. What is the simplest safe alternative, including Owner time and WORK quota?
+4. Have **current route repair vs existing official-tool/controlled alternate access vs deferring to IT** been compared, including Owner time, WORK quota and security exposure?
 5. What are the exact acceptance criteria, stop conditions and rollback/containment plan?
 6. Can independent, related reviews/tests be completed in **one batch** without another Owner interaction?
 
@@ -73,6 +74,12 @@ When a **material** architecture or release decision changes, append a short dec
 ### Baseline record — 2026-11-19
 
 The 2026-11-19 retrospective identified premature infrastructure complexity, diagnostic HOLD loops and conflation of technical PASS with Business UAT as avoidable management risks. The corrective principle is **minimum necessary delivery engineering; preserve verified evidence; stop unproductive loops; enable IT-independent clean build**. This record does not assign every delay to one tool or person.
+
+### LL-010 Owner-discovered route — 2026-11-19
+
+The Owner identified a **temporarily enabled Azure SQL public endpoint restricted to the current client IP**, followed by disabling public access after the operation. This made the existing Portal Query Editor an available route for bounded SQL checks and operations, avoiding a requirement to first perfect the private App/Kudu transport. This was a *conditional, Owner-authorized test-environment option*, not a production network standard and not a claim that opening a public endpoint is risk-free. SQL permissions and scripts still require separate validation and authorization. [Owner's observed read-only SQL checks and Disabled postcheck](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-6981787678); [later Disabled-restoration and post-error restrictions](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-6998225869).
+
+**Process failure:** The assistant should have surfaced and compared this option earlier without relying on the Owner to discover the tool route. Preserve this *decision habit*, not an instruction to open public access by default.
 
 ### Evidence examples underlying this lesson
 
