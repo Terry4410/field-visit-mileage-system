@@ -37,5 +37,25 @@ class Vis01Contract(unittest.TestCase):
                      "VIS01_NAMESPACE_COLLISION_HOLD","VIS01_CONTEXT_CHAIN_POSTCHECK_HOLD"):
             self.assertIn(term,SQL)
 
+
+ACL = (ROOT / "database/uat/FieldVisit_PathB_VIS01_Context_SELECT_ACL_LOCKED_TEST.sql").read_text()
+class Vis01AclContract(unittest.TestCase):
+    def test_locked_ten_table_select_only(self):
+        content = re.sub(r"(?m)^--.*\\n", "", ACL).strip()
+        self.assertTrue(content.startswith("THROW 59590, 'LOCKED_REVIEW_NO_AZURE_DCL_AUTHORIZATION', 1;"))
+        expected = {"Employments","EmploymentStatusPeriods","TeamMemberships","TeamCenterAssignments",
+            "EmploymentDeploymentSiteAssignments","TeamDeploymentSiteAssignments","DeploymentSites","Centers",
+            "DeploymentSiteLocationAssignments","Locations"}
+        found = re.findall(r"GRANT SELECT ON OBJECT::dbo\\.(\\w+) TO \\[api-fieldvisit-pathb-uat_pathb\\];", ACL)
+        self.assertEqual(len(found), 10)
+        self.assertEqual(set(found), expected)
+        for banned in ("GRANT INSERT","GRANT UPDATE","GRANT DELETE","CREATE USER", "ALTER ROLE"):
+            self.assertNotIn(banned, ACL)
+    def test_fail_closed_binding_and_transaction(self):
+        for token in ("API_MI_CLIENT_OR_OBJECT_SID_HOLD","TEN_EXACT_CONTEXT_TABLES_HOLD",
+                      "PARTIAL_CONTEXT_GRANTS_HOLD_NO_WRITE","BROAD_RUNTIME_ROLE_HOLD",
+                      "BEGIN TRANSACTION","COMMIT TRANSACTION","ROLLBACK TRANSACTION"):
+            self.assertIn(token, ACL)
+
 if __name__=="__main__":
     unittest.main()
