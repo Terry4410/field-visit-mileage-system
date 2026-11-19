@@ -37,6 +37,16 @@ INSERT @writable(ObjectId)
 SELECT ObjectId FROM @target WHERE TableName IN (N'VisitTrips',N'VisitTripStops',N'MileageCalculations',N'VisitTripStatusHistory',N'AuditLogs');
 IF (SELECT COUNT(*) FROM @writable)<>5
  THROW 59596,'FIVE_EXACT_DRAFT_INSERT_TABLES_HOLD',1;
+-- EF INSERT ... OUTPUT INSERTED.Identity needs SELECT on the returned identity column.
+-- Do not expose entire audit/history records to the API principal.
+DECLARE @outputColumns TABLE(ObjectId int NOT NULL PRIMARY KEY, ColumnId int NOT NULL);
+INSERT @outputColumns(ObjectId,ColumnId)
+SELECT t.ObjectId,c.column_id FROM @target t JOIN sys.columns c
+ ON c.object_id=t.ObjectId
+WHERE (t.TableName=N'VisitTripStatusHistory' AND c.name=N'VisitTripStatusHistoryId')
+   OR (t.TableName=N'AuditLogs' AND c.name=N'AuditLogId');
+IF (SELECT COUNT(*) FROM @outputColumns)<>2
+ THROW 59596,'EXACT_TWO_OUTPUT_ID_COLUMNS_HOLD',1;
 DECLARE @members TABLE(PrincipalId int PRIMARY KEY);
 INSERT @members VALUES(@pid);
 INSERT @members SELECT principal_id FROM sys.database_principals WHERE name=N'public' AND principal_id<>@pid;
@@ -63,18 +73,20 @@ IF EXISTS(SELECT 1 FROM sys.database_permissions p JOIN @members m ON m.Principa
        OR (p.class=1 AND EXISTS(SELECT 1 FROM @target t WHERE t.ObjectId=p.major_id))))
  THROW 59598,'RELEVANT_DENY_HOLD',1;
 DECLARE @existing int;
--- Count expected permission records, not distinct object IDs: 16 SELECT + 5 INSERT = 21.
+-- Count expected permission records, not distinct object IDs: 16 table SELECT + 5 INSERT + 2 identity-column SELECT = 23.
 SELECT @existing=COUNT(*)
 FROM sys.database_permissions p
 JOIN @target t ON t.ObjectId=p.major_id
-WHERE p.grantee_principal_id=@pid AND p.class=1 AND p.minor_id=0
+WHERE p.grantee_principal_id=@pid AND p.class=1
  AND p.state IN(N'G',N'W')
- AND ((p.permission_name=N'SELECT' AND t.TableName NOT IN(N'VisitTripStatusHistory',N'AuditLogs'))
-   OR (p.permission_name=N'INSERT' AND EXISTS(SELECT 1 FROM @writable w WHERE w.ObjectId=p.major_id)));
-IF @existing=21
+ AND ((p.minor_id=0 AND ((p.permission_name=N'SELECT' AND t.TableName NOT IN(N'VisitTripStatusHistory',N'AuditLogs'))
+   OR (p.permission_name=N'INSERT' AND EXISTS(SELECT 1 FROM @writable w WHERE w.ObjectId=p.major_id))))
+   OR (p.minor_id>0 AND p.permission_name=N'SELECT' AND EXISTS
+     (SELECT 1 FROM @outputColumns o WHERE o.ObjectId=p.major_id AND o.ColumnId=p.minor_id)));
+IF @existing=23
 BEGIN
  SELECT N'PATHB_VIS01_MINIMAL_RUNTIME_ACL' AS Evidence,
-  16 AS SelectObjects, 5 AS InsertObjects, N'ALREADY_21_NO_WRITE_CATALOG_ONLY' AS State;
+  16 AS SelectObjects, 5 AS InsertObjects, 2 AS OutputIdColumnSelects, N'ALREADY_23_NO_WRITE_CATALOG_ONLY' AS State;
  RETURN;
 END;
 IF @existing<>0 THROW 59599,'PARTIAL_VIS01_GRANTS_HOLD_NO_WRITE',1;
@@ -82,9 +94,11 @@ BEGIN TRY
  BEGIN TRANSACTION;
  SELECT @existing=COUNT(*) FROM sys.database_permissions p
  JOIN @target t ON t.ObjectId=p.major_id
- WHERE p.grantee_principal_id=@pid AND p.class=1 AND p.minor_id=0 AND p.state IN(N'G',N'W')
-  AND ((p.permission_name=N'SELECT' AND t.TableName NOT IN(N'VisitTripStatusHistory',N'AuditLogs'))
-   OR (p.permission_name=N'INSERT' AND EXISTS(SELECT 1 FROM @writable w WHERE w.ObjectId=p.major_id)));
+ WHERE p.grantee_principal_id=@pid AND p.class=1 AND p.state IN(N'G',N'W')
+  AND ((p.minor_id=0 AND ((p.permission_name=N'SELECT' AND t.TableName NOT IN(N'VisitTripStatusHistory',N'AuditLogs'))
+   OR (p.permission_name=N'INSERT' AND EXISTS(SELECT 1 FROM @writable w WHERE w.ObjectId=p.major_id))))
+   OR (p.minor_id>0 AND p.permission_name=N'SELECT' AND EXISTS
+     (SELECT 1 FROM @outputColumns o WHERE o.ObjectId=p.major_id AND o.ColumnId=p.minor_id)));
  IF @existing<>0 THROW 59600,'CONCURRENT_VIS01_GRANTS_HOLD',1;
  GRANT SELECT ON OBJECT::dbo.[Employments] TO [api-fieldvisit-pathb-uat_pathb];
  GRANT SELECT ON OBJECT::dbo.[EmploymentStatusPeriods] TO [api-fieldvisit-pathb-uat_pathb];
@@ -107,14 +121,18 @@ BEGIN TRY
  GRANT INSERT ON OBJECT::dbo.[MileageCalculations] TO [api-fieldvisit-pathb-uat_pathb];
  GRANT INSERT ON OBJECT::dbo.[VisitTripStatusHistory] TO [api-fieldvisit-pathb-uat_pathb];
  GRANT INSERT ON OBJECT::dbo.[AuditLogs] TO [api-fieldvisit-pathb-uat_pathb];
+ GRANT SELECT ON OBJECT::dbo.[VisitTripStatusHistory] ([VisitTripStatusHistoryId]) TO [api-fieldvisit-pathb-uat_pathb];
+ GRANT SELECT ON OBJECT::dbo.[AuditLogs] ([AuditLogId]) TO [api-fieldvisit-pathb-uat_pathb];
  SELECT @existing=COUNT(*) FROM sys.database_permissions p
  JOIN @target t ON t.ObjectId=p.major_id
- WHERE p.grantee_principal_id=@pid AND p.class=1 AND p.minor_id=0 AND p.state IN(N'G',N'W')
-  AND ((p.permission_name=N'SELECT' AND t.TableName NOT IN(N'VisitTripStatusHistory',N'AuditLogs'))
-   OR (p.permission_name=N'INSERT' AND EXISTS(SELECT 1 FROM @writable w WHERE w.ObjectId=p.major_id)));
- IF @existing<>21 THROW 59601,'VIS01_GRANTS_READBACK_HOLD',1;
+ WHERE p.grantee_principal_id=@pid AND p.class=1 AND p.state IN(N'G',N'W')
+  AND ((p.minor_id=0 AND ((p.permission_name=N'SELECT' AND t.TableName NOT IN(N'VisitTripStatusHistory',N'AuditLogs'))
+   OR (p.permission_name=N'INSERT' AND EXISTS(SELECT 1 FROM @writable w WHERE w.ObjectId=p.major_id))))
+   OR (p.minor_id>0 AND p.permission_name=N'SELECT' AND EXISTS
+     (SELECT 1 FROM @outputColumns o WHERE o.ObjectId=p.major_id AND o.ColumnId=p.minor_id)));
+ IF @existing<>23 THROW 59601,'VIS01_GRANTS_READBACK_HOLD',1;
  COMMIT TRANSACTION;
- SELECT N'PATHB_VIS01_CONTEXT_SELECT' AS Evidence,16 AS SelectObjects,5 AS InsertObjects,N'APPLIED_CATALOG_ONLY_NOT_VIS01_PASS' AS State;
+ SELECT N'PATHB_VIS01_CONTEXT_SELECT' AS Evidence,16 AS SelectObjects,5 AS InsertObjects,2 AS OutputIdColumnSelects,N'APPLIED_CATALOG_ONLY_NOT_VIS01_PASS' AS State;
 END TRY
 BEGIN CATCH
  IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;
