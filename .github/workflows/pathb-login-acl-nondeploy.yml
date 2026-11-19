@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/ci/pathb_acl_behavior.sql'
+      - 'scripts/ci/pathb_acl_final_candidate_parse_only.sql'
       - 'scripts/ci/test_pathb_acl_sqlserver.sh'
       - 'scripts/ci/test_pathb_acl_contract.py'
       - '.github/workflows/pathb-login-acl-nondeploy.yml'
@@ -42,6 +43,12 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Parse-only final GRANT candidate on SQL Server (never execute)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat scripts/ci/pathb_acl_final_candidate_parse_only.sql; } |
+            docker exec -i pathb-acl-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
       - name: Effective permission allow deny rollback behavior
         run: bash scripts/ci/test_pathb_acl_sqlserver.sh
       - name: Remove disposable SQL Server
