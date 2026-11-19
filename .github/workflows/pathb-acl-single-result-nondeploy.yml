@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_REVIEW.sql'
+      - 'database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_COLLATION_REVIEW.sql'
       - 'scripts/ci/test_pathb_acl_single_result_sqlserver.py'
       - '.github/workflows/pathb-acl-single-result-nondeploy.yml'
 permissions:

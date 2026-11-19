@@ -9,8 +9,10 @@ import pathlib
 import re
 import subprocess
 
-SOURCE = pathlib.Path("database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_REVIEW.sql")
-EXPECTED_SHA = "f93db87074932fd25b37d6cb227a266cb7730e7242f66c9ffb709801dd4e7143"
+ORIGINAL = pathlib.Path("database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_REVIEW.sql")
+assert hashlib.sha256(ORIGINAL.read_bytes()).hexdigest() == "f93db87074932fd25b37d6cb227a266cb7730e7242f66c9ffb709801dd4e7143", "ORIGINAL_SHA_HOLD"
+SOURCE = pathlib.Path("database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_COLLATION_REVIEW.sql")
+EXPECTED_SHA = "fe8e80a54d910b7ae11ed688d015da73a567887814a3ed3289baeb0112244058"
 raw = SOURCE.read_bytes()
 assert hashlib.sha256(raw).hexdigest() == EXPECTED_SHA, "SOURCE_SHA_HOLD"
 sql = raw.decode("utf-8-sig")
