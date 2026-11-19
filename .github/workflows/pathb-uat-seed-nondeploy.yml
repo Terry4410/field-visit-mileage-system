@@ -5,6 +5,7 @@ on:
       - 'database/uat/FieldVisit_PathB_UAT_ThreeRole_Seed_*'
       - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_LOCKED_REVIEW.sql'
       - 'database/uat/FieldVisit_PathB_VIS01_Context_SELECT_ACL_LOCKED_TEST.sql'
+      - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_READBACK.sql'
       - 'scripts/ci/pathb_uat_seed_schema.sql'
       - 'scripts/ci/run_pathb_uat_seed_sqlserver.sh'
       - 'scripts/ci/test_pathb_uat_seed_contract.py'
@@ -59,6 +60,12 @@ jobs:
         run: |
           set -euo pipefail
           { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Context_SELECT_ACL_LOCKED_TEST.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse VIS01 independent readback (never SELECT production)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Context_Seed_READBACK.sql; } |
             docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
       - name: Positive negative repeat collision rollback and login eligibility
         run: bash scripts/ci/run_pathb_uat_seed_sqlserver.sh
