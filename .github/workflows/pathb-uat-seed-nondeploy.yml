@@ -16,6 +16,7 @@ on:
       - 'scripts/ci/pathb_vis01_exact_revised_candidate.py'
       - 'database/uat/FieldVisit_PathB_VIS01_Complete_Minimal_Runtime_ACL_LOCKED_TEST.sql'
       - 'scripts/ci/test_pathb_vis01_minimal_runtime_acl_sqlserver.py'
+      - 'scripts/ci/test_pathb_vis01_reservation_column_acl_sqlserver.py'
       - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_CREATEDAT_REVIEW_CANDIDATE_20261119.sql'
       - 'scripts/ci/test_pathb_vis01_createdat_live_shape_sqlserver.py'
       - '.github/workflows/pathb-uat-seed-nondeploy.yml'
@@ -102,6 +103,8 @@ jobs:
             docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
       - name: Validate minimum VIS01 draft read write permissions
         run: python scripts/ci/test_pathb_vis01_minimal_runtime_acl_sqlserver.py
+      - name: Validate VIS01 optional reservation two-column SELECT security
+        run: python scripts/ci/test_pathb_vis01_reservation_column_acl_sqlserver.py
       - name: Remove disposable SQL Server
         if: always()
         run: docker rm -f pathb-seed-sql >/dev/null 2>&1 || true
