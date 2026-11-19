@@ -25,14 +25,17 @@ def call(sql,expect_success=True):
 table_sql="""CREATE TABLE dbo.VisitTrips(Id int IDENTITY PRIMARY KEY,Label nvarchar(50));
 CREATE TABLE dbo.VisitTripStops(Id int IDENTITY PRIMARY KEY,Label nvarchar(50));
 CREATE TABLE dbo.MileageCalculations(Id int IDENTITY PRIMARY KEY,Label nvarchar(50));
-CREATE TABLE dbo.VisitTripStatusHistory(Id int IDENTITY PRIMARY KEY,Label nvarchar(50));
-CREATE TABLE dbo.AuditLogs(Id int IDENTITY PRIMARY KEY,Label nvarchar(50));
+CREATE TABLE dbo.VisitTripStatusHistory(VisitTripStatusHistoryId int IDENTITY PRIMARY KEY,Label nvarchar(50));
+CREATE TABLE dbo.AuditLogs(AuditLogId int IDENTITY PRIMARY KEY,Label nvarchar(50));
 CREATE TABLE dbo.SchemaVersions(VersionNumber nvarchar(50) PRIMARY KEY);"""
 call(table_sql)
 call("CREATE USER [vis01_readwrite_test] WITHOUT LOGIN;CREATE USER [vis01_outsider_test] WITHOUT LOGIN;")
 selects=re.findall(r"GRANT SELECT ON OBJECT::dbo\.\[(\w+)\] TO \[api-fieldvisit-pathb-uat_pathb\];",source)
 inserts=re.findall(r"GRANT INSERT ON OBJECT::dbo\.\[(\w+)\] TO \[api-fieldvisit-pathb-uat_pathb\];",source)
 assert len(selects)==16 and len(inserts)==5
+output_cols=re.findall(r"GRANT SELECT ON OBJECT::dbo\.\[(\w+)\] \(\[(\w+)\]\) TO \[api-fieldvisit-pathb-uat_pathb\];",source)
+assert set(output_cols)=={("VisitTripStatusHistory","VisitTripStatusHistoryId"),("AuditLogs","AuditLogId")}
+
 for table in selects:
     out=call(f"EXECUTE AS USER=N'vis01_readwrite_test';SELECT COUNT(*) FROM dbo.[{table}];REVERT;",False)
     assert "permission was denied" in out.lower(),out
@@ -42,13 +45,20 @@ grants="BEGIN TRANSACTION;\n"+"\n".join(
     f"GRANT INSERT ON OBJECT::dbo.[{table}] TO [vis01_readwrite_test];" for table in inserts
 )+"\nCOMMIT TRANSACTION;"
 call(grants)
+for name,col in output_cols:
+    call(f"GRANT SELECT ON OBJECT::dbo.[{name}] ([{col}]) TO [vis01_readwrite_test];")
 for table in selects:
     call(f"EXECUTE AS USER=N'vis01_readwrite_test';SELECT COUNT(*) FROM dbo.[{table}];REVERT;")
     out=call(f"EXECUTE AS USER=N'vis01_outsider_test';SELECT COUNT(*) FROM dbo.[{table}];REVERT;",False)
     assert "permission was denied" in out.lower(),out
 for table in inserts:
-    call(f"EXECUTE AS USER=N'vis01_readwrite_test';INSERT dbo.[{table}](Label) OUTPUT INSERTED.Id VALUES(N'fixture');REVERT;")
+    column=dict(output_cols).get(table,'Id')
+    call(f"EXECUTE AS USER=N'vis01_readwrite_test';INSERT dbo.[{table}](Label) OUTPUT INSERTED.[{column}] VALUES(N'fixture');REVERT;")
     out=call(f"EXECUTE AS USER=N'vis01_outsider_test';INSERT dbo.[{table}](Label) VALUES(N'no');REVERT;",False)
+    assert "permission was denied" in out.lower(),out
+for name,col in output_cols:
+    call(f"EXECUTE AS USER=N'vis01_readwrite_test';SELECT [{col}] FROM dbo.[{name}];REVERT;")
+    out=call(f"EXECUTE AS USER=N'vis01_readwrite_test';SELECT Label FROM dbo.[{name}];REVERT;",False)
     assert "permission was denied" in out.lower(),out
 for statement in (
    "UPDATE dbo.VisitTrips SET Label=N'unapproved'",
