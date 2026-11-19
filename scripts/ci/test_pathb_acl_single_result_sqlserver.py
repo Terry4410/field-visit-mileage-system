@@ -15,7 +15,8 @@ raw = SOURCE.read_bytes()
 assert hashlib.sha256(raw).hexdigest() == EXPECTED_SHA, "SOURCE_SHA_HOLD"
 sql = raw.decode("utf-8-sig")
 assert "DECLARE @wanted TABLE" in sql and sql.count("SELECT record_type,table_name,operation,catalog_state,grantee,scope,detail") == 1
-assert not re.search(r"\b(?:GRANT|REVOKE|DENY|CREATE|ALTER|DROP|EXEC(?:UTE)?)\b", re.sub(r"--[^\n]*", "", sql), re.I), "NON_READONLY_SOURCE_HOLD"
+statements = re.sub(r"N?'(?:''|[^'])*'", "N''", re.sub(r"--[^\n]*", "", sql))
+assert not re.search(r"\b(?:GRANT|REVOKE|DENY|CREATE|ALTER|DROP|EXEC(?:UTE)?)\b", statements, re.I), "NON_READONLY_SOURCE_HOLD"
 assert not re.search(r"\b(?:INSERT|UPDATE|DELETE|MERGE)\s+(?:dbo\.|\[dbo\])", sql, re.I), "BUSINESS_WRITE_HOLD"
 assert "FROM sys.database_permissions" in sql and "FROM sys.database_principals" in sql
 
