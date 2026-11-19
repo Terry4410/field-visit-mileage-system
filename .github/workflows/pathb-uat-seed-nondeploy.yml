@@ -18,6 +18,7 @@ on:
       - 'scripts/ci/test_pathb_vis01_minimal_runtime_acl_sqlserver.py'
       - 'scripts/ci/test_pathb_vis01_reservation_column_acl_sqlserver.py'
       - 'database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_REVIEW_CANDIDATE_20261119.sql'
+      - 'database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_COLLATION_REVIEW_20261119.sql'
       - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_CREATEDAT_REVIEW_CANDIDATE_20261119.sql'
       - 'scripts/ci/test_pathb_vis01_createdat_live_shape_sqlserver.py'
       - '.github/workflows/pathb-uat-seed-nondeploy.yml'
@@ -110,6 +111,23 @@ jobs:
           set -euo pipefail
           { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_REVIEW_CANDIDATE_20261119.sql; } |
             docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse corrected reservation ACL and test cross-collation equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_COLLATION_REVIEW_20261119.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+          cat <<'SQL' | docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+          SET NOCOUNT ON;
+          DECLARE @expected TABLE(t sysname COLLATE SQL_Latin1_General_CP1_CI_AS);
+          INSERT @expected(t) VALUES(N'VisitTrips');
+          DECLARE @catalog TABLE(t sysname COLLATE Latin1_General_CI_AS_KS_WS);
+          INSERT @catalog(t) VALUES(N'VisitTrips');
+          IF (SELECT COUNT(*) FROM @catalog c JOIN @expected e
+              ON c.t COLLATE DATABASE_DEFAULT=e.t COLLATE DATABASE_DEFAULT)<>1
+              THROW 59730,'COLLATION_FIXTURE_HOLD',1;
+          SELECT N'COLLATION_JOIN_DISPOSABLE_PASS' AS Evidence;
+          SQL
       - name: Validate VIS01 optional reservation two-column SELECT security
         run: python scripts/ci/test_pathb_vis01_reservation_column_acl_sqlserver.py
       - name: Remove disposable SQL Server
