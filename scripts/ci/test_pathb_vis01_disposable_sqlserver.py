@@ -13,7 +13,7 @@ PASSWORD = os.environ['PATHB_SQL_PASSWORD']
 CONTAINER = 'pathb-seed-sql'
 
 def cmd(database: str, sql: str, *, success=True):
-    assert database in ('master', 'PathBSeedCI_Positive', 'PathBVIS01CI_Rollback')
+    assert database in ('master', 'PathBSeedCI_Positive', 'PathBSeedCI_VIS01Rollback')
     p = subprocess.run(['docker','exec','-i',CONTAINER,'/opt/mssql-tools18/bin/sqlcmd','-S','localhost','-U','sa','-P',PASSWORD,'-C','-b','-V','11','-d',database],input=sql,text=True,capture_output=True)
     output=p.stdout+p.stderr
     if success and p.returncode:
@@ -23,7 +23,7 @@ def cmd(database: str, sql: str, *, success=True):
     return output
 
 def localize(source: str, database: str, locked=False):
-    assert database in ('PathBSeedCI_Positive','PathBVIS01CI_Rollback')
+    assert database in ('PathBSeedCI_Positive','PathBSeedCI_VIS01Rollback')
     if locked:
         lock="THROW 59500, 'LOCKED_REVIEW_ONLY_NOT_AUTHORIZED_FOR_SQL_WRITE', 1;"
         assert source.count(lock)==1
@@ -52,17 +52,17 @@ assert 'EXACT_EXISTING_SEED_HOLD' in out,out
 assert scalar('PathBSeedCI_Positive','SELECT COUNT(*) FROM dbo.Persons')==1
 
 # A separate disposable database tests a late failure and full rollback.
-cmd('master','CREATE DATABASE PathBVIS01CI_Rollback;')
-cmd('PathBVIS01CI_Rollback',PREVIOUS)
+cmd('master','CREATE DATABASE PathBSeedCI_VIS01Rollback;')
+cmd('PathBSeedCI_VIS01Rollback',PREVIOUS)
 marker="EXEC sys.sp_set_session_context @key=N'PATHB_DISPOSABLE_CI',@value=N'd6c220877b9976b6478d85b5171d4e06293595ae';\n"
-cmd('PathBVIS01CI_Rollback',marker+SEED)
-cmd('PathBVIS01CI_Rollback',SRC)
-cmd('PathBVIS01CI_Rollback',"ALTER TABLE dbo.Centers ADD CONSTRAINT CK_VIS01_Test_ForceRollback CHECK(CenterCode <> N'PBV01-CENTER');")
-out=cmd('PathBVIS01CI_Rollback',localize(VIS01,'PathBVIS01CI_Rollback',locked=True),success=False)
+cmd('PathBSeedCI_VIS01Rollback',marker+SEED)
+cmd('PathBSeedCI_VIS01Rollback',SRC)
+cmd('PathBSeedCI_VIS01Rollback',"ALTER TABLE dbo.Centers ADD CONSTRAINT CK_VIS01_Test_ForceRollback CHECK(CenterCode <> N'PBV01-CENTER');")
+out=cmd('PathBSeedCI_VIS01Rollback',localize(VIS01,'PathBSeedCI_VIS01Rollback',locked=True),success=False)
 assert 'CK_VIS01_Test_ForceRollback' in out,out
-assert scalar('PathBVIS01CI_Rollback','SELECT COUNT(*) FROM dbo.Persons')==0
-assert scalar('PathBVIS01CI_Rollback','SELECT COUNT(*) FROM dbo.Employments')==0
-assert scalar('PathBVIS01CI_Rollback','SELECT COUNT(*) FROM dbo.Locations')==0
-assert scalar('PathBVIS01CI_Rollback','SELECT COUNT(*) FROM dbo.UserIdentityProfiles WHERE EmploymentId IS NOT NULL')==0
+assert scalar('PathBSeedCI_VIS01Rollback','SELECT COUNT(*) FROM dbo.Persons')==0
+assert scalar('PathBSeedCI_VIS01Rollback','SELECT COUNT(*) FROM dbo.Employments')==0
+assert scalar('PathBSeedCI_VIS01Rollback','SELECT COUNT(*) FROM dbo.Locations')==0
+assert scalar('PathBSeedCI_VIS01Rollback','SELECT COUNT(*) FROM dbo.UserIdentityProfiles WHERE EmploymentId IS NOT NULL')==0
 print('PATHB_VIS01_CONTEXT_DISPOSABLE_BEHAVIOR=PASS')
 print('AZURE_SQL_RUNTIME=NOT_TESTED')
