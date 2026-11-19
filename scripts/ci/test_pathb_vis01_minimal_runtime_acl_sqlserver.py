@@ -47,7 +47,7 @@ for table in selects:
     out=call(f"EXECUTE AS USER=N'vis01_outsider_test';SELECT COUNT(*) FROM dbo.[{table}];REVERT;",False)
     assert "permission was denied" in out.lower(),out
 for table in inserts:
-    call(f"EXECUTE AS USER=N'vis01_readwrite_test';INSERT dbo.[{table}](Label) VALUES(N'fixture');REVERT;")
+    call(f"EXECUTE AS USER=N'vis01_readwrite_test';INSERT dbo.[{table}](Label) OUTPUT INSERTED.Id VALUES(N'fixture');REVERT;")
     out=call(f"EXECUTE AS USER=N'vis01_outsider_test';INSERT dbo.[{table}](Label) VALUES(N'no');REVERT;",False)
     assert "permission was denied" in out.lower(),out
 for statement in (
