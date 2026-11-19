@@ -5,7 +5,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SEED = (ROOT / 'database/uat/FieldVisit_PathB_UAT_ThreeRole_Seed_FINAL_CANDIDATE.sql').read_text()
-VIS01 = (ROOT / 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_LOCKED_REVIEW.sql').read_text()
+from pathb_vis01_exact_revised_candidate import build
+VIS01 = build()
 READBACK = (ROOT / 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_READBACK.sql').read_text()
 SRC = (ROOT / 'scripts/ci/pathb_vis01_disposable_1800_subset.sql').read_text()
 PREVIOUS = (ROOT / 'scripts/ci/pathb_uat_seed_schema.sql').read_text()
@@ -41,13 +42,13 @@ def scalar(db: str, query: str):
 
 # Reuse disposable positive base (previous seed suite has already run).
 cmd('PathBSeedCI_Positive',SRC)
-out=cmd('PathBSeedCI_Positive',localize(VIS01,'PathBSeedCI_Positive',locked=True))
+out=cmd('PathBSeedCI_Positive',localize(VIS01,'PathBSeedCI_Positive'))
 assert 'PATHB_VIS01_CONTEXT_SEED' in out,out
 assert scalar('PathBSeedCI_Positive','SELECT COUNT(*) FROM dbo.Persons')==1
 assert scalar('PathBSeedCI_Positive','SELECT COUNT(*) FROM dbo.Locations')==2
 out=cmd('PathBSeedCI_Positive',localize(READBACK,'PathBSeedCI_Positive'))
 assert 'PASS_CATALOG_ONLY_NOT_BUSINESS_UAT' in out,out
-out=cmd('PathBSeedCI_Positive',localize(VIS01,'PathBSeedCI_Positive',locked=True),success=False)
+out=cmd('PathBSeedCI_Positive',localize(VIS01,'PathBSeedCI_Positive'),success=False)
 assert 'EXACT_EXISTING_SEED_HOLD' in out,out
 assert scalar('PathBSeedCI_Positive','SELECT COUNT(*) FROM dbo.Persons')==1
 
@@ -58,7 +59,7 @@ marker="EXEC sys.sp_set_session_context @key=N'PATHB_DISPOSABLE_CI',@value=N'd6c
 cmd('PathBSeedCI_VIS01Rollback',marker+SEED)
 cmd('PathBSeedCI_VIS01Rollback',SRC)
 cmd('PathBSeedCI_VIS01Rollback',"ALTER TABLE dbo.Centers ADD CONSTRAINT CK_VIS01_Test_ForceRollback CHECK(CenterCode <> N'PBV01-CENTER');")
-out=cmd('PathBSeedCI_VIS01Rollback',localize(VIS01,'PathBSeedCI_VIS01Rollback',locked=True),success=False)
+out=cmd('PathBSeedCI_VIS01Rollback',localize(VIS01,'PathBSeedCI_VIS01Rollback'),success=False)
 assert 'CK_VIS01_Test_ForceRollback' in out,out
 assert scalar('PathBSeedCI_VIS01Rollback','SELECT COUNT(*) FROM dbo.Persons')==0
 assert scalar('PathBSeedCI_VIS01Rollback','SELECT COUNT(*) FROM dbo.Employments')==0
