@@ -1,0 +1,13 @@
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+CREATE TABLE dbo.Organizations (Id int NOT NULL PRIMARY KEY);
+CREATE TABLE dbo.Roles (Id int NOT NULL PRIMARY KEY);
+CREATE TABLE dbo.Teams (Id int NOT NULL PRIMARY KEY);
+CREATE TABLE dbo.UserEmploymentPeriods (Id int NOT NULL PRIMARY KEY);
+CREATE TABLE dbo.UserIdentityProfiles (Id int NOT NULL PRIMARY KEY, SecretTest int NOT NULL);
+CREATE TABLE dbo.UserRoleAssignments (Id int NOT NULL PRIMARY KEY);
+CREATE TABLE dbo.Users (Id int NOT NULL PRIMARY KEY);
+CREATE TABLE dbo.UserTeamAssignments (Id int NOT NULL PRIMARY KEY);
+INSERT dbo.UserIdentityProfiles VALUES (1,123);
+CREATE USER [pathb_login_test] WITHOUT LOGIN;
+CREATE USER [pathb_outsider_test] WITHOUT LOGIN;
