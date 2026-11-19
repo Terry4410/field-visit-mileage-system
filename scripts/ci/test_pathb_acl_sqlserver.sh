@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 container=pathb-acl-sql
-sqlcmd=(docker exec -i "$container" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -I -b -V 16 -h-1 -W)
+sqlcmd=(docker exec -i "$container" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -I -b -V 11 -h-1 -W)
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 "${sqlcmd[@]}" -d master -Q 'CREATE DATABASE PathBACLDisposable;' >/dev/null
 "${sqlcmd[@]}" -d PathBACLDisposable < "$root/scripts/ci/pathb_acl_behavior.sql" >/dev/null
