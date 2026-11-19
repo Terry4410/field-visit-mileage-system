@@ -75,11 +75,11 @@ def setup(db):
 def main():
     assert CANDIDATE.count("BEGIN TRANSACTION;") == 1
     assert CANDIDATE.count("ROLLBACK TRANSACTION;") == 1
-    assert len(re.findall(r"\\bINSERT dbo\\.", CANDIDATE)) == 14
-    assert len(re.findall(r"\\bUPDATE dbo\\.", CANDIDATE)) == 1
+    assert len(re.findall(r"\bINSERT dbo\.", CANDIDATE)) == 14
+    assert len(re.findall(r"\bUPDATE dbo\.", CANDIDATE)) == 1
     for table in TABLES:
         assert "(N'" + table + "',N'CreatedAt')" in CANDIDATE
-        insert = re.search(r"INSERT dbo\\." + table + r"\\(([^;]+?)\\)\\s*VALUES\\(([^;]+?)\\);", CANDIDATE)
+        insert = re.search(r"INSERT dbo\." + table + r"\(([^;]+?)\)\s*VALUES\(([^;]+?)\);", CANDIDATE)
         assert insert and "CreatedAt" in insert.group(1) and "@now" in insert.group(2), table
     pos, rollback = DATABASES
     setup(pos)
