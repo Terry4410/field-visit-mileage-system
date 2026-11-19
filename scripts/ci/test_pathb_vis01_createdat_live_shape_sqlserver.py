@@ -42,7 +42,7 @@ def scalar(db, sql):
 
 def localize(sql, db):
     # Replace only the exact-target guard, solely in the disposable test process.
-    start = sql.index("IF COALESCE(TRY_CONVERT(int,SERVERPROPERTY('EngineEdition')),0)<>5")
+    start = sql.index("IF COALESCE(TRY_CONVERT(int,")
     end = sql.index("IF NOT EXISTS(SELECT 1 FROM sys.dm_exec_connections", start)
     assert "db-fieldvisit-pathb-uat" in sql[start:end]
     assert "sql-fieldvisit-jpe-pathb-uat" in sql[start:end]
