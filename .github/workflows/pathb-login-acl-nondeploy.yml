@@ -1,0 +1,70 @@
+name: Path B Login ACL isolated NONDEPLOY
+on:
+  pull_request:
+    paths:
+      - 'scripts/ci/pathb_acl_behavior.sql'
+      - 'scripts/ci/pathb_acl_final_candidate_parse_only.sql'
+      - 'scripts/ci/pathb_acl_repair_v2_parse_only.sql'
+      - 'scripts/ci/pathb_acl_repair_v3_parse_only.sql'
+      - 'scripts/ci/test_pathb_acl_sqlserver.sh'
+      - 'scripts/ci/test_pathb_acl_contract.py'
+      - '.github/workflows/pathb-login-acl-nondeploy.yml'
+permissions:
+  contents: read
+concurrency:
+  group: pathb-login-acl-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  sqlserver-acl-behavior:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Static safety contract
+        run: python -m unittest scripts/ci/test_pathb_acl_contract.py -v
+      - name: Start disposable SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="Aa7!$(python -c 'import secrets;print(secrets.token_hex(24))')"
+          echo "::add-mask::$password"
+          echo "PATHB_SQL_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker run -d --name pathb-acl-sql -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e "MSSQL_SA_PASSWORD=$password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+      - name: Wait for SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            docker exec pathb-acl-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+              -P "$PATHB_SQL_PASSWORD" -C -l 2 -Q 'SELECT 1' >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Parse-only final GRANT candidate on SQL Server (never execute)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat scripts/ci/pathb_acl_final_candidate_parse_only.sql; } |
+            docker exec -i pathb-acl-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse-only V2 exact text with one masked Object ID (never execute)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat scripts/ci/pathb_acl_repair_v2_parse_only.sql; } |
+            docker exec -i pathb-acl-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse-only V3 complete repair SQL with synthetic IDs (never execute)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat scripts/ci/pathb_acl_repair_v3_parse_only.sql; } |
+            docker exec -i pathb-acl-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Effective permission allow deny rollback behavior
+        run: bash scripts/ci/test_pathb_acl_sqlserver.sh
+      - name: Remove disposable SQL Server
+        if: always()
+        run: docker rm -f pathb-acl-sql >/dev/null 2>&1 || true
