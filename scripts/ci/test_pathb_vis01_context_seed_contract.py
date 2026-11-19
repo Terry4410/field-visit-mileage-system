@@ -72,6 +72,9 @@ class CompleteRuntimeAclContract(unittest.TestCase):
         self.assertEqual(set(select_names),reads)
         self.assertEqual(len(insert_names),5)
         self.assertEqual(set(insert_names),writes)
+        column_grants = re.findall(r"GRANT SELECT ON OBJECT::dbo\.\[(\w+)\] \(\[(\w+)\]\) TO \[api-fieldvisit-pathb-uat_pathb\];", COMPLETE_ACL)
+        self.assertEqual(set(column_grants), {("VisitTripStatusHistory","VisitTripStatusHistoryId"),("AuditLogs","AuditLogId")})
+        self.assertEqual(len(column_grants),2)
     def test_locked_and_fail_closed(self):
         stripped = re.sub(r"(?m)^--.*\n", "", COMPLETE_ACL).strip()
         self.assertTrue(stripped.startswith("THROW 59590, 'LOCKED_REVIEW_NO_AZURE_DCL_AUTHORIZATION', 1;"))
