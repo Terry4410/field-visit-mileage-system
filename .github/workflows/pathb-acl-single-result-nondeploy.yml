@@ -6,6 +6,7 @@ on:
       - 'database/uat/PathB_UAT_Runtime_ACL_Readonly_SINGLE_RESULT_COLLATION_REVIEW.sql'
       - 'scripts/ci/test_pathb_acl_single_result_sqlserver.py'
       - 'database/uat/PathB_UAT_P0_Core_Runtime_ACL_GRANT_REVIEW_20261119.sql'
+      - 'database/uat/PathB_UAT_P0_LeaderApproval_ACL_Readonly_REVIEW_20261119.sql'
       - 'scripts/ci/test_pathb_p0_core_acl_sqlserver.py'
       - 'database/uat/PathB_UAT_P0_MileageGovernanceEvents_OutputId_SELECT_REVIEW_20261119.sql'
       - 'scripts/ci/test_pathb_mileage_governance_output_acl_sqlserver.py'
@@ -56,6 +57,12 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Test Leader serializable approval strategy against disposable SQL Server
         run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~LeaderApprovalRetryTransactionTests --logger 'console;verbosity=normal'
+      - name: Parse Leader approval ACL readonly candidate without live SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/PathB_UAT_P0_LeaderApproval_ACL_Readonly_REVIEW_20261119.sql; } |
+            docker exec -i pathb-acl-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
       - name: Remove disposable SQL Server
         if: always()
         run: docker rm -f pathb-acl-sql >/dev/null 2>&1 || true
