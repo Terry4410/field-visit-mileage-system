@@ -24,6 +24,7 @@ jobs:
           printf '%s\n' \
             .github/workflows/pathb-correction-p0-nondeploy.yml \
             backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs \
+            database/uat/PathB_CORR01_CorrectionRequestChanges_2Grant_REVIEW_20261120.sql \
             frontend/src/leader-review-queue.ts \
             frontend/src/leader-review-queue.test.ts \
             frontend/src/pages/LeaderPage.tsx | sort > "$RUNNER_TEMP/expected"
@@ -46,6 +47,31 @@ jobs:
         run: |
           dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-restore
+      - name: SQL Server 2022 parse-only of exact DCL review candidate (NO GRANT)
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="Aa7!$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          docker run -d --name pathb-corr-review-sql -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer \
+            -e "MSSQL_SA_PASSWORD=$password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f pathb-corr-review-sql >/dev/null 2>&1 || true' EXIT
+          ready=no
+          for _ in $(seq 1 50); do
+            if docker exec pathb-corr-review-sql /opt/mssql-tools18/bin/sqlcmd \
+                -S localhost -U sa -P "$password" -C -l 2 -Q 'SELECT 1' >/dev/null 2>&1; then
+              ready=yes
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = yes
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/PathB_CORR01_CorrectionRequestChanges_2Grant_REVIEW_20261120.sql; printf '\nGO\n'; } |
+            docker exec -i pathb-corr-review-sql /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P "$password" -C -b -d master >/dev/null
+          echo 'SQL2022_REVIEW_PARONLY=PASS; AZURE_DCL=NOT_RUN'
       - name: Confirm no deployment step exists
         run: |
           echo 'NONDEPLOY=PASS'
