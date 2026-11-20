@@ -1,5 +1,6 @@
 import{useEffect,useState}from"react";
 import{api}from"../api";
+import{loadLeaderReviewLists}from"../leader-review-queue";
 import{correctionChangeText}from"../correction-ui";
 import{formatTripTime,hasLeaderTimeOverlap,leaderOverlapConfirmMessage,leaderOverlapWarningText}from"../leader-overlap";
 import ScopedLocationPage from "./ScopedLocationPage";
@@ -46,6 +47,8 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const[end,setEnd]=useState(todayTaipei());
  const[job,setJob]=useState<BackgroundJob|null>(null);
  const[corrections,setCorrections]=useState<CorrectionRequest[]>([]);
+ const[loadError,setLoadError]=useState('');
+ const[correctionLoadFailed,setCorrectionLoadFailed]=useState(false);
 
  const selectionEnabled=mode==='Selected';
  const queues=partitionLeaderMileageQueues(rows,mode,start,end);
@@ -66,14 +69,17 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const toggleAllCalculable=(checked:boolean)=>setSelected(current=>checked?Array.from(new Set([...current,...calculableIds])):current.filter(id=>!calculableIds.includes(id)));
  const toggleAllApproval=(checked:boolean)=>setApprovalSelected(checked?approvalIds:[]);
 
- const load=()=>Promise.all([
-   api<Trip[]>('/leader/review-queue'),
-   api<CorrectionRequest[]>('/corrections?status=PendingLeaderReview')
- ]).then(([t,c])=>{
-   setRows(t);setCorrections(c);
-   setReviewKm(Object.fromEntries(t.map(x=>[x.visitTripId,String(x.approvedDistanceKm??x.systemDistanceKm??x.claimedDistanceKm??'')])));
-   setApprovalSelected(current=>current.filter(id=>t.some(x=>x.visitTripId===id&&x.status==='PendingApproval')));
- }).catch(e=>setMsg(e.message));
+ const load=()=>loadLeaderReviewLists(
+    ()=>api<Trip[]>('/leader/review-queue'),
+    ()=>api<CorrectionRequest[]>('/corrections?status=PendingLeaderReview')
+  ).then(result=>{
+    setRows(result.trips);
+    setCorrections(result.corrections);
+    setCorrectionLoadFailed(result.correctionsFailed);
+    setLoadError(result.errors.join('；'));
+    setReviewKm(Object.fromEntries(result.trips.map(x=>[x.visitTripId,String(x.approvedDistanceKm??x.systemDistanceKm??x.claimedDistanceKm??'')])));
+    setApprovalSelected(current=>current.filter(id=>result.trips.some(x=>x.visitTripId===id&&x.status==='PendingApproval')));
+  }).catch(e=>setLoadError(e instanceof Error?e.message:'審核清單載入失敗'));
  useEffect(()=>{void load()},[]);
 
  const enqueue=async()=>{
@@ -171,6 +177,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    </div>
    {mode==='DateRange'&&(!start||!end||end<start)&&<div role="alert" className="note danger-note">日期區間無效，請確認起訖日期。</div>}
    {job&&<div className="note">工作狀態：{job.status}｜總計 {job.totalCount}｜成功 {job.successCount}｜失敗 {job.failedCount}</div>}
+   {loadError&&<div className="note danger-note" role="alert">{loadError}</div>}
    {msg&&<div className="note">{msg}</div>}
   </div>
 
@@ -216,9 +223,9 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
   </div>
 
   <div className="card" style={{marginTop:18}}>
-   <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><span className="pill">{corrections.length}</span></div>
+   <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><span className="pill">{correctionLoadFailed?"讀取失敗":corrections.length}</span></div>
    <div className="table-wrap"><table><thead><tr><th>Trip</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead>
-   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)}>通過</button><button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody>
+   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)} disabled={r.changes.length===0} title={r.changes.length===0?"缺少更正差異明細，禁止核准":undefined}>通過</button>{r.changes.length===0&&<span role="alert" className="hint">差異明細缺失，禁止核准</span>}<button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody>
    </table></div>
   </div>
  </>;
