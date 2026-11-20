@@ -412,6 +412,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         else
         {
             var changes = await db.CorrectionRequestChanges.AsNoTracking().Where(x => x.CorrectionRequestId == correctionRequestId).ToListAsync(ct);
+            V160CorrectionDiffRules.RequirePersistedChangesForApproval(changes.Count);
             var requiresAdmin = RequiresAdminClose(changes);
             if (requiresAdmin) row.Status = "PendingAdminClose";
             else
@@ -455,6 +456,10 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         }
         else
         {
+            // Reject orphaned correction headers before creating an Admin-closed Snapshot.
+            var changeCount = await db.CorrectionRequestChanges.AsNoTracking()
+                .CountAsync(x => x.CorrectionRequestId == correctionRequestId, ct);
+            V160CorrectionDiffRules.RequirePersistedChangesForApproval(changeCount);
             var snapshot = await CreateCorrectionSnapshotAsync(row, user, request, ct);
             row.ResultSnapshotId = snapshot.VisitTripSnapshotId;
             row.Status = "Closed";
