@@ -163,7 +163,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
   <div className="card" style={{marginTop:18}}>
    <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><span className="pill">{correctionLoadFailed?"讀取失敗":corrections.length}</span></div>
    <div className="table-wrap"><table><thead><tr><th>Trip</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead>
-   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)}>通過</button><button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody>
+   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)} disabled={r.changes.length===0} title={r.changes.length===0?"缺少更正差異明細，禁止核准":undefined}>通過</button>{r.changes.length===0&&<span role="alert" className="hint">差異明細缺失，禁止核准</span>}<button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody>
    </table></div>
   </div>
  </>;
