@@ -57,5 +57,23 @@ public sealed class V160CorrectionDiffRulesTests
             V160CorrectionDiffRules.AreEquivalent(
                 "原備註",
                 "新備註"));
+    } 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Empty_or_invalid_change_count_cannot_be_approved(int count)
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => V160CorrectionDiffRules.RequirePersistedChangesForApproval(count));
+        Assert.Contains("差異明細不存在", error.Message);
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Persisted_correction_differences_can_proceed_to_approval(int count)
+    {
+        V160CorrectionDiffRules.RequirePersistedChangesForApproval(count);
+    }
+
 }
