@@ -1,0 +1,60 @@
+name: Path B Leader P0 isolated NONDEPLOY
+on:
+  push:
+    branches: [work/pathb-leader-approval-p0-isolated-20261120]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-build-and-sql-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify patch is exactly the approved release baseline plus four focused code/test files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor d6c220877b9976b6478d85b5171d4e06293595ae HEAD
+          git diff --name-only d6c220877b9976b6478d85b5171d4e06293595ae HEAD | sort > "$RUNNER_TEMP/actual"
+          printf '%s\n' \
+            .github/workflows/pathb-leader-p0-isolated-nondeploy.yml \
+            backend/src/FieldVisit.Application/Interfaces.cs \
+            backend/src/FieldVisit.Application/LeaderService.cs \
+            backend/src/FieldVisit.Infrastructure/AppDbContext.cs \
+            backend/tests/FieldVisit.Application.Tests/LeaderApprovalRetryTransactionTests.cs | sort > "$RUNNER_TEMP/expected"
+          diff -u "$RUNNER_TEMP/expected" "$RUNNER_TEMP/actual"
+      - name: Backend Release build
+        run: dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+      - name: Start temporary local SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="Aa7!$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          echo "PATHB_SQL_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker run -d --name pathb-leader-p0-sql \
+            -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer \
+            -e "MSSQL_SA_PASSWORD=$password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+      - name: Wait for disposable SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            docker exec pathb-leader-p0-sql /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -l 2 -Q 'SELECT 1' >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Real SQL Server retry transaction commit and rollback
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~LeaderApprovalRetryTransactionTests --logger 'console;verbosity=normal'
+      - name: Remove temporary SQL Server
+        if: always()
+        run: docker rm -f pathb-leader-p0-sql >/dev/null 2>&1 || true
