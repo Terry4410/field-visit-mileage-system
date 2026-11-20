@@ -268,32 +268,60 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var changes = Diff(snapshot, normalizedProposal);
         if (changes.Count == 0) throw new InvalidOperationException("更正內容與目前核准資料相同。");
 
-        var row = new CorrectionRequest
+        // A correction must not leave a PendingLeaderReview header if its detail or audit write fails.
+        // SQL Server retries are enabled for this application: wrap the entire transaction in the
+        // provider execution strategy rather than opening a user transaction outside the strategy.
+        var correctionId = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            VisitTripId = request.VisitTripId,
-            BaseSnapshotId = snapshot.VisitTripSnapshotId,
-            Status = "PendingLeaderReview",
-            Reason = request.Reason.Trim(),
-            ProposedChangesJson = JsonSerializer.Serialize(normalizedProposal, JsonOptions),
-            RequestedByUserId = user.UserId,
-            RequestedAt = DateTime.UtcNow
-        };
-        await db.CorrectionRequests.AddAsync(row, ct);
-        await db.SaveChangesAsync(ct);
-        foreach (var change in changes)
-        {
-            await db.CorrectionRequestChanges.AddAsync(new CorrectionRequestChange
+            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+            try
             {
-                CorrectionRequestId = row.CorrectionRequestId,
-                FieldName = change.FieldName,
-                OldValue = change.OldValue,
-                NewValue = change.NewValue,
-                CreatedAt = DateTime.UtcNow
-            }, ct);
-        }
-        AddAudit(user.UserId, "CorrectionRequest", row.CorrectionRequestId.ToString(), "CorrectionRequested", new { request.VisitTripId, request.Reason, Changes = changes.Count });
-        await db.SaveChangesAsync(ct);
-        return await MapCorrectionAsync(row.CorrectionRequestId, ct);
+                // Recheck under the same transaction to avoid two concurrent pending corrections.
+                if (await db.CorrectionRequests.AnyAsync(x =>
+                    x.VisitTripId == request.VisitTripId &&
+                    (x.Status == "PendingLeaderReview" || x.Status == "PendingAdminClose"), ct))
+                    throw new InvalidOperationException("此行程已有待處理的更正申請。");
+
+                var row = new CorrectionRequest
+                {
+                    VisitTripId = request.VisitTripId,
+                    BaseSnapshotId = snapshot.VisitTripSnapshotId,
+                    Status = "PendingLeaderReview",
+                    Reason = request.Reason.Trim(),
+                    ProposedChangesJson = JsonSerializer.Serialize(normalizedProposal, JsonOptions),
+                    RequestedByUserId = user.UserId,
+                    RequestedAt = DateTime.UtcNow
+                };
+                await db.CorrectionRequests.AddAsync(row, ct);
+                await db.SaveChangesAsync(ct);
+                foreach (var change in changes)
+                {
+                    await db.CorrectionRequestChanges.AddAsync(new CorrectionRequestChange
+                    {
+                        CorrectionRequestId = row.CorrectionRequestId,
+                        FieldName = change.FieldName,
+                        OldValue = change.OldValue,
+                        NewValue = change.NewValue,
+                        CreatedAt = DateTime.UtcNow
+                    }, ct);
+                }
+                AddAudit(user.UserId, "CorrectionRequest", row.CorrectionRequestId.ToString(), "CorrectionRequested",
+                    new { request.VisitTripId, request.Reason, Changes = changes.Count });
+                await db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+                return row.CorrectionRequestId;
+            }
+            catch
+            {
+                // Rollback also covers the first SaveChanges; clear EF-tracked state before
+                // the SQL Server execution strategy may decide to retry a transient failure.
+                try { await transaction.RollbackAsync(ct); }
+                finally { db.ChangeTracker.Clear(); }
+                throw;
+            }
+        });
+        // Read the response after commit; never re-run the write transaction for DTO mapping.
+        return await MapCorrectionAsync(correctionId, ct);
     }
 
     private async Task<IQueryable<CorrectionRequest>> ScopedCorrectionsAsync(CurrentUserDto user, CancellationToken ct)
@@ -384,6 +412,7 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         else
         {
             var changes = await db.CorrectionRequestChanges.AsNoTracking().Where(x => x.CorrectionRequestId == correctionRequestId).ToListAsync(ct);
+            V160CorrectionDiffRules.RequirePersistedChangesForApproval(changes.Count);
             var requiresAdmin = RequiresAdminClose(changes);
             if (requiresAdmin) row.Status = "PendingAdminClose";
             else
@@ -427,6 +456,9 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         }
         else
         {
+            var changeCount = await db.CorrectionRequestChanges.AsNoTracking()
+                .CountAsync(x => x.CorrectionRequestId == correctionRequestId, ct);
+            V160CorrectionDiffRules.RequirePersistedChangesForApproval(changeCount);
             var snapshot = await CreateCorrectionSnapshotAsync(row, user, request, ct);
             row.ResultSnapshotId = snapshot.VisitTripSnapshotId;
             row.Status = "Closed";
