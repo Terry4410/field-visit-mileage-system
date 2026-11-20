@@ -1,0 +1,144 @@
+name: Path B UAT seed NONDEPLOY
+on:
+  pull_request:
+    paths:
+      - 'database/uat/FieldVisit_PathB_UAT_ThreeRole_Seed_*'
+      - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_LOCKED_REVIEW.sql'
+      - 'database/uat/FieldVisit_PathB_VIS01_Context_SELECT_ACL_LOCKED_TEST.sql'
+      - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_READBACK.sql'
+      - 'scripts/ci/pathb_uat_seed_schema.sql'
+      - 'scripts/ci/run_pathb_uat_seed_sqlserver.sh'
+      - 'scripts/ci/test_pathb_uat_seed_contract.py'
+      - 'scripts/ci/test_pathb_vis01_context_seed_contract.py'
+      - 'scripts/ci/pathb_vis01_disposable_1800_subset.sql'
+      - 'scripts/ci/test_pathb_vis01_disposable_sqlserver.py'
+      - 'scripts/ci/pathb_vis01_revised_seed_preflight.sql'
+      - 'scripts/ci/pathb_vis01_exact_revised_candidate.py'
+      - 'database/uat/FieldVisit_PathB_VIS01_Complete_Minimal_Runtime_ACL_LOCKED_TEST.sql'
+      - 'scripts/ci/test_pathb_vis01_minimal_runtime_acl_sqlserver.py'
+      - 'scripts/ci/test_pathb_vis01_reservation_column_acl_sqlserver.py'
+      - 'database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_REVIEW_CANDIDATE_20261119.sql'
+      - 'database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_COLLATION_REVIEW_20261119.sql'
+      - 'database/uat/FieldVisit_PathB_VIS01_Context_Seed_CREATEDAT_REVIEW_CANDIDATE_20261119.sql'
+      - 'database/uat/PathB_UAT_Runtime_ACL_Readonly_Candidate_20261119.sql'
+      - 'scripts/ci/test_pathb_vis01_createdat_live_shape_sqlserver.py'
+      - '.github/workflows/pathb-uat-seed-nondeploy.yml'
+permissions:
+  contents: read
+concurrency:
+  group: pathb-uat-seed-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  sqlserver-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Static source and safety contract
+        run: python -m unittest scripts/ci/test_pathb_uat_seed_contract.py -v
+      - name: Static VIS01 context contract
+        run: python -m unittest scripts/ci/test_pathb_vis01_context_seed_contract.py -v
+      - name: Start disposable SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="Aa7!$(python -c 'import secrets;print(secrets.token_hex(24))')"
+          echo "::add-mask::$password"
+          echo "PATHB_SQL_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker run -d --name pathb-seed-sql -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e "MSSQL_SA_PASSWORD=$password" \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+      - name: Wait for SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            docker exec pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+              -P "$PATHB_SQL_PASSWORD" -C -l 2 -Q 'SELECT 1' >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Parse exact approved readonly ACL candidate without executing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate=database/uat/PathB_UAT_Runtime_ACL_Readonly_Candidate_20261119.sql
+          test "$(sha256sum "$candidate" | cut -d' ' -f1)" = "ba962eb90dd2b3810c642a25b4a949e8585d8ec80220b3a5cc0a7f968363cdce"
+          { printf 'SET PARSEONLY ON;\n'; cat "$candidate"; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse exact-SHA 15223-byte revised VIS01 candidate without executing DML
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; python scripts/ci/pathb_vis01_exact_revised_candidate.py; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse complete locked VIS01 SQL without executing DML
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Context_Seed_LOCKED_REVIEW.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse VIS01 ten-table ACL locked fixture only (never grant)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Context_SELECT_ACL_LOCKED_TEST.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse VIS01 independent readback (never SELECT production)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Context_Seed_READBACK.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Positive negative repeat collision rollback and login eligibility
+        run: bash scripts/ci/run_pathb_uat_seed_sqlserver.sh
+      - name: VIS01 actual SQL Server disposable insert and rollback contract
+        run: python scripts/ci/test_pathb_vis01_disposable_sqlserver.py
+      - name: PARSEONLY exact CreatedAt candidate (unmodified bytes; never execute DML)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum database/uat/FieldVisit_PathB_VIS01_Context_Seed_CREATEDAT_REVIEW_CANDIDATE_20261119.sql | cut -d' ' -f1)" = "eb183f366c309ed012cb32749f56e12b977c2f006232539a79d6554b1594b46a"
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Context_Seed_CREATEDAT_REVIEW_CANDIDATE_20261119.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: VIS01 reproduce six live mandatory CreatedAt columns in disposable SQL Server
+        run: python scripts/ci/test_pathb_vis01_createdat_live_shape_sqlserver.py
+      - name: Parse locked minimum VIS01 draft runtime SQL permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Complete_Minimal_Runtime_ACL_LOCKED_TEST.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Validate minimum VIS01 draft read write permissions
+        run: python scripts/ci/test_pathb_vis01_minimal_runtime_acl_sqlserver.py
+      - name: Parse unmodified Scheme A two-column ACL candidate (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_REVIEW_CANDIDATE_20261119.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+      - name: Parse corrected reservation ACL and test cross-collation equality
+        shell: bash
+        run: |
+          set -euo pipefail
+          { printf 'SET PARSEONLY ON;\n'; cat database/uat/FieldVisit_PathB_VIS01_Reservation_ColumnACL_COLLATION_REVIEW_20261119.sql; } |
+            docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+          cat <<'SQL' | docker exec -i pathb-seed-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$PATHB_SQL_PASSWORD" -C -b -V 11 -d master
+          SET NOCOUNT ON;
+          DECLARE @expected TABLE(t sysname COLLATE SQL_Latin1_General_CP1_CI_AS);
+          INSERT @expected(t) VALUES(N'VisitTrips');
+          DECLARE @catalog TABLE(t sysname COLLATE Latin1_General_CI_AS_KS_WS);
+          INSERT @catalog(t) VALUES(N'VisitTrips');
+          IF (SELECT COUNT(*) FROM @catalog c JOIN @expected e
+              ON c.t COLLATE DATABASE_DEFAULT=e.t COLLATE DATABASE_DEFAULT)<>1
+              THROW 59730,'COLLATION_FIXTURE_HOLD',1;
+          SELECT N'COLLATION_JOIN_DISPOSABLE_PASS' AS Evidence;
+          SQL
+      - name: Validate VIS01 optional reservation two-column SELECT security
+        run: python scripts/ci/test_pathb_vis01_reservation_column_acl_sqlserver.py
+      - name: Remove disposable SQL Server
+        if: always()
+        run: docker rm -f pathb-seed-sql >/dev/null 2>&1 || true

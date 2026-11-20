@@ -126,6 +126,18 @@ public sealed class LeaderService(
 
     public async Task<TripDto> ApproveAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
     {
+        // SQL Server retrying execution strategies reject an ad-hoc transaction.
+        // Wrap the complete serialized approval unit (including live authorization
+        // and concurrency checks) in the provider execution strategy.
+        await uow.ExecuteWithRetryAsync(
+            token => ApproveTransactionAsync(tripId, request, token), ct);
+        // Map only after commit; never risk replaying a committed approval due
+        // to a subsequent DTO read failure.
+        return await tripService.GetDtoAsync(tripId, ct);
+    }
+
+    private async Task ApproveTransactionAsync(long tripId, ApproveTripRequest request, CancellationToken ct)
+    {
         // Serialize live-state validation and the decision/history/snapshot
         // write so concurrent approvals observe the first committed decision.
         await using var approvalTransaction = await uow.BeginSerializableTransactionAsync(ct);
@@ -324,8 +336,6 @@ public sealed class LeaderService(
         await snapshots.AddApprovedSnapshotAsync(trip, user, ct);
         await uow.SaveChangesAsync(ct);
         await approvalTransaction.CommitAsync(ct);
-
-        return await tripService.GetDtoAsync(tripId, ct);
     }
 
     public async Task<TripDto> ReturnAsync(long tripId, ReturnTripRequest request, CancellationToken ct)
