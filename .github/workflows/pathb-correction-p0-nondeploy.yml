@@ -24,6 +24,8 @@ jobs:
           printf '%s\n' \
             .github/workflows/pathb-correction-p0-nondeploy.yml \
             backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs \
+            backend/src/FieldVisit.Application/V160CorrectionDiffRules.cs \
+            backend/tests/FieldVisit.Application.Tests/V160CorrectionDiffRulesTests.cs \
             database/uat/PathB_CORR01_CorrectionRequestChanges_2Grant_REVIEW_20261120.sql \
             frontend/src/leader-review-queue.ts \
             frontend/src/leader-review-queue.test.ts \
