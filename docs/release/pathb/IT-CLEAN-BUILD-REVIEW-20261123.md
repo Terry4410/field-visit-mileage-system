@@ -39,6 +39,21 @@ The immutable source identities, exact nondeploy ZIP SHA-256 values, 13 SQL inst
 
 Microsoft's documented Windows Authentication options for ASP.NET Core 8 under IIS are at [Microsoft Learn — Windows Authentication](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/windowsauth?view=aspnetcore-8.0). IT must choose the supported company approach before Windows SSO code is integrated.
 
+## Minimum-cost enterprise login decision — source-audited (no auth code change)
+
+This comparison is **not an IT policy decision** and is not an authentication/UAT PASS. It uses accepted API `ab71aaa96d9ac259f66386555812448284527d15` and selected frontend `90fe9bd61c24be57ccfaf6d450bf053e9c646ac1` (both pinned above).
+
+| Company IT decision | Source-supported route | Still mandatory before production |
+| --- | --- | --- |
+| **A. Company accepts Microsoft Entra employee login integrated with corporate identities** | **Prefer first for lowest development cost**: existing frontend `auth-config.ts` / `entra-auth.ts` uses MSAL browser login **popup** and Entra API token; `auth.tsx` exchanges it for an application JWT through `/api/v1/auth/entra-login`. Existing API validates Entra tenant, audience, `tid`/`oid`, scope, and maps to existing active user/business roles. No new IIS Negotiate login code is needed merely to try this route. | IT's actual tenant/app registration, SPA redirect URI, authorized API delegated scope, HTTPS/CORS, stable user identity mapping, disabled/revoked users, negative access tests, group/role separation and corporate SSO approval. **Popup login is not automatic silent Windows logon**; corporate policy may disallow this approach. |
+| **B. Company requires genuine intranet IIS Integrated Windows Authentication (Kerberos/Negotiate)** | Existing selected code **does not implement this login flow**. IIS can authenticate the Windows principal, but the app still requires a trusted identity-to-User mapping and an application JWT or equivalent business-role authorization integration. | IT must specify Windows domain, service/application pool identity, SPN/Negotiate policies, allowed browsers, IIS integration/reverse proxy model, stable principal identifier, and security test scope **before** new implementation. This is a new source change and separate integration test, not just a config toggle. |
+
+**Existing Entra config keys to map, not a deployment instruction:** frontend `AUTH_MODE=Entra`, `ENTRA.TENANT_ID`, `ENTRA.SPA_CLIENT_ID`, `ENTRA.API_SCOPE`, `ENTRA.REDIRECT_URI`; API `Auth:Mode=Entra`, `Auth:Entra:TenantId`, `Auth:Entra:Audience`, `Auth:Entra:RequiredScope`, `Auth:Entra:AllowFirstLoginEmailBinding=false` (keep disabled pending explicit IT-controlled proof). The Demo endpoint must reject login in production Entra mode; do not expose Demo passwords or reuse Azure pilot accounts. IT-approved service identity, secure configuration, revocation behavior, invalid/audience-scope claims, Visitor/Leader/Admin scopes and cross-team denial require runtime tests before Production Ready.
+
+**Recommendation:** ask company IT only whether **A** is acceptable under its corporate AD/SSO policy or whether **B** is mandatory, plus the chosen Windows/SQL versions and operating owner. **Do not ask Owner to invent a technical implementation.** No Azure or Windows settings should be changed based on this note alone.
+
+References: [Microsoft Learn — ASP.NET Core 8 Windows Authentication](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/windowsauth?view=aspnetcore-8.0) and [Microsoft Learn — MSAL authentication flows](https://learn.microsoft.com/en-us/entra/identity-platform/msal-authentication-flows).
+
 ## What IT must verify independently
 
 1. Establish one final source/compiled API/compiled frontend/schema manifest and exact hashes; do not blindly merge divergent Git branches, or install old Azure-only scripts into a new company SQL target.
