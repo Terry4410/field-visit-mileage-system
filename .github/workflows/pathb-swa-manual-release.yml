@@ -103,8 +103,6 @@ jobs:
               names=z.namelist()
               if len(names)!=5 or len(set(names))!=5:
                   raise SystemExit('HOLD_ARTIFACT_COUNT')
-              if set(names[:2]) == set():
-                  raise SystemExit('HOLD_ARTIFACT_SHAPE')
               if set(names) != {'index.html','config.js'} | {n for n in names if n.startswith('assets/')}:
                   raise SystemExit('HOLD_ARTIFACT_FILES')
               if len([n for n in names if n.startswith('assets/')]) != 3:
