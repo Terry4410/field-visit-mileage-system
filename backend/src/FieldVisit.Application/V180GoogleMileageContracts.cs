@@ -179,6 +179,26 @@ public static class V180MileageGovernanceRules
         return "ManualFallback";
     }
 
+    // On distance-changing corrections, write the authoritative approved
+    // distance with the new immutable Snapshot INSERT; never UPDATE it later.
+    // Provider raw output stays in route-attempt evidence, not in the Snapshot.
+    public static decimal? CorrectionSnapshotSystemDistance(
+        bool distanceChanged,
+        string decisionSource,
+        decimal? originalSystemDistance,
+        decimal? proposedApprovedDistance)
+    {
+        if (!distanceChanged) return originalSystemDistance;
+        return RequireCorrectionDecisionSource(decisionSource) switch
+        {
+            "ProviderSuggested" when proposedApprovedDistance is > 0 => proposedApprovedDistance,
+            "ProviderSuggested" => throw new InvalidOperationException(
+                "CORRECTION_APPROVED_DISTANCE_REQUIRED：更正核定里程必須大於 0。"),
+            "ManualFallback" => null,
+            _ => throw new InvalidOperationException("Invalid correction distance source.")
+        };
+    }
+
     public static void EnsureLeaderApprovalState(string status)
     {
         if (!string.Equals(status, TripStatuses.PendingApproval, StringComparison.Ordinal))
