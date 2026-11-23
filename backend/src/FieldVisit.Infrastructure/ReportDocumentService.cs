@@ -27,93 +27,226 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         return Task.FromResult(new ReportExportContext(name, stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
     }
 
+
+    // Mandatory QUERY-05 report: preserve a real TABLE, not individual cards.
+    // Allow line wrapping and multipage rows instead of shrinking text to 7.2pt.
+    public const float PdfBodyFontPt = 10.5f;
+    private const float PdfLineHeight = 16f;
+    private const float PdfTableCellPadding = 5f;
+    private const float PdfHeaderHeight = 29f;
+
+    private sealed record PdfTableFragment(
+        int TripIndex,
+        int Offset,
+        int LineCount,
+        IReadOnlyList<IReadOnlyList<string>> ColumnLines);
+
     public Task<ReportExportContext> CreatePdfAsync(IReadOnlyList<TripQueryRowDto> rows, TripQueryRequest request, CurrentUserDto user, CancellationToken ct)
     {
         using var stream = new MemoryStream();
         using var document = SKDocument.CreatePdf(stream);
         var typeface = ResolveTypeface();
-        var titlePaint = new SKPaint { Typeface = typeface, TextSize = 18, IsAntialias = true, Color = SKColors.Black };
-        var textPaint = new SKPaint { Typeface = typeface, TextSize = 7.2f, IsAntialias = true, Color = SKColors.Black };
-        var headerPaint = new SKPaint { Typeface = typeface, TextSize = 7.2f, IsAntialias = true, FakeBoldText = true, Color = SKColors.Black };
-        var linePaint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 0.6f, Color = SKColors.Gray };
+        using var titlePaint = new SKPaint { Typeface = typeface, TextSize = 18f, IsAntialias = true, Color = SKColors.Black };
+        using var bodyPaint = new SKPaint { Typeface = typeface, TextSize = PdfBodyFontPt, IsAntialias = true, Color = new SKColor(30, 44, 61) };
+        using var headingPaint = new SKPaint { Typeface = typeface, TextSize = PdfBodyFontPt, IsAntialias = true, FakeBoldText = true, Color = SKColors.White };
+        using var boldPaint = new SKPaint { Typeface = typeface, TextSize = PdfBodyFontPt, IsAntialias = true, FakeBoldText = true, Color = new SKColor(30, 44, 61) };
+        using var gridPaint = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = 0.5f, Color = new SKColor(190, 201, 214) };
+        using var headerFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(38, 69, 100) };
+        using var bandFill = new SKPaint { Style = SKPaintStyle.Fill, Color = new SKColor(246, 249, 252) };
 
-        const float width = 841.89f, height = 595.28f; // A4 landscape points
-        const float left = 28, right = 28, top = 28, bottom = 28;
-        const float headerRowHeight = 22f;
-        const float footerReserve = 34f;
-
-        // Keep the report compact, but give route / project / visit type enough room to wrap.
-        var columns = new[] { 64f, 48f, 48f, 52f, 43f, 52f, 52f, 145f, 35f, 35f, 35f, 38f, 44f, 44f };
-        var headers = new[] { "TripNo", "日期", "時間", "外訪員", "小組", "專案", "拜訪形式", "拜訪路線", "自算", "系統", "核定", "費率", "補助金額", "狀態" };
-
-        var pageNo = 0;
-        var index = 0;
-
-        do
+        const float width = 841.89f, height = 595.28f; // A4 landscape, print-friendly
+        const float left = 28f, right = 28f, top = 28f, bottom = 28f;
+        const float footerReserve = 35f;
+        // Eight grouped columns retain all 14 original data fields without
+        // a microscopic font. Values within a cell may wrap over several lines.
+        var columns = new[] { 90f, 132f, 92f, 104f, 132f, 108f, 75f, 52.89f };
+        var headers = new[]
         {
-            pageNo++;
-            using var canvas = document.BeginPage(width, height);
-            var y = top;
+            "日期／時間", "行程編號", "外訪員／小組", "專案／拜訪形式",
+            "拜訪路線", "里程（km）", "費率／補助", "狀態"
+        };
+        var usableWidth = width - left - right;
+        if (Math.Abs(columns.Sum() - usableWidth) > 0.1f)
+            throw new InvalidOperationException("PDF_TABLE_WIDTH_INVALID");
 
-            canvas.DrawText("外訪行程與里程管理系統－行程查詢報表", left, y + 16, titlePaint);
-            y += 30;
+        var generated = BusinessTime.Now;
+        var filter = $"期間：{request.StartDate:yyyy/MM/dd} ～ {request.EndDate:yyyy/MM/dd}　匯出人：{user.DisplayName}　匯出時間：{generated:yyyy/MM/dd HH:mm}　總筆數：{rows.Count}";
+        var filterLines = WrapPdfBand(filter, bodyPaint, usableWidth);
+        var tableHeaderY = top + 30f + filterLines.Count * 15f + 16f;
+        var bodyTop = tableHeaderY + PdfHeaderHeight;
+        var footerTop = height - bottom - footerReserve;
+        var availableHeight = footerTop - bodyTop;
+        if (availableHeight < 4 * PdfLineHeight)
+            throw new InvalidOperationException("PDF_TABLE_PAGE_AREA_INVALID");
 
-            var filter = $"期間：{request.StartDate:yyyy/MM/dd} ～ {request.EndDate:yyyy/MM/dd}　匯出人：{user.DisplayName}　匯出時間：{BusinessTime.Now:yyyy/MM/dd HH:mm}　總筆數：{rows.Count}";
-            canvas.DrawText(filter, left, y + 10, textPaint);
-            y += 22;
-
-            DrawTableRow(canvas, left, y, columns, headers, headerRowHeight, headerPaint, linePaint);
-            y += headerRowHeight;
-
-            var drewAny = false;
-            while (index < rows.Count)
+        // Plan page breaks from wrapped cells. Every wrapped line must be drawn,
+        // including exceptionally long routes spanning several pages.
+        var pages = new List<List<PdfTableFragment>> { new() };
+        var usedHeight = 0f;
+        for (var tripIndex = 0; tripIndex < rows.Count; tripIndex++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var cells = PdfTableCells(rows[tripIndex]);
+            var wrapped = columns.Select((columnWidth, index) =>
+                WrapPdfBand(cells[index], bodyPaint, columnWidth - PdfTableCellPadding * 2)).ToArray();
+            var totalLines = wrapped.Max(lines => lines.Count);
+            var offset = 0;
+            while (offset < totalLines)
             {
-                var r = rows[index];
-                var cells = new[]
+                var roomLines = (int)Math.Floor(
+                    (availableHeight - usedHeight - PdfTableCellPadding * 2) / PdfLineHeight);
+                var fullPageLines = (int)Math.Floor(
+                    (availableHeight - PdfTableCellPadding * 2) / PdfLineHeight);
+                var remainingLines = totalLines - offset;
+
+                // Keep ordinary table rows intact; split only rows taller than
+                // a fresh page. Don't leave one orphan line at the page bottom.
+                if (usedHeight > 0 &&
+                    (roomLines < 2 || (remainingLines > roomLines && remainingLines <= fullPageLines)))
                 {
-                    r.TripNo,
-                    r.VisitDate.ToString("yyyy/MM/dd"),
-                    TimeRange(r.StartTime, r.EndTime),
-                    r.VisitorName,
-                    r.TeamName ?? "—",
-                    r.ProjectNames,
-                    r.VisitTypeNames,
-                    r.Route,
-                    Km(r.ClaimedDistanceKm),
-                    Km(r.SystemDistanceKm),
-                    Km(r.ApprovedDistanceKm),
-                    Money(r.RatePerKmSnapshot),
-                    Money(r.SubsidyAmount),
-                    r.StatusName
-                };
+                    pages.Add(new());
+                    usedHeight = 0f;
+                    continue;
+                }
+                if (roomLines < 1)
+                {
+                    if (usedHeight == 0f)
+                        throw new InvalidOperationException("PDF_TABLE_ROW_CANNOT_FIT");
+                    pages.Add(new());
+                    usedHeight = 0f;
+                    continue;
+                }
+                var lineCount = Math.Min(remainingLines, roomLines);
+                pages[^1].Add(new PdfTableFragment(tripIndex, offset, lineCount, wrapped));
+                usedHeight += PdfTableCellPadding * 2 + lineCount * PdfLineHeight;
+                offset += lineCount;
+                if (offset < totalLines)
+                {
+                    pages.Add(new());
+                    usedHeight = 0f;
+                }
+            }
+        }
 
-                var rowHeight = MeasureWrappedRowHeight(columns, cells, textPaint, 22f);
-                var footerTop = height - bottom - footerReserve;
+        var sumKm = rows.Sum(x => x.ApprovedDistanceKm ?? 0m);
+        var sumAmount = rows.Sum(x => x.SubsidyAmount ?? 0m);
+        for (var pageNumber = 0; pageNumber < pages.Count; pageNumber++)
+        {
+            using var canvas = document.BeginPage(width, height);
+            canvas.DrawText("外訪行程與里程管理系統－行程查詢報表", left, top + 19f, titlePaint);
+            for (var i = 0; i < filterLines.Count; i++)
+                canvas.DrawText(filterLines[i], left, top + 36f + i * 15f + bodyPaint.TextSize, bodyPaint);
 
-                if (drewAny && y + rowHeight > footerTop)
-                    break;
-
-                // Extremely long single row: fit what we reasonably can on one page.
-                if (y + rowHeight > footerTop)
-                    rowHeight = Math.Max(22f, footerTop - y);
-
-                DrawWrappedTableRow(canvas, left, y, columns, cells, rowHeight, textPaint, linePaint);
-                y += rowHeight;
-                index++;
-                drewAny = true;
+            // Repeat the visible table header on every printed page.
+            var cursorX = left;
+            for (var col = 0; col < columns.Length; col++)
+            {
+                var rect = new SKRect(cursorX, tableHeaderY, cursorX + columns[col], tableHeaderY + PdfHeaderHeight);
+                canvas.DrawRect(rect, headerFill);
+                canvas.DrawRect(rect, gridPaint);
+                canvas.DrawText(headers[col], cursorX + PdfTableCellPadding,
+                    tableHeaderY + 8f + headingPaint.TextSize, headingPaint);
+                cursorX += columns[col];
             }
 
-            var sumKm = rows.Sum(x => x.ApprovedDistanceKm ?? 0m);
-            var sumAmount = rows.Sum(x => x.SubsidyAmount ?? 0m);
-            canvas.DrawText($"核定總里程：{sumKm:0.##} km　補助總金額：${sumAmount:0.00}", left, height - bottom - 12, headerPaint);
-            canvas.DrawText($"第 {pageNo} 頁", width - right - 45, height - bottom - 12, textPaint);
+            var y = bodyTop;
+            foreach (var fragment in pages[pageNumber])
+            {
+                var rowHeight = PdfTableCellPadding * 2 + fragment.LineCount * PdfLineHeight;
+                cursorX = left;
+                for (var col = 0; col < columns.Length; col++)
+                {
+                    var rect = new SKRect(cursorX, y, cursorX + columns[col], y + rowHeight);
+                    if (fragment.TripIndex % 2 == 1) canvas.DrawRect(rect, bandFill);
+                    canvas.DrawRect(rect, gridPaint);
+                    var cellLines = fragment.ColumnLines[col];
+                    for (var j = 0; j < fragment.LineCount; j++)
+                    {
+                        var sourceLine = fragment.Offset + j;
+                        string? text = sourceLine < cellLines.Count ? cellLines[sourceLine] : null;
+                        if (fragment.Offset > 0 && j == 0 && col == 0 && string.IsNullOrEmpty(text))
+                            text = "續頁";
+                        if (fragment.Offset > 0 && j == 0 && col == 1 && string.IsNullOrEmpty(text))
+                            text = rows[fragment.TripIndex].TripNo;
+                        if (string.IsNullOrEmpty(text)) continue;
+                        var paint = col == 1 ? boldPaint : bodyPaint;
+                        canvas.DrawText(text, cursorX + PdfTableCellPadding,
+                            y + PdfTableCellPadding + paint.TextSize + j * PdfLineHeight, paint);
+                    }
+                    cursorX += columns[col];
+                }
+                y += rowHeight;
+            }
+            if (rows.Count == 0)
+                canvas.DrawText("查無符合條件的行程。", left + PdfTableCellPadding, bodyTop + 22f, bodyPaint);
+
+            canvas.DrawText($"核定總里程：{sumKm:0.##} km　補助總金額：NT$ {sumAmount:0.00}",
+                left, height - bottom - 10f, boldPaint);
+            canvas.DrawText($"第 {pageNumber + 1} / {pages.Count} 頁",
+                width - right - 105f, height - bottom - 10f, bodyPaint);
             document.EndPage();
         }
-        while (index < rows.Count || pageNo == 0);
 
         document.Close();
         var name = $"外訪行程查詢_{BusinessTime.Today:yyyyMMdd}.pdf";
         return Task.FromResult(new ReportExportContext(name, stream.ToArray(), "application/pdf"));
+    }
+
+    private static string[] PdfTableCells(TripQueryRowDto trip) =>
+    [
+        $"{trip.VisitDate:yyyy/MM/dd}\n{TimeRange(trip.StartTime, trip.EndTime)}",
+        trip.TripNo,
+        $"{trip.VisitorName}\n{trip.TeamName ?? "—"}",
+        $"{trip.ProjectNames}\n{trip.VisitTypeNames}",
+        trip.Route,
+        $"自算：{Km(trip.ClaimedDistanceKm)}\n系統：{Km(trip.SystemDistanceKm)}\n核定：{Km(trip.ApprovedDistanceKm)}",
+        $"費率：{Money(trip.RatePerKmSnapshot)}\n補助：{Money(trip.SubsidyAmount)}",
+        trip.StatusName
+    ];
+
+    // Preserve whole words and TripNos when they fit in their column.
+    // The user accepts wrapping; overlong tokens break at Unicode text elements.
+    private static IReadOnlyList<string> WrapPdfBand(string value, SKPaint paint, float maxWidth)
+    {
+        var result = new List<string>();
+        foreach (var paragraph in (value ?? "").Replace("\r", "").Split('\n'))
+        {
+            var current = "";
+            foreach (System.Text.RegularExpressions.Match match in
+                System.Text.RegularExpressions.Regex.Matches(paragraph, @"\S+\s*"))
+            {
+                var token = match.Value;
+                if (paint.MeasureText((current + token).TrimEnd()) <= maxWidth)
+                {
+                    current += token;
+                    continue;
+                }
+                if (!string.IsNullOrWhiteSpace(current))
+                {
+                    result.Add(current.TrimEnd());
+                    current = "";
+                }
+                if (paint.MeasureText(token.Trim()) <= maxWidth)
+                {
+                    current = token.TrimStart();
+                    continue;
+                }
+                var units = System.Globalization.StringInfo.GetTextElementEnumerator(token.Trim());
+                while (units.MoveNext())
+                {
+                    var unit = (string)units.Current!;
+                    if (current.Length > 0 && paint.MeasureText(current + unit) > maxWidth)
+                    {
+                        result.Add(current.TrimEnd());
+                        current = "";
+                    }
+                    current += unit;
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(current)) result.Add(current.TrimEnd());
+            else if (paragraph.Length == 0) result.Add("");
+        }
+        return result.Count > 0 ? result : new[] { "" };
     }
 
     private SKTypeface ResolveTypeface()
