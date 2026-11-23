@@ -1,0 +1,111 @@
+name: Path B selected UI and API paired build (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['.github/workflows/it-pathb-paired-build-nondeploy.yml']
+permissions:
+  contents: read
+concurrency:
+  group: pathb-it-paired-binaries
+  cancel-in-progress: false
+jobs:
+  paired-build:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/pathb-it-cleanbuild-020-20261123'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: ab71aaa96d9ac259f66386555812448284527d15, path: api-source, persist-credentials: false}
+      - uses: actions/checkout@v4
+        with: {ref: 90fe9bd61c24be57ccfaf6d450bf053e9c646ac1, path: frontend-source, persist-credentials: false}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Verify exact accepted component source IDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C api-source rev-parse HEAD)" = 'ab71aaa96d9ac259f66386555812448284527d15'
+          test "$(git -C frontend-source rev-parse HEAD)" = '90fe9bd61c24be57ccfaf6d450bf053e9c646ac1'
+      - name: Build exact selected .NET8 API and React frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish api-source/backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$RUNNER_TEMP/api-publish" --nologo
+          cd frontend-source/frontend
+          npm ci --no-audit --no-fund
+          npm run build
+          test -f "$RUNNER_TEMP/api-publish/FieldVisit.Api.dll"
+          test -f dist/index.html
+          test -f dist/config.js
+      - name: Lock both compiled outputs to NONDEPLOY invalid-config state and seal hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,zipfile,os
+          root=Path(os.environ['RUNNER_TEMP'])/'paired-nondeploy'
+          root.mkdir(exist_ok=True)
+          api=Path(os.environ['RUNNER_TEMP'])/'api-publish'
+          ui=Path('frontend-source/frontend/dist')
+          cfg_files=list(api.glob('appsettings*.json'))
+          assert cfg_files
+          for path in cfg_files:
+              config=json.loads(path.read_text())
+              config.setdefault('Auth',{})['Mode']='IT_SSO_NOT_CONFIGURED'
+              config['Auth']['DemoPassword']=''
+              config['Auth']['JwtKey']='IT_MUST_SET_APPROVED_SECRET'
+              config.setdefault('ConnectionStrings',{})['DefaultConnection']='IT_DATABASE_NOT_CONFIGURED'
+              config.setdefault('Providers',{})['Route']='IT_PROVIDER_NOT_CONFIGURED'
+              config['Providers']['Geocoding']='IT_PROVIDER_NOT_CONFIGURED'
+              config.setdefault('Swagger',{})['Enabled']=False
+              path.write_text(json.dumps(config,ensure_ascii=False,indent=2)+'\n')
+          # Config MUST be replaced by IT; no UAT or old API URL is deployable.
+          (ui/'config.js').write_text('window.APP_CONFIG={API_BASE_URL:"",AUTH_MODE:"IT_SSO_NOT_CONFIGURED",ENTRA:{TENANT_ID:"",SPA_CLIENT_ID:"",API_SCOPE:"",REDIRECT_URI:""}};\n')
+          assert 'azurewebsites' not in (ui/'config.js').read_text()
+          assert 'IT_SSO_NOT_CONFIGURED' in (ui/'config.js').read_text()
+          disclaimer=(
+              'NONDEPLOY COMPILED EVIDENCE ONLY. NOT AN IT INSTALLER.\n'
+              'The API and UI are from DISTINCT verified source commits.\n'
+              'All configs are deliberately invalid / fail-closed.\n'
+              'A proper company IIS/SQL/SSO release, SQL schema, signed manifest and IT tests are still required.\n'
+          )
+          (root/'README_NOT_FOR_DEPLOYMENT.txt').write_text(disclaimer)
+          def sha(raw): return hashlib.sha256(raw).hexdigest()
+          pkgs=[]
+          for name,folder in [('api',api),('frontend',ui)]:
+              files=sorted(p for p in folder.rglob('*') if p.is_file())
+              assert files
+              dest=root/(name+'-compiled-nondeploy.zip')
+              with zipfile.ZipFile(dest,'w',compression=zipfile.ZIP_DEFLATED) as z:
+                  for path in files:
+                      rel=path.relative_to(folder).as_posix()
+                      info=zipfile.ZipInfo(rel,date_time=(2026,1,1,0,0,0))
+                      info.compress_type=zipfile.ZIP_DEFLATED
+                      z.writestr(info,path.read_bytes())
+              with zipfile.ZipFile(dest) as z:
+                  assert set(z.namelist())==set(p.relative_to(folder).as_posix() for p in files)
+                  assert all(z.read(p.relative_to(folder).as_posix())==p.read_bytes() for p in files)
+              pkgs.append({'part':name,'name':dest.name,'sha256':sha(dest.read_bytes()),'fileCount':len(files)})
+          manifest={'status':'NONDEPLOY_BUILD_ONLY_NOT_IT_READY','date':'2026-11-23',
+            'apiSourceSha':'ab71aaa96d9ac259f66386555812448284527d15',
+            'frontendSourceSha':'90fe9bd61c24be57ccfaf6d450bf053e9c646ac1',
+            'sqlStatus':'SEPARATE_NONDEPLOY_020_CI_PASS_NOT_FULL_IT_CLEAN_BUILD',
+            'sso':'NOT_CONFIGURED_NOT_VERIFIED',
+            'config':'DELIBERATELY_INVALID_FAIL_CLOSED','packages':pkgs,
+            'approvedProductionDeployment':False}
+          (root/'paired-nondeploy-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          lines=[sha(p.read_bytes())+'  '+p.name for p in sorted(root.iterdir()) if p.is_file()]
+          (root/'checksums.sha256').write_text('\n'.join(lines)+'\n')
+          print('PATHB_IT_PAIRED_COMPILE=PASS; DEPLOY=NO; SSO=NOT_CONFIGURED')
+          PY
+          cd "$RUNNER_TEMP/paired-nondeploy"
+          sha256sum -c checksums.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-it-api-frontend-compiled-NONDEPLOY
+          path: ${{ runner.temp }}/paired-nondeploy/
+          retention-days: 14
+          if-no-files-found: error
