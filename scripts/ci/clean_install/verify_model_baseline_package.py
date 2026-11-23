@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from build_optionc_final_checks import CORRECTED_020_BLOB, load_pinned_corrected_020
 
 EXPECTED_RC = "9d431ea318fcec34f04f3cc36a8fb6d01d00c48a"
 TABLE_RE = re.compile(
@@ -336,6 +337,8 @@ def main() -> int:
                 or final_checks.get("checkCount") != 15
                 or final_checks.get("sqlSha256") != sha256(optionc_final_sql)):
             raise ContractError("OPTIONC_FINAL_CHECK_SOURCE_CONTRACT")
+        if final_checks.get("effective020ApprovedGitBlob") != CORRECTED_020_BLOB:
+            raise ContractError("OPTIONC_CORRECTED_020_SOURCE_PIN_MISSING")
         checks = final_checks.get("checks")
         if not isinstance(checks, list) or len(checks) != 15 or len({e.get("name") for e in checks}) != 15:
             raise ContractError("OPTIONC_FINAL_CHECK_SET")
@@ -352,7 +355,12 @@ def main() -> int:
             p=e.get("sourcePath","")
             if not re.fullmatch(r"docs/release/optionc-canonical-sql-draft/candidate/1800_0(?:11|12|16|17|18|20)/Up\.sql",p):
                 raise ContractError("OPTIONC_FINAL_SOURCE_PATH")
-            if e.get("sourceSha256") != sha256(args.rc_root / p):
+            if e.get("sourceVersion") == "020":
+                approved_rel, approved_raw, _ = load_pinned_corrected_020(args.rc_root)
+                if (p != approved_rel or e.get("sourceSha256") !=
+                        hashlib.sha256(approved_raw).hexdigest()):
+                    raise ContractError("OPTIONC_APPROVED_020_SOURCE_DIGEST")
+            elif e.get("sourceSha256") != sha256(args.rc_root / p):
                 raise ContractError("OPTIONC_FINAL_SOURCE_DIGEST")
     except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, ContractError):
         print("CLEAN_INSTALL_PACKAGE=FAIL_CLOSED")
