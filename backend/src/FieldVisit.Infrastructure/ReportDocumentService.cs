@@ -57,13 +57,13 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         const float width = 841.89f, height = 595.28f; // A4 landscape, print-friendly
         const float left = 28f, right = 28f, top = 28f, bottom = 28f;
         const float footerReserve = 35f;
-        // Seven grouped columns retain all 14 original data fields without
+        // Eight grouped columns retain all 14 original data fields without
         // a microscopic font. Values within a cell may wrap over several lines.
-        var columns = new[] { 90f, 132f, 95f, 112f, 154f, 112f, 90.89f };
+        var columns = new[] { 90f, 132f, 92f, 104f, 132f, 108f, 75f, 52.89f };
         var headers = new[]
         {
             "日期／時間", "行程編號", "外訪員／小組", "專案／拜訪形式",
-            "拜訪路線", "里程（km）", "費用／狀態"
+            "拜訪路線", "里程（km）", "費率／補助", "狀態"
         };
         var usableWidth = width - left - right;
         if (Math.Abs(columns.Sum() - usableWidth) > 0.1f)
@@ -200,7 +200,8 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         $"{trip.ProjectNames}\n{trip.VisitTypeNames}",
         trip.Route,
         $"自算：{Km(trip.ClaimedDistanceKm)}\n系統：{Km(trip.SystemDistanceKm)}\n核定：{Km(trip.ApprovedDistanceKm)}",
-        $"費率：{Money(trip.RatePerKmSnapshot)}\n補助：{Money(trip.SubsidyAmount)}\n{trip.StatusName}"
+        $"費率：{Money(trip.RatePerKmSnapshot)}\n補助：{Money(trip.SubsidyAmount)}",
+        trip.StatusName
     ];
 
     // Preserve whole words and TripNos when they fit in their column.
