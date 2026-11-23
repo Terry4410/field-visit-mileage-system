@@ -1,0 +1,72 @@
+name: Path B QUERY-05 8-COLUMN STATUS PDF API-only package NONDEPLOY (one-shot UAT)
+on:
+  push:
+    branches: [release/pathb-query05-8col-api-once-20261123]
+permissions:
+  contents: read
+jobs:
+  package:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/release/pathb-query05-8col-api-once-20261123'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Pin exactly reviewed PR116 source, never package unrelated changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact=ab71aaa96d9ac259f66386555812448284527d15
+          git merge-base --is-ancestor "$exact" HEAD
+          git diff --name-only "$exact" HEAD | grep -Fx '.github/workflows/pathb-query05-8col-api-once-package-nondeploy.yml'
+          test "$(git diff --name-only "$exact" HEAD | wc -l)" -eq 1
+          git checkout --detach "$exact"
+          test "$(git rev-parse HEAD)" = "$exact"
+          echo "SOURCE_SHA=$exact" >> "$GITHUB_ENV"
+          echo "SOURCE_PINNED=PASS"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install same Noto CJK font used by current API package
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk >/dev/null
+      - name: Build ONE API-only release ZIP from reviewed source (NO DEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg="PathB_QUERY05_8COL_PDF_API_fix_ab71aaa9_once_20261123.zip"
+          pub="$RUNNER_TEMP/pathb-query05-8col-api-publish"
+          mkdir -p "$pub/fonts" artifacts
+          dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore -o "$pub"
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc "$pub/fonts/NotoSansCJK-Regular.ttc"
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll FieldVisit.Domain.dll FieldVisit.Api.deps.json FieldVisit.Api.runtimeconfig.json fonts/NotoSansCJK-Regular.ttc; do
+            test -s "$pub/$f"
+          done
+          (cd "$pub" && zip -q -r "$GITHUB_WORKSPACE/artifacts/$pkg" .)
+          unzip -tq "artifacts/$pkg"
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll FieldVisit.Domain.dll; do
+            unzip -Z1 "artifacts/$pkg" | grep -Fx "$f" >/dev/null
+          done
+          sha256sum "artifacts/$pkg" | tee "artifacts/$pkg.sha256"
+          wc -c "artifacts/$pkg" | tee "artifacts/$pkg.bytes"
+          sha256sum "$pub/FieldVisit.Api.dll" "$pub/FieldVisit.Application.dll" "$pub/FieldVisit.Infrastructure.dll" > artifacts/assembly-sha256.txt
+          printf 'SOURCE_SHA=%s\nTARGET_RG=rg-fieldvisit-uat\nTARGET_API=api-fieldvisit-pathb-uat\nTARGET_RUNTIME=LINUX_DOTNET_8\nMODE=PACKAGE_ONLY_NONDEPLOY\nAZURE_DEPLOY=NOT_RUN\nSQL=NOT_RUN\nAUTORETRY=FORBIDDEN\n' "$SOURCE_SHA" > artifacts/manifest.txt
+          echo 'PINNED_API_PACKAGE_CRC=PASS'
+          echo 'AZURE_DEPLOY=NOT_RUN'
+      - name: Upload single reproducible API candidate with external hash manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: PathB-QUERY05-8COL-API-package-ab71aaa9
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Explicit stop boundary
+        run: |
+          echo 'STATE=PACKAGE_READY_ONLY'
+          echo 'DEPLOYMENT=NOT_RUN'
+          echo 'SELECTOR_CHANGE=NOT_RUN'
+          echo 'ROLLBACK=NOT_RUN'
+          echo 'SQL=NOT_RUN'
