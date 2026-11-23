@@ -4,6 +4,7 @@ import{
   formatTripTime,
   hasLeaderTimeOverlap,
   hasQueueTimeOverlap,
+  leaderApprovalConfirmMessage,
   leaderOverlapConfirmMessage,
   leaderOverlapWarningText
 }from"./leader-overlap";
@@ -57,6 +58,28 @@ describe("leader overlap review",()=>{
     const a=trip({hasTimeOverlapWarning:true,timeOverlapConfirmed:true});
     expect(hasLeaderTimeOverlap(a,[a])).toBe(true);
     expect(leaderOverlapConfirmMessage(a,[a])).toContain("外訪員已確認");
+  });
+
+  it("shows the exact TripNo in a single approval confirmation even for visually identical rows",()=>{
+    const a=trip({visitTripId:41,tripNo:"T20261124160346544",visitDate:"2026-11-24",startTime:"08:30:00",endTime:"17:00:00",hasTimeOverlapWarning:true,timeOverlapConfirmed:true});
+    const b=trip({visitTripId:42,tripNo:"T20261124155949128",visitDate:"2026-11-24",startTime:"08:30:00",endTime:"17:00:00",hasTimeOverlapWarning:true,timeOverlapConfirmed:true});
+    const messageA=leaderApprovalConfirmMessage(a,[a,b]);
+    const messageB=leaderApprovalConfirmMessage(b,[a,b]);
+    expect(messageA).toContain(a.tripNo);
+    expect(messageA).not.toContain(b.tripNo);
+    expect(messageB).toContain(b.tripNo);
+    expect(messageB).not.toContain(a.tripNo);
+    expect(messageA).toContain("2026-11-24");
+    expect(messageA).toContain("外訪員已確認");
+    expect(messageA).toContain("時間重疊");
+  });
+
+  it("requires a valid unique trip identity before enabling single approval",()=>{
+    expect(leaderApprovalConfirmMessage(trip({tripNo:""}),[])).toBeNull();
+    expect(leaderApprovalConfirmMessage(trip({tripNo:"  "}),[])).toBeNull();
+    expect(leaderApprovalConfirmMessage(trip({visitTripId:0}),[])).toBeNull();
+    expect(leaderApprovalConfirmMessage(trip({visitTripId:-1}),[])).toBeNull();
+    expect(leaderApprovalConfirmMessage(trip(),[])).toContain("確定只核准這一筆行程？");
   });
 
   it("does not compare different visitors",()=>{
