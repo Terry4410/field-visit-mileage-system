@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useRef,useState} from "react";
 import {useSearchParams} from "react-router-dom";
+import {getLocalCalendarDate} from "../local-calendar-date";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
@@ -22,7 +23,7 @@ export const canCalculateGoogleMileage=(busy:boolean,stopCount:number,startSiteI
 
 export default function VisitorPage(){
   const {user}=useAuth();
-  const today=new Date().toISOString().slice(0,10);
+  const today=getLocalCalendarDate();
   const [sp,setSp]=useSearchParams();
   const editId=sp.get("edit");
   // A draft created by this form is already current; do not re-fetch it while
