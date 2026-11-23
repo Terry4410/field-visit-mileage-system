@@ -71,7 +71,7 @@ STATUS_020_NEW = b"N'Previewed',N'Confirming',N'Confirmed',N'PartiallyFailed',"
 
 
 def _git_blob_sha1(raw: bytes) -> str:
-    return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\\0" + raw).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
 
 
 def load_pinned_corrected_020(rc_root: Path) -> tuple[str, bytes, str]:
