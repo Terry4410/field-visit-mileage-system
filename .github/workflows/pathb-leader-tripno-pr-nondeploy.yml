@@ -48,3 +48,55 @@ jobs:
           path: frontend/dist/
           if-no-files-found: error
           retention-days: 7
+
+  verified-live-release-rollback:
+    # Separate nondeploy job. Rebuild the *last documented* published frontend
+    # source; never use today's PR branch as the rollback baseline.
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact 2026-11-16 release-source commit (read-only)
+        uses: actions/checkout@v4
+        with:
+          ref: 13170abead888598e5518c630b81ad98d673e388
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify exact historical source and install locked frontend
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "13170abead888598e5518c630b81ad98d673e388"
+          echo 'ROLLBACK_SOURCE_ID=PASS'
+          cd frontend
+          npm ci --no-audit --no-fund
+      - name: Rebuild unchanged historical Path B frontend
+        run: npm run build
+        working-directory: frontend
+      - name: Apply already existing Path B-only config
+        run: node scripts/prepare-pathb-artifact.mjs
+        working-directory: frontend
+      - name: Verify historical fingerprint and safe API before artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f frontend/dist/index.html
+          test -f frontend/dist/config.js
+          test -f frontend/dist/assets/index-Hx3EQZBU.js
+          test -f frontend/dist/assets/entra-auth-CupB2d4_.js
+          test -f frontend/dist/assets/index-DHXX5y_3.css
+          grep -F 'API_BASE_URL: "https://api-fieldvisit-pathb-uat.azurewebsites.net/api/v1"' frontend/dist/config.js
+          grep -F 'AUTH_MODE: "Demo"' frontend/dist/config.js
+          if grep -E 'api-fieldvisit-uat-|localhost:5080' frontend/dist/config.js; then exit 1; fi
+          echo 'ROLLBACK_ORIGINAL_ASSET_NAMES=PASS'
+          echo 'ROLLBACK_PATHB_CONFIG=PASS'
+      - name: Retain original-release rebuild as NONDEPLOY recovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-last-release-rollback-nondeploy
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
