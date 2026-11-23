@@ -63,7 +63,7 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         var headers = new[]
         {
             "日期／時間", "行程編號", "外訪員／小組", "專案／拜訪形式",
-            "拜訪路線", "里程（km）", "費率／補助／狀態"
+            "拜訪路線", "里程（km）", "費用／狀態"
         };
         var usableWidth = width - left - right;
         if (Math.Abs(columns.Sum() - usableWidth) > 0.1f)
@@ -164,8 +164,10 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
                     {
                         var sourceLine = fragment.Offset + j;
                         string? text = sourceLine < cellLines.Count ? cellLines[sourceLine] : null;
+                        if (fragment.Offset > 0 && j == 0 && col == 0 && string.IsNullOrEmpty(text))
+                            text = "續頁";
                         if (fragment.Offset > 0 && j == 0 && col == 1 && string.IsNullOrEmpty(text))
-                            text = "續：" + rows[fragment.TripIndex].TripNo;
+                            text = rows[fragment.TripIndex].TripNo;
                         if (string.IsNullOrEmpty(text)) continue;
                         var paint = col == 1 ? boldPaint : bodyPaint;
                         canvas.DrawText(text, cursorX + PdfTableCellPadding,
