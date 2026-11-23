@@ -1,0 +1,50 @@
+name: Path B release-source frontend PR verify (NONDEPLOY)
+on:
+  pull_request:
+    branches:
+      - work/pathb-frontend-api-isolation-nondeploy-20261116
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/pathb-leader-tripno-pr-nondeploy.yml'
+permissions:
+  contents: read
+jobs:
+  frontend-pathb-verify:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - name: Run existing and focused frontend tests
+        run: npm test -- --reporter=default
+        working-directory: frontend
+      - name: TypeScript and production build
+        run: npm run build
+        working-directory: frontend
+      - name: Prepare existing Path B-only static config
+        run: node scripts/prepare-pathb-artifact.mjs
+        working-directory: frontend
+      - name: Verify exact Path B API and no legacy URL
+        run: |
+          test -f frontend/dist/index.html
+          test -f frontend/dist/config.js
+          grep -F 'API_BASE_URL: "https://api-fieldvisit-pathb-uat.azurewebsites.net/api/v1"' frontend/dist/config.js
+          grep -F 'AUTH_MODE: "Demo"' frontend/dist/config.js
+          if grep -E 'api-fieldvisit-uat-|localhost:5080' frontend/dist/config.js; then exit 1; fi
+      - name: Retain short-lived, nondeployed release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-leader-tripno-nondeploy
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
