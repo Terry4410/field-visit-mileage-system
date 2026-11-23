@@ -1,0 +1,35 @@
+name: Frontend PR verification (nondeploy)
+
+on:
+  pull_request:
+    branches: [post-uat/v1.8.0]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-pr-nondeploy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-test-build:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run frontend behavior tests
+        run: npm test -- --reporter=default
+      - name: Build frontend
+        run: npm run build

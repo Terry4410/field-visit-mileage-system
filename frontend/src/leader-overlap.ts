@@ -48,3 +48,10 @@ export function leaderOverlapConfirmMessage(trip:Trip,rows:Trip[]){
     :"";
   return `此行程與同日其他行程時間重疊。${visitorConfirmation}\n\n是否仍要核准？`;
 }
+
+export function leaderApprovalConfirmMessage(trip:Trip,rows:Trip[]){
+  // Never allow a visually similar row to be approved without a unique identity.
+  if(!trip.tripNo?.trim()||!Number.isSafeInteger(trip.visitTripId)||trip.visitTripId<=0)return null;
+  const overlap=leaderOverlapConfirmMessage(trip,rows);
+  return `請核對行程編號：${trip.tripNo}\n日期：${trip.visitDate}｜外訪員：${trip.visitorName}\n\n${overlap||"確定只核准這一筆行程？"}`;
+}
