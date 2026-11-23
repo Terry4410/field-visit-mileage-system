@@ -42,6 +42,13 @@ jobs:
           dotnet restore backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj
           dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-restore --logger 'console;verbosity=normal'
+      - name: Preserve generated NONDEPLOY PDF fixture bytes for visual QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-query05-readable-pdf-test-fixtures
+          path: /tmp/query05-pdfs/*.pdf
+          if-no-files-found: error
+          retention-days: 7
       - name: Inspect actual PDF bytes for print readability, totals and page integrity
         shell: bash
         env:
