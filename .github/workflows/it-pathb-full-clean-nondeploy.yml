@@ -196,6 +196,11 @@ jobs:
           dotnet run --no-build --no-restore --project tools/clean-install/ModelBaselineRunner.csproj \
             -p:RcSourceRoot="$RC_SOURCE_ROOT" -c Release -- \
             --rc-root "$RC_SOURCE_ROOT" --output "$CLEAN_INSTALL_OUTPUT_DIR"
+      - uses: actions/checkout@v4
+        with:
+          ref: ab71aaa96d9ac259f66386555812448284527d15
+          path: selected-pathb-api-source
+          persist-credentials: false
       - name: Independently replay the source SQL using sqlcmd against new disposable SQL2022 (NONDEPLOY)
         timeout-minutes: 8
         shell: bash
@@ -334,6 +339,52 @@ jobs:
             exit 1
           fi
           echo "CLEAN_INSTALL=INDEPENDENT_SQLCMD_69_TABLE_REPLAY_SCOPED_VERIFY_PASS"
+          # Bind accepted UAT API against the *still-live* independent-replay DB.
+          # ModelBaselineRunner always DROPS its own CleanInstall database on exit;
+          # the independent replay similarly deletes its DB in this step's EXIT trap.
+          # Running API after either cleanup would be a false readiness failure.
+          echo "IT_SELECTED_API_DATABASE_LIFETIME=LIVE_REPLAY_BEFORE_CLEANUP"
+          test "$(git -C selected-pathb-api-source rev-parse HEAD)" = 'ab71aaa96d9ac259f66386555812448284527d15'
+          dotnet publish selected-pathb-api-source/backend/src/FieldVisit.Api/FieldVisit.Api.csproj \
+            -c Release -p:UseAppHost=false --output "$RUNNER_TEMP/accepted-api-smoke" --nologo >/dev/null
+          export ConnectionStrings__DefaultConnection="Server=127.0.0.1,1433;Database=${database};User Id=sa;Password=${CLEAN_INSTALL_SQL_PASSWORD};Encrypt=True;TrustServerCertificate=True"
+          export BackgroundJobs__WorkerEnabled=false
+          export BackgroundJobs__RecoverOnStartup=false
+          export Providers__Route=Mock
+          export Providers__Geocoding=Mock
+          export OptionC__Candidate__Enabled=false
+          export Swagger__Enabled=false
+          export Auth__Mode=Demo
+          export ASPNETCORE_ENVIRONMENT=Production
+          dotnet "$RUNNER_TEMP/accepted-api-smoke/FieldVisit.Api.dll" --urls http://127.0.0.1:5099 > "$RUNNER_TEMP/accepted-api-smoke.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=NO
+          for _ in $(seq 1 40); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "IT_CURRENT_API_PROCESS=HOLD_START_EXIT"
+              exit 1
+            fi
+            if curl --silent --fail --max-time 3 http://127.0.0.1:5099/health/ready | \
+              python3 -c "import json,sys; j=json.load(sys.stdin); assert j['status']=='ready'" 2>/dev/null; then
+                ready=YES; break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != YES ]; then
+            # Never leak connection strings or provider messages into CI logs.
+            live_http="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 http://127.0.0.1:5099/health/live || true)"
+            ready_http="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 http://127.0.0.1:5099/health/ready || true)"
+            echo "IT_CURRENT_API_LIVE_HTTP=$live_http"
+            echo "IT_CURRENT_API_READY_HTTP=$ready_http"
+            echo "IT_CURRENT_API_READINESS=HOLD_STOP_NO_RETRY"
+            exit 1
+          fi
+          code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 http://127.0.0.1:5099/api/v1/me)"
+          if [ "$code" != "401" ]; then echo "IT_CURRENT_API_ANON_AUTH=HOLD"; exit 1; fi
+          echo "IT_CURRENT_API_SQL2022_CLEAN_DB_READINESS=PASS"
+          echo "IT_CURRENT_API_ANONYMOUS_ME_401=PASS"
+          echo "IT_CURRENT_API_BUSINESS_WRITES_AND_ROLE_DENIAL=NOT_TESTED"
           # Rehearse recovery using the exact empty installed schema and its
           # capability row. No application tests, shared target or user data.
           if ! timeout 90s docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
@@ -379,81 +430,6 @@ jobs:
               json.dumps(result,sort_keys=True,indent=2)+"\n")
           PY
           echo "CLEAN_INSTALL=DISPOSABLE_BACKUP_RESTORE_CHECKDB_SCOPED_VERIFY_PASS"
-      - uses: actions/checkout@v4
-        with:
-          ref: ab71aaa96d9ac259f66386555812448284527d15
-          path: selected-pathb-api-source
-          persist-credentials: false
-      - name: Smoke selected accepted Path B API against actual 69-table isolated clean database
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git -C selected-pathb-api-source rev-parse HEAD)" = 'ab71aaa96d9ac259f66386555812448284527d15'
-          dotnet publish selected-pathb-api-source/backend/src/FieldVisit.Api/FieldVisit.Api.csproj \
-            -c Release -p:UseAppHost=false --output "$RUNNER_TEMP/accepted-api-smoke" --nologo >/dev/null
-          export ConnectionStrings__DefaultConnection="Server=127.0.0.1,1433;Database=OptionCIsolated_FieldVisitV180CleanInstall;User Id=sa;Password=${CLEAN_INSTALL_SQL_PASSWORD};Encrypt=True;TrustServerCertificate=True"
-          export BackgroundJobs__WorkerEnabled=false
-          export BackgroundJobs__RecoverOnStartup=false
-          export Providers__Route=Mock
-          export Providers__Geocoding=Mock
-          export OptionC__Candidate__Enabled=false
-          export Swagger__Enabled=false
-          export Auth__Mode=Demo
-          export ASPNETCORE_ENVIRONMENT=Production
-          dotnet "$RUNNER_TEMP/accepted-api-smoke/FieldVisit.Api.dll" --urls http://127.0.0.1:5099 > "$RUNNER_TEMP/accepted-api-smoke.log" 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
-          ready=NO
-          for _ in $(seq 1 40); do
-            if ! kill -0 "$pid" 2>/dev/null; then
-              echo "IT_CURRENT_API_PROCESS=HOLD_START_EXIT"
-              exit 1
-            fi
-            if curl --silent --fail --max-time 3 http://127.0.0.1:5099/health/ready | \
-              python3 -c "import json,sys; j=json.load(sys.stdin); assert j['status']=='ready'" 2>/dev/null; then
-                ready=YES; break
-            fi
-            sleep 1
-          done
-          if [ "$ready" != YES ]; then
-            live_http="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 http://127.0.0.1:5099/health/live || true)"
-            ready_http="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 http://127.0.0.1:5099/health/ready || true)"
-            echo "IT_CURRENT_API_LIVE_HTTP=$live_http"
-            echo "IT_CURRENT_API_READY_HTTP=$ready_http"
-            if docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
-                -S localhost -U sa -P "$CLEAN_INSTALL_SQL_PASSWORD" -C -I -b \
-                -d OptionCIsolated_FieldVisitV180CleanInstall -l 5 \
-                -Q 'SELECT DB_NAME()' >/dev/null 2>&1; then
-              echo "IT_CURRENT_SQL_INSIDE_CONTAINER=PASS"
-            else
-              echo "IT_CURRENT_SQL_INSIDE_CONTAINER=HOLD"
-            fi
-            python3 - <<'PY'
-          import os,re
-          from pathlib import Path
-          path=Path(os.environ['RUNNER_TEMP'])/'accepted-api-smoke.log'
-          raw=path.read_text(errors='replace') if path.is_file() else ''
-          raw=raw.replace(os.environ.get('CLEAN_INSTALL_SQL_PASSWORD','IMPOSSIBLE_PASSWORD'), '[REDACTED]')
-          filtered=[]
-          for line in raw.splitlines():
-              if re.search(r'Exception|SqlClient|connect|error|fail|Listening|Now listening|Unable|Timeout|invalid|database|password|server|certificate',line,re.I):
-                  low=line.lower()
-                  if any(k in low for k in ('password=','pwd=','user id=','connectionstrings')):
-                      filtered.append('DIAGNOSTIC_LOG_LINE_REDACTED')
-                  else:
-                      filtered.append(line[:200])
-          print('IT_CURRENT_API_SANITIZED_DIAGNOSTIC_LINES='+str(len(filtered)))
-          for line in filtered[-8:]:
-              print('API_DIAG '+line)
-          PY
-            echo "IT_CURRENT_API_READINESS=HOLD_STOP_NO_FURTHER_RETRY"
-            exit 1
-          fi
-          code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 http://127.0.0.1:5099/api/v1/me)"
-          if [ "$code" != "401" ]; then echo "IT_CURRENT_API_ANON_AUTH=HOLD"; exit 1; fi
-          echo "IT_CURRENT_API_SQL2022_CLEAN_DB_READINESS=PASS"
-          echo "IT_CURRENT_API_ANONYMOUS_ME_401=PASS"
-          echo "IT_CURRENT_API_BUSINESS_WRITES_AND_ROLE_DENIAL=NOT_TESTED"
       - name: Remove disposable SQL Server 2022 container
         if: always()
         shell: bash
