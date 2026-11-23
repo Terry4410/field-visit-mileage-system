@@ -7,6 +7,7 @@ on:
       - work/pathb-it-cleanbuild-020-20261123
     paths:
       - '.github/workflows/it-pathb-full-clean-nondeploy.yml'
+      - 'scripts/ci/clean_install/verify_model_baseline_package.py'
 permissions:
   contents: read
 jobs:
@@ -37,6 +38,7 @@ jobs:
           changed=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
           permitted={
             'scripts/ci/clean_install/build_optionc_final_checks.py',
+            'scripts/ci/clean_install/verify_model_baseline_package.py',
             'scripts/ci/clean_install/test_build_optionc_final_checks.py',
             'scripts/ci/uat_release/prepare_candidate.py',
             '.github/workflows/it-pathb-clean-020-nondeploy.yml',
@@ -47,7 +49,7 @@ jobs:
           raw=pathlib.Path('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()
           blob=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
           assert blob=='ce7bbb6f204bf1ab69c106ae59a5b139077494bc'
-          print('EXACT IT 020 SOURCE AND SIX-FILE NONDEPLOY DELTA=PASS')
+          print('EXACT IT 020 SOURCE AND SEVEN-FILE NONDEPLOY DELTA=PASS')
           PY
       - name: Checkout immutable accepted runtime source
         uses: actions/checkout@v4
