@@ -43,13 +43,14 @@ jobs:
             'scripts/ci/uat_release/prepare_candidate.py',
             '.github/workflows/it-pathb-clean-020-nondeploy.yml',
             '.github/workflows/it-pathb-paired-build-nondeploy.yml',
-            '.github/workflows/it-pathb-full-clean-nondeploy.yml'
+            '.github/workflows/it-pathb-full-clean-nondeploy.yml',
+            'docs/release/pathb/IT-CLEAN-BUILD-REVIEW-20261123.md'
           }
           assert changed==permitted,sorted(changed.symmetric_difference(permitted))
           raw=pathlib.Path('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()
           blob=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
           assert blob=='ce7bbb6f204bf1ab69c106ae59a5b139077494bc'
-          print('EXACT IT 020 SOURCE AND SEVEN-FILE NONDEPLOY DELTA=PASS')
+          print('EXACT IT 020 SOURCE AND EIGHT-FILE NONDEPLOY DELTA=PASS')
           PY
       - name: Checkout immutable accepted runtime source
         uses: actions/checkout@v4
@@ -377,6 +378,48 @@ jobs:
               json.dumps(result,sort_keys=True,indent=2)+"\n")
           PY
           echo "CLEAN_INSTALL=DISPOSABLE_BACKUP_RESTORE_CHECKDB_SCOPED_VERIFY_PASS"
+      - uses: actions/checkout@v4
+        with:
+          ref: ab71aaa96d9ac259f66386555812448284527d15
+          path: selected-pathb-api-source
+          persist-credentials: false
+      - name: Smoke selected accepted Path B API against actual 69-table isolated clean database
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C selected-pathb-api-source rev-parse HEAD)" = 'ab71aaa96d9ac259f66386555812448284527d15'
+          dotnet publish selected-pathb-api-source/backend/src/FieldVisit.Api/FieldVisit.Api.csproj \
+            -c Release -p:UseAppHost=false --output "$RUNNER_TEMP/accepted-api-smoke" --nologo >/dev/null
+          export ConnectionStrings__DefaultConnection="Server=127.0.0.1,1433;Database=OptionCIsolated_FieldVisitV180CleanInstall;User Id=sa;Password=${CLEAN_INSTALL_SQL_PASSWORD};Encrypt=True;TrustServerCertificate=True"
+          export BackgroundJobs__WorkerEnabled=false
+          export BackgroundJobs__RecoverOnStartup=false
+          export Providers__Route=Mock
+          export Providers__Geocoding=Mock
+          export OptionC__Candidate__Enabled=false
+          export Swagger__Enabled=false
+          export Auth__Mode=Demo
+          export ASPNETCORE_ENVIRONMENT=Production
+          dotnet "$RUNNER_TEMP/accepted-api-smoke/FieldVisit.Api.dll" --urls http://127.0.0.1:5099 > "$RUNNER_TEMP/accepted-api-smoke.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=NO
+          for _ in $(seq 1 40); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "IT_CURRENT_API_PROCESS=HOLD_START_EXIT"
+              exit 1
+            fi
+            if curl --silent --fail --max-time 3 http://127.0.0.1:5099/health/ready | \
+              python3 -c "import json,sys; j=json.load(sys.stdin); assert j['status']=='ready'" 2>/dev/null; then
+                ready=YES; break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != YES ]; then echo "IT_CURRENT_API_READINESS=HOLD"; exit 1; fi
+          code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 http://127.0.0.1:5099/api/v1/me)"
+          if [ "$code" != "401" ]; then echo "IT_CURRENT_API_ANON_AUTH=HOLD"; exit 1; fi
+          echo "IT_CURRENT_API_SQL2022_CLEAN_DB_READINESS=PASS"
+          echo "IT_CURRENT_API_ANONYMOUS_ME_401=PASS"
+          echo "IT_CURRENT_API_BUSINESS_WRITES_AND_ROLE_DENIAL=NOT_TESTED"
       - name: Remove disposable SQL Server 2022 container
         if: always()
         shell: bash
