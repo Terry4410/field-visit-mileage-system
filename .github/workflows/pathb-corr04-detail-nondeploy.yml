@@ -53,3 +53,24 @@ jobs:
           echo 'SWA_DEPLOY=NOT_AUTHORIZED'
           echo 'API_SQL_DEPLOY=NOT_AUTHORIZED'
           echo 'UAT_DATA_WRITES=NOT_AUTHORIZED'
+      - name: Verify static bundle exact shape before creating NONDEPLOY candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('frontend/dist')
+          names = sorted(p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file())
+          assert set(names) >= {'index.html', 'config.js'}
+          assert len(names) == 5, f'HOLD_STATIC_FILE_COUNT={len(names)}'
+          assert len([n for n in names if n.startswith('assets/')]) == 3
+          assert all(not n.startswith('/') and '..' not in n.split('/') for n in names)
+          print('EXACT_STATIC_SHAPE=PASS', ','.join(names))
+          PY
+      - name: Preserve signed CORR-04 candidate as NONDEPLOY artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-corr04-approved-snapshot-detail-nondeploy
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
