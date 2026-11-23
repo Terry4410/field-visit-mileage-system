@@ -45,7 +45,7 @@ jobs:
           }
           assert changed==permitted,sorted(changed.symmetric_difference(permitted))
           raw=pathlib.Path('docs/release/optionc-canonical-sql-draft/candidate/1800_020/Up.sql').read_bytes()
-          blob=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\\0'+raw).hexdigest()
+          blob=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
           assert blob=='ce7bbb6f204bf1ab69c106ae59a5b139077494bc'
           print('EXACT IT 020 SOURCE AND SIX-FILE NONDEPLOY DELTA=PASS')
           PY
