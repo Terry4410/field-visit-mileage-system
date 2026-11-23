@@ -6,6 +6,43 @@ namespace FieldVisit.Application.Tests;
 
 public sealed class V180CorrectionDecisionEvidenceTests
 {
+    [Fact]
+    public void Provider_correction_fills_new_snapshot_at_insert_not_afterward()
+    {
+        var value = V180MileageGovernanceRules.CorrectionSnapshotSystemDistance(
+            true, "ProviderSuggested", 10.94m, 10.95m);
+        Assert.Equal(10.95m, value);
+
+        var closureSource = ReadRepositoryFile("backend/src/FieldVisit.Infrastructure/V180CorrectionClosureService.cs");
+        Assert.Contains("if (!freshDistanceChanged)", closureSource);
+        Assert.Contains("Route-basis-only changes are a separate legacy branch.", closureSource);
+    }
+
+    [Fact]
+    public void Manual_fallback_does_not_preserve_old_provider_distance()
+    {
+        Assert.Null(V180MileageGovernanceRules.CorrectionSnapshotSystemDistance(
+            true, "ManualFallback", 10.94m, 10.95m));
+    }
+
+    [Fact]
+    public void Nonfinancial_correction_preserves_original_system_distance()
+    {
+        Assert.Equal(10.94m, V180MileageGovernanceRules.CorrectionSnapshotSystemDistance(
+            false, "ProviderSuggested", 10.94m, 10.94m));
+    }
+
+    [Fact]
+    public void Invalid_distance_or_decision_is_rejected()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            V180MileageGovernanceRules.CorrectionSnapshotSystemDistance(
+                true, "ProviderSuggested", 10.94m, 0m));
+        Assert.Throws<InvalidOperationException>(() =>
+            V180MileageGovernanceRules.CorrectionSnapshotSystemDistance(
+                true, "LeaderAdjusted", 10.94m, 10.95m));
+    }
+
     private static VisitTripSnapshot BaseSnapshot() => new()
     {
         VehicleTypeSnapshot = "Car",

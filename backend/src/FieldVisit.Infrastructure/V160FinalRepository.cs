@@ -1426,7 +1426,8 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
             StatusSnapshot = TripStatuses.Approved,
             VehicleTypeSnapshot = baseSnapshot.VehicleTypeSnapshot,
             ClaimedDistanceKmSnapshot = proposal.ClaimedDistanceKm,
-            SystemDistanceKmSnapshot = baseSnapshot.SystemDistanceKmSnapshot,
+            SystemDistanceKmSnapshot = V180MileageGovernanceRules.CorrectionSnapshotSystemDistance(
+                distanceChanged, decisionSource, baseSnapshot.SystemDistanceKmSnapshot, proposal.ApprovedDistanceKm),
             ApprovedDistanceKmSnapshot = proposal.ApprovedDistanceKm,
             RatePerKmSnapshot = proposal.RatePerKm,
             SubsidyAmountSnapshot = proposal.SubsidyAmount,
