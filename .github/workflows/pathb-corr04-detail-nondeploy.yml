@@ -1,0 +1,76 @@
+name: Path B CORR-04 approved detail NONDEPLOY
+on:
+  push:
+    branches: [fix/pathb-corr04-approved-detail-snapshot-20261123]
+permissions:
+  contents: read
+jobs:
+  frontend:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Confirm exact deployed frontend source and P0 change scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 756febb0b32b34f7ce1439baefd1de73bdf92820 HEAD
+          git diff --name-only 756febb0b32b34f7ce1439baefd1de73bdf92820 HEAD | sort > /tmp/actual-files
+          printf '%s\n' \
+            .github/workflows/pathb-corr04-detail-nondeploy.yml \
+            frontend/src/pages/UnifiedQueryPage.tsx \
+            frontend/src/query-approved-snapshot-detail.ts \
+            frontend/src/query-approved-snapshot-detail.test.ts | sort > /tmp/expected-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          echo 'EXACT_SOURCE_AND_SCOPE=PASS'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Run existing and focused frontend tests
+        working-directory: frontend
+        run: npm test -- --reporter=default
+      - name: TypeScript and production build
+        working-directory: frontend
+        run: npm run build
+      - name: Verify Path B API-only configuration without deploying
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd frontend && node scripts/prepare-pathb-artifact.mjs)
+          grep -F 'API_BASE_URL: "https://api-fieldvisit-pathb-uat.azurewebsites.net/api/v1"' frontend/dist/config.js
+          grep -F 'AUTH_MODE: "Demo"' frontend/dist/config.js
+          ! grep -Eq 'api-fieldvisit-uat-|localhost:5080' frontend/dist/config.js
+          echo 'PATHB_CONFIG=PASS'
+          echo 'SWA_DEPLOY=NOT_AUTHORIZED'
+          echo 'API_SQL_DEPLOY=NOT_AUTHORIZED'
+          echo 'UAT_DATA_WRITES=NOT_AUTHORIZED'
+      - name: Verify static bundle exact shape before creating NONDEPLOY candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('frontend/dist')
+          names = sorted(p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file())
+          assert set(names) >= {'index.html', 'config.js'}
+          assert len(names) == 5, f'HOLD_STATIC_FILE_COUNT={len(names)}'
+          assert len([n for n in names if n.startswith('assets/')]) == 3
+          assert all(not n.startswith('/') and '..' not in n.split('/') for n in names)
+          print('EXACT_STATIC_SHAPE=PASS', ','.join(names))
+          PY
+      - name: Preserve signed CORR-04 candidate as NONDEPLOY artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathb-corr04-approved-snapshot-detail-nondeploy
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 7
