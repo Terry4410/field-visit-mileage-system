@@ -25,7 +25,9 @@ This is a *review* record for the company IT handoff, **not an executable/produc
 1. [020 focus test #45202494508](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45202494508) succeeded: SQL2022 allowed `Confirming`, denied invalid Batch/Item status, source hash locked. No shared DB writes.
 2. [Selected API + FE compile #45204798661](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45204798661) succeeded, separate exact UAT component sources. All ZIPs have deliberately invalid configuration to **prevent accidental deployment**. No company SSO validation.
 3. [69-table isolated clean build #45206735733](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45206735733) succeeded: effective final CHECKs (including corrected 020), 69-table scoped catalog, independent sqlcmd replay and recover-verify, scoped API RC candidate evidence. Not full selected API business regression.
-4. Additional selected current UAT API / clean SQL readiness smoke is required to close one narrow bridge; *do not claim PASS before exact CI has succeeded*. Even then, IT Clean Build remains separate.
+4. [Selected UAT API + live 69-table disposable SQL #45214245615](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45214245615) **SUCCESS**: current accepted API started and returned `/health/ready` PASS against the still-existing independently replayed isolated SQL database; anonymous `GET /api/v1/me` correctly returned HTTP 401. Disposable replay and recovery databases and SQL container all cleaned. Exact integration head `2982498a7a7ecc7cdebf75d8d5a34165c08bbfa5`.
+5. The earlier scoped [#45208992522 HOLD](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45208992522) was traced by **source review** to a test sequencing fault: `ModelBaselineRunner` drops `OptionCIsolated_FieldVisitV180CleanInstall` in its `finally` block; the independent replay similarly deletes its DB on step exit. The old API probe targeted the removed model-runner DB after cleanup. No Azure defect or SQL Server schema incompatibility was established by that HOLD. The new probe runs **inside the replay step before cleanup**, with original cleanup trap preserved.
+6. This PASS covers **API startup, DB readiness, and anonymous 401 only**. It does **not** validate real business records, cross-team negative authorization (QUERY-02), company Windows/IIS/AD SSO, or independently executed corporate IT Clean Build.
 
 ## What IT must verify independently
 
@@ -40,7 +42,7 @@ This is a *review* record for the company IT handoff, **not an executable/produc
 ## Status and stop conditions
 
 - `Business UAT: ACCEPT WITH OPEN ITEMS` — actual Owner approval.
-- `Code readiness: bounded CI source/build/SQL PASS` — per specific evidence only.
+- `Code readiness: bounded CI source/build/SQL/API-readiness PASS` — per specific evidence only; no business workflow or company IT deployment acceptance.
 - `IT Deployment Ready: NOT YET PROVEN` — release does not yet include company-target validated installation + SSO config.
 - `IT Clean Build: NOT RUN BY IT`.
 - `Production Ready: NO`.
