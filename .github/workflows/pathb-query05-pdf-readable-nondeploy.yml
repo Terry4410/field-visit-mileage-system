@@ -60,6 +60,7 @@ jobs:
           "$RUNNER_TEMP/pdf-check-venv/bin/python" - <<'PY'
           import os
           import pathlib
+          import unicodedata
           import pymupdf
           d = pathlib.Path(os.environ["PATHB_PDF_VERIFY_DIR"])
           expected = {
@@ -72,8 +73,8 @@ jobs:
               assert path.is_file() and path.stat().st_size > 1000, file
               with pymupdf.open(path) as doc:
                   assert len(doc) >= min_pages, (file, len(doc))
-                  text = "\n".join(p.get_text() for p in doc)
-                  assert f"總筆數：{count}" in text, (file, "count missing")
+                  text = unicodedata.normalize("NFKC", "\n".join(p.get_text() for p in doc))
+                  assert f"總筆數:{count}" in text, (file, "count missing")
                   assert "核定總里程" in text and "補助總金額" in text, file
                   if count:
                       assert "T20261124160346544" in text, file
