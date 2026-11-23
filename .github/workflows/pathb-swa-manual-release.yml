@@ -3,13 +3,13 @@ on:
   workflow_dispatch:
     inputs:
       owner_approval:
-        description: 'Enter DEPLOY_PATHB_SWA_ONCE only after explicit separate Owner approval'
-        required: true
+        description: 'Requires separate, explicit Owner consent for the exact action; not a permission by itself'
         type: string
+        required: true
       artifact_id:
-        description: 'Pinned GitHub artifact ID'
-        required: true
+        description: 'Exact pre-approved GitHub artifact ID (candidate or rollback)'
         type: string
+        required: true
 permissions:
   contents: read
   actions: read
@@ -21,48 +21,116 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
-      approved: ${{ steps.gate.outputs.approved }}
+      artifact_id: ${{ steps.gate.outputs.artifact_id }}
+      expected_sha: ${{ steps.gate.outputs.expected_sha }}
+      mode: ${{ steps.gate.outputs.mode }}
     steps:
-      - name: Evaluate inputs without secrets or deployment
+      - name: Check exact one-shot request and selected immutable artifact (NO DEPLOYMENT)
         id: gate
+        shell: bash
         env:
           APPROVAL: ${{ inputs.owner_approval }}
           ARTIFACT_ID: ${{ inputs.artifact_id }}
           RUN_REF: ${{ github.ref }}
           RUN_EVENT: ${{ github.event_name }}
-        shell: bash
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
-          if [[ "$RUN_EVENT" == "workflow_dispatch" && "$RUN_REF" == "refs/heads/main" && "$APPROVAL" == "DEPLOY_PATHB_SWA_ONCE" && "$ARTIFACT_ID" == "14195477350" ]]; then
-            echo 'approved=true' >> "$GITHUB_OUTPUT"
-            echo 'INPUT_GATE=PASS'
-          else
-            echo 'approved=false' >> "$GITHUB_OUTPUT"
-            echo 'INPUT_GATE=HOLD'
+          set -euo pipefail
+          if [[ "$RUN_EVENT" != "workflow_dispatch" || "$RUN_REF" != "refs/heads/main" || "$RUN_ATTEMPT" != "1" ]]; then
+            echo 'INPUT_GATE=HOLD_EVENT_OR_REF'
+            exit 1
           fi
-          echo 'DEPLOYMENT=NO'
+          if [[ "$APPROVAL" == "DEPLOY_PATHB_TRIPNO_V2_ONCE" && "$ARTIFACT_ID" == "14791788570" ]]; then
+            echo 'mode=candidate' >> "$GITHUB_OUTPUT"
+            echo 'expected_sha=3a36fc49b7beb9c5c5cdbeb565b69314718f183b8c761032c10c05d2749458f9' >> "$GITHUB_OUTPUT"
+          elif [[ "$APPROVAL" == "ROLLBACK_PATHB_LAST_RELEASE_V2_ONCE" && "$ARTIFACT_ID" == "14791997415" ]]; then
+            echo 'mode=rollback' >> "$GITHUB_OUTPUT"
+            echo 'expected_sha=5317c4df8886931d72234d1e6ff42ecd3ad7d5cb1f036a7525db28f4d0936954' >> "$GITHUB_OUTPUT"
+          else
+            echo 'INPUT_GATE=HOLD_NOT_AUTHORIZED'
+            exit 1
+          fi
+          echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+          echo 'INPUT_GATE=PASS'
+          echo 'STAGE=PREDEPLOY_ONLY'
   verify-and-deploy:
     needs: input-preflight
-    # Deliberately inactive on feature branches and PR events.
-    if: ${{ needs.input-preflight.outputs.approved == 'true' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    if: ${{ needs.input-preflight.result == 'success' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    environment: pathb-swa-production
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: pathb-swa-production
     steps:
-      - name: Check out verified release gate
-        uses: actions/checkout@v4
-      - name: Fetch pinned artifact only
+      - name: Read-only check of exact candidate and rollback artifact metadata
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14195477350/zip > /tmp/pathb.zip
-      - name: Validate pinned archive before secret access
-        run: python3 scripts/nondeploy/verify_pathb_static_artifact.py /tmp/pathb.zip
-      - name: Unpack pinned static assets
+          SELECTED_ID: ${{ needs.input-preflight.outputs.artifact_id }}
+          EXPECTED_SHA: ${{ needs.input-preflight.outputs.expected_sha }}
+          MODE: ${{ needs.input-preflight.outputs.mode }}
         run: |
+          set -euo pipefail
+          # No deploy is attempted unless the selected artifact is live, signed by Actions,
+          # and bound to the exact verified nondeploy run. Candidate needs valid rollback.
+          gh api "repos/Terry4410/field-visit-mileage-system/actions/artifacts/$SELECTED_ID" \
+            | jq -e --argjson id "$SELECTED_ID" --arg sha "$EXPECTED_SHA" \
+              '.id == $id and .expired == false and .digest == ("sha256:" + $sha) and .workflow_run.id == 45116993538 and .workflow_run.head_sha == "756febb0b32b34f7ce1439baefd1de73bdf92820"' >/dev/null
+          if [[ "$MODE" == "candidate" ]]; then
+            gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14791997415 \
+              | jq -e '.id == 14791997415 and .expired == false and .digest == "sha256:5317c4df8886931d72234d1e6ff42ecd3ad7d5cb1f036a7525db28f4d0936954"' >/dev/null
+          fi
+          echo 'ARTIFACT_METADATA_GATE=PASS'
+      - name: Download exact pre-approved static bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_ID: ${{ needs.input-preflight.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/Terry4410/field-visit-mileage-system/actions/artifacts/$SELECTED_ID/zip" > /tmp/pathb.zip
+      - name: Verify full ZIP SHA-256, file paths, Path B API before secret access
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.input-preflight.outputs.expected_sha }}
+          MODE: ${{ needs.input-preflight.outputs.mode }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, zipfile
+          from pathlib import Path
+          raw=Path('/tmp/pathb.zip').read_bytes()
+          if hashlib.sha256(raw).hexdigest()!=os.environ['EXPECTED_SHA']:
+              raise SystemExit('HOLD_ARTIFACT_SHA')
+          with zipfile.ZipFile('/tmp/pathb.zip') as z:
+              names=z.namelist()
+              if len(names)!=5 or len(set(names))!=5:
+                  raise SystemExit('HOLD_ARTIFACT_COUNT')
+              if set(names[:2]) == set():
+                  raise SystemExit('HOLD_ARTIFACT_SHAPE')
+              if set(names) != {'index.html','config.js'} | {n for n in names if n.startswith('assets/')}:
+                  raise SystemExit('HOLD_ARTIFACT_FILES')
+              if len([n for n in names if n.startswith('assets/')]) != 3:
+                  raise SystemExit('HOLD_ARTIFACT_ASSETS')
+              if any(n.startswith('/') or '..' in n.split('/') or '\\' in n or n.endswith('/') or n.count('/')>1 for n in names):
+                  raise SystemExit('HOLD_PATH_SAFETY')
+              config=z.read('config.js').decode('utf8')
+              index=z.read('index.html').decode('utf8')
+              if 'API_BASE_URL: "https://api-fieldvisit-pathb-uat.azurewebsites.net/api/v1"' not in config or 'AUTH_MODE: "Demo"' not in config:
+                  raise SystemExit('HOLD_TARGET_API')
+              if 'api-fieldvisit-uat-' in config or 'localhost:5080' in config:
+                  raise SystemExit('HOLD_LEGACY_API')
+              if 'src="./config.js"' not in index:
+                  raise SystemExit('HOLD_ENTRY_CONFIG')
+          print('ARTIFACT_SHA_SHAPE_CONFIG=PASS')
+          print('DEPLOYMENT=NOT_YET')
+          PY
+      - name: Unpack validated static-only files
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p pathb-dist
           unzip -q /tmp/pathb.zip -d pathb-dist
           test -f pathb-dist/index.html
           test -f pathb-dist/config.js
-      - name: Deploy only Path B SWA (separate Owner approval required)
+      - name: Deploy ONLY the existing Path B UAT Static Web App
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_PATHB_UAT }}
@@ -70,6 +138,4 @@ jobs:
           action: upload
           app_location: pathb-dist
           skip_app_build: true
-          skip_api_build: true
           output_location: ''
-          production_branch: main
