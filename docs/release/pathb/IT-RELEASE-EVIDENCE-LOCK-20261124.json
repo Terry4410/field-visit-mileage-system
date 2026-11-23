@@ -1,0 +1,108 @@
+{
+  "format": "fieldvisit-v180-it-evidence-lock-v1",
+  "date": "2026-11-24",
+  "classification": "NONDEPLOY_REVIEW_NOT_INSTALLER",
+  "uat": {
+    "status": "ACCEPT_WITH_OPEN_ITEMS",
+    "ownerDecisionUrl": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7099388100",
+    "observedPass": 19,
+    "cancelledSupervisor": 3,
+    "superseded": 2,
+    "partialOpen": [
+      "QUERY-02",
+      "E2E-01"
+    ]
+  },
+  "source": {
+    "protectedBaseline": "97cd5c76aa0927aa3e8a2cd74f626f996efae6e3",
+    "api": "ab71aaa96d9ac259f66386555812448284527d15",
+    "frontend": "90fe9bd61c24be57ccfaf6d450bf053e9c646ac1",
+    "immutableCleanBuildRc": "9d431ea318fcec34f04f3cc36a8fb6d01d00c48a",
+    "reviewed020Blob": "ce7bbb6f204bf1ab69c106ae59a5b139077494bc",
+    "testedIntegrationCode": "2982498a7a7ecc7cdebf75d8d5a34165c08bbfa5",
+    "draftPr": 117,
+    "differentComponentSourceCommits": true
+  },
+  "verification": [
+    {
+      "run": 45202494508,
+      "status": "PASS",
+      "scope": "corrected 020 trusted CHECK allowed/denied on isolated SQL2022"
+    },
+    {
+      "run": 45204798661,
+      "status": "PASS",
+      "scope": "selected API and Frontend compiled independently; configs deliberately invalid"
+    },
+    {
+      "run": 45206735733,
+      "status": "PASS",
+      "scope": "69-table isolated clean SQL2022 build/verify/restore"
+    },
+    {
+      "run": 45214245615,
+      "status": "PASS",
+      "scope": "69-table independent replay; accepted API readiness; anonymous /me 401; disposable cleanup"
+    }
+  ],
+  "independentlyVerifiedArtifacts": [
+    {
+      "name": "FieldVisit_SQL_69table_SOURCELOCK_NONDEPLOY_20261124.zip",
+      "sha256": "a1225cbeb08b5d62fff6035cf432e211aade0da6fcb035b27ba269df31f2b101",
+      "bytes": 52738704,
+      "githubArtifactId": 14836919253,
+      "ciRun": 45214245615,
+      "verifiedInternalHashes": 40,
+      "sqlOrderedLayers": 13,
+      "dbTables": 69,
+      "efMappedTables": 57,
+      "embeddedCandidateRuntime": "RC-derived NONDEPLOY, not accepted UAT API"
+    },
+    {
+      "name": "FieldVisit_PathB_Paired_Compiled_NONDEPLOY_20261123.zip",
+      "sha256": "01d7e6e5a8b59c8dcd92625f9cdce7e2608e2fbba694d63c2559c681a8d5ad8f",
+      "bytes": 51293232,
+      "githubArtifactId": 14832504459,
+      "ciRun": 45204798661,
+      "verifiedInternalHashes": 4,
+      "apiZipSha256": "3ef09a0026ece2494e4093cf978fd96eac88cf17141c1d464f981ece6228ecc9",
+      "frontendZipSha256": "0dd4060e0664932599683a0972c43c5c97de00e9b2541c2e18b986f4f724202b",
+      "config": "INVALID_FAIL_CLOSED"
+    },
+    {
+      "name": "FieldVisit_v180_Documents_REVIEW_ONLY_20261124.zip",
+      "sha256": "44047146b53549cdf8c6ccc8eaad9a383fe87d3f4d28ece9f8ef49443da2d1e5",
+      "bytes": 673756,
+      "content": "IT guide + 3 roles user guide + UAT owner decision, Word/PDF, non-installable"
+    }
+  ],
+  "enterpriseTarget": {
+    "sql": "Corporate Microsoft SQL Server version TBD",
+    "web": "Windows Server + IIS version TBD",
+    "identity": "AD/Windows SSO configuration/method TBD",
+    "selectedApiAuthModes": [
+      "Demo",
+      "Entra"
+    ],
+    "windowsSsoCodeVerified": false,
+    "roles": "Visitor Leader Admin distinct from employee identity",
+    "testData": "Do not import Azure synthetic transactions"
+  },
+  "statuses": {
+    "businessUat": "ACCEPT_WITH_OPEN_ITEMS",
+    "isolatedSqlAndApiReadiness": "SCOPED_PASS",
+    "itDeploymentReady": "NOT_DECLARED",
+    "itCleanBuild": "NOT_RUN_BY_IT",
+    "productionReady": "NO"
+  },
+  "mandatoryRemaining": [
+    "IT approve exact Windows/IIS/SQL Server versions and SSO method",
+    "create same-source SQL/API/UI release and prove complete catalog",
+    "implement & validate actual AD/Windows identity mapping",
+    "create approved initial master data & SQL least privilege",
+    "IT independent clean build and business workflow test",
+    "QUERY-02 cross-team allowed/denied test",
+    "IT backup/recovery, monitoring, security and owner acceptance"
+  ],
+  "authorization": "NONDEPLOY_ONLY, no merge, Azure/shared-SQL writes, permissions, deployment or Daily Plan scope"
+}
