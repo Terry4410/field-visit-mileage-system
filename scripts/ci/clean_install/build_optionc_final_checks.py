@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -59,6 +60,33 @@ REPLACEMENT_NAMES = {
 }
 
 CANDIDATE_SOURCE_IDS = {"011", "012", "016", "017", "018", "020"}
+
+# The immutable clean-install RC predates the already-reviewed Confirming fix.
+# Reuse EXACTLY the corrected 020 source already in the integrated PR #83 and
+# selected UAT API source; never edit, replay, or re-mark its original migration.
+LEGACY_020_BLOB = "7ccd3aadb8b1d2c1ffd0a7c88b0c0497df8ab6f2"
+CORRECTED_020_BLOB = "ce7bbb6f204bf1ab69c106ae59a5b139077494bc"
+STATUS_020_OLD = b"N'Previewed',N'Confirmed',N'PartiallyFailed',"
+STATUS_020_NEW = b"N'Previewed',N'Confirming',N'Confirmed',N'PartiallyFailed',"
+
+
+def _git_blob_sha1(raw: bytes) -> str:
+    return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\\0" + raw).hexdigest()
+
+
+def load_pinned_corrected_020(rc_root: Path) -> tuple[str, bytes, str]:
+    rel = f"{ROOT}/1800_020/Up.sql"
+    accepted = (rc_root / rel).read_bytes()
+    if _git_blob_sha1(accepted) != LEGACY_020_BLOB:
+        raise SourceContractError("IMMUTABLE_020_RC_SOURCE_DRIFT")
+    # File is checked into the nonprotected engineering branch, NOT the RC root.
+    corrected = (Path(__file__).resolve().parents[3] / rel).read_bytes()
+    if (_git_blob_sha1(corrected) != CORRECTED_020_BLOB
+            or accepted.count(STATUS_020_OLD) != 1
+            or corrected != accepted.replace(STATUS_020_OLD, STATUS_020_NEW)):
+        raise SourceContractError("CORRECTED_020_SOURCE_NOT_EXACT_APPROVED_DELTA")
+    return rel, corrected, corrected.decode("utf-8-sig")
+
 OUT_SQL = "optionc-final-target-checks.sql"
 OUT_JSON = "optionc-final-target-checks-manifest.json"
 
@@ -71,6 +99,9 @@ def build(rc_root: Path, output: Path) -> dict:
         path = f"{ROOT}/1800_{mid}/Up.sql"
         raw = (rc_root / path).read_bytes()
         source_files[mid] = (path, raw, raw.decode("utf-8-sig"))
+    # Only the final target 020 CHECK is sourced from the already-corrected
+    # pinned SQL; other clean-install sources remain immutable RC inputs.
+    source_files["020"] = load_pinned_corrected_020(rc_root)
 
     entries = []
     chunks = [
@@ -126,6 +157,8 @@ def build(rc_root: Path, output: Path) -> dict:
     manifest = {
         "format": "field-visit-v180-optionc-effective-checks-v1",
         "rcSourceSha": RC_SHA,
+        "effective020ApprovedGitBlob": CORRECTED_020_BLOB,
+        "effective020SourceMode": "PINNED_EXISTING_CORRECTED_SOURCE_NO_HISTORIC_MIGRATION",
         "checkCount": COUNT,
         "checks": entries,
         "sqlSha256": sha256(body),
