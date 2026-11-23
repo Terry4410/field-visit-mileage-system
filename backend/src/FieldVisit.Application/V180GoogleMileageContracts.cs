@@ -181,7 +181,8 @@ public static class V180MileageGovernanceRules
 
     // On distance-changing corrections, write the authoritative approved
     // distance with the new immutable Snapshot INSERT; never UPDATE it later.
-    // Provider raw output stays in route-attempt evidence, not in the Snapshot.
+    // Raw Google distance is not stored in the route-attempt entity; the
+    // approved distance is stored as the accepted snapshot value.
     public static decimal? CorrectionSnapshotSystemDistance(
         bool distanceChanged,
         string decisionSource,
