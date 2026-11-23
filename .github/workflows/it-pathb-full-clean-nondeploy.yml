@@ -358,7 +358,9 @@ jobs:
           export ASPNETCORE_ENVIRONMENT=Production
           dotnet "$RUNNER_TEMP/accepted-api-smoke/FieldVisit.Api.dll" --urls http://127.0.0.1:5099 > "$RUNNER_TEMP/accepted-api-smoke.log" 2>&1 &
           pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          # KEEP the existing cleanup_replay EXIT trap (deletes both disposable
+          # databases and propagates the original exit status). Do not replace it
+          # with an API process-only trap.
           ready=NO
           for _ in $(seq 1 40); do
             if ! kill -0 "$pid" 2>/dev/null; then
@@ -385,6 +387,7 @@ jobs:
           echo "IT_CURRENT_API_SQL2022_CLEAN_DB_READINESS=PASS"
           echo "IT_CURRENT_API_ANONYMOUS_ME_401=PASS"
           echo "IT_CURRENT_API_BUSINESS_WRITES_AND_ROLE_DENIAL=NOT_TESTED"
+          kill "$pid" 2>/dev/null || true
           # Rehearse recovery using the exact empty installed schema and its
           # capability row. No application tests, shared target or user data.
           if ! timeout 90s docker exec fieldvisit-clean-install-sql /opt/mssql-tools18/bin/sqlcmd \
