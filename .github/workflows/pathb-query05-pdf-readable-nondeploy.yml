@@ -84,9 +84,11 @@ jobs:
                   else:
                       assert "查無符合條件的行程" in text
                   spans = []
+                  status_cell_found = False
                   for page in doc:
                       assert abs(page.rect.width - 841.89) < 1
                       assert abs(page.rect.height - 595.28) < 1
+                      page_spans = []
                       for block in page.get_text("dict")["blocks"]:
                           if "lines" not in block:
                               continue
@@ -95,11 +97,27 @@ jobs:
                                   if not span["text"].strip():
                                       continue
                                   spans.append(span)
+                                  page_spans.append(span)
                                   assert span["size"] >= 9.95, (file, span["size"], span["text"])
                                   x0,y0,x1,y1 = span["bbox"]
                                   assert 6 <= x0 and x1 <= page.rect.width - 6, (file, span["text"], span["bbox"])
                                   assert 6 <= y0 and y1 <= page.rect.height - 6, (file, span["text"], span["bbox"])
+                      # The Owner explicitly requires 狀態 as an 8th table
+                      # column, not appended under 費率／補助.
+                      def clean(t):
+                          return unicodedata.normalize("NFKC", t).replace("∕", "/")
+                      names = {clean(sp["text"]): sp for sp in page_spans}
+                      assert "費率/補助" in names and "狀態" in names, (file, "separate headers absent")
+                      cost, status = names["費率/補助"], names["狀態"]
+                      assert cost["bbox"][2] < status["bbox"][0], (file, "headers overlap")
+                      assert status["bbox"][2] <= 814, (file, "status header clipped")
+                      if count:
+                          for sp in page_spans:
+                              if clean(sp["text"]) in ("已核准", "待核准", "草稿"):
+                                  assert sp["bbox"][0] >= status["bbox"][0] - 1, (file, "status in wrong column")
+                                  status_cell_found = True
                   assert spans, file
+                  if count: assert status_cell_found, (file, "no independent status cells")
                   print(f"PDF={file} PAGES={len(doc)} RECORDS={count} MIN_FONT={min(s['size'] for s in spans):.2f} PASS")
           print("PDF_MIN_10PT=PASS")
           print("PDF_ALL_TRIPNOS_AND_TOTALS=PASS")
