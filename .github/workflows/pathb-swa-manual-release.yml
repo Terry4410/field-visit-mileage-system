@@ -40,12 +40,13 @@ jobs:
             echo 'INPUT_GATE=HOLD_EVENT_OR_REF'
             exit 1
           fi
-          if [[ "$APPROVAL" == "DEPLOY_PATHB_TRIPNO_V2_ONCE" && "$ARTIFACT_ID" == "14791788570" ]]; then
+          # Previous one-shot releases are consumed; reject their old tokens.
+          if [[ "$APPROVAL" == "DEPLOY_PATHB_CORR04_DETAIL_ONCE" && "$ARTIFACT_ID" == "14798454544" ]]; then
             echo 'mode=candidate' >> "$GITHUB_OUTPUT"
-            echo 'expected_sha=3a36fc49b7beb9c5c5cdbeb565b69314718f183b8c761032c10c05d2749458f9' >> "$GITHUB_OUTPUT"
-          elif [[ "$APPROVAL" == "ROLLBACK_PATHB_LAST_RELEASE_V2_ONCE" && "$ARTIFACT_ID" == "14791997415" ]]; then
+            echo 'expected_sha=83da2ba0122f2cf042929ff3cc08481bda27fa0b4b54919690b0a866ff927b8f' >> "$GITHUB_OUTPUT"
+          elif [[ "$APPROVAL" == "ROLLBACK_PATHB_CORR04_PREVIOUS_ONCE" && "$ARTIFACT_ID" == "14791788570" ]]; then
             echo 'mode=rollback' >> "$GITHUB_OUTPUT"
-            echo 'expected_sha=5317c4df8886931d72234d1e6ff42ecd3ad7d5cb1f036a7525db28f4d0936954' >> "$GITHUB_OUTPUT"
+            echo 'expected_sha=3a36fc49b7beb9c5c5cdbeb565b69314718f183b8c761032c10c05d2749458f9' >> "$GITHUB_OUTPUT"
           else
             echo 'INPUT_GATE=HOLD_NOT_AUTHORIZED'
             exit 1
@@ -71,12 +72,20 @@ jobs:
           set -euo pipefail
           # No deploy is attempted unless the selected artifact is live, signed by Actions,
           # and bound to the exact verified nondeploy run. Candidate needs valid rollback.
-          gh api "repos/Terry4410/field-visit-mileage-system/actions/artifacts/$SELECTED_ID" \
-            | jq -e --argjson id "$SELECTED_ID" --arg sha "$EXPECTED_SHA" \
-              '.id == $id and .expired == false and .digest == ("sha256:" + $sha) and .workflow_run.id == 45116993538 and .workflow_run.head_sha == "756febb0b32b34f7ce1439baefd1de73bdf92820"' >/dev/null
           if [[ "$MODE" == "candidate" ]]; then
-            gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14791997415 \
-              | jq -e '.id == 14791997415 and .expired == false and .digest == "sha256:5317c4df8886931d72234d1e6ff42ecd3ad7d5cb1f036a7525db28f4d0936954"' >/dev/null
+            gh api "repos/Terry4410/field-visit-mileage-system/actions/artifacts/$SELECTED_ID" \
+              | jq -e --argjson id "$SELECTED_ID" --arg sha "$EXPECTED_SHA" \
+                '.id == $id and .expired == false and .digest == ("sha256:" + $sha) and .workflow_run.id == 45134365692 and .workflow_run.head_sha == "90fe9bd61c24be57ccfaf6d450bf053e9c646ac1"' >/dev/null
+            # Required recovery is the actual current Path B 2026-11-23 package.
+            gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14791788570 \
+              | jq -e '.id == 14791788570 and .expired == false and .digest == "sha256:3a36fc49b7beb9c5c5cdbeb565b69314718f183b8c761032c10c05d2749458f9" and .workflow_run.id == 45116993538 and .workflow_run.head_sha == "756febb0b32b34f7ce1439baefd1de73bdf92820"' >/dev/null
+          elif [[ "$MODE" == "rollback" ]]; then
+            gh api "repos/Terry4410/field-visit-mileage-system/actions/artifacts/$SELECTED_ID" \
+              | jq -e --argjson id "$SELECTED_ID" --arg sha "$EXPECTED_SHA" \
+                '.id == $id and .expired == false and .digest == ("sha256:" + $sha) and .workflow_run.id == 45116993538 and .workflow_run.head_sha == "756febb0b32b34f7ce1439baefd1de73bdf92820"' >/dev/null
+          else
+            echo 'ARTIFACT_METADATA_GATE=HOLD_MODE'
+            exit 1
           fi
           echo 'ARTIFACT_METADATA_GATE=PASS'
       - name: Download exact pre-approved static bundle
