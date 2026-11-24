@@ -2,9 +2,11 @@ import {useCallback,useEffect,useState} from "react";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import {OPTIONC_LEADER_REVIEW_UI_ENABLED} from "../optionc-approval-flags";
-import {mayLeaderReview,safeFields} from "../optionc-approval-ui";
+import {mayLeaderReview,differences} from "../optionc-approval-ui";
 
-type Review={requestPublicId:string;entityId:string;teamId:number|null;operationCode:string;riskCode:string;requestStatus:string;leaderStatus:string;requestedByUserId:number;submittedAt:string;proposedJson:string;rowVersion:string;reason?:string};
+const label:Record<string,string>={LocationName:"地點名稱",City:"縣市",District:"鄉鎮區",Address:"地址",PlusCode:"Plus Code",TaxId:"統一編號",MasterNote:"主檔備註"};
+
+type Review={requestPublicId:string;entityId:string;teamId:number|null;operationCode:string;riskCode:string;requestStatus:string;leaderStatus:string;requestedByUserId:number;submittedAt:string;beforeJson:string|null;proposedJson:string;rowVersion:string;reason?:string};
 
 export default function LeaderLocationReviewPage(){
  const {user}=useAuth();
@@ -33,7 +35,7 @@ export default function LeaderLocationReviewPage(){
   {error&&<div role="alert" className="note danger-note">{error}</div>}
   <button className="btn secondary" disabled={busy} onClick={()=>void load().catch(e=>setError(String(e)))}>重新整理</button>
   <div className="table-wrap"><table><thead><tr><th>地點 ID</th><th>申請者</th><th>風險</th><th>初審</th><th>檢視</th></tr></thead><tbody>{rows.map(r=><tr key={r.requestPublicId}><td>{r.entityId}</td><td>{r.requestedByUserId}</td><td>{r.riskCode}</td><td>{r.leaderStatus}</td><td><button className="btn small secondary" disabled={busy} onClick={()=>setSelected(r.requestPublicId)}>查看</button></td></tr>)}</tbody></table></div>
-  {row&&<section><h3>申請內容</h3><div className="table-wrap"><table><tbody>{Object.entries(safeFields(row.proposedJson)).map(([key,value])=><tr key={key}><th>{key}</th><td>{value||"—"}</td></tr>)}</tbody></table></div>
+  {row&&<section><h3>申請內容</h3><div className="table-wrap"><table><thead><tr><th>欄位</th><th>原資料</th><th>申請資料</th></tr></thead><tbody>{differences(row).map(d=><tr key={d.field}><th>{label[d.field]}</th><td>{d.before||"—"}</td><td>{d.after||"—"}</td></tr>)}</tbody></table></div>
    {!eligible&&<div role="alert">申請人不得自審，或申請狀態已變更。</div>}
    <label>初審理由</label><textarea value={reason} maxLength={1000} disabled={!eligible||busy} onChange={e=>setReason(e.target.value)}/>
    <div className="actions"><button className="btn secondary" disabled={!eligible||busy||!reason.trim()} onClick={()=>void decide(false)}>拒絕</button><button className="btn ok" disabled={!eligible||busy||!reason.trim()} onClick={()=>void decide(true)}>獨立初審通過</button></div></section>}

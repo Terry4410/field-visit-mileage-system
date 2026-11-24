@@ -8,7 +8,7 @@ export function safeFields(json:string|null):Record<Field,string>{
   for(const key of fields){const v=(data as Record<string,unknown>)[key];if(typeof v==="string")result[key]=v;}
  }catch{/* fail closed */}return result;
 }
-export function differences(row:OptionCRequest){
+export function differences(row:Pick<OptionCRequest,"beforeJson"|"proposedJson">){
  const before=safeFields(row.beforeJson),after=safeFields(row.proposedJson);
  return fields.filter(k=>before[k]!==after[k]).map(k=>({field:k,before:before[k],after:after[k]}));
 }
@@ -29,7 +29,7 @@ export function reviewPayload(row:OptionCRequest,reason:string,decisionKey:strin
 
 export function statusLabel(status:string):string{
  switch(status){
-  case "Pending": return "待管理員審核";
+  case "Pending": return "待審核";
   case "Rejected": return "已退回";
   case "Applied": return "已套用";
   default: return "狀態待查核";
@@ -44,4 +44,20 @@ export function adminDecisionPath(row:OptionCRequest,action:"approve"|"reject"):
  if(row.operationCode!=="CreateLocation"&&row.operationCode!=="UpdatePublishedLocation")
   throw new Error("未知地點作業類型，不可核准。");
  return action==="reject"?"reject":row.operationCode==="CreateLocation"?"publish-reviewed":"approve";
+}
+
+/** Both new locations and high-risk published updates have a staged review.
+ * A stale response for a different request must never unlock a decision. */
+export type ReviewStage = {requestPublicId:string;stageStatus:string;geocodeStatus:string;duplicateReviewStatus:string;stageRowVersion:string};
+export function matchingHighRiskStage(row:OptionCRequest|undefined,stage:ReviewStage|null):ReviewStage|null{
+ if(!row||!stage||row.status!=="Pending"||row.riskCode!=="High"
+    ||(row.operationCode!=="CreateLocation"&&row.operationCode!=="UpdatePublishedLocation")
+    ||stage.requestPublicId!==row.requestPublicId||!stage.stageRowVersion)return null;
+ return stage;
+}
+export function mayPublishHighRisk(row:OptionCRequest|undefined,stage:ReviewStage|null){
+ const matched=matchingHighRiskStage(row,stage);
+ return !!matched&&matched.stageStatus==="ReadyForPublish"
+   &&(matched.geocodeStatus==="Succeeded"||matched.geocodeStatus==="NotRequired")
+   &&matched.duplicateReviewStatus==="Cleared";
 }
