@@ -195,3 +195,12 @@ export function correctionChangeText(change:CorrectionChange){
 
   return `${label}：${displayValue(change.oldValue)} → ${displayValue(change.newValue)}`;
 }
+
+// A cancelled browser prompt is not consent to submit an empty comment.
+export async function withConfirmedCorrectionComment(
+  comments:string|null,
+  submit:(comments:string)=>Promise<void>
+):Promise<void>{
+  if(comments===null)return;
+  await submit(comments);
+}

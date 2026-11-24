@@ -1,8 +1,9 @@
-import{describe,expect,it}from"vitest";
+import{describe,expect,it,vi}from"vitest";
 import{
   correctionChangeText,
   correctionFieldLabel,
-  isPendingCorrection
+  isPendingCorrection,
+  withConfirmedCorrectionComment
 }from"./correction-ui";
 
 describe("correction UI",()=>{
@@ -89,5 +90,19 @@ describe("correction UI",()=>{
       oldValue:"not-json",
       newValue:"also-not-json"
     })).toBe("拜訪地點：內容已變更");
+  });
+});
+
+describe("correction comment cancellation",()=>{
+  it.each(["Leader review","Admin close","Admin batch close"])("%s never submits on Cancel",async()=>{
+    const submit=vi.fn(async (_comments:string)=>{});
+    await withConfirmedCorrectionComment(null,submit);
+    expect(submit).not.toHaveBeenCalled();
+  });
+  it.each(["","已確認"])("explicit confirmation preserves comment %j",async comments=>{
+    const submit=vi.fn(async (_comments:string)=>{});
+    await withConfirmedCorrectionComment(comments,submit);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledWith(comments);
   });
 });

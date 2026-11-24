@@ -1,6 +1,6 @@
 import{useEffect,useState}from"react";
 import{api}from"../api";
-import{correctionChangeText}from"../correction-ui";
+import{correctionChangeText,withConfirmedCorrectionComment}from"../correction-ui";
 import type{CorrectionRequest,RoutePreviewResult}from"../types";
 import{usePagedQuery}from"../use-query";
 import{DateFilters,Pagination}from"../components/QueryControls";
@@ -50,23 +50,26 @@ export default function CorrectionAdminPage(){
   }
   throw new Error("此更正涉及核定里程或路線異動；請先執行 Google Maps API 重算。只有 Google 無法取得可用里程時才可使用人工備援。");
  };
- const close=async(r:CorrectionRequest,approve:boolean)=>{
-  const comments=window.prompt(approve?"管理者結案說明（選填）":"拒絕原因")||"";setMsg("");
+ const close=async(r:CorrectionRequest,approve:boolean)=>withConfirmedCorrectionComment(
+  window.prompt(approve?"管理者結案說明（選填）":"拒絕原因"),async comments=>{
+  setMsg("");
   let payload:unknown;try{payload=closePayload(r,approve,comments)}catch(e){return setMsg(e instanceof Error?e.message:"結案條件不足")}
   const route=routeStates[r.correctionRequestId];
   const manualFallback=approve&&requiresRouteDecision(r)&&hasManualFallback(r)&&(route?.error||route?.result?.status!=="Succeeded")&&!isDistanceMismatch(route);
   if(manualFallback&&!window.confirm("Google Maps API 已無法取得可用里程；確認以更正申請中的人工備援里程結案？"))return;
   setBusy(true);try{await api(`/corrections/${r.correctionRequestId}/admin-close`,{method:"POST",body:JSON.stringify(payload)});setMsg(approve?"更正已結案並建立新 Snapshot。":"更正申請已拒絕。");setRouteStates(x=>{const n={...x};delete n[r.correctionRequestId];return n});await load()}catch(e){setMsg(e instanceof Error?e.message:"操作失敗")}finally{setBusy(false)}
- };
+ });
  const batchClose=async()=>{
   const targets=batchEligible.filter(r=>selected.includes(r.correctionRequestId));if(!targets.length)return setMsg("請先勾選不涉及里程／路線 decision 的待結案申請。");
   const fresh=await api<CorrectionRequest[]>("/corrections?status=PendingAdminClose");const latest=new Map(fresh.map(r=>[r.correctionRequestId,r]));
   const stale=targets.find(r=>!latest.has(r.correctionRequestId)||latest.get(r.correctionRequestId)?.rowVersion!==r.rowVersion||requiresRouteDecision(latest.get(r.correctionRequestId)!));
   if(stale){setMsg("選取案件的狀態或內容已變更，請重新載入後再選取。");await load();return}
   if(!window.confirm(`確認批次結案 ${targets.length} 筆一般更正？涉及里程或路線 decision 的案件不會進入批次。`))return;
-  const comments=window.prompt("批次結案說明（選填）")||"";setBusy(true);let success=0;
+  await withConfirmedCorrectionComment(window.prompt("批次結案說明（選填）"),async comments=>{
+  setBusy(true);let success=0;
   try{for(const target of targets){const current=latest.get(target.correctionRequestId)!;await api(`/corrections/${target.correctionRequestId}/admin-close`,{method:"POST",body:JSON.stringify({approve:true,comments,rowVersion:current.rowVersion})});success++}setSelected([]);setMsg(`批次結案完成：${success} 筆成功。`);await load()}
   catch(e){setMsg(`批次處理在第 ${success+1} 筆停止；已完成 ${success} 筆。原因：${e instanceof Error?e.message:"操作失敗"}`);await load()}finally{setBusy(false)}
+  });
  };
  const allSelected=batchEligible.length>0&&batchEligible.every(r=>selected.includes(r.correctionRequestId));
  return <div className="card">

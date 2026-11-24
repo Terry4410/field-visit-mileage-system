@@ -1,7 +1,7 @@
 import{useEffect,useState}from"react";
 import{api}from"../api";
 import{loadLeaderReviewLists}from"../leader-review-queue";
-import{correctionChangeText}from"../correction-ui";
+import{correctionChangeText,withConfirmedCorrectionComment}from"../correction-ui";
 import{formatTripTime,hasLeaderTimeOverlap,leaderApprovalConfirmMessage,leaderOverlapConfirmMessage,leaderOverlapWarningText}from"../leader-overlap";
 import ScopedLocationPage from "./ScopedLocationPage";
 import AdminImportPanel from "../components/AdminImportPanel";
@@ -160,10 +160,10 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    setBusy(true);try{await api(`/trips/${t.visitTripId}/return`,{method:'POST',body:JSON.stringify({reason,rowVersion:t.rowVersion})});setMsg(`已退回 ${t.tripNo}`);await load()}catch(e){setMsg(e instanceof Error?e.message:'退回失敗')}finally{setBusy(false)}
  };
 
- const reviewCorrection=async(r:CorrectionRequest,approve:boolean)=>{
-   const comments=window.prompt(approve?'審核說明（選填）':'拒絕原因')||'';
+ const reviewCorrection=async(r:CorrectionRequest,approve:boolean)=>withConfirmedCorrectionComment(
+   window.prompt(approve?'審核說明（選填）':'拒絕原因'),async comments=>{
    setBusy(true);try{await api(`/corrections/${r.correctionRequestId}/leader-review`,{method:'POST',body:JSON.stringify({approve,comments,rowVersion:r.rowVersion})});setMsg(approve?'更正申請已通過；若涉及財務將送管理者結案。':'更正申請已拒絕。');await load()}catch(e){setMsg(e instanceof Error?e.message:'更正審核失敗')}finally{setBusy(false)}
- };
+ });
 
  const sourceText=(t:Trip)=>t.mileageSource==='GoogleMapsAPI'?'Google Maps API':t.mileageSource==='ManualFallback'?'人工備援':t.status==='Returned'?'需補人工備援':'待 Google Maps 計算';
 
