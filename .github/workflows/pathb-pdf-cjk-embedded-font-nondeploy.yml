@@ -69,26 +69,31 @@ jobs:
           test -s "$PATHB_PDF_VERIFY_DIR/query05_cjk_3_rows.pdf"
           test -s "$PATHB_PDF_VERIFY_DIR/query05_11_rows.pdf"
           echo 'PDF_GENERATION_TESTS=PASS'
-      - name: Inspect actual PDF embedded face and Chinese Unicode extraction
+      - name: Inspect actual PDF embedded face and Chinese Unicode with PyMuPDF
         shell: bash
         run: |
           set -euo pipefail
-          pdf="$RUNNER_TEMP/pdf/query05_cjk_3_rows.pdf"
-          command -v pdffonts >/dev/null
-          command -v pdftotext >/dev/null
-          pdffonts "$pdf" > "$RUNNER_TEMP/pdf-fonts.txt"
-          cat "$RUNNER_TEMP/pdf-fonts.txt"
-          grep -Eiq '(NotoSansCJK|Noto Sans CJK)' "$RUNNER_TEMP/pdf-fonts.txt"
-          ! grep -q 'DejaVuSerif' "$RUNNER_TEMP/pdf-fonts.txt"
-          pdftotext -layout "$pdf" "$RUNNER_TEMP/pdf-text.txt"
-          python3 - <<'PY'
-          import os,pathlib
-          t=(pathlib.Path(os.environ['RUNNER_TEMP'])/'pdf-text.txt').read_text()
+          python3 -m venv "$RUNNER_TEMP/pdf-check"
+          "$RUNNER_TEMP/pdf-check/bin/python" -m pip install --quiet --disable-pip-version-check pymupdf==1.24.14
+          "$RUNNER_TEMP/pdf-check/bin/python" - <<'PY'
+          import os,pathlib,fitz
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          pdf=root/'pdf/query05_cjk_3_rows.pdf'
+          doc=fitz.open(pdf)
+          assert len(doc)>0
+          fonts=[f[3] for page in doc for f in page.get_fonts(full=True)]
+          assert fonts, 'FONT_EMBEDDED_NONE'
+          print('PDF_EMBEDDED_FONT_FAMILIES='+','.join(sorted(set(fonts))))
+          assert any('NotoSansCJK' in font for font in fonts),fonts
+          assert not any('DejaVuSerif' in font for font in fonts),fonts
+          text='\n'.join(page.get_text(sort=True) for page in doc)
           for phrase in ('外訪行程與里程管理系統','行程查詢報表','日期','外訪員','小組','查詢'):
-              assert phrase in t,(phrase,repr(t[:400]))
-          assert '\x00' not in t,'NULL_GLYPHS_IN_PDF'
-          assert len(t.strip())>200
-          print('ACTUAL_EMBEDDED_NOTO_FONT_AND_EXTRACTABLE_CHINESE=PASS')
+              assert phrase in text,(phrase,repr(text[:450]))
+          assert '\\x00' not in text,'NULL_GLYPHS_IN_PDF'
+          assert len(text.strip())>200
+          (root/'pdf-fonts.txt').write_text('\n'.join(fonts)+'\n')
+          (root/'pdf-text.txt').write_text(text)
+          print('ACTUAL_EMBEDDED_TRADITIONAL_CHINESE_FONT_AND_READABLE_UNICODE=PASS')
           PY
       - name: Upload only text test evidence, never font file
         if: success()
