@@ -797,47 +797,57 @@ public sealed class V170LocationRepository(
         var accessible=await AccessibleLocations(user,request.TeamId).AnyAsync(x=>x.LocationId==locationId,ct);
         if(!accessible)throw new KeyNotFoundException("找不到可維護的正式地點。");
 
-        await using var tx=await db.Database.BeginTransactionAsync(ct);
-        var row=await db.TeamLocationNotes
-            .SingleOrDefaultAsync(x=>x.TeamId==request.TeamId&&x.LocationId==locationId,ct);
-        var now=DateTime.UtcNow;
-        var old=row?.Note;
-        var action=row is null?"Created":"Updated";
-
-        if(row is null)
+        // Match the configured SQL Server execution strategy without replaying a
+        // non-idempotent note/history write after an ambiguous commit.
+        var strategy = db.Database.CreateExecutionStrategy();
+        var entered = false;
+        return await strategy.ExecuteAsync(async () =>
         {
-            row=new TeamLocationNote
+            if (entered)
+                throw new InvalidOperationException("備註儲存結果未確認，請關閉後重新查看備註歷史，勿直接重送。");
+            entered = true;
+            await using var tx=await db.Database.BeginTransactionAsync(ct);
+            var row=await db.TeamLocationNotes
+                .SingleOrDefaultAsync(x=>x.TeamId==request.TeamId&&x.LocationId==locationId,ct);
+            var now=DateTime.UtcNow;
+            var old=row?.Note;
+            var action=row is null?"Created":"Updated";
+
+            if(row is null)
             {
-                TeamId=request.TeamId,LocationId=locationId,Note=request.Note,
-                CreatedAt=now,CreatedByUserId=user.UserId
-            };
-            db.TeamLocationNotes.Add(row);
-            await db.SaveChangesAsync(ct);
-        }
-        else
-        {
-            row.Note=request.Note;
-            row.UpdatedAt=now;
-            row.UpdatedByUserId=user.UserId;
-            await db.SaveChangesAsync(ct);
-        }
+                row=new TeamLocationNote
+                {
+                    TeamId=request.TeamId,LocationId=locationId,Note=request.Note,
+                    CreatedAt=now,CreatedByUserId=user.UserId
+                };
+                db.TeamLocationNotes.Add(row);
+                await db.SaveChangesAsync(ct);
+            }
+            else
+            {
+                row.Note=request.Note;
+                row.UpdatedAt=now;
+                row.UpdatedByUserId=user.UserId;
+                await db.SaveChangesAsync(ct);
+            }
 
-        db.TeamLocationNoteHistories.Add(new TeamLocationNoteHistory
-        {
-            TeamLocationNoteId=row.TeamLocationNoteId,
-            TeamId=request.TeamId,
-            LocationId=locationId,
-            Action=action,
-            OldNote=old,
-            NewNote=request.Note,
-            ChangeReason=TrimToNull(request.ChangeReason),
-            ChangedAt=now,
-            ChangedByUserId=user.UserId
+            db.TeamLocationNoteHistories.Add(new TeamLocationNoteHistory
+            {
+                TeamLocationNoteId=row.TeamLocationNoteId,
+                TeamId=request.TeamId,
+                LocationId=locationId,
+                Action=action,
+                OldNote=old,
+                NewNote=request.Note,
+                ChangeReason=TrimToNull(request.ChangeReason),
+                ChangedAt=now,
+                ChangedByUserId=user.UserId
+            });
+            await db.SaveChangesAsync(ct);
+            var result = await GetMaintenanceAsync(user,locationId,request.TeamId,ct);
+            await tx.CommitAsync(ct);
+            return result;
         });
-        await db.SaveChangesAsync(ct);
-        var result = await GetMaintenanceAsync(user,locationId,request.TeamId,ct);
-        await tx.CommitAsync(ct);
-        return result;
     }
 
     public async Task<PagedResult<V170LocationDuplicateReviewRowDto>> GetDuplicateReviewQueueAsync(
