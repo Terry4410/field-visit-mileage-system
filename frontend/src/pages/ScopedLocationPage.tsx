@@ -3,8 +3,8 @@ import {api} from "../api";
 import {useAuth} from "../auth";
 import type {ManagedLocation} from "../types";
 import ScopedNotes from "../components/ScopedLocationNotes";
-import {leaderScopedTeamOptions,mayEditScopedDraft,mayMaintainLeaderPublishedLowRisk,scopedLocationNoteTeams} from "../location-ownership-ui";
-import {OPTIONC_CREATE_LOCATION_UI_ENABLED,OPTIONC_DIRECT_LOWRISK_UI_ENABLED} from "../optionc-approval-flags";
+import {leaderScopedTeamOptions,mayEditScopedDraft,mayMaintainLeaderPublishedLowRisk,scopedLocationNoteTeams,mayRequestPublishedChange,validTaiwanTaxId,firstTaxIdPayload} from "../location-ownership-ui";
+import {OPTIONC_CREATE_LOCATION_UI_ENABLED,OPTIONC_DIRECT_LOWRISK_UI_ENABLED,OPTIONC_APPROVAL_UI_ENABLED} from "../optionc-approval-flags";
 import LocationMaintenanceModal from "../components/LocationMaintenanceModal";
 import {statusLabel,type OptionCRequest} from "../optionc-approval-ui";
 
@@ -16,6 +16,41 @@ export function ScopedLocationFields({role,form,teams,busy,editing,onChange}:{ro
  return <div className="grid cols-2" data-role={role}><div className="field"><label>所屬小組</label><select aria-label="所屬小組" value={form.teamId} disabled={busy||editing} onChange={e=>onChange("teamId",e.target.value)}><option value="">請選擇</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div><div className="field"><label>地點名稱</label><input aria-label="地點名稱" value={form.locationName} onChange={e=>onChange("locationName",e.target.value)}/></div><div className="field"><label>縣市</label><input aria-label="縣市" value={form.city} onChange={e=>onChange("city",e.target.value)}/></div><div className="field"><label>鄉鎮區</label><input aria-label="鄉鎮區" value={form.district} onChange={e=>onChange("district",e.target.value)}/></div><div className="field span-2"><label>地址（或 Plus Code）</label><input aria-label="地址（或 Plus Code）" value={form.address} onChange={e=>onChange("address",e.target.value)}/></div><div className="field"><label>Plus Code</label><input aria-label="Plus Code" value={form.plusCode} onChange={e=>onChange("plusCode",e.target.value)}/></div><div className="field"><label>統一編號（選填）</label><input aria-label="統一編號（選填）" maxLength={20} value={form.taxId} onChange={e=>onChange("taxId",e.target.value)}/></div><div className="field span-2"><label>主檔備註（選填）</label><textarea aria-label="主檔備註（選填）" maxLength={1000} value={form.masterNote} onChange={e=>onChange("masterNote",e.target.value)}/></div></div>;
 }
 
+type PublishedMode="tax"|"change";
+function PublishedLocationRequest({row,mode,onClose,onChanged}:{row:ManagedLocation;mode:PublishedMode;onClose:()=>void;onChanged:()=>void}){
+ const [form,setForm]=useState({locationName:row.locationName,city:row.city||"",district:row.district||"",address:row.address||"",plusCode:row.plusCode||"",taxId:row.taxId||""});
+ const [reason,setReason]=useState(""),[busy,setBusy]=useState(false),[locked,setLocked]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
+ const fields=[["locationName","地點名稱"],["city","縣市"],["district","鄉鎮區"],["address","地址"],["plusCode","Plus Code"],["taxId","統一編號"]] as const;
+ const changed=fields.some(([key])=>form[key].trim()!==(row[key]||"").trim());
+ const enabled=mode==="tax"?OPTIONC_DIRECT_LOWRISK_UI_ENABLED:OPTIONC_APPROVAL_UI_ENABLED;
+ const canSave=enabled&&!locked&&!busy&&(mode==="tax"?(!row.taxId?.trim()&&validTaiwanTaxId(form.taxId)):changed&&!!reason.trim()&&!!form.locationName.trim()&&!!(form.address.trim()||form.plusCode.trim()));
+ const save=async()=>{
+  if(!canSave)return;
+  setBusy(true);setError("");setMessage("");
+  try{
+   if(mode==="tax"){
+    await api(`/optionc-candidate/locations/${row.locationId}/low-risk-direct`,{method:"POST",body:JSON.stringify(firstTaxIdPayload(row,form.taxId,crypto.randomUUID()))});
+    setMessage("統一編號已補登，保留原地點及備註資料。");
+   }else{
+    const proposed={locationName:form.locationName.trim(),city:form.city.trim()||null,district:form.district.trim()||null,address:form.address.trim()||null,plusCode:form.plusCode.trim()||null,taxId:form.taxId.trim()||null,masterNote:row.masterNote??null};
+    const result=await api<OptionCRequest>(`/optionc-candidate/locations/${row.locationId}/changes`,{method:"POST",body:JSON.stringify({locationId:row.locationId,expectedRowVersion:row.rowVersion,reason:reason.trim(),proposed})});
+    setMessage(`地點異動已送審（${result.requestPublicId.slice(0,8)}），正式地點資料不會立即變更。`);
+   }
+   setLocked(true);onChanged();
+  }catch(e){setLocked(true);setError((e instanceof Error?e.message:"操作失敗")+"；請關閉後重新查詢資料或申請紀錄，勿直接重送。");}
+  finally{setBusy(false)}
+ };
+ return <div className="modal"><div className="modal-panel" role="dialog" aria-modal="true" aria-label={mode==="tax"?"首次補登統一編號":"申請地點異動"}>
+ <button className="btn small outline modal-close" disabled={busy} onClick={onClose}>關閉</button>
+ <h3>{mode==="tax"?"首次補登統一編號":"申請地點異動"}｜{row.locationName}</h3>
+ <div className="note">{mode==="tax"?"僅能補登原本空白的統編，無須審核；已有統編的修改須提出異動申請。":"正式地點名稱、地址或既有統編的變更須經審核，核准前原資料繼續有效。"}</div>
+ {error&&<div role="alert" className="note danger-note">{error}</div>}{message&&<div role="status" className="note ok-note">{message}</div>}
+ <div className="grid cols-2">{fields.filter(([key])=>mode==="change"||key==="taxId").map(([key,label])=><div className="field" key={key}><label>{label}<input aria-label={label} value={form[key]} disabled={busy||locked} inputMode={mode==="tax"?"numeric":undefined} maxLength={key==="taxId"?(mode==="tax"?8:20):undefined} onChange={e=>setForm(x=>({...x,[key]:e.target.value}))}/></label></div>)}
+ {mode==="change"&&<div className="field span-2"><label>異動原因<textarea maxLength={1000} disabled={busy||locked} value={reason} onChange={e=>setReason(e.target.value)}/></label></div>}</div>
+ <button className="btn ok" disabled={!canSave} onClick={()=>void save()}>{mode==="tax"?"補登統一編號":"送出異動申請"}</button>
+ </div></div>;
+}
+
 export default function ScopedLocationPage({role="visitor"}:{role?:"visitor"|"leader"}){
  const {user}=useAuth();
  const [rows,setRows]=useState<ManagedLocation[]>([]),[edit,setEdit]=useState<ManagedLocation|null>(null),[query,setQuery]=useState("");
@@ -25,6 +60,8 @@ export default function ScopedLocationPage({role="visitor"}:{role?:"visitor"|"le
  const [myRequests,setMyRequests]=useState<OptionCRequest[]>([]);
  const [lowRiskLocation,setLowRiskLocation]=useState<ManagedLocation|null>(null);
  const [noteLocation,setNoteLocation]=useState<ManagedLocation|null>(null);
+ const [publishedRequest,setPublishedRequest]=useState<{row:ManagedLocation;mode:PublishedMode}|null>(null);
+ const mayRequest=(row:ManagedLocation)=>mayRequestPublishedChange(row,user?.userId,role,teams.map(t=>t.teamId));
  const noteTeams=(row:ManagedLocation)=>scopedLocationNoteTeams(teams,row.teamId);
  const canNote=(row:ManagedLocation)=>row.isActive&&row.approvalStatus==="Approved"&&!row.isTemporary&&!row.duplicateOfLocationId&&noteTeams(row).length>0;
  const [tab,setTab]=useState<"review"|"create"|"list">(role==="leader"?"review":"list");
@@ -70,7 +107,8 @@ export default function ScopedLocationPage({role="visitor"}:{role?:"visitor"|"le
   <ScopedLocationFields role={role} form={form} teams={teams} busy={busy} editing={!!edit} onChange={set}/>
   <div className="actions"><button className="btn ok" disabled={busy||!teams.length} onClick={()=>void save()}>{busy?"處理中…":edit?(role==="leader"?"儲存草稿修改（待審核）":"修改地點"):"新增地點送審"}</button>{edit&&<button className="btn secondary" disabled={busy} onClick={reset}>取消</button>}</div><div className="hint">儲存後為待審草稿，需經後續流程處理。</div></>}
   {OPTIONC_CREATE_LOCATION_UI_ENABLED&&<section aria-label="我的地點申請"><hr/><h3>我的地點申請</h3><button className="btn small secondary" disabled={busy} onClick={()=>void loadOwn().catch(e=>setError(String(e)))}>重新整理申請</button><div className="table-wrap"><table><thead><tr><th>申請編號</th><th>地點 ID</th><th>風險</th><th>狀態</th></tr></thead><tbody>{myRequests.map(r=><tr key={r.requestPublicId}><td>{r.requestPublicId.slice(0,8)}</td><td>{r.entityId}</td><td>{r.riskCode}</td><td>{statusLabel(r.status)}</td></tr>)}</tbody></table></div></section>}
-  {tab!=="create"&&<><hr/><h3>{tab==="review"?"待審核地點":"地點清單"}</h3><input aria-label="搜尋地點" placeholder="搜尋名稱、地址、代碼或統編" value={query} onChange={e=>setQuery(e.target.value)}/><div className="table-wrap"><table><thead><tr><th>代碼</th><th>地點</th><th>小組</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.filter(x=>`${x.locationCode} ${x.locationName} ${x.address||""} ${x.taxId||""}`.toLowerCase().includes(query.toLowerCase())).map(x=><tr key={x.locationId}><td>{x.locationCode}</td><td>{x.locationName}</td><td>{x.teamName||"—"}</td><td>{x.approvalStatus==="Pending"?"待審核":x.approvalStatus==="Approved"?"已核准":x.approvalStatus==="Rejected"?"已退回":x.approvalStatus}／{x.isActive?"啟用":"未啟用"}</td><td>{canEdit(x)&&<button className="btn small secondary" aria-label={role==="leader"?"修改草稿":undefined} disabled={busy||!canEdit(x)} onClick={()=>open(x)}>{role==="leader"?"修改管理小組草稿":"修改地點"}</button>}{canNote(x)&&<button className="btn small outline" disabled={busy} onClick={()=>setNoteLocation(x)}>地點備註</button>}{role==="visitor"&&!canEdit(x)&&!canNote(x)&&<span className="muted">{x.isTemporary?"臨時地點":"僅供查詢"}</span>}{role==="leader"&&mayMaintainLeaderPublishedLowRisk(x,user?.teamScopes?.map(t=>t.teamId))&&<button className="btn small outline" disabled={busy||!OPTIONC_DIRECT_LOWRISK_UI_ENABLED} title={!OPTIONC_DIRECT_LOWRISK_UI_ENABLED?"Option C LowRisk UI gate is disabled":"僅可維護主檔備註"} onClick={()=>setLowRiskLocation(x)}>LowRisk 主檔備註</button>}</td></tr>)}</tbody></table></div>{!visibleRows.length&&<div className="empty compact-empty">目前沒有符合條件的地點。</div>}</>}
+  {tab!=="create"&&<><hr/><h3>{tab==="review"?"待審核地點":"地點清單"}</h3><input aria-label="搜尋地點" placeholder="搜尋名稱、地址、代碼或統編" value={query} onChange={e=>setQuery(e.target.value)}/><div className="table-wrap"><table><thead><tr><th>代碼</th><th>地點</th><th>小組</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.filter(x=>`${x.locationCode} ${x.locationName} ${x.address||""} ${x.taxId||""}`.toLowerCase().includes(query.toLowerCase())).map(x=><tr key={x.locationId}><td>{x.locationCode}</td><td>{x.locationName}</td><td>{x.teamName||"—"}</td><td>{x.approvalStatus==="Pending"?"待審核":x.approvalStatus==="Approved"?"已核准":x.approvalStatus==="Rejected"?"已退回":x.approvalStatus}／{x.isActive?"啟用":"未啟用"}</td><td>{canEdit(x)&&<button className="btn small secondary" aria-label={role==="leader"?"修改草稿":undefined} disabled={busy||!canEdit(x)} onClick={()=>open(x)}>{role==="leader"?"修改管理小組草稿":"修改地點"}</button>}{canNote(x)&&<button className="btn small outline" disabled={busy} onClick={()=>setNoteLocation(x)}>地點備註</button>}{OPTIONC_DIRECT_LOWRISK_UI_ENABLED&&mayRequest(x)&&!x.taxId?.trim()&&<button className="btn small outline" disabled={busy} onClick={()=>setPublishedRequest({row:x,mode:"tax"})}>補登統一編號</button>}{OPTIONC_APPROVAL_UI_ENABLED&&mayRequest(x)&&<button className="btn small outline" disabled={busy} onClick={()=>setPublishedRequest({row:x,mode:"change"})}>申請地點異動</button>}{role==="visitor"&&!canEdit(x)&&!canNote(x)&&<span className="muted">{x.isTemporary?"臨時地點":"僅供查詢"}</span>}{role==="leader"&&mayMaintainLeaderPublishedLowRisk(x,user?.teamScopes?.map(t=>t.teamId))&&<button className="btn small outline" disabled={busy||!OPTIONC_DIRECT_LOWRISK_UI_ENABLED} title={!OPTIONC_DIRECT_LOWRISK_UI_ENABLED?"Option C LowRisk UI gate is disabled":"僅可維護主檔備註"} onClick={()=>setLowRiskLocation(x)}>LowRisk 主檔備註</button>}</td></tr>)}</tbody></table></div>{!visibleRows.length&&<div className="empty compact-empty">目前沒有符合條件的地點。</div>}</>}
+  {publishedRequest&&<PublishedLocationRequest key={publishedRequest.row.locationId+"-"+publishedRequest.mode} {...publishedRequest} onClose={()=>setPublishedRequest(null)} onChanged={()=>{void Promise.all([load(),loadOwn()]).catch(e=>setError(e instanceof Error?e.message:"重新讀取失敗"));}}/>}
   {noteLocation&&<ScopedNotes key={noteLocation.locationId} row={noteLocation} teams={noteTeams(noteLocation)} onClose={()=>setNoteLocation(null)}/>}
   {lowRiskLocation&&<LocationMaintenanceModal locationId={lowRiskLocation.locationId} teamId={lowRiskLocation.teamId} lowRiskOnly onClose={()=>setLowRiskLocation(null)} onChanged={()=>void load()}/>}
  </div>;
