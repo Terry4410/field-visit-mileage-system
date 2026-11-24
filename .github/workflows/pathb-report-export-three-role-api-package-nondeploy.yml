@@ -1,0 +1,79 @@
+name: Path B three-role report export API-only package (NONDEPLOY)
+on:
+  push:
+    branches: [release/pathb-report-export-three-role-api-only-20261124]
+permissions:
+  contents: read
+concurrency:
+  group: pathb-report-export-3role-api-package
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/release/pathb-report-export-three-role-api-only-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Strict source and package-only delta gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=8442bae35a9099c1bd68505c6273f93a937d7045
+          selected_live_source=ab71aaa96d9ac259f66386555812448284527d15
+          git merge-base --is-ancestor "$selected_live_source" "$source_sha"
+          git merge-base --is-ancestor "$source_sha" HEAD
+          test "$(git diff --name-only "$source_sha" HEAD)" = '.github/workflows/pathb-report-export-three-role-api-package-nondeploy.yml'
+          test "$(git diff --name-only "$selected_live_source" "$source_sha" | wc -l)" -eq 5
+          git checkout --detach "$source_sha"
+          test "$(git rev-parse HEAD)" = "$source_sha"
+          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          echo 'EXACT_TESTED_API_SOURCE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install identical report font used by currently selected UAT API
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk >/dev/null
+          test -s /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+      - name: Compile, seal and verify API-only ZIP without any deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          publish="$RUNNER_TEMP/pathb-three-role-export-api"
+          mkdir -p "$publish/fonts" artifacts
+          dotnet restore backend/src/FieldVisit.Api/FieldVisit.Api.csproj
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --no-restore -o "$publish"
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc "$publish/fonts/NotoSansCJK-Regular.ttc"
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll FieldVisit.Domain.dll FieldVisit.Api.deps.json FieldVisit.Api.runtimeconfig.json fonts/NotoSansCJK-Regular.ttc; do
+            test -s "$publish/$f"
+          done
+          (cd "$publish" && zip -q -r "$GITHUB_WORKSPACE/artifacts/$name" .)
+          unzip -tq "artifacts/$name"
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll FieldVisit.Domain.dll; do
+            unzip -Z1 "artifacts/$name" | grep -Fx "$f" >/dev/null
+          done
+          sha256sum "artifacts/$name" | tee "artifacts/$name.sha256"
+          wc -c "artifacts/$name" | tee "artifacts/$name.bytes"
+          sha256sum "$publish/FieldVisit.Api.dll" "$publish/FieldVisit.Application.dll" "$publish/FieldVisit.Infrastructure.dll" "$publish/fonts/NotoSansCJK-Regular.ttc" > artifacts/assembly-sha256.txt
+          printf 'SOURCE_SHA=%s\nTARGET_RG=rg-fieldvisit-uat\nTARGET_API=api-fieldvisit-pathb-uat\nTARGET_RUNTIME=LINUX_DOTNET_8\nMODE=API_ONLY_PACKAGE_NONDEPLOY\nPREVIOUS_SELECTED_PACKAGE=PathB_QUERY05_8COL_PDF_API_fix_ab71aaa9_once_20261123.zip\nAZURE_DEPLOY=NOT_RUN\nSQL=NOT_RUN\nFRONTEND=NOT_RUN\nAUTORETRY=FORBIDDEN\n' "$SOURCE_SHA" > artifacts/manifest.txt
+          echo 'EXACT_API_PACKAGE_FILE_CRC=PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Stop at package only
+        shell: bash
+        run: |
+          echo 'AZURE_DEPLOY=NOT_RUN'
+          echo 'SELECTOR_WRITE=NOT_RUN'
+          echo 'SQL=NOT_RUN'
+          echo 'FRONTEND=NOT_RUN'
