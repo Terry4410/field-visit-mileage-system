@@ -1224,7 +1224,43 @@
           7000470035
         ]
       }
-    ]
+    ],
+    "catalogReferenceValidation": {
+      "run": 45406176572,
+      "referenceCount": 128,
+      "missing": 0,
+      "status": "PASS_EXISTENCE_ONLY_NOT_EFFECTIVE_PERMISSIONS"
+    },
+    "additionalSourceReview": {
+      "status": "GAPS_IDENTIFIED_NOT_GRANTS_AUTHORIZED",
+      "source": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+      "examples": [
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": [
+            1382,
+            1396,
+            1739,
+            1791,
+            1843
+          ],
+          "finding": "UserRoles RemoveRange/AddAsync; UserDataScopes RemoveRange; UserCapabilities RemoveRange/AddAsync. Existing inventory only SELECT for these tables. Need explicit source-to-operation review and constrained SQL2022 behavioral tests before corporate runtime ACL approval."
+        },
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": [
+            515,
+            604,
+            738,
+            1048,
+            1067,
+            1193,
+            1342
+          ],
+          "finding": "Centers, TeamCenterAssignments, DeploymentSiteLocationAssignments, DeploymentSites, TeamDeploymentSiteAssignments, EmploymentDeploymentSiteAssignments Add operations; historical inventory SELECT only. Review in-scope Admin writes and corresponding effective permissions."
+        }
+      ]
+    }
   },
   "supplementalUat": {
     "visitor": {
@@ -1295,15 +1331,19 @@
     "next": "Keep frozen UAT source. For IT delivery, narrowly review exact corporate host/database/SQL identity and TLS admission with an explicitly approved environment profile, preserve schema evidence and role checks; test wrong host/database/mode denial and authorized company-like isolated profile; no blanket bypass or live configuration. Review whether Excel/merge required in agreed scope separately."
   },
   "corporateSqlPortability": {
-    "status": "SOURCE_SCAN_REVIEW",
-    "explicitDatabaseNameGuards": [
-      "20_route_reason_check.sql",
-      "60_final_functional_capabilities_REVIEW.sql"
-    ],
-    "versionGuards": [
-      "50_scoped_clean_install_verify.sql",
-      "70_scoped_three_capabilities_verify_REVIEW.sql"
-    ],
-    "note": "Keep originals. IT installer needs reviewed exact-target adaptation of these two name guards, SQL2022 version proof or independently tested approved version, plus minimum ACL and reference data. Static scan is not portability certification."
+    "status": "COMPANY_NAMED_DISPOSABLE_SQL2022_SCHEMA_AND_REFERENCE_ROLES_PASS",
+    "workflowCommit": "d2783ca4cf9219b7454e3cc6f0f8d7454ebd9e83",
+    "run": 45406176572,
+    "job": 138487396529,
+    "artifact": 14926555963,
+    "archive": "FieldVisit_v180_Company_SQL_Schema_Review_20261124.zip",
+    "bytes": 29978,
+    "sha256": "76ba1802d24e49ff07d61ec823999af6d4d6f7736fdac88774674be9f10e8905",
+    "libraryUpload": "SUCCEEDED",
+    "outerAndInnerIntegrity": "ZIP CRC PASS, outer SHA256 matches GitHub, 7/7 internal hashes",
+    "schemaSha256": "8ab4a7a34c401f8eb24e13c6c745e9027605ecfaba3a0b4b601d95b52cd2318d",
+    "rolesSha256": "8a7a6ced45f022c5f9b5be5b13134e265bc97e778e20d78e2c6549f70958075b",
+    "scope": "14 layers, 2 verifiers; 14/16 files byte-identical, 2 exact target guards adapted (20 and 60). Single SQLCMD session, session applock, empty object/metadata/CONTROL/default dbo guard, explicit server and DB identity; SQL2022 company-like DB (not OptionCIsolated/PathB). Wrong server and DB 58000, unchanged empty target; positive 69/3/21, nonempty replay 58002; separate three roles only seed, replay 58005; no Users, Organizations or VisitTrips. 128/128 permission references resolve in schema (catalog query returned zero missing). No runtime grants or role assignments, no actual company TLS or SQL identity or IT environment. CI test uses disposable sa and self-signed cert; company runbook explicitly requires trusted cert, DBA and approved safe SQLCMD names. No production authorization.",
+    "remaining": "IT review target names and certificate validation; SQLCMD variables are trusted DBA inputs, not arbitrary user strings. Candidate not approved for production. Real organization/team/user identity/master data and least-privilege runtime grants still required."
   }
 }
