@@ -1,6 +1,23 @@
 import {OPTIONC_APPROVAL_UI_ENABLED} from "../optionc-approval-flags";
 import {NavLink} from "react-router-dom";
-import {locationAdminGroups} from "../admin-navigation";
+export function locationAdminGroups(approvalEnabled:boolean){
+ return [
+  {label:"地點資料維護",items:[
+   {path:"/admin/locations",label:"地點主檔"},
+   {path:"/admin/locations/new",label:"新增地點"},
+   {path:"/admin/locations/bulk",label:"Excel 批次維護"}
+  ]},
+  {label:"審核與資料品質",items:[
+   {path:"/admin/locations/duplicates",label:"疑似重複覆核"},
+   ...(approvalEnabled?[{path:"/admin/locations/approvals",label:"地點變更核准"}]:[])
+  ]},
+  {label:"官方資料維護",items:[
+   {path:"/admin/locations/centers",label:"就業中心"},
+   {path:"/admin/locations/official",label:"官方據點"}
+  ]}
+ ];
+}
+
 
 export default function LocationAdminTabs(){
  return <nav className="location-admin-tabs" aria-label="地點管理子功能">

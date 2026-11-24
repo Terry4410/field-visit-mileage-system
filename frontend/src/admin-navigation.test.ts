@@ -1,5 +1,6 @@
 import {describe,expect,it} from "vitest";
-import {adminNavGroups,adminNavItems,locationAdminGroups} from "./admin-navigation";
+import {adminNavGroups,adminNavItems} from "./admin-navigation";
+import {locationAdminGroups} from "./components/LocationAdminTabs";
 import {resolveNavigationTitle} from "./navigation-title";
 
 describe("admin navigation consolidation",()=>{
