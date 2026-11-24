@@ -30,3 +30,11 @@ export const mayEditScopedDraft = (
 // Frontend options only; server-side role, HR and team scope checks remain authoritative.
 export const leaderScopedTeamOptions = (user: {teamScopes?: {teamId:number;teamName:string;isPrimary:boolean}[]} | null) =>
   user?.teamScopes?.filter(x => Number.isInteger(x.teamId) && x.teamId > 0) ?? [];
+
+/** Note team options must come from explicit authenticated scopes or the
+ * effective Visitor assignment endpoint. A selected trip team only narrows. */
+export const scopedLocationNoteTeams = (
+  teams: readonly {teamId:number;teamName:string;isPrimary:boolean}[] | undefined,
+  teamId?: number | null
+) => (teams ?? []).filter(t => Number.isInteger(t.teamId) && t.teamId > 0 &&
+  (teamId == null || t.teamId === teamId));
