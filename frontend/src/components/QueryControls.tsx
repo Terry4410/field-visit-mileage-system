@@ -43,8 +43,9 @@ function SlashDateField({label, value, onChange, inputRef}: {
         id={id}
         ref={inputRef}
         type="text"
-        inputMode="numeric"
+        inputMode="text"
         autoComplete="off"
+        spellCheck={false}
         maxLength={10}
         value={display}
         placeholder="YYYY/MM/DD"
