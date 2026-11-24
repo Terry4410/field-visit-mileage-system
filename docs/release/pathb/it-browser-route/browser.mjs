@@ -13,7 +13,7 @@ async function signIn(page,account,role){await page.goto(origin);await page.loca
 
 async function action(page,path,method,click){
  const [r]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1'+path&&r.request().method()===method,{timeout:20000}),click()]);
- if(!r.ok())throw Error(method+' '+path+' HTTP '+r.status());
+ if(!r.ok()){const problem=await r.json().catch(()=>({}));throw Error(method+' '+path+' HTTP '+r.status()+' '+String(problem.detail||'').slice(0,250));}
  return r.json();
 }
 async function read(page,path){const token=await page.evaluate(()=>sessionStorage.getItem('fieldvisit_uat_token'));const r=await page.request.get(api+'/api/v1'+path,{headers:{Authorization:'Bearer '+token}});if(!r.ok())throw Error('READ '+path+' HTTP '+r.status());return r.json()}
@@ -25,7 +25,13 @@ async function submit(page,id){
  expect(t.status).toBe('PendingApproval');return t;
 }
 async function routePreview(page,id){
- const preview=await action(page,'/trips/'+id+'/route-preview','POST',()=>page.getByRole('button',{name:'用 Google Maps API 計算里程',exact:true}).click());
+ const button=page.getByRole('button',{name:'用 Google Maps API 計算里程',exact:true});await expect(button).toBeEnabled();
+ const watched=[];const observe=r=>{if(new URL(r.url()).pathname==='/api/v1/trips/'+id&&r.request().method()==='PUT')watched.push(r)};
+ page.on('response',observe);
+ let preview;
+ try{preview=await action(page,'/trips/'+id+'/route-preview','POST',()=>button.click())}
+ catch(e){const errors=[];for(const r of watched){const p=await r.json().catch(()=>({}));errors.push(r.status()+':'+String(p.detail||'').slice(0,200))}throw Error('RETURNED_ROUTE_FAILED '+errors.join(',')+' UI '+(await page.locator('.note').allTextContents()).join(' | ').slice(-600)+' '+e.message)}
+ finally{page.off('response',observe)}
  expect(preview.status).toBe('Succeeded');expect(Number(preview.suggestedDistanceKm)).toBeCloseTo(12.3);
  await expect(page.getByPlaceholder('Google 無可用結果時才開放')).toBeDisabled();
 }
@@ -33,29 +39,36 @@ try{
  await check('TRIP_BROWSER_PROVIDER_SUCCESS_RETURN_RESUBMIT_APPROVE',async()=>{
   const vc=await context(),lc=await context();try{
    const v=await vc.newPage(),l=await lc.newPage();
-   await signIn(v,'E2E-V','外訪員');await v.waitForLoadState('networkidle');
-   await v.locator('textarea[placeholder*="拜訪補充說明"]').fill('BROWSER-TRIP-FLOW');
-   await v.getByRole('button',{name:'＋新增拜訪地點',exact:true}).click();
-   const modal=v.locator('.stop-editor-modal');await expect(modal).toBeVisible();
-   await modal.getByPlaceholder('輸入客戶名稱、地址、縣市、鄉鎮或統編').fill('Approved');
-   await modal.locator('.smart-location-main').filter({hasText:'Approved'}).click();
-   await modal.getByRole('button',{name:'加入行程',exact:true}).click();
+   await signIn(v,'E2E-V','外訪員');await signIn(l,'E2E-L','小組長');
+   // Provision a Returned record through previously verified API paths only.
+   async function call(page,path,method,data,version){
+    const token=await page.evaluate(()=>sessionStorage.getItem('fieldvisit_uat_token'));
+    const r=await page.request.fetch(api+'/api/v1'+path,{method,headers:{Authorization:'Bearer '+token,...(version?{'If-Match':version}:{})},...(data===undefined?{}:{data})});
+    if(!r.ok())throw Error('FIXTURE '+method+' '+path+' HTTP '+r.status());return r.json();
+   }
+   const me=await read(v,'/me'),date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(new Date());
+   const tc=await read(v,'/trips/context?visitDate='+date+'&teamId='+me.teamId);
+   const locationId=Number(process.env.BROWSER_APPROVED_LOCATION_ID);expect(locationId).toBeGreaterThan(0);
+   const t=await call(v,'/trips','POST',{visitDate:date,startTime:'09:00:00',endTime:'10:00:00',notes:'BROWSER-TRIP-FLOW',claimedDistanceKm:null,timeOverlapConfirmed:false,teamId:me.teamId,startDeploymentSiteId:tc.defaultStartDeploymentSiteId,endDeploymentSiteId:tc.defaultEndDeploymentSiteId,vehicleType:'Motorcycle',stops:[{locationId,sourceType:'Location',locationName:'Approved',address:'Synthetic approved road 1'}]});
+   const preview=await call(v,'/trips/'+t.visitTripId+'/route-preview','POST');expect(preview.status).toBe('Succeeded');
+   const latest=await read(v,'/trips/'+t.visitTripId);
+   const pending=await call(v,'/trips/'+t.visitTripId+'/submit','POST',{confirmTimeOverlap:false},latest.rowVersion);expect(pending.status).toBe('PendingApproval');
+   const returned=await call(l,'/trips/'+t.visitTripId+'/return','POST',{reason:'請補充本次拜訪備註',rowVersion:pending.rowVersion});expect(returned.status).toBe('Returned');
+   console.log('RETURNED_FIXTURE_READY=PASS');
+   await go(v,'/history');await v.getByRole('button',{name:'修改後重送',exact:true}).click();
+   await expect(v.locator('.danger-note').filter({hasText:'主管退回原因：'})).toBeVisible();
+   await expect(v.locator('textarea[placeholder*="拜訪補充說明"]')).toHaveValue('BROWSER-TRIP-FLOW');
    await expect(v.locator('.route-item:not(.endpoint-route) .route-name').filter({hasText:/^Approved$/})).toBeVisible();
-   const t=await action(v,'/trips','POST',()=>v.getByRole('button',{name:'儲存預排行程',exact:true}).click());
-   expect(t.status).toBe('Draft');expect(t.stops).toHaveLength(1);console.log('FLOW_DRAFT_WITH_STOP=PASS');
-   await expect(v.getByText(/預排行程已儲存/)).toBeVisible();
-   await v.waitForLoadState('networkidle');
-   await routePreview(v,t.visitTripId);console.log('FLOW_PROVIDER_STUB_SUCCESS=PASS');
-   const pending=await submit(v,t.visitTripId);expect(Number(pending.systemDistanceKm)).toBeCloseTo(12.3);console.log('FLOW_SUBMIT=PASS');
-   await signIn(l,'E2E-L','小組長');await go(l,'/leader/review');
-   const row=l.getByRole('row').filter({has:l.getByText(t.tripNo,{exact:true})});
-   await expect(row).toBeVisible();
-   l.once('dialog',d=>d.accept('請補充本次拜訪備註'));
-   const returned=await action(l,'/trips/'+t.visitTripId+'/return','POST',()=>row.getByRole('button',{name:'退回',exact:true}).click());
-   expect(returned.status).toBe('Returned');console.log('FLOW_RETURN=PASS');
-   await go(v,'/?edit='+t.visitTripId);await expect(v.locator('.danger-note').filter({hasText:'主管退回原因：'})).toBeVisible();
    await v.locator('textarea[placeholder*="拜訪補充說明"]').fill('BROWSER-TRIP-FLOW-CORRECTED');
+   // Save through the actual UI; observe the PUT separately from route preview.
+   const savedEdit=await action(v,'/trips/'+t.visitTripId,'PUT',()=>v.getByRole('button',{name:'儲存預排行程',exact:true}).click());
+   expect(savedEdit.notes).toBe('BROWSER-TRIP-FLOW-CORRECTED');expect(savedEdit.visitTripId).toBe(t.visitTripId);
+   console.log('FLOW_RETURNED_EDIT=PASS');
+   await expect(v.getByText(/預排行程已儲存/)).toBeVisible();
    await routePreview(v,t.visitTripId);
+   console.log('FLOW_RETURNED_ROUTE=PASS');
+   await go(l,'/leader/review');
+   const row=l.getByRole('row').filter({has:l.getByText(t.tripNo,{exact:true})});
    const again=await submit(v,t.visitTripId);expect(again.visitTripId).toBe(t.visitTripId);console.log('FLOW_RESUBMIT_SAME_RECORD=PASS');
    await l.reload();await expect(row).toBeVisible();
    l.once('dialog',d=>d.accept());
