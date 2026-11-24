@@ -1260,6 +1260,407 @@
           "finding": "Centers, TeamCenterAssignments, DeploymentSiteLocationAssignments, DeploymentSites, TeamDeploymentSiteAssignments, EmploymentDeploymentSiteAssignments Add operations; historical inventory SELECT only. Review in-scope Admin writes and corresponding effective permissions."
         }
       ]
+    },
+    "sourceDeltaReview": {
+      "status": "SCOPED_SOURCE_CANDIDATES_NOT_COMPLETE_NOT_GRANTS",
+      "frozenSource": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+      "operationGroups": 42,
+      "rows": [
+        {
+          "table": "UserRoleAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "104-112",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserRoleAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "97-98",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserRoleAssignments",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "97",
+          "scope": "SAME_START_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "UserTeamAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "102-111",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserTeamAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "90-91",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserTeamAssignments",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "90",
+          "scope": "SAME_START_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "TeamMemberships",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "112-120",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamMemberships",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "95-96",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamMemberships",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "95",
+          "scope": "SAME_START_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "UserRoles",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "117-118",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserRoles",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "115-116",
+          "scope": "LEGACY_CURRENT_PROJECTION_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "UserTeamScopes",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "151-159",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserTeamScopes",
+          "operation": "UPDATE",
+          "columns": [
+            "IsActive",
+            "IsPrimary",
+            "EndedAt",
+            "AssignedAt",
+            "AssignedByUserId"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "140-146",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "EmploymentStatusPeriods",
+          "operation": "UPDATE",
+          "columns": [
+            "EmploymentStatus",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "443-445",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "Centers",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "514-515",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "Centers",
+          "operation": "UPDATE",
+          "columns": [
+            "CenterCode",
+            "CenterName",
+            "EffectiveFrom",
+            "EffectiveTo",
+            "IsActive"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "525-529",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamCenterAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "598-604",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamCenterAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "CenterId",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "647-649",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSiteLocationAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "738-747",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSiteLocationAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "737",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSites",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1042-1048",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSites",
+          "operation": "UPDATE",
+          "columns": [
+            "CenterId",
+            "SiteCode",
+            "SiteName",
+            "EffectiveFrom",
+            "EffectiveTo",
+            "IsActive",
+            "UpdatedAt",
+            "UpdatedByUserId",
+            "InactivatedAt",
+            "InactivatedByUserId"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1051-1062",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamDeploymentSiteAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1187-1193",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamDeploymentSiteAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "DeploymentSiteId",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1196-1198",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "EmploymentDeploymentSiteAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1336-1342",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "EmploymentDeploymentSiteAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "DeploymentSiteId",
+            "IsPrimary",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1345-1348",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserIdentityProfiles",
+          "operation": "UPDATE",
+          "columns": [
+            "IdentityProvider",
+            "EntraTenantId",
+            "EntraObjectId",
+            "UpdatedAt"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1659-1682",
+          "scope": "IDENTITY_BINDING_REQUIRES_EN_TRA_ADMIN_FLOW_SCOPE_TEST"
+        },
+        {
+          "table": "UserDataScopes",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "779-807",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserDataScopes",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1726-1727",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserDataScopes",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1739-1740",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserCapabilities",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1843-1865",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserCapabilities",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1778-1779",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserCapabilities",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1791-1792",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserFavoriteLocations",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs",
+          "lines": "291",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserFavoriteLocations",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs",
+          "lines": "321",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "GeocodingAttempts",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180GoogleMileageGovernanceRepository.cs",
+          "lines": "22",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "Centers",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "42",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "DeploymentSites",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "74",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "Teams",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "155",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "Projects",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "175",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "VisitTypes",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "194",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "MileageRateRules",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "215",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        }
+      ],
+      "notes": "Direct tracked entity operations reviewed; UPDATE column candidates are not complete inferred EF SQL. Must verify actual SQL generated, OUTPUT read columns, constraints/triggers and backend role/scope decisions. External Supervisor-only scope/capability changes are held; no reintroduction of canceled role. Permanent deletion is held separately from ordinary maintenance. Do not combine source candidates with historical grants as an executable broad ACL. No new grant executed."
     }
   },
   "supplementalUat": {
@@ -1328,7 +1729,26 @@
     "blob": "84bc11095359a4ef453960e11e90c17985eb1118",
     "lines": "17-18, 23-64, 91-92",
     "finding": "RequireFormalLocationTarget allows isolated loopback or exact Path B Azure host/database and mode; production explicitly denied. Candidate, Leader review, publication and stage evidence call this policy. Some Excel/merge entry points remain isolated-only; do not silently enable them. Readiness with flags OFF is not formal-location business proof. Company target cannot be admitted by connection-string or IIS setting alone.",
-    "next": "Keep frozen UAT source. For IT delivery, narrowly review exact corporate host/database/SQL identity and TLS admission with an explicitly approved environment profile, preserve schema evidence and role checks; test wrong host/database/mode denial and authorized company-like isolated profile; no blanket bypass or live configuration. Review whether Excel/merge required in agreed scope separately."
+    "next": "Keep frozen UAT source. For IT delivery, narrowly review exact corporate host/database/SQL identity and TLS admission with an explicitly approved environment profile, preserve schema evidence and role checks; test wrong host/database/mode denial and authorized company-like isolated profile; no blanket bypass or live configuration. Review whether Excel/merge required in agreed scope separately.",
+    "candidate": {
+      "branch": "work/it-corporate-formal-location-20261124",
+      "sourceCommit": "60f9f888004e699897d0e02d2357f854273c0a33",
+      "firstRun": {
+        "id": 45406976656,
+        "conclusion": "failure",
+        "reason": "CI parity scan found three remaining PathB-only condition sites in two files; corrected row-version, independent review and merge reconciliation conditions."
+      },
+      "secondRun": 45407133602,
+      "status": "CI_PENDING_OR_UNVERIFIED",
+      "mode": "CorporateFormalLocations",
+      "configuration": [
+        "FIELDVISIT_CORPORATE_SQL_ENDPOINT",
+        "FIELDVISIT_CORPORATE_SQL_DATABASE",
+        "FIELDVISIT_CORPORATE_SQL_SERVER_NAME",
+        "FIELDVISIT_CORPORATE_SQL_LOGIN"
+      ],
+      "scope": "Separate branch directly from frozen source; no activation/deploy. Exact FQDN TCP endpoint and DB, Windows integrated identity, certificate validation, server/login readback and narrow DB role checks; current PathB and isolated restrictions remain. No actual company Windows identity or TLS verification. Requires IT confirmation and focused business/authorization tests before use."
+    }
   },
   "corporateSqlPortability": {
     "status": "COMPANY_NAMED_DISPOSABLE_SQL2022_SCHEMA_AND_REFERENCE_ROLES_PASS",
