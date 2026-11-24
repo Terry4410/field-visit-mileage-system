@@ -80,6 +80,33 @@ public sealed class V180OptionCLocationMaintenanceRiskTests
         Assert.Contains("row.ApprovalStatus == \"Approved\" || row.IsActive", imports);
     }
 
+    [Theory]
+    [InlineData("04595252")]
+    [InlineData("10458570")]
+    [InlineData("04595257")]
+    [InlineData("10458574")]
+    public void Blank_tax_id_accepts_current_Taiwan_checksum(string taxId)
+        => Assert.Equal(taxId, V180OptionCLocationMaintenanceRisk.RequireFirstTaiwanTaxId(null, taxId));
+
+    [Theory]
+    [InlineData("00000000")]
+    [InlineData("04595251")]
+    [InlineData("1234567")]
+    [InlineData("１２３４５６７８")]
+    [InlineData("")]
+    public void Blank_tax_id_rejects_invalid_format(string taxId)
+        => Assert.Throws<InvalidOperationException>(() =>
+            V180OptionCLocationMaintenanceRisk.RequireFirstTaiwanTaxId(null, taxId));
+
+    [Fact]
+    public void Existing_tax_id_cannot_be_overwritten_or_cleared_by_first_fill()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            V180OptionCLocationMaintenanceRisk.RequireFirstTaiwanTaxId("04595252", "10458570"));
+        Assert.Throws<InvalidOperationException>(() =>
+            V180OptionCLocationMaintenanceRisk.RequireFirstTaiwanTaxId("04595252", ""));
+    }
+
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

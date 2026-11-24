@@ -16,7 +16,7 @@ internal static class V180OptionCLowRiskDirectWriter
         int organizationId, int teamId, int actorUserId, byte[] expectedRowVersion,
         string beforeJson, string proposedJson, string? masterNote, string reason,
         Guid operationKey, bool transactionBoundLiveAuthorization,
-        CancellationToken ct)
+        CancellationToken ct, string? firstTaxId = null)
     {
         if (connection.State != ConnectionState.Open
             || transaction.Connection != connection
@@ -28,6 +28,8 @@ internal static class V180OptionCLowRiskDirectWriter
             || reason.Length > 1000 || masterNote?.Length > 1000)
             throw new InvalidOperationException("OPTIONC_LOW_DIRECT_INPUT_DENIED");
         V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        if (firstTaxId is not null)
+            firstTaxId = V180OptionCLocationMaintenanceRisk.RequireFirstTaiwanTaxId(null, firstTaxId);
 
         const string sql = """
             SET XACT_ABORT ON;
@@ -63,12 +65,31 @@ internal static class V180OptionCLowRiskDirectWriter
                     <>ISNULL(JSON_VALUE(@proposed,N'$.Address'),N'')
                OR ISNULL(JSON_VALUE(@before,N'$.PlusCode'),N'')
                     <>ISNULL(JSON_VALUE(@proposed,N'$.PlusCode'),N'')
-               OR ISNULL(JSON_VALUE(@before,N'$.TaxId'),N'')
-                    <>ISNULL(JSON_VALUE(@proposed,N'$.TaxId'),N'')
+               OR (@firstTax IS NULL AND ISNULL(JSON_VALUE(@before,N'$.TaxId'),N'')
+                    <>ISNULL(JSON_VALUE(@proposed,N'$.TaxId'),N''))
                 THROW 51715,N'OPTIONC_LOW_DIRECT_HIGH_RISK_DENIED',1;
-            IF ISNULL(JSON_VALUE(@before,N'$.MasterNote'),N'')
-                =ISNULL(JSON_VALUE(@proposed,N'$.MasterNote'),N'')
-                THROW 51716,N'OPTIONC_LOW_DIRECT_NO_CHANGE',1;
+            IF @firstTax IS NULL
+            BEGIN
+                IF ISNULL(JSON_VALUE(@before,N'$.MasterNote'),N'')
+                    =ISNULL(JSON_VALUE(@proposed,N'$.MasterNote'),N'')
+                    THROW 51716,N'OPTIONC_LOW_DIRECT_NO_CHANGE',1;
+            END
+            ELSE
+            BEGIN
+                IF NULLIF(LTRIM(RTRIM(ISNULL(JSON_VALUE(@before,N'$.TaxId'),N''))),N'') IS NOT NULL
+                    OR ISNULL(JSON_VALUE(@proposed,N'$.TaxId'),N'')<>@firstTax
+                    OR ISNULL(JSON_VALUE(@before,N'$.MasterNote'),N'')<>ISNULL(JSON_VALUE(@proposed,N'$.MasterNote'),N'')
+                    OR NOT EXISTS(SELECT 1 FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
+                        WHERE LocationId=@locationId AND OrganizationId=@org AND TeamId=@team
+                          AND IsTemporary=0 AND DuplicateOfLocationId IS NULL
+                          AND NULLIF(LTRIM(RTRIM(ISNULL(DuplicateReason,N''))),N'') IS NULL
+                          AND NULLIF(LTRIM(RTRIM(ISNULL(TaxId,N''))),N'') IS NULL)
+                    THROW 51721,N'LOCATION_TAXID_FIRST_FILL_SCOPE_DENIED',1;
+                IF EXISTS(SELECT 1 FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
+                    WHERE OrganizationId=@org AND LocationId<>@locationId
+                      AND LTRIM(RTRIM(ISNULL(TaxId,N'')))=@firstTax)
+                    THROW 51722,N'LOCATION_TAXID_CONFLICT_REQUIRES_REVIEW',1;
+            END
 
             SELECT @currentVersion=VersionNumber
             FROM dbo.LocationPublishedVersions WITH(UPDLOCK,HOLDLOCK)
@@ -97,9 +118,15 @@ internal static class V180OptionCLowRiskDirectWriter
             WHERE LocationId=@locationId AND VersionNumber=@currentVersion AND IsCurrent=1;
             IF @@ROWCOUNT<>1 THROW 51718,N'OPTIONC_LOW_DIRECT_VERSION_CONFLICT',1;
 
-            UPDATE dbo.Locations SET MasterNote=@note,UpdatedAt=@now
-            WHERE LocationId=@locationId AND OrganizationId=@org AND TeamId=@team
-              AND RowVersion=@actual AND ApprovalStatus=N'Approved' AND IsActive=1;
+            IF @firstTax IS NULL
+                UPDATE dbo.Locations SET MasterNote=@note,UpdatedAt=@now
+                WHERE LocationId=@locationId AND OrganizationId=@org AND TeamId=@team
+                  AND RowVersion=@actual AND ApprovalStatus=N'Approved' AND IsActive=1;
+            ELSE
+                UPDATE dbo.Locations SET TaxId=@firstTax,UpdatedAt=@now
+                WHERE LocationId=@locationId AND OrganizationId=@org AND TeamId=@team
+                  AND RowVersion=@actual AND ApprovalStatus=N'Approved' AND IsActive=1
+                  AND NULLIF(LTRIM(RTRIM(ISNULL(TaxId,N''))),N'') IS NULL;
             IF @@ROWCOUNT<>1 THROW 51719,N'OPTIONC_LOW_DIRECT_LOCATION_CONFLICT',1;
 
             INSERT dbo.LocationPublishedVersions(LocationId,VersionNumber,
@@ -123,6 +150,7 @@ internal static class V180OptionCLowRiskDirectWriter
         command.Parameters.AddWithValue("@before", beforeJson);
         command.Parameters.AddWithValue("@proposed", proposedJson);
         command.Parameters.AddWithValue("@note", (object?)masterNote ?? DBNull.Value);
+        command.Parameters.Add("@firstTax",SqlDbType.NVarChar,8).Value = (object?)firstTaxId ?? DBNull.Value;
         command.Parameters.AddWithValue("@reason", reason);
         command.Parameters.AddWithValue("@operationKey", operationKey);
         return (Guid)(await command.ExecuteScalarAsync(ct)

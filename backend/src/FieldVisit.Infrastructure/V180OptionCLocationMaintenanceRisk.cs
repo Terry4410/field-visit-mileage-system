@@ -36,6 +36,28 @@ public static class V180OptionCLocationMaintenanceRisk
                 "LOCATION_LOW_RISK_CHANGE_REQUIRES_AUTHORIZED_DIRECT_SAVE");
     }
 
+    // First fill is permitted only through the isolated atomic writer;
+    // this does not change the legacy high-risk classifier.
+    public static string RequireFirstTaiwanTaxId(string? current, string? proposed)
+    {
+        if (!string.IsNullOrWhiteSpace(current))
+            throw new InvalidOperationException("LOCATION_TAXID_ALREADY_SET_REQUIRES_REVIEW");
+        var value = proposed?.Trim();
+        if (value is null || value.Length != 8 || value.Any(c => c < '0' || c > '9')
+            || value == "00000000")
+            throw new InvalidOperationException("LOCATION_TAXID_INVALID");
+        int[] weights = [1,2,1,2,1,2,4,1];
+        var sum = 0;
+        for (var i = 0; i < 8; i++)
+        {
+            var product = (value[i] - '0') * weights[i];
+            sum += product / 10 + product % 10;
+        }
+        if (sum % 5 != 0 && !(value[6] == '7' && (sum + 1) % 5 == 0))
+            throw new InvalidOperationException("LOCATION_TAXID_INVALID");
+        return value;
+    }
+
     private static bool Changed(string? current, string? proposed) =>
         !string.Equals(current, proposed, StringComparison.Ordinal);
 }

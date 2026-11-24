@@ -176,6 +176,26 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=15"));
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequests WHERE EntityId=N'15' AND Status=N'Applied'"));
 
+        // First TaxId fill uses the same isolated live-authorization and
+        // atomic version/audit path, without replacing existing notes.
+        async Task<HttpResponseMessage> FillTax(HttpClient c,int id,string taxId,string? masterNote=null) =>
+            await c.PostAsJsonAsync($"api/v1/optionc-candidate/locations/{id}/low-risk-direct",
+                new V180OptionCLowRiskDirectUpdate(await Version(id),masterNote,"First TaxId fill",Guid.NewGuid(),taxId));
+        using(var ok=await FillTax(visitor,10,"04595252"))
+            Assert.True(ok.IsSuccessStatusCode,await ok.Content.ReadAsStringAsync());
+        Assert.Equal("04595252",await h.Scalar("SELECT TaxId FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("Visitor direct note",await h.Scalar("SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("3",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        using(var denied=await FillTax(visitor,10,"10458570"))
+            Assert.False(denied.IsSuccessStatusCode);
+        using(var denied=await FillTax(leader,11,"04595252"))
+            Assert.False(denied.IsSuccessStatusCode);
+        using(var denied=await FillTax(leader,11,"10458570","mixed write"))
+            Assert.False(denied.IsSuccessStatusCode);
+        using(var denied=await FillTax(other,12,"10458570"))
+            Assert.False(denied.IsSuccessStatusCode);
+        Assert.Equal("04595252",await h.Scalar("SELECT TaxId FROM dbo.Locations WHERE LocationId=10"));
+
         // Force a late audit failure: request, Location and version writes must
         // all roll back rather than leaving partial direct publication.
         await h.Exec("""

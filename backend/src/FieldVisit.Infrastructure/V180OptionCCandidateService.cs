@@ -16,7 +16,8 @@ namespace FieldVisit.Infrastructure;
 public sealed record V180OptionCCreateLocation(
     int TeamId, string Reason, V180B3LocationFields Proposed);
 public sealed record V180OptionCLowRiskDirectUpdate(
-    string ExpectedRowVersion, string? MasterNote, string Reason, Guid OperationKey);
+    string ExpectedRowVersion, string? MasterNote, string Reason, Guid OperationKey,
+    string? FirstTaxId = null);
 
 /// <summary>Row-bound, independently reviewed Excel Create submission summary.</summary>
 public sealed record V180OptionCExcelCreateResult(
@@ -651,14 +652,30 @@ public sealed class V180OptionCCandidateService(
             var before = new V180B3LocationFields(location.LocationName, location.City,
                 location.District, location.Address, location.PlusCode, location.TaxId,
                 location.MasterNote);
-            var proposed = before with { MasterNote = note };
-            if (string.Equals(before.MasterNote, proposed.MasterNote, StringComparison.Ordinal))
-                throw new InvalidOperationException("B3_NO_CHANGE");
+            string? firstTaxId = null;
+            V180B3LocationFields proposed;
+            if (input.FirstTaxId is not null)
+            {
+                if (input.MasterNote is not null || location.IsTemporary
+                    || location.DuplicateOfLocationId.HasValue
+                    || !string.IsNullOrWhiteSpace(location.DuplicateReason))
+                    throw new InvalidOperationException("LOCATION_TAXID_FIRST_FILL_SCOPE_DENIED");
+                firstTaxId = V180OptionCLocationMaintenanceRisk.RequireFirstTaiwanTaxId(
+                    before.TaxId, input.FirstTaxId);
+                proposed = before with { TaxId = firstTaxId };
+                note = before.MasterNote;
+            }
+            else
+            {
+                proposed = before with { MasterNote = note };
+                if (string.Equals(before.MasterNote, proposed.MasterNote, StringComparison.Ordinal))
+                    throw new InvalidOperationException("B3_NO_CHANGE");
+            }
             requestId = await V180OptionCLowRiskDirectWriter.ExecuteAsync(
                 connection, (SqlTransaction)tx.GetDbTransaction(), locationId,
                 organizationId, teamId, actorId, expected,
                 JsonSerializer.Serialize(before), JsonSerializer.Serialize(proposed), note,
-                reason, input.OperationKey, transactionBoundLiveAuthorization: true, ct);
+                reason, input.OperationKey, transactionBoundLiveAuthorization: true, ct, firstTaxId);
             await tx.CommitAsync(ct);
         }
         catch
