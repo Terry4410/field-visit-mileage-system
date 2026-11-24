@@ -39,6 +39,20 @@ The immutable source identities, exact nondeploy ZIP SHA-256 values, 13 SQL inst
 
 Microsoft's documented Windows Authentication options for ASP.NET Core 8 under IIS are at [Microsoft Learn — Windows Authentication](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/windowsauth?view=aspnetcore-8.0). IT must choose the supported company approach before Windows SSO code is integrated.
 
+## Company IT decision received 2026-11-24 — Entra authentication is permitted
+
+**Decision provenance:** Owner reports that company IT has confirmed **Azure AD / Microsoft Entra ID may be used as the employee authentication mechanism**. This authorizes choosing existing Entra architecture as the **preferred company-login integration path**; it does **not** certify the current app or mean IT has supplied app registrations, credentials, redirect domain, corporate Windows/IIS settings, SQL service identities, endpoint access, or production authorization. The corporate Web/API and database remain planned **on-premises IIS + SQL Server**; only user authentication uses Entra.
+
+**Engineering action:** use accepted source `90fe9bd61c24be57ccfaf6d450bf053e9c646ac1` as the exact frontend base and preserve accepted API `ab71aaa96d9ac259f66386555812448284527d15`. Latest selected SPA uses MSAL Browser **5.18.0** and popup login but previously lacked required redirect bridge. Controlled [NONDEPLOY Draft PR #118](https://github.com/Terry4410/field-visit-mileage-system/pull/118) adds a separate Vite `redirect.html` bridge, strict HTTPS `ENTRA.REDIRECT_URI` validation and focused negative tests. [CI #45306709341](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45306709341) **PASS** (30 suites/145 tests, Vite two-entry build), only on `65ff743f3d2f7f4fa3d5463b9632006e615bef24`. **Real company tenant sign-in NOT YET VERIFIED.** Source is NOT merged with SQL/API or deployed.
+
+**Consolidated request to IT (IT handles registration and values, Owner should not construct tokens or secrets):**
+1. Confirm approved intranet **HTTPS frontend URL** (the exact registered SPA redirect must be `https://[IT-host]/redirect.html`) and API URL; company browser must reach Microsoft login endpoints, with approved popup and COOP policy for redirect bridge.
+2. Provide approved **Entra Tenant ID**, SPA **Application (client) ID**, protected API **Application ID URI / audience**, delegated **`access_as_user`** scope, app permission/admin consent and allowed application audience. These are identifiers/configuration, not passwords; any actual secrets belong exclusively in IT secret management, not GitHub or messages.
+3. Confirm secure identity binding by Entra `tid` + `oid` to existing active FieldVisit app Users; require explicit IT provisioning and **keep automatic first-login email binding disabled**. Application-level Visitor/Leader/Admin scopes still apply.
+4. Independently verify tenant token validation, company login, logout behavior, disabled identity/employee access, cross-team query and export denial, and the same application build on IIS + IT's SQL test database. Define IT operational/service account owner.
+
+**Stop conditions:** Entra permitted `YES`; new IIS Negotiate implementation `NOT NECESSARY FOR THIS AGREED OPTION`; Entra actual login `NOT TESTED`, final release `NOT MERGED/NOT DEPLOYED`, `IT Deployment Ready` and `Production Ready` **remain unverified**. Retain all old UAT PASS.
+
 ## Minimum-cost enterprise login decision — source-audited (no auth code change)
 
 This comparison is **not an IT policy decision** and is not an authentication/UAT PASS. It uses accepted API `ab71aaa96d9ac259f66386555812448284527d15` and selected frontend `90fe9bd61c24be57ccfaf6d450bf053e9c646ac1` (both pinned above).
@@ -50,7 +64,7 @@ This comparison is **not an IT policy decision** and is not an authentication/UA
 
 **Existing Entra config keys to map, not a deployment instruction:** frontend `AUTH_MODE=Entra`, `ENTRA.TENANT_ID`, `ENTRA.SPA_CLIENT_ID`, `ENTRA.API_SCOPE`, `ENTRA.REDIRECT_URI`; API `Auth:Mode=Entra`, `Auth:Entra:TenantId`, `Auth:Entra:Audience`, `Auth:Entra:RequiredScope`, `Auth:Entra:AllowFirstLoginEmailBinding=false` (keep disabled pending explicit IT-controlled proof). The Demo endpoint must reject login in production Entra mode; do not expose Demo passwords or reuse Azure pilot accounts. IT-approved service identity, secure configuration, revocation behavior, invalid/audience-scope claims, Visitor/Leader/Admin scopes and cross-team denial require runtime tests before Production Ready.
 
-**Recommendation:** ask company IT only whether **A** is acceptable under its corporate AD/SSO policy or whether **B** is mandatory, plus the chosen Windows/SQL versions and operating owner. **Do not ask Owner to invent a technical implementation.** No Azure or Windows settings should be changed based on this note alone.
+**Decision now received:** IT permits option **A** (Microsoft Entra). Prefer the existing Entra architecture plus PR #118's v5 compatibility patch, subject to company configuration and real end-to-end validation. Option **B** is not a requirement under this decision. **Do not ask Owner to invent a technical implementation.** No Azure, IIS, Windows, authentication or SQL settings should be changed based on this note alone.
 
 References: [Microsoft Learn — ASP.NET Core 8 Windows Authentication](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/windowsauth?view=aspnetcore-8.0) and [Microsoft Learn — MSAL authentication flows](https://learn.microsoft.com/en-us/entra/identity-platform/msal-authentication-flows).
 
