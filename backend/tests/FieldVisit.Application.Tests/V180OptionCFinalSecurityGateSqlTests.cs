@@ -176,6 +176,26 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("2",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.LocationPublishedVersions WHERE LocationId=15"));
         Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM dbo.ChangeRequests WHERE EntityId=N'15' AND Status=N'Applied'"));
 
+        // First TaxId fill uses the same isolated live-authorization and
+        // atomic version/audit path, without replacing existing notes.
+        async Task<HttpResponseMessage> FillTax(HttpClient c,int id,string taxId,string? masterNote=null) =>
+            await c.PostAsJsonAsync($"api/v1/optionc-candidate/locations/{id}/low-risk-direct",
+                new V180OptionCLowRiskDirectUpdate(await Version(id),masterNote,"First TaxId fill",Guid.NewGuid(),taxId));
+        using(var ok=await FillTax(visitor,10,"04595252"))
+            Assert.True(ok.IsSuccessStatusCode,await ok.Content.ReadAsStringAsync());
+        Assert.Equal("04595252",await h.Scalar("SELECT TaxId FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("Visitor direct note",await h.Scalar("SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("3",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        using(var denied=await FillTax(visitor,10,"10458570"))
+            Assert.False(denied.IsSuccessStatusCode);
+        using(var denied=await FillTax(leader,11,"04595252"))
+            Assert.False(denied.IsSuccessStatusCode);
+        using(var denied=await FillTax(leader,11,"10458570","mixed write"))
+            Assert.False(denied.IsSuccessStatusCode);
+        using(var denied=await FillTax(other,12,"10458570"))
+            Assert.False(denied.IsSuccessStatusCode);
+        Assert.Equal("04595252",await h.Scalar("SELECT TaxId FROM dbo.Locations WHERE LocationId=10"));
+
         // Force a late audit failure: request, Location and version writes must
         // all roll back rather than leaving partial direct publication.
         await h.Exec("""
@@ -626,7 +646,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
             INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
                 VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
-            UPDATE dbo.Locations SET LocationCode=N'EX-10',CreatedByUserId=4
+            UPDATE dbo.Locations SET LocationCode=N'EX-10',CreatedByUserId=1
             WHERE LocationId=10;
             """);
         using var importer=factory.CreateClient(new WebApplicationFactoryClientOptions {
@@ -794,6 +814,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Applied",Assert.Single(appliedLinks).RequestStatus);
         Assert.Equal("Excel reviewed address",await h.Scalar(
             "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("1",await h.Scalar("SELECT CONVERT(nvarchar(20),CreatedByUserId) FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal(oldTrips,await h.Scalar(
             "SELECT COUNT(*) FROM dbo.VisitTripStops WHERE LocationId=10"));
         Assert.Equal(oldSnapshots,await h.Scalar(
@@ -848,13 +869,19 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 "Independent low-risk Excel Leader approval",true));
         Assert.True(lowLeaderReview.IsSuccessStatusCode,
             await lowLeaderReview.Content.ReadAsStringAsync());
-        var lowStageRv=Convert.ToBase64String((byte[])(
-            await new SqlCommand("""
-                SELECT s.RowVersion FROM dbo.LocationPublicationStages s
-                JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
-                WHERE r.RequestPublicId=@id
-                """,h.Db){Parameters={new SqlParameter("@id",lowId)}}.ExecuteScalarAsync()
-            ?? throw new InvalidOperationException("OPTIONC_EXCEL_LOW_STAGE_VERSION_MISSING")));
+        using var lowQueue=await independentLeader.GetAsync("api/v1/optionc-candidate/leader/review-queue");
+        Assert.True(lowQueue.IsSuccessStatusCode,await lowQueue.Content.ReadAsStringAsync());
+        Assert.Contains((await lowQueue.Content.ReadFromJsonAsync<List<V180OptionCLeaderReviewView>>())!,
+            q=>q.RequestPublicId==lowId && q.LeaderStatus=="Approved");
+        using var deniedLowRead=await admin.GetAsync($"api/v1/optionc-candidate/requests/{lowId}/stage");
+        Assert.False(deniedLowRead.IsSuccessStatusCode);
+        using var requesterLowRead=await importer.GetAsync($"api/v1/optionc-candidate/requests/{lowId}/stage");
+        Assert.False(requesterLowRead.IsSuccessStatusCode);
+        using var lowStageHttp=await independentLeader.GetAsync($"api/v1/optionc-candidate/requests/{lowId}/stage");
+        Assert.True(lowStageHttp.IsSuccessStatusCode,await lowStageHttp.Content.ReadAsStringAsync());
+        var lowStage=await lowStageHttp.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>();
+        Assert.NotNull(lowStage);
+        var lowStageRv=lowStage!.StageRowVersion;
         using var lowEvidence=await independentLeader.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{lowId}/duplicate-evidence",
             new V180OptionCDuplicateEvidence(lowStageRv,true,

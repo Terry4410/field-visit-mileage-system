@@ -15,7 +15,7 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
         SqlConnection connection, SqlTransaction transaction, Guid requestPublicId,
         int organizationId, int finalReviewerUserId, Guid decisionKey,
         string reason, bool transactionBoundLiveAuthorization,
-        bool independentAdminForCreate, CancellationToken ct)
+        bool independentAdminForCreate, CancellationToken ct, bool liveManagedLeader = false)
     {
         if (connection.State != ConnectionState.Open || transaction.Connection != connection
             || transaction.IsolationLevel != IsolationLevel.Serializable
@@ -88,7 +88,7 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
             WHERE LocationId=@locationId AND OrganizationId=@org
               AND TeamId=@team AND LocationType=N'Customer';
             IF @locationVersion IS NULL OR @locationVersion<>@expected
-               OR @sourceOwner<>@requester
+               OR (@sourceOwner<>@requester AND (@operation=N'CreateLocation' OR @managedLeader=0))
                 THROW 51605,N'OPTIONC_CREATE_LOW_SOURCE_DRIFT',1;
             IF (@operation=N'CreateLocation' AND (@active<>0 OR @status<>N'Pending'))
                OR (@operation=N'UpdatePublishedLocation'
@@ -210,7 +210,7 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
                 Longitude=CASE WHEN @operation=N'CreateLocation' THEN @longitude ELSE Longitude END,
                 UpdatedAt=@now
             WHERE LocationId=@locationId AND OrganizationId=@org AND TeamId=@team
-              AND CreatedByUserId=@requester AND RowVersion=@locationVersion
+              AND (CreatedByUserId=@requester OR (@operation=N'UpdatePublishedLocation' AND @managedLeader=1)) AND RowVersion=@locationVersion
               AND ((@operation=N'CreateLocation' AND ApprovalStatus=N'Pending' AND IsActive=0)
                 OR (@operation=N'UpdatePublishedLocation'
                     AND ApprovalStatus=N'Approved' AND IsActive=1));
@@ -261,6 +261,7 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
         cmd.Parameters.AddWithValue("@decision", decisionKey);
         cmd.Parameters.AddWithValue("@reason", reason);
         cmd.Parameters.AddWithValue("@adminEligible", independentAdminForCreate ? 1 : 0);
+        cmd.Parameters.AddWithValue("@managedLeader", liveManagedLeader ? 1 : 0);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 }

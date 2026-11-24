@@ -84,12 +84,23 @@ internal sealed class V180OptionCCreateLowRiskPublicationOrchestrator(
             else if (leaderId != actorId)
                 throw new UnauthorizedAccessException("OPTIONC_LOW_LEADER_ACTOR_MISMATCH");
 
+            bool managedLeader = false;
+            if (request.OperationCode == "UpdatePublishedLocation")
+            {
+                if (!int.TryParse(request.EntityId, out var locationId) || locationId <= 0)
+                    throw new UnauthorizedAccessException("OPTIONC_CREATE_LOW_SCOPE_DENIED");
+                var sourceScope = await auth.AuthorizeSubmissionAsync(
+                    request.RequestedByUserId, locationId, BusinessTime.Today, ct);
+                if (sourceScope.OrganizationId != org || sourceScope.TeamId != team)
+                    throw new UnauthorizedAccessException("OPTIONC_CREATE_LOW_SCOPE_DENIED");
+                managedLeader = sourceScope.LeaderEligible;
+            }
             var sqlTx = tx.GetDbTransaction() as SqlTransaction
                 ?? throw new InvalidOperationException("OPTIONC_SQL_TRANSACTION_REQUIRED");
             await V180OptionCCreateLowRiskPublicationWriter.ExecuteAsync(
                 connection, sqlTx, requestPublicId, org, actorId, decisionKey,
                 reason, transactionBoundLiveAuthorization: true,
-                independentAdminForCreate: adminEligible, ct);
+                independentAdminForCreate: adminEligible, ct, liveManagedLeader: managedLeader);
             try { await tx.CommitAsync(ct); }
             catch (Exception commitError) when (commitError is SqlException
                 or TimeoutException or OperationCanceledException or IOException)

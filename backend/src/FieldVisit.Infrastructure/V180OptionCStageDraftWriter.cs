@@ -13,7 +13,7 @@ internal static class V180OptionCStageDraftWriter
 {
     internal static async Task<long> CreateFromLockedRequestAsync(
         SqlConnection db, SqlTransaction tx, Guid requestPublicId,
-        int organizationId, CancellationToken ct)
+        int organizationId, CancellationToken ct, bool liveManagedLeader = false)
     {
         if (db.State != ConnectionState.Open || tx.Connection != db
             || tx.IsolationLevel != IsolationLevel.Serializable
@@ -74,7 +74,7 @@ internal static class V180OptionCStageDraftWriter
             """ : """
             SELECT RowVersion FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
             WHERE LocationId=@id AND OrganizationId=@org AND TeamId=@team
-              AND CreatedByUserId=@requester AND LocationType=N'Customer'
+              AND (CreatedByUserId=@requester OR @managedLeader=1) AND LocationType=N'Customer'
               AND ApprovalStatus=N'Approved' AND IsActive=1
             """;
         await using (var loc = new SqlCommand(locationSql, db, tx))
@@ -85,6 +85,7 @@ internal static class V180OptionCStageDraftWriter
             loc.Parameters.AddWithValue("@org", organizationId);
             loc.Parameters.AddWithValue("@team", teamId);
             loc.Parameters.AddWithValue("@requester", requester);
+            if (operation != "CreateLocation") loc.Parameters.AddWithValue("@managedLeader", liveManagedLeader ? 1 : 0);
             var actual = await loc.ExecuteScalarAsync(ct) as byte[];
             if (actual is not { Length: 8 } || !actual.SequenceEqual(expected))
                 throw new InvalidOperationException("OPTIONC_STAGE_SOURCE_DRIFT");

@@ -55,6 +55,13 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                 request.RequestedByUserId, actorId, request.OrganizationId,
                 request.TeamId.Value, BusinessTime.Today, ct);
 
+            if (!int.TryParse(request.EntityId, out var locationId) || locationId <= 0)
+                throw new UnauthorizedAccessException("OPTIONC_REQUEST_SCOPE_DENIED");
+            var sourceScope = await authorization.AuthorizeSubmissionAsync(
+                request.RequestedByUserId, locationId, BusinessTime.Today, ct);
+            if (sourceScope.OrganizationId != request.OrganizationId || sourceScope.TeamId != request.TeamId)
+                throw new UnauthorizedAccessException("OPTIONC_REQUEST_SCOPE_DENIED");
+
             var sqlTx = tx.GetDbTransaction() as SqlTransaction
                 ?? throw new InvalidOperationException("OPTIONC_SQL_TRANSACTION_REQUIRED");
             var evidence = new V180OptionCLiveApprovalEvidence(
@@ -72,7 +79,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                     request.RequestedByUserId, ct);
             await V180OptionCAtomicPublicationWriter.ExecuteAsync(
                 connection, sqlTx, requestPublicId, request.OrganizationId,
-                actorId, decisionKey, reason, evidence, ct);
+                actorId, decisionKey, reason, evidence, ct, liveManagedLeader: sourceScope.LeaderEligible);
             // A failed/unknown commit acknowledgement is NEVER retried here.
             // Operator must reconcile on a NEW connection before any action.
             try

@@ -72,19 +72,30 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
             var org = await auth.ResolveLiveOrganizationAsync(actor, ct);
             var row = await db.ChangeRequests.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.RequestPublicId == id && x.OrganizationId == org
-                && x.EntityKind == "Location" && x.RiskCode == "High"
-                && x.Status == "Pending"
-                && (x.OperationCode == "CreateLocation"
-                    || x.OperationCode == "UpdatePublishedLocation"), ct)
+                && x.EntityKind == "Location" && x.Status == "Pending"
+                && ((x.OperationCode == "CreateLocation" && x.RiskCode == "High")
+                    || (x.OperationCode == "UpdatePublishedLocation" && (x.RiskCode == "High" || x.RiskCode == "Low"))), ct)
                 ?? throw new KeyNotFoundException("OPTIONC_STAGE_NOT_FOUND");
             if (row.TeamId is not int team || team <= 0
                 || !int.TryParse(row.EntityId, out var location) || location <= 0)
                 throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
-            var reviewer = await auth.AuthorizeDecisionAsync(
-                row.RequestedByUserId, actor, org, team, BusinessTime.Today, ct);
-            if (!reviewer.RequesterEligible || !reviewer.IndependentAdminEligible
-                || !reviewer.OrganizationMatches || !reviewer.TeamMatches)
-                throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
+            if (row.RiskCode == "Low")
+            {
+                await RequireLiveCreateLeaderAsync(auth, row.ChangeRequestId,
+                    row.RequestedByUserId, org, team, ct);
+                var approvedLeader = await db.LeaderReviews.AsNoTracking().SingleAsync(x =>
+                    x.ChangeRequestId == row.ChangeRequestId && x.ReviewStage == "LeaderFirstLevel", ct);
+                if (approvedLeader.ReviewerUserId != actor)
+                    throw new UnauthorizedAccessException("OPTIONC_LOW_LEADER_ACTOR_MISMATCH");
+            }
+            else
+            {
+                var reviewer = await auth.AuthorizeDecisionAsync(
+                    row.RequestedByUserId, actor, org, team, BusinessTime.Today, ct);
+                if (!reviewer.RequesterEligible || !reviewer.IndependentAdminEligible
+                    || !reviewer.OrganizationMatches || !reviewer.TeamMatches)
+                    throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
+            }
             var sqlTx = (SqlTransaction)tx.GetDbTransaction();
             if (row.OperationCode == "CreateLocation")
             {
