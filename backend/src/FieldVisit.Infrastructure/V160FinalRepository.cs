@@ -20,6 +20,32 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 db.VisitTrips.AsNoTracking(),
                 user,
                 ct);
+
+        // Query and both download formats must have the same record scope.
+        // A leader's current team assignment is necessary but not sufficient
+        // for an approved historic record: its immutable latest snapshot may
+        // belong to a different team than the mutable VisitTrips.TeamId.
+        if (HasRole(user, "leader"))
+        {
+            var orgId = user.OrganizationId ?? -1;
+            var allowedTeamIds = user.TeamIds;
+            q = q.Where(t =>
+                t.OrganizationId == orgId
+                && (t.Status != TripStatuses.Approved
+                    || latestSnapshotQ.Any(s =>
+                        s.VisitTripId == t.VisitTripId
+                        && s.OrganizationId == orgId
+                        && s.TeamId.HasValue
+                        && allowedTeamIds.Contains(s.TeamId.Value))));
+        }
+        else if (HasRole(user, "visitor"))
+        {
+            // The historical report must never use client supplied visitorId
+            // to access another employee's records or organization.
+            var orgId = user.OrganizationId ?? -1;
+            q = q.Where(t => t.OrganizationId == orgId && t.UserId == user.UserId);
+        }
+
         if (!request.IncludeCancelled) q = q.Where(x => x.Status != TripStatuses.Cancelled);
         if (!string.IsNullOrWhiteSpace(request.Status))
         {
