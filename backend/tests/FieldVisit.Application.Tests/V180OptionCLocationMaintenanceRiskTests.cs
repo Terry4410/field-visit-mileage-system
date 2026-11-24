@@ -1,10 +1,38 @@
 using FieldVisit.Infrastructure;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace FieldVisit.Application.Tests;
 
 public sealed class V180OptionCLocationMaintenanceRiskTests
 {
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    public void OptionC_manual_transactions_do_not_change_normal_retry_strategy(string enabled)
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string,string?> {
+                ["ConnectionStrings:DefaultConnection"] = "Server=localhost;Database=OptionCIsolated_Composition;Integrated Security=true;TrustServerCertificate=true",
+                ["OptionC:Candidate:Enabled"] = enabled
+            }).Build();
+        var services = new ServiceCollection();
+        services.AddInfrastructure(config);
+        using var provider = services.BuildServiceProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+        var normal = first.ServiceProvider.GetRequiredService<AppDbContext>();
+        var candidate = first.ServiceProvider.GetRequiredKeyedService<AppDbContext>("OptionC");
+        Assert.NotSame(normal,candidate);
+        Assert.True(normal.Database.CreateExecutionStrategy().RetriesOnFailure);
+        Assert.False(candidate.Database.CreateExecutionStrategy().RetriesOnFailure);
+        Assert.Equal(normal.Database.GetConnectionString(),candidate.Database.GetConnectionString());
+        Assert.Same(candidate,first.ServiceProvider.GetRequiredKeyedService<AppDbContext>("OptionC"));
+        Assert.NotSame(candidate,second.ServiceProvider.GetRequiredKeyedService<AppDbContext>("OptionC"));
+    }
+
     [Theory]
     [InlineData("Taipei", "Taipei", "Old Rd", "Old Rd", "A", "A", false)]
     [InlineData("Taipei", "New Taipei", "Old Rd", "Old Rd", "A", "A", true)]
