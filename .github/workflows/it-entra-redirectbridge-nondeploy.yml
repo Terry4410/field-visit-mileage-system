@@ -1,0 +1,94 @@
+name: Path B Entra v5 redirect bridge (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-entra-redirectbridge-nondeploy-20261124]
+    paths:
+      - '.github/workflows/it-entra-redirectbridge-nondeploy.yml'
+      - 'frontend/redirect.html'
+      - 'frontend/vite.config.ts'
+      - 'frontend/src/auth-config.ts'
+      - 'frontend/src/auth-config.test.ts'
+permissions:
+  contents: read
+concurrency:
+  group: pathb-entra-bridge-nondeploy
+  cancel-in-progress: false
+jobs:
+  frontend:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/pathb-it-entra-redirectbridge-nondeploy-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enforce exact accepted frontend parent and narrow nondeploy diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=90fe9bd61c24be57ccfaf6d450bf053e9c646ac1
+          git merge-base --is-ancestor "$base" HEAD
+          python3 - <<'PY'
+          import subprocess
+          base='90fe9bd61c24be57ccfaf6d450bf053e9c646ac1'
+          modified=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
+          allowed={
+            '.github/workflows/it-entra-redirectbridge-nondeploy.yml',
+            'frontend/redirect.html',
+            'frontend/vite.config.ts',
+            'frontend/src/auth-config.ts',
+            'frontend/src/auth-config.test.ts'
+          }
+          assert modified==allowed,sorted(modified.symmetric_difference(allowed))
+          print('EXACT_ACCEPTED_FRONTEND_AND_FIVE_FILE_DIFF=PASS')
+          PY
+      - name: Test frontend and compile separate MSAL v5 bridge
+        shell: bash
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+          test -s dist/index.html
+          test -s dist/redirect.html
+      - name: Verify output route and fail-closed business config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,re,hashlib,json
+          root=pathlib.Path('frontend')
+          dist=root/'dist'
+          src=(root/'redirect.html').read_text()
+          html=(dist/'redirect.html').read_text()
+          assert '@azure/msal-browser/redirect-bridge' in src
+          assert 'broadcastResponseToMainFrame' in src
+          assert re.search(r'<script[^>]*\bsrc="([^"]+\.js)"',html)
+          assert 'config.js' not in html
+          assert 'main.tsx' not in src and 'main.tsx' not in html
+          assert (dist/'index.html').is_file()
+          assert 'redirectUri=raw?.ENTRA?.REDIRECT_URI?.trim()||""' in (root/'src/auth-config.ts').read_text()
+          files=sorted(p for p in dist.rglob('*') if p.is_file())
+          manifest={
+            'status':'NONDEPLOY_NO_REAL_ENTRA_SIGNIN_NOT_IT_CERTIFIED',
+            'acceptedFrontendBase':'90fe9bd61c24be57ccfaf6d450bf053e9c646ac1',
+            'bridgeRedirectUri':'https://<IT_APPROVED_INTRANET_FRONTEND_HOST>/redirect.html',
+            'outputs':[{'path':p.relative_to(dist).as_posix(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in files],
+            'realEntraSignIn':'NOT_TESTED_NO_TENANT_OR_REGISTERED_APP',
+            'businessUat':'UNCHANGED_ACCEPT_WITH_OPEN_ITEMS'
+          }
+          path=pathlib.Path('it-entra-bridge-output-manifest.json')
+          path.write_text(json.dumps(manifest,sort_keys=True,indent=2)+'\n')
+          print('ENTRA_V5_BRIDGE_BUILD_AND_MANIFEST=PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: fieldvisit-entra-v5-bridge-nondeploy-manifest
+          path: it-entra-bridge-output-manifest.json
+          retention-days: 14
+          if-no-files-found: error
