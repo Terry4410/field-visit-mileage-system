@@ -379,22 +379,23 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
 
                 async Task AssertRevocationWinsApprovalRace(string revokeSql, string restoreSql, string label)
                 {
-                    await using var revokeTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
-                    await db.Database.ExecuteSqlRawAsync(revokeSql);
-                    var connection = (SqlConnection)db.Database.GetDbConnection();
-                    await db.Database.OpenConnectionAsync();
-                    await using var spidCommand = new SqlCommand("SELECT @@SPID", connection);
-                    spidCommand.Transaction = (SqlTransaction)revokeTransaction.GetDbTransaction();
+                    // Independent non-retrying SQL connection holds the revocation lock.
+                    // Application API requests retain their normal retry configuration.
+                    await using var connection = new SqlConnection(cs);
+                    await connection.OpenAsync();
+                    await using var revokeTransaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+                    await using var revokeCommand = new SqlCommand(revokeSql, connection, revokeTransaction);
+                    await revokeCommand.ExecuteNonQueryAsync();
+                    await using var spidCommand = new SqlCommand("SELECT @@SPID", connection, revokeTransaction);
                     var blockerSpid = Convert.ToInt32(await spidCommand.ExecuteScalarAsync());
                     var racedApproval = leader.PostAsJsonAsync(
                         $"api/v1/trips/{created.VisitTripId}/approve", approve);
                     await WaitUntilBlockedByAsync(root.ConnectionString, blockerSpid, racedApproval, label);
                     await revokeTransaction.CommitAsync();
-                    await revokeTransaction.DisposeAsync();
                     using var racedResponse = await racedApproval.WaitAsync(TimeSpan.FromSeconds(10));
                     Assert.Equal(HttpStatusCode.Forbidden, racedResponse.StatusCode);
-                    await db.Database.ExecuteSqlRawAsync(restoreSql);
-                    await db.Database.CloseConnectionAsync();
+                    await using var restoreCommand = new SqlCommand(restoreSql, connection);
+                    await restoreCommand.ExecuteNonQueryAsync();
                 }
 
                 await AssertRevocationWinsApprovalRace(

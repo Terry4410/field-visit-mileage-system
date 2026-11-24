@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
           test -z "$(git diff --name-only 3d85171bfdde0a2b8329e4a05b7afa84b2f5a0e8 HEAD -- database/)"
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180TripMileageHttpSqlE2ETests|FullyQualifiedName~V170AuthenticationRulesTests' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=location.trx' --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~Trip_return_correction_resubmit_and_reapprove_preserve_historical_submissions|FullyQualifiedName~Provider_failure_manual_fallback_requires_authoritative_route_evidence_and_preserves_location_identity|FullyQualifiedName~One_stop_trip_provider_failure_manual_fallback_enforces_live_leader_authorization_and_concurrency' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=location.trx' --results-directory artifacts/test-results
       - name: Package API with embedded Traditional Chinese font (NONDEPLOY)
         shell: bash
         run: |
