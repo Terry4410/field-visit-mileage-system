@@ -14,6 +14,7 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180ThreeRoleHistoricalExportScopeTests
 {
     private static readonly DateOnly Historical = new(2026, 11, 1);
+    private static readonly DateOnly Future = new(2026, 12, 1);
 
     [Fact]
     public async Task Historical_exports_match_three_role_scope_and_never_mix_teams_or_organizations()
@@ -38,14 +39,15 @@ public sealed class V180ThreeRoleHistoricalExportScopeTests
             Trip(102, "HIST_OTHER_TEAM", 2, 12, 1),
             Trip(103, "HIST_OTHER_ORG", 3, 21, 2),
             Trip(104, "HIST_SNAPSHOT_MOVED", 1, 11, 1, "Approved"),
-            Trip(105, "HIST_SNAPSHOT_ALLOWED", 1, 11, 1, "Approved"));
+            Trip(105, "HIST_SNAPSHOT_ALLOWED", 1, 11, 1, "Approved"),
+            Trip(106, "FUTURE_OWN_TEAM", 1, 11, 1, visitDate: Future));
         db.VisitTripSnapshots.AddRange(
             Snapshot(104, "HIST_SNAPSHOT_MOVED", 12, 1),
             Snapshot(105, "HIST_SNAPSHOT_ALLOWED", 11, 1));
         await db.SaveChangesAsync();
 
         var repo = new V160FinalRepository(db, null!);
-        var query = new TripQueryRequest(StartDate: Historical, EndDate: Historical);
+        var query = new TripQueryRequest(StartDate: Historical, EndDate: Future);
         var report = new ReportDocumentService(new ConfigurationBuilder().Build());
 
         var leader = Actor("leader", 77, 1, 11);
@@ -77,7 +79,7 @@ public sealed class V180ThreeRoleHistoricalExportScopeTests
             foreach (var id in expected) Assert.Contains(id, names);
             foreach (var id in new[]
                 {"HIST_OWN_TEAM", "HIST_OTHER_TEAM", "HIST_OTHER_ORG",
-                 "HIST_SNAPSHOT_MOVED", "HIST_SNAPSHOT_ALLOWED"}
+                 "HIST_SNAPSHOT_MOVED", "HIST_SNAPSHOT_ALLOWED", "FUTURE_OWN_TEAM"}
                 .Except(expected))
                 Assert.DoesNotContain(id, names);
 
@@ -90,11 +92,21 @@ public sealed class V180ThreeRoleHistoricalExportScopeTests
 
         // Approved row 104 is currently linked to team A, but the immutable
         // latest approved snapshot belongs to team B: leader A must not see it.
-        await Verify(leader, "HIST_OWN_TEAM", "HIST_SNAPSHOT_ALLOWED");
-        await Verify(visitor, "HIST_OWN_TEAM", "HIST_SNAPSHOT_MOVED", "HIST_SNAPSHOT_ALLOWED");
+        await Verify(leader, "HIST_OWN_TEAM", "HIST_SNAPSHOT_ALLOWED", "FUTURE_OWN_TEAM");
+        await Verify(visitor, "HIST_OWN_TEAM", "HIST_SNAPSHOT_MOVED", "HIST_SNAPSHOT_ALLOWED", "FUTURE_OWN_TEAM");
         await Verify(admin, "HIST_OWN_TEAM", "HIST_OTHER_TEAM",
-            "HIST_SNAPSHOT_MOVED", "HIST_SNAPSHOT_ALLOWED");
+            "HIST_SNAPSHOT_MOVED", "HIST_SNAPSHOT_ALLOWED", "FUTURE_OWN_TEAM");
         await Verify(foreignAdmin, "HIST_OTHER_ORG");
+
+        // Date and status are caller-selected filters inside the existing role scope.
+        var futureOnly = query with { StartDate = Future, EndDate = Future };
+        foreach (var actor in new[] { leader, visitor, admin })
+            Assert.Equal(new[] { "FUTURE_OWN_TEAM" },
+                (await repo.QueryTripsAsync(actor, futureOnly, true, default)).Items.Select(x => x.TripNo));
+        Assert.Empty((await repo.QueryTripsAsync(foreignAdmin, futureOnly, true, default)).Items);
+        var approvedOnly = query with { Status = "Approved" };
+        Assert.Equal(new[] { "HIST_SNAPSHOT_ALLOWED" },
+            (await repo.QueryTripsAsync(leader, approvedOnly, true, default)).Items.Select(x => x.TripNo));
 
         // Narrow explicit filter cannot bypass server-side team, self or org.
         var wrongFilter = query with { TeamId = 12, VisitorId = 2 };
@@ -107,11 +119,12 @@ public sealed class V180ThreeRoleHistoricalExportScopeTests
     private static CurrentUserDto Actor(string role, int userId, int orgId, int? teamId) =>
         new(userId, "ACTOR", role, null, orgId, teamId, null, [role]);
 
-    private static VisitTrip Trip(long id, string tripNo, int user, int? team, int org, string status = "Draft") =>
+    private static VisitTrip Trip(long id, string tripNo, int user, int? team, int org,
+        string status = "Draft", DateOnly visitDate = default) =>
         new()
         {
             VisitTripId = id, TripNo = tripNo, UserId = user,
-            OrganizationId = org, TeamId = team, VisitDate = Historical,
+            OrganizationId = org, TeamId = team, VisitDate = visitDate == default ? Historical : visitDate,
             Status = status, CreatedByUserId = user, CreatedAt = DateTime.UtcNow
         };
 
