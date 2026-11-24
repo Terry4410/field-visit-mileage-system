@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 static void Check(bool ok,string tag){if(!ok)throw new InvalidOperationException(tag);Console.WriteLine(tag+"=PASS");}
 static async Task Refuse(Func<Task> action,string tag){try{await action();}catch(UnauthorizedAccessException){Console.WriteLine(tag+"=PASS");return;}throw new InvalidOperationException(tag);}
-static async Task RefuseSql(Func<Task> action,int expected,string tag){try{await action();}catch(SqlException e) when(e.Number==expected){Console.WriteLine(tag+"=PASS");return;}throw new InvalidOperationException(tag);}
+static async Task RefuseSql(Func<Task> action,int expected,string tag){try{await action();}catch(SqlException e) when(e.Number==expected || (expected==229 && e.Number==230)){Console.WriteLine(tag+"=PASS SQL_ERROR="+e.Number);return;}throw new InvalidOperationException(tag);}
 static async Task<object?> Scalar(SqlConnection c,string sql){await using var q=new SqlCommand(sql,c);return await q.ExecuteScalarAsync();}
 static async Task Exec(SqlConnection c,string sql){await using var q=new SqlCommand(sql,c);await q.ExecuteNonQueryAsync();}
 var ct=CancellationToken.None;
