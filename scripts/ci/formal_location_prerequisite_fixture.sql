@@ -1,0 +1,32 @@
+-- Disposable SQL2022 only. Reproduce the existing synthetic Path B account seed
+-- and existing Visitor HR link; never execute this fixture in Azure.
+IF DB_NAME()<>N'OptionCIsolated_FormalPrerequisites' OR CONVERT(int,SERVERPROPERTY(N'EngineEdition'))=5 THROW 59830,N'DISPOSABLE_ONLY',1;
+SET XACT_ABORT ON;
+SET ANSI_NULLS ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET ARITHABORT ON; SET CONCAT_NULL_YIELDS_NULL ON; SET QUOTED_IDENTIFIER ON; SET NUMERIC_ROUNDABORT OFF;
+DECLARE @now datetime2(3)=SYSUTCDATETIME(),@since date='20200101',@org int,@team int,@v int,@l int,@a int,@vr int,@lr int,@ar int,@person bigint,@emp bigint;
+INSERT dbo.Organizations(OrganizationCode,OrganizationName,IsActive,EffectiveFrom,EffectiveTo,CreatedAt) VALUES(N'UAT',N'Field Visit Path B UAT',1,@since,NULL,@now);
+SET @org=CONVERT(int,SCOPE_IDENTITY());
+INSERT dbo.Teams(OrganizationId,TeamCode,TeamName,IsActive,EffectiveFrom,EffectiveTo,CreatedAt) VALUES(@org,N'N01',N'Path B Test Team',1,@since,NULL,@now);
+SET @team=CONVERT(int,SCOPE_IDENTITY());
+INSERT dbo.Roles(RoleCode,RoleName,IsActive,CreatedAt) VALUES(N'visitor',N'UAT Visitor',1,@now),(N'leader',N'UAT Leader',1,@now),(N'admin',N'UAT Admin',1,@now);
+SELECT @vr=MAX(CASE WHEN RoleCode=N'visitor' THEN RoleId END),@lr=MAX(CASE WHEN RoleCode=N'leader' THEN RoleId END),@ar=MAX(CASE WHEN RoleCode=N'admin' THEN RoleId END) FROM dbo.Roles;
+INSERT dbo.Users(OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt) VALUES(@org,@team,N'pilotv01',N'Path B UAT Visitor',1,@now),(@org,@team,N'pilotl01',N'Path B UAT Leader',1,@now),(@org,@team,N'pilota01',N'Path B UAT Admin',1,@now);
+SELECT @v=MAX(CASE WHEN EmployeeNo=N'pilotv01' THEN UserId END),@l=MAX(CASE WHEN EmployeeNo=N'pilotl01' THEN UserId END),@a=MAX(CASE WHEN EmployeeNo=N'pilota01' THEN UserId END) FROM dbo.Users;
+INSERT dbo.UserIdentityProfiles(UserId,UserType,UserCode,IdentityProvider,CreatedAt) VALUES(@v,N'Internal',N'pilotv01',N'Demo',@now),(@l,N'Internal',N'pilotl01',N'Demo',@now),(@a,N'Internal',N'pilota01',N'Demo',@now);
+INSERT dbo.UserEmploymentPeriods(UserId,EmploymentStatus,EffectiveFrom,EffectiveTo,SourceType,SourceReference,CreatedAt) VALUES(@v,N'Active',@since,NULL,N'Synthetic',N'PathB-UAT-ThreeRole-v1',@now),(@l,N'Active',@since,NULL,N'Synthetic',N'PathB-UAT-ThreeRole-v1',@now),(@a,N'Active',@since,NULL,N'Synthetic',N'PathB-UAT-ThreeRole-v1',@now);
+INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,EffectiveTo,CreatedAt) VALUES(@v,@vr,@since,NULL,@now),(@l,@lr,@since,NULL,@now),(@a,@ar,@since,NULL,@now);
+INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,EffectiveTo,CreatedAt) VALUES(@v,@team,1,@since,NULL,@now),(@l,@team,1,@since,NULL,@now),(@a,@team,1,@since,NULL,@now);
+INSERT dbo.Persons(DisplayName,LegacyUserId,CreatedAt) VALUES(N'Path B VIS01 Synthetic Person',@v,@now);
+SET @person=CONVERT(bigint,SCOPE_IDENTITY());
+INSERT dbo.Employments(PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,SourceReference,CreatedAt) VALUES(@person,@org,N'pilotv01',@since,@v,N'Synthetic',N'PathB-VIS01-Context-v1',@now);
+SET @emp=CONVERT(bigint,SCOPE_IDENTITY());
+INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,SourceReference,CreatedAt) VALUES(@emp,N'Active',@since,N'Synthetic',N'PathB-VIS01-Context-v1',@now);
+INSERT dbo.TeamMemberships(EmploymentId,TeamId,IsPrimary,EffectiveFrom,ChangeReason,CreatedAt) VALUES(@emp,@team,1,@since,N'Path B VIS01 synthetic UAT only',@now);
+UPDATE dbo.UserIdentityProfiles SET EmploymentId=@emp,UpdatedAt=@now WHERE UserId=@v;
+CREATE USER [api-fieldvisit-pathb-uat_pathb] WITHOUT LOGIN;
+GRANT CONNECT TO [api-fieldvisit-pathb-uat_pathb];
+GRANT SELECT,INSERT ON dbo.Locations TO [api-fieldvisit-pathb-uat_pathb];
+GRANT INSERT ON dbo.AuditLogs TO [api-fieldvisit-pathb-uat_pathb];
+GRANT SELECT ON dbo.AuditLogs(AuditLogId) TO [api-fieldvisit-pathb-uat_pathb];
+GRANT SELECT ON dbo.LocationCreateReservations(LocationId) TO [api-fieldvisit-pathb-uat_pathb];
+GRANT SELECT ON dbo.LocationCreateReservations(ReservationStatus) TO [api-fieldvisit-pathb-uat_pathb];

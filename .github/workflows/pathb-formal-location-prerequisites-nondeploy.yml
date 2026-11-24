@@ -1,0 +1,90 @@
+name: Path B formal location prerequisite SQL (NONDEPLOY)
+on:
+  push:
+    branches: [fix/pathb-formal-location-prerequisites-20261124]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  sql:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'FieldVisit_Disposable!Sql2022'
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Disposable!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-install-model-baseline-2982498a7a7ecc7cdebf75d8d5a34165c08bbfa5-45214245615
+          run-id: 45214245615
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/clean
+      - name: Validate one prerequisite transaction against accepted SQL2022 schema
+        env:
+          SQL_CONTAINER: ${{ job.services.sqlserver.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          db=OptionCIsolated_FormalPrerequisites
+          sqlcmd() { docker exec -i "$SQL_CONTAINER" /opt/mssql-tools18/bin/sqlcmd -I -S localhost -U sa -P 'FieldVisit_Disposable!Sql2022' -C -b "$@"; }
+          sqlcmd -d master -Q "CREATE DATABASE [$db]"
+          manifest=$(find "$RUNNER_TEMP/clean" -name it-sql-install-order.json)
+          test -f "$manifest"
+          export manifest
+          python3 - <<'PY'
+          import os,json,hashlib
+          from pathlib import Path
+          p=Path(os.environ["manifest"])
+          m=json.loads(p.read_text())
+          assert m["candidateSourceSha"]=="2982498a7a7ecc7cdebf75d8d5a34165c08bbfa5"
+          assert len(m["sequence"])==13
+          for x in m["sequence"]:
+              f=p.parent/x["file"]
+              assert hashlib.sha256(f.read_bytes()).hexdigest()==x["sha256"]
+              print(f)
+          PY
+          python3 - <<'PY' > "$RUNNER_TEMP/layers"
+          import os,json
+          from pathlib import Path
+          p=Path(os.environ["manifest"])
+          for x in json.loads(p.read_text())["sequence"]: print(p.parent/x["file"])
+          PY
+          while IFS= read -r layer; do
+            { printf 'SET ANSI_NULLS ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET ARITHABORT ON; SET CONCAT_NULL_YIELDS_NULL ON; SET QUOTED_IDENTIFIER ON; SET NUMERIC_ROUNDABORT OFF;\nGO\n'; cat "$layer"; } | sqlcmd -d "$db"
+          done < "$RUNNER_TEMP/layers"
+          cat scripts/ci/formal_location_prerequisite_fixture.sql | sqlcmd -d "$db"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          p=Path("docs/release/pathb/FORMAL-LOCATION-PREREQUISITES-REVIEW-20261124.sql")
+          s=p.read_text()
+          a=s.index("-- BEGIN LIVE TARGET GUARD")
+          b=s.index("-- END LIVE TARGET GUARD")+len("-- END LIVE TARGET GUARD")
+          # Test-only copy, never uploaded or substituted into the real script.
+          s=s[:a]+"""IF DB_NAME()<>N'OptionCIsolated_FormalPrerequisites' OR CONVERT(int,SERVERPROPERTY(N'EngineEdition'))=5
+              THROW 59800,N'DISPOSABLE_TARGET_REQUIRED',1;
+          IF NOT EXISTS(SELECT 1 FROM sys.database_principals WHERE name=N'api-fieldvisit-pathb-uat_pathb' AND authentication_type_desc=N'NONE')
+              THROW 59802,N'DISPOSABLE_IDENTITY_REQUIRED',1;
+          """+s[b:]
+          (Path(os.environ["RUNNER_TEMP"])/"prerequisite-test-only.sql").write_text(s)
+          PY
+          sqlcmd -d "$db" -Q "DENY UPDATE ON dbo.LocationPublishedVersions TO [api-fieldvisit-pathb-uat_pathb]"
+          if sqlcmd -d "$db" < "$RUNNER_TEMP/prerequisite-test-only.sql" > "$RUNNER_TEMP/negative.log" 2>&1; then echo "DENY_GUARD_FAILED"; exit 1; fi
+          grep -q 'RELEVANT_DENY_PRESERVED' "$RUNNER_TEMP/negative.log"
+          sqlcmd -d "$db" -Q "REVOKE UPDATE ON dbo.LocationPublishedVersions FROM [api-fieldvisit-pathb-uat_pathb]; IF (SELECT COUNT(*) FROM dbo.Employments)<>1 THROW 59821,N'NEGATIVE_WROTE_HR',1"
+          sqlcmd -d "$db" < "$RUNNER_TEMP/prerequisite-test-only.sql"
+          sqlcmd -d "$db" -Q "IF (SELECT COUNT(*) FROM dbo.UserIdentityProfiles WHERE EmploymentId IS NOT NULL)<>3 OR (SELECT COUNT(*) FROM dbo.TeamLeaderAssignments)<>1 OR (SELECT COUNT(*) FROM dbo.Locations)<>0 OR (SELECT COUNT(*) FROM dbo.ChangeRequests)<>0 THROW 59822,N'FIXTURE_POSTCHECK_FAILED',1; PRINT N'FORMAL_LOCATION_PREREQUISITE_SCOPE_PASS';"
+          sha256sum "docs/release/pathb/FORMAL-LOCATION-PREREQUISITES-REVIEW-20261124.sql"
+          sqlcmd -d master -Q "ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]"
