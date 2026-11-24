@@ -1772,5 +1772,41 @@
     "rolesSha256": "8a7a6ced45f022c5f9b5be5b13134e265bc97e778e20d78e2c6549f70958075b",
     "scope": "14 layers, 2 verifiers; 14/16 files byte-identical, 2 exact target guards adapted (20 and 60). Single SQLCMD session, session applock, empty object/metadata/CONTROL/default dbo guard, explicit server and DB identity; SQL2022 company-like DB (not OptionCIsolated/PathB). Wrong server and DB 58000, unchanged empty target; positive 69/3/21, nonempty replay 58002; separate three roles only seed, replay 58005; no Users, Organizations or VisitTrips. 128/128 permission references resolve in schema (catalog query returned zero missing). No runtime grants or role assignments, no actual company TLS or SQL identity or IT environment. CI test uses disposable sa and self-signed cert; company runbook explicitly requires trusted cert, DBA and approved safe SQLCMD names. No production authorization.",
     "remaining": "IT review target names and certificate validation; SQLCMD variables are trusted DBA inputs, not arbitrary user strings. Candidate not approved for production. Real organization/team/user identity/master data and least-privilege runtime grants still required."
+  },
+  "firstAdminAndPeopleRuntime": {
+    "status": "SCOPED_SQL2022_BOOTSTRAP_AND_PEOPLE_BEHAVIOR_PASS_COMBINED_EVIDENCE_NOT_FULL_ACL",
+    "applicationSource": "60f9f888004e699897d0e02d2357f854273c0a33",
+    "packageSource": "bf035387dadf5717911ca8e83ba262241512e495",
+    "runs": [
+      {
+        "id": 45408134806,
+        "job": 138494298541,
+        "conclusion": "failure",
+        "scope": "14 observed PASS; test incorrectly expected SQL error 229 instead of actual column denial 230; no grant widened"
+      },
+      {
+        "id": 45408411813,
+        "job": 138495277466,
+        "conclusion": "failure",
+        "scope": "19 observed PASS including actual HR create, same-day role/team replacement, non-admin refusal, no broad roles, audit payload/delete, schema ledger write, identity rebind and user delete denial. Last test assumed internal Users.IsActive controls login; source/test explicitly says effective HR status is source of truth."
+      },
+      {
+        "id": 45408743509,
+        "job": 138496452971,
+        "conclusion": "success",
+        "scope": "Focused HR eligibility delta only; fresh first-admin fixture. Verified existing HR-active behavior despite legacy Users.IsActive=false, leave and terminated login denied. 22 unique scoped check markers across runs, excluding aggregate marker. No full replay of role/team and ACL behaviors. First-admin SQL and grants identical across runs."
+      }
+    ],
+    "artifact": {
+      "id": 14925189029,
+      "archive": "FieldVisit_v180_FirstAdmin_People_Runtime_Review_20261124.zip",
+      "bytes": 5228,
+      "sha256": "a320b58095a9d4d841d14a8662325c09d0f11f4808c7313653720ff68231b2c4",
+      "firstAdminSqlSha256": "00a08f0e5c1b83496d1c6df80d2e06f68f88b8e9b73f440c01077b62488b18be",
+      "peopleAclSqlSha256": "5a53cb686f229845e572935f7b9d66d78bfa3cdcf9850b14563f04eb8cc350f9",
+      "integrity": "outer SHA256, ZIP CRC, 4/4 inner hashes PASS",
+      "libraryUpload": "SUCCEEDED"
+    },
+    "limits": "Test SQL login, synthetic staff and organization, local SQL2022, self-signed disposable TLS; no real Entra token/tenant, Windows integrated DBA wrapper execution, corporate service identity, complete app ACL, full business/authorization or IT Clean Build. No real admin created. Existing internal HR policy deliberately unchanged. Issued-token revocation not proven; Auth.cs issues 8-hour JWT and CurrentUserService uses token claims; verify live revocation/role scope enforcement before production, do not assume failure or PASS for all endpoints. Wrapper and SQL grant candidate remain review-only."
   }
 }
