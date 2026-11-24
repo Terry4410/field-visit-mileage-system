@@ -98,6 +98,7 @@ public sealed class V170LocationRepository(
         {
             var keyword =
                 spec.Query;
+            var noteTeamIds = AccessibleNoteTeams(user, spec.TeamId).Select(t => t.TeamId);
 
             q = q.Where(x =>
                 x.LocationName.Contains(keyword)
@@ -117,10 +118,12 @@ public sealed class V170LocationRepository(
                     && x.MasterNote.Contains(keyword))
                 || db.TeamLocationNotes.AsNoTracking().Any(n =>
                     n.LocationId == x.LocationId
+                    && noteTeamIds.Contains(n.TeamId)
                     && n.Note != null
                     && n.Note.Contains(keyword))
                 || db.TeamLocationNoteHistories.AsNoTracking().Any(h =>
                     h.LocationId == x.LocationId
+                    && noteTeamIds.Contains(h.TeamId)
                     && ((h.NewNote != null && h.NewNote.Contains(keyword))
                         || (h.OldNote != null && h.OldNote.Contains(keyword))))
                 || db.GovernmentLocationMasters
@@ -619,6 +622,9 @@ public sealed class V170LocationRepository(
     public async Task<V170LocationMaintenanceDto> GetMaintenanceAsync(
         CurrentUserDto user,int locationId,int? teamId,CancellationToken ct)
     {
+        if (teamId.HasValue && !await AccessibleNoteTeams(user, teamId).AnyAsync(ct))
+            throw new UnauthorizedAccessException("無權查看其他小組的地點備註。");
+
         var row=await AccessibleLocations(user,teamId)
             .FirstOrDefaultAsync(x=>x.LocationId==locationId,ct)
             ?? throw new KeyNotFoundException("找不到可維護的正式地點。");
@@ -627,12 +633,11 @@ public sealed class V170LocationRepository(
             ?await db.Teams.AsNoTracking().Where(x=>x.TeamId==row.TeamId.Value).Select(x=>x.TeamName).FirstOrDefaultAsync(ct)
             :null;
 
-        var allowedTeamIds=user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
-            ?null
-            :user.TeamIds.ToArray();
+        var allowedTeamIds=AccessibleNoteTeams(user, teamId).Select(t => t.TeamId);
 
         var evidenceLocations=await db.Locations.AsNoTracking()
-            .Where(x=>x.LocationId==locationId||x.DuplicateOfLocationId==locationId)
+            .Where(x=>(x.LocationId==locationId||x.DuplicateOfLocationId==locationId)
+                && (x.OrganizationId==user.OrganizationId || x.OrganizationId==null))
             .Select(x=>new{x.LocationId,x.LocationName})
             .ToListAsync(ct);
         var evidenceLocationIds=evidenceLocations.Select(x=>x.LocationId).ToArray();
@@ -646,8 +651,7 @@ public sealed class V170LocationRepository(
             where evidenceLocationIds.Contains(h.LocationId)
             select new {h,t.TeamName,u.DisplayName,l.LocationName};
 
-        if(teamId.HasValue) noteQuery=noteQuery.Where(x=>x.h.TeamId==teamId.Value);
-        else if(allowedTeamIds is not null) noteQuery=noteQuery.Where(x=>allowedTeamIds.Contains(x.h.TeamId));
+        noteQuery=noteQuery.Where(x=>allowedTeamIds.Contains(x.h.TeamId));
 
         var notes=await noteQuery
             .OrderByDescending(x=>x.h.ChangedAt)
@@ -666,6 +670,14 @@ public sealed class V170LocationRepository(
                 x.h.LocationId,
                 x.LocationName))
             .ToListAsync(ct);
+
+        // An explicit team selection requests scoped notes, not master-data audit history.
+        // Keep the unscoped maintenance view's existing audit behavior unchanged.
+        if (teamId.HasValue)
+            return new V170LocationMaintenanceDto(
+                row.LocationId,row.LocationCode,row.LocationName,row.LocationType,row.TeamId,teamName,
+                row.City,row.District,row.Address,row.PlusCode,row.TaxId,row.MasterNote,row.IsActive,
+                row.DuplicateOfLocationId,row.DuplicateReason,notes,Array.Empty<V170LocationAuditDto>(),B64(row.RowVersion));
 
         var evidenceEntityIds=evidenceLocationIds.Select(x=>x.ToString()).ToArray();
         var auditRows=await (
@@ -779,8 +791,7 @@ public sealed class V170LocationRepository(
     public async Task<V170LocationMaintenanceDto> AddNoteAsync(
         CurrentUserDto user,int locationId,V170LocationNoteRequest request,CancellationToken ct)
     {
-        if(!user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)
-            &&!user.TeamIds.Contains(request.TeamId))
+        if(!await AccessibleNoteTeams(user,request.TeamId).AnyAsync(t=>t.IsActive,ct))
             throw new UnauthorizedAccessException("無權新增其他小組的地點備註。");
 
         var accessible=await AccessibleLocations(user,request.TeamId).AnyAsync(x=>x.LocationId==locationId,ct);
@@ -824,9 +835,9 @@ public sealed class V170LocationRepository(
             ChangedByUserId=user.UserId
         });
         await db.SaveChangesAsync(ct);
+        var result = await GetMaintenanceAsync(user,locationId,request.TeamId,ct);
         await tx.CommitAsync(ct);
-
-        return await GetMaintenanceAsync(user,locationId,request.TeamId,ct);
+        return result;
     }
 
     public async Task<PagedResult<V170LocationDuplicateReviewRowDto>> GetDuplicateReviewQueueAsync(
@@ -1245,6 +1256,24 @@ public sealed class V170LocationRepository(
         catch{throw new InvalidOperationException("RowVersion 格式不正確，請重新載入資料。");}
         if(!actual.SequenceEqual(parsed))
             throw new InvalidOperationException("資料已被其他使用者更新，請重新載入後再操作。");
+    }
+
+    private IQueryable<Team> AccessibleNoteTeams(CurrentUserDto user, int? requestedTeamId)
+    {
+        var teams = db.Teams.AsNoTracking();
+        if (!user.OrganizationId.HasValue)
+            return teams.Where(_ => false);
+        var organizationId = user.OrganizationId.Value;
+        teams = teams.Where(t => t.OrganizationId == organizationId);
+        if (requestedTeamId.HasValue)
+            teams = teams.Where(t => t.TeamId == requestedTeamId.Value);
+        if (user.Roles.Contains("admin", StringComparer.OrdinalIgnoreCase))
+            return teams;
+        if (!user.Roles.Contains("leader", StringComparer.OrdinalIgnoreCase)
+            && !user.Roles.Contains("visitor", StringComparer.OrdinalIgnoreCase))
+            return teams.Where(_ => false);
+        var ids = user.TeamIds.ToArray();
+        return teams.Where(t => ids.Contains(t.TeamId));
     }
 
     private IQueryable<Location> AccessibleLocations(
