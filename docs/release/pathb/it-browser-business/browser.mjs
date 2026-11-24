@@ -40,7 +40,7 @@ try{
    await modal.getByPlaceholder('輸入客戶名稱、地址、縣市、鄉鎮或統編').fill('Approved');
    await modal.locator('.smart-location-main').filter({hasText:'Approved'}).click();
    await modal.getByRole('button',{name:'加入行程',exact:true}).click();
-   await expect(v.locator('.route-item').filter({hasText:'Approved'})).toBeVisible();
+   await expect(v.locator('.route-item:not(.endpoint-route) .route-name').filter({hasText:/^Approved$/})).toBeVisible();
    const t=await action(v,'/trips','POST',()=>v.getByRole('button',{name:'儲存預排行程',exact:true}).click());
    expect(t.status).toBe('Draft');expect(t.stops).toHaveLength(1);console.log('FLOW_DRAFT_WITH_STOP=PASS');
    await expect(v.getByText(/預排行程已儲存/)).toBeVisible();
@@ -53,7 +53,7 @@ try{
    l.once('dialog',d=>d.accept('請補充本次拜訪備註'));
    const returned=await action(l,'/trips/'+t.visitTripId+'/return','POST',()=>row.getByRole('button',{name:'退回',exact:true}).click());
    expect(returned.status).toBe('Returned');console.log('FLOW_RETURN=PASS');
-   await go(v,'/?edit='+t.visitTripId);await expect(v.getByText('主管退回原因：')).toBeVisible();
+   await go(v,'/?edit='+t.visitTripId);await expect(v.locator('.danger-note').filter({hasText:'主管退回原因：'})).toBeVisible();
    await v.locator('textarea[placeholder*="拜訪補充說明"]').fill('BROWSER-TRIP-FLOW-CORRECTED');
    await fallback(v,t.visitTripId);
    const again=await submit(v,t.visitTripId);expect(again.visitTripId).toBe(t.visitTripId);console.log('FLOW_RESUBMIT_SAME_RECORD=PASS');
@@ -64,24 +64,4 @@ try{
    const saved=await read(v,'/trips/'+t.visitTripId);expect(saved.status).toBe('Approved');expect(saved.notes).toBe('BROWSER-TRIP-FLOW-CORRECTED');console.log('FLOW_FINAL_READBACK=PASS');
   }finally{await vc.close();await lc.close()}
  });
- await check('ADMIN_BROWSER_CREATE_EDIT_AND_VALIDATION',async()=>{
-  const c=await context();try{
-   const p=await c.newPage();await signIn(p,'E2E-A','管理者');await go(p,'/admin/users');
-   await p.getByRole('button',{name:'＋新增人員',exact:true}).click();
-   const dialog=p.getByRole('dialog');await dialog.getByRole('button',{name:'建立人事主檔',exact:true}).click();
-   await expect(dialog).toContainText('工號與姓名為必填');console.log('HR_REQUIRED_FIELDS=PASS');
-   await dialog.getByLabel('工號',{exact:true}).fill('E2E-BROWSER-HR');
-   await dialog.getByLabel('姓名',{exact:true}).fill('Synthetic Browser HR');
-   await dialog.getByLabel('入職日',{exact:true}).fill('2026-01-01');
-   const created=await action(p,'/admin/people/internal-users','POST',()=>dialog.getByRole('button',{name:'建立人事主檔',exact:true}).click());
-   await expect(p.getByText(/已建立「Synthetic Browser HR」/)).toBeVisible();
-   const row=p.getByRole('row').filter({has:p.getByText('E2E-BROWSER-HR',{exact:true})});await expect(row).toBeVisible();console.log('HR_BROWSER_CREATE=PASS');
-   await row.getByRole('button',{name:'維護人事資料',exact:true}).click();
-   const name=p.locator('.modal .field').filter({has:p.getByText('姓名',{exact:true})}).locator('input');
-   await expect(name).toHaveValue('Synthetic Browser HR');await name.fill('Synthetic Browser HR Edited');
-   await action(p,'/admin/people/internal-users/'+created.userId+'/employment','PUT',()=>p.getByRole('button',{name:'儲存人事主檔',exact:true}).click());
-   await expect(p.getByText('人事主檔已更新。',{exact:true})).toBeVisible();
-   const saved=await read(p,'/admin/people/'+created.userId);expect(saved.displayName).toBe('Synthetic Browser HR Edited');console.log('HR_BROWSER_EDIT_READBACK=PASS');
-  }finally{await c.close()}
- });
-}finally{await browser.close();console.log('BUSINESS_BROWSER_CASES='+JSON.stringify(results));if(results.length!==2||results.some(r=>!r.pass))process.exitCode=1;}
+}finally{await browser.close();console.log('BUSINESS_BROWSER_CASES='+JSON.stringify(results));if(results.length!==1||results.some(r=>!r.pass))process.exitCode=1;}

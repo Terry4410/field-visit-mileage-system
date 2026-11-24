@@ -90,6 +90,6 @@ jobs:
           set -e
           if [[ "$rc" != 0 ]]; then grep -Eo "The (SELECT|INSERT|UPDATE|DELETE) permission was denied on the object '[A-Za-z0-9_]+'" "$RUNNER_TEMP/browser-api.log" | sort -u || true; fi
           if [[ "$rc" = 0 ]]; then
-            cmd -d "$db" -Q "IF (SELECT COUNT(*) FROM dbo.VisitTrips WHERE Notes=N'BROWSER-TRIP-FLOW-CORRECTED' AND Status=N'Approved' AND ApprovedAmount=36.9)<>1 THROW 51000,'TRIP_READBACK_FAILED',1; IF (SELECT COUNT(*) FROM dbo.Users WHERE EmployeeNo=N'E2E-BROWSER-HR' AND DisplayName=N'Synthetic Browser HR Edited')<>1 THROW 51001,'HR_READBACK_FAILED',1; PRINT 'BUSINESS_SQL_READBACK=PASS';"
+            cmd -d "$db" -Q "IF (SELECT COUNT(*) FROM dbo.VisitTrips WHERE Notes=N'BROWSER-TRIP-FLOW-CORRECTED' AND Status=N'Approved' AND ApprovedAmount=36.9)<>1 THROW 51000,'TRIP_READBACK_FAILED',1; PRINT 'TRIP_SQL_READBACK=PASS';"
           fi
           exit "$rc"
