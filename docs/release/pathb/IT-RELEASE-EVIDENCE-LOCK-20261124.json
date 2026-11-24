@@ -79,14 +79,29 @@
   "enterpriseTarget": {
     "sql": "Corporate Microsoft SQL Server version TBD",
     "web": "Windows Server + IIS version TBD",
-    "identity": "AD/Windows SSO configuration/method TBD",
+    "identity": "Microsoft Entra ID (Azure AD) employee authentication PERMITTED BY IT per Owner report 2026-11-24; actual tenant/app registrations and runtime SSO verification pending",
     "selectedApiAuthModes": [
       "Demo",
       "Entra"
     ],
     "windowsSsoCodeVerified": false,
     "roles": "Visitor Leader Admin distinct from employee identity",
-    "testData": "Do not import Azure synthetic transactions"
+    "testData": "Do not import Azure synthetic transactions",
+    "companyItEntraAuthPermitted": true,
+    "implementedLoginApproach": "Selected API frontend Entra via MSAL; final IT source integration and tenant verification outstanding",
+    "windowsIisIntegratedAuthMandatoryForThisScope": false,
+    "identityMapping": "Entra tenantId and objectId to existing active application User, no automatic first-login email binding; Visitor/Leader/Admin remain separate",
+    "entraV5RedirectBridge": {
+      "sourcePr": 118,
+      "candidateHeadSha": "65ff743f3d2f7f4fa3d5463b9632006e615bef24",
+      "basedOnAcceptedFrontend": "90fe9bd61c24be57ccfaf6d450bf053e9c646ac1",
+      "msalBrowserLockedVersion": "5.18.0",
+      "verificationRun": 45306709341,
+      "check": "CI_PASS_145_TESTS_AND_SEPARATE_REDIRECT_HTML_BUILD",
+      "realCompanyTenantSignIn": "NOT_RUN",
+      "productionRedirectUri": "IT_MUST_REGISTER_EXACT_HTTPS_URL_ENDING_REDIRECT_HTML",
+      "status": "NONDEPLOY_DRAFT_NOT_RELEASE"
+    }
   },
   "statuses": {
     "businessUat": "ACCEPT_WITH_OPEN_ITEMS",
@@ -96,13 +111,13 @@
     "productionReady": "NO"
   },
   "mandatoryRemaining": [
-    "IT approve exact Windows/IIS/SQL Server versions and SSO method",
-    "create same-source SQL/API/UI release and prove complete catalog",
-    "implement & validate actual AD/Windows identity mapping",
-    "create approved initial master data & SQL least privilege",
-    "IT independent clean build and business workflow test",
-    "QUERY-02 cross-team allowed/denied test",
-    "IT backup/recovery, monitoring, security and owner acceptance"
+    "IT provide tenant, SPA client ID, registered HTTPS redirect bridge URL, API audience + delegated access_as_user scope and consent",
+    "integrate source-pinned Entra v5 redirect bridge PR 118 into final IT release after review (no automatic merge/deploy)",
+    "IT confirm Windows Server, IIS, SQL Server versions plus operational/service identity and HTTPS connectivity",
+    "verify real company Entra login, active account mapping, revoked users, blocked Demo mode and cross-team denial",
+    "release-match complete SQL catalog, accepted API and Frontend and run IT-controlled clean build with required reference data",
+    "verify QUERY-02 allowed/denied + export path and business flows in IT test environment",
+    "verify backup recovery operations monitoring and obtain formal production approval"
   ],
   "authorization": "NONDEPLOY_ONLY, no merge, Azure/shared-SQL writes, permissions, deployment or Daily Plan scope"
 }
