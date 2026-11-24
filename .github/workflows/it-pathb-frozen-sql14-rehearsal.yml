@@ -1,4 +1,4 @@
-name: Frozen SQL14 and latest API rehearsal (NONDEPLOY)
+name: Frozen SQL14 company-target schema rehearsal (NONDEPLOY)
 on:
   push:
     branches: [work/pathb-it-cleanbuild-020-20261123]
@@ -15,9 +15,6 @@ jobs:
         with:
           ref: e8de647be2fca9d15a4e046b8e4598f8190420ea
           persist-credentials: false
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
       - name: Verify archived SQL bytes and reproduce exact review layer
         env:
           GH_TOKEN: ${{ github.token }}
@@ -79,69 +76,155 @@ jobs:
               (d/'order.txt').write_text(''.join(x['file']+'\n' for x in m['sequence']))
           print('FROZEN_13_SQL_BYTES_AND_EXACT_REVIEW_LAYER=PASS')
           PY
-      - name: Publish frozen API for local-only readiness smoke
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: it-delivery
+          persist-credentials: false
+      - name: Generate guarded company schema and reference roles
         shell: bash
         run: |
           set -euo pipefail
-          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false --output "$RUNNER_TEMP/api" --nologo
-      - name: SQL2022 replay, wrong target and repeat refusal, latest API smoke
+          python3 - <<'PY'
+          import csv,json,hashlib,re,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          d=root/'sql14'; out=root/'company-schema';out.mkdir()
+          H=lambda b:hashlib.sha256(b).hexdigest()
+          evidence=json.loads(Path('it-delivery/docs/release/pathb/IT-RELEASE-EVIDENCE-LOCK-20261124.json').read_text())
+          assert evidence['source']['frozenSource']=='b9cad2d9e23a3c8c96157c1926818e842fe0fd0b'
+          assert evidence['sql14ReviewCandidate']['rehearsal']['run']==45405102671
+          guard="""IF CONVERT(int,SERVERPROPERTY(N'ProductMajorVersion'))<>16
+             OR CONVERT(int,SERVERPROPERTY(N'EngineEdition')) NOT IN(2,3,4)
+             OR ISNULL(CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName')),N'') COLLATE Latin1_General_100_BIN2 <> N'$(FVServer)' COLLATE Latin1_General_100_BIN2
+             OR DB_NAME() COLLATE Latin1_General_100_BIN2 <> N'$(FVDatabase)' COLLATE Latin1_General_100_BIN2
+             OR DB_ID()<=4 OR DB_NAME() LIKE N'db-fieldvisit-%' OR DB_NAME() LIKE N'OptionCIsolated[_]%'
+             OR SCHEMA_NAME()<>N'dbo' OR COALESCE(HAS_PERMS_BY_NAME(DB_NAME(),N'DATABASE',N'CONTROL'),0)<>1
+             THROW 58000,N'FIELDVISIT_COMPANY_EXACT_TARGET_OR_INSTALLER_DENIED',1;
+          """
+          prologue="SET ANSI_NULLS ON;SET ANSI_PADDING ON;SET ANSI_WARNINGS ON;SET ARITHABORT ON;SET CONCAT_NULL_YIELDS_NULL ON;SET QUOTED_IDENTIFIER ON;SET NUMERIC_ROUNDABORT OFF;\nSET XACT_ABORT ON; SET NOCOUNT ON;\n"
+          pre=":ON ERROR EXIT\n-- IT review candidate. Not approved for production.\n"
+          script=pre+prologue+guard+"""DECLARE @rc int;
+          EXEC @rc=sys.sp_getapplock @Resource=N'FieldVisit_v180_schema_install',@LockMode=N'Exclusive',@LockOwner=N'Session',@LockTimeout=0;
+          IF @rc<0 THROW 58001,N'FIELDVISIT_INSTALL_LOCK_BUSY',1;
+          IF @@TRANCOUNT<>0 OR EXISTS(SELECT 1 FROM sys.objects WHERE is_ms_shipped=0)
+             OR EXISTS(SELECT 1 FROM sys.types WHERE is_user_defined=1)
+             OR EXISTS(SELECT 1 FROM sys.triggers WHERE is_ms_shipped=0)
+             THROW 58002,N'FIELDVISIT_EMPTY_DATABASE_REQUIRED',1;
+          GO
+          """
+          ordered=(d/'order.txt').read_text().splitlines()
+          assert len(ordered)==13
+          ordered+=['50_scoped_clean_install_verify.sql','60_final_functional_capabilities_REVIEW.sql','70_scoped_three_capabilities_verify_REVIEW.sql']
+          layers=[]
+          for name in ordered:
+              raw=(d/name).read_bytes(); s=raw.decode('utf-8-sig')
+              assert not re.search(r'(?im)^\s*(?:USE\b|:|!!)',s) and '$(' not in s
+              if name=='20_route_reason_check.sql':
+                  old="IF DB_NAME() NOT IN\n   (N'OptionCIsolated_FieldVisitV180CleanInstall',\n    N'OptionCIsolated_FieldVisitV180Replay')\n    THROW 56040, N'CLEAN_ROUTE_DISPOSABLE_TARGET_REQUIRED', 1;"
+                  assert s.count(old)==1
+                  s=s.replace(old,guard.rstrip())
+              elif name=='60_final_functional_capabilities_REVIEW.sql':
+                  old="IF CONVERT(int,SERVERPROPERTY(N'ProductMajorVersion'))<>16 OR CONVERT(int,SERVERPROPERTY(N'EngineEdition')) NOT IN(2,3,4) OR DB_NAME() NOT IN(N'OptionCIsolated_FieldVisitV180CleanInstall',N'OptionCIsolated_FieldVisitV180Replay') THROW 56600,N'DISPOSABLE_ONLY',1;"
+                  assert s.count(old)==1
+                  s=s.replace(old,guard.rstrip())
+              script+=prologue+guard+"GO\n"+s+"\nGO\nPRINT N'COMPANY_LAYER_PASS:"+name+"';\nGO\n"
+              layers.append(dict(file=name,originalSha256=H(raw),adaptedSha256=H(s.encode()),changedGuard=(name in ('20_route_reason_check.sql','60_final_functional_capabilities_REVIEW.sql'))))
+          script+="EXEC sys.sp_releaseapplock @Resource=N'FieldVisit_v180_schema_install',@LockOwner=N'Session';\nPRINT N'FIELDVISIT_COMPANY_SCHEMA_14_PASS';\nGO\n"
+          (out/'01-schema-install.sql').write_text(script,encoding='utf-8')
+          seed=pre+prologue+guard+"""IF @@TRANCOUNT<>0 THROW 58003,N'AMBIENT_TRANSACTION_DENIED',1;
+          BEGIN TRANSACTION;
+          IF (SELECT COUNT(*) FROM dbo.SchemaVersions)<>3 OR
+             (SELECT COUNT(*) FROM dbo.SchemaVersions WHERE VersionNumber IN(N'1.8.0-CREATE-LOWRISK',N'1.8.0-LOWRISK-DIRECT',N'1.8.0-EXCEL-CANONICAL-STATUS'))<>3
+             OR (SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID(N'dbo'))<>69
+             THROW 58004,N'FIELDVISIT_SCHEMA_REQUIRED',1;
+          IF EXISTS(SELECT 1 FROM dbo.Roles WITH(UPDLOCK,HOLDLOCK)) OR EXISTS(SELECT 1 FROM dbo.Users) OR EXISTS(SELECT 1 FROM dbo.Organizations)
+             THROW 58005,N'FIELDVISIT_EMPTY_REFERENCE_DATA_REQUIRED',1;
+          INSERT dbo.Roles(RoleCode,RoleName,Description,IsActive,CreatedAt)
+          VALUES(N'Visitor',N'外訪員',N'Field visitor',1,SYSUTCDATETIME()),
+                (N'Leader',N'小組長',N'Team leader',1,SYSUTCDATETIME()),
+                (N'Admin',N'管理者',N'Administrator',1,SYSUTCDATETIME());
+          IF (SELECT COUNT(*) FROM dbo.Roles)<>3 THROW 58006,N'FIELDVISIT_ROLE_SEED_VERIFY_FAILED',1;
+          COMMIT;
+          PRINT N'FIELDVISIT_REFERENCE_ROLES_ONLY_PASS';
+          GO
+          """
+          (out/'02-reference-roles.sql').write_text(seed,encoding='utf-8')
+          acl=evidence['runtimeAclInventory']['entries'];assert len(acl)==128
+          with (out/'03-acl-evidence-review.csv').open('w',encoding='utf-8-sig',newline='') as f:
+              w=csv.writer(f);w.writerow(['table','permission','column','issue_receipts','status'])
+              for x in acl:
+                  assert re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*',x['table'])
+                  assert x['column'] is None or re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*',x['column'])
+                  assert x['permission'] in ('SELECT','INSERT','UPDATE','DELETE','VIEW DEFINITION')
+                  w.writerow([x['table'],x['permission'],x['column'] or '',','.join(map(str,x['receipts'])),'EVIDENCE_ONLY_NOT_APPROVED_GRANT'])
+          rows=',\n'.join(" (N'%s',N'%s',%s)"%(x['table'],x['permission'],"NULL" if x['column'] is None else "N'%s'"%x['column']) for x in acl)
+          (out/'04-acl-catalog-review.sql').write_text(pre+prologue+guard+"SELECT v.t AS TableName,v.p AS Operation,v.c AS ColumnName FROM (VALUES\n"+rows+")v(t,p,c) WHERE OBJECT_ID(N'dbo.'+v.t,N'U') IS NULL OR (v.c IS NOT NULL AND COL_LENGTH(N'dbo.'+v.t,v.c) IS NULL);\nGO\n",encoding='utf-8')
+          readme="""# Field Visit v1.8.0 - IT SQL Server 2022 schema review candidate
+          New empty database only, no upgrade/reset. Only source target guards in layers 20/60 are replaced.
+          IT supplies approved actual endpoint (certificate hostname), exact SERVERPROPERTY('ServerName') and database. Restrict variables to ASCII alphanumeric, underscore, dot, hyphen and server-instance backslash only. No quotes or SQLCMD expressions.
+          Use classic Microsoft ODBC sqlcmd compatible with SQL Server 2022, Windows integrated DBA identity, encrypted connection with validated server certificate. Never use -C in company environment.
+          Example with placeholders (do not execute as-is):
+          sqlcmd -S "tcp:IT-SQL-FQDN,1433" -d "IT_DB" -E -N -I -b -l 15 -f 65001 -v FVServer="IT-SERVER-INSTANCE" FVDatabase="IT_DB" -i 01-schema-install.sql
+          Verify all package hashes and get IT approval before execution. Do not use normal SSMS query mode. Stop on nonzero exit or absent final FIELDVISIT_COMPANY_SCHEMA_14_PASS; never rerun against partial database.
+          Run 02-reference-roles.sql separately with same target options after schema success. Creates only Visitor/Leader/Admin definitions, no users, role assignments, test orgs, trips, rates or visit types.
+          03-acl-evidence-review.csv: evidence inventory, NOT grants; 04-acl-catalog-review.sql: missing object/column references only, not effective permission evidence.
+          IT/HR must provision approved business master data, first Entra administrator and restricted runtime identity. No runtime db_owner. Corporate TLS, effective ACL, IIS/Entra and full business tests not certified.
+          """
+          (out/'README.md').write_text(readme,encoding='utf-8')
+          (out/'manifest.json').write_text(json.dumps(dict(status='NONDEPLOY_COMPANY_SCHEMA_REVIEW',frozenSource=evidence['source']['frozenSource'],priorRehearsal=45405102671,layers=layers,expectedTables=69,expectedCapabilities=3,expectedTriggers=21,roleSeed='Visitor,Leader,Admin only',runtimeAcl='128 evidence rows only',actualCompanyTarget='NOT_TESTED'),indent=2)+'\n')
+          (out/'SHA256SUMS.txt').write_text(''.join(H(p.read_bytes())+'  '+p.name+'\n' for p in sorted(out.iterdir()) if p.name!='SHA256SUMS.txt'))
+          print('COMPANY_SQL_CANDIDATE_GENERATED=PASS')
+          PY
+      - name: Company-like SQL2022 positive and negative installation tests
         shell: bash
         run: |
           set -euo pipefail
-          d="$RUNNER_TEMP/sql14"
-          db=OptionCIsolated_FieldVisitV180Replay
+          d="$RUNNER_TEMP/company-schema"
+          db=FieldVisitCompanyLikeTest
           pw="Aa9!$(openssl rand -hex 18)"
-          jwt="$(openssl rand -hex 32)"
           echo "::add-mask::$pw"
-          echo "::add-mask::$jwt"
-          pid=""
-          cleanup() {
-            local rc=$?
-            trap - EXIT
-            if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
-            docker rm -f fv-sql14 >/dev/null 2>&1 || rc=1
-            exit "$rc"
-          }
-          docker run -d --name fv-sql14 -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          docker run -d --name fv-company-sql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          cleanup() { local rc=$?; trap - EXIT; docker rm -f fv-company-sql >/dev/null 2>&1 || rc=1; exit "$rc"; }
           trap cleanup EXIT
-          cmd() { docker exec -i fv-sql14 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 "$@"; }
+          # -C solely for disposable container self-signed cert, not corporate.
+          cmd() { docker exec -i fv-company-sql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 -f 65001 "$@"; }
           ready=NO
           for _ in $(seq 1 60); do if cmd -d master -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
           test "$ready" = YES
-          cmd -d master -Q "IF CONVERT(int,SERVERPROPERTY('ProductMajorVersion'))<>16 THROW 56500,N'SQL2022_REQUIRED',1; IF DB_ID(N'$db') IS NOT NULL THROW 56520,N'REPLAY_TARGET_EXISTS',1; CREATE DATABASE [$db];" >/dev/null
-          prologue="SET ANSI_NULLS ON;SET ANSI_PADDING ON;SET ANSI_WARNINGS ON;SET ARITHABORT ON;SET CONCAT_NULL_YIELDS_NULL ON;SET QUOTED_IDENTIFIER ON;SET NUMERIC_ROUNDABORT OFF;"
-          runsql() { { printf '%s\nGO\n' "$prologue"; cat "$1"; } | cmd -d "$2"; }
-          checksql() {
-            if ! runsql "$d/$1" "$db" > "$RUNNER_TEMP/sql14.log" 2>&1; then
-              grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/sql14.log" || true
-              echo "SQL14_FAILURE_STEP=$1"; exit 1
-            fi
-            echo "SQL_PASS=$1"
+          server="$(cmd -d master -h -1 -W -Q "SET NOCOUNT ON;SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName'));" | tr -d '\r' | head -n 1)"
+          [[ "$server" =~ ^[a-zA-Z0-9_.-]+$ ]]
+          cmd -d master -Q "CREATE DATABASE [$db];" >/dev/null
+          runfile() { cmd -d "$1" -v FVServer="$2" FVDatabase="$3" < "$d/$4"; }
+          reject() {
+            local expected="$1"; shift
+            if runfile "$@" > "$RUNNER_TEMP/company-sql.log" 2>&1; then echo NEGATIVE_UNEXPECTED_SUCCESS; exit 1; fi
+            grep -Eq "^Msg $expected," "$RUNNER_TEMP/company-sql.log" || { grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/company-sql.log" || true; exit 1; }
           }
-          while IFS= read -r file; do checksql "$file"; done < "$d/order.txt"
-          checksql 50_scoped_clean_install_verify.sql
-          if runsql "$d/60_final_functional_capabilities_REVIEW.sql" master > "$RUNNER_TEMP/sql14.log" 2>&1; then exit 1; fi
-          grep -Eq '^Msg 56600,' "$RUNNER_TEMP/sql14.log"
-          echo WRONG_TARGET_DENIAL=PASS
-          checksql 60_final_functional_capabilities_REVIEW.sql
-          checksql 70_scoped_three_capabilities_verify_REVIEW.sql
-          if runsql "$d/60_final_functional_capabilities_REVIEW.sql" "$db" > "$RUNNER_TEMP/sql14.log" 2>&1; then exit 1; fi
-          grep -Eq '^Msg 56601,' "$RUNNER_TEMP/sql14.log"
-          checksql 70_scoped_three_capabilities_verify_REVIEW.sql
-          echo REPLAY_DENIAL_AND_LEDGER_UNCHANGED=PASS
-          export ConnectionStrings__DefaultConnection="Server=127.0.0.1,1433;Database=$db;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
-          export BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false
-          export Providers__Route=Mock Providers__Geocoding=Mock OptionC__Candidate__Enabled=false OptionC__Approval__Enabled=false Swagger__Enabled=false
-          export Auth__Mode=Demo Auth__JwtKey="$jwt" Auth__DemoPassword="$(openssl rand -hex 24)" ASPNETCORE_ENVIRONMENT=Production
-          dotnet "$RUNNER_TEMP/api/FieldVisit.Api.dll" --urls http://127.0.0.1:5099 > "$RUNNER_TEMP/api.log" 2>&1 &
-          pid=$!
-          ready=NO
-          for _ in $(seq 1 40); do
-            kill -0 "$pid" || exit 1
-            if curl -fsS --max-time 3 http://127.0.0.1:5099/health/ready | python3 -c "import json,sys; assert json.load(sys.stdin)['status']=='ready'" 2>/dev/null; then ready=YES; break; fi
-            sleep 1
-          done
-          test "$ready" = YES
-          test "$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:5099/api/v1/me)" = 401
-          echo FROZEN_API_SQL14_READY_AND_ANONYMOUS_401=PASS
-          echo SCOPE=DISPOSABLE_SQL2022_SCHEMA_READINESS_ONLY_NOT_RUNTIME_ACL_OR_BUSINESS_UAT
+          reject 58000 "$db" WrongServer "$db" 01-schema-install.sql
+          reject 58000 "$db" "$server" WrongDatabase 01-schema-install.sql
+          cmd -d "$db" -Q "IF EXISTS(SELECT 1 FROM sys.objects WHERE is_ms_shipped=0) THROW 58010,N'NEGATIVE_CHANGED_DB',1;" >/dev/null
+          echo COMPANY_WRONG_SERVER_DATABASE_DENIAL_EMPTY_DB=PASS
+          if ! runfile "$db" "$server" "$db" 01-schema-install.sql > "$RUNNER_TEMP/company-sql.log" 2>&1; then grep -Eo '^Msg [0-9]+|COMPANY_LAYER_PASS:[^[:space:]]+' "$RUNNER_TEMP/company-sql.log" || true; exit 1; fi
+          grep -E 'COMPANY_LAYER_PASS:|FIELDVISIT_COMPANY_SCHEMA_14_PASS' "$RUNNER_TEMP/company-sql.log"
+          grep -q FIELDVISIT_COMPANY_SCHEMA_14_PASS "$RUNNER_TEMP/company-sql.log"
+          reject 58002 "$db" "$server" "$db" 01-schema-install.sql
+          echo COMPANY_NONEMPTY_REPLAY_DENIAL=PASS
+          if ! runfile "$db" "$server" "$db" 02-reference-roles.sql > "$RUNNER_TEMP/company-sql.log" 2>&1; then grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/company-sql.log" || true; exit 1; fi
+          grep -q FIELDVISIT_REFERENCE_ROLES_ONLY_PASS "$RUNNER_TEMP/company-sql.log"
+          reject 58005 "$db" "$server" "$db" 02-reference-roles.sql
+          cmd -d "$db" -Q "IF (SELECT COUNT(*) FROM dbo.Roles)<>3 OR EXISTS(SELECT 1 FROM dbo.Users) OR EXISTS(SELECT 1 FROM dbo.Organizations) OR EXISTS(SELECT 1 FROM dbo.VisitTrips) THROW 58011,N'UNEXPECTED_REFERENCE_DATA',1;" >/dev/null
+          echo COMPANY_THREE_ROLES_NO_ACCOUNTS_NO_TRIPS_REPLAY_DENIED=PASS
+          runfile "$db" "$server" "$db" 04-acl-catalog-review.sql > "$d/acl-catalog-observation.txt"
+          echo ACL_CATALOG_MISSING_REFERENCES_REPORT_ONLY
+          cat "$d/acl-catalog-observation.txt"
+          cd "$d"
+          sha256sum -c SHA256SUMS.txt
+          sha256sum acl-catalog-observation.txt >> SHA256SUMS.txt
+          echo COMPANY_SCHEMA_SCOPE=DISPOSABLE_SQL2022_NOT_CORPORATE_TLS_OR_RUNTIME_ACL
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fieldvisit-v180-company-sql-schema-review
+          path: ${{ runner.temp }}/company-schema
+          if-no-files-found: error
+          retention-days: 30
