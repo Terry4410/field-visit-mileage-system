@@ -2214,6 +2214,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Reviewed low risk note", await h.Scalar(
             "SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
 
+        var lowStagePath = $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/stage";
+        // Real UI reads the stage over HTTP, not directly from SQL.
+        using (var prematureStage = await leaderClient.GetAsync(lowStagePath))
+            Assert.False(prematureStage.IsSuccessStatusCode);
         var unreviewedStageRv = (byte[])(await new SqlCommand("""
             SELECT s.RowVersion FROM dbo.LocationPublicationStages s
             JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
@@ -2237,12 +2241,26 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "api/v1/optionc-candidate/leader/review-queue");
         Assert.Contains(continuationQueue!, x => x.RequestPublicId == submittedLow.RequestPublicId
             && x.LeaderStatus == "Approved" && x.RequestStatus == "Pending");
-        var stageRv = (byte[])(await new SqlCommand("""
-            SELECT s.RowVersion FROM dbo.LocationPublicationStages s
-            JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
-            WHERE r.RequestPublicId=@id
-            """, h.Db) { Parameters = { new SqlParameter("@id", submittedLow.RequestPublicId) } }
-            .ExecuteScalarAsync() ?? throw new InvalidOperationException("OPTIONC_LOW_STAGE_VERSION_MISSING"));
+        using (var adminStage = await admin.GetAsync(lowStagePath))
+            Assert.False(adminStage.IsSuccessStatusCode);
+        using (var requesterStage = await visitor.GetAsync(lowStagePath))
+            Assert.False(requesterStage.IsSuccessStatusCode);
+        await h.Exec("UPDATE dbo.Users SET IsActive=0 WHERE UserId=4");
+        try
+        {
+            using var revokedStage = await leaderClient.GetAsync(lowStagePath);
+            Assert.False(revokedStage.IsSuccessStatusCode);
+        }
+        finally { await h.Exec("UPDATE dbo.Users SET IsActive=1 WHERE UserId=4"); }
+        using var stageResponse = await leaderClient.GetAsync(lowStagePath);
+        Assert.True(stageResponse.IsSuccessStatusCode, await stageResponse.Content.ReadAsStringAsync());
+        var lowStage = await stageResponse.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
+            ?? throw new InvalidOperationException("OPTIONC_LOW_STAGE_RESPONSE_MISSING");
+        Assert.Equal(submittedLow.RequestPublicId, lowStage.RequestPublicId);
+        Assert.Equal("PendingDuplicateReview", lowStage.StageStatus);
+        Assert.Equal("NotRequired", lowStage.GeocodeStatus);
+        Assert.Equal("Pending", lowStage.DuplicateReviewStatus);
+        var stageRv = Convert.FromBase64String(lowStage.StageRowVersion);
         var deniedEvidence = await admin.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/duplicate-evidence",
             new V180OptionCDuplicateEvidence(Convert.ToBase64String(stageRv), true,
@@ -2258,6 +2276,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             ?? throw new InvalidOperationException("OPTIONC_LOW_EVIDENCE_MISSING");
         Assert.Equal("ReadyForPublish", duplicateView.StageStatus);
         Assert.Equal("NotRequired", duplicateView.GeocodeStatus);
+        var resumedLow = await leaderClient.GetFromJsonAsync<V180OptionCStageEvidenceView>(lowStagePath);
+        Assert.NotNull(resumedLow);
+        Assert.Equal("ReadyForPublish", resumedLow!.StageStatus);
+        Assert.Equal("Cleared", resumedLow.DuplicateReviewStatus);
+        Assert.Equal(duplicateView.StageRowVersion, resumedLow.StageRowVersion);
 
         var lowDecisionKey = Guid.NewGuid();
         var publishLow = await leaderClient.PostAsJsonAsync(
@@ -2267,6 +2290,8 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.True(publishLow.IsSuccessStatusCode,
             await publishLow.Content.ReadAsStringAsync());
         Assert.Equal("Applied", await h.RequestStatus(submittedLow.RequestPublicId));
+        using (var terminalStage = await leaderClient.GetAsync(lowStagePath))
+            Assert.False(terminalStage.IsSuccessStatusCode);
         var reconcileLow = await leaderClient.GetAsync(
             $"api/v1/optionc-candidate/requests/{submittedLow.RequestPublicId}/reconcile?decisionKey={lowDecisionKey}");
         Assert.True(reconcileLow.IsSuccessStatusCode,
