@@ -1,0 +1,148 @@
+name: Path B three-role report export API UAT deploy ONCE
+on:
+  push:
+    branches: [release/pathb-report-export-three-role-api-only-20261124]
+    paths:
+      - .github/workflows/pathb-report-export-api-uat-deploy-once.yml
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: pathb-three-role-export-uat-once
+  cancel-in-progress: false
+jobs:
+  controlled-api-only:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/release/pathb-report-export-three-role-api-only-20261124'
+    runs-on: ubuntu-24.04
+    environment: uat
+    timeout-minutes: 22
+    env:
+      EXACT_SUBSCRIPTION: 07cda8ca-d5bc-4095-8821-8e039a8cea27
+      RG: rg-fieldvisit-uat
+      APP: api-fieldvisit-pathb-uat
+      OLD: PathB_QUERY05_8COL_PDF_API_fix_ab71aaa9_once_20261123.zip
+      OLD_SHA: 818b7de4c8f0555d8ff9452ccc6f31f627b8a3ad0999eda1097566662f125bf2
+      NEW: PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip
+      NEW_SHA: c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 4
+      - name: Exact tested source, one-shot source boundary and no secret input
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 30be3e591de29af50ff88911b76fe181bfb31822
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/pathb-report-export-api-uat-deploy-once.yml'
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          echo 'EXACT_SOURCE_AND_DEPLOY_SCOPE=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/candidate
+      - name: Independently validate immutable candidate before any Azure authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+          test -f "$NEW" && test "$(wc -c < "$NEW" | tr -d ' ')" = 66870896
+          test "$(sha256sum "$NEW" | awk '{print $1}')" = "$NEW_SHA"
+          unzip -tq "$NEW" >/dev/null
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll fonts/NotoSansCJK-Regular.ttc; do
+            unzip -Z1 "$NEW" | grep -Fx "$f" >/dev/null
+          done
+          grep -Fx 'SOURCE_SHA=8442bae35a9099c1bd68505c6273f93a937d7045' manifest.txt >/dev/null
+          grep -Fx 'TARGET_API=api-fieldvisit-pathb-uat' manifest.txt >/dev/null
+          echo 'CANDIDATE_PACKAGE_EXACT_HASH_CONTENT_AND_SOURCE=PASS'
+      - name: Use EXISTING Azure OIDC UAT identity, never create credentials
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Exact Azure identity, selected old package, and verifiable rollback PRE-GATE
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(az account show --query id -o tsv)" = "$EXACT_SUBSCRIPTION"
+          test "$(az webapp show -g "$RG" -n "$APP" --query name -o tsv)" = "$APP"
+          test "$(az webapp show -g "$RG" -n "$APP" --query state -o tsv)" = Running
+          kind="$(az webapp show -g "$RG" -n "$APP" --query kind -o tsv)"
+          [[ "$kind" == *linux* ]]
+          test "$(az webapp config appsettings list -g "$RG" -n "$APP" --query "[?name=='WEBSITE_RUN_FROM_PACKAGE'].value | [0]" -o tsv)" = 1
+          echo 'EXACT_RUNNING_LINUX_APP_AND_RUN_FROM_PACKAGE=PASS'
+          token="$(az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv)"
+          test -n "$token"
+          echo "::add-mask::$token"
+          base="https://${APP}.scm.azurewebsites.net/api/vfs/data/SitePackages"
+          curl --silent --show-error --fail --location --max-time 20 -H "Authorization: Bearer $token" "$base/packagename.txt" -o "$RUNNER_TEMP/old-selector.txt"
+          test "$(tr -d '\r\n' < "$RUNNER_TEMP/old-selector.txt")" = "$OLD"
+          code="$(curl --silent --output /dev/null --max-time 20 --write-out '%{http_code}' -H "Authorization: Bearer $token" "$base/$NEW")"
+          test "$code" = 404
+          curl --silent --show-error --fail --location --max-time 120 -H "Authorization: Bearer $token" "$base/$OLD" -o "$RUNNER_TEMP/previous-exact.zip"
+          test "$(sha256sum "$RUNNER_TEMP/previous-exact.zip" | awk '{print $1}')" = "$OLD_SHA"
+          unzip -tq "$RUNNER_TEMP/previous-exact.zip" >/dev/null
+          echo 'OLD_SELECTED_PACKAGE_AND_ROLLBACK_BYTE_HASH=PASS'
+      - name: One-shot exact API-only deployment with one bounded rollback on failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+          api="https://${APP}.azurewebsites.net"
+          health_ready() {
+            local status
+            for n in $(seq 1 18); do
+              status="$(curl --silent --max-time 6 --output "$RUNNER_TEMP/ready.json" --write-out '%{http_code}' "$api/health/ready" || true)"
+              if [ "$status" = 200 ] && python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["status"]=="ready"' "$RUNNER_TEMP/ready.json" >/dev/null 2>&1; then return 0; fi
+              sleep 4
+            done
+            return 1
+          }
+          rollback_once() {
+            echo 'POSTACTIVATION=HOLD; ROLLBACK_ATTEMPTS=1'
+            if az webapp deploy -g "$RG" -n "$APP" --src-path "$RUNNER_TEMP/previous-exact.zip" --type zip --restart true --timeout 120000 >/dev/null 2>&1 && health_ready; then
+              echo 'OLD_API_ROLLBACK=PASS'
+            else
+              echo 'OLD_API_ROLLBACK=HOLD_ESCALATE_NO_RETRY'
+            fi
+            exit 1
+          }
+          echo 'NEW_API_DEPLOY_ATTEMPTS=1'
+          if ! az webapp deploy -g "$RG" -n "$APP" --src-path "$NEW" --type zip --restart true --timeout 120000 > "$RUNNER_TEMP/deploy-result.json" 2>"$RUNNER_TEMP/deploy-error.log"; then
+            echo 'ONE_SHOT_API_DEPLOY=HOLD'
+            rollback_once
+          fi
+          if ! health_ready; then
+            echo 'NEW_API_READY=HOLD'
+            rollback_once
+          fi
+          code="$(curl --silent --max-time 8 --output /dev/null --write-out '%{http_code}' "$api/api/v1/me" || true)"
+          if [ "$code" != 401 ]; then echo 'ANONYMOUS_IDENTITY_DENIAL=HOLD'; rollback_once; fi
+          token="$(az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv)"
+          echo "::add-mask::$token"
+          base="https://${APP}.scm.azurewebsites.net/api/vfs/data/SitePackages"
+          if ! curl --silent --show-error --fail --location --max-time 20 -H "Authorization: Bearer $token" "$base/packagename.txt" -o "$RUNNER_TEMP/new-selector.txt"; then
+            echo 'NEW_SELECTOR_READBACK=HOLD'; rollback_once
+          fi
+          chosen="$(tr -d '\r\n' < "$RUNNER_TEMP/new-selector.txt")"
+          if [ -z "$chosen" ] || [ "$chosen" = "$OLD" ]; then echo 'NEW_SELECTOR=HOLD'; rollback_once; fi
+          if ! curl --silent --show-error --fail --location --max-time 120 -H "Authorization: Bearer $token" "$base/$chosen" -o "$RUNNER_TEMP/new-live.zip"; then
+            echo 'NEW_SELECTED_ZIP_READBACK=HOLD'; rollback_once
+          fi
+          if [ "$(sha256sum "$RUNNER_TEMP/new-live.zip" | awk '{print $1}')" != "$NEW_SHA" ]; then
+            echo 'NEW_SELECTED_ZIP_HASH=HOLD'; rollback_once
+          fi
+          echo 'EXACT_NEW_LIVE_API_HASH=PASS'
+          echo 'NEW_API_READY=PASS'
+          echo 'ANONYMOUS_GET_ME_401=PASS'
+          echo 'API_ONLY_UAT_DEPLOY=PASS'
+          echo 'THREE_ROLE_AUTHENTICATED_DOWNLOADS=NOT_YET_TESTED'
+      - name: Sign out
+        if: always()
+        shell: bash
+        run: az logout --output none 2>/dev/null || true
