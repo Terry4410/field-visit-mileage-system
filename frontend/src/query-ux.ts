@@ -1,6 +1,22 @@
-export type DateShortcut = 'yesterday' | 'today' | 'tomorrow' | 'lastWeek' | 'thisWeek' | 'nextWeek' | 'nextMonth' | 'month' | 'prev' | '3m' | '6m' | '12m' | 'custom';
+export type DateShortcut = 'month' | 'prev' | '3m' | '6m' | '12m' | 'custom';
+export type TripDateShortcut = 'yesterday' | 'today' | 'tomorrow' | 'lastWeek' | 'thisWeek' | 'nextWeek' | 'prev' | 'month' | 'nextMonth' | 'custom';
 
 export function dateShortcutRange(kind: Exclude<DateShortcut, 'custom'>, today: string) {
+  const [year, month, day] = today.split('-').map(Number);
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+  if (kind === 'month') return { start: today.slice(0, 7) + '-01', end: today };
+  if (kind === 'prev') return {
+    start: iso(new Date(Date.UTC(year, month - 2, 1))),
+    end: iso(new Date(Date.UTC(year, month - 1, 0)))
+  };
+  const months = Number(kind.slice(0, -1));
+  const target = new Date(Date.UTC(year, month - 1 - months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return { start: iso(target), end: today };
+}
+
+export function tripDateShortcutRange(kind: Exclude<TripDateShortcut, 'custom'>, today: string) {
   const [year, month, day] = today.split('-').map(Number);
   const iso = (date: Date) => date.toISOString().slice(0, 10);
   const offset = (days: number) => iso(new Date(Date.UTC(year, month - 1, day + days)));
@@ -19,11 +35,7 @@ export function dateShortcutRange(kind: Exclude<DateShortcut, 'custom'>, today: 
     start: iso(new Date(Date.UTC(year, month - 2, 1))),
     end: iso(new Date(Date.UTC(year, month - 1, 0)))
   };
-  const months = Number(kind.slice(0, -1));
-  const target = new Date(Date.UTC(year, month - 1 - months, 1));
-  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-  target.setUTCDate(Math.min(day, lastDay));
-  return { start: iso(target), end: today };
+  throw new Error(`Unsupported trip date shortcut: ${kind}`);
 }
 
 export function projectStatus(p: { isActive: boolean; startDate?: string | null; endDate?: string | null }, today: string) {

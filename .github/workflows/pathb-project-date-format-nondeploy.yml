@@ -1,0 +1,67 @@
+name: Path B Project YYYY-MM-DD internal to YYYY/MM/DD display (NONDEPLOY)
+on:
+  push:
+    branches: [fix/pathb-project-period-date-display-20261124]
+    paths:
+      - '.github/workflows/pathb-project-date-format-nondeploy.yml'
+      - 'frontend/src/date-slash.ts'
+      - 'frontend/src/date-slash.test.ts'
+      - 'frontend/src/components/QueryControls.tsx'
+      - 'frontend/src/pages/ProjectManagementPage.tsx'
+      - 'frontend/src/styles.css'
+permissions:
+  contents: read
+concurrency:
+  group: fieldvisit-project-period-nondeploy
+  cancel-in-progress: false
+jobs:
+  frontend:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-project-period-date-display-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 16
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require exact accepted UAT frontend and six-file change only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+          base='90fe9bd61c24be57ccfaf6d450bf053e9c646ac1'
+          subprocess.check_call(['git','merge-base','--is-ancestor',base,'HEAD'])
+          files=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
+          allowed={
+            '.github/workflows/pathb-project-date-format-nondeploy.yml',
+            'frontend/src/date-slash.ts',
+            'frontend/src/date-slash.test.ts',
+            'frontend/src/components/QueryControls.tsx',
+            'frontend/src/pages/ProjectManagementPage.tsx',
+            'frontend/src/styles.css'
+          }
+          assert files==allowed, sorted(files.symmetric_difference(allowed))
+          from pathlib import Path
+          project=Path('frontend/src/pages/ProjectManagementPage.tsx').read_text()
+          controls=Path('frontend/src/components/QueryControls.tsx').read_text()
+          assert project.count('displayFormat="slash"')==1
+          assert 'type="date" value={start}' in controls
+          assert 'type="date" value={end}' in controls
+          assert 'type="date"' in controls
+          assert 'placeholder="YYYY/MM/DD"' in controls
+          print('PATHB_ONLY_PROJECT_PERIOD_SCOPE=PASS')
+          PY
+      - name: Frontend existing behavior and new date roundtrip tests
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+          test -s dist/index.html
+          echo 'PROJECT_DATE_SLASH_DISPLAY_NONDEPLOY=PASS'

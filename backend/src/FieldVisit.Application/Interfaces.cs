@@ -123,6 +123,10 @@ public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken ct);
     Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct);
+    // Transactional callers must execute their entire transaction under the
+    // provider execution strategy. Default preserves lightweight test doubles.
+    Task ExecuteWithRetryAsync(Func<CancellationToken, Task> operation, CancellationToken ct)
+        => operation(ct);
 }
 
 public interface IUnitOfWorkTransaction : IAsyncDisposable

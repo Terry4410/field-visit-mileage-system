@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dateShortcutRange, projectStatus } from './query-ux';
+import { dateShortcutRange, projectStatus, tripDateShortcutRange } from './query-ux';
 
 describe('Freeze QRY-001/002 dates', () => {
   it.each([
@@ -12,15 +12,17 @@ describe('Freeze QRY-001/002 dates', () => {
     ['nextWeek', '2026-11-24', '2026-11-30', '2026-12-06'],
     ['nextMonth', '2026-12-31', '2027-01-01', '2027-01-31'],
     ['prev', '2026-01-07', '2025-12-01', '2025-12-31'],
-    ['prev', '2024-03-15', '2024-02-01', '2024-02-29'],
-    ['3m', '2026-09-07', '2026-06-07', '2026-09-07'],
-    ['6m', '2026-09-07', '2026-03-07', '2026-09-07'],
-    ['12m', '2026-09-07', '2025-09-07', '2026-09-07'],
-    ['3m', '2026-05-31', '2026-02-28', '2026-05-31'],
-    ['6m', '2024-08-31', '2024-02-29', '2024-08-31'],
-    ['12m', '2024-02-29', '2023-02-28', '2024-02-29'],
-    ['3m', '2026-01-31', '2025-10-31', '2026-01-31']
+    ['prev', '2024-03-15', '2024-02-01', '2024-02-29']
   ])('%s on %s preserves calendar boundaries', (kind, today, start, end) => {
+    expect(tripDateShortcutRange(kind as 'month', today)).toEqual({ start, end });
+  });
+
+  it.each([
+    ['month', '2026-09-07', '2026-09-01', '2026-09-07'],
+    ['3m', '2026-09-07', '2026-06-07', '2026-09-07'],
+    ['6m', '2024-08-31', '2024-02-29', '2024-08-31'],
+    ['12m', '2024-02-29', '2023-02-28', '2024-02-29']
+  ])('legacy %s shortcut keeps non-trip date semantics', (kind, today, start, end) => {
     expect(dateShortcutRange(kind as 'month', today)).toEqual({ start, end });
   });
 });

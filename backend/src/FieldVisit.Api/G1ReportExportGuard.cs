@@ -27,12 +27,11 @@ public sealed class G1ReportExportGuard(
         {
             var token = current.GetRequired();
             var before = await CheckAsync(token, adminReport, path, context.HttpContext.RequestAborted);
-            if (tripReport && token.Roles[0].Equals("leader", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!DateOnly.TryParse(context.HttpContext.Request.Query["startDate"].FirstOrDefault(), out var start)
-                    || start < BusinessTime.Today)
-                { context.Result = Denied("REPORT_EXPORT_HISTORICAL_TEAM_POLICY_HOLD"); return; }
-            }
+            // A calendar date is not an authorization boundary.
+            // The export service invokes the same server-side scoped trip
+            // repository as the query page. Its current-team / approved
+            // snapshot checks are applied to *each* row, including history.
+            // Keep before/after live-role and revocation checks below.
             executed = await next();
             if (executed.Exception is not null && !executed.ExceptionHandled)
             {

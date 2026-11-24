@@ -34,9 +34,9 @@ export function getFrontendAuthConfig():FrontendAuthConfig{
     raw?.AUTH_MODE
   );
 
-  const redirectUri=
-    raw?.ENTRA?.REDIRECT_URI?.trim()
-    ||`${window.location.origin}${window.location.pathname}`;
+  // MSAL v5 popup must return to the registered standalone redirect bridge.
+  // Never default to the current SPA page or a deep-link route.
+  const redirectUri=raw?.ENTRA?.REDIRECT_URI?.trim()||"";
 
   return{
     mode,
@@ -69,5 +69,23 @@ export function validateEntraFrontendConfig(
   if(missing.length)
     throw new Error(
       `Microsoft Entra 前端設定不完整：${missing.join("、")}`
+    );
+
+  // Fail closed if IT accidentally registers the SPA home page, an HTTP
+  // enterprise origin or a URL with userinfo/fragment instead of the bridge.
+  let uri:URL;
+  try{
+    uri=new URL(config.redirectUri);
+  }catch{
+    throw new Error("Microsoft Entra 登入回傳網址無效。");
+  }
+
+  const localHttp=uri.protocol==="http:"&&
+    (uri.hostname==="localhost"||uri.hostname==="127.0.0.1");
+  if((uri.protocol!=="https:"&&!localHttp)||
+    !uri.pathname.endsWith("/redirect.html")||
+    uri.username||uri.password||uri.search||uri.hash)
+    throw new Error(
+      "Microsoft Entra 登入回傳必須使用已註冊的 redirect.html 頁面（正式環境 HTTPS）。"
     );
 }

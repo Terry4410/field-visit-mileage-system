@@ -1,0 +1,111 @@
+name: Path B preplanned itinerary integration (NONDEPLOY)
+
+on:
+  push:
+    branches: [work/pathb-preplan-interface-integration-20261124]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pathb-preplan-interface-integration-nondeploy
+  cancel-in-progress: false
+
+jobs:
+  verify-package:
+    if: github.repository == 'Terry4410/field-visit-mileage-system'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify integrated accepted sources and unchanged schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor d01a3874dd4636a601faf38300bb51b582bcc7ca HEAD
+          git merge-base --is-ancestor 1fcf17f7d985c33f8c81358b9aac38f27a19fc11 HEAD
+          git merge-base --is-ancestor 8442bae35a9099c1bd68505c6273f93a937d7045 HEAD
+          git merge-base --is-ancestor 65ff743f3d2f7f4fa3d5463b9632006e615bef24 HEAD
+          test -z "$(git diff --name-only d01a3874dd4636a601faf38300bb51b582bcc7ca HEAD -- database/)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Frontend tests and production build
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm test -- --reporter=default
+          npm run build
+
+      - name: Backend build and affected report tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release --nologo
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj \
+            -c Release --nologo \
+            --filter 'FullyQualifiedName~PathBQuery05PdfReadabilityTests' \
+            --logger 'console;verbosity=normal'
+
+      - name: Build candidate and accepted rollback packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/fieldvisit-package"
+          mkdir -p "$out/candidate" "$out/rollback" "$out/manifests"
+
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj \
+            -c Release --no-build -o "$out/candidate/api" --nologo
+          cp -R frontend/dist "$out/candidate/frontend"
+
+          git worktree add --detach "$RUNNER_TEMP/rollback-api-source" ab71aaa96d9ac259f66386555812448284527d15
+          dotnet publish "$RUNNER_TEMP/rollback-api-source/backend/src/FieldVisit.Api/FieldVisit.Api.csproj" \
+            -c Release -o "$out/rollback/api" --nologo
+
+          git worktree add --detach "$RUNNER_TEMP/rollback-frontend-source" 90fe9bd61c24be57ccfaf6d450bf053e9c646ac1
+          npm ci --no-audit --no-fund --prefix "$RUNNER_TEMP/rollback-frontend-source/frontend"
+          npm run build --prefix "$RUNNER_TEMP/rollback-frontend-source/frontend"
+          cp -R "$RUNNER_TEMP/rollback-frontend-source/frontend/dist" "$out/rollback/frontend"
+
+          git show 641133b4aaae474a77864fcfd7b4f01fb2abb5ab:docs/release/pathb/IT-CLEAN-BUILD-REVIEW-20261123.md \
+            > "$out/manifests/IT-CLEAN-BUILD-REVIEW-PR117.md"
+          git show 641133b4aaae474a77864fcfd7b4f01fb2abb5ab:docs/release/pathb/IT-RELEASE-EVIDENCE-LOCK-20261124.json \
+            > "$out/manifests/IT-RELEASE-EVIDENCE-LOCK-PR117.json"
+
+          cat > "$out/manifests/RELEASE.txt" <<EOF
+          mode=NONDEPLOY
+          candidate_source_sha=$GITHUB_SHA
+          accepted_frontend_rollback_sha=90fe9bd61c24be57ccfaf6d450bf053e9c646ac1
+          accepted_api_rollback_sha=ab71aaa96d9ac259f66386555812448284527d15
+          it_clean_build_evidence_pr=117
+          it_clean_build_evidence_head=641133b4aaae474a77864fcfd7b4f01fb2abb5ab
+          schema_package_status=UNCHANGED_REUSE_PR117_EVIDENCE
+          schema_change=NO
+          target_environment=Path_B_Azure_UAT_candidate_only
+          generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
+
+          (cd "$out/candidate" && zip -qr "$out/FieldVisit_v1.8.0_Preplan_Candidate.zip" .)
+          (cd "$out/rollback" && zip -qr "$out/FieldVisit_v1.8.0_Accepted_Rollback.zip" .)
+          git archive --format=zip --output="$out/FieldVisit_v1.8.0_Preplan_Source.zip" "$GITHUB_SHA"
+          (cd "$out" && sha256sum FieldVisit_v1.8.0_*.zip > manifests/SHA256SUMS)
+
+      - name: Upload traceable NONDEPLOY packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldvisit-v180-preplan-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/fieldvisit-package
+          if-no-files-found: error
+          retention-days: 14
