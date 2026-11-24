@@ -7,7 +7,7 @@ export function DateFilters({ start, end, onChange, label = '日期' }: {
 }) {
   const startInput = useRef<HTMLInputElement>(null);
   const choices: Array<[DateShortcut, string]> = [
-    ['month', '本月'], ['prev', '上月'], ['3m', '前3個月'], ['6m', '前6個月'], ['12m', '前12個月'], ['custom', '自訂']
+    ['yesterday', '昨日'], ['today', '今日'], ['tomorrow', '明日'], ['lastWeek', '上週'], ['thisWeek', '本週'], ['nextWeek', '下週'], ['prev', '上月'], ['month', '本月'], ['nextMonth', '下月'], ['custom', '自訂']
   ];
   return <div>
     <div className="quick-filters">{choices.map(([key, text]) =>
