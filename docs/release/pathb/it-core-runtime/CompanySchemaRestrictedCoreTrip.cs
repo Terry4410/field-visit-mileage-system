@@ -126,11 +126,14 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
             new UserTeamAssignment { UserId = leader.UserId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new UserTeamScope { UserId = visitor.UserId, TeamId = team.TeamId, IsPrimary = true, IsActive = true, AssignedAt = now },
             new UserTeamScope { UserId = leader.UserId, TeamId = team.TeamId, IsPrimary = true, IsActive = true, AssignedAt = now },
-            new TeamLeaderAssignment { TeamId = team.TeamId, EmploymentId = leaderEmployment.EmploymentId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new UserRole { UserId = visitor.UserId, RoleId = visitorRole.RoleId, AssignedAt = now },
             new UserRole { UserId = leader.UserId, RoleId = leaderRole.RoleId, AssignedAt = now },
             new UserRoleAssignment { UserId = visitor.UserId, RoleId = visitorRole.RoleId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
             new UserRoleAssignment { UserId = leader.UserId, RoleId = leaderRole.RoleId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now });
+
+        // DBA-only synthetic fixture: preserve actual database trigger, avoid EF OUTPUT on its unconfigured table.
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt) VALUES({team.TeamId},{leaderEmployment.EmploymentId},{new DateTime(2020,1,1)},{now})");
 
         var center = new Center { OrganizationId = org.OrganizationId, CenterCode = "E2E-C", CenterName = "E2E Center", EffectiveFrom = new DateOnly(2020, 1, 1), IsActive = true };
         db.Centers.Add(center);
