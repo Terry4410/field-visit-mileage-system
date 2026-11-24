@@ -105,7 +105,7 @@ IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREAT
  THROW 59806,N'EXISTING_CANONICAL_MARKERS_REQUIRED',1;
 -- Never override a relevant DENY, including SQL Server's column-grant exception.
 IF EXISTS(SELECT 1 FROM sys.database_permissions p
- JOIN @need n ON p.permission_name IN(n.p,N'CONTROL')
+ JOIN @need n ON p.permission_name COLLATE DATABASE_DEFAULT IN(n.p,N'CONTROL')
  WHERE p.grantee_principal_id IN(@pid,DATABASE_PRINCIPAL_ID(N'public')) AND p.state=N'D'
  AND (p.class=0 OR (p.class=3 AND p.major_id=SCHEMA_ID(N'dbo'))
  OR (p.class=1 AND p.major_id=OBJECT_ID(N'dbo.'+n.t))))
