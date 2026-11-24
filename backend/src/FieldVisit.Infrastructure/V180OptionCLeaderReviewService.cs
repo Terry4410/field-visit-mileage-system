@@ -63,7 +63,7 @@ public sealed class V180OptionCLeaderReviewService(
         var actor = current.GetRequired();
         var org = await new V180OptionCLiveAuthorizationAdapter(db)
             .ResolveLiveOrganizationAsync(actor.UserId, ct);
-        var pathB = V180OptionCExecutionPolicy.IsPathBUatMode;
+        var pathB = V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode;
         var rows = await db.ChangeRequests.AsNoTracking()
             .Where(x => x.OrganizationId == org && x.EntityKind == "Location"
                 && x.Status == "Pending" && x.TeamId != null
@@ -128,7 +128,7 @@ public sealed class V180OptionCLeaderReviewService(
             ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
         if (row.Status != "Pending" || row.TeamId is not > 0
             || row.OrganizationId != org || row.EntityKind != "Location"
-            || (V180OptionCExecutionPolicy.IsPathBUatMode
+            || (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode
                 && row.OperationCode is not ("CreateLocation" or "UpdatePublishedLocation")))
             throw new InvalidOperationException("OPTIONC_LEADER_REVIEW_NOT_PENDING");
         var expected = Convert.ToBase64String(row.RowVersion);

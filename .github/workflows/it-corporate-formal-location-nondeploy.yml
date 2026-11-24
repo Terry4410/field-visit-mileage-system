@@ -1,0 +1,26 @@
+name: IT corporate formal location boundary (NONDEPLOY)
+on:
+  push:
+    branches: [work/it-corporate-formal-location-20261124]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/it-corporate-formal-location-nondeploy.yml'
+permissions:
+  contents: read
+jobs:
+  target-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check all Path B-specific restrictions have corporate parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -n 'V180OptionCExecutionPolicy.IsPathBUatMode' backend/src --include='*.cs'; then exit 1; fi
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~CorporateFormalLocationTargetTests --logger "console;verbosity=normal"

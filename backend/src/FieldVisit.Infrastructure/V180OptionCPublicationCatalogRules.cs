@@ -163,7 +163,7 @@ internal static class V180OptionCPublicationCatalogRules
         var result = Convert.ToInt32(await command.ExecuteScalarAsync(ct));
         if (result != 1)
             throw new InvalidOperationException(CatalogNotVerified);
-        if (V180OptionCExecutionPolicy.IsPathBUatMode)
+        if (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode)
         {
             // Do not use the optional-table fallback on the real UAT target.
             await using var extra = new SqlCommand("""

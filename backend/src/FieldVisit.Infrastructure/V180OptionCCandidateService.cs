@@ -1019,7 +1019,7 @@ public sealed class V180OptionCCandidateService(
                 .SingleOrDefaultAsync(ct)
                 ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
             if (request.TeamId is not int team || request.RequestedByUserId == actorId
-                || (V180OptionCExecutionPolicy.IsPathBUatMode
+                || (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode
                     && request.OperationCode is not ("CreateLocation" or "UpdatePublishedLocation")))
                 throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
             if (request.OperationCode == "UpdatePublishedLocation" && request.RiskCode == "Low")
