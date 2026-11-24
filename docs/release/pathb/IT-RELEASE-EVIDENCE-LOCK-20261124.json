@@ -1738,8 +1738,15 @@
         "conclusion": "failure",
         "reason": "CI parity scan found three remaining PathB-only condition sites in two files; corrected row-version, independent review and merge reconciliation conditions."
       },
-      "secondRun": 45407133602,
-      "status": "CI_PENDING_OR_UNVERIFIED",
+      "secondRun": {
+        "id": 45407133602,
+        "job": 138490761819,
+        "conclusion": "success",
+        "tests": 28,
+        "passed": 28,
+        "scope": "Build and pure target predicates including valid exact config, modes, endpoint/port/database mismatch, missing settings, loopback, Azure, reserved DB, TLS off, trust certificate, SQL credentials, failover and host override denials, original unconditional production entry remains denied. Static parity scan found no qualified IsPathBUatMode uses after correction. Actual SQL identity query, real Windows service principal, certificate chain, role decisions and formal location workflows NOT executed."
+      },
+      "status": "TARGET_CONFIGURATION_UNIT_TESTS_28_PASS_ACTUAL_WINDOWS_SQL_IDENTITY_AND_BUSINESS_NOT_TESTED",
       "mode": "CorporateFormalLocations",
       "configuration": [
         "FIELDVISIT_CORPORATE_SQL_ENDPOINT",
