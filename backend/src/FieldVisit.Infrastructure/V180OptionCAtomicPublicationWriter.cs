@@ -66,6 +66,7 @@ internal static class V180OptionCAtomicPublicationWriter
                 @requester int, @expected binary(8), @requestVersion binary(8),
                 @locationVersion binary(8), @proposed nvarchar(max),
                 @currentVersion int, @stageHash binary(32), @stageVersion binary(8),
+                @latitude decimal(10,7), @longitude decimal(10,7),
                 @now datetime2(3)=SYSUTCDATETIME(), @correlation uniqueidentifier=NEWID();
 
             -- Lock order is fixed: canonical request -> source -> stage -> ledger.
@@ -94,7 +95,8 @@ internal static class V180OptionCAtomicPublicationWriter
             IF @locationVersion IS NULL OR @locationVersion<>@expected
                 THROW 51351,N'OPTIONC_SOURCE_CHANGED',1;
 
-            SELECT @stageHash=ProposedSha256,@stageVersion=RowVersion
+            SELECT @stageHash=ProposedSha256,@stageVersion=RowVersion,
+                   @latitude=Latitude,@longitude=Longitude
             FROM dbo.LocationPublicationStages WITH(UPDLOCK,HOLDLOCK)
             WHERE ChangeRequestId=@requestId AND LocationId=@locationId
               AND OrganizationId=@org AND TeamId=@team
@@ -141,7 +143,10 @@ internal static class V180OptionCAtomicPublicationWriter
                 Address=JSON_VALUE(@proposed,N'$.Address'),
                 PlusCode=JSON_VALUE(@proposed,N'$.PlusCode'),
                 TaxId=JSON_VALUE(@proposed,N'$.TaxId'),
-                MasterNote=JSON_VALUE(@proposed,N'$.MasterNote')
+                MasterNote=JSON_VALUE(@proposed,N'$.MasterNote'),
+                Latitude=@latitude,Longitude=@longitude,
+                GeocodingStatus=N'Completed',GeocodedAt=@now,
+                SelectedGeocodingAttemptId=NULL,UpdatedAt=@now
             WHERE LocationId=@locationId AND OrganizationId=@org
               AND TeamId=@team AND CreatedByUserId=@requester
               AND ApprovalStatus=N'Approved' AND IsActive=1

@@ -61,6 +61,25 @@ jobs:
           test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
           test -z "$(git diff --name-only 3d85171bfdde0a2b8329e4a05b7afa84b2f5a0e8 HEAD -- database/)"
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCLocationMaintenanceRiskTests|FullyQualifiedName~R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_visitor_create_location_writer|FullyQualifiedName~Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=location.trx' --results-directory artifacts/test-results
+      - name: Package API with embedded Traditional Chinese font (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          dst="$RUNNER_TEMP/formal-location-api"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$dst" --nologo
+          test "$(stat -c '%s' "$dst/FieldVisit.Infrastructure.dll")" -gt 19000000
+          test "$(jq -r '.OptionC.Candidate.Enabled' "$dst/appsettings.json")" = false
+          mkdir -p artifacts/release
+          (cd "$dst" && zip -qr "$GITHUB_WORKSPACE/artifacts/release/PathB_FormalLocations_API.zip" .)
+          unzip -tq artifacts/release/PathB_FormalLocations_API.zip
+          (cd artifacts/release && sha256sum PathB_FormalLocations_API.zip > SHA256SUMS)
+          printf 'SOURCE_SHA=%s\nMODE=NONDEPLOY\nOPTIONC_DEFAULT=OFF\n' "$GITHUB_SHA" > artifacts/release/manifest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-formal-location-api-nondeploy
+          path: artifacts/release
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -83,3 +102,27 @@ jobs:
           npm ci --no-audit --no-fund
           npm test -- --reporter=default
           npm run build
+      - name: Seal exact Path B frontend candidate (activation requires separate approval)
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          node scripts/prepare-pathb-artifact.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("dist/config.js")
+          s=p.read_text()
+          assert s.count('AUTH_MODE: "Demo",')==1
+          p.write_text(s.replace('AUTH_MODE: "Demo",','AUTH_MODE: "Demo",\n  FORMAL_LOCATION_UAT: true,'))
+          PY
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/frontend-release"
+          (cd dist && zip -qr "$GITHUB_WORKSPACE/artifacts/frontend-release/PathB_FormalLocations_Frontend.zip" .)
+          cd "$GITHUB_WORKSPACE/artifacts/frontend-release"
+          unzip -tq PathB_FormalLocations_Frontend.zip
+          sha256sum PathB_FormalLocations_Frontend.zip > SHA256SUMS
+          printf 'SOURCE_SHA=%s\nMODE=NONDEPLOY\nTARGET=PathB\n' "$GITHUB_SHA" > manifest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-formal-location-frontend-nondeploy
+          path: artifacts/frontend-release
+          if-no-files-found: error
+          retention-days: 14

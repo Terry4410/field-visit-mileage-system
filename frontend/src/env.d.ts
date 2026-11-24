@@ -1,6 +1,7 @@
 interface Window{
   APP_CONFIG?:{
     API_BASE_URL?:string;
+    FORMAL_LOCATION_UAT?:boolean;
     AUTH_MODE?:"Demo"|"Entra"|string;
     ENTRA?:{
       TENANT_ID?:string;

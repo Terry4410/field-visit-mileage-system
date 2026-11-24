@@ -1,5 +1,5 @@
 import{describe,it,expect}from"vitest";
-import{OPTIONC_APPROVAL_UI_ENABLED}from"./optionc-approval-flags";
+import{OPTIONC_APPROVAL_UI_ENABLED,pathBFormalLocationUiEnabled}from"./optionc-approval-flags";
 import{adminDecisionPath,differences,isTerminalStatus,mayLeaderReview,mayReview,reviewPayload,safeFields,statusLabel,matchingHighRiskStage,mayPublishHighRisk,lowRiskReviewStage,type OptionCRequest}from"./optionc-approval-ui";
 const row:OptionCRequest={requestPublicId:"id",entityId:"2",teamId:3,riskCode:"High",status:"Pending",requestedByUserId:7,submittedAt:"",beforeJson:'{"LocationName":"A"}',proposedJson:'{"LocationName":"B"}',rowVersion:"AAAAAAAAAAA="};
 describe("Option C review UI fail-closed candidate",()=>{
@@ -66,5 +66,16 @@ describe("Low-risk Leader continuation",()=>{
   expect(lowRiskReviewStage({...request,leaderStatus:"Pending"},stage,8)).toBeNull();
   expect(lowRiskReviewStage({...request,riskCode:"High"},stage,8)).toBeNull();
   expect(lowRiskReviewStage(request,{...stage,requestPublicId:"other"},8)).toBeNull();
+ });
+});
+
+describe("Path B formal-location UI admission",()=>{
+ const host="ashy-water-021992f00.2.azurestaticapps.net",api="https://api-fieldvisit-pathb-uat.azurewebsites.net/api/v1";
+ it("requires exact Path B site, API and explicit boolean opt-in",()=>{
+  expect(pathBFormalLocationUiEnabled(host,api,true)).toBe(true);
+  for(const v of [false,undefined,"true"])expect(pathBFormalLocationUiEnabled(host,api,v)).toBe(false);
+  expect(pathBFormalLocationUiEnabled("localhost",api,true)).toBe(false);
+  expect(pathBFormalLocationUiEnabled(host,api+"/other",true)).toBe(false);
+  expect(pathBFormalLocationUiEnabled(host,undefined,true)).toBe(false);
  });
 });

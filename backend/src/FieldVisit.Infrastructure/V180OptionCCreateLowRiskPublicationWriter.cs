@@ -208,6 +208,9 @@ internal static class V180OptionCCreateLowRiskPublicationWriter
                 ApprovalStatus=N'Approved',IsActive=1,
                 Latitude=CASE WHEN @operation=N'CreateLocation' THEN @latitude ELSE Latitude END,
                 Longitude=CASE WHEN @operation=N'CreateLocation' THEN @longitude ELSE Longitude END,
+                GeocodingStatus=CASE WHEN @operation=N'CreateLocation' THEN N'Completed' ELSE GeocodingStatus END,
+                GeocodedAt=CASE WHEN @operation=N'CreateLocation' THEN @now ELSE GeocodedAt END,
+                SelectedGeocodingAttemptId=CASE WHEN @operation=N'CreateLocation' THEN NULL ELSE SelectedGeocodingAttemptId END,
                 UpdatedAt=@now
             WHERE LocationId=@locationId AND OrganizationId=@org AND TeamId=@team
               AND CreatedByUserId=@requester AND RowVersion=@locationVersion

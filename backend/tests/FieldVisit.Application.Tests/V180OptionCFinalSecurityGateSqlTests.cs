@@ -1691,6 +1691,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Approved", await h.Scalar(
             "SELECT ApprovalStatus FROM dbo.Locations WHERE LocationId=@id",
             P("@id", locationId)));
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations WHERE LocationId=@id
+              AND Latitude=25.03 AND Longitude=121.56
+              AND GeocodingStatus=N'Completed' AND GeocodedAt IS NOT NULL
+            """, P("@id", locationId)));
         // Even a published CreateLocation cannot be changed via the old
         // PUT Master route after publication; it needs a fresh review.
         using var oldPublishedUpdate = await legacyAdmin.PutAsJsonAsync(
@@ -1754,6 +1759,27 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("10", await h.Scalar(
             "SELECT COUNT(*) FROM dbo.VisitTripSnapshotStops WHERE LocationId BETWEEN 10 AND 19"));
 
+        if (fullCanonicalChain)
+        {
+            // The actual UAT sequence uses one newly published Visitor-owned
+            // Location instead of another manually seeded master-data row.
+            var rv = (byte[])(await new SqlCommand(
+                "SELECT RowVersion FROM dbo.Locations WHERE LocationId=@id", h.Db)
+                { Parameters = { P("@id", locationId) } }.ExecuteScalarAsync()
+                ?? throw new InvalidOperationException("NEW_LOCATION_VERSION_MISSING"));
+            using var fill = await visitor.PostAsJsonAsync(
+                $"api/v1/optionc-candidate/locations/{locationId}/low-risk-direct",
+                new V180OptionCLowRiskDirectUpdate(Convert.ToBase64String(rv), null,
+                    "First TaxId on newly published location", Guid.NewGuid(), "04595252"));
+            Assert.True(fill.IsSuccessStatusCode, await fill.Content.ReadAsStringAsync());
+            Assert.Equal("04595252",await h.Scalar(
+                "SELECT TaxId FROM dbo.Locations WHERE LocationId=@id",P("@id",locationId)));
+            Assert.Equal("Pending only",await h.Scalar(
+                "SELECT MasterNote FROM dbo.Locations WHERE LocationId=@id",P("@id",locationId)));
+            Assert.Equal("2",await h.Scalar(
+                "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=@id AND IsCurrent=1",P("@id",locationId)));
+            Console.WriteLine("PATHB_NEW_CUSTOMER_CREATE_REVIEW_TAXID_SAME_RECORD_PASS");
+        }
         var rejectedPayload = new V180OptionCCreateLocation(1,
             "Second CreateLocation needs independent review",
             new V180B3LocationFields("Candidate rejected identity", "Taipei", "Xinyi",
@@ -2555,6 +2581,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Applied", applied.Status);
         Assert.Equal("Leader-reviewed address", await h.Scalar(
             "SELECT Address FROM dbo.Locations WHERE LocationId=10"));
+        Assert.Equal("1", await h.Scalar("""
+            SELECT COUNT(*) FROM dbo.Locations WHERE LocationId=10
+              AND Latitude=25.03 AND Longitude=121.56
+              AND GeocodingStatus=N'Completed' AND GeocodedAt IS NOT NULL
+            """));
         Assert.Equal("2", await h.Scalar(
             "SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
         Assert.Equal("1", await h.Scalar(
