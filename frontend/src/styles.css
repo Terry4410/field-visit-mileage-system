@@ -388,3 +388,11 @@
   .team-membership-actions{grid-column:1;justify-content:flex-start}
   .team-membership-actions .btn{flex:0 0 auto;min-width:0}
 }
+
+/* Project-period date filters: visible YYYY/MM/DD and an unchanged native picker.
+   The native input overlays only the calendar button, so touch/mobile works. */
+.slash-date-control{position:relative;display:flex;width:100%;min-width:0}
+.field .slash-date-control input[type="text"]{width:100%;min-width:0;padding-right:56px;font-size:16px}
+.slash-date-calendar-icon{position:absolute;right:0;top:0;width:46px;height:100%;display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--ink)}
+.field .slash-date-control input[type="date"]{position:absolute;right:0;top:0;width:46px;height:100%;padding:0;margin:0;border:0;opacity:0;cursor:pointer}
+.slash-date-control:focus-within{outline:2px solid var(--primary);outline-offset:2px;border-radius:12px}
