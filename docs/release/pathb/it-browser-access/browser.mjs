@@ -26,14 +26,35 @@ async function loginAttempt(page,account){
 }
 try{
  await check('ADMIN_BROWSER_TEAM_ROLE_AND_NEW_VISITOR_LOGIN',async()=>{
-  const ac=await context(),vc=await context();try{
+  const ac=await context(),vc=await context(),oc=await context();try{
    const p=await ac.newPage(),v=await vc.newPage();await signIn(p,'E2E-A','管理者');
    // Use already-verified personnel creation endpoint only to provision an independent synthetic actor.
    const token=await p.evaluate(()=>sessionStorage.getItem('fieldvisit_uat_token'));
    const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(new Date());
    const created=await p.request.post(api+'/api/v1/admin/people/internal-users',{headers:{Authorization:'Bearer '+token},data:{employeeNo:'E2E-ACCESS-01',displayName:'Synthetic Access Actor',hireDate:'2020-01-01',initialEmploymentStatus:'Active',statusEffectiveFrom:today}});
    expect(created.ok()).toBe(true);const u=await created.json();
-   const denied=await loginAttempt(v,'E2E-ACCESS-01');expect([401,403]).toContain(denied.status());await expect(v.locator('.danger-note')).toBeVisible();console.log('UNASSIGNED_PERSON_LOGIN_DENIED=PASS');
+   // Independently verify effective access; a successful identity login must not imply business authorization.
+   await check('UNASSIGNED_PERSON_NO_BUSINESS_ACCESS',async()=>{
+    const outsider=await oc.newPage();
+    const owner=await (await context()).newPage();
+    await signIn(owner,'E2E-V','外訪員');await owner.waitForLoadState('networkidle');
+    await owner.locator('textarea[placeholder*="拜訪補充說明"]').fill('ISOLATED-ROLELESS-ACCESS-PROBE');
+    const trip=await action(owner,'/trips','POST',()=>owner.getByRole('button',{name:'儲存預排行程',exact:true}).click());
+    expect(trip.status).toBe('Draft');
+    const login=await loginAttempt(outsider,'E2E-ACCESS-01');
+    if([401,403].includes(login.status())){console.log('ROLELESS_IDENTITY_LOGIN_DENIED=PASS');return}
+    expect(login.status()).toBe(200);
+    const identity=await login.json();
+    expect(identity.user.roles).toHaveLength(0);
+    console.log('ROLELESS_IDENTITY_TOKEN_ISSUED');
+    const h={Authorization:'Bearer '+identity.accessToken};
+    const result=await outsider.request.get(api+'/api/v1/trips/'+trip.visitTripId,{headers:h});
+    const admin=await outsider.request.get(api+'/api/v1/admin/people',{headers:h});
+    console.log('ROLELESS_OTHER_TRIP_HTTP='+result.status());
+    console.log('ROLELESS_ADMIN_PEOPLE_HTTP='+admin.status());
+    expect([401,403,404]).toContain(result.status());
+    expect([401,403]).toContain(admin.status());
+   });
    await go(p,'/admin/teams');await p.getByRole('button',{name:'＋新增小組',exact:true}).click();
    let d=p.getByRole('dialog');await d.getByPlaceholder('例如 TEAM-001').fill('E2E-ACCESS-T2');await d.getByPlaceholder('例如 北區第一組').fill('Synthetic Access Team');
    const team=await action(p,'/admin/teams','POST',()=>d.getByRole('button',{name:'新增小組',exact:true}).click());
@@ -64,6 +85,6 @@ try{
    const newToken=await v.evaluate(()=>sessionStorage.getItem('fieldvisit_uat_token'));
    const forbidden=await v.request.get(api+'/api/v1/admin/people',{headers:{Authorization:'Bearer '+newToken}});expect(forbidden.status()).toBe(403);
    await go(v,'/admin/users');await expect(v).toHaveURL(origin+'/#/');console.log('NEW_VISITOR_ADMIN_API_AND_UI_DENIED=PASS');
-  }finally{await ac.close();await vc.close()}
+  }finally{await ac.close();await vc.close();await oc.close()}
  });
-}finally{await browser.close();console.log('ACCESS_BROWSER_CASES='+JSON.stringify(results));if(results.length!==1||results.some(r=>!r.pass))process.exitCode=1;}
+}finally{await browser.close();console.log('ACCESS_BROWSER_CASES='+JSON.stringify(results));if(results.length!==2||results.some(r=>!r.pass))process.exitCode=1;}
