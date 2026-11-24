@@ -11,8 +11,9 @@ on:
 permissions:
   contents: read
 concurrency:
+  # Replace the earlier run stuck on unrelated font package installation.
   group: pathb-three-role-export-nondeploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   three-role-report:
     if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-query-export-three-role-historical-20261124'
