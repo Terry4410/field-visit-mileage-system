@@ -8,6 +8,7 @@ import {
 import {api} from "../api";
 import ScopedNotes from "./ScopedLocationNotes";
 import {useAuth} from "../auth";
+import {scopedLocationNoteTeams} from "../location-ownership-ui";
 
 import {
   buildLocationSearchPath,
@@ -68,7 +69,7 @@ export default function SmartLocationPicker({
   onSelect
 }:Props){
   const {user}=useAuth();
-  const noteTeams=(user?.teamScopes??[]).filter(t=>!teamId||t.teamId===teamId);
+  const noteTeams=scopedLocationNoteTeams(user?.teamScopes,teamId);
   const [tab,setTab]=useState<PickerTab>("search");
 
   const [query,setQuery]=useState("");
