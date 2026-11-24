@@ -7,6 +7,9 @@ namespace FieldVisit.Infrastructure;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
 {
+    public Task ExecuteWithRetryAsync(Func<CancellationToken, Task> operation, CancellationToken ct)
+        => Database.CreateExecutionStrategy().ExecuteAsync(() => operation(ct));
+
     public async Task<IUnitOfWorkTransaction> BeginSerializableTransactionAsync(CancellationToken ct)
         => new UnitOfWorkTransaction(await Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct));
 

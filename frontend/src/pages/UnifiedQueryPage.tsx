@@ -9,7 +9,7 @@ import type{CorrectionDraft,CorrectionProposal,PagedResult,Project,Team,Trip,Tri
 import{km,money,monthStart,qs,timeRange,todayTaipei}from"../v160";
 
 import { usePagedQuery } from '../use-query';
-import { dateShortcutRange } from '../query-ux';
+import { tripDateShortcutRange } from '../query-ux';
 import { DateFilters, Pagination } from '../components/QueryControls';
 import TripRouteDisplay,{tripRouteSummary} from '../components/TripRouteDisplay';
 
@@ -18,7 +18,7 @@ const statuses=[['','全部狀態'],['Draft','預排行程'],['Submitted','已�
 
 export default function UnifiedQueryPage({title="行程查詢",allowCorrection=false}:Props){
  const{user}=useAuth();const navigate=useNavigate();const today=todayTaipei();
- const[start,setStart]=useState(monthStart(today)),[end,setEnd]=useState(dateShortcutRange("month",today).end),[teamId,setTeamId]=useState(''),[visitorId,setVisitorId]=useState(''),[locationKeyword,setLocationKeyword]=useState(''),[projectId,setProjectId]=useState(''),[visitTypeId,setVisitTypeId]=useState(''),[status,setStatus]=useState(''),[includeCancelled,setIncludeCancelled]=useState(false);
+ const[start,setStart]=useState(monthStart(today)),[end,setEnd]=useState(tripDateShortcutRange("month",today).end),[teamId,setTeamId]=useState(''),[visitorId,setVisitorId]=useState(''),[locationKeyword,setLocationKeyword]=useState(''),[projectId,setProjectId]=useState(''),[visitTypeId,setVisitTypeId]=useState(''),[status,setStatus]=useState(''),[includeCancelled,setIncludeCancelled]=useState(false);
  const[teams,setTeams]=useState<Team[]>([]),[visitors,setVisitors]=useState<UserOption[]>([]),[projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false),[detail,setDetail]=useState<Trip|null>(null),[correction,setCorrection]=useState<CorrectionDraft|null>(null),[reason,setReason]=useState(''),[correctionError,setCorrectionError]=useState('');
  const[detailSnapshotVersion,setDetailSnapshotVersion]=useState<number|null>(null);
  const activeRole=(sessionStorage.getItem('fieldvisit_active_role')||user?.roles[0]||'visitor').toLowerCase();
@@ -56,7 +56,7 @@ export default function UnifiedQueryPage({title="行程查詢",allowCorrection=f
  return <>
   <div className="card">
    <div className="section-title"><div><h2>{title}</h2><div className="sub">可查詢過去、現在及未來行程。同一套查詢條件同時套用畫面、Excel 與 PDF；下載包含全部符合資料，不受分頁限制。</div></div><div className="actions"><button className="btn secondary" onClick={()=>void download('xlsx')} disabled={busy||query.loading}>下載 Excel</button><button className="btn secondary" onClick={()=>void download('pdf')} disabled={busy||query.loading}>下載 PDF</button></div></div>
-   <DateFilters start={start} end={end} onChange={(s,e)=>{setStart(s);setEnd(e)}} />
+   <DateFilters shortcutSet="trip" start={start} end={end} onChange={(s,e)=>{setStart(s);setEnd(e)}} />
    <div className="grid cols-4 query-grid">
     {canCrossTeam&&<div className="field"><label>小組</label><select value={teamId} onChange={e=>{setTeamId(e.target.value);setVisitorId('')}}><option value="">全部授權小組</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamName}</option>)}</select></div>}
     {canCrossTeam&&<div className="field"><label>外訪員</label><select value={visitorId} onChange={e=>setVisitorId(e.target.value)}><option value="">全部外訪員</option>{visitors.filter(v=>!teamId||String(v.teamId)===teamId).map(v=><option key={v.userId} value={v.userId}>{v.displayName}｜{v.employeeNo}</option>)}</select></div>}
@@ -65,7 +65,7 @@ export default function UnifiedQueryPage({title="行程查詢",allowCorrection=f
     <div className="field"><label>拜訪形式</label><select value={visitTypeId} onChange={e=>setVisitTypeId(e.target.value)}><option value="">全部拜訪形式</option>{visitTypes.map(v=><option key={v.visitTypeId} value={v.visitTypeId}>{v.visitTypeName}</option>)}</select></div>
     <div className="field"><label>狀態</label><select value={status} onChange={e=>setStatus(e.target.value)}>{statuses.map(([v,n])=><option key={v} value={v}>{n}</option>)}</select></div>
    </div>
-   <div className="actions query-actions"><button className="btn" onClick={()=>void load(1)} disabled={busy||query.loading}>查詢</button><button className="btn outline" onClick={()=>{setTeamId('');setVisitorId('');setLocationKeyword('');setProjectId('');setVisitTypeId('');setStatus('');setIncludeCancelled(false);setStart(monthStart(today));setEnd(dateShortcutRange("month",today).end)}}>清除條件</button>{canIncludeCancelled&&<label className="check-row"><input type="checkbox" checked={includeCancelled} onChange={e=>setIncludeCancelled(e.target.checked)}/>包含已作廢</label>}</div>
+   <div className="actions query-actions"><button className="btn" onClick={()=>void load(1)} disabled={busy||query.loading}>查詢</button><button className="btn outline" onClick={()=>{setTeamId('');setVisitorId('');setLocationKeyword('');setProjectId('');setVisitTypeId('');setStatus('');setIncludeCancelled(false);setStart(monthStart(today));setEnd(tripDateShortcutRange("month",today).end)}}>清除條件</button>{canIncludeCancelled&&<label className="check-row"><input type="checkbox" checked={includeCancelled} onChange={e=>setIncludeCancelled(e.target.checked)}/>包含已作廢</label>}</div>
    {msg&&<div className="note" style={{marginTop:12}}>{msg}</div>}
    {query.error&&<div role="alert" className="note danger-note">{query.error}</div>}
    {query.loading&&<div role="status">查詢中…</div>}

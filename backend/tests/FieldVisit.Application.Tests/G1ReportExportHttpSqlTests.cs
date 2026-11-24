@@ -69,10 +69,25 @@ public sealed class G1ReportExportHttpSqlTests
             role.IsActive=true;await db.SaveChangesAsync();Token(claimedOrg:otherOrg.OrganizationId);using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             foreach(var selected in new[]{"visitor","leader","hr"}){Token(selected);using var r=await client.GetAsync("api/v1/admin/query-exports/personnel-full.xlsx");Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);}
             Token();using(var r=await client.GetAsync("api/v1/admin/query-exports/visit-types.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
-            role.RoleCode="leader";await db.SaveChangesAsync();Token("leader");
-            using(var r=await client.GetAsync("api/v1/query/trips/export.xlsx")){
-                Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
-                Assert.Contains("REPORT_EXPORT_HISTORICAL_TEAM_POLICY_HOLD",await r.Content.ReadAsStringAsync());
+            // The old blanket date gate incorrectly rejected every Leader
+            // historical download, even for an empty authorized result.
+            // The real row-level team/organization negative tests live in
+            // V180ThreeRoleHistoricalExportScopeTests.
+            var historical = $"?startDate={BusinessTime.Today.AddDays(-15):yyyy-MM-dd}&endDate={BusinessTime.Today:yyyy-MM-dd}";
+            foreach (var selected in new[]{"leader","visitor","admin"})
+            {
+                role.RoleCode=selected;await db.SaveChangesAsync();Token(selected);
+                foreach (var format in new[]{"xlsx","pdf"})
+                {
+                    using var response=await client.GetAsync($"api/v1/query/trips/export.{format}{historical}");
+                    Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+                    var bytes=await response.Content.ReadAsByteArrayAsync();
+                    Assert.True(bytes.Length>200);
+                    if(format=="pdf")
+                        Assert.Equal("%PDF-",Encoding.ASCII.GetString(bytes.AsSpan(0,5)));
+                    else
+                        Assert.Equal("PK",Encoding.ASCII.GetString(bytes.AsSpan(0,2)));
+                }
             }
             role.RoleCode="admin";await db.SaveChangesAsync();Token();
             // Inner test-only filter revokes after workbook generation, before the outer G1 recheck.

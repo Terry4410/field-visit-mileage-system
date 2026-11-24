@@ -3,6 +3,7 @@ import {useSearchParams} from "react-router-dom";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import SmartLocationPicker from "../components/SmartLocationPicker";
+import TripTimeRangeFields from "../components/TripTimeRangeFields";
 import {TripRouteEndpointDisplay} from "../components/TripRouteDisplay";
 import {hasMinimumVisitStops,manualFallbackDistanceForBody,validateTripMileageForSubmit} from "../trip-submit-rules";
 import {isProjectAvailableOn} from "../project-date-rules";
@@ -10,6 +11,7 @@ import {resolveTripTeamForEdit} from "../trip-team-edit-rules";
 import {shouldHydrateTripOnEdit} from "../visitor-draft-transition";
 import type {Project,RoutePreviewResult,SmartLocationItem,Trip,TripContext,TripStopInput,VisitType} from "../types";
 import{tripLocationAssignment}from"../trip-location-assignment";
+import{todayTaipei}from"../v160";
 
 type ModalKind="stop"|"endpoint"|"submit"|null;
 type EndpointKind="start"|"end";
@@ -23,7 +25,7 @@ export const canCalculateGoogleMileage=(busy:boolean,stopCount:number,startSiteI
 
 export default function VisitorPage(){
   const {user}=useAuth();
-  const today=new Date().toISOString().slice(0,10);
+  const today=todayTaipei();
   const [sp,setSp]=useSearchParams();
   const editId=sp.get("edit");
   // A draft created by this form is already current; do not re-fetch it while
@@ -48,7 +50,7 @@ export default function VisitorPage(){
   const [tripTeamId,setTripTeamId]=useState(
     user?.teamId?String(user.teamId):""
   );
-  const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:10"),[vehicleType,setVehicleType]=useState("Motorcycle"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
+  const [date,setDate]=useState(today),[start,setStart]=useState("08:30"),[end,setEnd]=useState("17:30"),[vehicleType,setVehicleType]=useState("Motorcycle"),[km,setKm]=useState(""),[notes,setNotes]=useState("");
   const [startDeploymentSiteId,setStartDeploymentSiteId]=useState(""),[endDeploymentSiteId,setEndDeploymentSiteId]=useState("");
   const [projects,setProjects]=useState<Project[]>([]),[visitTypes,setVisitTypes]=useState<VisitType[]>([]),[stops,setStops]=useState<TripStopInput[]>([]);
   const [rowVersion,setRowVersion]=useState(""),[returnReason,setReturnReason]=useState(""),[teamAccessWarning,setTeamAccessWarning]=useState(""),[tripContext,setTripContext]=useState<TripContext|null>(null),[tripContextError,setTripContextError]=useState(""),[overlap,setOverlap]=useState<OverlapResult>({hasOverlap:false}),[confirmOverlap,setConfirmOverlap]=useState(false),[routePreview,setRoutePreview]=useState<RoutePreviewResult|null>(null),[routePreviewBusy,setRoutePreviewBusy]=useState(false),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[modal,setModal]=useState<ModalKind>(null);
@@ -244,21 +246,11 @@ export default function VisitorPage(){
       :undefined;
 
   const [allHours,setAllHours]=useState(false),[allMinutes,setAllMinutes]=useState(false);
-  const clockOptions=(values:string[],current:string)=>Array.from(new Set([...values,current])).sort();
-  const hourOptions=Array.from({length:allHours?24:17},(_,i)=>String(i+(allHours?0:6)).padStart(2,"0"));
-  const minuteOptions=Array.from({length:allMinutes?60:12},(_,i)=>String(i*(allMinutes?1:5)).padStart(2,"0"));
-
-  const updateClock=(kind:"start"|"end",part:"hour"|"minute",value:string)=>{
-    const current=kind==="start"?start:end;
-    const [hour="00",minute="00"]=current.split(":");
-    const next=part==="hour"?`${value}:${minute}`:`${hour}:${value}`;
-    if(kind==="start")setStart(next);else setEnd(next);
-  };
 
   const reset=()=>{
     setSp({});
     setTripTeamId(user?.teamId?String(user.teamId):"");
-    setDate(today);setStart("08:30");setEnd("17:10");setVehicleType("Motorcycle");setKm("");setNotes("");setStartDeploymentSiteId("");setEndDeploymentSiteId("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setTripContext(null);setTripContextError("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setRoutePreview(null);setMsg("");
+    setDate(today);setStart("08:30");setEnd("17:30");setAllHours(false);setAllMinutes(false);setVehicleType("Motorcycle");setKm("");setNotes("");setStartDeploymentSiteId("");setEndDeploymentSiteId("");setStops([]);setRowVersion("");setReturnReason("");setTeamAccessWarning("");setTripContext(null);setTripContextError("");setOverlap({hasOverlap:false});setConfirmOverlap(false);setRoutePreview(null);setMsg("");
   };
 
   const changeTripTeam=(value:string)=>{
@@ -585,10 +577,7 @@ export default function VisitorPage(){
         </div>
         <div className="field"><label>地點歸屬</label><input value={tripLocationAssignment(tripContext)} disabled aria-label="地點歸屬派駐地點"/><div className="hint">依人員派駐資料顯示；不隨本次拜訪地點或行程小組名稱變更。</div></div>
         <div className="field"><label>交通工具</label><select value={vehicleType} onChange={e=>setVehicleType(e.target.value)}><option value="Motorcycle">機車</option><option value="Car">汽車</option></select><div className="hint">預設機車；交通工具會決定適用的里程補助費率。</div></div>
-        <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{clockOptions(hourOptions,start.slice(0,2)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{clockOptions(minuteOptions,start.slice(3,5)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
-        <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{clockOptions(hourOptions,end.slice(0,2)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{clockOptions(minuteOptions,end.slice(3,5)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
-        <label className="check-row"><input type="checkbox" checked={allHours} onChange={e=>setAllHours(e.target.checked)}/>顯示其他時段（00～23 時）</label>
-        <label className="check-row"><input type="checkbox" checked={allMinutes} onChange={e=>setAllMinutes(e.target.checked)}/>精確至分鐘（00～59 分）</label>
+        <TripTimeRangeFields start={start} end={end} showAllHours={allHours} showAllMinutes={allMinutes} onStartChange={setStart} onEndChange={setEnd} onShowAllHoursChange={setAllHours} onShowAllMinutesChange={setAllMinutes}/>
       </div>
       {tripContextError&&<div className="note danger-note" style={{marginTop:10}}>派駐中心資料：{tripContextError}</div>}
       <div className="note">住家地址不允許加入行程；里程只計算派駐中心、正式或臨時公務地點之間的路線。</div>

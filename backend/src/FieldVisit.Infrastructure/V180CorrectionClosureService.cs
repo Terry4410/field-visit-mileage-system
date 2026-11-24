@@ -59,33 +59,37 @@ public sealed class V180CorrectionClosureService(
             if (!closed.ResultSnapshotId.HasValue || !closed.AdminClosedAt.HasValue || !closed.AdminClosedByUserId.HasValue)
                 throw new InvalidOperationException("CORRECTION_CLOSE_EVIDENCE_MISSING：更正結案未產生完整 Snapshot evidence。");
 
-            var snapshot = await db.VisitTripSnapshots
-                .SingleAsync(x => x.VisitTripSnapshotId == closed.ResultSnapshotId.Value, ct);
-
-            snapshot.SystemDistanceKmSnapshot = evidence.Source == "ProviderSuggested"
-                ? fresh.Proposal.ApprovedDistanceKm
-                : null;
-            snapshot.MileageRouteAttemptIdSnapshot = evidence.SucceededAttempt?.RouteCalculationAttemptId;
-            snapshot.RouteTravelModeSnapshot = evidence.TravelMode;
-            snapshot.RouteCalculatedAtSnapshot = evidence.SucceededAttempt?.CompletedAt;
-            snapshot.RouteCalculationStatusSnapshot = evidence.Source == "ProviderSuggested" ? "Succeeded" : "ManualFallback";
-            snapshot.RouteErrorCodeSnapshot = null;
-            snapshot.RouteCorrelationIdSnapshot = evidence.SucceededAttempt?.CorrelationId
-                ?? evidence.FailedAttempt?.CorrelationId
-                ?? Guid.NewGuid();
-            snapshot.RouteProviderSnapshot = evidence.Source == "ProviderSuggested"
-                ? evidence.SucceededAttempt!.Provider
-                : "ManualFallback";
-            snapshot.ApprovedDistanceSourceSnapshot = evidence.Source;
-            snapshot.ApprovalBasisCodeSnapshot = V180MileageGovernanceRules.CorrectionProposalBasisCode;
-            snapshot.ApprovalBasisHashSnapshot = fresh.ProposalHash.ToArray();
-            snapshot.DistanceApprovedAtSnapshot = closed.AdminClosedAt;
-            snapshot.ApproverUserId = closed.AdminClosedByUserId;
-            snapshot.ApproverNameSnapshot = admin.DisplayName;
-
+            // Distance-changing correction has already been INSERTed as a fully
+            // populated immutable Snapshot by CloseCorrectionAsync; do not
+            // UPDATE VisitTripSnapshots after the insert (Path B least privilege).
+            // Route-basis-only changes are a separate legacy branch.
             var freshDistanceChanged = fresh.Proposal.ApprovedDistanceKm != fresh.BaseSnapshot.ApprovedDistanceKmSnapshot;
             if (!freshDistanceChanged)
             {
+                var snapshot = await db.VisitTripSnapshots
+                    .SingleAsync(x => x.VisitTripSnapshotId == closed.ResultSnapshotId.Value, ct);
+    
+                snapshot.SystemDistanceKmSnapshot = evidence.Source == "ProviderSuggested"
+                    ? fresh.Proposal.ApprovedDistanceKm
+                    : null;
+                snapshot.MileageRouteAttemptIdSnapshot = evidence.SucceededAttempt?.RouteCalculationAttemptId;
+                snapshot.RouteTravelModeSnapshot = evidence.TravelMode;
+                snapshot.RouteCalculatedAtSnapshot = evidence.SucceededAttempt?.CompletedAt;
+                snapshot.RouteCalculationStatusSnapshot = evidence.Source == "ProviderSuggested" ? "Succeeded" : "ManualFallback";
+                snapshot.RouteErrorCodeSnapshot = null;
+                snapshot.RouteCorrelationIdSnapshot = evidence.SucceededAttempt?.CorrelationId
+                    ?? evidence.FailedAttempt?.CorrelationId
+                    ?? Guid.NewGuid();
+                snapshot.RouteProviderSnapshot = evidence.Source == "ProviderSuggested"
+                    ? evidence.SucceededAttempt!.Provider
+                    : "ManualFallback";
+                snapshot.ApprovedDistanceSourceSnapshot = evidence.Source;
+                snapshot.ApprovalBasisCodeSnapshot = V180MileageGovernanceRules.CorrectionProposalBasisCode;
+                snapshot.ApprovalBasisHashSnapshot = fresh.ProposalHash.ToArray();
+                snapshot.DistanceApprovedAtSnapshot = closed.AdminClosedAt;
+                snapshot.ApproverUserId = closed.AdminClosedByUserId;
+                snapshot.ApproverNameSnapshot = admin.DisplayName;
+    
                 db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
                 {
                     VisitTripId = closed.VisitTripId,
@@ -98,9 +102,9 @@ public sealed class V180CorrectionClosureService(
                     OccurredAt = closed.AdminClosedAt.Value,
                     ActorUserId = closed.AdminClosedByUserId
                 });
-            }
 
-            await db.SaveChangesAsync(ct);
+                await db.SaveChangesAsync(ct);
+            }
             await tx.CommitAsync(ct);
         });
 

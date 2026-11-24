@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Field Visit — Microsoft 登入回傳</title>
+</head>
+<body>
+  <p>正在完成 Microsoft 登入…</p>
+  <!-- MSAL Browser v5 popup handoff: independent page; no React app, routes,
+       API requests, login secrets or window.APP_CONFIG are loaded here. -->
+  <script type="module">
+    import { broadcastResponseToMainFrame } from "@azure/msal-browser/redirect-bridge";
+    broadcastResponseToMainFrame().catch(() => {
+      document.body.textContent = "登入回傳失敗，請關閉此視窗後重新登入。";
+    });
+  </script>
+</body>
+</html>

@@ -11,6 +11,14 @@ public static class V160CorrectionDiffRules
             oldValue,
             newValue);
 
+    // A partially persisted correction request must never be approved into a new Snapshot.
+    public static void RequirePersistedChangesForApproval(int changeCount)
+    {
+        if (changeCount <= 0)
+            throw new InvalidOperationException(
+                "更正差異明細不存在，禁止核准；請聯絡管理者確認資料完整性。");
+    }
+
     public static string? ToDisplayValue<T>(
         T value)
     {
