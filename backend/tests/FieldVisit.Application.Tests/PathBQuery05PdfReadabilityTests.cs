@@ -52,6 +52,28 @@ public sealed class PathBQuery05PdfReadabilityTests
     }
 
     [Fact]
+    public async Task Chinese_report_uses_assembly_bundled_CJK_even_when_configured_font_is_Latin_only()
+    {
+        var latinOnly = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf";
+        var customFont = File.Exists(latinOnly) ? latinOnly : "/missing/latin-only.ttf";
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Report:PdfFontPath"] = customFont
+            }).Build();
+
+        // Previous live exported PDF embedded only DejaVuSerif and its ToUnicode
+        // map dropped every Chinese glyph. Validate the selected font and let the
+        // CI inspect actual PDF bytes/text/embedded font, not merely PDF %magic.
+        var report = await new ReportDocumentService(configuration)
+            .CreatePdfAsync([Row(1), Row(2), Row(3)], Query(), Admin(), CancellationToken.None);
+        Assert.Equal("application/pdf", report.ContentType);
+        Assert.True(report.Content.Length > 10000);
+        Assert.StartsWith("%PDF-", System.Text.Encoding.ASCII.GetString(report.Content.AsSpan(0, 5)));
+        SaveFixture("query05_cjk_3_rows.pdf", report.Content);
+    }
+
+    [Fact]
     public async Task Empty_export_includes_no_record_state_and_valid_PDF()
     {
         var report = await Service().CreatePdfAsync([], Query(), Admin(), CancellationToken.None);
