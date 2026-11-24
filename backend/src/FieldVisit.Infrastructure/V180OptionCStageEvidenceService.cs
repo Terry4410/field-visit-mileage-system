@@ -56,8 +56,10 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
     }
 
     /// <summary>
-    /// Read Stage/RowVersion only for an independently reauthorized Admin
-    /// within the isolated candidate database. Never read from UAT/Production.
+    /// Read Stage/RowVersion for the independently reauthorized reviewer.
+    /// High-risk requests retain the existing Admin checks; low-risk updates
+    /// are visible only to their original, still-authorized approving Leader.
+    /// The legacy method name is retained for existing callers.
     /// </summary>
     public async Task<V180OptionCStageEvidenceView> ReadForAdminAsync(
         Guid id, CancellationToken ct)
@@ -72,20 +74,45 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
             var org = await auth.ResolveLiveOrganizationAsync(actor, ct);
             var row = await db.ChangeRequests.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.RequestPublicId == id && x.OrganizationId == org
-                && x.EntityKind == "Location" && x.RiskCode == "High"
-                && x.Status == "Pending"
-                && (x.OperationCode == "CreateLocation"
-                    || x.OperationCode == "UpdatePublishedLocation"), ct)
+                && x.EntityKind == "Location" && x.Status == "Pending"
+                && ((x.RiskCode == "High" && (x.OperationCode == "CreateLocation"
+                    || x.OperationCode == "UpdatePublishedLocation"))
+                    || (x.RiskCode == "Low" && x.OperationCode == "UpdatePublishedLocation")), ct)
                 ?? throw new KeyNotFoundException("OPTIONC_STAGE_NOT_FOUND");
             if (row.TeamId is not int team || team <= 0
                 || !int.TryParse(row.EntityId, out var location) || location <= 0)
                 throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
-            var reviewer = await auth.AuthorizeDecisionAsync(
-                row.RequestedByUserId, actor, org, team, BusinessTime.Today, ct);
-            if (!reviewer.RequesterEligible || !reviewer.IndependentAdminEligible
-                || !reviewer.OrganizationMatches || !reviewer.TeamMatches)
-                throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
             var sqlTx = (SqlTransaction)tx.GetDbTransaction();
+            if (row.RiskCode == "Low")
+            {
+                await using var schema = new SqlCommand("""
+                    SELECT COUNT(*) FROM dbo.SchemaVersions
+                    WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK'
+                    """, connection, sqlTx);
+                if (Convert.ToInt32(await schema.ExecuteScalarAsync(ct)) != 1)
+                    throw new InvalidOperationException("OPTIONC_LOW_SCHEMA_NOT_READY");
+                var leader = await auth.AuthorizeLeaderReviewAsync(
+                    row.RequestedByUserId, actor, org, team, BusinessTime.Today, ct);
+                if (actor == row.RequestedByUserId || !leader.RequesterEligible
+                    || !leader.ReviewerLeaderEligible || !leader.OrganizationMatches || !leader.TeamMatches)
+                    throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
+                var firstLevel = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.ChangeRequestId == row.ChangeRequestId && x.ReviewStage == "LeaderFirstLevel", ct);
+                if (firstLevel?.Status != "Approved" || firstLevel.ReviewerUserId != actor
+                    || firstLevel.DecisionKey is not Guid approvedKey
+                    || !await db.ChangeRequestEvents.AsNoTracking().AnyAsync(x =>
+                        x.ChangeRequestId == row.ChangeRequestId && x.EventType == "LeaderApproved"
+                        && x.ActorUserId == actor && x.DecisionKey == approvedKey, ct))
+                    throw new UnauthorizedAccessException("OPTIONC_LOW_LEADER_REVIEW_REQUIRED");
+            }
+            else
+            {
+                var reviewer = await auth.AuthorizeDecisionAsync(
+                    row.RequestedByUserId, actor, org, team, BusinessTime.Today, ct);
+                if (!reviewer.RequesterEligible || !reviewer.IndependentAdminEligible
+                    || !reviewer.OrganizationMatches || !reviewer.TeamMatches)
+                    throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
+            }
             if (row.OperationCode == "CreateLocation")
             {
                 await RequireLiveCreateLeaderAsync(auth, row.ChangeRequestId,
@@ -128,6 +155,8 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                 stageStatus = rdr.GetString(0); geocode = rdr.GetString(1);
                 duplicate = rdr.GetString(2); stageVersion = rdr.GetFieldValue<byte[]>(3);
             }
+            if (row.RiskCode == "Low" && geocode != "NotRequired")
+                throw new InvalidOperationException("OPTIONC_LOW_GEOCODE_NOT_ALLOWED");
             await tx.CommitAsync(ct);
             return new(id,stageStatus,geocode,duplicate,
                 Convert.ToBase64String(stageVersion));
