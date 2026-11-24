@@ -799,7 +799,7 @@ public sealed class V180OptionCCandidateService(
             var sqlTx = tx.GetDbTransaction() as SqlTransaction
                 ?? throw new InvalidOperationException("OPTIONC_SQL_TRANSACTION_REQUIRED");
             await V180OptionCStageDraftWriter.CreateFromLockedRequestAsync(
-                connection, sqlTx, row.RequestPublicId, scope.OrganizationId, ct);
+                connection, sqlTx, row.RequestPublicId, scope.OrganizationId, ct, liveManagedLeader: scope.LeaderEligible);
             if (excelItem is not null && excelBatch is not null)
             {
                 excelItem.Status = "SubmittedForReview";

@@ -15,7 +15,7 @@ internal static class V180OptionCAtomicPublicationWriter
         SqlConnection connection, SqlTransaction transaction,
         Guid requestPublicId, int organizationId, int liveReviewerUserId,
         Guid decisionKey, string reason,
-        V180OptionCLiveApprovalEvidence authorization, CancellationToken ct)
+        V180OptionCLiveApprovalEvidence authorization, CancellationToken ct, bool liveManagedLeader = false)
     {
         if (connection.State != ConnectionState.Open
             || transaction.Connection != connection
@@ -87,7 +87,7 @@ internal static class V180OptionCAtomicPublicationWriter
             SELECT @locationVersion=RowVersion
             FROM dbo.Locations WITH(UPDLOCK,HOLDLOCK)
             WHERE LocationId=@locationId AND OrganizationId=@org
-              AND TeamId=@team AND CreatedByUserId=@requester
+              AND TeamId=@team AND (CreatedByUserId=@requester OR @managedLeader=1)
               AND LocationType=N'Customer'
               AND ApprovalStatus=N'Approved' AND IsActive=1;
             IF @locationVersion IS NULL OR @locationVersion<>@expected
@@ -142,7 +142,7 @@ internal static class V180OptionCAtomicPublicationWriter
                 TaxId=JSON_VALUE(@proposed,N'$.TaxId'),
                 MasterNote=JSON_VALUE(@proposed,N'$.MasterNote')
             WHERE LocationId=@locationId AND OrganizationId=@org
-              AND TeamId=@team AND CreatedByUserId=@requester
+              AND TeamId=@team AND (CreatedByUserId=@requester OR @managedLeader=1)
               AND ApprovalStatus=N'Approved' AND IsActive=1
               AND RowVersion=@locationVersion;
             IF @@ROWCOUNT<>1 THROW 51356,N'OPTIONC_LOCATION_UPDATE_CONFLICT',1;
@@ -181,6 +181,7 @@ internal static class V180OptionCAtomicPublicationWriter
         cmd.Parameters.AddWithValue("@reviewer", liveReviewerUserId);
         cmd.Parameters.AddWithValue("@decision", decisionKey);
         cmd.Parameters.AddWithValue("@reason", reason);
+        cmd.Parameters.AddWithValue("@managedLeader", liveManagedLeader ? 1 : 0);
         // Transaction ownership, COMMIT and unknown-COMMIT reconciliation are
         // deliberately outside this writer; no automatic retries.
         await cmd.ExecuteNonQueryAsync(ct);

@@ -78,7 +78,9 @@ public sealed class V180OptionCLeaderReviewService(
                 var detail = await db.LeaderReviews.AsNoTracking()
                     .SingleOrDefaultAsync(x => x.ChangeRequestId == row.ChangeRequestId
                         && x.ReviewStage == "LeaderFirstLevel", ct);
-                if (detail is null || detail.Status == "Pending")
+                if (detail is null || detail.Status == "Pending"
+                    || (row.OperationCode == "UpdatePublishedLocation" && row.RiskCode == "Low"
+                        && detail.Status == "Approved" && detail.ReviewerUserId == actor.UserId))
                     result.Add(ToView(row, detail));
             }
             catch (UnauthorizedAccessException) { /* scope is filtered, not disclosed */ }

@@ -288,7 +288,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCLocationMaintenanceRiskTests|FullyQualifiedName~R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database' --logger "console;verbosity=normal" --logger "trx;LogFileName=first-taxid.trx" --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCLocationMaintenanceRiskTests|FullyQualifiedName~R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database|FullyQualifiedName~R5_full_010_to_020_chain_runs_excel_create_and_update_writers_in_same_sql_database' --logger "console;verbosity=normal" --logger "trx;LogFileName=first-taxid.trx" --results-directory artifacts/test-results
       - uses: actions/upload-artifact@v4
         if: always()
         with:
