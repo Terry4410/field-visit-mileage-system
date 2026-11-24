@@ -1661,6 +1661,35 @@
         }
       ],
       "notes": "Direct tracked entity operations reviewed; UPDATE column candidates are not complete inferred EF SQL. Must verify actual SQL generated, OUTPUT read columns, constraints/triggers and backend role/scope decisions. External Supervisor-only scope/capability changes are held; no reintroduction of canceled role. Permanent deletion is held separately from ordinary maintenance. Do not combine source candidates with historical grants as an executable broad ACL. No new grant executed."
+    },
+    "remainingBusinessSourceObservations": {
+      "status": "SOURCE_GAPS_NOT_GRANTS_NOT_TESTED",
+      "source": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+      "examples": [
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/Repositories.cs",
+          "lines": [
+            571,
+            625,
+            654,
+            701
+          ],
+          "finding": "Project, VisitType, MileageRateRule and LocationApprovalHistory Add paths missing corresponding INSERT in historical inventory."
+        },
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs",
+          "lines": [
+            712,
+            1006
+          ],
+          "finding": "Team create and legacy permanent location delete; review ordinary team creation and keep permanent delete scope separate."
+        },
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V180GoogleMileageGovernanceRepository.cs",
+          "finding": "GeocodingAttempts Add/lookup/finalize status, error fields and completed-at; historical inventory absent, prior 42 operation groups cover insert only. Verify end-to-end allowed/denied behaviors rather than assume broad rights."
+        }
+      ],
+      "next": "One grouped disposable real-schema runtime test of in-scope trip, mileage, approvals, correction, query/export, location and necessary Admin master writes; reconcile observed SQL operations and existing reviewed ACL, do not grant permanent delete or old Supervisor paths by default."
     }
   },
   "supplementalUat": {
@@ -1808,5 +1837,33 @@
       "libraryUpload": "SUCCEEDED"
     },
     "limits": "Test SQL login, synthetic staff and organization, local SQL2022, self-signed disposable TLS; no real Entra token/tenant, Windows integrated DBA wrapper execution, corporate service identity, complete app ACL, full business/authorization or IT Clean Build. No real admin created. Existing internal HR policy deliberately unchanged. Issued-token revocation not proven; Auth.cs issues 8-hour JWT and CurrentUserService uses token claims; verify live revocation/role scope enforcement before production, do not assume failure or PASS for all endpoints. Wrapper and SQL grant candidate remain review-only."
+  },
+  "iisApplicationReview": {
+    "status": "WINDOWS_X64_FRAMEWORK_DEPENDENT_PACKAGE_BUILD_AND_CONTENTS_PASS_NONDEPLOY",
+    "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+    "workflowCommit": "321b90f94b1f0d7d28d322957b03a5234c9af939",
+    "run": 45409920222,
+    "job": 138500612951,
+    "conclusion": "success",
+    "frontendFocusedTests": {
+      "passed": 10,
+      "total": 10,
+      "scope": "exact Entra HTTPS company front/API pair positive, invalid/mismatched/unsafe configuration negative; Path B unchanged; Excel flags off"
+    },
+    "previousBackendBoundaryRun": {
+      "run": 45409746813,
+      "conclusion": "success",
+      "scope": "existing filtered corporate target tests workflow reran automatically on application delta"
+    },
+    "artifact": {
+      "id": 14928110014,
+      "archive": "FieldVisit_v180_Windows_IIS_Review_20261124.zip",
+      "bytes": 36731764,
+      "sha256": "e2c0c4c99d39b6e168eb7edded0e1760ab201c42ba65acbfe6938427ee6931b7",
+      "integrity": "Actual downloaded bytes SHA256 and ZIP CRC, all 77 internal manifest file hashes and coverage PASS",
+      "libraryUpload": "SUCCEEDED"
+    },
+    "configuration": "Two HTTPS sites (proposed IT decision), API at own root, framework-dependent Windows x64 ANCM in-process generated web.config, static hash routing, Entra templates blank company identifiers/secret/connection, corporate startup guard code compiled, Demo disabled in template and no email autobinding, explicit company front/API UI gate, formal location features disabled by default, Google/worker/Swagger disabled until configuration/validation. Exact verified CJK embedded resource preserved; no standalone font file. Actual Windows IIS execution, startup negative behavior, enterprise SQL/TLS, company Entra, actual Windows PDF NOT RUN.",
+    "remaining": "Full business runtime ACL and cross-team authorization tests, subsequent employee identity provisioning, real formal location behavior, fresh/issued token revocation across uncovered endpoints, actual IIS/SSO/Google/worker and IT security review. Existing G1ReportExportHttpSqlTests source covers some report revocation and scope negatives on EF-shaped fixture; retain scope, not proof of complete app/real company schema. No formal delivery approval."
   }
 }
