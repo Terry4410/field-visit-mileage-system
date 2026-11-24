@@ -76,7 +76,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/pdf-check"
           "$RUNNER_TEMP/pdf-check/bin/python" -m pip install --quiet --disable-pip-version-check pymupdf==1.24.14
           "$RUNNER_TEMP/pdf-check/bin/python" - <<'PY'
-          import os,pathlib,fitz
+          import os,pathlib,fitz,unicodedata
           root=pathlib.Path(os.environ['RUNNER_TEMP'])
           pdf=root/'pdf/query05_cjk_3_rows.pdf'
           doc=fitz.open(pdf)
@@ -92,8 +92,12 @@ jobs:
           assert not any('DejaVuSerif' in font for font in names),names
           text='\n'.join(page.get_text(sort=True) for page in doc)
           print('PDF_EXTRACTED_TEXT_SAMPLE='+repr(text[:350]))
+          # Skia/Type3 may assign a CJK Compatibility Radical (U+2Fxx)
+          # to a visually identical unified ideograph; normalize that PDF
+          # extraction before validating the visible report wording.
+          normalized=unicodedata.normalize('NFKC',text)
           for phrase in ('外訪行程與里程管理系統','行程查詢報表','日期','外訪員','小組','查詢'):
-              assert phrase in text,(phrase,repr(text[:450]))
+              assert phrase in normalized,(phrase,repr(text[:450]))
           assert '\\x00' not in text,'NULL_GLYPHS_IN_PDF'
           assert len(text.strip())>200
           (root/'pdf-fonts.txt').write_text('\n'.join(map(str,fonts))+'\n')
