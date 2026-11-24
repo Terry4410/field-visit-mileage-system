@@ -2,6 +2,7 @@ import{useEffect,useState}from"react";
 import{api}from"../api";
 import type{V170PersonDetail}from"../types";
 import{todayTaipei}from"../v160";
+import{employmentStatusLabel}from"../employment-status";
 
 type Props={userId:number;onClose:()=>void;onChanged?:()=>void};
 type MasterRow={id:number;key:string;parentKey?:string;detail?:string;effectiveFrom:string;effectiveTo?:string;isPrimary?:boolean;rowVersion?:string};
@@ -21,6 +22,7 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
   const[busy,setBusy]=useState(false);
   const[sites,setSites]=useState<MasterRow[]>([]);
   const[assignments,setAssignments]=useState<MasterRow[]>([]);
+  const[siteLoadFailed,setSiteLoadFailed]=useState(false);
   const[siteCode,setSiteCode]=useState("");
   const[sitePrimary,setSitePrimary]=useState(true);
   const[siteFrom,setSiteFrom]=useState(todayTaipei());
@@ -36,18 +38,23 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
     setEmail(row.email||"");
     setHireDate(row.hireDate||"");
     setTerminationDate(row.terminationDate||"");
-    const [available,allAssignments]=await Promise.all([api<MasterRow[]>("/admin/master-data/deployment-sites"),api<MasterRow[]>("/admin/master-data/employment-sites")]);
-    setSites(available);setAssignments(allAssignments.filter(x=>x.key===row.employeeNo));
+    const [available,allAssignments]=await Promise.allSettled([api<MasterRow[]>("/admin/master-data/deployment-sites"),api<MasterRow[]>("/admin/master-data/employment-sites")]);
+    if(available.status==="fulfilled")setSites(available.value);
+    if(allAssignments.status==="fulfilled")setAssignments(allAssignments.value.filter(x=>x.key===row.employeeNo));
+    const failures=[available.status==="rejected"?"官方據點清單":"",allAssignments.status==="rejected"?"派駐資料清單":""].filter(Boolean);
+    setSiteLoadFailed(failures.length>0);
+    setMsg(failures.length?`${failures.join("、")}載入失敗；人事資料仍可查看，派駐設定請暫緩修改。`:"");
   };
 
   const saveAssignment=async(id?:number,rowVersion?:string)=>{
+    if(siteLoadFailed)return setMsg("派駐資料尚未完整載入，請先重新開啟維護畫面。");
     if(!data?.employeeNo||!siteCode)return setMsg("請選擇所屬就業中心／派駐據點。");
     if(!siteNoEnd&&!siteTo)return setMsg("取消「無期限」後，派駐據點失效日必填。");
     if(!siteNoEnd&&siteTo<siteFrom)return setMsg("結束日不可早於開始日。");
     setBusy(true);setMsg("");
     try{await api(id?`/admin/master-data/employment-sites/${id}`:"/admin/master-data/employment-sites",{method:id?"PUT":"POST",body:JSON.stringify({employeeNo:data.employeeNo,siteCode,isPrimary:sitePrimary,effectiveFrom:siteFrom,effectiveTo:siteNoEnd?null:siteTo,rowVersion:rowVersion||null})});setMsg("所屬就業中心／派駐據點已更新。");setEditingAssignment(null);await load();onChanged?.()}catch(e){setMsg(e instanceof Error?e.message:"派駐據點更新失敗")}finally{setBusy(false)}
   };
-  useEffect(()=>{void load().catch(e=>setMsg(e instanceof Error?e.message:"人事資料載入失敗"))},[userId]);
+  useEffect(()=>{void load().catch(e=>setMsg(`人事詳細資料載入失敗：${e instanceof Error?e.message:"請稍後再試"}`))},[userId]);
 
   const save=async()=>{
     if(!data?.employmentRowVersion)return setMsg("此人員沒有可維護的 v1.8 Employment。");
@@ -93,7 +100,7 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
   return <div className="modal"><div className="modal-panel" role="dialog" aria-modal="true" aria-label="人事資料維護">
     <button className="btn small outline modal-close" disabled={busy} onClick={onClose}>關閉</button>
     <h3>人事資料維護｜{data.displayName}</h3>
-    <div className="note">目前人事狀態：<strong>{data.employmentStatus||"—"}</strong>｜實際登入：<strong>{data.actualAccess?"允許":"暫停"}</strong></div>
+    <div className="note">目前人事狀態：<strong>{employmentStatusLabel(data.employmentStatus)}</strong>｜實際登入：<strong>{data.actualAccess?"允許":"暫停"}</strong></div>
     {msg&&<div className="note" style={{marginTop:10}}>{msg}</div>}
 
     <div className="grid cols-2" style={{marginTop:14}}>
@@ -107,23 +114,23 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
 
     <hr/>
     <h4>人事狀態期間</h4>
-    <div className="note">Active／Leave／Terminated／PreHire 採有效日期管理；目前處於 Leave 或 Terminated 時，登入會在 server-side 自動拒絕。</div>
+    <div className="note">在職、留停、離職及未到職採有效日期管理；目前處於留停或離職時，系統會拒絕登入。</div>
     <div className="grid cols-3" style={{marginTop:12}}>
-      <div className="field"><label>狀態</label><select value={status} onChange={e=>setStatus(e.target.value)}><option value="Active">Active</option><option value="Leave">Leave（留停）</option><option value="Terminated">Terminated（離職）</option><option value="PreHire">PreHire（未到職）</option></select></div>
+      <div className="field"><label>狀態</label><select value={status} onChange={e=>setStatus(e.target.value)}><option value="Active">在職</option><option value="Leave">留停</option><option value="Terminated">離職</option><option value="PreHire">未到職</option></select></div>
       <div className="field"><label>開始日</label><input type="date" value={statusFrom} onChange={e=>setStatusFrom(e.target.value)}/></div>
       <div className="field"><label>結束日</label><input type="date" value={statusTo} disabled={statusNoEnd} onChange={e=>setStatusTo(e.target.value)}/><label className="check-row"><input type="checkbox" checked={statusNoEnd} onChange={e=>{setStatusNoEnd(e.target.checked);if(e.target.checked)setStatusTo("")}}/>無期限</label></div>
     </div>
     <button className="btn secondary" disabled={busy} onClick={()=>void addStatus()}>新增狀態期間</button>
 
     <div className="table-wrap" style={{marginTop:12}}><table><thead><tr><th>狀態</th><th>開始日</th><th>結束日</th><th>目前</th><th>來源</th></tr></thead><tbody>
-      {data.employmentPeriods.map(p=><tr key={p.userEmploymentPeriodId}><td>{p.employmentStatus}</td><td>{p.effectiveFrom}</td><td>{p.effectiveTo||"無期限"}</td><td>{p.isCurrent?"是":"—"}</td><td>{p.sourceType}{p.sourceReference?`｜${p.sourceReference}`:""}</td></tr>)}
+      {data.employmentPeriods.map(p=><tr key={p.userEmploymentPeriodId}><td>{employmentStatusLabel(p.employmentStatus)}</td><td>{p.effectiveFrom}</td><td>{p.effectiveTo||"無期限"}</td><td>{p.isCurrent?"是":"—"}</td><td>{p.sourceType}{p.sourceReference?`｜${p.sourceReference}`:""}</td></tr>)}
     </tbody></table></div>
 
     <hr/>
     <h4>所屬就業中心／派駐據點</h4>
     <div className="note">此資料決定外訪員行程起點與終點的預設值；系統會以有效期間內的主要據點自動帶入。外訪員可依本次行程實際需要調整起點或終點，調整只影響該次行程，不會修改人事主檔。</div>
     <div className="grid cols-3" style={{marginTop:12}}><div className="field"><label>就業中心／派駐據點</label><select value={siteCode} onChange={e=>setSiteCode(e.target.value)}><option value="">請選擇</option>{sites.map(s=><option key={s.id} value={s.key}>{s.parentKey?`${s.parentKey}／`:''}{s.key}｜{s.detail||''}</option>)}</select></div><div className="field"><label>生效日</label><input type="date" value={siteFrom} onChange={e=>setSiteFrom(e.target.value)}/></div><div className="field"><label>失效日</label><input type="date" value={siteTo} disabled={siteNoEnd} onChange={e=>setSiteTo(e.target.value)}/></div></div>
-    <div className="effective-flags"><label className="check-row"><input type="checkbox" checked={siteNoEnd} onChange={e=>{setSiteNoEnd(e.target.checked);if(e.target.checked)setSiteTo("")}}/>無期限</label><label className="check-row"><input type="checkbox" checked={sitePrimary} onChange={e=>setSitePrimary(e.target.checked)}/>主要據點（行程起點／終點）</label></div><button className="btn secondary" disabled={busy} onClick={()=>void saveAssignment(editingAssignment?.id,editingAssignment?.rowVersion)}>{editingAssignment?"儲存派駐據點變更":"新增派駐據點"}</button>{editingAssignment&&<button className="btn small outline" style={{marginLeft:8}} onClick={()=>setEditingAssignment(null)}>取消修改</button>}
-    <div className="table-wrap" style={{marginTop:12}}><table><thead><tr><th>中心</th><th>派駐據點</th><th>有效期間</th><th>主要</th><th>操作</th></tr></thead><tbody>{assignments.map(a=><tr key={a.id}><td>{sites.find(s=>s.key===a.parentKey)?.parentKey||"—"}</td><td>{a.parentKey||"—"}</td><td>{a.effectiveFrom}～{a.effectiveTo||"無期限"}</td><td>{a.isPrimary?"是":"—"}</td><td><button className="btn small outline" disabled={busy} onClick={()=>{setEditingAssignment(a);setSiteCode(a.parentKey||"");setSitePrimary(!!a.isPrimary);setSiteFrom(a.effectiveFrom);setSiteTo(a.effectiveTo||"");setSiteNoEnd(!a.effectiveTo)}}>修改</button></td></tr>)}</tbody></table></div>
+    <div className="effective-flags"><label className="check-row"><input type="checkbox" checked={siteNoEnd} onChange={e=>{setSiteNoEnd(e.target.checked);if(e.target.checked)setSiteTo("")}}/>無期限</label><label className="check-row"><input type="checkbox" checked={sitePrimary} onChange={e=>setSitePrimary(e.target.checked)}/>主要據點（行程起點／終點）</label></div><button className="btn secondary" disabled={busy||siteLoadFailed} onClick={()=>void saveAssignment(editingAssignment?.id,editingAssignment?.rowVersion)}>{editingAssignment?"儲存派駐據點變更":"新增派駐據點"}</button>{editingAssignment&&<button className="btn small outline" style={{marginLeft:8}} onClick={()=>setEditingAssignment(null)}>取消修改</button>}
+    <div className="table-wrap" style={{marginTop:12}}><table><thead><tr><th>中心</th><th>派駐據點</th><th>有效期間</th><th>主要</th><th>操作</th></tr></thead><tbody>{assignments.map(a=><tr key={a.id}><td>{sites.find(s=>s.key===a.parentKey)?.parentKey||"—"}</td><td>{a.parentKey||"—"}</td><td>{a.effectiveFrom}～{a.effectiveTo||"無期限"}</td><td>{a.isPrimary?"是":"—"}</td><td><button className="btn small outline" disabled={busy||siteLoadFailed} onClick={()=>{setEditingAssignment(a);setSiteCode(a.parentKey||"");setSitePrimary(!!a.isPrimary);setSiteFrom(a.effectiveFrom);setSiteTo(a.effectiveTo||"");setSiteNoEnd(!a.effectiveTo)}}>修改</button></td></tr>)}</tbody></table></div>
   </div></div>;
 }

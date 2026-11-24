@@ -17,6 +17,12 @@ const reports:{kind:ReportKind;title:string;description:string}[]=[
  {kind:"projects",title:"專案管理",description:"專案主檔"},
  {kind:"visit-types",title:"拜訪型式",description:"拜訪型式代碼、名稱與排序"}
 ];
+const reportGroups:{label:string;kinds:ReportKind[]}[]=[
+ {label:"人事與權限",kinds:["personnel","personnel-full","roles"]},
+ {label:"小組",kinds:["teams","members"]},
+ {label:"地點與據點",kinds:["locations","centers","deployment-sites","locations-official"]},
+ {label:"專案與拜訪",kinds:["projects","visit-types"]}
+];
 const fields:{group:string;list:{key:string;label:string}[]}[]=[
  {group:"基本資料",list:[{key:"employeeNo",label:"工號"},{key:"name",label:"姓名"},{key:"email",label:"Email"},{key:"userType",label:"人員類型"}]},
  {group:"人事狀態",list:[{key:"employmentStatus",label:"目前人事狀態"},{key:"hireDate",label:"入職日"},{key:"terminationDate",label:"離職日"}]},
@@ -75,7 +81,7 @@ export default function ReportDownloadPage(){
  return <div className="card">
   <div className="section-title"><div><h2>報表下載中心</h2><div className="sub">先選報表用途，再依需求選欄位或下載歷史；只匯出目前管理員有權查詢的資料。Excel 匯出不會修改主檔。</div></div></div>
   <div className="grid cols-2">
-   <label>報表種類<select value={kind} onChange={e=>{setKind(e.target.value as ReportKind);setMsg("")}}>{reports.map(r=><option key={r.kind} value={r.kind}>{r.title}</option>)}</select></label>
+   <label>報表種類<select value={kind} onChange={e=>{setKind(e.target.value as ReportKind);setMsg("")}}>{reportGroups.map(g=><optgroup key={g.label} label={g.label}>{g.kinds.map(k=>{const r=reports.find(item=>item.kind===k)!;return <option key={r.kind} value={r.kind}>{r.title}</option>})}</optgroup>)}</select></label>
    <label>關鍵字<input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="姓名、代碼或名稱"/></label>
    {(kind==="members"||kind==="personnel"||kind==="personnel-full"||kind==="roles"||kind==="locations"||kind==="locations-official"||kind==="teams"||kind==="projects")&&
     <label>小組{needsTeam?"（必選）":"（選填）"}<select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">{needsTeam?"請選擇小組":"全部"}</option>{teams.map(t=><option key={t.teamId} value={t.teamId}>{t.teamCode}｜{t.teamName}</option>)}</select></label>}
