@@ -1,16 +1,16 @@
 name: Path B formal location integration (NONDEPLOY)
 on:
   push:
-    branches: [fix/pathb-formal-location-integration-20261124]
+    branches: [fix/pathb-lowrisk-stage-20261124]
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: pathb-formal-location-integration
+  group: pathb-lowrisk-stage
   cancel-in-progress: false
 jobs:
   package:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-formal-location-integration-20261124'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-lowrisk-stage-20261124'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
