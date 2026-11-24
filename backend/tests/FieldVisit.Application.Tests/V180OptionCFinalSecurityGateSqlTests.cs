@@ -25,7 +25,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
     {
         await using var h = await Harness.TryCreateAsync();
         if (h is null) return;
-        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(h.Db).Options;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(h.Db, sql => sql.EnableRetryOnFailure()).Options;
         await using var db = new AppDbContext(options);
         // Use the real EF mapping for only these two tables in the existing disposable SQL fixture.
         var batches = System.Text.RegularExpressions.Regex.Split(db.Database.GenerateCreateScript(),
@@ -62,6 +62,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 System.Text.Json.JsonSerializer.Deserialize<V170LocationNoteRequest>(
                     System.Text.Json.JsonSerializer.Serialize(new { teamId, note, changeReason = (string?)null }), json)!;
             Assert.Equal("0", await h.Scalar("SELECT CONVERT(varchar(1), HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'SELECT'))"));
+            Assert.True(db.Database.CreateExecutionStrategy().RetriesOnFailure);
             await repo.GetMaintenanceAsync(visitor, 10, 1, ct);
             var saved = await repo.AddNoteAsync(visitor, 10, Request(1, "synthetic entrance note"), ct);
             Assert.Contains("synthetic entrance note", System.Text.Json.JsonSerializer.Serialize(saved));
@@ -76,7 +77,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => repo.GetMaintenanceAsync(admin, 10, 2, ct));
             Assert.Equal("0", await h.Scalar("SELECT COUNT(*) FROM dbo.TeamLocationNotes WHERE TeamId=2"));
             Assert.Equal("Original 10", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=10"));
-            Console.WriteLine("PATHB_SCOPED_NOTES_SQL_PASS audit_select_denied=true save_update_history=true cross_org_denied=true");
+            Console.WriteLine("PATHB_SCOPED_NOTES_SQL_PASS retry_strategy=true audit_select_denied=true save_update_history=true cross_org_denied=true");
         }
         finally { await h.Exec("REVERT;"); }
     }
