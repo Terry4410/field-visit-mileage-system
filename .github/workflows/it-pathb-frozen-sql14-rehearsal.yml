@@ -1,0 +1,147 @@
+name: Frozen SQL14 and latest API rehearsal (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['.github/workflows/it-pathb-frozen-sql14-rehearsal.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e8de647be2fca9d15a4e046b8e4598f8190420ea
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify archived SQL bytes and reproduce exact review layer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = e8de647be2fca9d15a4e046b8e4598f8190420ea
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14836919253/zip > "$RUNNER_TEMP/base.zip"
+          echo "a1225cbeb08b5d62fff6035cf432e211aade0da6fcb035b27ba269df31f2b101  $RUNNER_TEMP/base.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/sql14"
+          python3 - <<'PY'
+          import os,json,hashlib,zipfile,re
+          from pathlib import Path
+          d=Path(os.environ['RUNNER_TEMP'])/'sql14'
+          H=lambda b:hashlib.sha256(b).hexdigest()
+          with zipfile.ZipFile(d.parent/'base.zip') as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('it-sql-install-order.json'))
+              assert m['candidateSourceSha']=='2982498a7a7ecc7cdebf75d8d5a34165c08bbfa5'
+              assert len(m['sequence'])==13
+              for i,x in enumerate(m['sequence'],1):
+                  assert x['step']==i and re.fullmatch(r'[A-Za-z0-9_.-]+\.sql',x['file'])
+                  b=z.read(x['file']); assert H(b)==x['sha256']
+                  (d/x['file']).write_bytes(b)
+              v=z.read('50_scoped_clean_install_verify.sql')
+              assert H(v)==m['verificationSql']['sha256']=='cf91d7946020c96531c5bca6dab19eed0a7d984a7519fc5e4265f38b59d4bc54'
+              (d/'50_scoped_clean_install_verify.sql').write_bytes(v)
+              cm=json.loads(z.read('optionc-final-target-checks-manifest.json'))
+              s=(d/'optionc-final-target-checks.sql').read_text()
+              checks=[x for x in cm['checks'] if x['sourceVersion'] in ('018','020')]
+              assert len(checks)==5
+              assert [x['name'] for x in checks]==['CK_B3_ChangeRequests_ReviewState','CK_B3_ChangeRequestEvents_EventType','CK_B3_ChangeRequestEvents_DecisionState','CK_ImportBatches_Status','CK_ImportBatchItems_Status']
+              sql="""-- NONDEPLOY disposable SQL Server 2022 review candidate; NOT production installer.
+          -- Derived from the original 018/020 capability generator logic, using the already
+          -- verified corrected 020 predicates in historical clean-build artifact 14836919253.
+          SET XACT_ABORT ON; SET NOCOUNT ON;
+          IF CONVERT(int,SERVERPROPERTY(N'ProductMajorVersion'))<>16 OR CONVERT(int,SERVERPROPERTY(N'EngineEdition')) NOT IN(2,3,4) OR DB_NAME() NOT IN(N'OptionCIsolated_FieldVisitV180CleanInstall',N'OptionCIsolated_FieldVisitV180Replay') THROW 56600,N'DISPOSABLE_ONLY',1;
+          IF @@TRANCOUNT<>0 THROW 56604,N'AMBIENT_TRANSACTION_DENIED',1;
+          BEGIN TRANSACTION;
+          IF (SELECT COUNT(*) FROM dbo.SchemaVersions)<>1 OR NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THROW 56601,N'BASE_CAPABILITY_REQUIRED',1;
+          """
+              for ver in ('018','020'):
+                  group=[x for x in checks if x['sourceVersion']==ver]
+                  for i,x in enumerate(group):
+                      table=x['table'];name=x['name'];tmp='#capProof'+ver+str(i)
+                      definition=re.search(r'ALTER TABLE '+re.escape(table)+r' WITH CHECK ADD (CONSTRAINT '+name+r'\s+CHECK.*?);\nALTER TABLE',s,re.S).group(1)
+                      assert H(definition.encode())==x['definitionSha256']
+                      norm=lambda a:f"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE({a}.definition,CHAR(13),''),CHAR(10),''),CHAR(9),''),' ',''),'[','') COLLATE Latin1_General_100_BIN2"
+                      sql+=f"SELECT TOP(0) * INTO {tmp} FROM {table};\nALTER TABLE {tmp} ADD {definition};\nIF NOT EXISTS(SELECT 1 FROM sys.check_constraints c JOIN tempdb.sys.check_constraints p ON p.parent_object_id=OBJECT_ID(N'tempdb..{tmp}') WHERE c.parent_object_id=OBJECT_ID(N'{table}') AND c.name=N'{name}' AND c.is_disabled=0 AND c.is_not_trusted=0 AND {norm('c')}={norm('p')}) THROW 56602,N'FINAL_SOURCE_CHECK_DRIFT',1;\nDROP TABLE {tmp};\n"
+                  cap='1.8.0-LOWRISK-DIRECT' if ver=='018' else '1.8.0-EXCEL-CANONICAL-STATUS'
+                  sql+=f"INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'{cap}',N'New-schema source-verified capability; source SHA256 {group[0]['sourceSha256']}; not historical migration',SYSUTCDATETIME(),N'uat-release-new-schema');\n"
+              sql+="IF (SELECT COUNT(*) FROM dbo.SchemaVersions)<>3 OR EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber LIKE N'1.8.0-0%') THROW 56603,N'FALSE_HISTORY_DENIED',1;\nCOMMIT;\n"
+              b=sql.encode()
+              assert H(b)=='9bbd5c3229bf9b8af91c00f29c9cba9fae87eb2115a5b2d91d130e405a2bfe64'
+              (d/'60_final_functional_capabilities_REVIEW.sql').write_bytes(b)
+              vv=v.decode().replace("IF (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions)<>1 OR\n   NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions\n     WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK' AND AppliedBy=N'clean-install-v180')","IF (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions)<>3 OR\n   NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK' AND AppliedBy=N'clean-install-v180') OR\n   (SELECT COUNT_BIG(*) FROM dbo.SchemaVersions WHERE VersionNumber IN(N'1.8.0-LOWRISK-DIRECT',N'1.8.0-EXCEL-CANONICAL-STATUS') AND AppliedBy=N'uat-release-new-schema')<>2").replace('REPLAY_SCOPED_SQL2022_VERIFY_PASS','REPLAY_SCOPED_SQL2022_THREE_CAPABILITIES_VERIFY_PASS')
+              assert H(vv.encode())=='5323f5f7ed9c8e8ddbefb832cd1394f8dbdb2bcf16f01921d289385625dd7885'
+              (d/'70_scoped_three_capabilities_verify_REVIEW.sql').write_text(vv)
+              (d/'order.txt').write_text(''.join(x['file']+'\n' for x in m['sequence']))
+          print('FROZEN_13_SQL_BYTES_AND_EXACT_REVIEW_LAYER=PASS')
+          PY
+      - name: Publish frozen API for local-only readiness smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false --output "$RUNNER_TEMP/api" --nologo
+      - name: SQL2022 replay, wrong target and repeat refusal, latest API smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/sql14"
+          db=OptionCIsolated_FieldVisitV180Replay
+          pw="Aa9!$(openssl rand -hex 18)"
+          jwt="$(openssl rand -hex 32)"
+          echo "::add-mask::$pw"
+          echo "::add-mask::$jwt"
+          pid=""
+          cleanup() {
+            local rc=$?
+            trap - EXIT
+            if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+            docker rm -f fv-sql14 >/dev/null 2>&1 || rc=1
+            exit "$rc"
+          }
+          docker run -d --name fv-sql14 -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap cleanup EXIT
+          cmd() { docker exec -i fv-sql14 /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 "$@"; }
+          ready=NO
+          for _ in $(seq 1 60); do if cmd -d master -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          cmd -d master -Q "IF CONVERT(int,SERVERPROPERTY('ProductMajorVersion'))<>16 THROW 56500,N'SQL2022_REQUIRED',1; IF DB_ID(N'$db') IS NOT NULL THROW 56520,N'REPLAY_TARGET_EXISTS',1; CREATE DATABASE [$db];" >/dev/null
+          prologue="SET ANSI_NULLS ON;SET ANSI_PADDING ON;SET ANSI_WARNINGS ON;SET ARITHABORT ON;SET CONCAT_NULL_YIELDS_NULL ON;SET QUOTED_IDENTIFIER ON;SET NUMERIC_ROUNDABORT OFF;"
+          runsql() { { printf '%s\nGO\n' "$prologue"; cat "$1"; } | cmd -d "$2"; }
+          checksql() {
+            if ! runsql "$d/$1" "$db" > "$RUNNER_TEMP/sql14.log" 2>&1; then
+              grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/sql14.log" || true
+              echo "SQL14_FAILURE_STEP=$1"; exit 1
+            fi
+            echo "SQL_PASS=$1"
+          }
+          while IFS= read -r file; do checksql "$file"; done < "$d/order.txt"
+          checksql 50_scoped_clean_install_verify.sql
+          if runsql "$d/60_final_functional_capabilities_REVIEW.sql" master > "$RUNNER_TEMP/sql14.log" 2>&1; then exit 1; fi
+          grep -Eq '^Msg 56600,' "$RUNNER_TEMP/sql14.log"
+          echo WRONG_TARGET_DENIAL=PASS
+          checksql 60_final_functional_capabilities_REVIEW.sql
+          checksql 70_scoped_three_capabilities_verify_REVIEW.sql
+          if runsql "$d/60_final_functional_capabilities_REVIEW.sql" "$db" > "$RUNNER_TEMP/sql14.log" 2>&1; then exit 1; fi
+          grep -Eq '^Msg 56601,' "$RUNNER_TEMP/sql14.log"
+          checksql 70_scoped_three_capabilities_verify_REVIEW.sql
+          echo REPLAY_DENIAL_AND_LEDGER_UNCHANGED=PASS
+          export ConnectionStrings__DefaultConnection="Server=127.0.0.1,1433;Database=$db;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
+          export BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false
+          export Providers__Route=Mock Providers__Geocoding=Mock OptionC__Candidate__Enabled=false OptionC__Approval__Enabled=false Swagger__Enabled=false
+          export Auth__Mode=Demo Auth__JwtKey="$jwt" Auth__DemoPassword="$(openssl rand -hex 24)" ASPNETCORE_ENVIRONMENT=Production
+          dotnet "$RUNNER_TEMP/api/FieldVisit.Api.dll" --urls http://127.0.0.1:5099 > "$RUNNER_TEMP/api.log" 2>&1 &
+          pid=$!
+          ready=NO
+          for _ in $(seq 1 40); do
+            kill -0 "$pid" || exit 1
+            if curl -fsS --max-time 3 http://127.0.0.1:5099/health/ready | python3 -c "import json,sys; assert json.load(sys.stdin)['status']=='ready'" 2>/dev/null; then ready=YES; break; fi
+            sleep 1
+          done
+          test "$ready" = YES
+          test "$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:5099/api/v1/me)" = 401
+          echo FROZEN_API_SQL14_READY_AND_ANONYMOUS_401=PASS
+          echo SCOPE=DISPOSABLE_SQL2022_SCHEMA_READINESS_ONLY_NOT_RUNTIME_ACL_OR_BUSINESS_UAT
