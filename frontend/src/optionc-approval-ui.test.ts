@@ -1,6 +1,6 @@
 import{describe,it,expect}from"vitest";
 import{OPTIONC_APPROVAL_UI_ENABLED}from"./optionc-approval-flags";
-import{adminDecisionPath,differences,isTerminalStatus,mayLeaderReview,mayReview,reviewPayload,safeFields,statusLabel,matchingHighRiskStage,mayPublishHighRisk,type OptionCRequest}from"./optionc-approval-ui";
+import{adminDecisionPath,differences,isTerminalStatus,mayLeaderReview,mayReview,reviewPayload,safeFields,statusLabel,matchingHighRiskStage,mayPublishHighRisk,lowRiskReviewStage,type OptionCRequest}from"./optionc-approval-ui";
 const row:OptionCRequest={requestPublicId:"id",entityId:"2",teamId:3,riskCode:"High",status:"Pending",requestedByUserId:7,submittedAt:"",beforeJson:'{"LocationName":"A"}',proposedJson:'{"LocationName":"B"}',rowVersion:"AAAAAAAAAAA="};
 describe("Option C review UI fail-closed candidate",()=>{
  it("is OFF",()=>expect(OPTIONC_APPROVAL_UI_ENABLED).toBe(false));
@@ -54,5 +54,17 @@ describe("Admin high-risk stage evidence for create AND published update",()=>{
   const request={...row,operationCode:"UpdatePublishedLocation"};
   expect(mayPublishHighRisk(request,{...ready,geocodeStatus:"Pending"})).toBe(false);
   expect(mayPublishHighRisk(request,{...ready,duplicateReviewStatus:"Blocked"})).toBe(false);
+ });
+});
+
+describe("Low-risk Leader continuation",()=>{
+ const request={requestPublicId:"id",operationCode:"UpdatePublishedLocation",riskCode:"Low",requestStatus:"Pending",leaderStatus:"Approved",requestedByUserId:7,rowVersion:"rv"};
+ const stage={requestPublicId:"id",stageStatus:"PendingDuplicateReview",geocodeStatus:"NotRequired",duplicateReviewStatus:"Pending",stageRowVersion:"sv"};
+ it("binds independent approved low-risk continuation to the matching stage",()=>{
+  expect(lowRiskReviewStage(request,stage,8)).toEqual(stage);
+  expect(lowRiskReviewStage(request,stage,7)).toBeNull();
+  expect(lowRiskReviewStage({...request,leaderStatus:"Pending"},stage,8)).toBeNull();
+  expect(lowRiskReviewStage({...request,riskCode:"High"},stage,8)).toBeNull();
+  expect(lowRiskReviewStage(request,{...stage,requestPublicId:"other"},8)).toBeNull();
  });
 });

@@ -61,3 +61,8 @@ export function mayPublishHighRisk(row:OptionCRequest|undefined,stage:ReviewStag
    &&(matched.geocodeStatus==="Succeeded"||matched.geocodeStatus==="NotRequired")
    &&matched.duplicateReviewStatus==="Cleared";
 }
+
+export function lowRiskReviewStage(row:{requestPublicId:string;operationCode:string;riskCode:string;requestStatus:string;leaderStatus:string;requestedByUserId:number;rowVersion:string}|undefined,stage:ReviewStage|null,actorId:number){
+ if(!row||!stage||actorId<=0||row.requestedByUserId===actorId||row.operationCode!=="UpdatePublishedLocation"||row.riskCode!=="Low"||row.requestStatus!=="Pending"||row.leaderStatus!=="Approved"||!row.rowVersion||stage.requestPublicId!==row.requestPublicId||!stage.stageRowVersion||stage.geocodeStatus!=="NotRequired")return null;
+ return stage;
+}
