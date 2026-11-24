@@ -152,9 +152,17 @@ public sealed partial class V180TripMileageHttpSqlE2ETests
         await db.SaveChangesAsync();
         db.AddRange(
             new DeploymentSiteLocationAssignment { DeploymentSiteId = site.DeploymentSiteId, LocationId = approved.LocationId, EffectiveFrom = new DateOnly(2020, 1, 1), CreatedAt = now },
-            new VisitType { VisitTypeCode = "E2E", VisitTypeName = "E2E Visit", IsActive = true, CreatedAt = now },
-            new MileageRateRule { OrganizationId = org.OrganizationId, RuleName = "E2E rate", VehicleType = "Motorcycle", RatePerKm = 3m, EffectiveFrom = new DateOnly(2020, 1, 1), IsActive = true, CreatedAt = now });
+            new VisitType { VisitTypeCode = "E2E", VisitTypeName = "E2E Visit", IsActive = true, CreatedAt = now });
         await db.SaveChangesAsync();
+        // Provision the rate using the actual schema contract, not the legacy EF fixture.
+        // Preserve all CHECK constraints and triggers. Verify persisted data before any HTTP operation.
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT dbo.MileageRateRules(OrganizationId,RuleName,VehicleType,RatePerKm,EffectiveFrom,IsActive,CreatedAt) VALUES({org.OrganizationId},{"E2E rate"},{"MOTORCYCLE"},{3m},{new DateTime(2020,1,1)},{true},{now})");
+        var persistedRate = await db.MileageRateRules.AsNoTracking().SingleAsync(x => x.OrganizationId == org.OrganizationId && x.RuleName == "E2E rate");
+        Assert.Equal("MOTORCYCLE", persistedRate.VehicleType);
+        Assert.Equal(3m, persistedRate.RatePerKm);
+        Assert.True(persistedRate.IsActive);
+        Assert.True(await db.TeamLeaderAssignments.AsNoTracking().AnyAsync(x => x.TeamId == team.TeamId && x.EmploymentId == leaderEmployment.EmploymentId));
+        Console.WriteLine("COMPANY_SCHEMA_CANONICAL_FIXTURE_READBACK=PASS");
         return (visitor, leader, team, approved, pending);
     }
 
