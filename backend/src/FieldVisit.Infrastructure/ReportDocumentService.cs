@@ -249,40 +249,66 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         return result.Count > 0 ? result : new[] { "" };
     }
 
+    // Cache the 19 MB font once. Hosting platforms may mount the API ZIP
+    // without exposing fonts/ under AppContext.BaseDirectory, despite the ZIP
+    // containing the file. Embedding in the published DLL avoids that path risk.
+    // The font is supplied from the existing source-verified packaging artifact.
+    private static readonly Lazy<SKTypeface?> EmbeddedCjkTypeface = new(() =>
+    {
+        using var resource = typeof(ReportDocumentService).Assembly
+            .GetManifestResourceStream("FieldVisit.Pdf.NotoSansCJK-Regular.ttc");
+        if (resource is null) return null;
+        using var bytes = new MemoryStream();
+        resource.CopyTo(bytes);
+        using var data = SKData.CreateCopy(bytes.ToArray());
+        // Exact bundled NotoSansCJK-Regular.ttc has TC (Traditional Chinese)
+        // as face index 3; the default index 0 uses Japanese glyph variants.
+        return SKTypeface.FromData(data, 3);
+    });
+
+    // A generic Arial/DejaVu fallback silently yields missing-glyph squares.
+    // Never deliver such a PDF and label it successful.
+    private static bool SupportsReportChinese(SKTypeface? font) =>
+        font is not null &&
+        font.ContainsGlyphs("外訪行程查詢報表小組專案里程核定費率補助日期時間狀態");
+
     private SKTypeface ResolveTypeface()
     {
         var configured = configuration["Report:PdfFontPath"];
         if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
         {
-            var fromFile = SKTypeface.FromFile(configured);
-            if (fromFile is not null) return fromFile;
+            var chosen = SKTypeface.FromFile(configured);
+            if (SupportsReportChinese(chosen)) return chosen;
         }
-        var bundled = Path.Combine(AppContext.BaseDirectory, "fonts", "NotoSansCJK-Regular.ttc");
-        if (File.Exists(bundled))
-        {
-            var fromBundle = SKTypeface.FromFile(bundled);
-            if (fromBundle is not null) return fromBundle;
-        }
+
+        // This is the primary source for production binaries. It is part of
+        // FieldVisit.Infrastructure.dll and survives API Run-From-Package.
+        if (EmbeddedCjkTypeface.Value is { } embedded &&
+            SupportsReportChinese(embedded))
+            return embedded;
 
         foreach (var candidate in new[]
         {
+            Path.Combine(AppContext.BaseDirectory, "fonts", "NotoSansCJK-Regular.ttc"),
+            "/home/site/wwwroot/fonts/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf",
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf",
             @"C:\Windows\Fonts\msjh.ttc"
         })
         {
             if (!File.Exists(candidate)) continue;
-            var fromCommonPath = SKTypeface.FromFile(candidate);
-            if (fromCommonPath is not null) return fromCommonPath;
+            var fromFile = SKTypeface.FromFile(candidate);
+            if (SupportsReportChinese(fromFile)) return fromFile;
         }
-        foreach (var family in new[] { "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans CJK", "Noto Sans TC", "PingFang TC", "Arial Unicode MS", "Arial" })
+        foreach (var family in new[] {
+            "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans CJK",
+            "Noto Sans TC", "PingFang TC", "Arial Unicode MS" })
         {
             var font = SKTypeface.FromFamilyName(family);
-            if (font is not null) return font;
+            if (SupportsReportChinese(font)) return font;
         }
-        return SKTypeface.Default;
+        throw new InvalidOperationException("PDF_CJK_FONT_MISSING_OR_UNSUPPORTED");
     }
 
     private static float MeasureWrappedRowHeight(float[] widths, string[] cells, SKPaint textPaint, float minimumHeight)

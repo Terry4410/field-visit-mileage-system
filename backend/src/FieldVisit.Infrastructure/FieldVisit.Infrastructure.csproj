@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
   <ItemGroup><ProjectReference Include="..\FieldVisit.Domain\FieldVisit.Domain.csproj" /><ProjectReference Include="..\FieldVisit.Application\FieldVisit.Application.csproj" /></ItemGroup>
+  <!-- Bundle the CJK font inside the signed assembly so Run-From-Package
+       mounts and IIS publish paths cannot silently drop font files. The
+       packaging workflow supplies the already-verified Noto font at build. -->
+  <ItemGroup Condition="Exists('fonts/NotoSansCJK-Regular.ttc')">
+    <EmbeddedResource Include="fonts/NotoSansCJK-Regular.ttc"
+                      LogicalName="FieldVisit.Pdf.NotoSansCJK-Regular.ttc" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
