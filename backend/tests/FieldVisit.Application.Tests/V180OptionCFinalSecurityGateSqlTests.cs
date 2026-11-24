@@ -21,6 +21,67 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
+    public async Task PathB_scoped_team_notes_save_without_audit_read_and_deny_foreign_team()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(h.Db).Options;
+        await using var db = new AppDbContext(options);
+        // Use the real EF mapping for only these two tables in the existing disposable SQL fixture.
+        var batches = System.Text.RegularExpressions.Regex.Split(db.Database.GenerateCreateScript(),
+            @"(?im)^\s*GO\s*$");
+        foreach (var table in new[] { "TeamLocationNotes", "TeamLocationNoteHistory" })
+        {
+            var ddl = Assert.Single(batches.Where(b => b.TrimStart().StartsWith(
+                $"CREATE TABLE [{table}]", StringComparison.Ordinal)));
+            await h.Exec(ddl);
+        }
+        await h.Exec("""
+            CREATE UNIQUE INDEX UQ_Test_TeamLocationNotes ON dbo.TeamLocationNotes(TeamId, LocationId);
+            IF OBJECT_ID(N'dbo.AuditLogs',N'U') IS NULL
+                CREATE TABLE dbo.AuditLogs(AuditLogId bigint IDENTITY PRIMARY KEY);
+            CREATE USER [PathBNotesTest] WITHOUT LOGIN;
+            GRANT SELECT ON dbo.Locations TO [PathBNotesTest];
+            GRANT SELECT ON dbo.Teams TO [PathBNotesTest];
+            GRANT SELECT ON dbo.Users TO [PathBNotesTest];
+            GRANT SELECT, INSERT, UPDATE ON dbo.TeamLocationNotes TO [PathBNotesTest];
+            GRANT SELECT, INSERT ON dbo.TeamLocationNoteHistory TO [PathBNotesTest];
+            DENY SELECT ON dbo.AuditLogs TO [PathBNotesTest];
+            EXECUTE AS USER = N'PathBNotesTest';
+            """);
+        try
+        {
+            var visitor = new CurrentUserDto(1, "E1", "Visitor", null, 1, 1, null,
+                new[] { "visitor" }, new[] { new TeamScopeDto(1, "Team 1", true) });
+            var admin = new CurrentUserDto(2, "E2", "Admin", null, 1, 1, null,
+                new[] { "admin" }, new[] { new TeamScopeDto(1, "Team 1", true) });
+            var repo = new V170LocationRepository(db);
+            var ct = CancellationToken.None;
+            var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+            V170LocationNoteRequest Request(int teamId, string note) =>
+                System.Text.Json.JsonSerializer.Deserialize<V170LocationNoteRequest>(
+                    System.Text.Json.JsonSerializer.Serialize(new { teamId, note, changeReason = (string?)null }), json)!;
+            Assert.Equal("0", await h.Scalar("SELECT CONVERT(varchar(1), HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'SELECT'))"));
+            await repo.GetMaintenanceAsync(visitor, 10, 1, ct);
+            var saved = await repo.AddNoteAsync(visitor, 10, Request(1, "synthetic entrance note"), ct);
+            Assert.Contains("synthetic entrance note", System.Text.Json.JsonSerializer.Serialize(saved));
+            Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.TeamLocationNotes WHERE TeamId=1 AND LocationId=10"));
+            Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.TeamLocationNoteHistory WHERE TeamId=1 AND LocationId=10"));
+            var updated = await repo.AddNoteAsync(visitor, 10, Request(1, "synthetic revised note"), ct);
+            Assert.Contains("synthetic revised note", System.Text.Json.JsonSerializer.Serialize(updated));
+            Assert.Equal("1", await h.Scalar("SELECT COUNT(*) FROM dbo.TeamLocationNotes WHERE TeamId=1 AND LocationId=10"));
+            Assert.Equal("2", await h.Scalar("SELECT COUNT(*) FROM dbo.TeamLocationNoteHistory WHERE TeamId=1 AND LocationId=10"));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => repo.GetMaintenanceAsync(visitor, 10, 2, ct));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => repo.AddNoteAsync(visitor, 10, Request(2, "denied"), ct));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => repo.GetMaintenanceAsync(admin, 10, 2, ct));
+            Assert.Equal("0", await h.Scalar("SELECT COUNT(*) FROM dbo.TeamLocationNotes WHERE TeamId=2"));
+            Assert.Equal("Original 10", await h.Scalar("SELECT LocationName FROM dbo.Locations WHERE LocationId=10"));
+            Console.WriteLine("PATHB_SCOPED_NOTES_SQL_PASS audit_select_denied=true save_update_history=true cross_org_denied=true");
+        }
+        finally { await h.Exec("REVERT;"); }
+    }
+
+    [Fact]
     public async Task R9_personnel_full_export_returns_filtered_five_sheet_history_only_to_admin()
     {
         await using var h=await Harness.TryCreateAsync(fullCanonicalChain:true);
