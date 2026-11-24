@@ -18,10 +18,10 @@ INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,EffectiveTo,CreatedAt
 INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,EffectiveTo,CreatedAt) VALUES(@v,@team,1,@since,NULL,@now),(@l,@team,1,@since,NULL,@now),(@a,@team,1,@since,NULL,@now);
 INSERT dbo.Persons(DisplayName,LegacyUserId,CreatedAt) VALUES(N'Path B VIS01 Synthetic Person',@v,@now);
 SET @person=CONVERT(bigint,SCOPE_IDENTITY());
-INSERT dbo.Employments(PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,SourceReference,CreatedAt) VALUES(@person,@org,N'pilotv01',@since,@v,N'Synthetic',N'PathB-VIS01-Context-v1',@now);
+INSERT dbo.Employments(PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,SourceReference) VALUES(@person,@org,N'pilotv01',@since,@v,N'Synthetic',N'PathB-VIS01-Context-v1');
 SET @emp=CONVERT(bigint,SCOPE_IDENTITY());
-INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,SourceReference,CreatedAt) VALUES(@emp,N'Active',@since,N'Synthetic',N'PathB-VIS01-Context-v1',@now);
-INSERT dbo.TeamMemberships(EmploymentId,TeamId,IsPrimary,EffectiveFrom,ChangeReason,CreatedAt) VALUES(@emp,@team,1,@since,N'Path B VIS01 synthetic UAT only',@now);
+INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,SourceReference) VALUES(@emp,N'Active',@since,N'Synthetic',N'PathB-VIS01-Context-v1');
+INSERT dbo.TeamMemberships(EmploymentId,TeamId,IsPrimary,EffectiveFrom,ChangeReason) VALUES(@emp,@team,1,@since,N'Path B VIS01 synthetic UAT only');
 UPDATE dbo.UserIdentityProfiles SET EmploymentId=@emp,UpdatedAt=@now WHERE UserId=@v;
 CREATE USER [api-fieldvisit-pathb-uat_pathb] WITHOUT LOGIN;
 GRANT CONNECT TO [api-fieldvisit-pathb-uat_pathb];

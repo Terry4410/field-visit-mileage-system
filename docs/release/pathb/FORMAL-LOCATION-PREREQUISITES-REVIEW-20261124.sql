@@ -155,11 +155,11 @@ BEGIN TRY
    IF @since IS NULL THROW 59811,N'EXISTING_ACTIVE_SYNTHETIC_HR_REQUIRED',1;
    INSERT dbo.Persons(DisplayName,LegacyUserId,CreatedAt) SELECT DisplayName,UserId,@now FROM dbo.Users WHERE UserId=@uid;
    SET @person=CONVERT(bigint,SCOPE_IDENTITY());
-   INSERT dbo.Employments(PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,SourceReference,CreatedAt)
-    VALUES(@person,@org,@code,@since,@uid,N'Synthetic',N'PathB-FormalLocation-UAT',@now);
+   INSERT dbo.Employments(PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,SourceReference)
+    VALUES(@person,@org,@code,@since,@uid,N'Synthetic',N'PathB-FormalLocation-UAT');
    SET @emp=CONVERT(bigint,SCOPE_IDENTITY());
-   INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,EffectiveTo,SourceType,SourceReference,CreatedAt)
-    SELECT @emp,EmploymentStatus,EffectiveFrom,EffectiveTo,N'Synthetic',N'PathB-FormalLocation-UAT',@now
+   INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,EffectiveTo,SourceType,SourceReference)
+    SELECT @emp,EmploymentStatus,EffectiveFrom,EffectiveTo,N'Synthetic',N'PathB-FormalLocation-UAT'
     FROM dbo.UserEmploymentPeriods WHERE UserId=@uid AND EffectiveFrom=@since AND EmploymentStatus=N'Active';
    IF @@ROWCOUNT<>1 THROW 59812,N'HR_STATUS_COPY_COUNT',1;
    UPDATE dbo.UserIdentityProfiles SET EmploymentId=@emp,UpdatedAt=@now WHERE UserId=@uid AND EmploymentId IS NULL;
