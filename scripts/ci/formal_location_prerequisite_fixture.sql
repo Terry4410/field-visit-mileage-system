@@ -2,6 +2,12 @@
 -- and existing Visitor HR link; never execute this fixture in Azure.
 IF DB_NAME()<>N'OptionCIsolated_FieldVisitV180Replay' OR CONVERT(int,SERVERPROPERTY(N'EngineEdition'))=5 THROW 59830,N'DISPOSABLE_ONLY',1;
 SET XACT_ABORT ON;
+-- Clean-install artifact records CREATE-LOWRISK only. The actual Path B catalog
+-- receipt #7123989526 contains both capability markers. Simulate the second
+-- marker only in this guarded disposable fixture; no migration or live claim.
+IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THROW 59831,N'DISPOSABLE_CREATE_MARKER_REQUIRED',1;
+IF NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-LOWRISK-DIRECT')
+ INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'1.8.0-LOWRISK-DIRECT',N'Disposable simulation of observed Path B marker; not migration evidence',SYSUTCDATETIME(),N'ci-fixture-only');
 SET ANSI_NULLS ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET ARITHABORT ON; SET CONCAT_NULL_YIELDS_NULL ON; SET QUOTED_IDENTIFIER ON; SET NUMERIC_ROUNDABORT OFF;
 DECLARE @now datetime2(3)=SYSUTCDATETIME(),@since date='20200101',@org int,@team int,@v int,@l int,@a int,@vr int,@lr int,@ar int,@person bigint,@emp bigint;
 INSERT dbo.Organizations(OrganizationCode,OrganizationName,IsActive,EffectiveFrom,EffectiveTo,CreatedAt) VALUES(N'UAT',N'Field Visit Path B UAT',1,@since,NULL,@now);
