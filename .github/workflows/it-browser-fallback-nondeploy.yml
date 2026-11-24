@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ea85a0d3985fc5bab3e2c25cf80d6d29a156d089
+          ref: 3fbd512f0144bc2062712bf7945d9769a8415824
           path: app
           persist-credentials: false
       - uses: actions/checkout@v4
