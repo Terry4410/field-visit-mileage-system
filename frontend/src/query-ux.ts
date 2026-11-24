@@ -1,9 +1,20 @@
-export type DateShortcut = 'month' | 'prev' | '3m' | '6m' | '12m' | 'custom';
+export type DateShortcut = 'yesterday' | 'today' | 'tomorrow' | 'lastWeek' | 'thisWeek' | 'nextWeek' | 'nextMonth' | 'month' | 'prev' | '3m' | '6m' | '12m' | 'custom';
 
 export function dateShortcutRange(kind: Exclude<DateShortcut, 'custom'>, today: string) {
   const [year, month, day] = today.split('-').map(Number);
   const iso = (date: Date) => date.toISOString().slice(0, 10);
-  if (kind === 'month') return { start: today.slice(0, 7) + '-01', end: today };
+  const offset = (days: number) => iso(new Date(Date.UTC(year, month - 1, day + days)));
+  if (kind === 'yesterday' || kind === 'today' || kind === 'tomorrow') {
+    const date = offset(kind === 'yesterday' ? -1 : kind === 'tomorrow' ? 1 : 0);
+    return {start: date, end: date};
+  }
+  if (kind === 'lastWeek' || kind === 'thisWeek' || kind === 'nextWeek') {
+    const weekday = (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
+    const shift = kind === 'lastWeek' ? -7 : kind === 'nextWeek' ? 7 : 0;
+    return {start: offset(shift - weekday), end: offset(shift - weekday + 6)};
+  }
+  if (kind === 'month') return { start: today.slice(0, 7) + '-01', end: iso(new Date(Date.UTC(year, month, 0))) };
+  if (kind === 'nextMonth') return {start: iso(new Date(Date.UTC(year, month, 1))), end: iso(new Date(Date.UTC(year, month + 1, 0)))};
   if (kind === 'prev') return {
     start: iso(new Date(Date.UTC(year, month - 2, 1))),
     end: iso(new Date(Date.UTC(year, month - 1, 0)))
