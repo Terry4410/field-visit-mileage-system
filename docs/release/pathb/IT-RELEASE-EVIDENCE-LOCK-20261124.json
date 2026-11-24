@@ -1865,5 +1865,54 @@
     },
     "configuration": "Two HTTPS sites (proposed IT decision), API at own root, framework-dependent Windows x64 ANCM in-process generated web.config, static hash routing, Entra templates blank company identifiers/secret/connection, corporate startup guard code compiled, Demo disabled in template and no email autobinding, explicit company front/API UI gate, formal location features disabled by default, Google/worker/Swagger disabled until configuration/validation. Exact verified CJK embedded resource preserved; no standalone font file. Actual Windows IIS execution, startup negative behavior, enterprise SQL/TLS, company Entra, actual Windows PDF NOT RUN.",
     "remaining": "Full business runtime ACL and cross-team authorization tests, subsequent employee identity provisioning, real formal location behavior, fresh/issued token revocation across uncovered endpoints, actual IIS/SSO/Google/worker and IT security review. Existing G1ReportExportHttpSqlTests source covers some report revocation and scope negatives on EF-shaped fixture; retain scope, not proof of complete app/real company schema. No formal delivery approval."
+  },
+  "coreRuntimeReview": {
+    "status": "STOP_AFTER_TWO_FIXTURE_FAILURES_HTTP_NOT_EXECUTED",
+    "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+    "permissionEntries": 58,
+    "runs": [
+      {
+        "id": 45411029554,
+        "job": 138504531673,
+        "commit": "2c89ace6e81b55fdad967fc2544a271f522dda2d",
+        "conclusion": "failure",
+        "root": "Fixture EF TeamLeaderAssignments insert uses OUTPUT without INTO on table with enabled trigger; no trip HTTP reached"
+      },
+      {
+        "id": 45411400808,
+        "job": 138505862647,
+        "commit": "6be4eb4548e6163f42e11ef92d768c53e22ef832",
+        "conclusion": "failure",
+        "root": "After DBA fixture appointment insert preserving triggers, fixture MileageRateRules Motorcycle violates actual binary-collated CHECK allowing MOTORCYCLE/CAR; no trip HTTP reached"
+      }
+    ],
+    "decision": "Stop same-method third replay under V2.1. Neither run establishes runtime ACL or core trip defect/PASS. Do not grant additional rights or modify constraints. Preserve prior UAT PASS. Next use reviewed actual-schema fixture contract or approved company test environment, verify TeamLeaderAssignments production EF write path if applicable. This is an engineering/IT review open item, not Owner technical task."
+  },
+  "integratedItReviewPackage": {
+    "status": "ACTUAL_ZIP_CREATED_VERIFIED_LIBRARY_UPLOAD_SUCCEEDED_REVIEW_ONLY_NOT_IT_DEPLOYMENT_READY",
+    "archive": "FieldVisit_v180_IT_Review_Package_20261124.zip",
+    "bytes": 37143756,
+    "sha256": "3c19a8a4c7e1abd77393735b1d5897ddd1a3372354e7eeb17a88ee417ecae54c",
+    "libraryFileId": "file_000000004234820680abf430b8ec242d",
+    "entries": 99,
+    "originalArtifacts": [
+      14926555963,
+      14925189029,
+      14928110014,
+      14930055326
+    ],
+    "sourceArchive": {
+      "run": 45412021074,
+      "job": 138508064796,
+      "artifact": 14930055326,
+      "commit": "039fb2e56f0e302c2487778d0bf1360f9ec8c23b",
+      "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+      "bytes": 777897,
+      "sha256": "b68d94f7d9862be302276bc3d38b0c864c11c6d77b35d88ace65372e89e3c4c1",
+      "sourceFiles": 366,
+      "scope": "tracked backend/frontend/contracts; not complete Git history, historical UAT defaults in exact source must be replaced with corporate templates at rebuild; no standalone font files; IT obtains approved font for rebuild"
+    },
+    "integrity": "Four original artifacts verified against SHA256 and all 90 internal file hashes, nested source CRC and final ZIP 99-entry readback matched",
+    "scope": "Consolidated schema, reference roles, first Admin, scoped people ACL, Windows IIS binary/config candidate, exact application source, Chinese readme/IT checklist and evidence. Unvalidated 58 grants not packaged. No production authorization. IT review may proceed in parallel with remaining business ACL and authorization tests; actual company IIS/Entra/SQL TLS, IT Clean Build and production GO pending. Proposed company specs remain subject to IT."
   }
 }
