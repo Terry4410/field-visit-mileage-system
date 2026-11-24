@@ -1,0 +1,62 @@
+name: IT restricted core trip on company schema (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['docs/release/pathb/it-core-runtime/**','.github/workflows/it-core-runtime-nondeploy.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a4281b4d488448153ef3cd09f6ed698d146d3c77
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: delivery
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify actual SQL package and build focused test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14926555963/zip > "$RUNNER_TEMP/company.zip"
+          echo "76ba1802d24e49ff07d61ec823999af6d4d6f7736fdac88774674be9f10e8905  $RUNNER_TEMP/company.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/schema"
+          unzip -q "$RUNNER_TEMP/company.zip" -d "$RUNNER_TEMP/schema"
+          (cd "$RUNNER_TEMP/schema" && sha256sum -c SHA256SUMS.txt)
+          cp delivery/docs/release/pathb/it-core-runtime/CompanySchemaRestrictedCoreTrip.cs app/backend/tests/FieldVisit.Application.Tests/
+          dotnet build app/backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --nologo
+      - name: Actual restricted HTTP flow on fresh company schema
+        run: |
+          set -euo pipefail
+          db=FieldVisitCompanyCoreTest
+          pw="Aa9!$(openssl rand -hex 18)"
+          runpw="Bb8!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          echo "::add-mask::$runpw"
+          docker run -d --name fv-core-review -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          cleanup(){ local rc=$?; trap - EXIT; docker rm -f fv-core-review >/dev/null 2>&1 || rc=1; exit "$rc"; }
+          trap cleanup EXIT
+          cmd(){ docker exec -i fv-core-review /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 -f 65001 "$@"; }
+          ready=NO
+          for _ in $(seq 1 60); do if cmd -d master -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          server="$(cmd -d master -h -1 -W -Q "SET NOCOUNT ON;SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName'));" | tr -d '\r' | head -n 1)"
+          [[ "$server" =~ ^[a-zA-Z0-9_.-]+$ ]]
+          cmd -d master -Q "CREATE DATABASE [$db]; CREATE LOGIN fv_core_test WITH PASSWORD=N'$runpw',CHECK_POLICY=OFF;" >/dev/null
+          cmd -d "$db" -v FVServer="$server" FVDatabase="$db" < "$RUNNER_TEMP/schema/01-schema-install.sql" > "$RUNNER_TEMP/install.log" 2>&1 || { grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/install.log"; exit 1; }
+          cmd -d "$db" -Q "CREATE USER fv_core_test FOR LOGIN fv_core_test; CREATE ROLE FieldVisitCoreRuntimeReview; ALTER ROLE FieldVisitCoreRuntimeReview ADD MEMBER fv_core_test;" >/dev/null
+          cmd -d "$db" < delivery/docs/release/pathb/it-core-runtime/core-runtime-review.sql >/dev/null
+          export FV_CORE_DBA="Server=127.0.0.1,1433;Database=$db;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
+          export FV_CORE_RUNTIME="Server=127.0.0.1,1433;Database=$db;User Id=fv_core_test;Password=$runpw;Encrypt=True;TrustServerCertificate=True"
+          dotnet test app/backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter FullyQualifiedName~CompanySchemaRestrictedCoreTrip --logger "console;verbosity=normal"
