@@ -82,6 +82,7 @@ jobs:
           PY
           sqlcmd -d "$db" -Q "DENY UPDATE ON dbo.LocationPublishedVersions TO [api-fieldvisit-pathb-uat_pathb]"
           if sqlcmd -d "$db" < "$RUNNER_TEMP/prerequisite-test-only.sql" > "$RUNNER_TEMP/negative.log" 2>&1; then echo "DENY_GUARD_FAILED"; exit 1; fi
+          cat "$RUNNER_TEMP/negative.log"
           grep -q 'RELEVANT_DENY_PRESERVED' "$RUNNER_TEMP/negative.log"
           sqlcmd -d "$db" -Q "REVOKE UPDATE ON dbo.LocationPublishedVersions FROM [api-fieldvisit-pathb-uat_pathb]; IF (SELECT COUNT(*) FROM dbo.Employments)<>1 THROW 59821,N'NEGATIVE_WROTE_HR',1"
           sqlcmd -d "$db" < "$RUNNER_TEMP/prerequisite-test-only.sql"
