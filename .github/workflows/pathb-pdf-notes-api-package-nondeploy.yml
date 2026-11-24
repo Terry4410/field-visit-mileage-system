@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
           test -z "$(git diff --name-only 3d85171bfdde0a2b8329e4a05b7afa84b2f5a0e8 HEAD -- database/)"
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCLocationMaintenanceRiskTests|FullyQualifiedName~R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_visitor_create_location_writer|FullyQualifiedName~Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=location.trx' --results-directory artifacts/test-results
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCLocationMaintenanceRiskTests|FullyQualifiedName~R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_visitor_create_location_writer|FullyQualifiedName~Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=location.trx' --results-directory artifacts/test-results
       - uses: actions/upload-artifact@v4
         if: always()
         with:

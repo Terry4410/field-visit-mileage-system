@@ -19,7 +19,7 @@ internal static class V180OptionCUnknownCommitReconciler
             { Pooling = false, ConnectTimeout = 5 };
             await using var connection = new SqlConnection(builder.ConnectionString);
             await connection.OpenAsync(ct);
-            try { V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection); }
+            try { V180OptionCExecutionPolicy.RequireFormalLocationTarget(connection); }
             catch (InvalidOperationException) { return "INDETERMINATE"; }
             await using var cmd = new SqlCommand("""
                 SELECT r.Status,r.ReviewedByUserId,
@@ -86,6 +86,8 @@ internal static class V180OptionCUnknownCommitReconciler
                 hasMerge = Convert.ToInt64(await probe.ExecuteScalarAsync(ct)) == 1;
             }
             if (!hasMerge && currentVersion != 1)
+                return "INDETERMINATE";
+            if (hasMerge && V180OptionCExecutionPolicy.IsPathBUatMode)
                 return "INDETERMINATE";
             if (hasMerge)
             {

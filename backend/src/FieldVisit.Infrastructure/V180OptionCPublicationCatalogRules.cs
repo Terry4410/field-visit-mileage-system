@@ -16,7 +16,7 @@ internal static class V180OptionCPublicationCatalogRules
     {
         if (connection.State != System.Data.ConnectionState.Open)
             await connection.OpenAsync(ct);
-        try { V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection); }
+        try { V180OptionCExecutionPolicy.RequireFormalLocationTarget(connection); }
         catch (InvalidOperationException ex)
         { throw new InvalidOperationException(CatalogNotVerified, ex); }
 
@@ -163,5 +163,18 @@ internal static class V180OptionCPublicationCatalogRules
         var result = Convert.ToInt32(await command.ExecuteScalarAsync(ct));
         if (result != 1)
             throw new InvalidOperationException(CatalogNotVerified);
+        if (V180OptionCExecutionPolicy.IsPathBUatMode)
+        {
+            // Do not use the optional-table fallback on the real UAT target.
+            await using var extra = new SqlCommand("""
+                SELECT CASE WHEN OBJECT_ID(N'dbo.ChangeRequestLeaderReviews',N'U') IS NOT NULL
+                     AND OBJECT_ID(N'dbo.LocationCreateReservations',N'U') IS NOT NULL
+                     AND COL_LENGTH(N'dbo.LocationCreateReservations',N'ChangeRequestId') IS NOT NULL
+                     AND COL_LENGTH(N'dbo.ChangeRequestLeaderReviews',N'DecisionKey') IS NOT NULL
+                     THEN 1 ELSE 0 END
+                """, connection);
+            if (Convert.ToInt32(await extra.ExecuteScalarAsync(ct)) != 1)
+                throw new InvalidOperationException(CatalogNotVerified);
+        }
     }
 }

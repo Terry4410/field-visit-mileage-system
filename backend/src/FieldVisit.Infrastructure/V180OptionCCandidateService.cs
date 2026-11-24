@@ -44,7 +44,7 @@ public sealed class V180OptionCCandidateService(
         await db.Database.OpenConnectionAsync(ct);
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireFormalLocationTarget(connection);
         await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
         return connection;
     }
@@ -350,6 +350,7 @@ public sealed class V180OptionCCandidateService(
         if (importBatchId == Guid.Empty)
             throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_REQUIRED");
         var connection = await RequireTargetAsync(ct);
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
         await RequireExcelStateContractAsync(connection,null,ct);
         var user = current.GetRequired();
         if (!user.Roles.Any(x => x.Equals("admin", StringComparison.OrdinalIgnoreCase)
@@ -446,6 +447,7 @@ public sealed class V180OptionCCandidateService(
         if (importBatchId == Guid.Empty)
             throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_REQUIRED");
         var connection = await RequireTargetAsync(ct);
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
         await RequireExcelStateContractAsync(connection,null,ct);
         var user = current.GetRequired();
         if (!user.Roles.Any(x => x.Equals("admin",StringComparison.OrdinalIgnoreCase)
@@ -543,6 +545,7 @@ public sealed class V180OptionCCandidateService(
         if (importBatchId == Guid.Empty)
             throw new InvalidOperationException("OPTIONC_EXCEL_BATCH_REQUIRED");
         var connection=await RequireTargetAsync(ct);
+        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
         var actorId=current.GetRequired().UserId;
         await using var tx=await db.Database.BeginTransactionAsync(IsolationLevel.Serializable,ct);
         var org=await new V180OptionCLiveAuthorizationAdapter(db)
@@ -880,7 +883,7 @@ public sealed class V180OptionCCandidateService(
         V180B3RequestInputRules.RequireReviewTarget(id, input);
         await RequireTargetAsync(ct);
         await new V180OptionCAtomicPublicationOrchestrator(db, current)
-            .ExecuteAsync(id, input.DecisionKey, input.Reason, ct);
+            .ExecuteAsync(id, input.DecisionKey, input.Reason, ct, input.RequestRowVersion);
         return await FindAsync(id, ct);
     }
 
@@ -931,6 +934,8 @@ public sealed class V180OptionCCandidateService(
             """, connection, (SqlTransaction)tx.GetDbTransaction());
         mergeCheck.Parameters.AddWithValue("@id", request.ChangeRequestId);
         var isMerge = Convert.ToInt32(await mergeCheck.ExecuteScalarAsync(ct)) == 1;
+        if (isMerge || request.OperationCode == "MergeLocationFields")
+            V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
         if (!isMerge)
         {
         var leader = await db.LeaderReviews.AsNoTracking().SingleOrDefaultAsync(
@@ -1013,7 +1018,9 @@ public sealed class V180OptionCCandidateService(
                 V180B3ApprovalLockSql.RequestByPublicId(id, org)).AsNoTracking()
                 .SingleOrDefaultAsync(ct)
                 ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
-            if (request.TeamId is not int team || request.RequestedByUserId == actorId)
+            if (request.TeamId is not int team || request.RequestedByUserId == actorId
+                || (V180OptionCExecutionPolicy.IsPathBUatMode
+                    && request.OperationCode is not ("CreateLocation" or "UpdatePublishedLocation")))
                 throw new UnauthorizedAccessException("OPTIONC_RECONCILE_SCOPE_DENIED");
             if (request.OperationCode == "UpdatePublishedLocation" && request.RiskCode == "Low")
             {

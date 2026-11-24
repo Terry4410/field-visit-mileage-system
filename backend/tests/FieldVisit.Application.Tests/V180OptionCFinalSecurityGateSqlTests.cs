@@ -2207,6 +2207,10 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
                 Guid.NewGuid(), "Independent Leader accepts low-risk note", true));
         Assert.True(reviewed.IsSuccessStatusCode,
             await reviewed.Content.ReadAsStringAsync());
+        var continuationQueue = await leaderClient.GetFromJsonAsync<List<V180OptionCLeaderReviewView>>(
+            "api/v1/optionc-candidate/leader/review-queue");
+        Assert.Contains(continuationQueue!, x => x.RequestPublicId == submittedLow.RequestPublicId
+            && x.LeaderStatus == "Approved" && x.RequestStatus == "Pending");
         var stageRv = (byte[])(await new SqlCommand("""
             SELECT s.RowVersion FROM dbo.LocationPublicationStages s
             JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId
@@ -2532,6 +2536,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var duplicateView = await duplicate.Content.ReadFromJsonAsync<V180OptionCStageEvidenceView>()
             ?? throw new InvalidOperationException("OPTIONC_DUPLICATE_RESPONSE_MISSING");
         Assert.Equal("ReadyForPublish", duplicateView.StageStatus);
+        var staleRequestVersion = Convert.FromBase64String(submitted.RowVersion);
+        staleRequestVersion[0] ^= 1;
+        using (var staleApproval = await admin.PostAsJsonAsync(
+            $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/approve",
+            new V180B3Review(Convert.ToBase64String(staleRequestVersion), Guid.NewGuid(),
+                "Stale decision must not publish")))
+            Assert.False(staleApproval.IsSuccessStatusCode);
+        Assert.Equal("Pending", await h.RequestStatus(submitted.RequestPublicId));
 
         var approve = await admin.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/approve",

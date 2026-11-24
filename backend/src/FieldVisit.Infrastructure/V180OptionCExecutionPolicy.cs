@@ -3,15 +3,65 @@ using Microsoft.Data.SqlClient;
 namespace FieldVisit.Infrastructure;
 
 /// <summary>
-/// Explicit target boundary for the non-deploy Option C engine. This batch
-/// permits only the Recovery workflow's disposable local SQL target. UAT
-/// requires a separate enablement plus exact server/database and verified
-/// schema evidence; Production is always denied by this candidate.
+/// Explicit target boundary. Isolated test entry points remain isolated.
+/// The formal-location surface may admit only the exact Path B UAT SQL
+/// target with its explicit execution mode; callers still enforce the
+/// feature flag, catalog evidence and live business authorization.
+/// Production is not admitted by this candidate.
 /// </summary>
 public static class V180OptionCExecutionPolicy
 {
     public const string ModeVariable = "OPTIONC_EXECUTION_MODE";
     public const string IsolatedSqlTestMode = "IsolatedSqlTest";
+    public const string PathBUatFormalLocationsMode = "PathBUatFormalLocations";
+    private const string PathBHost = "sql-fieldvisit-jpe-pathb-uat.database.windows.net";
+    private const string PathBDatabase = "db-fieldvisit-pathb-uat";
+
+    internal static bool IsPathBUatMode =>
+        string.Equals(Environment.GetEnvironmentVariable(ModeVariable),
+            PathBUatFormalLocationsMode, StringComparison.Ordinal);
+
+    internal static bool MatchesPathBUatTarget(string? mode, string dataSource,
+        string database, string connectionString)
+    {
+        if (!string.Equals(mode, PathBUatFormalLocationsMode, StringComparison.Ordinal)
+            || !string.Equals(database, PathBDatabase, StringComparison.Ordinal)
+            || !ExactPathBHost(dataSource)) return false;
+        var builder = new SqlConnectionStringBuilder(connectionString);
+        var encryption = builder.Encrypt.ToString();
+        return ExactPathBHost(builder.DataSource)
+            && string.Equals(builder.InitialCatalog, PathBDatabase, StringComparison.Ordinal)
+            && !builder.TrustServerCertificate
+            && (encryption.Equals("True", StringComparison.OrdinalIgnoreCase)
+                || encryption.Equals("Mandatory", StringComparison.OrdinalIgnoreCase)
+                || encryption.Equals("Strict", StringComparison.OrdinalIgnoreCase))
+            && string.IsNullOrEmpty(builder.FailoverPartner);
+    }
+
+    private static bool ExactPathBHost(string value)
+    {
+        if (value.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase))
+            value = value[4..];
+        return value.Equals(PathBHost, StringComparison.OrdinalIgnoreCase)
+            || value.Equals(PathBHost + ",1433", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Only formal-location services and their internal writers use this
+    // boundary. The service feature flag must also be enabled. Excel and
+    // merge entry points continue to call RequireIsolatedSqlTest.
+    internal static void RequireFormalLocationTarget(SqlConnection connection)
+    {
+        var mode = Environment.GetEnvironmentVariable(ModeVariable);
+        if (string.Equals(mode, IsolatedSqlTestMode, StringComparison.Ordinal))
+        {
+            RequireIsolatedSqlTest(connection, mode);
+            return;
+        }
+        if (connection.State != System.Data.ConnectionState.Open
+            || !MatchesPathBUatTarget(mode, connection.DataSource,
+                connection.Database, connection.ConnectionString))
+            throw new InvalidOperationException("OPTIONC_EXECUTION_TARGET_DENIED");
+    }
 
     public static void RequireIsolatedSqlTest(SqlConnection connection)
         => RequireIsolatedSqlTest(connection,

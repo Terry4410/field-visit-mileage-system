@@ -27,7 +27,7 @@ internal static class V180OptionCLowRiskDirectWriter
             || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim()
             || reason.Length > 1000 || masterNote?.Length > 1000)
             throw new InvalidOperationException("OPTIONC_LOW_DIRECT_INPUT_DENIED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireFormalLocationTarget(connection);
         if (firstTaxId is not null)
             firstTaxId = V180OptionCLocationMaintenanceRisk.RequireFirstTaiwanTaxId(null, firstTaxId);
 

@@ -9,6 +9,37 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCLocationMaintenanceRiskTests
 {
     [Theory]
+    [InlineData("PathBUatFormalLocations", "sql-fieldvisit-jpe-pathb-uat.database.windows.net", "db-fieldvisit-pathb-uat", true, false, true)]
+    [InlineData("PathBUatFormalLocations", "tcp:sql-fieldvisit-jpe-pathb-uat.database.windows.net,1433", "db-fieldvisit-pathb-uat", true, false, true)]
+    [InlineData("PathBUatFormalLocations", "sql-fieldvisit-jpe-uat.database.windows.net", "db-fieldvisit-pathb-uat", true, false, false)]
+    [InlineData("PathBUatFormalLocations", "sql-fieldvisit-jpe-pathb-uat.database.windows.net", "master", true, false, false)]
+    [InlineData("PathBUatFormalLocations", "sql-fieldvisit-jpe-pathb-uat.database.windows.net.evil.example", "db-fieldvisit-pathb-uat", true, false, false)]
+    [InlineData("PathBUatFormalLocations", "sql-fieldvisit-jpe-pathb-uat.database.windows.net,1444", "db-fieldvisit-pathb-uat", true, false, false)]
+    [InlineData("PathBUatFormalLocations", "sql-fieldvisit-jpe-pathb-uat.database.windows.net", "db-fieldvisit-pathb-uat", false, false, false)]
+    [InlineData("PathBUatFormalLocations", "sql-fieldvisit-jpe-pathb-uat.database.windows.net", "db-fieldvisit-pathb-uat", true, true, false)]
+    [InlineData("IsolatedSqlTest", "sql-fieldvisit-jpe-pathb-uat.database.windows.net", "db-fieldvisit-pathb-uat", true, false, false)]
+    [InlineData(null, "sql-fieldvisit-jpe-pathb-uat.database.windows.net", "db-fieldvisit-pathb-uat", true, false, false)]
+    public void PathB_formal_location_admission_matches_exact_tls_target(
+        string? mode, string host, string database, bool encrypt, bool trust, bool expected)
+    {
+        var cs = $"Server={host};Initial Catalog={database};Encrypt={encrypt};TrustServerCertificate={trust}";
+        Assert.Equal(expected, V180OptionCExecutionPolicy.MatchesPathBUatTarget(mode, host, database, cs));
+    }
+
+    [Fact]
+    public void PathB_formal_location_admission_denies_connected_config_mismatch()
+    {
+        const string host = "sql-fieldvisit-jpe-pathb-uat.database.windows.net";
+        const string db = "db-fieldvisit-pathb-uat";
+        Assert.False(V180OptionCExecutionPolicy.MatchesPathBUatTarget(
+            V180OptionCExecutionPolicy.PathBUatFormalLocationsMode, host, db,
+            $"Server={host};Database=other;Encrypt=True;TrustServerCertificate=False"));
+        Assert.False(V180OptionCExecutionPolicy.MatchesPathBUatTarget(
+            V180OptionCExecutionPolicy.PathBUatFormalLocationsMode, host, db,
+            $"Server=localhost;Database={db};Encrypt=True;TrustServerCertificate=False"));
+    }
+
+    [Theory]
     [InlineData("true")]
     [InlineData("false")]
     public void OptionC_manual_transactions_do_not_change_normal_retry_strategy(string enabled)

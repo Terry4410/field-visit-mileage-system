@@ -17,11 +17,11 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
     AppDbContext db, ICurrentUserService current)
 {
     internal async Task ExecuteAsync(Guid requestPublicId,
-        Guid decisionKey, string reason, CancellationToken ct)
+        Guid decisionKey, string reason, CancellationToken ct, string? requestRowVersion = null)
     {
         var connection = db.Database.GetDbConnection() as SqlConnection
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireFormalLocationTarget(connection);
         // Database naming is not schema evidence. Verify every required
         // Stage/Ledger object, column, unique index and trusted constraint
         // before opening the write transaction.
@@ -43,6 +43,10 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                     requestPublicId, organizationId))
                 .AsNoTracking().SingleOrDefaultAsync(ct)
                 ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
+            if ((V180OptionCExecutionPolicy.IsPathBUatMode || requestRowVersion is not null)
+                && !request.RowVersion.SequenceEqual(V180B3RowVersionRules.Parse(
+                    requestRowVersion ?? throw new InvalidOperationException("ROWVERSION_REQUIRED"))))
+                throw new InvalidOperationException("ROWVERSION_CONFLICT");
             if (request.Status != "Pending" || request.TeamId is null or <= 0
                 || request.RequestedByUserId == actorId
                 || request.EntityKind != "Location"
@@ -65,7 +69,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
             // When the additive first-level review table is present, high-risk
             // publication is impossible without an approved independent Leader
             // decision in this same Serializable transaction.
-            if (await V180OptionCLeaderReviewService.Schema.ExistsAsync(
+            if (V180OptionCExecutionPolicy.IsPathBUatMode || await V180OptionCLeaderReviewService.Schema.ExistsAsync(
                     connection, sqlTx, ct))
                 await V180OptionCLeaderReviewService.Schema.RequireApprovedAsync(
                     connection, sqlTx, request.ChangeRequestId,

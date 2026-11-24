@@ -42,7 +42,7 @@ public sealed class V180OptionCLeaderReviewService(
             ?? throw new InvalidOperationException("OPTIONC_SQLSERVER_REQUIRED");
         if (connection.State != ConnectionState.Open)
             await connection.OpenAsync(ct);
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireFormalLocationTarget(connection);
         await V180OptionCPublicationCatalogRules.RequireAsync(connection, ct);
         try
         {
@@ -63,9 +63,12 @@ public sealed class V180OptionCLeaderReviewService(
         var actor = current.GetRequired();
         var org = await new V180OptionCLiveAuthorizationAdapter(db)
             .ResolveLiveOrganizationAsync(actor.UserId, ct);
+        var pathB = V180OptionCExecutionPolicy.IsPathBUatMode;
         var rows = await db.ChangeRequests.AsNoTracking()
             .Where(x => x.OrganizationId == org && x.EntityKind == "Location"
-                && x.Status == "Pending" && x.TeamId != null)
+                && x.Status == "Pending" && x.TeamId != null
+                && (!pathB
+                    || x.OperationCode == "CreateLocation" || x.OperationCode == "UpdatePublishedLocation"))
             .OrderBy(x => x.SubmittedAt).Take(100).ToListAsync(ct);
         var result = new List<V180OptionCLeaderReviewView>();
         foreach (var row in rows)
@@ -78,7 +81,9 @@ public sealed class V180OptionCLeaderReviewService(
                 var detail = await db.LeaderReviews.AsNoTracking()
                     .SingleOrDefaultAsync(x => x.ChangeRequestId == row.ChangeRequestId
                         && x.ReviewStage == "LeaderFirstLevel", ct);
-                if (detail is null || detail.Status == "Pending")
+                if (detail is null || detail.Status == "Pending"
+                    || (row.OperationCode == "UpdatePublishedLocation" && row.RiskCode == "Low"
+                        && detail.Status == "Approved" && detail.ReviewerUserId == actor.UserId))
                     result.Add(ToView(row, detail));
             }
             catch (UnauthorizedAccessException) { /* scope is filtered, not disclosed */ }
@@ -122,7 +127,9 @@ public sealed class V180OptionCLeaderReviewService(
             .SingleOrDefaultAsync(ct)
             ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
         if (row.Status != "Pending" || row.TeamId is not > 0
-            || row.OrganizationId != org || row.EntityKind != "Location")
+            || row.OrganizationId != org || row.EntityKind != "Location"
+            || (V180OptionCExecutionPolicy.IsPathBUatMode
+                && row.OperationCode is not ("CreateLocation" or "UpdatePublishedLocation")))
             throw new InvalidOperationException("OPTIONC_LEADER_REVIEW_NOT_PENDING");
         var expected = Convert.ToBase64String(row.RowVersion);
         if (!string.Equals(expected, input.RequestRowVersion, StringComparison.Ordinal))

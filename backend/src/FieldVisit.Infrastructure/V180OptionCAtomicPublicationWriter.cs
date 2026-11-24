@@ -33,7 +33,7 @@ internal static class V180OptionCAtomicPublicationWriter
 
         // Deliberately limited to isolated disposable SQL Server. It is NOT a
         // production query and cannot be invoked against a UAT database.
-        V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
+        V180OptionCExecutionPolicy.RequireFormalLocationTarget(connection);
 
         // MergeFields is probed only when the additive disposable table exists.
         // Ordinary 011/012/014 fixtures remain valid and never require it.
@@ -51,6 +51,7 @@ internal static class V180OptionCAtomicPublicationWriter
                 mergeProbe.Parameters.AddWithValue("@org", organizationId);
                 if (Convert.ToInt64(await mergeProbe.ExecuteScalarAsync(ct)) == 1)
                 {
+                    V180OptionCExecutionPolicy.RequireIsolatedSqlTest(connection);
                     await V180OptionCMergePublicationWriter.ExecuteAsync(
                         connection, transaction, requestPublicId, organizationId,
                         liveReviewerUserId, decisionKey, reason, authorization, ct);
