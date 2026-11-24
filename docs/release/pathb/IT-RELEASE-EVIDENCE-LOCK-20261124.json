@@ -1258,7 +1258,7 @@
     "scope": "Private Owner Library archival copy, not a GitHub release or corporate installer; original app packages are UAT-configured."
   },
   "sql14ReviewCandidate": {
-    "status": "STATIC_INTEGRITY_PASS_SQL_ENGINE_NOT_RUN",
+    "status": "ISOLATED_SQL2022_REPLAY_AND_LATEST_API_READINESS_PASS",
     "archive": "FieldVisit_v180_SQL14_Layer_NONDEPLOY_REVIEW_20261124.zip",
     "bytes": 30847,
     "sha256": "7de7ff9a5ec8e7e8ab773d3a04c5d6ea7807fa58e27f2a564d4a571f11207f97",
@@ -1274,6 +1274,36 @@
     "candidateVerifierSha256": "5323f5f7ed9c8e8ddbefb832cd1394f8dbdb2bcf16f01921d289385625dd7885",
     "source018Blob": "2610d6d98e97a6467d3090db95deb3c15850e938",
     "source020Blob": "ce7bbb6f204bf1ab69c106ae59a5b139077494bc",
-    "scope": "Source-derived 14th layer, restricted to disposable SQL2022, checks five catalog predicates before two additional capability records; original 13 SQL unchanged, historical verification retained before layer 14, derived final 3-capability verifier. No SQL execution, corporate installer, production permissions or seed. Next validate 14-layer replay and latest API together in one isolated CI run."
+    "scope": "Source-derived 14th layer, restricted to disposable SQL2022, checks five catalog predicates before two additional capability records; original 13 SQL unchanged, historical verification retained before layer 14, derived final 3-capability verifier. No SQL execution, corporate installer, production permissions or seed. Next validate 14-layer replay and latest API together in one isolated CI run.",
+    "rehearsal": {
+      "workflowCommit": "7d37efb9df24d35c35feab8b8a417c1cc272f782",
+      "run": 45405102671,
+      "job": 138483524049,
+      "conclusion": "success",
+      "api": "e8de647be2fca9d15a4e046b8e4598f8190420ea",
+      "verified": "13 original layer hashes and exact derived layer14/verifier hashes; SQL Server 2022 14/14 execution, 69 dbo tables, 3 exact capability records, 21 enabled triggers, trusted FKs/CHECKs, reservation FK/status/unique index; wrong target 56600 and repeat 56601 refused with unchanged ledger; API build/ready and anonymous /me HTTP401",
+      "scope": "Disposable SQL2022; API readiness with disposable sa, mock providers, Demo mode, approval/candidate flags OFF and background jobs OFF; no runtime least-privilege/real business/Entra proof. Container cleanup success as part of job. Original frozen app and all live resources unchanged."
+    }
+  },
+  "enterpriseLocationAdmission": {
+    "status": "P1_IT_HANDOFF_BLOCKER_SOURCE_CONFIRMED",
+    "source": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+    "file": "backend/src/FieldVisit.Infrastructure/V180OptionCExecutionPolicy.cs",
+    "blob": "84bc11095359a4ef453960e11e90c17985eb1118",
+    "lines": "17-18, 23-64, 91-92",
+    "finding": "RequireFormalLocationTarget allows isolated loopback or exact Path B Azure host/database and mode; production explicitly denied. Candidate, Leader review, publication and stage evidence call this policy. Some Excel/merge entry points remain isolated-only; do not silently enable them. Readiness with flags OFF is not formal-location business proof. Company target cannot be admitted by connection-string or IIS setting alone.",
+    "next": "Keep frozen UAT source. For IT delivery, narrowly review exact corporate host/database/SQL identity and TLS admission with an explicitly approved environment profile, preserve schema evidence and role checks; test wrong host/database/mode denial and authorized company-like isolated profile; no blanket bypass or live configuration. Review whether Excel/merge required in agreed scope separately."
+  },
+  "corporateSqlPortability": {
+    "status": "SOURCE_SCAN_REVIEW",
+    "explicitDatabaseNameGuards": [
+      "20_route_reason_check.sql",
+      "60_final_functional_capabilities_REVIEW.sql"
+    ],
+    "versionGuards": [
+      "50_scoped_clean_install_verify.sql",
+      "70_scoped_three_capabilities_verify_REVIEW.sql"
+    ],
+    "note": "Keep originals. IT installer needs reviewed exact-target adaptation of these two name guards, SQL2022 version proof or independently tested approved version, plus minimum ACL and reference data. Static scan is not portability certification."
   }
 }
