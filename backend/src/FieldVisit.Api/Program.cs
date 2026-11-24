@@ -48,6 +48,19 @@ var authentication=builder.Services
                             Encoding.UTF8.GetBytes(signingKey)),
                     ClockSkew=TimeSpan.FromMinutes(2)
                 };
+            // Reject already-issued roleless application tokens too. Entra
+            // identity tokens use their own scheme and are unaffected.
+            o.Events=new JwtBearerEvents
+            {
+                OnTokenValidated=context=>
+                {
+                    if(context.Principal?.Claims.Any(c=>
+                        c.Type==System.Security.Claims.ClaimTypes.Role
+                        && !string.IsNullOrWhiteSpace(c.Value))!=true)
+                        context.Fail("Application token has no business role.");
+                    return Task.CompletedTask;
+                }
+            };
         });
 
 if(authMode==AuthenticationModes.Entra)

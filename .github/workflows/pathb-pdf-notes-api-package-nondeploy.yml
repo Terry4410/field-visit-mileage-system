@@ -1,51 +1,89 @@
-name: Path B admin navigation frontend (NONDEPLOY)
+name: Path B final P0 API package (NONDEPLOY)
 on:
   push:
-    branches: [fix/pathb-admin-navigation-20261124]
+    branches: [fix/pathb-final-p0-20261124]
 permissions:
   contents: read
+  actions: read
 concurrency:
-  group: pathb-admin-navigation
+  group: pathb-final-p0
   cancel-in-progress: false
 jobs:
-  frontend:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-admin-navigation-20261124'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  package:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-final-p0-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'FieldVisit_Disposable!Sql2022'
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Disposable!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+      E1_R1_REQUIRED: '1'
+      E1_R1_SQL_CONNECTION: 'Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Disposable!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5'
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
         with:
-          node-version: '22'
-      - name: Frontend tests and build
-        working-directory: frontend
-        run: |
-          npm ci --no-audit --no-fund
-          npm test -- --reporter=default
-          npm run build
-      - name: Seal exact Path B frontend candidate (activation requires separate approval)
-        working-directory: frontend
+          dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/known-old-package
+      - name: Load pinned existing Noto font only for assembly embedding
+        shell: bash
         run: |
           set -euo pipefail
-          node scripts/prepare-pathb-artifact.mjs
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path("dist/config.js")
-          s=p.read_text()
-          assert s.count('AUTH_MODE: "Demo",')==1
-          p.write_text(s.replace('AUTH_MODE: "Demo",','AUTH_MODE: "Demo",\n  FORMAL_LOCATION_UAT: true,'))
-          PY
-          mkdir -p "$GITHUB_WORKSPACE/artifacts/frontend-release"
-          (cd dist && zip -qr "$GITHUB_WORKSPACE/artifacts/frontend-release/PathB_FormalLocations_Frontend.zip" .)
-          cd "$GITHUB_WORKSPACE/artifacts/frontend-release"
-          unzip -tq PathB_FormalLocations_Frontend.zip
-          sha256sum PathB_FormalLocations_Frontend.zip > SHA256SUMS
-          printf 'SOURCE_SHA=%s\nMODE=NONDEPLOY\nTARGET=PathB\n' "$GITHUB_SHA" > manifest.txt
+          old="$RUNNER_TEMP/known-old-package/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          test "$(sha256sum "$old" | cut -d' ' -f1)" = c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$old" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          test "$(sha256sum backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc | cut -d' ' -f1)" = b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
+          echo 'EMBEDDED_TTC_SOURCE_PIN=PASS'
+      - name: Targeted isolated regression (no cloud or deployment)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
+          test -z "$(git diff --name-only 3d85171bfdde0a2b8329e4a05b7afa84b2f5a0e8 HEAD -- database/)"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180TripMileageHttpSqlE2ETests|FullyQualifiedName~V170AuthenticationRulesTests' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=location.trx' --results-directory artifacts/test-results
+      - name: Package API with embedded Traditional Chinese font (NONDEPLOY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          dst="$RUNNER_TEMP/formal-location-api"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$dst" --nologo
+          test "$(stat -c '%s' "$dst/FieldVisit.Infrastructure.dll")" -gt 19000000
+          test "$(jq -r '.OptionC.Candidate.Enabled' "$dst/appsettings.json")" = false
+          mkdir -p artifacts/release
+          (cd "$dst" && zip -qr "$GITHUB_WORKSPACE/artifacts/release/PathB_FinalP0_API.zip" .)
+          unzip -tq artifacts/release/PathB_FinalP0_API.zip
+          (cd artifacts/release && sha256sum PathB_FinalP0_API.zip > SHA256SUMS)
+          printf 'SOURCE_SHA=%s\nMODE=NONDEPLOY\nOPTIONC_DEFAULT=OFF\n' "$GITHUB_SHA" > artifacts/release/manifest.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: pathb-admin-navigation-frontend-nondeploy
-          path: artifacts/frontend-release
+          name: pathb-final-p0-api-nondeploy
+          path: artifacts/release
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pathb-final-p0-test-results
+          path: artifacts/test-results/location.trx
+          if-no-files-found: warn
+          retention-days: 7
