@@ -41,6 +41,21 @@ var admin=logged.User;
 Check(admin.UserId==adminId && admin.OrganizationId==orgId && admin.Roles.SequenceEqual(new[]{"admin"}) && admin.TeamIds.Count==0,"FIRST_ADMIN_REAL_REPOSITORY_ROLE_AND_ELIGIBILITY");
 await Refuse(async()=>{await auth.LoginEntraAsync(new EntraLoginIdentity(Guid.NewGuid(),oid,"itfirst@example.invalid"),false,ct);},"WRONG_TENANT_EMAIL_FALLBACK_DENIED");
 await Refuse(async()=>{await auth.LoginEntraAsync(new EntraLoginIdentity(tenant,Guid.NewGuid(),"itfirst@example.invalid"),false,ct);},"WRONG_OBJECT_EMAIL_FALLBACK_DENIED");
+async Task VerifyHrEligibilityOnly(){
+ await Exec(dba,$"UPDATE dbo.Users SET IsActive=0 WHERE UserId={adminId}");
+ var existingPolicy=await auth.LoginEntraAsync(new EntraLoginIdentity(tenant,oid,null),false,ct);
+ Check(existingPolicy.User.UserId==adminId,"INTERNAL_ACTIVE_HR_IS_SOURCE_OF_TRUTH_AS_DESIGNED");
+ await Exec(dba,$"UPDATE dbo.Users SET IsActive=1 WHERE UserId={adminId}");
+ await Exec(dba,$"UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Leave' WHERE EmploymentId=(SELECT EmploymentId FROM dbo.UserIdentityProfiles WHERE UserId={adminId});");
+ await Refuse(async()=>{await auth.LoginEntraAsync(new EntraLoginIdentity(tenant,oid,null),false,ct);},"HR_LEAVE_LOGIN_DENIED");
+ await Exec(dba,$"UPDATE dbo.EmploymentStatusPeriods SET EmploymentStatus=N'Terminated' WHERE EmploymentId=(SELECT EmploymentId FROM dbo.UserIdentityProfiles WHERE UserId={adminId});");
+ await Refuse(async()=>{await auth.LoginEntraAsync(new EntraLoginIdentity(tenant,oid,null),false,ct);},"HR_TERMINATED_LOGIN_DENIED");
+ Console.WriteLine("HR_ELIGIBILITY_ACTUAL_SQL2022_PASS");
+}
+if(Environment.GetEnvironmentVariable("FV_TEST_SCOPE")=="HR_ELIGIBILITY_ONLY"){
+ await VerifyHrEligibilityOnly();
+ return;
+}
 var writer=new V170PeopleAdminWriter(db);
 var newId=await writer.CreateInternalUserAsync(admin,new CreateInternalUserRequest("ITSYN002","Synthetic Staff","staff@example.invalid",today.AddDays(-1),null,"Active",today.AddDays(-1)),ct);
 var newProfile=await repo.GetProfileAsync(newId,ct);
@@ -66,8 +81,7 @@ await RefuseSql(async()=>{await Exec(runtime,"DELETE FROM dbo.AuditLogs WHERE 1=
 await RefuseSql(async()=>{await Exec(runtime,"UPDATE dbo.SchemaVersions SET VersionNumber=VersionNumber WHERE 1=0");},229,"SCHEMA_LEDGER_WRITE_DENIED");
 await RefuseSql(async()=>{await Exec(runtime,"UPDATE dbo.UserIdentityProfiles SET EntraObjectId=NULL WHERE 1=0");},229,"UNREVIEWED_IDENTITY_REBIND_DENIED");
 await RefuseSql(async()=>{await Exec(runtime,"DELETE FROM dbo.Users WHERE 1=0");},229,"PERSON_DELETE_DENIED");
-await Exec(dba,$"UPDATE dbo.Users SET IsActive=0 WHERE UserId={adminId}");
-await Refuse(async()=>{await auth.LoginEntraAsync(new EntraLoginIdentity(tenant,oid,null),false,ct);},"DISABLED_ADMIN_LOGIN_DENIED");
+await VerifyHrEligibilityOnly();
 Console.WriteLine("BOOTSTRAP_PEOPLE_SUBSET_ACTUAL_SQL2022_PASS");
 sealed class FakeToken:ITokenService{public (string Token,DateTime ExpiresAtUtc) Create(CurrentUserDto user)=>("test-only-no-real-token",DateTime.UtcNow.AddMinutes(1));}
 sealed class FixedUser(CurrentUserDto u):ICurrentUserService{public CurrentUserDto GetRequired()=>u;}

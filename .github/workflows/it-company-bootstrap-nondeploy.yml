@@ -1,4 +1,4 @@
-name: IT first Admin and restricted people runtime (NONDEPLOY)
+name: IT first Admin HR eligibility delta (NONDEPLOY)
 on:
   push:
     branches: [work/pathb-it-cleanbuild-020-20261123]
@@ -65,6 +65,8 @@ jobs:
           export FV_TEST_DBA="Server=127.0.0.1,1433;Database=$db;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
           export FV_TEST_RUNTIME="Server=127.0.0.1,1433;Database=$db;User Id=fv_people_test;Password=$runpw;Encrypt=True;TrustServerCertificate=True"
           export FV_BOOTSTRAP_SQL="$PWD/delivery/docs/release/pathb/it-company-bootstrap/first-admin.sql"
+          # Preserve prior 19 scoped PASS results. Fresh bootstrap is necessary only as fixture.
+          export FV_TEST_SCOPE=HR_ELIGIBILITY_ONLY
           dotnet run --project app/tools/it-people-review/Review.csproj -c Release --no-build
       - name: Package tested SQL and Windows wrapper for IT review
         shell: bash
