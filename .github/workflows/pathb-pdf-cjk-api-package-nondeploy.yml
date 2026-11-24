@@ -1,0 +1,83 @@
+name: Path B PDF CJK embedded font API candidate package (NONDEPLOY)
+on:
+  push:
+    branches: [release/pathb-pdf-cjk-api-candidate-20261124]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pathb-pdf-cjk-api-package
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/release/pathb-pdf-cjk-api-candidate-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+      - name: Exact tested PDF fix source and only packaging-workflow delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          selected=54f7374a1af63bbfc072d60f5dbabda2ef594ff2
+          test "$(git rev-parse HEAD^)" = "$selected"
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/pathb-pdf-cjk-api-package-nondeploy.yml'
+          echo 'EXACT_FOCUSED_PDF_CODE_SOURCE=PASS'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/known-old-package
+      - name: Load pinned existing Noto font only for assembly embedding
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="$RUNNER_TEMP/known-old-package/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          test "$(sha256sum "$old" | cut -d' ' -f1)" = c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$old" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          test "$(sha256sum backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc | cut -d' ' -f1)" = b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
+          echo 'EMBEDDED_TTC_SOURCE_PIN=PASS'
+      - name: Publish API with exactly embedded CJK font and seal package
+        shell: bash
+        run: |
+          set -euo pipefail
+          dst="$RUNNER_TEMP/api-publish"
+          name="PathB_PDF_CJK_API_candidate_54f7374a_20261124.zip"
+          mkdir -p "$dst" artifacts
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$dst" --nologo
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll FieldVisit.Domain.dll FieldVisit.Api.deps.json FieldVisit.Api.runtimeconfig.json; do
+            test -s "$dst/$f"
+          done
+          # The exact Noto font is now inside Infrastructure.dll, not a
+          # separate filesystem dependency that Run-From-Package can hide.
+          test "$(stat -c '%s' "$dst/FieldVisit.Infrastructure.dll")" -gt 19000000
+          test ! -e "$dst/fonts"
+          (cd "$dst" && zip -q -r "$GITHUB_WORKSPACE/artifacts/$name" .)
+          unzip -tq "artifacts/$name" >/dev/null
+          test -s "artifacts/$name"
+          sha256sum "artifacts/$name" | tee "artifacts/$name.sha256"
+          wc -c "artifacts/$name" | tee "artifacts/$name.bytes"
+          sha256sum "$dst/FieldVisit.Infrastructure.dll" "$dst/FieldVisit.Api.dll" > artifacts/assembly-sha256.txt
+          printf 'SOURCE_SHA=%s\nORIGINAL_SOURCE_SHA=8442bae35a9099c1bd68505c6273f93a937d7045\nPDF_CJK_PROOF_CI=45322112035\nNEW_FONT_MODE=EMBEDDED_RESOURCE_TC_FACE_3\nTARGET_RG=rg-fieldvisit-uat\nTARGET_API=api-fieldvisit-pathb-uat\nPREVIOUS_SELECTED_ZIP=20261124030613.zip\nPREVIOUS_SELECTED_ZIP_SHA_LIVE=NOT_READBACK\nMODE=NONDEPLOY_CANDIDATE\nAZURE_DEPLOY=NOT_RUN\nSQL=NOT_RUN\nFRONTEND=NOT_RUN\n' \
+            '54f7374a1af63bbfc072d60f5dbabda2ef594ff2' > artifacts/manifest.txt
+          echo 'CJK_API_ONLY_CANDIDATE_INTEGRITY=PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PathB-PDF-CJK-API-CANDIDATE-54f7374a-NONDEPLOY
+          path: artifacts/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Stop at package; no live write or authentication
+        run: |
+          echo 'AZURE_DEPLOY=NOT_RUN'
+          echo 'SELECTOR_CHANGE=NOT_RUN'
+          echo 'SQL=NOT_RUN'
+          echo 'PROTECTED_MERGE=NOT_RUN'
