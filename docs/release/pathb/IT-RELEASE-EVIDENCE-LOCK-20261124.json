@@ -1242,5 +1242,38 @@
       ],
       "scope": "First output unrelated, second claimed nonexistent shortcut route and report choices contradicted by exact frozen source. Not accepted as new PASS; previous Owner-observed Admin UI/HR PASS retained. Stop further paid runs."
     }
+  },
+  "artifactPreservation": {
+    "status": "ACTUAL_BYTES_VERIFIED_AND_OWNER_LIBRARY_UPLOAD_SUCCEEDED",
+    "archive": "FieldVisit_v180_Frozen_Artifact_Preservation_20261124.zip",
+    "bytes": 119641096,
+    "sha256": "d44f1ce5fe3e4b72c7eda3634b5a07b05b13902827d1dcf0f7a01714e49d9719",
+    "originalArtifactIds": [
+      14905547452,
+      14911072489,
+      14836919253
+    ],
+    "outerHashAndCrc": "3/3 PASS",
+    "innerManifestHashes": "42/42 PASS",
+    "scope": "Private Owner Library archival copy, not a GitHub release or corporate installer; original app packages are UAT-configured."
+  },
+  "sql14ReviewCandidate": {
+    "status": "STATIC_INTEGRITY_PASS_SQL_ENGINE_NOT_RUN",
+    "archive": "FieldVisit_v180_SQL14_Layer_NONDEPLOY_REVIEW_20261124.zip",
+    "bytes": 30847,
+    "sha256": "7de7ff9a5ec8e7e8ab773d3a04c5d6ea7807fa58e27f2a564d4a571f11207f97",
+    "libraryUpload": "SUCCEEDED",
+    "historical13LayerHashes": "13/13 unchanged",
+    "checkDefinitionHashes": "5/5 PASS",
+    "originalLiveInstall": {
+      "receipt": 6435917531,
+      "packageSha256": "5a0c956d4ef5c88e0ff49d2d606ee9c1cb34e81e7f0c0f85b5aea8c5743e5828",
+      "scope": "Historical 14-layer Azure-target package, preserved in existing private storage per historical evidence; actual bytes not retrieved this turn; do not replay."
+    },
+    "candidateLayerSha256": "9bbd5c3229bf9b8af91c00f29c9cba9fae87eb2115a5b2d91d130e405a2bfe64",
+    "candidateVerifierSha256": "5323f5f7ed9c8e8ddbefb832cd1394f8dbdb2bcf16f01921d289385625dd7885",
+    "source018Blob": "2610d6d98e97a6467d3090db95deb3c15850e938",
+    "source020Blob": "ce7bbb6f204bf1ab69c106ae59a5b139077494bc",
+    "scope": "Source-derived 14th layer, restricted to disposable SQL2022, checks five catalog predicates before two additional capability records; original 13 SQL unchanged, historical verification retained before layer 14, derived final 3-capability verifier. No SQL execution, corporate installer, production permissions or seed. Next validate 14-layer replay and latest API together in one isolated CI run."
   }
 }
