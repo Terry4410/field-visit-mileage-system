@@ -94,6 +94,11 @@ jobs:
           rc=$?
           set -e
           if [[ "$rc" != 0 ]]; then grep -Eo "The (SELECT|INSERT|UPDATE|DELETE) permission was denied on the object '[A-Za-z0-9_]+'" "$RUNNER_TEMP/browser-api.log" | sort -u || true; fi
+          if [[ "$rc" != 0 ]]; then
+            # Read only the disposable test job's persisted status and sanitized failure codes.
+            cmd -d "$db" -Q "SET NOCOUNT ON; SELECT Status,TotalCount,SuccessCount,FailedCount,SkippedCount,ErrorMessage FROM dbo.BackgroundJobs WHERE JobType=N'Mileage'; SELECT Status,ErrorCode FROM dbo.BackgroundJobItems WHERE EntityType=N'VisitTrip'; SELECT e.EventType,e.ReasonCode FROM dbo.MileageGovernanceEvents e JOIN dbo.VisitTrips t ON e.VisitTripId=t.VisitTripId WHERE t.Notes=N'BROWSER-MANUAL-FALLBACK' ORDER BY e.MileageGovernanceEventId;" || true
+            grep -Eo "configured execution strategy '[A-Za-z0-9_]+' does not support user-initiated transactions|The (SELECT|INSERT|UPDATE|DELETE) permission was denied on the object '[A-Za-z0-9_]+'" "$RUNNER_TEMP/browser-api.log" | sort -u || true
+          fi
           if [[ "$rc" = 0 ]]; then
             cmd -d "$db" -Q "IF (SELECT COUNT(*) FROM dbo.VisitTrips t JOIN dbo.MileageCalculations m ON t.VisitTripId=m.VisitTripId WHERE t.Notes=N'BROWSER-MANUAL-FALLBACK' AND t.Status=N'Approved' AND m.ApprovedAmount=36.9 AND m.ApprovedDistanceSource=N'ManualFallback' AND m.ManualFallbackUsed=1)<>1 THROW 51000,'FALLBACK_READBACK_FAILED',1; IF (SELECT COUNT(*) FROM dbo.MileageGovernanceEvents e JOIN dbo.VisitTrips t ON e.VisitTripId=t.VisitTripId WHERE t.Notes=N'BROWSER-MANUAL-FALLBACK' AND e.EventType=N'ManualFallback')<>1 THROW 51001,'FALLBACK_GOVERNANCE_MISSING',1; PRINT 'FALLBACK_SQL_READBACK=PASS';"
           fi
