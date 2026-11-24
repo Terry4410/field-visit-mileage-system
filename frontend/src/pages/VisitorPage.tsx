@@ -243,8 +243,10 @@ export default function VisitorPage(){
       ?Number(projectId)
       :undefined;
 
-  const hourOptions=useMemo(()=>Array.from({length:24},(_,i)=>String(i).padStart(2,"0")),[]);
-  const minuteOptions=useMemo(()=>Array.from({length:60},(_,i)=>String(i).padStart(2,"0")),[]);
+  const [allHours,setAllHours]=useState(false),[allMinutes,setAllMinutes]=useState(false);
+  const clockOptions=(values:string[],current:string)=>Array.from(new Set([...values,current])).sort();
+  const hourOptions=Array.from({length:allHours?24:17},(_,i)=>String(i+(allHours?0:6)).padStart(2,"0"));
+  const minuteOptions=Array.from({length:allMinutes?60:12},(_,i)=>String(i*(allMinutes?1:5)).padStart(2,"0"));
 
   const updateClock=(kind:"start"|"end",part:"hour"|"minute",value:string)=>{
     const current=kind==="start"?start:end;
@@ -533,7 +535,7 @@ export default function VisitorPage(){
         setModal(null);reset();setMsg(`已送出 ${sent.tripNo}，小組長可在另一台裝置看到。`);
       }else{
         setSp({edit:String(t.visitTripId)});
-        setMsg(`草稿已儲存 ${t.tripNo}。未完成資料可稍後再補。`);
+        setMsg(`預排行程已儲存 ${t.tripNo}。未完成資料可稍後再補。`);
       }
     }catch(e){setMsg(e instanceof Error?e.message:"儲存失敗")}finally{setBusy(false)}
   };
@@ -543,7 +545,7 @@ export default function VisitorPage(){
       <div className="card stat"><div className="label">行程日期</div><div className="value" style={{fontSize:20}}>{date}</div><div className="hint">可事後補登</div></div>
       <div className="card stat"><div className="label">拜訪地點</div><div className="value">{stops.length}</div><div className="hint">依實際順序排列</div></div>
       <div className="card stat"><div className="label">目前里程</div><div className="value">{routePreview?.status==="Succeeded"&&routePreview.suggestedDistanceKm?routePreview.suggestedDistanceKm:manualFallbackAllowed&&km?km:"--"}<span style={{fontSize:14}}> km</span></div><div className="hint">{!hasMinimumVisitStops(stops.length)?"至少 1 個拜訪地點才可計算":routePreview?.status==="Succeeded"?"Google Maps API":manualFallbackAllowed?"人工備援（Google 無可用結果）":"請先用 Google Maps API 計算"}</div></div>
-      <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"草稿"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
+      <div className="card stat"><div className="label">目前狀態</div><div className="value" style={{fontSize:20}}>{editId?"修改中":"預排行程"}</div><div className="hint">{editId?"可重新送出":"尚未送出"}</div></div>
     </div>
 
     {editId&&returnReason&&<div className="note danger-note" style={{marginTop:18}}><strong>主管退回原因：</strong>{returnReason}<br/><span>請依退回原因確認並修改資料後重新送出。</span></div>}
@@ -583,8 +585,10 @@ export default function VisitorPage(){
         </div>
         <div className="field"><label>地點歸屬</label><input value={tripLocationAssignment(tripContext)} disabled aria-label="地點歸屬派駐地點"/><div className="hint">依人員派駐資料顯示；不隨本次拜訪地點或行程小組名稱變更。</div></div>
         <div className="field"><label>交通工具</label><select value={vehicleType} onChange={e=>setVehicleType(e.target.value)}><option value="Motorcycle">機車</option><option value="Car">汽車</option></select><div className="hint">預設機車；交通工具會決定適用的里程補助費率。</div></div>
-        <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
-        <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{hourOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{minuteOptions.map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
+        <div className="field"><label>出發時間</label><div className="time-select"><select aria-label="出發時間－時" value={start.slice(0,2)} onChange={e=>updateClock("start","hour",e.target.value)}>{clockOptions(hourOptions,start.slice(0,2)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="出發時間－分" value={start.slice(3,5)} onChange={e=>updateClock("start","minute",e.target.value)}>{clockOptions(minuteOptions,start.slice(3,5)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
+        <div className="field"><label>結束時間</label><div className="time-select"><select aria-label="結束時間－時" value={end.slice(0,2)} onChange={e=>updateClock("end","hour",e.target.value)}>{clockOptions(hourOptions,end.slice(0,2)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>時</span><select aria-label="結束時間－分" value={end.slice(3,5)} onChange={e=>updateClock("end","minute",e.target.value)}>{clockOptions(minuteOptions,end.slice(3,5)).map(x=><option key={x} value={x}>{x}</option>)}</select><span>分</span></div></div>
+        <label className="check-row"><input type="checkbox" checked={allHours} onChange={e=>setAllHours(e.target.checked)}/>顯示其他時段（00～23 時）</label>
+        <label className="check-row"><input type="checkbox" checked={allMinutes} onChange={e=>setAllMinutes(e.target.checked)}/>精確至分鐘（00～59 分）</label>
       </div>
       {tripContextError&&<div className="note danger-note" style={{marginTop:10}}>派駐中心資料：{tripContextError}</div>}
       <div className="note">住家地址不允許加入行程；里程只計算派駐中心、正式或臨時公務地點之間的路線。</div>
@@ -621,7 +625,7 @@ export default function VisitorPage(){
     </div>
 
     <div className="card" style={{marginTop:18}}>
-      <div className="section-title"><div><h2>里程計算</h2><div className="sub">拜訪地點確認完成後，可直接用 Google Maps API 預覽本次路線里程，不需要先由主管核准。</div></div><span className="pill">草稿可計算</span></div>
+      <div className="section-title"><div><h2>里程計算</h2><div className="sub">拜訪地點確認完成後，可直接用 Google Maps API 預覽本次路線里程，不需要先由主管核准。</div></div><span className="pill">預排行程可計算</span></div>
       <div className="actions" style={{marginBottom:14}}>
         <button className="btn secondary" disabled={!canCalculateGoogleMileage(busy,stops.length,startDeploymentSiteId,endDeploymentSiteId)} onClick={()=>void calculateGoogleMileage()}>{routePreviewBusy?"Google 計算中…":"用 Google Maps API 計算里程"}</button>
       </div>
@@ -639,11 +643,11 @@ export default function VisitorPage(){
     </div>
 
     <div className="card action-footer" style={{marginTop:18}}>
-      <div className="section-title"><div><h2>{editId?"修改行程":"完成本次行程資料"}</h2><div className="sub">草稿可以先保存未完成資料；正式送出前才檢查地點數、里程與時間重疊確認。行程目的為每個拜訪地點的選填資料。</div></div></div>
+      <div className="section-title"><div><h2>{editId?"修改行程":"完成本次行程資料"}</h2><div className="sub">可先儲存預排行程，無須送審，實際拜訪後再修改並送出；正式送出前才檢查地點數、里程與時間重疊確認。行程目的為每個拜訪地點的選填資料。</div></div></div>
       {msg&&<div className={`note ${msg.includes("失敗")||msg.includes("請")||msg.includes("必須")||msg.includes("至少")?"danger-note":"ok-note"}`}>{msg}</div>}
       <div className="actions bottom-actions">
         {editId&&<button className="btn outline" disabled={busy} onClick={reset}>取消修改</button>}
-        <button className="btn outline" disabled={busy} onClick={()=>void save(false)}>{busy?"處理中…":"儲存草稿"}</button>
+        <button className="btn outline" disabled={busy} onClick={()=>void save(false)}>{busy?"處理中…":"儲存預排行程"}</button>
         <button className="btn ok" disabled={busy} onClick={requestSubmit}>{editId?"重新送出":"送出行程"}</button>
       </div>
     </div>
@@ -792,7 +796,7 @@ export default function VisitorPage(){
       <div className="modal-panel">
         <h3>確認送出</h3>
         {overlap.hasOverlap&&<div className="note danger-note" style={{marginBottom:12}}><strong>時間提醒：</strong>{overlap.message||"時間與既有紀錄重疊。"}<label className="check-row"><input type="checkbox" checked={confirmOverlap} onChange={e=>setConfirmOverlap(e.target.checked)}/>我確認時間正確，仍要送出</label></div>}
-        <p>送出後，小組長可查看並核定本次里程；Google Maps API 路線里程可在草稿階段由外訪員先行計算。</p>
+        <p>送出後，小組長可查看並核定本次里程；Google Maps API 路線里程可在預排行程階段由外訪員先行計算。</p>
         {msg&&<div className="note danger-note">{msg}</div>}
         <div className="actions"><button className="btn ok" disabled={busy} onClick={()=>void save(true)}>確認送出</button><button className="btn secondary" disabled={busy} onClick={()=>setModal(null)}>取消</button></div>
       </div>
