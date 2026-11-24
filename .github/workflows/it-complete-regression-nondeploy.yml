@@ -1,0 +1,61 @@
+name: Complete agreed-scope application regression (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['.github/workflows/it-complete-regression-nondeploy.yml']
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a4281b4d488448153ef3cd09f6ed698d146d3c77
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: All current frontend tests
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm test
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a4281b4d488448153ef3cd09f6ed698d146d3c77
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Existing backend regression with disposable local SQL2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          pw="Aa9!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          docker run -d --name fv-regression -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f fv-regression >/dev/null 2>&1 || true' EXIT
+          ready=NO
+          for _ in $(seq 1 60); do if docker exec fv-regression /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -l 3 -b -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          export E1_R1_SQL_CONNECTION="Server=localhost,1433;Database=master;User Id=sa;Password=$pw;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5"
+          echo "::add-mask::$E1_R1_SQL_CONNECTION"
+          export OPTIONC_EXECUTION_MODE=IsolatedSqlTest
+          export ConnectionStrings__DefaultConnection="$E1_R1_SQL_CONNECTION"
+          export UatAutomation__CleanupEnabled=false BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false
+          export Providers__Route=Mock Providers__Geocoding=Mock
+          test -z "${UAT_SQL_CONNECTION:-}" && test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --logger "trx;LogFileName=regression.trx" --results-directory "$RUNNER_TEMP/results" --logger "console;verbosity=normal"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fieldvisit-complete-regression-results
+          path: ${{ runner.temp }}/results
+          if-no-files-found: warn
