@@ -1,14 +1,12 @@
 import {OPTIONC_APPROVAL_UI_ENABLED} from "../optionc-approval-flags";
-import{NavLink}from"react-router-dom";
+import {NavLink} from "react-router-dom";
+import {locationAdminGroups} from "../admin-navigation";
 
 export default function LocationAdminTabs(){
- return <div className="actions" style={{marginBottom:14}}>
-  <NavLink end to="/admin/locations" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>地點主檔</NavLink>
-  <NavLink to="/admin/locations/new" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>新增地點</NavLink>
-  <NavLink to="/admin/locations/bulk" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>Excel 批次維護</NavLink>
-  <NavLink to="/admin/locations/duplicates" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>疑似重複覆核</NavLink>
-  {OPTIONC_APPROVAL_UI_ENABLED&&<NavLink to="/admin/locations/approvals" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>地點變更核准</NavLink>}
-  <NavLink to="/admin/locations/centers" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>就業中心</NavLink>
-  <NavLink to="/admin/locations/official" className={({isActive})=>`btn small ${isActive?"":"outline"}`}>官方據點</NavLink>
- </div>;
+ return <nav className="location-admin-tabs" aria-label="地點管理子功能">
+  {locationAdminGroups(OPTIONC_APPROVAL_UI_ENABLED).map(group=><div className="location-admin-group" key={group.label}>
+   <div className="location-admin-group-label">{group.label}</div>
+   <div className="actions">{group.items.map(item=><NavLink key={item.path} end to={item.path} className={({isActive})=>`btn small ${isActive?"":"outline"}`}>{item.label}</NavLink>)}</div>
+  </div>)}
+ </nav>;
 }

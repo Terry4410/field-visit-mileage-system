@@ -1,94 +1,17 @@
-name: Path B formal location integration (NONDEPLOY)
+name: Path B admin navigation frontend (NONDEPLOY)
 on:
   push:
-    branches: [fix/pathb-lowrisk-stage-20261124]
+    branches: [fix/pathb-admin-navigation-20261124]
 permissions:
   contents: read
-  actions: read
 concurrency:
-  group: pathb-lowrisk-stage
+  group: pathb-admin-navigation
   cancel-in-progress: false
 jobs:
-  package:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-lowrisk-stage-20261124'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: 'Y'
-          MSSQL_SA_PASSWORD: 'FieldVisit_Disposable!Sql2022'
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Disposable!Sql2022' -C -Q 'SELECT 1' || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=20
-    env:
-      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
-      E1_R1_REQUIRED: '1'
-      E1_R1_SQL_CONNECTION: 'Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Disposable!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - uses: actions/download-artifact@v4
-        with:
-          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
-          run-id: 45312411080
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/known-old-package
-      - name: Load pinned existing Noto font only for assembly embedding
-        shell: bash
-        run: |
-          set -euo pipefail
-          old="$RUNNER_TEMP/known-old-package/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
-          test "$(sha256sum "$old" | cut -d' ' -f1)" = c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63
-          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
-          unzip -p "$old" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
-          test "$(sha256sum backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc | cut -d' ' -f1)" = b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
-          echo 'EMBEDDED_TTC_SOURCE_PIN=PASS'
-      - name: Integrated isolated SQL verification (no cloud or deployment)
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(jq -r '.OptionC.Candidate.Enabled' backend/src/FieldVisit.Api/appsettings.json)" = false
-          test -z "$(git diff --name-only 3d85171bfdde0a2b8329e4a05b7afa84b2f5a0e8 HEAD -- database/)"
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180OptionCLocationMaintenanceRiskTests|FullyQualifiedName~R5_full_010_to_020_chain_runs_real_lowrisk_writer_in_same_sql_database|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_visitor_create_location_writer|FullyQualifiedName~Create_and_lowrisk_atomic_candidate_requires_independent_leader_and_preserves_history|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=location.trx' --results-directory artifacts/test-results
-      - name: Package API with embedded Traditional Chinese font (NONDEPLOY)
-        shell: bash
-        run: |
-          set -euo pipefail
-          dst="$RUNNER_TEMP/formal-location-api"
-          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$dst" --nologo
-          test "$(stat -c '%s' "$dst/FieldVisit.Infrastructure.dll")" -gt 19000000
-          test "$(jq -r '.OptionC.Candidate.Enabled' "$dst/appsettings.json")" = false
-          mkdir -p artifacts/release
-          (cd "$dst" && zip -qr "$GITHUB_WORKSPACE/artifacts/release/PathB_FormalLocations_API.zip" .)
-          unzip -tq artifacts/release/PathB_FormalLocations_API.zip
-          (cd artifacts/release && sha256sum PathB_FormalLocations_API.zip > SHA256SUMS)
-          printf 'SOURCE_SHA=%s\nMODE=NONDEPLOY\nOPTIONC_DEFAULT=OFF\n' "$GITHUB_SHA" > artifacts/release/manifest.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pathb-formal-location-api-nondeploy
-          path: artifacts/release
-          if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: location-isolated-test-results
-          path: artifacts/test-results/location.trx
-          if-no-files-found: warn
-          retention-days: 7
   frontend:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-admin-navigation-20261124'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -122,7 +45,7 @@ jobs:
           printf 'SOURCE_SHA=%s\nMODE=NONDEPLOY\nTARGET=PathB\n' "$GITHUB_SHA" > manifest.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: pathb-formal-location-frontend-nondeploy
+          name: pathb-admin-navigation-frontend-nondeploy
           path: artifacts/frontend-release
           if-no-files-found: error
           retention-days: 14

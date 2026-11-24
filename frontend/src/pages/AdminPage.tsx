@@ -1,4 +1,6 @@
 import ExportFilteredButton from "../components/ExportFilteredButton";
+import {Link} from "react-router-dom";
+import {OPTIONC_APPROVAL_UI_ENABLED} from "../optionc-approval-flags";
 import{useEffect,useMemo,useState}from"react";
 import{api}from"../api";
 import LocationMaintenanceModal from "../components/LocationMaintenanceModal";
@@ -48,7 +50,7 @@ export default function AdminPage({section}:Props){
 
 function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){
  const[d,setD]=useState<DashboardSummary|null>(null);useEffect(()=>{api<DashboardSummary>('/dashboard').then(setD).catch(e=>setMsg(e.message))},[]);
- return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待處理更正" value={d?.pendingCorrections??'—'} hint={d?.currentRatePerKm!=null?`目前費率 ${money(d.currentRatePerKm)}/km`:undefined}/></div>{msg&&<div className="note">{msg}</div>}</>
+ return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待處理更正" value={d?.pendingCorrections??'—'} hint={d?.currentRatePerKm!=null?`目前費率 ${money(d.currentRatePerKm)}/km`:undefined}/></div><div className="card" style={{marginTop:18}}><div className="section-title"><div><h2>管理待辦與快速入口</h2><div className="sub">直接前往相關管理頁面處理；上方統計保留原有定義。</div></div></div><div className="actions"><Link className="btn small outline" to="/admin/locations">地點主檔</Link><Link className="btn small outline" to="/admin/locations/duplicates">疑似重複覆核</Link>{OPTIONC_APPROVAL_UI_ENABLED&&<Link className="btn small outline" to="/admin/locations/approvals">地點變更核准</Link>}<Link className="btn small outline" to="/admin/corrections">更正管理</Link><Link className="btn small outline" to="/admin/query">行程查詢</Link></div></div>{msg&&<div className="note">{msg}</div>}</>
 }
 function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}){return <div className="card stat"><div className="label">{label}</div><div className="value">{value}</div>{hint&&<div className="hint">{hint}</div>}</div>}
 
