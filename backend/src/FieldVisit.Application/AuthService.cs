@@ -94,6 +94,11 @@ public sealed class AuthService(
             ?? throw new UnauthorizedAccessException(
                 "帳號角色設定不完整。");
 
+        // Authentication is not business authorization. Never issue an application
+        // token to a personnel record with no effective application role.
+        if (profile.Roles.Count == 0)
+            throw new UnauthorizedAccessException("帳號尚未設定有效角色，無法登入系統。");
+
         var (token, expires) =
             tokens.Create(profile);
 
