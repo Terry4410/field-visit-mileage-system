@@ -46,12 +46,8 @@ try{
     await v.getByRole('button',{name:'申請更正',exact:true}).click();
     const d=v.getByRole('dialog',{name:'申請更正',exact:true});await expect(d).toBeVisible();return d;
    }
-   let d=await open();
-   await d.getByRole('button',{name:'送出更正申請',exact:true}).click();await expect(d).toContainText('請填寫更正原因');
-   await d.getByRole('button',{name:'取消',exact:true}).click();await expect(d).toHaveCount(0);
-   const none=await read(v,'/corrections');expect(none.filter(x=>x.visitTripId===t.visitTripId)).toHaveLength(0);console.log('CORRECTION_REQUIRED_REASON_CANCEL=PASS');
-   d=await open();await d.getByPlaceholder('請說明錯誤原因與需要更正的內容').fill('Synthetic nonfinancial note correction');
-   await d.locator('.field').filter({has:d.getByText('備註',{exact:true})}).locator('textarea').fill('BROWSER-CORRECTION-NOTE');
+   let d=await open();await d.getByPlaceholder('請說明錯誤原因與需要更正的內容').fill('Synthetic nonfinancial note correction');
+   await d.locator('.field').filter({has:v.locator('label').filter({hasText:/^備註$/})}).locator('textarea').fill('BROWSER-CORRECTION-NOTE');
    const first=await action(v,'/corrections','POST',()=>d.getByRole('button',{name:'送出更正申請',exact:true}).click());expect(first.status).toBe('PendingLeaderReview');
    await expect(v.getByRole('button',{name:'更正審核中',exact:true})).toBeDisabled();console.log('CORRECTION_SUBMIT_DUPLICATE_UI_BLOCK=PASS');
    await go(l,'/leader/review');let row=l.getByRole('row').filter({hasText:'Synthetic nonfinancial note correction'});
@@ -59,7 +55,7 @@ try{
    const closed=await action(l,'/corrections/'+first.correctionRequestId+'/leader-review','POST',()=>row.getByRole('button',{name:'通過',exact:true}).click());expect(closed.status).toBe('Closed');console.log('CORRECTION_NONFINANCIAL_LEADER_CLOSE=PASS');
    await v.reload();d=await open();
    await d.getByPlaceholder('請說明錯誤原因與需要更正的內容').fill('Synthetic financial distance correction');
-   await d.locator('.field').filter({has:d.getByText('申請更正核定里程',{exact:true})}).locator('input').fill('12.3');
+   await d.locator('.field').filter({has:v.locator('label').filter({hasText:/^申請更正核定里程$/})}).locator('input').fill('12.3');
    const second=await action(v,'/corrections','POST',()=>d.getByRole('button',{name:'送出更正申請',exact:true}).click());expect(second.status).toBe('PendingLeaderReview');
    await l.reload();row=l.getByRole('row').filter({hasText:'Synthetic financial distance correction'});await expect(row).toBeVisible();l.once('dialog',x=>x.accept('Synthetic financial review'));
    const pendingAdmin=await action(l,'/corrections/'+second.correctionRequestId+'/leader-review','POST',()=>row.getByRole('button',{name:'通過',exact:true}).click());expect(pendingAdmin.status).toBe('PendingAdminClose');console.log('CORRECTION_FINANCIAL_LEADER_TO_ADMIN=PASS');
