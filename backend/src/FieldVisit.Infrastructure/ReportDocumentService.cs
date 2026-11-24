@@ -261,7 +261,9 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         using var bytes = new MemoryStream();
         resource.CopyTo(bytes);
         using var data = SKData.CreateCopy(bytes.ToArray());
-        return SKTypeface.FromData(data);
+        // Exact bundled NotoSansCJK-Regular.ttc has TC (Traditional Chinese)
+        // as face index 3; the default index 0 uses Japanese glyph variants.
+        return SKTypeface.FromData(data, 3);
     });
 
     // A generic Arial/DejaVu fallback silently yields missing-glyph squares.
