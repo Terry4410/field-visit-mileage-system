@@ -254,215 +254,228 @@ public sealed class BackgroundJobService(
                     mockResult = await route.CalculateAsync(routeTrip, ct);
                 }
 
-                db.ChangeTracker.Clear();
-                await using var resultTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-                var trip = await db.VisitTrips
-                    .FromSqlInterpolated($"SELECT * FROM dbo.VisitTrips WITH (UPDLOCK, ROWLOCK) WHERE VisitTripId = {tripId}")
-                    .Include(x => x.Stops)
-                    .Include(x => x.MileageCalculation)
-                    .SingleAsync(x => x.VisitTripId == tripId, ct);
-                var durableItem = await db.BackgroundJobItems
-                    .SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
-                var durableJob = await db.BackgroundJobs
-                    .SingleAsync(x => x.BackgroundJobId == jobId, ct);
-
-                // Recheck live HR/role/team and the frozen route context after provider I/O,
-                // before applying any mileage/status/history writes.
-                var postProviderTeams = await ResolveLiveMileageTeamIdsAsync(durableJob, ct);
-                var currentSubmittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
-                    .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
-                    .OrderByDescending(x => x.SnapshotVersion)
-                    .Select(x => (long?)x.VisitTripSnapshotId)
-                    .FirstOrDefaultAsync(ct);
-                if (!trip.TeamId.HasValue || !postProviderTeams.Contains(trip.TeamId.Value)
-                    || trip.Status is not (TripStatuses.Submitted or TripStatuses.RoutePending)
-                    || currentSubmittedSnapshotId != submittedSnapshotId
-                    || trip.MileageCalculation?.SystemDistanceKm is not null)
-                    throw new UnauthorizedAccessException("MILEAGE_JOB_POST_PROVIDER_STATE_STALE：即時授權、Submitted 路線或里程狀態已改變，拒絕套用結果。");
-
-                // The Trip update lock serializes application, not provider completion.
-                // Two durable successful Attempts must not mutually supersede.
-                // An eligible own success may claim the still-unapplied Trip; a
-                // failed result may never fall back over another current success.
-                var submittedSnapshot = await db.VisitTripSnapshots.AsNoTracking()
-                    .Include(x => x.Stops)
-                    .SingleAsync(x => x.VisitTripSnapshotId == submittedSnapshotId, ct);
-                var authoritativeSuccesses = (await db.RouteCalculationAttempts.AsNoTracking()
-                    .Where(x => x.VisitTripId == tripId && x.Status == "Succeeded")
-                    .ToListAsync(ct))
-                    .Where(x => V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(x, submittedSnapshot))
-                    .ToArray();
-                var currentAttemptId = googleResult?.RouteCalculationAttemptId;
-                var hasOtherAuthoritativeSuccess = authoritativeSuccesses.Any(
-                    x => x.RouteCalculationAttemptId != currentAttemptId);
-                var hasEligibleOwnSuccess = useGoogleRoutes
-                    && googleResult is { Status: "Succeeded", SuggestedDistanceKm: > 0 }
-                    && authoritativeSuccesses.Any(x => x.RouteCalculationAttemptId == currentAttemptId);
-                if (useGoogleRoutes && googleResult is { Status: "Succeeded" } && !hasEligibleOwnSuccess)
-                    throw new InvalidOperationException("MILEAGE_JOB_PROVIDER_RESULT_NOT_AUTHORITATIVE");
-                if (hasOtherAuthoritativeSuccess && !hasEligibleOwnSuccess)
+                // Provider I/O stays outside the retryable SQL unit; retry only
+                // the serialized application of the already-recorded result.
+                var resultStrategy = db.Database.CreateExecutionStrategy();
+                await resultStrategy.ExecuteAsync(async () =>
                 {
-                    durableItem.Status = "Failed";
-                    durableItem.ErrorCode = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
-                    durableItem.ErrorMessage = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
-                    durableItem.CompletedAt = DateTime.UtcNow;
-                    durableJob.FailedCount++;
+                    db.ChangeTracker.Clear();
+                    await using var resultTransaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+                    // A retry after an ambiguous commit must not apply the same item again.
+                    var durableItem = await db.BackgroundJobItems
+                        .SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
+                    if (durableItem.Status != "Processing")
+                        return;
+                    var trip = await db.VisitTrips
+                        .FromSqlInterpolated($"SELECT * FROM dbo.VisitTrips WITH (UPDLOCK, ROWLOCK) WHERE VisitTripId = {tripId}")
+                        .Include(x => x.Stops)
+                        .Include(x => x.MileageCalculation)
+                        .SingleAsync(x => x.VisitTripId == tripId, ct);
+
+                    var durableJob = await db.BackgroundJobs
+                        .SingleAsync(x => x.BackgroundJobId == jobId, ct);
+
+                    // Recheck live HR/role/team and the frozen route context after provider I/O,
+                    // before applying any mileage/status/history writes.
+                    var postProviderTeams = await ResolveLiveMileageTeamIdsAsync(durableJob, ct);
+                    var currentSubmittedSnapshotId = await db.VisitTripSnapshots.AsNoTracking()
+                        .Where(x => x.VisitTripId == tripId && x.SnapshotType == "Submitted")
+                        .OrderByDescending(x => x.SnapshotVersion)
+                        .Select(x => (long?)x.VisitTripSnapshotId)
+                        .FirstOrDefaultAsync(ct);
+                    if (!trip.TeamId.HasValue || !postProviderTeams.Contains(trip.TeamId.Value)
+                        || trip.Status is not (TripStatuses.Submitted or TripStatuses.RoutePending)
+                        || currentSubmittedSnapshotId != submittedSnapshotId
+                        || trip.MileageCalculation?.SystemDistanceKm is not null)
+                        throw new UnauthorizedAccessException("MILEAGE_JOB_POST_PROVIDER_STATE_STALE：即時授權、Submitted 路線或里程狀態已改變，拒絕套用結果。");
+
+                    // The Trip update lock serializes application, not provider completion.
+                    // Two durable successful Attempts must not mutually supersede.
+                    // An eligible own success may claim the still-unapplied Trip; a
+                    // failed result may never fall back over another current success.
+                    var submittedSnapshot = await db.VisitTripSnapshots.AsNoTracking()
+                        .Include(x => x.Stops)
+                        .SingleAsync(x => x.VisitTripSnapshotId == submittedSnapshotId, ct);
+                    var authoritativeSuccesses = (await db.RouteCalculationAttempts.AsNoTracking()
+                        .Where(x => x.VisitTripId == tripId && x.Status == "Succeeded")
+                        .ToListAsync(ct))
+                        .Where(x => V180MileageCanonicalization.IsAuthoritativeCurrentRouteAttempt(x, submittedSnapshot))
+                        .ToArray();
+                    var currentAttemptId = googleResult?.RouteCalculationAttemptId;
+                    var hasOtherAuthoritativeSuccess = authoritativeSuccesses.Any(
+                        x => x.RouteCalculationAttemptId != currentAttemptId);
+                    var hasEligibleOwnSuccess = useGoogleRoutes
+                        && googleResult is { Status: "Succeeded", SuggestedDistanceKm: > 0 }
+                        && authoritativeSuccesses.Any(x => x.RouteCalculationAttemptId == currentAttemptId);
+                    if (useGoogleRoutes && googleResult is { Status: "Succeeded" } && !hasEligibleOwnSuccess)
+                        throw new InvalidOperationException("MILEAGE_JOB_PROVIDER_RESULT_NOT_AUTHORITATIVE");
+                    if (hasOtherAuthoritativeSuccess && !hasEligibleOwnSuccess)
+                    {
+                        durableItem.Status = "Failed";
+                        durableItem.ErrorCode = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
+                        durableItem.ErrorMessage = "MILEAGE_SUPERSEDED_BY_PROVIDER_SUCCESS";
+                        durableItem.CompletedAt = DateTime.UtcNow;
+                        durableJob.FailedCount++;
+                        await db.SaveChangesAsync(ct);
+                        await resultTransaction.CommitAsync(ct);
+                        return;
+                    }
+
+                    var calc = trip.MileageCalculation;
+                    if (calc is null)
+                    {
+                        calc = new MileageCalculation { VisitTripId = trip.VisitTripId, CreatedAt = DateTime.UtcNow };
+                        await db.MileageCalculations.AddAsync(calc, ct);
+                    }
+
+                    var previous = trip.Status;
+                    var completedAt = DateTime.UtcNow;
+
+                    if (useGoogleRoutes && googleResult is { Status: "Succeeded", SuggestedDistanceKm: > 0 })
+                    {
+                        trip.Status = TripStatuses.PendingApproval;
+                        trip.ReturnReason = null;
+                        trip.UpdatedAt = completedAt;
+                        trip.UpdatedByUserId = jobState.RequestedByUserId;
+                        calc.SystemDistanceKm = googleResult.SuggestedDistanceKm;
+                        calc.CalculationSource = "GoogleMapsAPI";
+                        calc.CalculatedAt = completedAt;
+                        calc.UpdatedAt = completedAt;
+
+                        db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                        {
+                            VisitTripId = trip.VisitTripId,
+                            PreviousStatus = previous,
+                            NewStatus = TripStatuses.PendingApproval,
+                            Action = "GoogleMapsMileageCalculated",
+                            ActionByUserId = jobState.RequestedByUserId,
+                            Comments = $"GoogleMapsAPI={googleResult.SuggestedDistanceKm:0.###} km; RouteAttempt={googleResult.RouteCalculationAttemptId}",
+                            ActionAt = completedAt
+                        });
+
+                        durableItem.Status = "Succeeded";
+                        durableItem.ResultJson = JsonSerializer.Serialize(new
+                        {
+                            source = "GoogleMapsAPI",
+                            distanceKm = googleResult.SuggestedDistanceKm,
+                            routeCalculationAttemptId = googleResult.RouteCalculationAttemptId
+                        }, JsonOptions);
+                        durableJob.SuccessCount++;
+                    }
+                    else if (useGoogleRoutes && calc.ClaimedDistanceKm is > 0)
+                    {
+                        trip.Status = TripStatuses.PendingApproval;
+                        trip.ReturnReason = null;
+                        trip.UpdatedAt = completedAt;
+                        trip.UpdatedByUserId = jobState.RequestedByUserId;
+                        calc.SystemDistanceKm = null;
+                        calc.CalculationSource = "ManualFallback";
+                        calc.CalculatedAt = completedAt;
+                        calc.UpdatedAt = completedAt;
+
+                        db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                        {
+                            VisitTripId = trip.VisitTripId,
+                            PreviousStatus = previous,
+                            NewStatus = TripStatuses.PendingApproval,
+                            Action = "GoogleMapsFailedManualFallback",
+                            ActionByUserId = jobState.RequestedByUserId,
+                            Comments = $"Google Maps API 無法取得可用里程；使用外訪員人工備援 {calc.ClaimedDistanceKm:0.###} km 等待小組長核准。",
+                            ActionAt = completedAt
+                        });
+
+                        durableItem.Status = "Succeeded";
+                        durableItem.ResultJson = JsonSerializer.Serialize(new
+                        {
+                            source = "ManualFallback",
+                            distanceKm = calc.ClaimedDistanceKm,
+                            googleErrorCode = googleResult?.ErrorCode
+                        }, JsonOptions);
+                        durableJob.SuccessCount++;
+                    }
+                    else if (useGoogleRoutes)
+                    {
+                        trip.Status = TripStatuses.Returned;
+                        trip.ReturnReason = "Google Maps API 無法取得可用里程，請填寫人工備援里程後重新送出。";
+                        trip.UpdatedAt = completedAt;
+                        trip.UpdatedByUserId = jobState.RequestedByUserId;
+                        calc.SystemDistanceKm = null;
+                        calc.CalculationSource = null;
+                        calc.CalculatedAt = null;
+                        calc.UpdatedAt = completedAt;
+
+                        db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                        {
+                            VisitTripId = trip.VisitTripId,
+                            PreviousStatus = previous,
+                            NewStatus = TripStatuses.Returned,
+                            Action = "GoogleMapsFailedReturnForManualFallback",
+                            ActionByUserId = jobState.RequestedByUserId,
+                            Comments = trip.ReturnReason,
+                            ActionAt = completedAt
+                        });
+
+                        durableItem.Status = "Failed";
+                        var safeProviderFailure = V180MileageGovernanceRules.SanitizeProviderFailure(
+                            googleResult?.ErrorCode ?? "GOOGLE_ROUTE_FAILED", googleResult?.ErrorMessage);
+                        durableItem.ErrorCode = safeProviderFailure.Code;
+                        durableItem.ErrorMessage = safeProviderFailure.Message;
+                        durableJob.FailedCount++;
+                    }
+                    else
+                    {
+                        if (mockResult is not { Success: true, DistanceKm: > 0 })
+                            throw new InvalidOperationException(
+                                mockResult?.ErrorMessage ?? mockResult?.ErrorCode ?? "里程計算失敗。");
+
+                        trip.Status = TripStatuses.PendingApproval;
+                        trip.UpdatedAt = completedAt;
+                        trip.UpdatedByUserId = jobState.RequestedByUserId;
+                        calc.SystemDistanceKm = mockResult.DistanceKm;
+                        calc.CalculationSource = "MockRoute/UAT";
+                        calc.CalculatedAt = completedAt;
+                        calc.UpdatedAt = completedAt;
+
+                        db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
+                        {
+                            VisitTripId = trip.VisitTripId,
+                            PreviousStatus = previous,
+                            NewStatus = TripStatuses.PendingApproval,
+                            Action = "MileageCalculatedJob",
+                            ActionByUserId = jobState.RequestedByUserId,
+                            Comments = $"SystemDistanceKm={mockResult.DistanceKm:0.00}",
+                            ActionAt = completedAt
+                        });
+
+                        db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
+                        {
+                            VisitTripId = tripId,
+                            VisitTripSnapshotId = submittedSnapshotId,
+                            EventType = "Calculated",
+                            ReasonCode = "MockRoute/UAT",
+                            Message = "Mock route distance calculated; no company approval evidence created.",
+                            CorrelationId = Guid.NewGuid(),
+                            OccurredAt = completedAt,
+                            ActorUserId = jobState.RequestedByUserId
+                        });
+
+                        durableItem.Status = "Succeeded";
+                        durableItem.ResultJson = JsonSerializer.Serialize(new { source = "MockRoute/UAT", distanceKm = mockResult.DistanceKm }, JsonOptions);
+                        durableJob.SuccessCount++;
+                    }
+
+                    durableItem.CompletedAt = completedAt;
                     await db.SaveChangesAsync(ct);
                     await resultTransaction.CommitAsync(ct);
-                    continue;
-                }
-
-                var calc = trip.MileageCalculation;
-                if (calc is null)
-                {
-                    calc = new MileageCalculation { VisitTripId = trip.VisitTripId, CreatedAt = DateTime.UtcNow };
-                    await db.MileageCalculations.AddAsync(calc, ct);
-                }
-
-                var previous = trip.Status;
-                var completedAt = DateTime.UtcNow;
-
-                if (useGoogleRoutes && googleResult is { Status: "Succeeded", SuggestedDistanceKm: > 0 })
-                {
-                    trip.Status = TripStatuses.PendingApproval;
-                    trip.ReturnReason = null;
-                    trip.UpdatedAt = completedAt;
-                    trip.UpdatedByUserId = jobState.RequestedByUserId;
-                    calc.SystemDistanceKm = googleResult.SuggestedDistanceKm;
-                    calc.CalculationSource = "GoogleMapsAPI";
-                    calc.CalculatedAt = completedAt;
-                    calc.UpdatedAt = completedAt;
-
-                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
-                    {
-                        VisitTripId = trip.VisitTripId,
-                        PreviousStatus = previous,
-                        NewStatus = TripStatuses.PendingApproval,
-                        Action = "GoogleMapsMileageCalculated",
-                        ActionByUserId = jobState.RequestedByUserId,
-                        Comments = $"GoogleMapsAPI={googleResult.SuggestedDistanceKm:0.###} km; RouteAttempt={googleResult.RouteCalculationAttemptId}",
-                        ActionAt = completedAt
-                    });
-
-                    durableItem.Status = "Succeeded";
-                    durableItem.ResultJson = JsonSerializer.Serialize(new
-                    {
-                        source = "GoogleMapsAPI",
-                        distanceKm = googleResult.SuggestedDistanceKm,
-                        routeCalculationAttemptId = googleResult.RouteCalculationAttemptId
-                    }, JsonOptions);
-                    durableJob.SuccessCount++;
-                }
-                else if (useGoogleRoutes && calc.ClaimedDistanceKm is > 0)
-                {
-                    trip.Status = TripStatuses.PendingApproval;
-                    trip.ReturnReason = null;
-                    trip.UpdatedAt = completedAt;
-                    trip.UpdatedByUserId = jobState.RequestedByUserId;
-                    calc.SystemDistanceKm = null;
-                    calc.CalculationSource = "ManualFallback";
-                    calc.CalculatedAt = completedAt;
-                    calc.UpdatedAt = completedAt;
-
-                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
-                    {
-                        VisitTripId = trip.VisitTripId,
-                        PreviousStatus = previous,
-                        NewStatus = TripStatuses.PendingApproval,
-                        Action = "GoogleMapsFailedManualFallback",
-                        ActionByUserId = jobState.RequestedByUserId,
-                        Comments = $"Google Maps API 無法取得可用里程；使用外訪員人工備援 {calc.ClaimedDistanceKm:0.###} km 等待小組長核准。",
-                        ActionAt = completedAt
-                    });
-
-                    durableItem.Status = "Succeeded";
-                    durableItem.ResultJson = JsonSerializer.Serialize(new
-                    {
-                        source = "ManualFallback",
-                        distanceKm = calc.ClaimedDistanceKm,
-                        googleErrorCode = googleResult?.ErrorCode
-                    }, JsonOptions);
-                    durableJob.SuccessCount++;
-                }
-                else if (useGoogleRoutes)
-                {
-                    trip.Status = TripStatuses.Returned;
-                    trip.ReturnReason = "Google Maps API 無法取得可用里程，請填寫人工備援里程後重新送出。";
-                    trip.UpdatedAt = completedAt;
-                    trip.UpdatedByUserId = jobState.RequestedByUserId;
-                    calc.SystemDistanceKm = null;
-                    calc.CalculationSource = null;
-                    calc.CalculatedAt = null;
-                    calc.UpdatedAt = completedAt;
-
-                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
-                    {
-                        VisitTripId = trip.VisitTripId,
-                        PreviousStatus = previous,
-                        NewStatus = TripStatuses.Returned,
-                        Action = "GoogleMapsFailedReturnForManualFallback",
-                        ActionByUserId = jobState.RequestedByUserId,
-                        Comments = trip.ReturnReason,
-                        ActionAt = completedAt
-                    });
-
-                    durableItem.Status = "Failed";
-                    var safeProviderFailure = V180MileageGovernanceRules.SanitizeProviderFailure(
-                        googleResult?.ErrorCode ?? "GOOGLE_ROUTE_FAILED", googleResult?.ErrorMessage);
-                    durableItem.ErrorCode = safeProviderFailure.Code;
-                    durableItem.ErrorMessage = safeProviderFailure.Message;
-                    durableJob.FailedCount++;
-                }
-                else
-                {
-                    if (mockResult is not { Success: true, DistanceKm: > 0 })
-                        throw new InvalidOperationException(
-                            mockResult?.ErrorMessage ?? mockResult?.ErrorCode ?? "里程計算失敗。");
-
-                    trip.Status = TripStatuses.PendingApproval;
-                    trip.UpdatedAt = completedAt;
-                    trip.UpdatedByUserId = jobState.RequestedByUserId;
-                    calc.SystemDistanceKm = mockResult.DistanceKm;
-                    calc.CalculationSource = "MockRoute/UAT";
-                    calc.CalculatedAt = completedAt;
-                    calc.UpdatedAt = completedAt;
-
-                    db.VisitTripStatusHistories.Add(new VisitTripStatusHistory
-                    {
-                        VisitTripId = trip.VisitTripId,
-                        PreviousStatus = previous,
-                        NewStatus = TripStatuses.PendingApproval,
-                        Action = "MileageCalculatedJob",
-                        ActionByUserId = jobState.RequestedByUserId,
-                        Comments = $"SystemDistanceKm={mockResult.DistanceKm:0.00}",
-                        ActionAt = completedAt
-                    });
-
-                    db.MileageGovernanceEvents.Add(new MileageGovernanceEvent
-                    {
-                        VisitTripId = tripId,
-                        VisitTripSnapshotId = submittedSnapshotId,
-                        EventType = "Calculated",
-                        ReasonCode = "MockRoute/UAT",
-                        Message = "Mock route distance calculated; no company approval evidence created.",
-                        CorrelationId = Guid.NewGuid(),
-                        OccurredAt = completedAt,
-                        ActorUserId = jobState.RequestedByUserId
-                    });
-
-                    durableItem.Status = "Succeeded";
-                    durableItem.ResultJson = JsonSerializer.Serialize(new { source = "MockRoute/UAT", distanceKm = mockResult.DistanceKm }, JsonOptions);
-                    durableJob.SuccessCount++;
-                }
-
-                durableItem.CompletedAt = completedAt;
-                await db.SaveChangesAsync(ct);
-                await resultTransaction.CommitAsync(ct);
+                });
             }
             catch (Exception ex)
             {
                 db.ChangeTracker.Clear();
                 var failedItem = await db.BackgroundJobItems.SingleAsync(x => x.BackgroundJobItemId == itemId, ct);
+                // If commit succeeded but acknowledgement was lost, keep its terminal result.
+                if (failedItem.Status != "Processing")
+                    continue;
                 var durableJob = await db.BackgroundJobs.SingleAsync(x => x.BackgroundJobId == jobId, ct);
                 failedItem.Status = "Failed";
                 var safeCode = BackgroundJobFailureCodes.FromException(ex);
