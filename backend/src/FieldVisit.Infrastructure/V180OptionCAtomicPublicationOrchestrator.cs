@@ -43,7 +43,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
                     requestPublicId, organizationId))
                 .AsNoTracking().SingleOrDefaultAsync(ct)
                 ?? throw new KeyNotFoundException("OPTIONC_REQUEST_NOT_FOUND");
-            if ((V180OptionCExecutionPolicy.IsPathBUatMode || requestRowVersion is not null)
+            if ((V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode || requestRowVersion is not null)
                 && !request.RowVersion.SequenceEqual(V180B3RowVersionRules.Parse(
                     requestRowVersion ?? throw new InvalidOperationException("ROWVERSION_REQUIRED"))))
                 throw new InvalidOperationException("ROWVERSION_CONFLICT");
@@ -69,7 +69,7 @@ internal sealed class V180OptionCAtomicPublicationOrchestrator(
             // When the additive first-level review table is present, high-risk
             // publication is impossible without an approved independent Leader
             // decision in this same Serializable transaction.
-            if (V180OptionCExecutionPolicy.IsPathBUatMode || await V180OptionCLeaderReviewService.Schema.ExistsAsync(
+            if (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode || await V180OptionCLeaderReviewService.Schema.ExistsAsync(
                     connection, sqlTx, ct))
                 await V180OptionCLeaderReviewService.Schema.RequireApprovedAsync(
                     connection, sqlTx, request.ChangeRequestId,

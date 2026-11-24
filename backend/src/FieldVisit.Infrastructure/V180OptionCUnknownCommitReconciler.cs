@@ -87,7 +87,7 @@ internal static class V180OptionCUnknownCommitReconciler
             }
             if (!hasMerge && currentVersion != 1)
                 return "INDETERMINATE";
-            if (hasMerge && V180OptionCExecutionPolicy.IsPathBUatMode)
+            if (hasMerge && V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode)
                 return "INDETERMINATE";
             if (hasMerge)
             {
