@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a4281b4d488448153ef3cd09f6ed698d146d3c77
+          ref: ea85a0d3985fc5bab3e2c25cf80d6d29a156d089
           path: app
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -77,6 +77,7 @@ jobs:
           jwt="$(openssl rand -hex 32)"
           echo "::add-mask::$BROWSER_DEMO_PASSWORD"
           echo "::add-mask::$jwt"
+          export BROWSER_TEST_SIGNING_KEY="$jwt"
           (cd app/backend/src/FieldVisit.Api && env ASPNETCORE_URLS=http://127.0.0.1:5080 ASPNETCORE_ENVIRONMENT=Production ConnectionStrings__DefaultConnection="$FV_CORE_RUNTIME" Auth__Mode=Demo Auth__DemoPassword="$BROWSER_DEMO_PASSWORD" Auth__JwtKey="$jwt" Cors__AllowedOrigins__0=http://127.0.0.1:4173 BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false Providers__Route=Mock Providers__Geocoding=Mock dotnet bin/Release/net8.0/FieldVisit.Api.dll > "$RUNNER_TEMP/browser-api.log" 2>&1) &
           api_pid=$!
           (cd app/frontend && npm run preview -- --host 127.0.0.1 --port 4173 --strictPort > "$RUNNER_TEMP/browser-ui.log" 2>&1) &

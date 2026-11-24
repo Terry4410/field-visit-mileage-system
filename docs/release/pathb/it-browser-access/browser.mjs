@@ -1,3 +1,4 @@
+import {createHmac} from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
 const origin='http://127.0.0.1:4173', api='http://127.0.0.1:5080';
 const password=process.env.BROWSER_DEMO_PASSWORD;
@@ -42,18 +43,19 @@ try{
     const trip=await action(owner,'/trips','POST',()=>owner.getByRole('button',{name:'儲存預排行程',exact:true}).click());
     expect(trip.status).toBe('Draft');
     const login=await loginAttempt(outsider,'E2E-ACCESS-01');
-    if([401,403].includes(login.status())){console.log('ROLELESS_IDENTITY_LOGIN_DENIED=PASS');return}
-    expect(login.status()).toBe(200);
-    const identity=await login.json();
-    expect(identity.user.roles).toHaveLength(0);
-    console.log('ROLELESS_IDENTITY_TOKEN_ISSUED');
-    const h={Authorization:'Bearer '+identity.accessToken};
+    expect([401,403]).toContain(login.status());await expect(outsider.locator('.danger-note')).toBeVisible();
+    console.log('ROLELESS_NEW_TOKEN_DENIED=PASS');
+    // Reproduce an already-issued roleless JWT with the disposable runner key.
+    const signingKey=process.env.BROWSER_TEST_SIGNING_KEY;
+    if(!signingKey||signingKey.length<32)throw Error('ISOLATED_SIGNING_KEY_REQUIRED');
+    const b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+    const unsigned=b64({alg:'HS256',typ:'JWT'})+'.'+b64({iss:'FieldVisit.UAT',aud:'FieldVisit.UAT.Users',exp:Math.floor(Date.now()/1000)+600,'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier':String(u.userId)});
+    const oldToken=unsigned+'.'+createHmac('sha256',signingKey).update(unsigned).digest('base64url');
+    const h={Authorization:'Bearer '+oldToken};
     const result=await outsider.request.get(api+'/api/v1/trips/'+trip.visitTripId,{headers:h});
-    const admin=await outsider.request.get(api+'/api/v1/admin/people',{headers:h});
-    console.log('ROLELESS_OTHER_TRIP_HTTP='+result.status());
-    console.log('ROLELESS_ADMIN_PEOPLE_HTTP='+admin.status());
-    expect([401,403,404]).toContain(result.status());
-    expect([401,403]).toContain(admin.status());
+    const me=await outsider.request.get(api+'/api/v1/me',{headers:h});
+    expect([401,403]).toContain(result.status());expect([401,403]).toContain(me.status());
+    console.log('ROLELESS_EXISTING_TOKEN_DENIED=PASS');
    });
    await go(p,'/admin/teams');await p.getByRole('button',{name:'＋新增小組',exact:true}).click();
    let d=p.getByRole('dialog');await d.getByPlaceholder('例如 TEAM-001').fill('E2E-ACCESS-T2');await d.getByPlaceholder('例如 北區第一組').fill('Synthetic Access Team');
@@ -64,7 +66,7 @@ try{
    await d.getByPlaceholder('例如 北區第一組').fill('Synthetic Access Team Edited');
    await action(p,'/admin/teams/'+team.teamId,'PUT',()=>d.getByRole('button',{name:'儲存修改',exact:true}).click());
    await expect(row).toContainText('Synthetic Access Team Edited');console.log('TEAM_BROWSER_EDIT=PASS');
-   await go(p,'/admin/teams/members');await p.getByLabel('管理小組',{exact:true}).selectOption(String(team.teamId));
+   await go(p,'/admin/teams/members');await p.locator('label').filter({hasText:/^管理小組/}).locator('select').selectOption(String(team.teamId));
    await expect(p.getByText('Synthetic Access Team Edited',{exact:true})).toBeVisible();
    await p.getByRole('button',{name:'＋加入小組成員',exact:true}).click();
    d=p.getByRole('dialog');await d.getByPlaceholder('工號、姓名或 Email').fill('E2E-ACCESS-01');
