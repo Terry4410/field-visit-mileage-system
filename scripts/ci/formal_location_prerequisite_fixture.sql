@@ -1,6 +1,6 @@
 -- Disposable SQL2022 only. Reproduce the existing synthetic Path B account seed
 -- and existing Visitor HR link; never execute this fixture in Azure.
-IF DB_NAME()<>N'OptionCIsolated_FormalPrerequisites' OR CONVERT(int,SERVERPROPERTY(N'EngineEdition'))=5 THROW 59830,N'DISPOSABLE_ONLY',1;
+IF DB_NAME()<>N'OptionCIsolated_FieldVisitV180Replay' OR CONVERT(int,SERVERPROPERTY(N'EngineEdition'))=5 THROW 59830,N'DISPOSABLE_ONLY',1;
 SET XACT_ABORT ON;
 SET ANSI_NULLS ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET ARITHABORT ON; SET CONCAT_NULL_YIELDS_NULL ON; SET QUOTED_IDENTIFIER ON; SET NUMERIC_ROUNDABORT OFF;
 DECLARE @now datetime2(3)=SYSUTCDATETIME(),@since date='20200101',@org int,@team int,@v int,@l int,@a int,@vr int,@lr int,@ar int,@person bigint,@emp bigint;
