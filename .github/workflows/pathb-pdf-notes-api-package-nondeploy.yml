@@ -1,0 +1,123 @@
+name: Path B PDF and scoped notes API candidate (NONDEPLOY)
+on:
+  push:
+    branches: [fix/pathb-pdf-notes-release-20261124]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pathb-pdf-notes-api-package
+  cancel-in-progress: false
+jobs:
+  package:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-pdf-notes-release-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'FieldVisit_Disposable!Sql2022'
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Disposable!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+      E1_R1_REQUIRED: '1'
+      E1_R1_SQL_CONNECTION: 'Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Disposable!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Exact PDF baseline and limited notes delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "2c32c7aeaa5e017d1a5428662d84b9021b807dad"
+          git merge-base --is-ancestor "54f7374a1af63bbfc072d60f5dbabda2ef594ff2" HEAD
+          python3 - <<'PY'
+          import subprocess
+          changed=set(subprocess.check_output(['git','diff','--name-only','54f7374a1af63bbfc072d60f5dbabda2ef594ff2','HEAD'],text=True).splitlines())
+          assert changed=={
+              '.github/workflows/pathb-pdf-notes-api-package-nondeploy.yml',
+              'backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs',
+              'backend/tests/FieldVisit.Application.Tests/V180OptionCFinalSecurityGateSqlTests.cs'
+          },changed
+          PY
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/known-old-package
+      - name: Load pinned existing Noto font only for assembly embedding
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="$RUNNER_TEMP/known-old-package/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          test "$(sha256sum "$old" | cut -d' ' -f1)" = c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$old" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          test "$(sha256sum backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc | cut -d' ' -f1)" = b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
+          echo 'EMBEDDED_TTC_SOURCE_PIN=PASS'
+      - name: Scoped SQL notes behavior, no cloud resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~PathB_scoped_team_notes_save_without_audit_read_and_deny_foreign_team' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=notes.trx' --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root=ET.parse('artifacts/test-results/notes.trx').getroot()
+          results=[x for x in root.iter() if x.tag.endswith('UnitTestResult')]
+          assert len(results)==1 and results[0].attrib.get('outcome')=='Passed', 'EXPECTED_ONE_PASS'
+          assert 'PATHB_SCOPED_NOTES_SQL_PASS' in ''.join(root.itertext()), 'REAL_SQL_PROOF_REQUIRED'
+          PY
+      - name: Publish API with exactly embedded CJK font and seal package
+        shell: bash
+        run: |
+          set -euo pipefail
+          dst="$RUNNER_TEMP/api-publish"
+          name="PathB_PDF_NOTES_API_candidate_20261124.zip"
+          mkdir -p "$dst" artifacts
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$dst" --nologo
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll FieldVisit.Domain.dll FieldVisit.Api.deps.json FieldVisit.Api.runtimeconfig.json; do
+            test -s "$dst/$f"
+          done
+          # The exact Noto font is now inside Infrastructure.dll, not a
+          # separate filesystem dependency that Run-From-Package can hide.
+          test "$(stat -c '%s' "$dst/FieldVisit.Infrastructure.dll")" -gt 19000000
+          test ! -e "$dst/fonts"
+          (cd "$dst" && zip -q -r "$GITHUB_WORKSPACE/artifacts/$name" .)
+          unzip -tq "artifacts/$name" >/dev/null
+          test -s "artifacts/$name"
+          sha256sum "artifacts/$name" | tee "artifacts/$name.sha256"
+          wc -c "artifacts/$name" | tee "artifacts/$name.bytes"
+          sha256sum "$dst/FieldVisit.Infrastructure.dll" "$dst/FieldVisit.Api.dll" > artifacts/assembly-sha256.txt
+          printf 'SOURCE_SHA=%s\nORIGINAL_SOURCE_SHA=8442bae35a9099c1bd68505c6273f93a937d7045\nPDF_CJK_PROOF_CI=45322112035\nNEW_FONT_MODE=EMBEDDED_RESOURCE_TC_FACE_3\nTARGET_RG=rg-fieldvisit-uat\nTARGET_API=api-fieldvisit-pathb-uat\nPREVIOUS_SELECTED_ZIP=VERIFY_LIVE_BEFORE_ANY_DEPLOY\nPREVIOUS_SELECTED_ZIP_SHA_LIVE=NOT_READBACK\nMODE=NONDEPLOY_CANDIDATE\nAZURE_DEPLOY=NOT_RUN\nSQL=NOT_RUN\nFRONTEND=NOT_RUN\n' \
+            "$GITHUB_SHA" > artifacts/manifest.txt
+          cp artifacts/test-results/notes.trx artifacts/notes.trx
+          echo 'PDF_NOTES_API_ONLY_CANDIDATE_INTEGRITY=PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PathB-PDF-NOTES-API-CANDIDATE-NONDEPLOY
+          path: artifacts/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Stop at package; no live write or authentication
+        run: |
+          echo 'AZURE_DEPLOY=NOT_RUN'
+          echo 'SELECTOR_CHANGE=NOT_RUN'
+          echo 'SQL=NOT_RUN'
+          echo 'PROTECTED_MERGE=NOT_RUN'
