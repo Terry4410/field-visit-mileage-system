@@ -1,0 +1,61 @@
+name: Path B scoped team notes NONDEPLOY
+on:
+  push:
+    branches: [fix/pathb-location-combined-20261124]
+    paths:
+      - 'backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs'
+      - 'backend/tests/FieldVisit.Application.Tests/V180OptionCFinalSecurityGateSqlTests.cs'
+      - '.github/workflows/pathb-scoped-team-notes-nondeploy.yml'
+permissions:
+  contents: read
+jobs:
+  scoped-notes:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-location-combined-20261124'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'FieldVisit_Disposable!Sql2022'
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Disposable!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+      E1_R1_REQUIRED: '1'
+      E1_R1_SQL_CONNECTION: 'Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Disposable!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Scoped SQL notes behavior, no cloud resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "${UAT_SQL_CONNECTION:-}"
+          test -z "${PRODUCTION_SQL_CONNECTION:-}"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~PathB_scoped_team_notes_save_without_audit_read_and_deny_foreign_team' --logger 'console;verbosity=normal' --logger 'trx;LogFileName=notes.trx' --results-directory artifacts/test-results
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root=ET.parse('artifacts/test-results/notes.trx').getroot()
+          results=[x for x in root.iter() if x.tag.endswith('UnitTestResult')]
+          assert len(results)==1 and results[0].attrib.get('outcome')=='Passed', 'EXPECTED_ONE_PASS'
+          assert 'PATHB_SCOPED_NOTES_SQL_PASS' in ''.join(root.itertext()), 'REAL_SQL_PROOF_REQUIRED'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pathb-scoped-notes-test-results
+          path: artifacts/test-results/notes.trx
+          if-no-files-found: warn
+          retention-days: 7
