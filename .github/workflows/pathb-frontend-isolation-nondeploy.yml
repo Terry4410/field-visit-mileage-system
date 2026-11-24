@@ -1,5 +1,8 @@
 name: Path B Frontend Isolation (NONDEPLOY)
 on:
+  push:
+    branches:
+      - fix/pathb-leader-location-followup-20261124
   pull_request:
     branches:
       - work/pathb-connection-only-offline-plan-20261113
@@ -15,6 +18,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
