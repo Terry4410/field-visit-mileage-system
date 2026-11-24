@@ -77,6 +77,21 @@
   .modal-panel{padding:18px;max-height:96vh}
 }
 
+/* Trip scheduling controls: two aligned columns on desktop, one flow on mobile. */
+.trip-time-range{min-width:0}
+.trip-time-fields,.trip-time-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.trip-time-options{margin-top:-10px;margin-bottom:14px}
+.trip-time-options .check-row{margin-top:0;min-height:44px;align-items:center;cursor:pointer}
+.trip-time-options .check-row input{min-height:auto}
+.trip-date-shortcuts{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));margin-bottom:12px}
+.trip-date-shortcuts .btn{min-width:0;padding-left:8px;padding-right:8px}
+@media(max-width:980px){
+  .trip-time-fields,.trip-time-options{grid-template-columns:1fr}
+  .trip-time-fields,.trip-time-options{gap:0}
+  .trip-time-options{margin-top:0}
+  .trip-date-shortcuts{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+}
+
 
 
 /* v1.7.0 smart location picker */
@@ -388,3 +403,17 @@
   .team-membership-actions{grid-column:1;justify-content:flex-start}
   .team-membership-actions .btn{flex:0 0 auto;min-width:0}
 }
+
+/* Project-period date filters: visible YYYY/MM/DD and an unchanged native picker.
+   The native input overlays only the calendar button, so touch/mobile works. */
+.slash-date-control{position:relative;display:flex;width:100%;min-width:0}
+.field .slash-date-control input[type="text"]{width:100%;min-width:0;padding-right:56px;font-size:16px}
+.slash-date-calendar-icon{position:absolute;right:0;top:0;width:46px;height:100%;display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--ink)}
+.field .slash-date-control input[type="date"]{position:absolute;right:0;top:0;width:46px;height:100%;padding:0;margin:0;border:0;opacity:0;cursor:pointer}
+.slash-date-control:focus-within{outline:2px solid var(--primary);outline-offset:2px;border-radius:12px}
+
+/* Location note history is not a route stop: give the content the full card width. */
+.location-note-history-item{display:block;min-width:0;width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;background:#fbfcfd;overflow-wrap:anywhere}
+.location-note-history-author{font-weight:700;line-height:1.4}
+.location-note-history-meta{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:4px;color:var(--muted);font-size:12px;line-height:1.5}
+.location-note-history-body{margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}

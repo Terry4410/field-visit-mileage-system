@@ -24,7 +24,7 @@ import { resolveNavigationTitle } from './navigation-title';
 
 type NavItem={path:string;label:string;short:string};
 const navByRole:Record<string,NavItem[]>={
- visitor:[{path:'/',label:'今日行程',short:'首頁'},{path:'/history',label:'歷史紀錄',short:'紀錄'},{path:'/locations/manage',label:'地點管理',short:'地點'}],
+ visitor:[{path:'/',label:'今日行程',short:'首頁'},{path:'/history',label:'行程查詢',short:'查詢'},{path:'/locations/manage',label:'地點管理',short:'地點'}],
  leader:[{path:'/leader',label:'小組總覽',short:'總覽'},{path:'/leader/review',label:'行程審核',short:'審核'},{path:'/leader/query',label:'行程查詢',short:'查詢'},{path:'/leader/locations',label:'地點管理',short:'地點'},...(OPTIONC_LEADER_REVIEW_UI_ENABLED?[{path:'/leader/location-review',label:'地點初審',short:'初審'}]:[])],
  admin:[{path:'/admin',label:'管理儀表板',short:'總覽'},{path:'/admin/users',label:'人員與權限',short:'人員'},{path:'/admin/teams',label:'小組與成員',short:'小組'},{path:'/admin/locations',label:'地點管理',short:'地點'},{path:'/admin/projects',label:'專案管理',short:'專案'},{path:'/admin/reports',label:'報表下載',short:'報表'},{path:'/admin/visit-types',label:'拜訪形式',short:'形式'},{path:'/admin/rates',label:'補助費率',short:'費率'},{path:'/admin/query',label:'行程查詢',short:'查詢'},{path:'/admin/corrections',label:'更正管理',short:'更正'},...(OPTIONC_APPROVAL_UI_ENABLED?[{path:'/admin/locations/approvals',label:'地點變更核准',short:'核准'}]:[])],
  supervisor:[{path:'/supervisor',label:'查詢總覽',short:'總覽'},{path:'/supervisor/query',label:'行程查詢',short:'查詢'}]

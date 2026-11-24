@@ -6,7 +6,9 @@ import {
 } from "react";
 
 import {api} from "../api";
-import LocationMaintenanceModal from "./LocationMaintenanceModal";
+import ScopedNotes from "./ScopedLocationNotes";
+import {useAuth} from "../auth";
+import {scopedLocationNoteTeams} from "../location-ownership-ui";
 
 import {
   buildLocationSearchPath,
@@ -66,6 +68,8 @@ export default function SmartLocationPicker({
   selectedLocationId,
   onSelect
 }:Props){
+  const {user}=useAuth();
+  const noteTeams=scopedLocationNoteTeams(user?.teamScopes,teamId);
   const [tab,setTab]=useState<PickerTab>("search");
 
   const [query,setQuery]=useState("");
@@ -104,7 +108,7 @@ export default function SmartLocationPicker({
     useState<number|null>(null);
 
   const [message,setMessage]=useState("");
-  const [maintenanceId,setMaintenanceId]=useState<number|null>(null);
+  const [noteLocation,setNoteLocation]=useState<SmartLocationItem|null>(null);
 
   const searchSequence=useRef(0);
 
@@ -507,11 +511,12 @@ export default function SmartLocationPicker({
         <button
           type="button"
           className="btn small outline"
-          aria-label="維護地點資料"
-          title="維護地點資料"
-          onClick={()=>setMaintenanceId(item.locationId)}
+          aria-label="地點備註"
+          title="查看及補充地點備註"
+          disabled={!noteTeams.length}
+          onClick={()=>setNoteLocation(item)}
         >
-          維護
+          地點備註
         </button>
 
         <button
@@ -711,6 +716,7 @@ export default function SmartLocationPicker({
                   </span>
                 </button>
 
+                <button type="button" className="btn small outline" disabled={!noteTeams.length} onClick={()=>setNoteLocation(item)}>地點備註</button>
                 <div className="smart-favorite-order">
                   {!teamId&&<>
                     <button
@@ -792,16 +798,7 @@ export default function SmartLocationPicker({
         </div>
       </>}
 
-      {maintenanceId&&<LocationMaintenanceModal
-        locationId={maintenanceId}
-        teamId={teamId}
-        onClose={()=>setMaintenanceId(null)}
-        onChanged={()=>{
-          void loadSearch(1,false);
-          void loadFavorites();
-          if(tab==="recent")void loadRecent();
-        }}
-      />}
+      {noteLocation&&<ScopedNotes key={noteLocation.locationId+":"+String(teamId??"")} row={noteLocation} teams={noteTeams} onClose={()=>setNoteLocation(null)}/>}
 
       {tab==="nearby"&&<>
         <div className="note smart-nearby-note">
