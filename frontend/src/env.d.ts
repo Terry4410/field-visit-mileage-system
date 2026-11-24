@@ -2,6 +2,9 @@ interface Window{
   APP_CONFIG?:{
     API_BASE_URL?:string;
     FORMAL_LOCATION_UAT?:boolean;
+    FORMAL_LOCATION_CORPORATE?:boolean;
+    CORPORATE_FRONTEND_ORIGIN?:string;
+    CORPORATE_API_BASE?:string;
     AUTH_MODE?:"Demo"|"Entra"|string;
     ENTRA?:{
       TENANT_ID?:string;

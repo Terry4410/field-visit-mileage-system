@@ -22,6 +22,19 @@ builder.Services.AddHostedService<BackgroundJobHostedService>();
 
 var auth=builder.Configuration.GetSection("Auth").Get<AuthOptions>()??new AuthOptions();
 var authMode=V170AuthenticationRules.NormalizeMode(auth.Mode);
+// Company package must never silently start with a demo or placeholder signing key.
+if(builder.Configuration.GetValue<bool>("CorporateHosting:Required"))
+{
+    if(authMode!=AuthenticationModes.Entra || auth.Entra.AllowFirstLoginEmailBinding
+        || !string.IsNullOrWhiteSpace(auth.DemoPassword)
+        || auth.Issuer!="FieldVisit.Corporate" || auth.Audience!="FieldVisit.Corporate.Users"
+        || !Guid.TryParse(auth.Entra.TenantId,out var corporateTenant) || corporateTenant==Guid.Empty
+        || !Guid.TryParse(auth.Entra.Audience,out var corporateAudience) || corporateAudience==Guid.Empty
+        || auth.Entra.RequiredScope!="access_as_user"
+        || auth.Entra.Instance!="https://login.microsoftonline.com"
+        || !CorporateSigningKeyValid(auth.JwtKey))
+        throw new InvalidOperationException("CORPORATE_AUTH_CONFIGURATION_REQUIRED");
+}
 var signingKey=(auth.JwtKey??"").PadRight(32,'_');
 
 var authentication=builder.Services
@@ -128,6 +141,13 @@ app.MapGet("/health",()=>Results.Ok(new{status="ok",version,schema,utc=DateTime.
 app.MapGet("/health/live",()=>Results.Ok(new{status="ok",version,utc=DateTime.UtcNow}));
 app.MapGet("/health/ready",async(AppDbContext db)=>await db.Database.CanConnectAsync()?Results.Ok(new{status="ready",version,schema,utc=DateTime.UtcNow}):Results.Json(new{status="unavailable",version,utc=DateTime.UtcNow},statusCode:503));
 app.Run();
+
+static bool CorporateSigningKeyValid(string? value)
+{
+    if(string.IsNullOrWhiteSpace(value))return false;
+    try { var bytes=Convert.FromBase64String(value); return bytes.Length>=48 && bytes.Distinct().Count()>=24; }
+    catch(FormatException){return false;}
+}
 
 public partial class Program { }
 
