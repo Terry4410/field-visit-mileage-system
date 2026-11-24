@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {mayEditScopedDraft,mayEditVisitorDraft,mayMaintainLeaderPublishedLowRisk} from "./location-ownership-ui";
+import {mayEditScopedDraft,mayEditVisitorDraft,mayMaintainLeaderPublishedLowRisk,scopedLocationNoteTeams} from "./location-ownership-ui";
 import {OPTIONC_DIRECT_LOWRISK_UI_ENABLED} from "./optionc-approval-flags";
 import type {ManagedLocation} from "./types";
 
@@ -42,5 +42,18 @@ describe("leader managed-team draft guard",()=>{
  });
  it("never turns an approved published row into an editable draft",()=>{
   expect(mayEditScopedDraft(row({teamId:7,approvalStatus:"Approved",isActive:true}),leader,"leader")).toBe(false);
+ });
+});
+
+describe("Location note team boundary",()=>{
+ const scopes=[{teamId:7,teamName:"A",isPrimary:true},{teamId:8,teamName:"B",isPrimary:false},{teamId:0,teamName:"Invalid",isPrimary:false}];
+ it("never substitutes a trip team for explicit authorization",()=>{
+  expect(scopedLocationNoteTeams(undefined,7)).toEqual([]);
+  expect(scopedLocationNoteTeams(scopes,9)).toEqual([]);
+  expect(scopedLocationNoteTeams(scopes,8).map(x=>x.teamId)).toEqual([8]);
+ });
+ it("excludes invalid scopes and permits selection among actual scopes",()=>{
+  expect(scopedLocationNoteTeams(scopes).map(x=>x.teamId)).toEqual([7,8]);
+  expect(scopedLocationNoteTeams(scopes,0)).toEqual([]);
  });
 });
