@@ -1,7 +1,7 @@
 name: Path B PDF and scoped notes API candidate (NONDEPLOY)
 on:
   push:
-    branches: [fix/pathb-pdf-notes-release-20261124]
+    branches: [fix/pathb-pdf-notes-transaction-20261124]
 permissions:
   contents: read
   actions: read
@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   package:
-    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-pdf-notes-release-20261124'
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-pdf-notes-transaction-20261124'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "2c32c7aeaa5e017d1a5428662d84b9021b807dad"
+          git merge-base --is-ancestor "e8ecece6550d3dc876d1992dd4d4b635b35378f5" HEAD
           git merge-base --is-ancestor "54f7374a1af63bbfc072d60f5dbabda2ef594ff2" HEAD
           python3 - <<'PY'
           import subprocess
@@ -82,7 +82,7 @@ jobs:
           root=ET.parse('artifacts/test-results/notes.trx').getroot()
           results=[x for x in root.iter() if x.tag.endswith('UnitTestResult')]
           assert len(results)==1 and results[0].attrib.get('outcome')=='Passed', 'EXPECTED_ONE_PASS'
-          assert 'PATHB_SCOPED_NOTES_SQL_PASS' in ''.join(root.itertext()), 'REAL_SQL_PROOF_REQUIRED'
+          assert 'PATHB_SCOPED_NOTES_SQL_PASS retry_strategy=true' in ''.join(root.itertext()), 'REAL_SQL_PROOF_REQUIRED'
           PY
       - name: Publish API with exactly embedded CJK font and seal package
         shell: bash
