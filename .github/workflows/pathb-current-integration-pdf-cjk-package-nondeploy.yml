@@ -1,0 +1,122 @@
+name: Path B integrated preplan + PDF CJK API-only package (NONDEPLOY)
+on:
+  push:
+    branches: [fix/pathb-current-integrated-pdf-cjk-20261124]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pathb-integrated-pdf-font-api-nondeploy
+  cancel-in-progress: false
+jobs:
+  pdf-cjk:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/fix/pathb-current-integrated-pdf-cjk-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 12
+      - name: Enforce current integrated preplan source + four-file minimal delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+          base='079e8d9298b13f8a15b802f0b2830d4cd24074bd'
+          subprocess.check_call(['git','merge-base','--is-ancestor',base,'HEAD'])
+          changed=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
+          expected={
+            'backend/src/FieldVisit.Infrastructure/FieldVisit.Infrastructure.csproj',
+            'backend/src/FieldVisit.Infrastructure/ReportDocumentService.cs',
+            'backend/tests/FieldVisit.Application.Tests/PathBQuery05PdfReadabilityTests.cs',
+            '.github/workflows/pathb-current-integration-pdf-cjk-package-nondeploy.yml'
+          }
+          assert changed==expected,sorted(changed.symmetric_difference(expected))
+          source=open('backend/src/FieldVisit.Infrastructure/ReportDocumentService.cs').read()
+          assert '預排行程' in source
+          assert 'PDF_CJK_FONT_MISSING_OR_UNSUPPORTED' in source
+          assert 'GetManifestResourceStream("FieldVisit.Pdf.NotoSansCJK-Regular.ttc")' in source
+          print('EXACT_INTEGRATED_SOURCE_PRESERVED=PASS')
+          PY
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/known-source
+      - name: Reuse exact checked Noto traditional Chinese font from previous signed UAT source
+        shell: bash
+        run: |
+          set -euo pipefail
+          prior="$RUNNER_TEMP/known-source/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          test "$(sha256sum "$prior" | cut -d' ' -f1)" = c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$prior" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          test "$(sha256sum backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc | cut -d' ' -f1)" = b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
+          echo "FONT_SOURCE_AND_SHA=PASS"
+      - name: Run affected integrated PDF and preplanned status mapping tests only
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATHB_PDF_VERIFY_DIR="$RUNNER_TEMP/pdf-synthetic"
+          mkdir -p "$PATHB_PDF_VERIFY_DIR"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~PathBQuery05PdfReadabilityTests' --logger 'console;verbosity=normal'
+          test -s "$PATHB_PDF_VERIFY_DIR/query05_cjk_3_rows.pdf"
+          test -s "$PATHB_PDF_VERIFY_DIR/query05_11_rows.pdf"
+          echo "INTEGRATED_PREPLAN_PDF_TESTS=PASS"
+      - name: Inspect actual emitted PDF Chinese glyphs and no DejaVu fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/pdf-inspector"
+          "$RUNNER_TEMP/pdf-inspector/bin/pip" install --quiet --disable-pip-version-check pymupdf==1.24.14
+          "$RUNNER_TEMP/pdf-inspector/bin/python" - <<'PY'
+          import os,fitz,unicodedata,pathlib
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'pdf-synthetic/query05_cjk_3_rows.pdf'
+          d=fitz.open(p)
+          assert len(d)>=1
+          f=[f for page in d for f in page.get_fonts(full=True)]
+          assert f,'NO_FONTS'
+          assert not any('DejaVuSerif' in str(x) for x in f), f
+          t=unicodedata.normalize('NFKC','\n'.join(x.get_text(sort=True) for x in d))
+          for word in ['外訪行程與里程管理系統','行程查詢報表','日期','外訪員','小組','查詢']:
+              assert word in t,(word,repr(t[:350]))
+          assert '\ufffd' not in t
+          print('EMBEDDED_CHINESE_PDF_CONTENT=PASS')
+          PY
+      - name: Publish integrated API and pin exact nondeploy artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          name=PathB_INTEGRATED_PDF_CJK_API_20261124.zip
+          publish="$RUNNER_TEMP/api-integration"
+          mkdir -p "$publish" artifacts
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$publish" --nologo
+          for f in FieldVisit.Api.dll FieldVisit.Application.dll FieldVisit.Infrastructure.dll FieldVisit.Domain.dll FieldVisit.Api.deps.json FieldVisit.Api.runtimeconfig.json; do
+            test -s "$publish/$f"
+          done
+          test "$(stat -c '%s' "$publish/FieldVisit.Infrastructure.dll")" -gt 19000000
+          test ! -e "$publish/fonts"
+          ( cd "$publish" && zip -q -r "$GITHUB_WORKSPACE/artifacts/$name" . )
+          unzip -tq "artifacts/$name"
+          sha256sum "artifacts/$name" | tee "artifacts/$name.sha256"
+          wc -c "artifacts/$name" | tee "artifacts/$name.bytes"
+          sha256sum "$publish/FieldVisit.Infrastructure.dll" "$publish/FieldVisit.Api.dll" > artifacts/assembly.sha256
+          printf 'MODE=NONDEPLOY_API_ONLY\nBASE_SOURCE_SHA=079e8d9298b13f8a15b802f0b2830d4cd24074bd\nNEW_SOURCE_SHA=%s\nFONT_MODE=EMBEDDED_TTC_TC_FACE_3\nTARGET_RG=rg-fieldvisit-uat\nTARGET_APP=api-fieldvisit-pathb-uat\nLAST_OBSERVED_ACTIVE_PACKAGE=20261124035127.zip\nLIVE_PACKAGE_SOURCE_NOT_YET_PROVEN=TRUE\nSQL=NOT_RUN\nDEPLOY=NOT_RUN\n' "$(git rev-parse HEAD)" > artifacts/manifest.txt
+          echo 'INTEGRATED_PDF_CJK_API_CANDIDATE_PACKAGE=PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PathB-Integrated-PDF-CJK-API-NONDEPLOY
+          path: artifacts/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Never automatically deploy
+        run: |
+          echo 'AZURE_DEPLOY=NOT_RUN'
+          echo 'SQL=NOT_RUN'
+          echo 'FRONTEND=NOT_RUN'
