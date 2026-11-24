@@ -3,7 +3,7 @@ import {api} from "../api";
 import {useAuth} from "../auth";
 import type {ManagedLocation} from "../types";
 import ScopedNotes from "../components/ScopedLocationNotes";
-import {leaderScopedTeamOptions,mayEditScopedDraft,mayMaintainLeaderPublishedLowRisk} from "../location-ownership-ui";
+import {leaderScopedTeamOptions,mayEditScopedDraft,mayMaintainLeaderPublishedLowRisk,scopedLocationNoteTeams} from "../location-ownership-ui";
 import {OPTIONC_CREATE_LOCATION_UI_ENABLED,OPTIONC_DIRECT_LOWRISK_UI_ENABLED} from "../optionc-approval-flags";
 import LocationMaintenanceModal from "../components/LocationMaintenanceModal";
 import {statusLabel,type OptionCRequest} from "../optionc-approval-ui";
@@ -25,7 +25,7 @@ export default function ScopedLocationPage({role="visitor"}:{role?:"visitor"|"le
  const [myRequests,setMyRequests]=useState<OptionCRequest[]>([]);
  const [lowRiskLocation,setLowRiskLocation]=useState<ManagedLocation|null>(null);
  const [noteLocation,setNoteLocation]=useState<ManagedLocation|null>(null);
- const noteTeams=(row:ManagedLocation)=>teams.filter(t=>!row.teamId||t.teamId===row.teamId);
+ const noteTeams=(row:ManagedLocation)=>scopedLocationNoteTeams(teams,row.teamId);
  const canNote=(row:ManagedLocation)=>row.isActive&&row.approvalStatus==="Approved"&&!row.isTemporary&&!row.duplicateOfLocationId&&noteTeams(row).length>0;
  const [tab,setTab]=useState<"review"|"create"|"list">(role==="leader"?"review":"list");
  const loadOwn=async()=>{if(OPTIONC_CREATE_LOCATION_UI_ENABLED)setMyRequests(await api<OptionCRequest[]>("/optionc-candidate/requests/mine"));};
