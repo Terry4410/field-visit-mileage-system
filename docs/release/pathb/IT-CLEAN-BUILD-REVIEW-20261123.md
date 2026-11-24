@@ -1,5 +1,7 @@
 # Field Visit v1.8.0 — IT Clean Build evidence and release boundary (NONDEPLOY)
 
+> **2026-11-24 最新凍結基準（優先於下方歷史段落）**：Owner 已確認 [ACCEPT WITH OPEN ITEMS](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7130245304)。目前正式交付來源為前端 `b9cad2d9e23a3c8c96157c1926818e842fe0fd0b`、API `e8de647be2fca9d15a4e046b8e4598f8190420ea`。既有隔離 SQL2022 69 表／舊 API readiness 證據仍有效於原範圍，並非最新 API 或企業 Clean Build PASS。最新凍結來源的 Entra redirect bridge 與 PR #118 相同檔案 blob，無需再次移植；公司租戶實際 SSO 未驗證。最新套件、128 個去重物件／欄位權限證據條目及待驗證事項見 [IT-RELEASE-EVIDENCE-LOCK-20261124.json](./IT-RELEASE-EVIDENCE-LOCK-20261124.json)。這不是正式可執行 ACL 或 IT installer。下方舊版 SHA、Daily Plan 尚未納入等敘述僅保留歷史證據，不再作目前交付基準。
+
 This is a *review* record for the company IT handoff, **not an executable/production installer** and **not authorization** to deploy, grant permissions, change login, or run SQL.
 
 ## Business baseline
