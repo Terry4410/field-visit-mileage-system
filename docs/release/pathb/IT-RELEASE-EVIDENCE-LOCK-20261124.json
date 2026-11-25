@@ -1,0 +1,2912 @@
+{
+  "format": "fieldvisit-v180-it-evidence-lock-v2",
+  "date": "2026-11-24",
+  "classification": "NONDEPLOY_REVIEW_NOT_INSTALLER",
+  "uat": {
+    "status": "ACCEPT_WITH_OPEN_ITEMS",
+    "ownerDecisionUrl": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7130245304",
+    "observedPass": 19,
+    "cancelledSupervisor": 3,
+    "superseded": 2,
+    "partialOpen": [
+      "QUERY-02",
+      "E2E-01"
+    ],
+    "previousDecisionUrl": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7099388100",
+    "scope": "Latest frozen application includes Daily Plan and location/admin changes. Retain actual scoped UAT evidence, no blanket PASS."
+  },
+  "source": {
+    "protectedBaseline": "97cd5c76aa0927aa3e8a2cd74f626f996efae6e3",
+    "api": "e8de647be2fca9d15a4e046b8e4598f8190420ea",
+    "frontend": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+    "immutableCleanBuildRc": "9d431ea318fcec34f04f3cc36a8fb6d01d00c48a",
+    "reviewed020Blob": "ce7bbb6f204bf1ab69c106ae59a5b139077494bc",
+    "testedIntegrationCode": "2982498a7a7ecc7cdebf75d8d5a34165c08bbfa5",
+    "draftPr": 117,
+    "differentComponentSourceCommits": true,
+    "historicalSelectedApi": "ab71aaa96d9ac259f66386555812448284527d15",
+    "historicalSelectedFrontend": "90fe9bd61c24be57ccfaf6d450bf053e9c646ac1",
+    "frozenSource": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+    "diff": "Frontend and NONDEPLOY workflow only between live API source and frontend source"
+  },
+  "verification": [
+    {
+      "run": 45202494508,
+      "status": "PASS",
+      "scope": "corrected 020 trusted CHECK allowed/denied on isolated SQL2022"
+    },
+    {
+      "run": 45204798661,
+      "status": "PASS",
+      "scope": "selected API and Frontend compiled independently; configs deliberately invalid"
+    },
+    {
+      "run": 45206735733,
+      "status": "PASS",
+      "scope": "69-table isolated clean SQL2022 build/verify/restore"
+    },
+    {
+      "run": 45214245615,
+      "status": "PASS",
+      "scope": "69-table independent replay; accepted API readiness; anonymous /me 401; disposable cleanup"
+    }
+  ],
+  "independentlyVerifiedArtifacts": [
+    {
+      "name": "FieldVisit_SQL_69table_SOURCELOCK_NONDEPLOY_20261124.zip",
+      "sha256": "a1225cbeb08b5d62fff6035cf432e211aade0da6fcb035b27ba269df31f2b101",
+      "bytes": 52738704,
+      "githubArtifactId": 14836919253,
+      "ciRun": 45214245615,
+      "verifiedInternalHashes": 40,
+      "sqlOrderedLayers": 13,
+      "dbTables": 69,
+      "efMappedTables": 57,
+      "embeddedCandidateRuntime": "RC-derived NONDEPLOY, not accepted UAT API"
+    },
+    {
+      "name": "FieldVisit_PathB_Paired_Compiled_NONDEPLOY_20261123.zip",
+      "sha256": "01d7e6e5a8b59c8dcd92625f9cdce7e2608e2fbba694d63c2559c681a8d5ad8f",
+      "bytes": 51293232,
+      "githubArtifactId": 14832504459,
+      "ciRun": 45204798661,
+      "verifiedInternalHashes": 4,
+      "apiZipSha256": "3ef09a0026ece2494e4093cf978fd96eac88cf17141c1d464f981ece6228ecc9",
+      "frontendZipSha256": "0dd4060e0664932599683a0972c43c5c97de00e9b2541c2e18b986f4f724202b",
+      "config": "INVALID_FAIL_CLOSED"
+    },
+    {
+      "name": "FieldVisit_v180_Documents_REVIEW_ONLY_20261124.zip",
+      "sha256": "44047146b53549cdf8c6ccc8eaad9a383fe87d3f4d28ece9f8ef49443da2d1e5",
+      "bytes": 673756,
+      "content": "IT guide + 3 roles user guide + UAT owner decision, Word/PDF, non-installable"
+    }
+  ],
+  "enterpriseTarget": {
+    "sql": "Corporate Microsoft SQL Server version TBD",
+    "web": "Windows Server + IIS version TBD",
+    "identity": "Microsoft Entra ID (Azure AD) employee authentication PERMITTED BY IT per Owner report 2026-11-24; actual tenant/app registrations and runtime SSO verification pending",
+    "selectedApiAuthModes": [
+      "Demo",
+      "Entra"
+    ],
+    "windowsSsoCodeVerified": false,
+    "roles": "Visitor Leader Admin distinct from employee identity",
+    "testData": "Do not import Azure synthetic transactions",
+    "companyItEntraAuthPermitted": true,
+    "implementedLoginApproach": "Latest frozen frontend already contains identical tested MSAL redirect bridge files. No reapply or PR118 merge required for that patch; actual company configuration and login unverified.",
+    "windowsIisIntegratedAuthMandatoryForThisScope": false,
+    "identityMapping": "Entra tenantId and objectId to existing active application User, no automatic first-login email binding; Visitor/Leader/Admin remain separate",
+    "entraV5RedirectBridge": {
+      "sourcePr": 118,
+      "candidateHeadSha": "65ff743f3d2f7f4fa3d5463b9632006e615bef24",
+      "basedOnAcceptedFrontend": "90fe9bd61c24be57ccfaf6d450bf053e9c646ac1",
+      "msalBrowserLockedVersion": "5.18.0",
+      "verificationRun": 45306709341,
+      "check": "CI_PASS_145_TESTS_AND_SEPARATE_REDIRECT_HTML_BUILD",
+      "realCompanyTenantSignIn": "NOT_RUN",
+      "productionRedirectUri": "IT_MUST_REGISTER_EXACT_HTTPS_URL_ENDING_REDIRECT_HTML",
+      "status": "IDENTICAL_SOURCE_FILES_ALREADY_PRESENT",
+      "frozenSource": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+      "identicalBlobSha": {
+        "frontend/redirect.html": "752f6cd0f916061443e57f0638bf969ec19636a1",
+        "frontend/vite.config.ts": "ebda58c5bead6b0bb593c4ba75a30c720c8f39d1",
+        "frontend/src/auth-config.ts": "ccdc323e7d85622c414496777bd9a797dfa3f349",
+        "frontend/src/auth-config.test.ts": "b0cf30e6231c2207f993ec0889645d885eed1730",
+        "frontend/package-lock.json": "2d4cc41d6b4720725b2a0ce6bd1b0d35cfd09c93"
+      }
+    }
+  },
+  "statuses": {
+    "businessUat": "ACCEPT_WITH_OPEN_ITEMS",
+    "isolatedSqlAndApiReadiness": "SCOPED_PASS",
+    "itDeploymentReady": "NOT_DECLARED",
+    "itCleanBuild": "NOT_RUN_BY_IT",
+    "productionReady": "NO"
+  },
+  "mandatoryRemaining": [
+    "Archive exact frozen artifacts before expiry; rebuild corporate-target package with no UAT Demo credentials or Azure-only settings",
+    "Complete ACL review and company-target fresh SQL installation layers/reference initialization; do not replay Azure guarded scripts",
+    "Confirm IT Windows/IIS/SQL versions, HTTPS endpoints, app identities, Entra registration and Google provider settings",
+    "Validate exact latest API against reconciled clean SQL2022 candidate, then company clean build and actual Entra sign-in",
+    "Verify cross-team/Org backend authorization and export, disabled user/Demo rejection, outstanding functional paths; backup restore, monitoring and formal GO"
+  ],
+  "authorization": "NONDEPLOY handoff review only. No code/SQL/Azure deployment/permission/merge. Business freeze retained.",
+  "frozenLiveArtifacts": [
+    {
+      "component": "API",
+      "id": 14905547452,
+      "run": 45363963494,
+      "sha256": "0914f433b46e6d3ab507adc9e6268ed3be16f02d01aeb33db260aea34d59a30f",
+      "expires": "2026-12-08T09:20:34Z"
+    },
+    {
+      "component": "frontend",
+      "id": 14911072489,
+      "run": 45375742871,
+      "sha256": "6ff5d3f1e7fe352194b907469dba21987c709515ef07f9df1f682c3a6c587a38",
+      "expires": "2026-12-08T10:32:48Z"
+    },
+    {
+      "component": "historical SQL clean-build source-lock",
+      "id": 14836919253,
+      "run": 45214245615,
+      "sha256": "a1225cbeb08b5d62fff6035cf432e211aade0da6fcb035b27ba269df31f2b101",
+      "expires": "2026-12-23T16:16:22Z"
+    }
+  ],
+  "artifactBoundary": "GitHub current metadata and prior deployment/isolated CI receipts; not freshly downloaded or corporate deployable binaries. Prior independent verified artifacts retained below as historical evidence; archive before expiration.",
+  "runtimeAclInventory": {
+    "classification": "REVIEW_ONLY_NOT_EXECUTABLE_NOT_COMPLETE_EFFECTIVE_ACL",
+    "connectReceipt": 6981277254,
+    "uniqueObjectColumnOperations": 128,
+    "sourceParseCounts": {
+      "vis01": 23,
+      "p0": 17,
+      "formalLocationRequiredEffective": 69
+    },
+    "formalLocationMissingAddedLive": 55,
+    "note": "Deduplicated source/receipt operations; includes table and column scopes even where overlapping. Not actual number of current catalog grants. Formal requirement list all 69 checked effective; only 55 added live. No direct replay of Azure DCL, identity, seed or UAT scripts. Validate exact latest source CRUD, column scopes, protected audit/history and forbidden privileges before corporate installer. IT chooses separate service identity.",
+    "sources": [
+      {
+        "commit": "434d078800b0fb632f1e364808b0d7bbb51bddd1",
+        "paths": [
+          "database/uat/FieldVisit_PathB_VIS01_Complete_Minimal_Runtime_ACL_LOCKED_TEST.sql",
+          "database/uat/PathB_UAT_P0_Core_Runtime_ACL_GRANT_REVIEW_20261119.sql"
+        ],
+        "receipts": [
+          7000470035,
+          7007076708
+        ]
+      },
+      {
+        "commit": "60aba7964e8d17ed619844116a0dea8e7ab7d7ef",
+        "path": "docs/release/pathb/FORMAL-LOCATION-PREREQUISITES-REVIEW-20261124.sql",
+        "receipt": 7126120735
+      }
+    ],
+    "entries": [
+      {
+        "table": "ApprovalRecords",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7028192575
+        ]
+      },
+      {
+        "table": "ApprovalRecords",
+        "permission": "SELECT",
+        "column": "ApprovalRecordId",
+        "receipts": [
+          7028192575
+        ]
+      },
+      {
+        "table": "AuditLogs",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7000470035,
+          7126120735
+        ]
+      },
+      {
+        "table": "AuditLogs",
+        "permission": "SELECT",
+        "column": "AuditLogId",
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "Centers",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "ChangeRequestEvents",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestEvents",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "UPDATE",
+        "column": "DecisionKey",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "UPDATE",
+        "column": "EvidenceJson",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "UPDATE",
+        "column": "Reason",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "UPDATE",
+        "column": "ReviewedAt",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "UPDATE",
+        "column": "ReviewerUserId",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequestLeaderReviews",
+        "permission": "UPDATE",
+        "column": "Status",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequests",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequests",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequests",
+        "permission": "UPDATE",
+        "column": "AppliedAt",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequests",
+        "permission": "UPDATE",
+        "column": "ReviewedAt",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequests",
+        "permission": "UPDATE",
+        "column": "ReviewedByUserId",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequests",
+        "permission": "UPDATE",
+        "column": "ReviewReason",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "ChangeRequests",
+        "permission": "UPDATE",
+        "column": "Status",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "CorrectionRequestChanges",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7035937411
+        ]
+      },
+      {
+        "table": "CorrectionRequestChanges",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7035937411
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "DeploymentSiteLocationAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "DeploymentSites",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "EmploymentDeploymentSiteAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035,
+          7126120735
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "EmploymentStatusPeriods",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "EmploymentStatusPeriods",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035,
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": "LocationId",
+        "receipts": [
+          7003668707
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": "ReservationStatus",
+        "receipts": [
+          7003668707
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "UPDATE",
+        "column": "ReservationStatus",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "UPDATE",
+        "column": "UpdatedAt",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationMergeDetails",
+        "permission": "SELECT",
+        "column": "ChangeRequestId",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "DuplicateEvidenceSha256",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "DuplicateReviewStatus",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "GeocodeAddressSha256",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "GeocodeStatus",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "Latitude",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "Longitude",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "StageStatus",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "UPDATE",
+        "column": "UpdatedAt",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublicationStages",
+        "permission": "VIEW DEFINITION",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublishedVersions",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublishedVersions",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublishedVersions",
+        "permission": "UPDATE",
+        "column": "IsCurrent",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "LocationPublishedVersions",
+        "permission": "VIEW DEFINITION",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7126120735,
+          7090377506
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035,
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "Address",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "ApprovalStatus",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "City",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "District",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "GeocodedAt",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "GeocodingStatus",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "IsActive",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "Latitude",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "LocationName",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "Longitude",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "MasterNote",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "PlusCode",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "SelectedGeocodingAttemptId",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "TaxId",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "UPDATE",
+        "column": "UpdatedAt",
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "MileageGovernanceEvents",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "MileageGovernanceEvents",
+        "permission": "SELECT",
+        "column": "MileageGovernanceEventId",
+        "receipts": [
+          7007839069
+        ]
+      },
+      {
+        "table": "MileageRateRules",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7028192575
+        ]
+      },
+      {
+        "table": "Organizations",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          6998683668
+        ]
+      },
+      {
+        "table": "Persons",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "Persons",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "ProjectLocations",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7081342417
+        ]
+      },
+      {
+        "table": "Projects",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "Roles",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735,
+          6998683668
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "SchemaVersions",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035,
+          7126120735
+        ]
+      },
+      {
+        "table": "TeamCenterAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "TeamDeploymentSiteAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "TeamLeaderAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "TeamLeaderDelegations",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "TeamLocationNoteHistory",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7124315536
+        ]
+      },
+      {
+        "table": "TeamLocationNoteHistory",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7124315536
+        ]
+      },
+      {
+        "table": "TeamLocationNotes",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7124315536
+        ]
+      },
+      {
+        "table": "TeamLocationNotes",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7124315536
+        ]
+      },
+      {
+        "table": "TeamLocationNotes",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7124315536
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035,
+          7126120735
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735,
+          6998683668
+        ]
+      },
+      {
+        "table": "UserCapabilities",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "UserDataScopes",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "UserEmploymentPeriods",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          6998683668
+        ]
+      },
+      {
+        "table": "UserFavoriteLocations",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "UserIdentityProfiles",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "UserIdentityProfiles",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735,
+          6998683668
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735,
+          6998683668
+        ]
+      },
+      {
+        "table": "UserRoles",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7007076708,
+          7126120735
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735,
+          6998683668
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7129727985
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735,
+          6998683668
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7126120735
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "VisitTripSnapshots",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "VisitTripSnapshots",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "VisitTripSnapshotStops",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "VisitTripSnapshotStops",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "VisitTripStatusHistory",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "VisitTripStatusHistory",
+        "permission": "SELECT",
+        "column": "VisitTripStatusHistoryId",
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "DELETE",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "INSERT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "UPDATE",
+        "column": null,
+        "receipts": [
+          7007076708
+        ]
+      },
+      {
+        "table": "VisitTypes",
+        "permission": "SELECT",
+        "column": null,
+        "receipts": [
+          7000470035
+        ]
+      }
+    ],
+    "catalogReferenceValidation": {
+      "run": 45406176572,
+      "referenceCount": 128,
+      "missing": 0,
+      "status": "PASS_EXISTENCE_ONLY_NOT_EFFECTIVE_PERMISSIONS"
+    },
+    "additionalSourceReview": {
+      "status": "GAPS_IDENTIFIED_NOT_GRANTS_AUTHORIZED",
+      "source": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+      "examples": [
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": [
+            1382,
+            1396,
+            1739,
+            1791,
+            1843
+          ],
+          "finding": "UserRoles RemoveRange/AddAsync; UserDataScopes RemoveRange; UserCapabilities RemoveRange/AddAsync. Existing inventory only SELECT for these tables. Need explicit source-to-operation review and constrained SQL2022 behavioral tests before corporate runtime ACL approval."
+        },
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": [
+            515,
+            604,
+            738,
+            1048,
+            1067,
+            1193,
+            1342
+          ],
+          "finding": "Centers, TeamCenterAssignments, DeploymentSiteLocationAssignments, DeploymentSites, TeamDeploymentSiteAssignments, EmploymentDeploymentSiteAssignments Add operations; historical inventory SELECT only. Review in-scope Admin writes and corresponding effective permissions."
+        }
+      ]
+    },
+    "sourceDeltaReview": {
+      "status": "SCOPED_SOURCE_CANDIDATES_NOT_COMPLETE_NOT_GRANTS",
+      "frozenSource": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+      "operationGroups": 42,
+      "rows": [
+        {
+          "table": "UserRoleAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "104-112",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserRoleAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "97-98",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserRoleAssignments",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "97",
+          "scope": "SAME_START_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "UserTeamAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "102-111",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserTeamAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "90-91",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserTeamAssignments",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "90",
+          "scope": "SAME_START_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "TeamMemberships",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "112-120",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamMemberships",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "95-96",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamMemberships",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "95",
+          "scope": "SAME_START_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "UserRoles",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "117-118",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserRoles",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180InternalRoleCommandService.cs",
+          "lines": "115-116",
+          "scope": "LEGACY_CURRENT_PROJECTION_REPLACEMENT_REQUIRES_BEHAVIOR_TEST"
+        },
+        {
+          "table": "UserTeamScopes",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "151-159",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserTeamScopes",
+          "operation": "UPDATE",
+          "columns": [
+            "IsActive",
+            "IsPrimary",
+            "EndedAt",
+            "AssignedAt",
+            "AssignedByUserId"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180TeamMembershipCommandService.cs",
+          "lines": "140-146",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "EmploymentStatusPeriods",
+          "operation": "UPDATE",
+          "columns": [
+            "EmploymentStatus",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "443-445",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "Centers",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "514-515",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "Centers",
+          "operation": "UPDATE",
+          "columns": [
+            "CenterCode",
+            "CenterName",
+            "EffectiveFrom",
+            "EffectiveTo",
+            "IsActive"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "525-529",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamCenterAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "598-604",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamCenterAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "CenterId",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "647-649",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSiteLocationAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "738-747",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSiteLocationAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "737",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSites",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1042-1048",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "DeploymentSites",
+          "operation": "UPDATE",
+          "columns": [
+            "CenterId",
+            "SiteCode",
+            "SiteName",
+            "EffectiveFrom",
+            "EffectiveTo",
+            "IsActive",
+            "UpdatedAt",
+            "UpdatedByUserId",
+            "InactivatedAt",
+            "InactivatedByUserId"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1051-1062",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamDeploymentSiteAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1187-1193",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "TeamDeploymentSiteAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "DeploymentSiteId",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1196-1198",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "EmploymentDeploymentSiteAssignments",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1336-1342",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "EmploymentDeploymentSiteAssignments",
+          "operation": "UPDATE",
+          "columns": [
+            "DeploymentSiteId",
+            "IsPrimary",
+            "EffectiveFrom",
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V180MasterDataAdminRepository.cs",
+          "lines": "1345-1348",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserIdentityProfiles",
+          "operation": "UPDATE",
+          "columns": [
+            "IdentityProvider",
+            "EntraTenantId",
+            "EntraObjectId",
+            "UpdatedAt"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1659-1682",
+          "scope": "IDENTITY_BINDING_REQUIRES_EN_TRA_ADMIN_FLOW_SCOPE_TEST"
+        },
+        {
+          "table": "UserDataScopes",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "779-807",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserDataScopes",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1726-1727",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserDataScopes",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1739-1740",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserCapabilities",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1843-1865",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserCapabilities",
+          "operation": "UPDATE",
+          "columns": [
+            "EffectiveTo"
+          ],
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1778-1779",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserCapabilities",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170PeopleAdminWriter.cs",
+          "lines": "1791-1792",
+          "scope": "LEGACY_EXTERNAL_SUPERVISOR_NOT_REQUIRED_UNTIL_SCOPE_CONFIRMED"
+        },
+        {
+          "table": "UserFavoriteLocations",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs",
+          "lines": "291",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "UserFavoriteLocations",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V170LocationRepository.cs",
+          "lines": "321",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "GeocodingAttempts",
+          "operation": "INSERT",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180GoogleMileageGovernanceRepository.cs",
+          "lines": "22",
+          "scope": "IN_SCOPE_CANDIDATE"
+        },
+        {
+          "table": "Centers",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "42",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "DeploymentSites",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "74",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "Teams",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "155",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "Projects",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "175",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "VisitTypes",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "194",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        },
+        {
+          "table": "MileageRateRules",
+          "operation": "DELETE",
+          "columns": null,
+          "source": "backend/src/FieldVisit.Infrastructure/V180SafeDeleteService.cs",
+          "lines": "215",
+          "scope": "PERMANENT_DELETE_SCOPE_REVIEW_NOT_GRANTED"
+        }
+      ],
+      "notes": "Direct tracked entity operations reviewed; UPDATE column candidates are not complete inferred EF SQL. Must verify actual SQL generated, OUTPUT read columns, constraints/triggers and backend role/scope decisions. External Supervisor-only scope/capability changes are held; no reintroduction of canceled role. Permanent deletion is held separately from ordinary maintenance. Do not combine source candidates with historical grants as an executable broad ACL. No new grant executed."
+    },
+    "remainingBusinessSourceObservations": {
+      "status": "SOURCE_GAPS_NOT_GRANTS_NOT_TESTED",
+      "source": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+      "examples": [
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/Repositories.cs",
+          "lines": [
+            571,
+            625,
+            654,
+            701
+          ],
+          "finding": "Project, VisitType, MileageRateRule and LocationApprovalHistory Add paths missing corresponding INSERT in historical inventory."
+        },
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V160FinalRepository.cs",
+          "lines": [
+            712,
+            1006
+          ],
+          "finding": "Team create and legacy permanent location delete; review ordinary team creation and keep permanent delete scope separate."
+        },
+        {
+          "file": "backend/src/FieldVisit.Infrastructure/V180GoogleMileageGovernanceRepository.cs",
+          "finding": "GeocodingAttempts Add/lookup/finalize status, error fields and completed-at; historical inventory absent, prior 42 operation groups cover insert only. Verify end-to-end allowed/denied behaviors rather than assume broad rights."
+        }
+      ],
+      "next": "One grouped disposable real-schema runtime test of in-scope trip, mileage, approvals, correction, query/export, location and necessary Admin master writes; reconcile observed SQL operations and existing reviewed ACL, do not grant permanent delete or old Supervisor paths by default."
+    }
+  },
+  "supplementalUat": {
+    "visitor": {
+      "run": "175ad95d-34b8-44d3-9ad9-cede03ed0464",
+      "scope": "Authenticated UI read PASS three pages, 16 trips, four locations, three applied requests. Direct admin route NOT executed; no backend authorization claim."
+    },
+    "leader": {
+      "run": "6fc4a958-a8d0-4c3d-8140-0a80266bd0fd",
+      "scope": "Authenticated UI read PASS five pages, 8 pending approvals, 16 query rows, one pending location; direct admin route not executed."
+    },
+    "admin": {
+      "runs": [
+        "7af10aed-7c70-4e58-bcd1-eb2a409e130d",
+        "f3785bbd-9395-4158-bfe1-05af9ea318d7"
+      ],
+      "scope": "First output unrelated, second claimed nonexistent shortcut route and report choices contradicted by exact frozen source. Not accepted as new PASS; previous Owner-observed Admin UI/HR PASS retained. Stop further paid runs."
+    }
+  },
+  "artifactPreservation": {
+    "status": "ACTUAL_BYTES_VERIFIED_AND_OWNER_LIBRARY_UPLOAD_SUCCEEDED",
+    "archive": "FieldVisit_v180_Frozen_Artifact_Preservation_20261124.zip",
+    "bytes": 119641096,
+    "sha256": "d44f1ce5fe3e4b72c7eda3634b5a07b05b13902827d1dcf0f7a01714e49d9719",
+    "originalArtifactIds": [
+      14905547452,
+      14911072489,
+      14836919253
+    ],
+    "outerHashAndCrc": "3/3 PASS",
+    "innerManifestHashes": "42/42 PASS",
+    "scope": "Private Owner Library archival copy, not a GitHub release or corporate installer; original app packages are UAT-configured."
+  },
+  "sql14ReviewCandidate": {
+    "status": "ISOLATED_SQL2022_REPLAY_AND_LATEST_API_READINESS_PASS",
+    "archive": "FieldVisit_v180_SQL14_Layer_NONDEPLOY_REVIEW_20261124.zip",
+    "bytes": 30847,
+    "sha256": "7de7ff9a5ec8e7e8ab773d3a04c5d6ea7807fa58e27f2a564d4a571f11207f97",
+    "libraryUpload": "SUCCEEDED",
+    "historical13LayerHashes": "13/13 unchanged",
+    "checkDefinitionHashes": "5/5 PASS",
+    "originalLiveInstall": {
+      "receipt": 6435917531,
+      "packageSha256": "5a0c956d4ef5c88e0ff49d2d606ee9c1cb34e81e7f0c0f85b5aea8c5743e5828",
+      "scope": "Historical 14-layer Azure-target package, preserved in existing private storage per historical evidence; actual bytes not retrieved this turn; do not replay."
+    },
+    "candidateLayerSha256": "9bbd5c3229bf9b8af91c00f29c9cba9fae87eb2115a5b2d91d130e405a2bfe64",
+    "candidateVerifierSha256": "5323f5f7ed9c8e8ddbefb832cd1394f8dbdb2bcf16f01921d289385625dd7885",
+    "source018Blob": "2610d6d98e97a6467d3090db95deb3c15850e938",
+    "source020Blob": "ce7bbb6f204bf1ab69c106ae59a5b139077494bc",
+    "scope": "Source-derived 14th layer, restricted to disposable SQL2022, checks five catalog predicates before two additional capability records; original 13 SQL unchanged, historical verification retained before layer 14, derived final 3-capability verifier. No SQL execution, corporate installer, production permissions or seed. Next validate 14-layer replay and latest API together in one isolated CI run.",
+    "rehearsal": {
+      "workflowCommit": "7d37efb9df24d35c35feab8b8a417c1cc272f782",
+      "run": 45405102671,
+      "job": 138483524049,
+      "conclusion": "success",
+      "api": "e8de647be2fca9d15a4e046b8e4598f8190420ea",
+      "verified": "13 original layer hashes and exact derived layer14/verifier hashes; SQL Server 2022 14/14 execution, 69 dbo tables, 3 exact capability records, 21 enabled triggers, trusted FKs/CHECKs, reservation FK/status/unique index; wrong target 56600 and repeat 56601 refused with unchanged ledger; API build/ready and anonymous /me HTTP401",
+      "scope": "Disposable SQL2022; API readiness with disposable sa, mock providers, Demo mode, approval/candidate flags OFF and background jobs OFF; no runtime least-privilege/real business/Entra proof. Container cleanup success as part of job. Original frozen app and all live resources unchanged."
+    }
+  },
+  "enterpriseLocationAdmission": {
+    "status": "P1_IT_HANDOFF_BLOCKER_SOURCE_CONFIRMED",
+    "source": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+    "file": "backend/src/FieldVisit.Infrastructure/V180OptionCExecutionPolicy.cs",
+    "blob": "84bc11095359a4ef453960e11e90c17985eb1118",
+    "lines": "17-18, 23-64, 91-92",
+    "finding": "RequireFormalLocationTarget allows isolated loopback or exact Path B Azure host/database and mode; production explicitly denied. Candidate, Leader review, publication and stage evidence call this policy. Some Excel/merge entry points remain isolated-only; do not silently enable them. Readiness with flags OFF is not formal-location business proof. Company target cannot be admitted by connection-string or IIS setting alone.",
+    "next": "Keep frozen UAT source. For IT delivery, narrowly review exact corporate host/database/SQL identity and TLS admission with an explicitly approved environment profile, preserve schema evidence and role checks; test wrong host/database/mode denial and authorized company-like isolated profile; no blanket bypass or live configuration. Review whether Excel/merge required in agreed scope separately.",
+    "candidate": {
+      "branch": "work/it-corporate-formal-location-20261124",
+      "sourceCommit": "60f9f888004e699897d0e02d2357f854273c0a33",
+      "firstRun": {
+        "id": 45406976656,
+        "conclusion": "failure",
+        "reason": "CI parity scan found three remaining PathB-only condition sites in two files; corrected row-version, independent review and merge reconciliation conditions."
+      },
+      "secondRun": {
+        "id": 45407133602,
+        "job": 138490761819,
+        "conclusion": "success",
+        "tests": 28,
+        "passed": 28,
+        "scope": "Build and pure target predicates including valid exact config, modes, endpoint/port/database mismatch, missing settings, loopback, Azure, reserved DB, TLS off, trust certificate, SQL credentials, failover and host override denials, original unconditional production entry remains denied. Static parity scan found no qualified IsPathBUatMode uses after correction. Actual SQL identity query, real Windows service principal, certificate chain, role decisions and formal location workflows NOT executed."
+      },
+      "status": "TARGET_CONFIGURATION_UNIT_TESTS_28_PASS_ACTUAL_WINDOWS_SQL_IDENTITY_AND_BUSINESS_NOT_TESTED",
+      "mode": "CorporateFormalLocations",
+      "configuration": [
+        "FIELDVISIT_CORPORATE_SQL_ENDPOINT",
+        "FIELDVISIT_CORPORATE_SQL_DATABASE",
+        "FIELDVISIT_CORPORATE_SQL_SERVER_NAME",
+        "FIELDVISIT_CORPORATE_SQL_LOGIN"
+      ],
+      "scope": "Separate branch directly from frozen source; no activation/deploy. Exact FQDN TCP endpoint and DB, Windows integrated identity, certificate validation, server/login readback and narrow DB role checks; current PathB and isolated restrictions remain. No actual company Windows identity or TLS verification. Requires IT confirmation and focused business/authorization tests before use."
+    }
+  },
+  "corporateSqlPortability": {
+    "status": "COMPANY_NAMED_DISPOSABLE_SQL2022_SCHEMA_AND_REFERENCE_ROLES_PASS",
+    "workflowCommit": "d2783ca4cf9219b7454e3cc6f0f8d7454ebd9e83",
+    "run": 45406176572,
+    "job": 138487396529,
+    "artifact": 14926555963,
+    "archive": "FieldVisit_v180_Company_SQL_Schema_Review_20261124.zip",
+    "bytes": 29978,
+    "sha256": "76ba1802d24e49ff07d61ec823999af6d4d6f7736fdac88774674be9f10e8905",
+    "libraryUpload": "SUCCEEDED",
+    "outerAndInnerIntegrity": "ZIP CRC PASS, outer SHA256 matches GitHub, 7/7 internal hashes",
+    "schemaSha256": "8ab4a7a34c401f8eb24e13c6c745e9027605ecfaba3a0b4b601d95b52cd2318d",
+    "rolesSha256": "8a7a6ced45f022c5f9b5be5b13134e265bc97e778e20d78e2c6549f70958075b",
+    "scope": "14 layers, 2 verifiers; 14/16 files byte-identical, 2 exact target guards adapted (20 and 60). Single SQLCMD session, session applock, empty object/metadata/CONTROL/default dbo guard, explicit server and DB identity; SQL2022 company-like DB (not OptionCIsolated/PathB). Wrong server and DB 58000, unchanged empty target; positive 69/3/21, nonempty replay 58002; separate three roles only seed, replay 58005; no Users, Organizations or VisitTrips. 128/128 permission references resolve in schema (catalog query returned zero missing). No runtime grants or role assignments, no actual company TLS or SQL identity or IT environment. CI test uses disposable sa and self-signed cert; company runbook explicitly requires trusted cert, DBA and approved safe SQLCMD names. No production authorization.",
+    "remaining": "IT review target names and certificate validation; SQLCMD variables are trusted DBA inputs, not arbitrary user strings. Candidate not approved for production. Real organization/team/user identity/master data and least-privilege runtime grants still required."
+  },
+  "firstAdminAndPeopleRuntime": {
+    "status": "SCOPED_SQL2022_BOOTSTRAP_AND_PEOPLE_BEHAVIOR_PASS_COMBINED_EVIDENCE_NOT_FULL_ACL",
+    "applicationSource": "60f9f888004e699897d0e02d2357f854273c0a33",
+    "packageSource": "bf035387dadf5717911ca8e83ba262241512e495",
+    "runs": [
+      {
+        "id": 45408134806,
+        "job": 138494298541,
+        "conclusion": "failure",
+        "scope": "14 observed PASS; test incorrectly expected SQL error 229 instead of actual column denial 230; no grant widened"
+      },
+      {
+        "id": 45408411813,
+        "job": 138495277466,
+        "conclusion": "failure",
+        "scope": "19 observed PASS including actual HR create, same-day role/team replacement, non-admin refusal, no broad roles, audit payload/delete, schema ledger write, identity rebind and user delete denial. Last test assumed internal Users.IsActive controls login; source/test explicitly says effective HR status is source of truth."
+      },
+      {
+        "id": 45408743509,
+        "job": 138496452971,
+        "conclusion": "success",
+        "scope": "Focused HR eligibility delta only; fresh first-admin fixture. Verified existing HR-active behavior despite legacy Users.IsActive=false, leave and terminated login denied. 22 unique scoped check markers across runs, excluding aggregate marker. No full replay of role/team and ACL behaviors. First-admin SQL and grants identical across runs."
+      }
+    ],
+    "artifact": {
+      "id": 14925189029,
+      "archive": "FieldVisit_v180_FirstAdmin_People_Runtime_Review_20261124.zip",
+      "bytes": 5228,
+      "sha256": "a320b58095a9d4d841d14a8662325c09d0f11f4808c7313653720ff68231b2c4",
+      "firstAdminSqlSha256": "00a08f0e5c1b83496d1c6df80d2e06f68f88b8e9b73f440c01077b62488b18be",
+      "peopleAclSqlSha256": "5a53cb686f229845e572935f7b9d66d78bfa3cdcf9850b14563f04eb8cc350f9",
+      "integrity": "outer SHA256, ZIP CRC, 4/4 inner hashes PASS",
+      "libraryUpload": "SUCCEEDED"
+    },
+    "limits": "Test SQL login, synthetic staff and organization, local SQL2022, self-signed disposable TLS; no real Entra token/tenant, Windows integrated DBA wrapper execution, corporate service identity, complete app ACL, full business/authorization or IT Clean Build. No real admin created. Existing internal HR policy deliberately unchanged. Issued-token revocation not proven; Auth.cs issues 8-hour JWT and CurrentUserService uses token claims; verify live revocation/role scope enforcement before production, do not assume failure or PASS for all endpoints. Wrapper and SQL grant candidate remain review-only."
+  },
+  "iisApplicationReview": {
+    "status": "WINDOWS_X64_FRAMEWORK_DEPENDENT_PACKAGE_BUILD_AND_CONTENTS_PASS_NONDEPLOY",
+    "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+    "workflowCommit": "321b90f94b1f0d7d28d322957b03a5234c9af939",
+    "run": 45409920222,
+    "job": 138500612951,
+    "conclusion": "success",
+    "frontendFocusedTests": {
+      "passed": 10,
+      "total": 10,
+      "scope": "exact Entra HTTPS company front/API pair positive, invalid/mismatched/unsafe configuration negative; Path B unchanged; Excel flags off"
+    },
+    "previousBackendBoundaryRun": {
+      "run": 45409746813,
+      "conclusion": "success",
+      "scope": "existing filtered corporate target tests workflow reran automatically on application delta"
+    },
+    "artifact": {
+      "id": 14928110014,
+      "archive": "FieldVisit_v180_Windows_IIS_Review_20261124.zip",
+      "bytes": 36731764,
+      "sha256": "e2c0c4c99d39b6e168eb7edded0e1760ab201c42ba65acbfe6938427ee6931b7",
+      "integrity": "Actual downloaded bytes SHA256 and ZIP CRC, all 77 internal manifest file hashes and coverage PASS",
+      "libraryUpload": "SUCCEEDED"
+    },
+    "configuration": "Two HTTPS sites (proposed IT decision), API at own root, framework-dependent Windows x64 ANCM in-process generated web.config, static hash routing, Entra templates blank company identifiers/secret/connection, corporate startup guard code compiled, Demo disabled in template and no email autobinding, explicit company front/API UI gate, formal location features disabled by default, Google/worker/Swagger disabled until configuration/validation. Exact verified CJK embedded resource preserved; no standalone font file. Actual Windows IIS execution, startup negative behavior, enterprise SQL/TLS, company Entra, actual Windows PDF NOT RUN.",
+    "remaining": "Full business runtime ACL and cross-team authorization tests, subsequent employee identity provisioning, real formal location behavior, fresh/issued token revocation across uncovered endpoints, actual IIS/SSO/Google/worker and IT security review. Existing G1ReportExportHttpSqlTests source covers some report revocation and scope negatives on EF-shaped fixture; retain scope, not proof of complete app/real company schema. No formal delivery approval."
+  },
+  "coreRuntimeReview": {
+    "status": "HISTORICAL_FIXTURE_FAILURES_SUPERSEDED_BY_SCOPED_PASS",
+    "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+    "permissionEntries": 58,
+    "runs": [
+      {
+        "id": 45411029554,
+        "job": 138504531673,
+        "commit": "2c89ace6e81b55fdad967fc2544a271f522dda2d",
+        "conclusion": "failure",
+        "root": "Fixture EF TeamLeaderAssignments insert uses OUTPUT without INTO on table with enabled trigger; no trip HTTP reached"
+      },
+      {
+        "id": 45411400808,
+        "job": 138505862647,
+        "commit": "6be4eb4548e6163f42e11ef92d768c53e22ef832",
+        "conclusion": "failure",
+        "root": "After DBA fixture appointment insert preserving triggers, fixture MileageRateRules Motorcycle violates actual binary-collated CHECK allowing MOTORCYCLE/CAR; no trip HTTP reached"
+      }
+    ],
+    "decision": "Retain earlier fixture failures as historical; actual corrected fixture and core restricted trip passed. No replay required. See scopedRuntimeAclEvidence for later business subsets; no full ACL certification.",
+    "success": {
+      "run": 45416369420,
+      "job": 138523552505,
+      "deliveryCommit": "f90e90476cf98bb5278e00166114fa959f29dd4e",
+      "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+      "scope": "Restricted trip create/preview/submit/return/edit/resubmit/approve, immutable snapshot and protected-write denial",
+      "markers": 14
+    }
+  },
+  "integratedItReviewPackage": {
+    "status": "ACTUAL_ZIP_CREATED_VERIFIED_LIBRARY_UPLOAD_SUCCEEDED_REVIEW_ONLY_NOT_IT_DEPLOYMENT_READY",
+    "archive": "FieldVisit_v180_IT_Review_Package_20261124.zip",
+    "bytes": 37143756,
+    "sha256": "3c19a8a4c7e1abd77393735b1d5897ddd1a3372354e7eeb17a88ee417ecae54c",
+    "libraryFileId": "file_000000004234820680abf430b8ec242d",
+    "entries": 99,
+    "originalArtifacts": [
+      14926555963,
+      14925189029,
+      14928110014,
+      14930055326
+    ],
+    "sourceArchive": {
+      "run": 45412021074,
+      "job": 138508064796,
+      "artifact": 14930055326,
+      "commit": "039fb2e56f0e302c2487778d0bf1360f9ec8c23b",
+      "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+      "bytes": 777897,
+      "sha256": "b68d94f7d9862be302276bc3d38b0c864c11c6d77b35d88ace65372e89e3c4c1",
+      "sourceFiles": 366,
+      "scope": "tracked backend/frontend/contracts; not complete Git history, historical UAT defaults in exact source must be replaced with corporate templates at rebuild; no standalone font files; IT obtains approved font for rebuild"
+    },
+    "integrity": "Four original artifacts verified against SHA256 and all 90 internal file hashes, nested source CRC and final ZIP 99-entry readback matched",
+    "scope": "Consolidated schema, reference roles, first Admin, scoped people ACL, Windows IIS binary/config candidate, exact application source, Chinese readme/IT checklist and evidence. Unvalidated 58 grants not packaged. No production authorization. IT review may proceed in parallel with remaining business ACL and authorization tests; actual company IIS/Entra/SQL TLS, IT Clean Build and production GO pending. Proposed company specs remain subject to IT."
+  },
+  "scopedRuntimeAclEvidence": {
+    "classification": "NONDEPLOY_SCOPED_GRANT_EVIDENCE_NOT_APPROVED_UNION_OR_INSTALLER",
+    "sets": [
+      {
+        "id": "core-trip",
+        "path": "docs/release/pathb/it-core-runtime/core-runtime-review.sql",
+        "deliveryCommit": "f90e90476cf98bb5278e00166114fa959f29dd4e",
+        "blob": "99c8efbc09f4c9153c5880312e37b91af43be2f8",
+        "run": 45416369420,
+        "job": 138523552505,
+        "scope": "Restricted trip create/preview/submit/return/edit/resubmit/approve, immutable snapshot and protected-write denial",
+        "expandedOperations": 58,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "correction-read",
+        "path": "docs/release/pathb/it-browser/correction-read-review.sql",
+        "deliveryCommit": "53eaa8bc25f30b0a3e2b89be145ecbd6fb8e1ebf",
+        "blob": "77916f1b9d833ab3723867754bbd44f53e478bf6",
+        "run": 45420196281,
+        "job": 138537319674,
+        "scope": "Actual SQL 229 before grant; read success after grant and write/broad role denial",
+        "expandedOperations": 1,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "hr-and-location-lookup",
+        "path": "docs/release/pathb/it-browser-business/business-review.sql",
+        "deliveryCommit": "54c0137526a444748bdee36201e0eab8fb06ae53",
+        "blob": "ef25a42d6e1c216302d5811ecd6cfea21d5ef2e2",
+        "run": 45421393168,
+        "job": 138541563576,
+        "scope": "HR required fields/create/edit/readback PASS within failed overall job; location selection observed; not every granted operation used",
+        "expandedOperations": 11,
+        "conclusion": "PARTIAL_PASS_JOB_FAILED",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "team-role-access",
+        "path": "docs/release/pathb/it-browser-access/access-review.sql",
+        "deliveryCommit": "ca005a5d5bf786f650e97f3241d44e5c6a3db2cd",
+        "blob": "6931e74be76ab74e54a5d4f06747f309d78425a5",
+        "run": 45423951583,
+        "job": 138550685555,
+        "scope": "Roleless new/existing token denial, team create/edit, primary membership, role assign, new visitor login, admin API/UI denial, SQL readback",
+        "expandedOperations": 45,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "correction-write",
+        "path": "docs/release/pathb/it-browser-correction/correction-write-review.sql",
+        "deliveryCommit": "193e035c939b4e15d66e165bb5175fd6f3b3842a",
+        "blob": "5dd554b9e7857d84e9bebd86b86c7714dc8f5652",
+        "run": 45427245787,
+        "job": 138562467148,
+        "scope": "Nonfinancial and financial correction close; original and two correction snapshots SQL readback",
+        "expandedOperations": 4,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "fallback-worker",
+        "path": "docs/release/pathb/it-browser-fallback/worker-review.sql",
+        "deliveryCommit": "f3f5025dfd78846d638aba43821ad3704eb4a4b8",
+        "blob": "bef1601a0e352e530061f7c3f45695e34ea3fd8d",
+        "run": 45430307515,
+        "job": 138573453900,
+        "scope": "Fallback enqueue, worker, browser approval, 36.9 amount, exactly one governance event SQL readback",
+        "expandedOperations": 6,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      }
+    ],
+    "uniqueObjectColumnOperations": 104,
+    "exactOverlapWithHistoricalAzureInventory": 73,
+    "notExactMatchWithHistoricalInventory": 31,
+    "overlappingObjectAndColumnScopes": [
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "sets": [
+          "core-trip"
+        ],
+        "columns": [
+          "LocationId",
+          "ReservationStatus"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "sets": [
+          "hr-and-location-lookup"
+        ],
+        "columns": [
+          "TeamId",
+          "UpdatedAt"
+        ]
+      }
+    ],
+    "entries": [
+      {
+        "table": "ApprovalRecords",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "ApprovalRecords",
+        "permission": "SELECT",
+        "column": "ApprovalRecordId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "AuditLogs",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "AuditLogs",
+        "permission": "SELECT",
+        "column": "AuditLogId",
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "BackgroundJobItems",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobItems",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobItems",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobs",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobs",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobs",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "Centers",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "CorrectionRequestChanges",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "CorrectionRequestChanges",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "correction-read"
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "DeploymentSiteLocationAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "DeploymentSites",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "EmploymentDeploymentSiteAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "EmploymentStatusPeriods",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "EmploymentStatusPeriods",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "GovernmentLocationMasters",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": "LocationId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": "ReservationStatus",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageGovernanceEvents",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageGovernanceEvents",
+        "permission": "SELECT",
+        "column": "MileageGovernanceEventId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageRateRules",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Organizations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Persons",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Persons",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "ProjectLocations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Projects",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Roles",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "SchemaVersions",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamCenterAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamDeploymentSiteAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamLeaderAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamLeaderDelegations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamLocationNoteHistory",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "TeamLocationNotes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "UPDATE",
+        "column": "EffectiveTo",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "IsActive",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "TeamCode",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "TeamName",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "UpdatedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserCapabilities",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "UserDataScopes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "UserEmploymentPeriods",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserFavoriteLocations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "UserIdentityProfiles",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserIdentityProfiles",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "UPDATE",
+        "column": "EffectiveTo",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoles",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoles",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoles",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "column": "TeamId",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "column": "UpdatedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "UPDATE",
+        "column": "EffectiveTo",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "AssignedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "AssignedByUserId",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "EndedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "IsActive",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "IsPrimary",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshots",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshots",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshotStops",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshotStops",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStatusHistory",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStatusHistory",
+        "permission": "SELECT",
+        "column": "VisitTripStatusHistoryId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTypes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      }
+    ],
+    "crossTeamProof": {
+      "run": 45428271221,
+      "job": 138566139946,
+      "deliveryCommit": "3db4970b991824cd9e2347050aa36f47dd762dbb",
+      "applicationSource": "ea85a0d3985fc5bab3e2c25cf80d6d29a156d089",
+      "scope": "Two real synthetic Demo identities on actual company schema; authorized read positive controls, unrelated trip/queue/read/approve/return/preview denied, protected row unchanged"
+    },
+    "limitations": "SQL grant file present in passing run does not establish each grant necessary or used. Table-wide Users/Employments UPDATE from HR harness must not override column-limited grants by default. Do not execute union or historical Azure grants. Full formal location and master data writes, complete restricted report export, actual corporate identity/SQL TLS, complete least-privilege boundary remain open."
+  },
+  "currentReviewSnapshot20261125": {
+    "applicationSource": "bd9299541811c90795e2fe0e339cf6827fb9be9d",
+    "liveApiReceipt": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7137486781",
+    "liveFrontend": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+    "archive": "FieldVisit_v180_IT_Review_Package_20261125.zip",
+    "archiveSha256": "fb89f5f15734818c981f88eab57c8ca3a060c3bd54ebef1cdbd1dd39cf7758dd",
+    "archiveBytes": 37553560,
+    "artifactIds": [
+      14926555963,
+      14925189029,
+      14980373398,
+      14978183035
+    ],
+    "libraryFileId": "libfile_9dcdd660779c8191963cca0e74bf3ddd",
+    "status": "REVIEW_ONLY",
+    "evidence": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7149338743",
+    "ownerLaterFullTestingRequirement": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7134309729",
+    "historicalConditionalAcceptance": "NOT FULL UAT SIGNOFF"
+  }
+}

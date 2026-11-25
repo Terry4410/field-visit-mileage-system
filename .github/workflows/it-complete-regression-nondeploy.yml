@@ -1,0 +1,65 @@
+name: Exact final G1 report authorization delta (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['.github/workflows/it-complete-regression-nondeploy.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  backend-delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 87d69e1788179e82193389c88eca53b3db38f170
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: delivery
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/source-package
+      - name: Restore exact build resource and focused test fixtures
+        run: |
+          set -euo pipefail
+          pkg="$RUNNER_TEMP/source-package/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          echo "c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63  $pkg" | sha256sum -c -
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$pkg" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          echo "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc" | sha256sum -c -
+          test "$(git rev-parse HEAD)" = 87d69e1788179e82193389c88eca53b3db38f170
+          cp delivery/docs/release/pathb/it-regression-delta/G1ReportExportHttpSqlTests.cs backend/tests/FieldVisit.Application.Tests/
+      - name: Recheck failed backend cases only with disposable SQL2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          pw="Aa9!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          docker run -d --name fv-regression-delta -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f fv-regression-delta >/dev/null 2>&1 || true' EXIT
+          ready=NO
+          for _ in $(seq 1 60); do if docker exec fv-regression-delta /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -l 3 -b -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          export E1_R1_SQL_CONNECTION="Server=localhost,1433;Database=master;User Id=sa;Password=$pw;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5"
+          echo "::add-mask::$E1_R1_SQL_CONNECTION"
+          export E1_R1_REQUIRED=1 OPTIONC_EXECUTION_MODE=IsolatedSqlTest
+          export ConnectionStrings__DefaultConnection="$E1_R1_SQL_CONNECTION"
+          export UatAutomation__CleanupEnabled=false BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false
+          export Providers__Route=Mock Providers__Geocoding=Mock
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~G1ReportExportHttpSqlTests' --logger "trx;LogFileName=delta.trx" --results-directory "$RUNNER_TEMP/results" --logger "console;verbosity=normal"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fieldvisit-final-g1-87d69e17-results
+          path: ${{ runner.temp }}/results
+          if-no-files-found: warn

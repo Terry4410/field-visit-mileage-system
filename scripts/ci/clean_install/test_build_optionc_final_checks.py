@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
-from build_optionc_final_checks import CONTRACT, COUNT, ROOT, CANDIDATE_SOURCE_IDS, REPLACEMENT_NAMES, build
+from build_optionc_final_checks import (CONTRACT, COUNT, ROOT, CANDIDATE_SOURCE_IDS, REPLACEMENT_NAMES,
+    build, load_pinned_corrected_020, _git_blob_sha1, LEGACY_020_BLOB,
+    CORRECTED_020_BLOB, STATUS_020_NEW, STATUS_020_OLD)
 from build_sql_only_tables import SourceContractError
 
 
@@ -33,8 +35,22 @@ class OptionCFinalCheckContractTests(unittest.TestCase):
                     for table, mapping in CONTRACT.items()
                     for name, version in mapping.items() if version == mid
                 ), encoding="utf-8")
+            # The immutable RC source has the reviewed predecessor (no Confirming).
+            corrected = (Path(__file__).resolve().parents[3] / ROOT / "1800_020" / "Up.sql").read_bytes()
+            self.assertEqual(_git_blob_sha1(corrected), CORRECTED_020_BLOB)
+            self.assertEqual(corrected.count(STATUS_020_NEW), 1)
+            legacy = corrected.replace(STATUS_020_NEW, STATUS_020_OLD)
+            self.assertEqual(_git_blob_sha1(legacy), LEGACY_020_BLOB)
+            (root / ROOT / "1800_020" / "Up.sql").write_bytes(legacy)
             manifest = build(root, out)
             self.assertEqual(manifest["checkCount"], COUNT)
+            self.assertEqual(manifest["effective020ApprovedGitBlob"], CORRECTED_020_BLOB)
+            generated = (out / "optionc-final-target-checks.sql").read_text()
+            self.assertIn("N'Previewed',N'Confirming',N'Confirmed'", generated)
+            self.assertNotIn("N'Previewed',N'Confirmed',N'PartiallyFailed'", generated)
+            corrected_status = next(x for x in manifest["checks"] if x["name"] == "CK_ImportBatches_Status")
+            self.assertEqual(corrected_status["sourceSha256"],
+                             next(x for x in manifest["checks"] if x["name"] == "CK_ImportBatchItems_Status")["sourceSha256"])
             self.assertEqual((out / "optionc-final-target-checks.sql").read_text().count("\nGO\n"), COUNT)
             self.assertIn("DROP CONSTRAINT CK_OptionC_Published_Origin", (out / "optionc-final-target-checks.sql").read_text())
             self.assertEqual(manifest["fullCleanInstall"].startswith("HOLD_"), True)
@@ -45,6 +61,23 @@ class OptionCFinalCheckContractTests(unittest.TestCase):
         self.assertTrue(REPLACEMENT_NAMES.issubset(allowed))
         self.assertIn("CK_OptionC_Published_Origin", REPLACEMENT_NAMES)
         self.assertNotIn("CK_ImportBatches_Status", REPLACEMENT_NAMES)
+
+    def test_exact_reviewed_020_delta_and_legacy_drift_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc = Path(tmp)
+            path = rc / ROOT / "1800_020" / "Up.sql"
+            path.parent.mkdir(parents=True)
+            corrected = (Path(__file__).resolve().parents[3] / ROOT / "1800_020" / "Up.sql").read_bytes()
+            legacy = corrected.replace(STATUS_020_NEW, STATUS_020_OLD)
+            self.assertEqual(_git_blob_sha1(corrected), CORRECTED_020_BLOB)
+            self.assertEqual(_git_blob_sha1(legacy), LEGACY_020_BLOB)
+            path.write_bytes(legacy)
+            rel, raw, decoded = load_pinned_corrected_020(rc)
+            self.assertEqual(raw, corrected)
+            self.assertIn("Confirming", decoded)
+            path.write_bytes(legacy + b"\\n-- INVALID DRIFT")
+            with self.assertRaises(SourceContractError):
+                load_pinned_corrected_020(rc)
 
     def test_missing_approved_source_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,0 +1,30 @@
+-- Disposable browser delta only. Never execute against live or corporate SQL.
+IF DB_NAME()<>N'FieldVisitCompanyCoreTest' OR USER_NAME()<>N'dbo'
+    THROW 51000,'BROWSER_DISPOSABLE_DBA_REQUIRED',1;
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name=N'fv_core_test' AND type='S')
+    THROW 51001,'BROWSER_RESTRICTED_USER_REQUIRED',1;
+DECLARE @beforeDenied bit=0;
+EXECUTE AS USER=N'fv_core_test';
+BEGIN TRY
+    SELECT COUNT_BIG(*) FROM dbo.CorrectionRequests;
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER()=229 SET @beforeDenied=1;
+    ELSE BEGIN REVERT; THROW; END;
+END CATCH;
+REVERT;
+IF @beforeDenied<>1 THROW 51002,'EXPECTED_CORRECTION_READ_DENIAL_NOT_OBSERVED',1;
+PRINT 'CORRECTION_READ_BEFORE_SQL_229=PASS';
+GRANT SELECT ON OBJECT::dbo.CorrectionRequests TO FieldVisitCoreRuntimeReview;
+EXECUTE AS USER=N'fv_core_test';
+SELECT COUNT_BIG(*) FROM dbo.CorrectionRequests;
+DECLARE @writeAllowed bit=CASE WHEN
+    COALESCE(HAS_PERMS_BY_NAME(N'dbo.CorrectionRequests',N'OBJECT',N'INSERT'),1)=1 OR
+    COALESCE(HAS_PERMS_BY_NAME(N'dbo.CorrectionRequests',N'OBJECT',N'UPDATE'),1)=1 OR
+    COALESCE(HAS_PERMS_BY_NAME(N'dbo.CorrectionRequests',N'OBJECT',N'DELETE'),1)=1 OR
+    COALESCE(IS_ROLEMEMBER(N'db_owner'),1)=1 OR
+    COALESCE(IS_ROLEMEMBER(N'db_datareader'),1)=1 OR
+    COALESCE(IS_ROLEMEMBER(N'db_datawriter'),1)=1 THEN 1 ELSE 0 END;
+REVERT;
+IF @writeAllowed=1 THROW 51003,'BROWSER_RESTRICTED_PERMISSION_BOUNDARY_FAILED',1;
+PRINT 'CORRECTION_READ_ONLY_DELTA=PASS';

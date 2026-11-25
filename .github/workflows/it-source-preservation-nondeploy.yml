@@ -1,0 +1,54 @@
+name: IT exact application source preservation (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['.github/workflows/it-source-preservation-nondeploy.yml']
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 03508fda5852ffd66705db9c49ab311eede753ee
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify changed frontend on exact IT source (no deployment)
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 03508fda5852ffd66705db9c49ab311eede753ee
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+          echo IT_FRONTEND_TEST_BUILD=PASS
+      - name: Archive exact tracked source for IT review (not deployment)
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 03508fda5852ffd66705db9c49ab311eede753ee
+          mkdir -p "$RUNNER_TEMP/source"
+          git archive --format=zip --prefix=source/ HEAD backend frontend contracts > "$RUNNER_TEMP/source/FieldVisit_Application_Source.zip"
+          python3 - <<'PY'
+          import zipfile,pathlib,os,hashlib
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'source'
+          z=p/'FieldVisit_Application_Source.zip'
+          with zipfile.ZipFile(z) as f:
+              assert f.testzip() is None
+              names=[n for n in f.namelist() if not n.endswith('/')]
+              assert 'source/backend/src/FieldVisit.Api/Program.cs' in names
+              assert 'source/frontend/package-lock.json' in names
+              assert not any(n.lower().endswith(('.ttc','.ttf','.otf','.pfx','.pem','.key')) for n in names)
+              print('TRACKED_SOURCE_FILE_COUNT='+str(len(names)))
+          (p/'SOURCE_SHA.txt').write_text('03508fda5852ffd66705db9c49ab311eede753ee\n',encoding='utf-8')
+          (p/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(q.read_bytes()).hexdigest()+'  '+q.name+'\n' for q in sorted(p.iterdir())),encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fieldvisit-v180-it-exact-application-source-03508fd
+          path: ${{ runner.temp }}/source
+          if-no-files-found: error
+          retention-days: 30

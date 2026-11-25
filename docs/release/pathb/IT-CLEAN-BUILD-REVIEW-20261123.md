@@ -1,0 +1,91 @@
+# Field Visit v1.8.0 — IT Clean Build evidence and release boundary (NONDEPLOY)
+
+> **2026-11-24 最新凍結基準（優先於下方歷史段落）**：Owner 已確認 [ACCEPT WITH OPEN ITEMS](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7130245304)。目前正式交付來源為前端 `b9cad2d9e23a3c8c96157c1926818e842fe0fd0b`、API `e8de647be2fca9d15a4e046b8e4598f8190420ea`。既有隔離 SQL2022 69 表／舊 API readiness 證據仍有效於原範圍，並非最新 API 或企業 Clean Build PASS。最新凍結來源的 Entra redirect bridge 與 PR #118 相同檔案 blob，無需再次移植；公司租戶實際 SSO 未驗證。最新套件、128 個去重物件／欄位權限證據條目及待驗證事項見 [IT-RELEASE-EVIDENCE-LOCK-20261124.json](./IT-RELEASE-EVIDENCE-LOCK-20261124.json)。這不是正式可執行 ACL 或 IT installer。下方舊版 SHA、Daily Plan 尚未納入等敘述僅保留歷史證據，不再作目前交付基準。
+
+This is a *review* record for the company IT handoff, **not an executable/production installer** and **not authorization** to deploy, grant permissions, change login, or run SQL.
+
+## Business baseline
+
+- Business Owner approved Path B **Business UAT ACCEPT WITH OPEN ITEMS** on 2026-11-23: [Issue #41 decision](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7099388100).
+- The 26 original P0 IDs remain accounted for: 19 scoped actual PASS; 3 canceled Supervisor N/A; 2 superseded old business rules; 2 retained partial limitations `QUERY-02` and `E2E-01`. The **new Daily Plan** proposal is still pending business-user acceptance and **is not part of the released UAT baseline**.
+- Never overwrite historical accepted test runs, status or signed release evidence. CI/SQL checks are **not Business UAT**.
+
+## Locked component identities
+
+| Component | Git source | Status |
+| --- | --- | --- |
+| Selected Path B API | `ab71aaa96d9ac259f66386555812448284527d15` | Accepted UAT source; selected package mount DLL byte fingerprint not independently confirmed |
+| Selected Path B Frontend | `90fe9bd61c24be57ccfaf6d450bf053e9c646ac1` | Accepted UAT source from distinct line of commits |
+| Historical Clean Build RC | `9d431ea318fcec34f04f3cc36a8fb6d01d00c48a` | 57 EF mapped tables; source used to build disposable 69-table SQL Server 2022 clean target |
+| Corrected final 020 source | Git blob `ce7bbb6f204bf1ab69c106ae59a5b139077494bc` | `CK_ImportBatches_Status` includes `Confirming` |
+| Controlled NONDEPLOY integration | Draft [PR #117](https://github.com/Terry4410/field-visit-mileage-system/pull/117) | Review-only, not merged |
+| SQL Server | GitHub disposable SQL Server 2022 / container | NOT company internal SQL instance |
+| Company Windows/IIS/AD SSO | IT versions/approach TBD | NOT RUN / NOT CERTIFIED |
+
+## Supported evidence, not an installation claim
+
+1. [020 focus test #45202494508](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45202494508) succeeded: SQL2022 allowed `Confirming`, denied invalid Batch/Item status, source hash locked. No shared DB writes.
+2. [Selected API + FE compile #45204798661](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45204798661) succeeded, separate exact UAT component sources. All ZIPs have deliberately invalid configuration to **prevent accidental deployment**. No company SSO validation.
+3. [69-table isolated clean build #45206735733](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45206735733) succeeded: effective final CHECKs (including corrected 020), 69-table scoped catalog, independent sqlcmd replay and recover-verify, scoped API RC candidate evidence. Not full selected API business regression.
+4. [Selected UAT API + live 69-table disposable SQL #45214245615](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45214245615) **SUCCESS**: current accepted API started and returned `/health/ready` PASS against the still-existing independently replayed isolated SQL database; anonymous `GET /api/v1/me` correctly returned HTTP 401. Disposable replay and recovery databases and SQL container all cleaned. Exact integration head `2982498a7a7ecc7cdebf75d8d5a34165c08bbfa5`.
+5. The earlier scoped [#45208992522 HOLD](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45208992522) was traced by **source review** to a test sequencing fault: `ModelBaselineRunner` drops `OptionCIsolated_FieldVisitV180CleanInstall` in its `finally` block; the independent replay similarly deletes its DB on step exit. The old API probe targeted the removed model-runner DB after cleanup. No Azure defect or SQL Server schema incompatibility was established by that HOLD. The new probe runs **inside the replay step before cleanup**, with original cleanup trap preserved.
+6. This PASS covers **API startup, DB readiness, and anonymous 401 only**. It does **not** validate real business records, cross-team negative authorization (QUERY-02), company Windows/IIS/AD SSO, or independently executed corporate IT Clean Build.
+
+## Single evidence manifest and Windows SSO implementation boundary
+
+The immutable source identities, exact nondeploy ZIP SHA-256 values, 13 SQL install layer count, 69 table scope, CI run links and **unclosed gates** are pinned in [IT-RELEASE-EVIDENCE-LOCK-20261124.json](./IT-RELEASE-EVIDENCE-LOCK-20261124.json). The three verified ZIPs are separate historical/selected artifacts, **not one deployable release**; the SQL artifact's own API candidate comes from the historical RC rather than the accepted Path B UAT API. The accepted API was independently checked against a still-live 69-table replay database, but no single company installer is certified.
+
+**Specific authentication source audit:** the selected API `backend/src/FieldVisit.Application/V170AuthenticationRules.cs` defines only `Demo` and `Entra` modes. The selected `Program.cs` configures application JWT and conditional Entra JWT; `AuthService.cs` resolves a user by Demo account or Entra tenant/object ID. The frontend `App.tsx` uses the same app roles. There is **no source-supported / test-verified IIS Integrated Windows SSO flow** in the accepted API, so changing IIS settings alone is not sufficient to declare company employee login complete.
+
+**Minimum IT decision before implementation:** confirm whether company standard mandates IIS Windows Authentication (Kerberos/Negotiate) or permits organization-approved Entra/OIDC federation, and provide domain-joined browser/server expectations, supported principal key (stable SID/object GUID or authorized mapping), HTTPS/reverse-proxy path, and IIS/SQL service identity policy. The application must validate a server-authenticated principal, map it to an *active* existing app User, and separately enforce Visitor/Leader/Admin business scopes. No browser-controlled identity header, Demo backdoor, automatic first-login role elevation, or tenant-wide implicit authorization. This is design input for IT, **not a claim SSO code has been written or tested**.
+
+Microsoft's documented Windows Authentication options for ASP.NET Core 8 under IIS are at [Microsoft Learn — Windows Authentication](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/windowsauth?view=aspnetcore-8.0). IT must choose the supported company approach before Windows SSO code is integrated.
+
+## Company IT decision received 2026-11-24 — Entra authentication is permitted
+
+**Decision provenance:** Owner reports that company IT has confirmed **Azure AD / Microsoft Entra ID may be used as the employee authentication mechanism**. This authorizes choosing existing Entra architecture as the **preferred company-login integration path**; it does **not** certify the current app or mean IT has supplied app registrations, credentials, redirect domain, corporate Windows/IIS settings, SQL service identities, endpoint access, or production authorization. The corporate Web/API and database remain planned **on-premises IIS + SQL Server**; only user authentication uses Entra.
+
+**Engineering action:** use accepted source `90fe9bd61c24be57ccfaf6d450bf053e9c646ac1` as the exact frontend base and preserve accepted API `ab71aaa96d9ac259f66386555812448284527d15`. Latest selected SPA uses MSAL Browser **5.18.0** and popup login but previously lacked required redirect bridge. Controlled [NONDEPLOY Draft PR #118](https://github.com/Terry4410/field-visit-mileage-system/pull/118) adds a separate Vite `redirect.html` bridge, strict HTTPS `ENTRA.REDIRECT_URI` validation and focused negative tests. [CI #45306709341](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45306709341) **PASS** (30 suites/145 tests, Vite two-entry build), only on `65ff743f3d2f7f4fa3d5463b9632006e615bef24`. **Real company tenant sign-in NOT YET VERIFIED.** Source is NOT merged with SQL/API or deployed.
+
+**Consolidated request to IT (IT handles registration and values, Owner should not construct tokens or secrets):**
+1. Confirm approved intranet **HTTPS frontend URL** (the exact registered SPA redirect must be `https://[IT-host]/redirect.html`) and API URL; company browser must reach Microsoft login endpoints, with approved popup and COOP policy for redirect bridge.
+2. Provide approved **Entra Tenant ID**, SPA **Application (client) ID**, protected API **Application ID URI / audience**, delegated **`access_as_user`** scope, app permission/admin consent and allowed application audience. These are identifiers/configuration, not passwords; any actual secrets belong exclusively in IT secret management, not GitHub or messages.
+3. Confirm secure identity binding by Entra `tid` + `oid` to existing active FieldVisit app Users; require explicit IT provisioning and **keep automatic first-login email binding disabled**. Application-level Visitor/Leader/Admin scopes still apply.
+4. Independently verify tenant token validation, company login, logout behavior, disabled identity/employee access, cross-team query and export denial, and the same application build on IIS + IT's SQL test database. Define IT operational/service account owner.
+
+**Stop conditions:** Entra permitted `YES`; new IIS Negotiate implementation `NOT NECESSARY FOR THIS AGREED OPTION`; Entra actual login `NOT TESTED`, final release `NOT MERGED/NOT DEPLOYED`, `IT Deployment Ready` and `Production Ready` **remain unverified**. Retain all old UAT PASS.
+
+## Minimum-cost enterprise login decision — source-audited (no auth code change)
+
+This comparison is **not an IT policy decision** and is not an authentication/UAT PASS. It uses accepted API `ab71aaa96d9ac259f66386555812448284527d15` and selected frontend `90fe9bd61c24be57ccfaf6d450bf053e9c646ac1` (both pinned above).
+
+| Company IT decision | Source-supported route | Still mandatory before production |
+| --- | --- | --- |
+| **A. Company accepts Microsoft Entra employee login integrated with corporate identities** | **Prefer first for lowest development cost**: existing frontend `auth-config.ts` / `entra-auth.ts` uses MSAL browser login **popup** and Entra API token; `auth.tsx` exchanges it for an application JWT through `/api/v1/auth/entra-login`. Existing API validates Entra tenant, audience, `tid`/`oid`, scope, and maps to existing active user/business roles. No new IIS Negotiate login code is needed merely to try this route. | IT's actual tenant/app registration, SPA redirect URI, authorized API delegated scope, HTTPS/CORS, stable user identity mapping, disabled/revoked users, negative access tests, group/role separation and corporate SSO approval. **Popup login is not automatic silent Windows logon**; corporate policy may disallow this approach. |
+| **B. Company requires genuine intranet IIS Integrated Windows Authentication (Kerberos/Negotiate)** | Existing selected code **does not implement this login flow**. IIS can authenticate the Windows principal, but the app still requires a trusted identity-to-User mapping and an application JWT or equivalent business-role authorization integration. | IT must specify Windows domain, service/application pool identity, SPN/Negotiate policies, allowed browsers, IIS integration/reverse proxy model, stable principal identifier, and security test scope **before** new implementation. This is a new source change and separate integration test, not just a config toggle. |
+
+**Existing Entra config keys to map, not a deployment instruction:** frontend `AUTH_MODE=Entra`, `ENTRA.TENANT_ID`, `ENTRA.SPA_CLIENT_ID`, `ENTRA.API_SCOPE`, `ENTRA.REDIRECT_URI`; API `Auth:Mode=Entra`, `Auth:Entra:TenantId`, `Auth:Entra:Audience`, `Auth:Entra:RequiredScope`, `Auth:Entra:AllowFirstLoginEmailBinding=false` (keep disabled pending explicit IT-controlled proof). The Demo endpoint must reject login in production Entra mode; do not expose Demo passwords or reuse Azure pilot accounts. IT-approved service identity, secure configuration, revocation behavior, invalid/audience-scope claims, Visitor/Leader/Admin scopes and cross-team denial require runtime tests before Production Ready.
+
+**Decision now received:** IT permits option **A** (Microsoft Entra). Prefer the existing Entra architecture plus PR #118's v5 compatibility patch, subject to company configuration and real end-to-end validation. Option **B** is not a requirement under this decision. **Do not ask Owner to invent a technical implementation.** No Azure, IIS, Windows, authentication or SQL settings should be changed based on this note alone.
+
+References: [Microsoft Learn — ASP.NET Core 8 Windows Authentication](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/windowsauth?view=aspnetcore-8.0) and [Microsoft Learn — MSAL authentication flows](https://learn.microsoft.com/en-us/entra/identity-platform/msal-authentication-flows).
+
+## What IT must verify independently
+
+1. Establish one final source/compiled API/compiled frontend/schema manifest and exact hashes; do not blindly merge divergent Git branches, or install old Azure-only scripts into a new company SQL target.
+2. Obtain company-provided Windows Server, IIS, .NET 8 Hosting Bundle, SQL Server version, TLS/security/network and Windows SSO/AD architecture specification.
+3. Have IT install to **fresh separate company test DB** using a reviewed company-target installer, approved service principal, authentic minimal role/reference data and no UAT-only Demo credentials. No fabricated historical migration markers.
+4. Prove complete SQL catalog facets (columns, FKs, indexes, trusted checks, triggers, schema ledger, source and target SQL permissions); run actual deployed API/Frontend create/edit/approve/report and negative access tests on that same clean DB.
+5. Verify foreign-Team/Org data denied for Visitor/Leader and allowed within proper scope for Admin: query, direct GET, exports, location writes. Retain original QUERY-02 business UAT exception until these real checks complete.
+6. Verify IIS/Windows SSO login, HR identity to business roles, disabled/revoked users, secrets, Google route provider licensing/settings, Traditional Chinese fonts, backups/recovery, monitoring and operating owner.
+7. Only after documented IT results and explicit go-live authorization can `IT Clean Build Passed` or `Production Ready` be declared.
+
+## Status and stop conditions
+
+- `Business UAT: ACCEPT WITH OPEN ITEMS` — actual Owner approval.
+- `Code readiness: bounded CI source/build/SQL/API-readiness PASS` — per specific evidence only; no business workflow or company IT deployment acceptance.
+- `IT Deployment Ready: NOT YET PROVEN` — release does not yet include company-target validated installation + SSO config.
+- `IT Clean Build: NOT RUN BY IT`.
+- `Production Ready: NO`.
+
+There is **no Azure/Production/Shared SQL write**, no deployment, no Github protected-branch merge, no enterprise principal or permission change, and no new Daily Plan in this branch. All work must remain nondeploy without new scoped authorization.

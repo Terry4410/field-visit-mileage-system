@@ -1,0 +1,96 @@
+name: IT actual browser role and team writes (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['docs/release/pathb/it-browser-access/**','.github/workflows/it-browser-access-nondeploy.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ea85a0d3985fc5bab3e2c25cf80d6d29a156d089
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: delivery
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify actual SQL package and build focused test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14926555963/zip > "$RUNNER_TEMP/company.zip"
+          echo "76ba1802d24e49ff07d61ec823999af6d4d6f7736fdac88774674be9f10e8905  $RUNNER_TEMP/company.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/schema"
+          unzip -q "$RUNNER_TEMP/company.zip" -d "$RUNNER_TEMP/schema"
+          (cd "$RUNNER_TEMP/schema" && sha256sum -c SHA256SUMS.txt)
+          cp delivery/docs/release/pathb/it-core-runtime/CompanySchemaRestrictedCoreTrip.cs app/backend/tests/FieldVisit.Application.Tests/
+          cp delivery/docs/release/pathb/it-browser/CompanyBrowserSeed.cs app/backend/tests/FieldVisit.Application.Tests/
+          dotnet build app/backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --nologo
+      - name: Build exact frontend and install existing browser tool
+        run: |
+          set -euo pipefail
+          (cd app/frontend && npm ci --no-audit --no-fund && npm run build)
+          (cd app/uat && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium)
+          printf '%s\n' 'window.APP_CONFIG={API_BASE_URL:"http://127.0.0.1:5080/api/v1",AUTH_MODE:"Demo"};' > app/frontend/dist/config.js
+          cp delivery/docs/release/pathb/it-browser-access/browser.mjs app/uat/company-browser.mjs
+      - name: Actual restricted browser API SQL on disposable schema
+        run: |
+          set -euo pipefail
+          db=FieldVisitCompanyCoreTest
+          pw="Aa9!$(openssl rand -hex 18)"
+          runpw="Bb8!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          echo "::add-mask::$runpw"
+          docker run -d --name fv-core-review -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          cleanup(){ local rc=$?; trap - EXIT; kill ${api_pid:-} ${ui_pid:-} 2>/dev/null || true; docker rm -f fv-core-review >/dev/null 2>&1 || rc=1; exit "$rc"; }
+          trap cleanup EXIT
+          cmd(){ docker exec -i fv-core-review /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 -f 65001 "$@"; }
+          ready=NO
+          for _ in $(seq 1 60); do if cmd -d master -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          server="$(cmd -d master -h -1 -W -Q "SET NOCOUNT ON;SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName'));" | tr -d '\r' | head -n 1)"
+          [[ "$server" =~ ^[a-zA-Z0-9_.-]+$ ]]
+          cmd -d master -Q "CREATE DATABASE [$db]; CREATE LOGIN fv_core_test WITH PASSWORD=N'$runpw',CHECK_POLICY=OFF;" >/dev/null
+          cmd -d "$db" -v FVServer="$server" FVDatabase="$db" < "$RUNNER_TEMP/schema/01-schema-install.sql" > "$RUNNER_TEMP/install.log" 2>&1 || { grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/install.log"; exit 1; }
+          cmd -d "$db" -Q "CREATE USER fv_core_test FOR LOGIN fv_core_test; CREATE ROLE FieldVisitCoreRuntimeReview; ALTER ROLE FieldVisitCoreRuntimeReview ADD MEMBER fv_core_test;" >/dev/null
+          cmd -d "$db" < delivery/docs/release/pathb/it-core-runtime/core-runtime-review.sql >/dev/null
+          cmd -d "$db" < delivery/docs/release/pathb/it-browser/correction-read-review.sql
+          cmd -d "$db" < delivery/docs/release/pathb/it-browser-access/access-review.sql
+          export FV_CORE_DBA="Server=127.0.0.1,1433;Database=$db;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
+          export FV_CORE_RUNTIME="Server=127.0.0.1,1433;Database=$db;User Id=fv_core_test;Password=$runpw;Encrypt=True;TrustServerCertificate=True"
+          dotnet test app/backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --no-build --filter FullyQualifiedName~CompanyBrowserSeed --logger "console;verbosity=normal"
+          export BROWSER_DEMO_PASSWORD="Aa9!$(openssl rand -hex 18)"
+          jwt="$(openssl rand -hex 32)"
+          echo "::add-mask::$BROWSER_DEMO_PASSWORD"
+          echo "::add-mask::$jwt"
+          export BROWSER_TEST_SIGNING_KEY="$jwt"
+          (cd app/backend/src/FieldVisit.Api && env ASPNETCORE_URLS=http://127.0.0.1:5080 ASPNETCORE_ENVIRONMENT=Production ConnectionStrings__DefaultConnection="$FV_CORE_RUNTIME" Auth__Mode=Demo Auth__DemoPassword="$BROWSER_DEMO_PASSWORD" Auth__JwtKey="$jwt" Cors__AllowedOrigins__0=http://127.0.0.1:4173 BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false Providers__Route=Mock Providers__Geocoding=Mock dotnet bin/Release/net8.0/FieldVisit.Api.dll > "$RUNNER_TEMP/browser-api.log" 2>&1) &
+          api_pid=$!
+          (cd app/frontend && npm run preview -- --host 127.0.0.1 --port 4173 --strictPort > "$RUNNER_TEMP/browser-ui.log" 2>&1) &
+          ui_pid=$!
+          ready=NO
+          for _ in $(seq 1 60); do if curl -fsS http://127.0.0.1:5080/health/ready >/dev/null && curl -fsS http://127.0.0.1:4173/config.js | grep -q '127.0.0.1:5080'; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          set +e
+          (cd app/uat && node company-browser.mjs)
+          rc=$?
+          set -e
+          if [[ "$rc" != 0 ]]; then grep -Eo "The (SELECT|INSERT|UPDATE|DELETE) permission was denied on the object '[A-Za-z0-9_]+'" "$RUNNER_TEMP/browser-api.log" | sort -u || true; fi
+          if [[ "$rc" = 0 ]]; then
+            cmd -d "$db" -Q "IF (SELECT COUNT(*) FROM dbo.Users u JOIN dbo.UserRoleAssignments a ON a.UserId=u.UserId JOIN dbo.Roles r ON r.RoleId=a.RoleId JOIN dbo.UserTeamAssignments m ON m.UserId=u.UserId JOIN dbo.Teams t ON t.TeamId=m.TeamId WHERE u.EmployeeNo=N'E2E-ACCESS-01' AND LOWER(r.RoleCode)=N'visitor' AND t.TeamCode=N'E2E-ACCESS-T2' AND m.IsPrimary=1 AND a.EffectiveTo IS NULL AND m.EffectiveTo IS NULL)<>1 THROW 51000,'ACCESS_READBACK_FAILED',1; PRINT 'ACCESS_SQL_READBACK=PASS';"
+          fi
+          exit "$rc"

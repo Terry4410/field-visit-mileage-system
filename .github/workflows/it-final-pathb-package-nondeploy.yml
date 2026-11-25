@@ -1,0 +1,124 @@
+name: Exact final Path B API and frontend with verified rollback (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['.github/workflows/it-final-pathb-package-nondeploy.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/pathb-it-cleanbuild-020-20261123'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 79031b6f3c62868ee9cd3deb8fc90ff5d6ac601e
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/known-font-source
+      - name: Verify exact source and previously accepted build resource
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 79031b6f3c62868ee9cd3deb8fc90ff5d6ac601e
+          old="$RUNNER_TEMP/known-font-source/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          echo "c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63  $old" | sha256sum -c -
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$old" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          echo "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc" | sha256sum -c -
+      - name: Verify actual prior deployment artifacts for rollback
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rollback-api" "$RUNNER_TEMP/rollback-fe"
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/15019694713/zip > "$RUNNER_TEMP/old-api.zip"
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14986713543/zip > "$RUNNER_TEMP/old-fe.zip"
+          echo "6ba43c8d3f1d6c97fc4226326914eb892c238eae550d27d656f4314703cbf652  $RUNNER_TEMP/old-api.zip" | sha256sum -c -
+          echo "28d922b1a80de040fbd5bfc1023e8537a5bcbda965ef092c4a41292801439f1f  $RUNNER_TEMP/old-fe.zip" | sha256sum -c -
+          unzip -tq "$RUNNER_TEMP/old-api.zip"
+          unzip -tq "$RUNNER_TEMP/old-fe.zip"
+          unzip -p "$RUNNER_TEMP/old-api.zip" PathB_API_bf1494c1.zip > "$RUNNER_TEMP/rollback-api/PathB_API_bf1494c1.zip"
+          unzip -p "$RUNNER_TEMP/old-fe.zip" PathB_Final_Frontend_87d69e17.zip > "$RUNNER_TEMP/rollback-fe/PathB_Final_Frontend_87d69e17.zip"
+          echo "ec59921034f4f3ddc5b23bc69fb040482c95ce9f705b40ae2ce458cacfacf423  $RUNNER_TEMP/rollback-api/PathB_API_bf1494c1.zip" | sha256sum -c -
+          echo "8094f2e1c4166e68104e2a0464feba6b87e8b27ddb2ec0ae6476a04b39268128  $RUNNER_TEMP/rollback-fe/PathB_Final_Frontend_87d69e17.zip" | sha256sum -c -
+          echo ROLLBACK_ORIGINAL_ARTIFACT_BYTES_AND_INNER_MANIFESTS=PASS
+      - name: Publish Linux API with unchanged default-off settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          dst="$RUNNER_TEMP/api"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$dst" --nologo
+          test "$(stat -c '%s' "$dst/FieldVisit.Infrastructure.dll")" -gt 19000000
+          test "$(jq -r '.OptionC.Candidate.Enabled' "$dst/appsettings.json")" = false
+          test "$(jq -r '.OptionC.Approval.Enabled' "$dst/appsettings.json")" = false
+          test "$(jq -r '.UatAutomation.CleanupEnabled' "$dst/appsettings.json")" = false
+          unzip -p "$RUNNER_TEMP/rollback-api/PathB_API_bf1494c1.zip" appsettings.json > "$RUNNER_TEMP/old-api-settings.json"
+          cmp "$RUNNER_TEMP/old-api-settings.json" "$dst/appsettings.json"
+          echo API_DEFAULT_SETTINGS_UNCHANGED=PASS
+      - name: Build Path B static frontend with previous exact config
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run build
+          node scripts/prepare-pathb-artifact.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("dist/config.js")
+          s=p.read_text()
+          assert s.count('AUTH_MODE: "Demo",')==1
+          p.write_text(s.replace('AUTH_MODE: "Demo",','AUTH_MODE: "Demo",\n  FORMAL_LOCATION_UAT: true,'))
+          PY
+          unzip -p "$RUNNER_TEMP/rollback-fe/PathB_Final_Frontend_87d69e17.zip" config.js > "$RUNNER_TEMP/old-fe-config.js"
+          cmp "$RUNNER_TEMP/old-fe-config.js" dist/config.js
+          echo PATHB_FRONTEND_CONFIG_UNCHANGED=PASS
+      - name: Seal exact candidate packages and rollback manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release"
+          mkdir -p "$out"
+          (cd "$RUNNER_TEMP/api" && zip -qr "$out/PathB_Final_API_79031b6.zip" .)
+          (cd frontend/dist && zip -qr "$out/PathB_Final_Frontend_79031b6.zip" .)
+          unzip -tq "$out/PathB_Final_API_79031b6.zip"
+          unzip -tq "$out/PathB_Final_Frontend_79031b6.zip"
+          cp "$RUNNER_TEMP/rollback-api/PathB_API_bf1494c1.zip" "$out/Rollback_API_bf1494c1.zip"
+          cp "$RUNNER_TEMP/rollback-fe/PathB_Final_Frontend_87d69e17.zip" "$out/Rollback_Frontend_87d69e17.zip"
+          python3 - <<'PY'
+          import json, pathlib, os, hashlib, zipfile
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'release'
+          hashes={}
+          for z in p.glob('*.zip'):
+              with zipfile.ZipFile(z) as f:
+                  assert f.testzip() is None
+              hashes[z.name]=hashlib.sha256(z.read_bytes()).hexdigest()
+          assert len(hashes)==4
+          with zipfile.ZipFile(p/'PathB_Final_API_79031b6.zip') as f:
+              assert {'FieldVisit.Api.dll','FieldVisit.Infrastructure.dll','appsettings.json'}.issubset(f.namelist())
+          with zipfile.ZipFile(p/'PathB_Final_Frontend_79031b6.zip') as f:
+              assert {'index.html','config.js'}.issubset(f.namelist())
+          (p/'manifest.json').write_text(json.dumps({'source':'79031b6f3c62868ee9cd3deb8fc90ff5d6ac601e','rollbackApiSource':'bf1494c1175d88c34f2dc0100d7038aa23120cac','rollbackFrontendSource':'87d69e1788179e82193389c88eca53b3db38f170','rollbackArtifacts':[15019694713,14986713543],'target':'Path B UAT only','api':'api-fieldvisit-pathb-uat','frontend':'swa-fieldvisit-pathb-uat','mode':'NONDEPLOY','liveAzurePreflight':'NOT_RUN','deployment':'NOT_EXECUTED','sha256':hashes},indent=2)+'\n')
+          PY
+          (cd "$out" && sha256sum *.zip *.json > SHA256SUMS && sha256sum -c SHA256SUMS)
+          echo PATHB_CANDIDATE_AND_ROLLBACK_PACKAGES=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathb-final-79031b6-release-review-nondeploy
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 14

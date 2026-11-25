@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'scripts/ci/clean_install'))
 from build_007_checks import extract_balanced_check
+from build_optionc_final_checks import load_pinned_corrected_020, CORRECTED_020_BLOB
 import apply_rc_runtime_candidate as base_overlay
 
 def digest(b): return hashlib.sha256(b).hexdigest()
@@ -175,7 +176,11 @@ using(var releaseContract=System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(
  chunks=["SET XACT_ABORT ON; SET NOCOUNT ON;\nIF DB_NAME() NOT LIKE N'OptionCIsolated[_]%' THROW 56600,N'DISPOSABLE_ONLY',1;\nBEGIN TRANSACTION;\nIF (SELECT COUNT(*) FROM dbo.SchemaVersions)<>1 OR NOT EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber=N'1.8.0-CREATE-LOWRISK') THROW 56601,N'BASE_CAPABILITY_REQUIRED',1;\n"]
  sources=[]
  for mid,tables in contract.items():
-  rel=f'docs/release/optionc-canonical-sql-draft/candidate/1800_{mid}/Up.sql';raw=(rc/rel).read_bytes();sources.append({'path':rel,'sha256':digest(raw)})
+  rel=f'docs/release/optionc-canonical-sql-draft/candidate/1800_{mid}/Up.sql'
+  # 020: select the existing source-reviewed Confirming fix, while keeping
+  # the historical RC and other migration sources immutable.
+  raw=load_pinned_corrected_020(rc)[1] if mid=='020' else (rc/rel).read_bytes()
+  sources.append({'path':rel,'sha256':digest(raw),'sourceSelection':'EXACT_REVIEWED_020' if mid=='020' else 'IMMUTABLE_RC'})
   for table,names in tables.items():
    for n,name in enumerate(names):
     # SQL Server normalizes both the source and installed CHECK identically.
@@ -186,6 +191,6 @@ using(var releaseContract=System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(
   chunks.append(f"INSERT dbo.SchemaVersions(VersionNumber,Description,AppliedAt,AppliedBy) VALUES(N'{cap}',N'New-schema source-verified capability; source SHA256 {digest(raw)}; not historical migration',SYSUTCDATETIME(),N'uat-release-new-schema');\n")
  chunks.append("IF EXISTS(SELECT 1 FROM dbo.SchemaVersions WHERE VersionNumber LIKE N'1.8.0-0%') THROW 56603,N'FALSE_HISTORY_DENIED',1;\nCOMMIT;\n")
  sql=''.join(chunks);(out/'60_final_functional_capabilities.sql').write_text(sql)
- (out/'release-source-overlay.json').write_text(json.dumps({'candidateSourceSha':source,'immutableRc':'9d431ea318fcec34f04f3cc36a8fb6d01d00c48a','changes':changes,'capabilitySources':sources,'capabilitySqlSha256':digest(sql.encode()),'reserved013':'RESERVED_NO_HISTORY'},indent=2)+'\n')
+ (out/'release-source-overlay.json').write_text(json.dumps({'candidateSourceSha':source,'immutableRc':'9d431ea318fcec34f04f3cc36a8fb6d01d00c48a','changes':changes,'capabilitySources':sources,'capabilitySqlSha256':digest(sql.encode()),'reserved013':'RESERVED_NO_HISTORY','effective020ApprovedGitBlob':CORRECTED_020_BLOB},indent=2)+'\n')
  print('UAT_RC=SOURCE_OVERLAY_AND_FINAL_CAPABILITIES_PREPARED')
 if __name__=='__main__':main()

@@ -1,0 +1,83 @@
+name: IT first Admin HR eligibility delta (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['docs/release/pathb/it-company-bootstrap/**','.github/workflows/it-company-bootstrap-nondeploy.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 60f9f888004e699897d0e02d2357f854273c0a33
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: delivery
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify actual company-schema artifact and prepare harness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14926555963/zip > "$RUNNER_TEMP/company.zip"
+          echo "76ba1802d24e49ff07d61ec823999af6d4d6f7736fdac88774674be9f10e8905  $RUNNER_TEMP/company.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/schema"
+          unzip -q "$RUNNER_TEMP/company.zip" -d "$RUNNER_TEMP/schema"
+          (cd "$RUNNER_TEMP/schema" && sha256sum -c SHA256SUMS.txt)
+          mkdir -p app/tools/it-people-review
+          cp delivery/docs/release/pathb/it-company-bootstrap/Program.cs delivery/docs/release/pathb/it-company-bootstrap/Review.csproj app/tools/it-people-review/
+          dotnet build app/tools/it-people-review/Review.csproj -c Release --nologo
+      - name: First Admin and restricted runtime service behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          db=FieldVisitCompanyPeopleTest
+          pw="Aa9!$(openssl rand -hex 18)"
+          runpw="Bb8!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          echo "::add-mask::$runpw"
+          docker run -d --name fv-people-review -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          cleanup(){ local rc=$?; trap - EXIT; docker rm -f fv-people-review >/dev/null 2>&1 || rc=1; exit "$rc"; }
+          trap cleanup EXIT
+          cmd(){ docker exec -i fv-people-review /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 -f 65001 "$@"; }
+          ready=NO
+          for _ in $(seq 1 60); do if cmd -d master -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          server="$(cmd -d master -h -1 -W -Q "SET NOCOUNT ON;SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName'));" | tr -d '\r' | head -n 1)"
+          [[ "$server" =~ ^[a-zA-Z0-9_.-]+$ ]]
+          cmd -d master -Q "CREATE DATABASE [$db]; CREATE LOGIN fv_people_test WITH PASSWORD=N'$runpw',CHECK_POLICY=OFF;" >/dev/null
+          for f in 01-schema-install.sql 02-reference-roles.sql; do
+            cmd -d "$db" -v FVServer="$server" FVDatabase="$db" < "$RUNNER_TEMP/schema/$f" > "$RUNNER_TEMP/install.log" 2>&1 || { grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/install.log"; exit 1; }
+          done
+          cmd -d "$db" -Q "CREATE USER fv_people_test FOR LOGIN fv_people_test; CREATE ROLE FieldVisitPeopleRuntimeReview; ALTER ROLE FieldVisitPeopleRuntimeReview ADD MEMBER fv_people_test;" >/dev/null
+          cmd -d "$db" < delivery/docs/release/pathb/it-company-bootstrap/people-runtime-review.sql >/dev/null
+          export FV_TEST_DBA="Server=127.0.0.1,1433;Database=$db;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
+          export FV_TEST_RUNTIME="Server=127.0.0.1,1433;Database=$db;User Id=fv_people_test;Password=$runpw;Encrypt=True;TrustServerCertificate=True"
+          export FV_BOOTSTRAP_SQL="$PWD/delivery/docs/release/pathb/it-company-bootstrap/first-admin.sql"
+          # Preserve prior 19 scoped PASS results. Fresh bootstrap is necessary only as fixture.
+          export FV_TEST_SCOPE=HR_ELIGIBILITY_ONLY
+          dotnet run --project app/tools/it-people-review/Review.csproj -c Release --no-build
+      - name: Package tested SQL and Windows wrapper for IT review
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/people-review"
+          cp delivery/docs/release/pathb/it-company-bootstrap/{first-admin.sql,Initialize-FieldVisitAdmin.ps1,people-runtime-review.sql,README.md} "$RUNNER_TEMP/people-review/"
+          (cd "$RUNNER_TEMP/people-review" && sha256sum * > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fieldvisit-v180-first-admin-people-review
+          path: ${{ runner.temp }}/people-review
+          retention-days: 30
+          if-no-files-found: error
