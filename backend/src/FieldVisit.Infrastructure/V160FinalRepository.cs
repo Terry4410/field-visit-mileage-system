@@ -823,11 +823,11 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 || (x.TaxId != null && x.TaxId.Contains(keyword))
                 || (x.MasterNote != null && x.MasterNote.Contains(keyword))
                 || db.TeamLocationNotes.AsNoTracking().Any(n =>
-                    x.TeamId.HasValue && n.TeamId == x.TeamId.Value
+                    (!x.TeamId.HasValue || n.TeamId == x.TeamId.Value)
                     && (adminMaySeeNotes || permittedNoteTeamIds.Contains(n.TeamId))
                     && n.LocationId == x.LocationId && n.Note != null && n.Note.Contains(keyword))
                 || db.TeamLocationNoteHistories.AsNoTracking().Any(h =>
-                    x.TeamId.HasValue && h.TeamId == x.TeamId.Value
+                    (!x.TeamId.HasValue || h.TeamId == x.TeamId.Value)
                     && (adminMaySeeNotes || permittedNoteTeamIds.Contains(h.TeamId))
                     && h.LocationId == x.LocationId
                     && ((h.NewNote != null && h.NewNote.Contains(keyword))
