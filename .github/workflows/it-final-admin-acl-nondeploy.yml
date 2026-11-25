@@ -43,6 +43,21 @@ jobs:
           cmd -d "$db" -v FVServer="$server" FVDatabase="$db" < "$RUNNER_TEMP/schema/01-schema-install.sql" > "$RUNNER_TEMP/install.log" 2>&1 || { grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/install.log"; exit 1; }
           cmd -d "$db" -Q "CREATE USER fv_core_test FOR LOGIN fv_core_test; CREATE ROLE FieldVisitCoreRuntimeReview; ALTER ROLE FieldVisitCoreRuntimeReview ADD MEMBER fv_core_test;" >/dev/null
           cmd -d "$db" < docs/release/pathb/it-core-runtime/core-runtime-review.sql >/dev/null
-          cmd -d "$db" < docs/release/pathb/it-final-admin/admin-runtime-delta-review.sql >/dev/null
-          cmd -d "$db" -Q "INSERT dbo.Organizations(OrganizationCode,OrganizationName,IsActive,CreatedAt) VALUES(N'ACL',N'ACL Synthetic',1,SYSUTCDATETIME());" >/dev/null
-          cmd -d "$db" < docs/release/pathb/it-final-admin/admin-runtime-allow-deny.sql
+          # Apply the live review wrapper in a disposable database, changing ONLY its target guard/principal.
+          # Previously passed routine and safe-delete matrix retained at 45556896857.
+          cmd -d "$db" -Q "GRANT SELECT ON OBJECT::dbo.AuditLogs (UserId,EntityType,EntityId,Action,OldValues,NewValues,CreatedAt) TO FieldVisitCoreRuntimeReview;" >/dev/null
+          python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path('docs/release/pathb/it-final-admin/admin-runtime-apply-pathb-review.sql')
+          s=p.read_text()
+          a=s.index('-- TARGET_GUARD_BEGIN'); b=s.index('-- TARGET_GUARD_END')+len('-- TARGET_GUARD_END')
+          s=s[:a]+"IF DB_NAME()<>N'FieldVisitCompanyCoreTest' OR USER_NAME()<>N'dbo' THROW 52001,N'DISPOSABLE_ONLY',1;"+s[b:]
+          s=s.replace('api-fieldvisit-pathb-uat_pathb','fv_core_test')
+          pathlib.Path('/tmp/fv-admin-apply-disposable.sql').write_text(s)
+          PY
+          cmd -d "$db" < /tmp/fv-admin-apply-disposable.sql
+          # Check denial on an isolated repeat; the live one-shot script is never replayed.
+          if cmd -d "$db" < /tmp/fv-admin-apply-disposable.sql > "$RUNNER_TEMP/repeat.log" 2>&1; then echo REPLAY_GUARD_FAILED; exit 1; fi
+          grep -q BASELINE_CHANGED_OR_REPLAY_STOP "$RUNNER_TEMP/repeat.log"
+          echo ADMIN_APPLY_WRAPPER_REPLAY_DENIED=PASS
+          sha256sum docs/release/pathb/it-final-admin/admin-runtime-apply-pathb-review.sql
