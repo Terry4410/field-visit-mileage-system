@@ -1,0 +1,29 @@
+IF DB_NAME()<>N'FieldVisitCompanyCoreTest' THROW 51000,'DISPOSABLE_ONLY',1;
+EXECUTE AS USER=N'fv_core_test';
+IF HAS_PERMS_BY_NAME(N'dbo.Centers',N'OBJECT',N'SELECT')<>1
+ OR HAS_PERMS_BY_NAME(N'dbo.Centers',N'OBJECT',N'INSERT')<>1
+ OR HAS_PERMS_BY_NAME(N'dbo.Centers',N'OBJECT',N'UPDATE')<>1
+ OR HAS_PERMS_BY_NAME(N'dbo.Centers',N'OBJECT',N'DELETE')<>0
+ OR HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'INSERT')<>1
+ OR HAS_PERMS_BY_NAME(N'dbo.ImportBatches',N'OBJECT',N'INSERT')<>1
+ THROW 51000,'ACL_MATRIX_FAILED',1;
+IF IS_MEMBER(N'db_owner')<>0 OR IS_MEMBER(N'db_datareader')<>0 OR IS_MEMBER(N'db_datawriter')<>0
+ THROW 51000,'BROAD_ROLE_DENIED',1;
+INSERT dbo.Centers(OrganizationId,CenterCode,CenterName,EffectiveFrom,EffectiveTo,IsActive)
+ VALUES (1,N'ACL-C',N'ACL Create','2026-11-01',NULL,1);
+UPDATE dbo.Centers SET CenterName=N'ACL Update' WHERE CenterCode=N'ACL-C';
+IF (SELECT COUNT(*) FROM dbo.Centers WHERE CenterCode=N'ACL-C' AND CenterName=N'ACL Update')<>1
+ THROW 51000,'ACL_POSITIVE_DML_FAILED',1;
+PRINT 'ADMIN_RUNTIME_SQL_POSITIVE=PASS Center INSERT/UPDATE/SELECT';
+DECLARE @deleteDenied bit=0;
+BEGIN TRY
+ EXEC(N'DELETE FROM dbo.Centers WHERE CenterCode=N''ACL-C''');
+END TRY
+BEGIN CATCH
+ IF ERROR_NUMBER()=229 SET @deleteDenied=1;
+ ELSE THROW;
+END CATCH;
+IF @deleteDenied<>1 OR (SELECT COUNT(*) FROM dbo.Centers WHERE CenterCode=N'ACL-C')<>1
+ THROW 51000,'ACL_DELETE_DENIAL_FAILED',1;
+PRINT 'ADMIN_RUNTIME_SQL_NEGATIVE=PASS DELETE denied and row unchanged';
+REVERT;
