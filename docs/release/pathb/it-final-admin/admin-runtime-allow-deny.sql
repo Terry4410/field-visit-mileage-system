@@ -252,3 +252,110 @@ BEGIN CATCH
     REVERT;
     THROW;
 END CATCH;
+
+-- Apply the exact separate safe-delete review delta after routine deny proof.
+-- DISPOSABLE REVIEW ONLY. Add only after routine ACL proof; never run on Azure.
+IF DB_NAME()<>N'FieldVisitCompanyCoreTest' OR USER_NAME()<>N'dbo' THROW 51000,'DISPOSABLE_ONLY',1;
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+GRANT DELETE ON OBJECT::dbo.[VisitTypes] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[Projects] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[ProjectLocations] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[MileageRateRules] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[Centers] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[DeploymentSites] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[DeploymentSiteLocationAssignments] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[Teams] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[Users] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[Employments] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[Persons] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[EmploymentStatusPeriods] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[UserIdentityProfiles] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[UserFavoriteLocations] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[UserEmploymentPeriods] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[UserTeamScopes] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[EmploymentDeploymentSiteAssignments] TO [FieldVisitCoreRuntimeReview];
+GRANT DELETE ON OBJECT::dbo.[EmploymentRoleAssignments] TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[ApprovalRecords] ([ApproverUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[VisitTripStatusHistory] ([ActionByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[CorrectionRequests] ([RequestedByUserId],[LeaderReviewedByUserId],[AdminClosedByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[BackgroundJobs] ([RequestedByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[GeocodingAttempts] ([RequestedByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[MileageGovernanceEvents] ([ActorUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[AuditLogs] ([UserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[TeamLocationNotes] ([TeamId],[CreatedByUserId],[UpdatedByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[TeamLocationNoteHistory] ([TeamId],[ChangedByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[LocationApprovalHistory] ([ReviewedByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[GovernmentLocationMasters] ([ReviewedByUserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[UserFavoriteLocations] ([UserId]) TO [FieldVisitCoreRuntimeReview];
+GRANT SELECT ON OBJECT::dbo.[EmploymentRoleAssignments] ([EmploymentId]) TO [FieldVisitCoreRuntimeReview];
+COMMIT;
+EXECUTE AS USER=N'fv_core_test';
+BEGIN TRY
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_VisitTypes',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Projects',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.ProjectLocations',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_ProjectLocations',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_MileageRateRules',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Centers',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Centers',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.DeploymentSites',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_DeploymentSites',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.DeploymentSiteLocationAssignments',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_DeploymentSiteLocationAssignments',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Teams',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Teams',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Users',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Users',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Employments',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Employments',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Persons',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Persons',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.EmploymentStatusPeriods',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_EmploymentStatusPeriods',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.UserIdentityProfiles',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_UserIdentityProfiles',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.UserFavoriteLocations',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_UserFavoriteLocations',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.UserEmploymentPeriods',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_UserEmploymentPeriods',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.UserTeamScopes',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_UserTeamScopes',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.EmploymentDeploymentSiteAssignments',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_EmploymentDeploymentSiteAssignments',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.EmploymentRoleAssignments',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_EmploymentRoleAssignments',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.ApprovalRecords',N'OBJECT',N'SELECT',N'ApproverUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_ApprovalRecords_ApproverUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.VisitTripStatusHistory',N'OBJECT',N'SELECT',N'ActionByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_VisitTripStatusHistory_ActionByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.CorrectionRequests',N'OBJECT',N'SELECT',N'RequestedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_CorrectionRequests_RequestedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.CorrectionRequests',N'OBJECT',N'SELECT',N'LeaderReviewedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_CorrectionRequests_LeaderReviewedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.CorrectionRequests',N'OBJECT',N'SELECT',N'AdminClosedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_CorrectionRequests_AdminClosedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.BackgroundJobs',N'OBJECT',N'SELECT',N'RequestedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_BackgroundJobs_RequestedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.GeocodingAttempts',N'OBJECT',N'SELECT',N'RequestedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_GeocodingAttempts_RequestedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.MileageGovernanceEvents',N'OBJECT',N'SELECT',N'ActorUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_MileageGovernanceEvents_ActorUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'SELECT',N'UserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_AuditLogs_UserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.TeamLocationNotes',N'OBJECT',N'SELECT',N'TeamId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_TeamLocationNotes_TeamId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.TeamLocationNotes',N'OBJECT',N'SELECT',N'CreatedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_TeamLocationNotes_CreatedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.TeamLocationNotes',N'OBJECT',N'SELECT',N'UpdatedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_TeamLocationNotes_UpdatedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.TeamLocationNoteHistory',N'OBJECT',N'SELECT',N'TeamId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_TeamLocationNoteHistory_TeamId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.TeamLocationNoteHistory',N'OBJECT',N'SELECT',N'ChangedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_TeamLocationNoteHistory_ChangedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.LocationApprovalHistory',N'OBJECT',N'SELECT',N'ReviewedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_LocationApprovalHistory_ReviewedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.GovernmentLocationMasters',N'OBJECT',N'SELECT',N'ReviewedByUserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_GovernmentLocationMasters_ReviewedByUserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.UserFavoriteLocations',N'OBJECT',N'SELECT',N'UserId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_UserFavoriteLocations_UserId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.EmploymentRoleAssignments',N'OBJECT',N'SELECT',N'EmploymentId',N'COLUMN'),0)<>1 THROW 51000,'SAFE_DELETE_READ_EmploymentRoleAssignments_EmploymentId',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_AuditLogs',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.VisitTrips',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_VisitTrips',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.VisitTripSnapshots',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_VisitTripSnapshots',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.VisitTripSnapshotStops',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_VisitTripSnapshotStops',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.SchemaVersions',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_SchemaVersions',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.ImportBatches',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_ImportBatches',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.ImportBatchItems',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_ImportBatchItems',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.ApprovalRecords',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_ApprovalRecords',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.MileageCalculations',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_MileageCalculations',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.MileageGovernanceEvents',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_MileageGovernanceEvents',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.RouteCalculationAttempts',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_RouteCalculationAttempts',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.VisitTripStatusHistory',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_VisitTripStatusHistory',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.TeamLocationNoteHistory',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_TeamLocationNoteHistory',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Locations',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_Locations',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'UPDATE'),0)<>0 OR COALESCE(HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'SELECT',N'IpAddress',N'COLUMN'),0)<>0 OR COALESCE(HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'SELECT',N'CorrelationId',N'COLUMN'),0)<>0 THROW 51000,'AUDIT_PROTECTION_FAILED',1;
+ -- Real restricted DML on the unused synthetic routine fixtures only.
+ DELETE dbo.VisitTypes WHERE VisitTypeCode=N'ACL-V';
+ DELETE dbo.Projects WHERE ProjectCode=N'ACL-P';
+ DELETE dbo.MileageRateRules WHERE RuleName=N'ACL rate';
+ DELETE dbo.Centers WHERE CenterCode=N'ACL-C';
+ IF EXISTS(SELECT 1 FROM dbo.VisitTypes WHERE VisitTypeCode=N'ACL-V')
+ OR EXISTS(SELECT 1 FROM dbo.Projects WHERE ProjectCode=N'ACL-P')
+ OR EXISTS(SELECT 1 FROM dbo.MileageRateRules WHERE RuleName=N'ACL rate')
+ OR EXISTS(SELECT 1 FROM dbo.Centers WHERE CenterCode=N'ACL-C') THROW 51000,'SAFE_DELETE_READBACK_FAILED',1;
+ PRINT 'ADMIN_SAFE_DELETE_ACL_MATRIX=PASS unused_masters=DELETED protected_history=DENIED';
+ REVERT;
+END TRY
+BEGIN CATCH
+ REVERT;
+ THROW;
+END CATCH;
