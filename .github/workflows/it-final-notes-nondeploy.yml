@@ -1,0 +1,40 @@
+name: IT preplanned notes three-role SQL (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['docs/release/pathb/it-final-admin/FinalPreplanNotesSqlTests.cs', '.github/workflows/it-final-notes-nondeploy.yml']
+permissions:
+  contents: read
+jobs:
+  bulk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 03508fda5852ffd66705db9c49ab311eede753ee
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: delivery
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run three-role draft note and scope denial in disposable SQL Server 2022
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 03508fda5852ffd66705db9c49ab311eede753ee
+          cp delivery/docs/release/pathb/it-final-admin/FinalPreplanNotesSqlTests.cs app/backend/tests/FieldVisit.Application.Tests/
+          pw="Aa9!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          docker run -d --name fv-final-notes -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f fv-final-notes >/dev/null 2>&1 || true' EXIT
+          ready=NO
+          for _ in $(seq 1 60); do if docker exec fv-final-notes /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          export FV_FINAL_SQL="Server=127.0.0.1,1433;Database=master;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
+          dotnet test app/backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~FinalPreplanNotesSqlTests --logger 'console;verbosity=normal'
