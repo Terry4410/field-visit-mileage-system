@@ -1,0 +1,54 @@
+name: Path B rate storage fixed-schema regression (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-rate-storage-fix-20261125]
+    paths: ['backend/**', '.github/workflows/pathb-rate-storage-nondeploy.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  rate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Test exact installed SQL schema with restricted runtime
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14926555963/zip > "$RUNNER_TEMP/schema.zip"
+          echo "76ba1802d24e49ff07d61ec823999af6d4d6f7736fdac88774674be9f10e8905  $RUNNER_TEMP/schema.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/schema"
+          unzip -q "$RUNNER_TEMP/schema.zip" -d "$RUNNER_TEMP/schema"
+          (cd "$RUNNER_TEMP/schema" && sha256sum -c SHA256SUMS.txt >/dev/null)
+          pw="Aa9!$(openssl rand -hex 18)"
+          runpw="Bb8!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          echo "::add-mask::$runpw"
+          docker run -d --name fv-rate-proof -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f fv-rate-proof >/dev/null 2>&1 || true' EXIT
+          cmd(){ docker exec -i fv-rate-proof /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 -f 65001 "$@"; }
+          ready=NO
+          for _ in $(seq 1 60); do if cmd -d master -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          db=FieldVisitCompanyCoreTest
+          server="$(cmd -d master -h -1 -W -Q "SET NOCOUNT ON;SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName'));" | tr -d '\r' | head -n 1)"
+          [[ "$server" =~ ^[a-zA-Z0-9_.-]+$ ]]
+          cmd -d master -Q "CREATE DATABASE [$db]; CREATE LOGIN fv_core_test WITH PASSWORD=N'$runpw',CHECK_POLICY=OFF;" >/dev/null
+          cmd -d "$db" -v FVServer="$server" FVDatabase="$db" < "$RUNNER_TEMP/schema/01-schema-install.sql" > "$RUNNER_TEMP/install.log" 2>&1 || { grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/install.log"; exit 1; }
+          cmd -d "$db" -Q "CREATE USER fv_core_test FOR LOGIN fv_core_test; CREATE ROLE FieldVisitCoreRuntimeReview; ALTER ROLE FieldVisitCoreRuntimeReview ADD MEMBER fv_core_test;" >/dev/null
+          gh api 'repos/Terry4410/field-visit-mileage-system/contents/docs/release/pathb/it-core-runtime/core-runtime-review.sql?ref=69020dfc007289c52e28abb5d1f7e4a59f6d1901' --jq .content | base64 -d > "$RUNNER_TEMP/core.sql"
+          cmd -d "$db" < "$RUNNER_TEMP/core.sql" >/dev/null
+          cmd -d "$db" -Q "GRANT INSERT ON OBJECT::dbo.MileageRateRules TO FieldVisitCoreRuntimeReview; GRANT UPDATE ON OBJECT::dbo.MileageRateRules (RuleName,VehicleType,RatePerKm,EffectiveFrom,EffectiveTo,IsActive,UpdatedAt) TO FieldVisitCoreRuntimeReview;" >/dev/null
+          export FV_RATE_DBA="Server=127.0.0.1,1433;Database=$db;User ID=sa;Password=$pw;TrustServerCertificate=True"
+          export FV_RATE_RUNTIME="Server=127.0.0.1,1433;Database=$db;User ID=fv_core_test;Password=$runpw;TrustServerCertificate=True"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~InstalledRateSqlTests|FullyQualifiedName~V180SqlServerTriggerCompatibilityTests|FullyQualifiedName~V180MileageRateVersionRulesTests' --logger 'console;verbosity=normal' | tee "$RUNNER_TEMP/rate-test.log"
+          grep -q 'INSTALLED_RATE_ORIGINAL_MIXED_CASE_REJECTED=PASS' "$RUNNER_TEMP/rate-test.log"
+          grep -q 'INSTALLED_RATE_API_LIFECYCLE=PASS' "$RUNNER_TEMP/rate-test.log"
