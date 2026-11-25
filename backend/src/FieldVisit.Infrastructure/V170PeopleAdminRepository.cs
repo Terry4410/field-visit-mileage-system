@@ -369,6 +369,12 @@ public sealed class V170PeopleAdminRepository(
                      == "MissingPrimaryDeploymentSite")
             {
                 q = q.Where(x =>
+                    db.UserRoleAssignments.Any(r => r.UserId == x.UserId
+                        && r.EffectiveFrom <= today
+                        && (!r.EffectiveTo.HasValue || r.EffectiveTo.Value >= today)
+                        && db.Roles.Any(role => role.RoleId == r.RoleId && role.IsActive
+                            && role.RoleCode == "visitor"))
+                    &&
                     !db.UserIdentityProfiles.Any(p =>
                         p.UserId == x.UserId
                         && p.EmploymentId.HasValue
@@ -392,6 +398,15 @@ public sealed class V170PeopleAdminRepository(
                 q = q.Where(x =>
                     x.Email == null
                     || x.Email == "");
+            }
+            else if (request.DataIssue == "MissingBusinessRole")
+            {
+                q = q.Where(x => !db.UserRoleAssignments.Any(r =>
+                    r.UserId == x.UserId && r.EffectiveFrom <= today
+                    && (!r.EffectiveTo.HasValue || r.EffectiveTo.Value >= today)
+                    && db.Roles.Any(role => role.RoleId == r.RoleId && role.IsActive
+                        && (role.RoleCode == "visitor" || role.RoleCode == "leader"
+                            || role.RoleCode == "admin"))));
             }
         }
 

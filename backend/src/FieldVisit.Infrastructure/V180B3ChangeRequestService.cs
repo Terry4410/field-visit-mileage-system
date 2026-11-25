@@ -49,7 +49,8 @@ public sealed record V180B3SubmitLocation(int LocationId,string ExpectedRowVersi
 public sealed record V180B3Review(string RequestRowVersion,Guid DecisionKey,string Reason);
 public sealed record V180B3RequestView(Guid RequestPublicId,string EntityId,int? TeamId,
     string RiskCode,string Status,int RequestedByUserId,DateTime SubmittedAt,
-    string? BeforeJson,string ProposedJson,string RowVersion,string OperationCode = "");
+    string? BeforeJson,string ProposedJson,string RowVersion,string OperationCode = "",
+    DateTime? ReviewedAt = null, string? ApplicantName = null);
 
 /// <summary>Deliberately nondeployable-by-default B3 candidate.
 /// No permission for Leader is inferred from membership or seeded grants.
@@ -86,7 +87,7 @@ public sealed class V180B3ChangeRequestService(
     private static V180B3RequestView ToView(V180B3ChangeRequest r)=>
         new(r.RequestPublicId,r.EntityId,r.TeamId,r.RiskCode,r.Status,
             r.RequestedByUserId,r.SubmittedAt,r.BeforeJson,r.ProposedJson,
-            Convert.ToBase64String(r.RowVersion));
+            Convert.ToBase64String(r.RowVersion),r.OperationCode,r.ReviewedAt);
 
     // B3 live read-only policy is shared with the isolated SQL tests.
     // This preserves the existing actor and team decisions exactly.

@@ -100,7 +100,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
       if(OPTIONC_DIRECT_LOWRISK_UI_ENABLED&&noteChanged&&!identityChanged){
         await api(`/optionc-candidate/locations/${locationId}/low-risk-direct`,{
           method:"POST",body:JSON.stringify({expectedRowVersion:data.rowVersion,
-            masterNote:masterNote.trim()||null,reason:"Authorized low-risk note maintenance",
+            masterNote:masterNote.trim()||null,reason:"修改主檔備註",
             operationKey:crypto.randomUUID()})
         });
         await load();
@@ -149,7 +149,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
     {data.duplicateReason===SUSPECTED&&<div className="note danger-note" style={{marginTop:10}}>系統已自動標記疑似重複；完成管理者人工覆核前不可發布為正式可用地點。</div>}
     {msg&&<div className="note" style={{marginTop:10}}>{msg}</div>}
 
-    {lowRiskOnly&&<div className="note">小組長僅可透過已授權的 Option C LowRisk 路徑更新主檔備註；地址、名稱、統編與其他識別欄位不在此入口修改。</div>}
+    {lowRiskOnly&&<div className="note">目前授權小組的外訪員或小組長可修改合格正式客戶地點的主檔備註；地址、名稱、統編等資料須透過地點維護另行申請。</div>}
     <div className="grid cols-2" style={{marginTop:14}}>
       {!lowRiskOnly&&<>
       <div className="field"><label>縣市</label><input value={city} onChange={e=>setCity(e.target.value)}/></div><div className="field"><label>鄉鎮／區</label><input value={district} onChange={e=>setDistrict(e.target.value)}/></div>
@@ -157,7 +157,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
       <div className="field"><label>統一編號</label><input value={taxId} onChange={e=>setTaxId(e.target.value)} maxLength={20}/></div></>}
       <div className="field span-2"><label>主檔備註</label><textarea value={masterNote} onChange={e=>setMasterNote(e.target.value)} maxLength={1000}/></div>
     </div>
-    <div className="actions"><button className="btn ok" disabled={busy||(lowRiskOnly&&!OPTIONC_DIRECT_LOWRISK_UI_ENABLED)} onClick={()=>void save()}>{lowRiskOnly?"儲存 LowRisk 主檔備註":"儲存地點資料"}</button></div>
+    <div className="actions"><button className="btn ok" disabled={busy||(lowRiskOnly&&!OPTIONC_DIRECT_LOWRISK_UI_ENABLED)} onClick={()=>void save()}>{lowRiskOnly?"儲存主檔備註":"儲存地點資料"}</button></div>
 
     {isAdmin&&!lowRiskOnly&&<><hr/>
       <div className="section-title"><div><h4>官方據點</h4><div className="sub">Location-first：地點完成解析／發布後，只需在這裡指定所屬中心；Site Code 由系統自動產生。</div></div></div>

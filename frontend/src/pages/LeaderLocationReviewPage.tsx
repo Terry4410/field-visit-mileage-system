@@ -2,16 +2,19 @@ import {useCallback,useEffect,useState} from "react";
 import {api} from "../api";
 import {useAuth} from "../auth";
 import {OPTIONC_LEADER_REVIEW_UI_ENABLED} from "../optionc-approval-flags";
-import {mayLeaderReview,differences,lowRiskReviewStage,type ReviewStage} from "../optionc-approval-ui";
+import {mayLeaderReview,differences,lowRiskReviewStage,safeFields,type ReviewStage} from "../optionc-approval-ui";
 
 const label:Record<string,string>={LocationName:"地點名稱",City:"縣市",District:"鄉鎮區",Address:"地址",PlusCode:"Plus Code",TaxId:"統一編號",MasterNote:"主檔備註"};
 
-type Review={requestPublicId:string;entityId:string;teamId:number|null;operationCode:string;riskCode:string;requestStatus:string;leaderStatus:string;requestedByUserId:number;submittedAt:string;beforeJson:string|null;proposedJson:string;rowVersion:string;reason?:string};
+type Review={requestPublicId:string;entityId:string;teamId:number|null;operationCode:string;riskCode:string;requestStatus:string;leaderStatus:string;requestedByUserId:number;applicantName?:string|null;submittedAt:string;beforeJson:string|null;proposedJson:string;rowVersion:string;reason?:string};
+const locationName=(r:Review)=>safeFields(r.proposedJson).LocationName||safeFields(r.beforeJson).LocationName||"地點資料";
+const operation=(r:Review)=>r.operationCode==="CreateLocation"?"新增地點":"正式地點異動";
 
 export default function LeaderLocationReviewPage(){
  const {user}=useAuth();
  const [rows,setRows]=useState<Review[]>([]),[selected,setSelected]=useState(""),[reason,setReason]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
  const [stage,setStage]=useState<ReviewStage|null>(null);
+ const [query,setQuery]=useState(""),[typeFilter,setTypeFilter]=useState("all");
  const load=useCallback(async()=>{if(!OPTIONC_LEADER_REVIEW_UI_ENABLED)return;setRows(await api<Review[]>("/optionc-candidate/leader/review-queue"));},[]);
  useEffect(()=>{if(OPTIONC_LEADER_REVIEW_UI_ENABLED)void load().catch(e=>setError(String(e)));},[load]);
  if(!OPTIONC_LEADER_REVIEW_UI_ENABLED)return <div role="status">地點初審尚未授權啟用。</div>;
@@ -22,7 +25,7 @@ export default function LeaderLocationReviewPage(){
  const isContinuation=!!row&&row.riskCode==="Low"&&row.operationCode==="UpdatePublishedLocation"&&row.leaderStatus==="Approved"&&row.requestStatus==="Pending"&&row.requestedByUserId!==user.userId;
  const loadStage=async(id:string)=>{setStage(null);setStage(await api<ReviewStage>(`/optionc-candidate/requests/${encodeURIComponent(id)}/stage`));};
  const decide=async(approve:boolean)=>{
-  if(!row||!eligible||busy||!reason.trim()||reason.trim().length>1000)return;
+  if(!row||!eligible||busy||!reason.trim()||reason.trim().length>100)return;
   setError("");setMessage("");setBusy(true);
   try{
    await api(`/optionc-candidate/requests/${encodeURIComponent(row.requestPublicId)}/leader-review`,{
@@ -55,11 +58,12 @@ export default function LeaderLocationReviewPage(){
   {message&&<div role="status" className="note ok-note">{message}</div>}
   {error&&<div role="alert" className="note danger-note">{error}</div>}
   <button className="btn secondary" disabled={busy} onClick={()=>void load().catch(e=>setError(String(e)))}>重新整理</button>
-  <div className="table-wrap"><table><thead><tr><th>地點 ID</th><th>申請者</th><th>風險</th><th>初審</th><th>檢視</th></tr></thead><tbody>{rows.map(r=><tr key={r.requestPublicId}><td>{r.entityId}</td><td>{r.requestedByUserId}</td><td>{r.riskCode}</td><td>{r.leaderStatus}</td><td><button className="btn small secondary" disabled={busy} onClick={()=>{setSelected(r.requestPublicId);setStage(null);setReason("");setError("");if(r.riskCode==="Low"&&r.leaderStatus==="Approved")void loadStage(r.requestPublicId).catch(e=>setError(String(e)));}}>查看</button></td></tr>)}</tbody></table></div>
+  <div className="actions"><input aria-label="搜尋待審地點" placeholder="搜尋地點或申請人" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="申請類型" value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}><option value="all">全部</option><option value="CreateLocation">新增地點</option><option value="UpdatePublishedLocation">地點異動</option></select></div>
+  <div className="table-wrap"><table><thead><tr><th>地點名稱</th><th>申請者</th><th>日期</th><th>類型</th><th>小組</th><th>審核階段</th><th>操作</th></tr></thead><tbody>{rows.filter(r=>(typeFilter==="all"||r.operationCode===typeFilter)&&`${locationName(r)} ${r.applicantName||""}`.toLowerCase().includes(query.toLowerCase())).map(r=><tr key={r.requestPublicId}><td>{locationName(r)}</td><td>{r.applicantName||"申請人資料待查"}</td><td>{new Date(r.submittedAt).toLocaleDateString("zh-TW",{timeZone:"Asia/Taipei"})}</td><td>{operation(r)}</td><td>{user.teamScopes?.find(t=>t.teamId===r.teamId)?.teamName||"授權小組"}</td><td>{r.leaderStatus==="Approved"?"初審通過，待後續發布":"待初審"}／{r.riskCode==="High"?"需管理者複審":"一般異動"}</td><td><button className="btn small secondary" disabled={busy} onClick={()=>{setSelected(r.requestPublicId);setStage(null);setReason("");setError("");if(r.riskCode==="Low"&&r.leaderStatus==="Approved")void loadStage(r.requestPublicId).catch(e=>setError(String(e)));}}>查看</button></td></tr>)}</tbody></table></div>
   {row&&<section><h3>申請內容</h3><div className="table-wrap"><table><thead><tr><th>欄位</th><th>原資料</th><th>申請資料</th></tr></thead><tbody>{differences(row).map(d=><tr key={d.field}><th>{label[d.field]}</th><td>{d.before||"—"}</td><td>{d.after||"—"}</td></tr>)}</tbody></table></div>
    {!eligible&&!isContinuation&&<div role="alert">申請人不得自審，或申請狀態已變更。</div>}
-   <div className="field"><label htmlFor="leader-location-review-reason">{isContinuation?"審核及確認理由":"初審理由"}（必填）</label><textarea id="leader-location-review-reason" rows={5} value={reason} maxLength={1000} disabled={(!eligible&&!isContinuation)||busy} onChange={e=>setReason(e.target.value)}/><div className="hint">{reason.length} / 1000 字</div></div>
-   {!isContinuation&&<div className="actions"><button className="btn secondary" disabled={!eligible||busy||!reason.trim()} onClick={()=>void decide(false)}>拒絕</button><button className="btn ok" disabled={!eligible||busy||!reason.trim()} onClick={()=>void decide(true)}>獨立初審通過</button></div>}
+   <div className="field"><label htmlFor="leader-location-review-reason">{isContinuation?"審核及確認理由":"審核意見"}（必填）</label><textarea id="leader-location-review-reason" rows={5} value={reason} maxLength={isContinuation?1000:100} disabled={(!eligible&&!isContinuation)||busy} onChange={e=>setReason(e.target.value)}/><div className="hint">{reason.length} / {isContinuation?1000:100} 字</div></div>
+   {!isContinuation&&<div className="actions"><button className="btn secondary" disabled={!eligible||busy||!reason.trim()} onClick={()=>void decide(false)}>拒絕</button><button className="btn ok" disabled={!eligible||busy||!reason.trim()} onClick={()=>void decide(true)}>初審通過</button></div>}
    {isContinuation&&<><p>低風險異動：完成重複地點確認後，由原初審小組長發布，不需管理者複審。</p><button className="btn small secondary" disabled={busy} onClick={()=>void loadStage(row.requestPublicId).catch(e=>setError(String(e)))}>重新讀取審核狀態</button><div className="actions"><button className="btn secondary" disabled={busy||!reason.trim()||low?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void continueLow("duplicate")}>確認非重複地點</button><button className="btn ok" disabled={busy||!reason.trim()||low?.stageStatus!=="ReadyForPublish"||low?.duplicateReviewStatus!=="Cleared"} onClick={()=>void continueLow("publish")}>核准並發布</button></div></>}</section>}
  </div>;
 }

@@ -29,7 +29,8 @@ public sealed record V180OptionCLeaderReviewView(
     Guid RequestPublicId, string EntityId, int? TeamId, string OperationCode,
     string RiskCode, string RequestStatus, string LeaderStatus,
     int RequestedByUserId, DateTime SubmittedAt, string? BeforeJson,
-    string ProposedJson, string RowVersion, string? Reason);
+    string ProposedJson, string RowVersion, string? Reason,
+    string? ApplicantName = null);
 
 public sealed class V180OptionCLeaderReviewService(
     AppDbContext db, ICurrentUserService current, IConfiguration config)
@@ -84,7 +85,11 @@ public sealed class V180OptionCLeaderReviewService(
                 if (detail is null || detail.Status == "Pending"
                     || (row.OperationCode == "UpdatePublishedLocation" && row.RiskCode == "Low"
                         && detail.Status == "Approved" && detail.ReviewerUserId == actor.UserId))
-                    result.Add(ToView(row, detail));
+                {
+                    var applicant = await db.Users.AsNoTracking().Where(x => x.UserId == row.RequestedByUserId
+                        && x.OrganizationId == org).Select(x => x.DisplayName).SingleOrDefaultAsync(ct);
+                    result.Add(ToView(row, detail) with { ApplicantName = applicant });
+                }
             }
             catch (UnauthorizedAccessException) { /* scope is filtered, not disclosed */ }
         }
@@ -116,7 +121,7 @@ public sealed class V180OptionCLeaderReviewService(
     {
         await ReadyAsync(ct);
         if (input.DecisionKey == Guid.Empty || string.IsNullOrWhiteSpace(input.Reason)
-            || input.Reason.Length > 1000)
+            || input.Reason.Length > 100)
             throw new InvalidOperationException("OPTIONC_LEADER_REVIEW_INPUT_INVALID");
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var actor = current.GetRequired();

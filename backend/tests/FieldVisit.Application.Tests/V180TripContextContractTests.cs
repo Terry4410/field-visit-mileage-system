@@ -185,6 +185,16 @@ public sealed class V180TripContextContractTests
     }
 
     [Fact]
+    public void EnsureReadyForSubmit_requires_valid_primary_site_for_visitor()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            V180TripPersistenceRules.EnsureReadyForSubmit(
+                Context() with { PrimaryDeploymentSiteId = null },
+                employmentId: 7001, teamId: 11, startSiteId: 101, endSiteId: 102));
+        Assert.Contains("PRIMARY_DEPLOYMENT_SITE_REQUIRED", ex.Message);
+    }
+
+    [Fact]
     public void EnsureReadyForSubmit_rejects_missing_end_site()
     {
         var ex =

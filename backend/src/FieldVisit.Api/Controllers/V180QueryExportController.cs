@@ -25,6 +25,65 @@ public sealed class V180QueryExportController(
     private static readonly string Mime =
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+    // Build the preview from the very same authorized workbook as the download.
+    // This keeps filters, row scope and Chinese display values identical, while
+    // returning only one page to the browser. No new generic data endpoint.
+    [HttpGet("{kind}/preview")]
+    public async Task<IActionResult> Preview(string kind,
+        [FromQuery] V170PeopleQueryRequest peopleQuery,
+        [FromQuery] V180SearchRequest searchQuery,
+        [FromQuery] ManagedLocationQueryRequest locationQuery,
+        [FromQuery] string? keyword, [FromQuery] string? status,
+        [FromQuery] string? centerCode, [FromQuery] string? columns,
+        [FromQuery] bool includeHistory = true,
+        [FromQuery] int previewPage = 1, [FromQuery] int previewPageSize = 20,
+        CancellationToken ct = default)
+    {
+        if (previewPage < 1 || previewPageSize is < 1 or > 100)
+            return BadRequest("預覽頁碼或每頁筆數不正確。");
+        IActionResult result = kind switch {
+            "personnel" => await Personnel(peopleQuery, ct),
+            "personnel-full" => await PersonnelFull(peopleQuery, columns, includeHistory, ct),
+            "roles" => await Roles(peopleQuery, ct),
+            "teams" => await Teams(searchQuery, ct),
+            "members" => await Members(peopleQuery, ct),
+            "locations" => await Locations(locationQuery, ct),
+            "centers" => await Centers(keyword, status, ct),
+            "deployment-sites" => await DeploymentSites(keyword, status, centerCode, ct),
+            "locations-official" => await LocationsOfficial(locationQuery, ct),
+            "projects" => await Projects(searchQuery, ct),
+            "visit-types" => await VisitTypes(ct),
+            _ => NotFound()
+        };
+        if (result is not FileContentResult file) return result;
+        return Ok(PreviewWorkbook(file.FileContents, previewPage, previewPageSize));
+    }
+
+    internal static object PreviewWorkbook(byte[] bytes, int previewPage, int previewPageSize)
+    {
+        if (previewPage < 1 || previewPageSize is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(previewPage));
+        using var stream = new MemoryStream(bytes);
+        using var book = new XSSFWorkbook(stream);
+        var sheet = Enumerable.Range(0, book.NumberOfSheets)
+            .Select(book.GetSheetAt)
+            .FirstOrDefault(x => x.SheetName is not ("報表資訊" or "匯出資訊"))
+            ?? throw new InvalidOperationException("報表沒有可預覽的工作表。");
+        var header = sheet.GetRow(0);
+        var width = header?.LastCellNum ?? 0;
+        string[] CellsAt(int row) => Enumerable.Range(0, width)
+            .Select(col => sheet.GetRow(row)?.GetCell(col)?.ToString() ?? "").ToArray();
+        var count = Math.Max(0, sheet.LastRowNum);
+        var start = (long)(previewPage - 1) * previewPageSize + 1;
+        return new { totalCount = count, page = previewPage, pageSize = previewPageSize,
+            sheetName = sheet.SheetName, sheets = Enumerable.Range(0, book.NumberOfSheets)
+                .Select(i => book.GetSheetAt(i).SheetName)
+                .Where(n => n is not ("報表資訊" or "匯出資訊")).ToArray(),
+            headers = width > 0 ? CellsAt(0) : Array.Empty<string>(),
+            rows = start > count ? Array.Empty<string[]>() : Enumerable.Range((int)start,
+                Math.Min(previewPageSize, count - (int)start + 1)).Select(CellsAt).ToArray() };
+    }
+
     [HttpGet("personnel.xlsx")]
     public async Task<IActionResult> Personnel([FromQuery] V170PeopleQueryRequest request, CancellationToken ct)
     {
@@ -32,7 +91,7 @@ public sealed class V180QueryExportController(
         var rows = await GetAllAsync(page => people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
         return Workbook("人事資料", request,
             ["工號", "姓名", "Email", "人事狀態", "入職日", "離職日", "主要小組", "主要派駐據點", "就業中心"],
-            rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName, x.Email, x.EmploymentStatus,
+            rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName, x.Email, EmploymentLabel(x.EmploymentStatus),
                 x.HireDate, x.TerminationDate, x.PrimaryTeamName, x.PrimaryDeploymentSiteName, x.PrimaryCenterName)));
     }
 
@@ -44,7 +103,7 @@ public sealed class V180QueryExportController(
         return Workbook("角色與登入", request,
             ["工號", "姓名", "角色", "人事狀態", "登入資格", "管理小組"],
             rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName,
-                string.Join("、", x.Roles), x.EmploymentStatus, LoginEligibilityLabel(x.ActualAccess,x.Roles.Count),
+                RolesLabel(x.Roles), EmploymentLabel(x.EmploymentStatus), LoginEligibilityLabel(x.ActualAccess,x.Roles.Count),
                 string.Join("、", x.TeamAssignments.Select(t => t.TeamName + (t.IsPrimary ? " ★" : ""))))));
     }
 
@@ -66,8 +125,8 @@ public sealed class V180QueryExportController(
         var rows = await GetAllAsync(page => people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
         return Workbook("小組成員", request,
             ["工號", "姓名", "角色", "人事狀態", "主要小組", "其他小組", "主要派駐據點"],
-            rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName, string.Join("、", x.Roles),
-                x.EmploymentStatus, x.PrimaryTeamName,
+            rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName, RolesLabel(x.Roles),
+                EmploymentLabel(x.EmploymentStatus), x.PrimaryTeamName,
                 string.Join("、", x.TeamAssignments.Where(t => !t.IsPrimary).Select(t => t.TeamName)),
                 x.PrimaryDeploymentSiteName)), $"小組{request.TeamId}");
     }
@@ -80,8 +139,8 @@ public sealed class V180QueryExportController(
         return Workbook("地點主檔", request,
             ["地點代碼", "名稱", "統一編號", "主檔備註", "小組", "縣市", "鄉鎮區", "地址", "Plus Code", "類型", "審核狀態", "解析狀態", "啟用"],
             rows.Select(x => Cells(x.LocationCode, x.LocationName, x.TaxId, x.MasterNote, x.TeamName,
-                x.City, x.District, x.Address, x.PlusCode, x.LocationType, x.ApprovalStatus,
-                x.GeocodingStatus, x.IsActive ? "是" : "否")), request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
+                x.City, x.District, x.Address, x.PlusCode, BusinessLabel(x.LocationType), BusinessLabel(x.ApprovalStatus),
+                BusinessLabel(x.GeocodingStatus), x.IsActive ? "是" : "否")), request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
     }
 
     [HttpGet("projects.xlsx")]
@@ -92,7 +151,7 @@ public sealed class V180QueryExportController(
         return Workbook("專案", request,
             ["專案代碼", "專案名稱", "歸屬小組 ID", "說明", "地點方式", "開始日", "結束日", "啟用", "固定地點數"],
             rows.Select(x => Cells(x.ProjectCode, x.ProjectName, x.TeamId, x.Description,
-                x.LocationMode, x.StartDate, x.EndDate, x.IsActive ? "是" : "否", x.LocationCount)), request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
+                BusinessLabel(x.LocationMode), x.StartDate, x.EndDate, x.IsActive ? "是" : "否", x.LocationCount)), request.TeamId.HasValue ? $"小組{request.TeamId}" : "全組織");
     }
 
     [HttpGet("visit-types.xlsx")]
@@ -346,12 +405,12 @@ public sealed class V180QueryExportController(
                         .Where(x => x.Kind == category)
                         .Select(x => category == "功能權限"
                             ? x.Code + (x.IsActive == true ? "（允許）" : x.IsActive == false ? "（拒絕）" : "（未知）")
-                            : string.IsNullOrWhiteSpace(x.Detail) ? x.Code : x.Detail)
+                            : string.IsNullOrWhiteSpace(x.Detail) ? BusinessLabel(x.Code) : x.Detail)
                         .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.Ordinal)
                         .OrderBy(x => x, StringComparer.Ordinal));
                     var statuses = string.Join("、", new[] { "人事狀態", "舊人事狀態" }
                         .SelectMany(category => valid.Where(x => x.Kind == category))
-                        .Select(x => x.Code).Where(x => x.Length > 0)
+                        .Select(x => EmploymentLabel(x.Code)).Where(x => x.Length > 0)
                         .Distinct(StringComparer.Ordinal));
                     var fromDate = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                     var endDate = toExclusive <= today
@@ -419,6 +478,22 @@ public sealed class V180QueryExportController(
     }
 
     // ActualAccess is HR/account eligibility; the report's current role
+    private static string EmploymentLabel(string? value) => value switch {
+        "Active" => "在職", "Leave" => "留停", "Terminated" => "離職",
+        "PreHire" => "尚未到職", null => "", _ => value
+    };
+    private static string BusinessLabel(string? value) => value switch {
+        "visitor" => "外訪員", "leader" => "小組長", "admin" => "管理者",
+        "Internal" => "內部員工", "External" => "外部人員",
+        "Customer" => "客戶地點", "Official" => "官方地點",
+        "Pending" => "待審核", "Approved" => "已核准", "Rejected" => "已退回",
+        "Succeeded" => "已完成", "Failed" => "失敗", "NotRequired" => "不需處理",
+        "List" => "專案清單優先", "SelfMaintained" => "臨時維護優先",
+        null => "", _ => value
+    };
+    private static string RolesLabel(IEnumerable<string> roles) =>
+        string.Join("、", roles.Select(BusinessLabel));
+
     // projection does not prove authentication or legacy role fallback.
     private static string LoginEligibilityLabel(bool hrEligible,int currentRoleCount) =>
         !hrEligible?"人事／帳號資格不符":
@@ -430,15 +505,15 @@ public sealed class V180QueryExportController(
         new("employeeNo","工號",x=>x.EmployeeNo??x.UserCode),
         new("name","姓名",x=>x.DisplayName),
         new("email","Email",x=>x.Email??""),
-        new("userType","人員類型",x=>x.UserType),
-        new("employmentStatus","目前人事狀態",x=>x.EmploymentStatus??""),
+        new("userType","人員類型",x=>BusinessLabel(x.UserType)),
+        new("employmentStatus","目前人事狀態",x=>EmploymentLabel(x.EmploymentStatus)),
         new("hireDate","入職日",x=>Cells(x.HireDate)[0]),
         new("terminationDate","離職日",x=>Cells(x.TerminationDate)[0]),
         new("primaryTeam","主要小組",x=>x.PrimaryTeamName??""),
         new("otherTeams","其他小組",x=>string.Join("、",x.TeamAssignments.Where(t=>!t.IsPrimary).Select(t=>t.TeamName))),
         new("primarySite","主要派駐據點",x=>x.PrimaryDeploymentSiteName??""),
         new("primaryCenter","就業中心",x=>x.PrimaryCenterName??""),
-        new("roles","目前角色",x=>string.Join("、",x.Roles)),
+        new("roles","目前角色",x=>RolesLabel(x.Roles)),
         new("login","登入資格",x=>LoginEligibilityLabel(x.ActualAccess,x.Roles.Count)),
         new("authorizationFrom","授權起日",x=>Cells(x.AuthorizationFrom)[0]),
         new("authorizationTo","授權迄日",x=>Cells(x.AuthorizationTo)[0])

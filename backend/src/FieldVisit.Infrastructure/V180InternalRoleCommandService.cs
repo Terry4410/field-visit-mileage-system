@@ -34,8 +34,10 @@ public sealed class V180InternalRoleCommandService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(x => x)
             .ToList();
-        if (roles.Count == 0)
-            throw new InvalidOperationException("Internal User 至少需要一個角色。");
+        // An explicit empty selection revokes all business access while
+        // retaining the staged HR record. Authentication rejects roleless users.
+        if (roles.Count == 0 && userId == admin.UserId)
+            throw new InvalidOperationException("不可撤銷自己目前使用中的全部管理權限。");
         if (roles.Any(x => !AllowedRoles.Contains(x)))
             throw new InvalidOperationException("Internal User 只允許 Visitor、Leader、Admin；Supervisor 必須使用 External Supervisor 管理。");
 

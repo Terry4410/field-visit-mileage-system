@@ -645,7 +645,9 @@ public sealed class V180OptionCCandidateService(
                 || location.TeamId is not int teamId || teamId <= 0
                 || location.RowVersion is null || !location.RowVersion.SequenceEqual(expected)
                 || location.LocationType != "Customer" || location.ApprovalStatus != "Approved"
-                || !location.IsActive)
+                || !location.IsActive || location.IsTemporary
+                || location.DuplicateOfLocationId.HasValue
+                || !string.IsNullOrWhiteSpace(location.DuplicateReason))
                 throw new InvalidOperationException("ROWVERSION_CONFLICT");
             var actorId = current.GetRequired().UserId;
             var scope = await new V180OptionCLiveAuthorizationAdapter(db)
@@ -743,6 +745,9 @@ public sealed class V180OptionCCandidateService(
                 ?? throw new KeyNotFoundException("OPTIONC_LOCATION_NOT_FOUND");
             if (location.RowVersion is null || !location.RowVersion.SequenceEqual(expected))
                 throw new InvalidOperationException("ROWVERSION_CONFLICT");
+            if (location.IsTemporary || location.DuplicateOfLocationId.HasValue
+                || !string.IsNullOrWhiteSpace(location.DuplicateReason))
+                throw new UnauthorizedAccessException("OPTIONC_PUBLISHED_LOCATION_INELIGIBLE");
             if (excelItem is not null)
             {
                 var staged = JsonSerializer.Deserialize<V180OptionCExcelLocationRow>(
@@ -875,12 +880,18 @@ public sealed class V180OptionCCandidateService(
             catch (UnauthorizedAccessException) { }
         }
         await tx.CommitAsync(ct);
-        return visible.Select(ToView).ToList();
+        var ids = visible.Select(x => x.RequestedByUserId).Distinct().ToArray();
+        var names = await db.Users.AsNoTracking().Where(x => ids.Contains(x.UserId)
+            && x.OrganizationId == org).ToDictionaryAsync(x => x.UserId, x => x.DisplayName, ct);
+        return visible.Select(x => ToView(x) with {
+            ApplicantName = names.GetValueOrDefault(x.RequestedByUserId)
+        }).ToList();
     }
 
     public async Task<V180B3RequestView> ApproveAsync(Guid id, V180B3Review input, CancellationToken ct)
     {
         V180B3RequestInputRules.RequireReviewTarget(id, input);
+        if (input.Reason.Trim().Length > 100) throw new InvalidOperationException("審核意見不可超過 100 字。");
         await RequireTargetAsync(ct);
         await new V180OptionCAtomicPublicationOrchestrator(db, current)
             .ExecuteAsync(id, input.DecisionKey, input.Reason, ct, input.RequestRowVersion);
@@ -897,6 +908,7 @@ public sealed class V180OptionCCandidateService(
         Guid id, V180B3Review input, CancellationToken ct)
     {
         V180B3RequestInputRules.RequireReviewTarget(id, input);
+        if (input.Reason.Trim().Length > 100) throw new InvalidOperationException("審核意見不可超過 100 字。");
         await RequireTargetAsync(ct);
         await new V180OptionCCreateLowRiskPublicationOrchestrator(db, current)
             .ExecuteAsync(id, input.DecisionKey, input.Reason,
@@ -907,6 +919,7 @@ public sealed class V180OptionCCandidateService(
     public async Task<V180B3RequestView> RejectAsync(Guid id, V180B3Review input, CancellationToken ct)
     {
         V180B3RequestInputRules.RequireReviewTarget(id, input);
+        if (input.Reason.Trim().Length > 100) throw new InvalidOperationException("審核意見不可超過 100 字。");
         var connection = await RequireTargetAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var reviewer = current.GetRequired().UserId;
@@ -1066,5 +1079,5 @@ public sealed class V180OptionCCandidateService(
     private static V180B3RequestView ToView(V180B3ChangeRequest r) => new(
         r.RequestPublicId, r.EntityId, r.TeamId, r.RiskCode, r.Status,
         r.RequestedByUserId, r.SubmittedAt, r.BeforeJson, r.ProposedJson,
-        Convert.ToBase64String(r.RowVersion),r.OperationCode);
+        Convert.ToBase64String(r.RowVersion),r.OperationCode,r.ReviewedAt);
 }

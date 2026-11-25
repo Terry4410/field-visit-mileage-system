@@ -215,7 +215,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var summary=workbook.GetSheet("人員完整總覽");
         Assert.Equal("E2",summary.GetRow(1).GetCell(0).StringCellValue);
         Assert.Equal("Admin",summary.GetRow(1).GetCell(1).StringCellValue);
-        Assert.Contains("Active",workbook.GetSheet("人員歷史期間快照").GetRow(1).Cells.Select(x=>x.ToString()));
+        Assert.Contains("在職",workbook.GetSheet("人員歷史期間快照").GetRow(1).Cells.Select(x=>x.ToString()));
         var events=workbook.GetSheet("人員異動事件明細");
         var eventText=string.Join("|",Enumerable.Range(0,events.LastRowNum+1).SelectMany(i=>events.GetRow(i).Cells).Select(x=>x.ToString()));
         Assert.Contains("admin",eventText,StringComparison.OrdinalIgnoreCase);
@@ -273,6 +273,23 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
               VALUES(4,1,1,'2000-01-01',SYSUTCDATETIME());
             INSERT dbo.TeamLeaderAssignments(TeamId,EmploymentId,EffectiveFrom,CreatedAt)
               VALUES(1,104,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.Users(UserId,OrganizationId,TeamId,EmployeeNo,DisplayName,IsActive,CreatedAt)
+              VALUES(5,1,1,N'E5',N'Peer Visitor',1,SYSUTCDATETIME());
+            INSERT dbo.UserIdentityProfiles(UserId,EmploymentId,UserType,UserCode,IdentityProvider,CreatedAt)
+              VALUES(5,105,N'Internal',N'E5',N'Test',SYSUTCDATETIME());
+            INSERT dbo.Employments(EmploymentId,PersonId,OrganizationId,EmployeeNo,HireDate,LegacyUserId,SourceType,CreatedAt)
+              VALUES(105,105,1,N'E5','2000-01-01',5,N'Test',SYSUTCDATETIME());
+            INSERT dbo.EmploymentStatusPeriods(EmploymentId,EmploymentStatus,EffectiveFrom,SourceType,CreatedAt)
+              VALUES(105,N'Active','2000-01-01',N'Test',SYSUTCDATETIME());
+            INSERT dbo.UserRoles(UserId,RoleId,AssignedAt) VALUES(5,1,SYSUTCDATETIME());
+            INSERT dbo.UserRoleAssignments(UserId,RoleId,EffectiveFrom,CreatedAt)
+              VALUES(5,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.UserTeamScopes(UserId,TeamId,IsPrimary,IsActive,AssignedAt)
+              VALUES(5,1,1,1,SYSUTCDATETIME());
+            INSERT dbo.UserTeamAssignments(UserId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+              VALUES(5,1,1,'2000-01-01',SYSUTCDATETIME());
+            INSERT dbo.TeamMemberships(EmploymentId,TeamId,IsPrimary,EffectiveFrom,CreatedAt)
+              VALUES(105,1,1,'2000-01-01',SYSUTCDATETIME());
             """);
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => {
             builder.UseSetting("OptionC:Candidate:Enabled","true");
@@ -289,6 +306,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             return c;
         }
         var visitor=Client(1,"E1","visitor");
+        var peer=Client(5,"E5","visitor");
         var leader=Client(4,"E4","leader");
         var admin=Client(2,"E2","admin");
         var other=Client(3,"E3","admin");
@@ -315,6 +333,12 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         // Location; read-only Admin/cross-org scope does not imply write.
         using(var ok=await Save(leader,11,await Version(11),"Leader team note",Guid.NewGuid()))
             Assert.True(ok.IsSuccessStatusCode,await ok.Content.ReadAsStringAsync());
+        using(var ok=await Save(peer,11,await Version(11),"Peer team note",Guid.NewGuid()))
+            Assert.True(ok.IsSuccessStatusCode,await ok.Content.ReadAsStringAsync());
+        Assert.Equal("Peer team note",await h.Scalar("SELECT MasterNote FROM dbo.Locations WHERE LocationId=11"));
+        Assert.Equal("3",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=11 AND IsCurrent=1"));
+        Assert.Equal(tripBefore,await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripStops"));
+        Assert.Equal(snapshotBefore,await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripSnapshotStops"));
         using(var denied=await Save(admin,12,await Version(12),"Admin read is not write",Guid.NewGuid()))
             Assert.False(denied.IsSuccessStatusCode);
         using(var denied=await Save(other,12,await Version(12),"Cross org",Guid.NewGuid()))
@@ -348,6 +372,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("04595252",await h.Scalar("SELECT TaxId FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("Visitor direct note",await h.Scalar("SELECT MasterNote FROM dbo.Locations WHERE LocationId=10"));
         Assert.Equal("3",await h.Scalar("SELECT CONVERT(nvarchar(20),VersionNumber) FROM dbo.LocationPublishedVersions WHERE LocationId=10 AND IsCurrent=1"));
+        using(var ok=await FillTax(peer,18,"10458570"))
+            Assert.True(ok.IsSuccessStatusCode,await ok.Content.ReadAsStringAsync());
+        Assert.Equal("10458570",await h.Scalar("SELECT TaxId FROM dbo.Locations WHERE LocationId=18"));
+        Assert.Equal(tripBefore,await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripStops"));
+        Assert.Equal(snapshotBefore,await h.Scalar("SELECT CONCAT(COUNT(*),N'|',SUM(LocationId)) FROM dbo.VisitTripSnapshotStops"));
         using(var denied=await FillTax(visitor,10,"10458570"))
             Assert.False(denied.IsSuccessStatusCode);
         using(var denied=await FillTax(leader,11,"04595252"))

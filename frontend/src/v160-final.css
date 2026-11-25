@@ -14,6 +14,31 @@ button,.btn,a.btn,input,select,textarea{min-height:44px}.btn.small{min-height:44
 .modal-panel{position:relative;-webkit-overflow-scrolling:touch}
 .modal-close{position:sticky;top:0;float:right;z-index:6;background:#fff!important;margin:0 0 8px 12px}
 @media(max-width:600px){.quick-filters{flex-wrap:wrap}.pager{flex-wrap:wrap}.route-item .actions{max-width:150px}.modal-panel{max-height:calc(100dvh - 16px)}}
+.location-action-groups{display:grid;gap:6px;min-width:160px}
+.location-action-groups details{border:1px solid var(--line);border-radius:8px;padding:6px;white-space:normal}
+.location-action-groups summary{cursor:pointer;font-weight:700}
+.location-action-groups .actions{margin-top:8px;flex-wrap:wrap}
+@media(max-width:600px){
+ .scoped-location-table{overflow:visible}
+ .scoped-location-table table{min-width:0;width:100%;display:block}
+ .scoped-location-table thead{display:none}
+ .scoped-location-table tbody{display:grid;gap:10px}
+ .scoped-location-table tr{display:block;min-width:0;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff}
+ .scoped-location-table td{display:block;white-space:normal;overflow-wrap:anywhere;border:0;padding:5px 0}
+ .scoped-location-table td::before{display:block;font-size:12px;color:var(--muted);font-weight:700}
+ .scoped-list-table td:nth-child(1)::before{content:"代碼"}
+ .scoped-list-table td:nth-child(2)::before{content:"地點／地址"}
+ .scoped-list-table td:nth-child(3)::before{content:"統一編號"}
+ .scoped-list-table td:nth-child(4)::before{content:"小組"}
+ .scoped-list-table td:nth-child(5)::before{content:"最近可見拜訪備註"}
+ .scoped-list-table td:nth-child(6)::before{content:"狀態"}
+ .scoped-request-table td:nth-child(1)::before{content:"申請日期"}
+ .scoped-request-table td:nth-child(2)::before{content:"地點名稱"}
+ .scoped-request-table td:nth-child(3)::before{content:"申請類型"}
+ .scoped-request-table td:nth-child(4)::before{content:"異動摘要"}
+ .scoped-request-table td:nth-child(5)::before{content:"審核狀態"}
+ .scoped-request-table td:nth-child(6)::before{content:"處理日期"}
+}
 @media(max-width:600px){
  .content,.grid,.card,.grid>*{min-width:0;max-width:100%}
  .table-wrap{width:100%;max-width:100%;min-width:0}
