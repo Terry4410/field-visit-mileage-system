@@ -122,10 +122,12 @@ public sealed class G1ReportExportHttpSqlTests
             var safeDelete=$"api/v1/admin/visit-types/{unused.VisitTypeId}/permanent";
             var impact=$"api/v1/admin/visit-types/{unused.VisitTypeId}/delete-impact";
             var projectLocations=$"api/v1/admin/projects/{project.ProjectId}/locations";
+            var missingImport=$"api/v1/imports/{Guid.NewGuid()}/confirm";
             async Task DeniedAdminMaintenance()
             {
                 using(var res=await client.GetAsync(impact)) Assert.Equal(HttpStatusCode.Forbidden,res.StatusCode);
                 using(var res=await client.DeleteAsync(safeDelete)) Assert.Equal(HttpStatusCode.Forbidden,res.StatusCode);
+                using(var res=await client.PostAsync(missingImport,null)) Assert.Equal(HttpStatusCode.Forbidden,res.StatusCode);
                 using(var body=new StringContent("{\"locationIds\":[]}",Encoding.UTF8,"application/json"))
                 using(var res=await client.PutAsync(projectLocations,body)) Assert.Equal(HttpStatusCode.Forbidden,res.StatusCode);
                 Assert.True(await db.VisitTypes.AsNoTracking().AnyAsync(x=>x.VisitTypeId==unused.VisitTypeId));
@@ -133,6 +135,7 @@ public sealed class G1ReportExportHttpSqlTests
             Token(claimedOrg:otherOrg.OrganizationId);await DeniedAdminMaintenance();
             Token();role.IsActive=false;await db.SaveChangesAsync();await DeniedAdminMaintenance();
             role.IsActive=true;await db.SaveChangesAsync();
+            using(var res=await client.PostAsync(missingImport,null)) Assert.Equal(HttpStatusCode.NotFound,res.StatusCode);
             using(var res=await client.GetAsync(impact)) Assert.Equal(HttpStatusCode.OK,res.StatusCode);
             using(var body=new StringContent("{\"locationIds\":[]}",Encoding.UTF8,"application/json"))
             using(var res=await client.PutAsync(projectLocations,body)) Assert.Equal(HttpStatusCode.OK,res.StatusCode);

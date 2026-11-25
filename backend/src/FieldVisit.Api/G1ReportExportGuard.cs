@@ -30,7 +30,13 @@ public sealed class G1ReportExportGuard(
                 "/api/v1/admin/centers", "/api/v1/admin/deployment-sites", "/api/v1/admin/users" }
             .Any(prefix => path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
                 || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase));
-        var liveAdmin = masterData || peopleAdmin || masterWrite || adminMaintenance;
+        // The legacy workbook confirmation is an admin-only command in V160FinalService.
+        // Its preview/error download remains available to Leader under existing rules.
+        var legacyImport = path.StartsWith("/api/v1/imports/", StringComparison.OrdinalIgnoreCase);
+        var legacyAdminImport = legacyImport && (context.HttpContext.User.IsInRole("admin")
+            || (HttpMethods.IsPost(context.HttpContext.Request.Method)
+                && path.TrimEnd('/').EndsWith("/confirm", StringComparison.OrdinalIgnoreCase)));
+        var liveAdmin = masterData || peopleAdmin || masterWrite || adminMaintenance || legacyAdminImport;
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
         if (!adminReport && !tripReport && !liveAdmin) { await next(); return; }
