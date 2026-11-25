@@ -10,6 +10,19 @@ namespace FieldVisit.Application.Tests;
 
 public sealed class V180QueryExportTests
 {
+    [Theory]
+    [InlineData(false,0,"人事／帳號資格不符")]
+    [InlineData(false,1,"人事／帳號資格不符")]
+    [InlineData(true,0,"人事資格符合；未列有效角色")]
+    [InlineData(true,1,"人事及角色資格符合")]
+    public void Personnel_login_label_distinguishes_hr_and_role_eligibility(
+        bool hrEligible,int roleCount,string expected)
+    {
+        var method=typeof(V180QueryExportController)
+            .GetMethod("LoginEligibilityLabel",BindingFlags.Static|BindingFlags.NonPublic)!;
+        Assert.Equal(expected,method.Invoke(null,[hrEligible,roleCount]));
+    }
+
     [Fact]
     public void Workbook_has_filter_metadata_and_preserves_leading_zeros_as_text()
     {
