@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a06595741e2a86a87b13a8ae9a82d3ad94f400ff
+          ref: bf1494c1175d88c34f2dc0100d7038aa23120cac
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = a06595741e2a86a87b13a8ae9a82d3ad94f400ff
+          test "$(git rev-parse HEAD)" = bf1494c1175d88c34f2dc0100d7038aa23120cac
           old="$RUNNER_TEMP/known-font-source/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
           echo "c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63  $old" | sha256sum -c -
           mkdir -p backend/src/FieldVisit.Infrastructure/fonts
@@ -42,11 +42,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/release"
-          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14993602382/zip > "$RUNNER_TEMP/previous.zip"
-          echo "45194159736290813157a5566556ea4327c397e463110c56e3b8bc34740d88b5  $RUNNER_TEMP/previous.zip" | sha256sum -c -
-          unzip -p "$RUNNER_TEMP/previous.zip" PathB_API_c6c68685.zip > "$RUNNER_TEMP/release/Rollback_API_c6c68685.zip"
-          echo "400aefe5a84dae04bb8beae484c4720b0210fe6ad3439b47ff374ac166c4bcdd  $RUNNER_TEMP/release/Rollback_API_c6c68685.zip" | sha256sum -c -
-          unzip -tq "$RUNNER_TEMP/release/Rollback_API_c6c68685.zip"
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14996375994/zip > "$RUNNER_TEMP/previous.zip"
+          echo "34dc6d7db884ffebf97a58bef6190eebf8880e36b6ad9aed92e713f13c2b74a4  $RUNNER_TEMP/previous.zip" | sha256sum -c -
+          unzip -p "$RUNNER_TEMP/previous.zip" PathB_API_a0659574.zip > "$RUNNER_TEMP/release/Rollback_API_a0659574.zip"
+          echo "9ec3b0b74b5b0dd6caae36b6c72896dd0f484c8cb6fbdc0e9ee5c747aa328f1e  $RUNNER_TEMP/release/Rollback_API_a0659574.zip" | sha256sum -c -
+          unzip -tq "$RUNNER_TEMP/release/Rollback_API_a0659574.zip"
           echo CURRENT_DEPLOYED_API_ROLLBACK_BYTES=PASS
       - name: Publish only API, preserve previous settings
         shell: bash
@@ -58,11 +58,11 @@ jobs:
           test "$(jq -r '.OptionC.Candidate.Enabled' "$dst/appsettings.json")" = false
           test "$(jq -r '.OptionC.Approval.Enabled' "$dst/appsettings.json")" = false
           test "$(jq -r '.UatAutomation.CleanupEnabled' "$dst/appsettings.json")" = false
-          unzip -p "$RUNNER_TEMP/release/Rollback_API_c6c68685.zip" appsettings.json > "$RUNNER_TEMP/old-api-settings.json"
+          unzip -p "$RUNNER_TEMP/release/Rollback_API_a0659574.zip" appsettings.json > "$RUNNER_TEMP/old-api-settings.json"
           cmp "$RUNNER_TEMP/old-api-settings.json" "$dst/appsettings.json"
           echo API_DEFAULT_SETTINGS_UNCHANGED=PASS
-          (cd "$dst" && zip -qr "$RUNNER_TEMP/release/PathB_API_a0659574.zip" .)
-          unzip -tq "$RUNNER_TEMP/release/PathB_API_a0659574.zip"
+          (cd "$dst" && zip -qr "$RUNNER_TEMP/release/PathB_API_bf1494c1.zip" .)
+          unzip -tq "$RUNNER_TEMP/release/PathB_API_bf1494c1.zip"
       - name: Seal API-only candidate and rollback
         shell: bash
         run: |
@@ -77,13 +77,13 @@ jobs:
                   assert {'FieldVisit.Api.dll','FieldVisit.Infrastructure.dll','appsettings.json'}.issubset(f.namelist())
               hashes[z.name]=hashlib.sha256(z.read_bytes()).hexdigest()
           assert len(hashes)==2
-          (p/'manifest.json').write_text(json.dumps({'source':'a06595741e2a86a87b13a8ae9a82d3ad94f400ff','rollbackApiSource':'c6c686852de303c604803ca2192a5c4b04ded4ff','rollbackArtifact':14993602382,'target':'Path B UAT only','api':'api-fieldvisit-pathb-uat','frontend':'UNCHANGED','mode':'NONDEPLOY','liveAzurePreflight':'NOT_RUN','deployment':'NOT_EXECUTED','sha256':hashes},indent=2)+'\n')
+          (p/'manifest.json').write_text(json.dumps({'source':'bf1494c1175d88c34f2dc0100d7038aa23120cac','rollbackApiSource':'a06595741e2a86a87b13a8ae9a82d3ad94f400ff','rollbackArtifact':14996375994,'target':'Path B UAT only','api':'api-fieldvisit-pathb-uat','frontend':'UNCHANGED','mode':'NONDEPLOY','liveAzurePreflight':'NOT_RUN','deployment':'NOT_EXECUTED','sha256':hashes},indent=2)+'\n')
           PY
           (cd "$RUNNER_TEMP/release" && sha256sum *.zip *.json > SHA256SUMS && sha256sum -c SHA256SUMS)
           echo API_ONLY_PACKAGE_AND_ROLLBACK=PASS
       - uses: actions/upload-artifact@v4
         with:
-          name: pathb-api-only-a0659574-review-nondeploy
+          name: pathb-api-only-bf1494c1-review-nondeploy
           path: ${{ runner.temp }}/release
           if-no-files-found: error
           retention-days: 14
