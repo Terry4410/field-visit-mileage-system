@@ -222,22 +222,10 @@ public sealed class V180SafeDeleteService(
 
     public async Task DeleteMileageRateAsync(int mileageRateRuleId,CancellationToken ct)
     {
-        await DeleteAtomicallyAsync(async()=>{
-            var admin=Admin();
-            var impact=await MileageRateImpactAsync(admin,mileageRateRuleId,ct);
-            if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此補助費率不可永久刪除。");
-            var row=await db.MileageRateRules.SingleAsync(
-                x=>x.MileageRateRuleId==mileageRateRuleId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
-            db.MileageRateRules.Remove(row);
-            db.AuditLogs.Add(new AuditLog{
-                UserId=admin.UserId,EntityType="MileageRateRule",EntityId=mileageRateRuleId.ToString(),
-                Action="MileageRatePermanentDelete",
-                NewValues=JsonSerializer.Serialize(new{impact.RuleName,impact.VehicleType,impact.EffectiveFrom}),
-                CreatedAt=DateTime.UtcNow
-            });
-            try{await db.SaveChangesAsync(ct);}
-            catch(DbUpdateException){throw new InvalidOperationException("此補助費率仍有歷史資料庫關聯，無法永久刪除；請改用停用。");}
-        },ct);
+        // Frozen SQL lifecycle migration 1800_008, trigger error 54430:
+        // all rate versions are retained, including unused versions.
+        var impact=await MileageRateImpactAsync(Admin(),mileageRateRuleId,ct);
+        throw new InvalidOperationException(impact.Reason??"補助費率版本只能停用，不可永久刪除。");
     }
 
     private async Task<V180VisitTypeDeleteImpactDto> VisitTypeImpactAsync(CurrentUserDto admin,int visitTypeId,CancellationToken ct)
@@ -259,10 +247,10 @@ public sealed class V180SafeDeleteService(
             x=>x.MileageRateRuleId==mileageRateRuleId&&x.OrganizationId==admin.OrganizationId!.Value,ct)
             ??throw new KeyNotFoundException("找不到補助費率。");
         var calculations=await db.MileageCalculations.CountAsync(x=>x.MileageRateRuleId==mileageRateRuleId,ct);
-        var canDelete=calculations==0;
-        var reason=canDelete?null:
-            $"已有 {calculations} 筆里程計算使用此費率版本。歷史 Snapshot／核准金額必須保留，只能停用。";
-        return new(mileageRateRuleId,row.RuleName,row.VehicleType,row.EffectiveFrom,canDelete,calculations,reason);
+        var reason=calculations>0
+            ? $"已有 {calculations} 筆里程計算使用此費率版本。歷史 Snapshot／核准金額必須保留，只能停用。"
+            : "補助費率版本須保留完整歷史，即使未使用也只能停用，不可永久刪除。";
+        return new(mileageRateRuleId,row.RuleName,row.VehicleType,row.EffectiveFrom,false,calculations,reason);
     }
 
     private async Task<V180PersonDeleteImpactDto> PersonImpactAsync(CurrentUserDto admin,int userId,CancellationToken ct)

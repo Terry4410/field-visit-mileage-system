@@ -178,13 +178,21 @@ public sealed class G1ReportExportHttpSqlTests
             foreach(var path in new[]{
                 $"api/v1/admin/centers/{unusedCenter.CenterId}/permanent",
                 $"api/v1/admin/projects/{unusedProject.ProjectId}/permanent",
-                $"api/v1/admin/mileage-rate-rules/{unusedRate.MileageRateRuleId}/permanent",
                 $"api/v1/admin/teams/{unusedTeam.TeamId}/permanent"})
             {using var response=await client.DeleteAsync(path);Assert.Equal(HttpStatusCode.NoContent,response.StatusCode);}
             Assert.False(await db.Projects.AsNoTracking().AnyAsync(x=>x.ProjectId==unusedProject.ProjectId));
             Assert.False(await db.Centers.AsNoTracking().AnyAsync(x=>x.CenterId==unusedCenter.CenterId));
             Assert.False(await db.Teams.AsNoTracking().AnyAsync(x=>x.TeamId==unusedTeam.TeamId));
-            Assert.False(await db.MileageRateRules.AsNoTracking().AnyAsync(x=>x.MileageRateRuleId==unusedRate.MileageRateRuleId));
+            // The authoritative installed SQL trigger prohibits even unused rate deletion.
+            using(var impactResponse=await client.GetAsync($"api/v1/admin/mileage-rate-rules/{unusedRate.MileageRateRuleId}/delete-impact"))
+            {
+                Assert.Equal(HttpStatusCode.OK,impactResponse.StatusCode);
+                using var json=System.Text.Json.JsonDocument.Parse(await impactResponse.Content.ReadAsStringAsync());
+                Assert.False(json.RootElement.GetProperty("canDelete").GetBoolean());
+            }
+            await Refused($"api/v1/admin/mileage-rate-rules/{unusedRate.MileageRateRuleId}/permanent");
+            Assert.True(await db.MileageRateRules.AsNoTracking().AnyAsync(x=>x.MileageRateRuleId==unusedRate.MileageRateRuleId));
+            Console.WriteLine("ADMIN_RATE_LIFECYCLE_HTTP_PASS unused=RETAINED permanentDelete=DENIED");
             var location=new Location{OrganizationId=org.OrganizationId,LocationCode="G1_SITE_LOCATION",LocationName="Synthetic location",IsActive=true,ApprovalStatus="Approved",CreatedAt=now};
             db.Add(location);await db.SaveChangesAsync();
             DeploymentSite Site(string code)=>new(){CenterId=center.CenterId,SiteCode=code,SiteName=code,EffectiveFrom=BusinessTime.Today,IsActive=true,CreatedAt=now};

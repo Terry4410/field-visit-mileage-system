@@ -26,7 +26,8 @@ public sealed class V180SafeDeleteGovernanceTests
         Assert.Contains("TeamPermanentDelete",service);
         Assert.Contains("ProjectPermanentDelete",service);
         Assert.Contains("VisitTypePermanentDelete",service);
-        Assert.Contains("MileageRatePermanentDelete",service);
+        Assert.DoesNotContain("db.MileageRateRules.Remove(",service);
+        Assert.Contains("補助費率版本須保留完整歷史",service);
         Assert.Contains("delete-impact",controller);
         Assert.Contains("/permanent",controller);
         var root=Root();
