@@ -1,10 +1,11 @@
-name: Focused failed-case regression delta (NONDEPLOY)
+name: Exact final G1 report authorization delta (NONDEPLOY)
 on:
   push:
     branches: [work/pathb-it-cleanbuild-020-20261123]
     paths: ['.github/workflows/it-complete-regression-nondeploy.yml']
 permissions:
   contents: read
+  actions: read
 jobs:
   backend-delta:
     runs-on: ubuntu-latest
@@ -12,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a4281b4d488448153ef3cd09f6ed698d146d3c77
+          ref: 87d69e1788179e82193389c88eca53b3db38f170
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
@@ -36,7 +37,8 @@ jobs:
           mkdir -p backend/src/FieldVisit.Infrastructure/fonts
           unzip -p "$pkg" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
           echo "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc" | sha256sum -c -
-          cp delivery/docs/release/pathb/it-regression-delta/*.cs backend/tests/FieldVisit.Application.Tests/
+          test "$(git rev-parse HEAD)" = 87d69e1788179e82193389c88eca53b3db38f170
+          cp delivery/docs/release/pathb/it-regression-delta/G1ReportExportHttpSqlTests.cs backend/tests/FieldVisit.Application.Tests/
       - name: Recheck failed backend cases only with disposable SQL2022
         shell: bash
         run: |
@@ -54,10 +56,10 @@ jobs:
           export ConnectionStrings__DefaultConnection="$E1_R1_SQL_CONNECTION"
           export UatAutomation__CleanupEnabled=false BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false
           export Providers__Route=Mock Providers__Geocoding=Mock
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~PathBQuery05PdfReadabilityTests|FullyQualifiedName~V180ThreeRoleHistoricalExportScopeTests|FullyQualifiedName~G1ReportExportHttpSqlTests|FullyQualifiedName~V180OptionCStageSqlDraftTests.Stage_is_persisted_separately_from_published_location_and_cannot_bypass_constraints|FullyQualifiedName~V180OptionCAdminApprovalE2ETests.Visitor_to_admin_to_publication_preserves_history_and_fail_closed_denials|FullyQualifiedName~V180TripMileageHttpSqlE2ETests.Trip_return_correction_resubmit_and_reapprove_preserve_historical_submissions|FullyQualifiedName~V180TripMileageHttpSqlE2ETests.Provider_failure_manual_fallback_requires_authoritative_route_evidence_and_preserves_location_identity|FullyQualifiedName~V180TripMileageHttpSqlE2ETests.One_stop_trip_provider_failure_manual_fallback_enforces_live_leader_authorization_and_concurrency' --logger "trx;LogFileName=delta.trx" --results-directory "$RUNNER_TEMP/results" --logger "console;verbosity=normal"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~G1ReportExportHttpSqlTests' --logger "trx;LogFileName=delta.trx" --results-directory "$RUNNER_TEMP/results" --logger "console;verbosity=normal"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: fieldvisit-regression-delta-results
+          name: fieldvisit-final-g1-87d69e17-results
           path: ${{ runner.temp }}/results
           if-no-files-found: warn
