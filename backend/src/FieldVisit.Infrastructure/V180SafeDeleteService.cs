@@ -19,6 +19,17 @@ public sealed class V180SafeDeleteService(
         return user;
     }
 
+    private async Task DeleteAtomicallyAsync(Func<Task> operation,CancellationToken ct)
+    {
+        var strategy=db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async()=>{
+            db.ChangeTracker.Clear();
+            await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
+            await operation();
+            await tx.CommitAsync(ct);
+        });
+    }
+
     // OWNER-BUAT-SAFE-DELETE-002: dependency inventory is authoritative on both preview and execution.
     public Task<V180CenterDeleteImpactDto> CenterImpactAsync(int id,CancellationToken ct)=>CenterImpactAsync(Admin(),id,ct);
     private async Task<V180CenterDeleteImpactDto> CenterImpactAsync(CurrentUserDto admin,int id,CancellationToken ct)
@@ -34,15 +45,16 @@ public sealed class V180SafeDeleteService(
     }
     public async Task DeleteCenterAsync(int id,CancellationToken ct)
     {
-        var admin=Admin();
-        await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
-        var impact=await CenterImpactAsync(admin,id,ct);
-        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"中心仍有關聯，不能永久刪除。");
-        var c=await db.Centers.SingleAsync(x=>x.CenterId==id&&x.OrganizationId==admin.OrganizationId!.Value,ct);
-        db.Centers.Remove(c);
-        db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="Center",EntityId=id.ToString(),Action="CenterPermanentDelete",NewValues=JsonSerializer.Serialize(new{impact.Code,impact.Name}),CreatedAt=DateTime.UtcNow});
-        try{await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);}
-        catch(DbUpdateException){throw new InvalidOperationException("就業中心有未列入的資料庫關聯；永久刪除已拒絕，請改用停用。");}
+        await DeleteAtomicallyAsync(async()=>{
+            var admin=Admin();
+            var impact=await CenterImpactAsync(admin,id,ct);
+            if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"中心仍有關聯，不能永久刪除。");
+            var c=await db.Centers.SingleAsync(x=>x.CenterId==id&&x.OrganizationId==admin.OrganizationId!.Value,ct);
+            db.Centers.Remove(c);
+            db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="Center",EntityId=id.ToString(),Action="CenterPermanentDelete",NewValues=JsonSerializer.Serialize(new{impact.Code,impact.Name}),CreatedAt=DateTime.UtcNow});
+            try{await db.SaveChangesAsync(ct);}
+            catch(DbUpdateException){throw new InvalidOperationException("就業中心有未列入的資料庫關聯；永久刪除已拒絕，請改用停用。");}
+        },ct);
     }
     public Task<V180SiteDeleteImpactDto> SiteImpactAsync(int id,CancellationToken ct)=>SiteImpactAsync(Admin(),id,ct);
     private async Task<V180SiteDeleteImpactDto> SiteImpactAsync(CurrentUserDto admin,int id,CancellationToken ct)
@@ -64,17 +76,18 @@ public sealed class V180SafeDeleteService(
     }
     public async Task DeleteSiteAsync(int id,CancellationToken ct)
     {
-        var admin=Admin();
-        await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
-        var impact=await SiteImpactAsync(admin,id,ct);
-        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此據點仍有關聯，不能永久刪除。");
-        var s=await (from site in db.DeploymentSites join center in db.Centers on site.CenterId equals center.CenterId
-            where site.DeploymentSiteId==id&&center.OrganizationId==admin.OrganizationId!.Value select site).SingleAsync(ct);
-        await db.DeploymentSiteLocationAssignments.Where(x=>x.DeploymentSiteId==id).ExecuteDeleteAsync(ct);
-        db.DeploymentSites.Remove(s);
-        db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="DeploymentSite",EntityId=id.ToString(),Action="DeploymentSitePermanentDelete",NewValues=JsonSerializer.Serialize(new{impact.Code,impact.Name}),CreatedAt=DateTime.UtcNow});
-        try{await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);}
-        catch(DbUpdateException){throw new InvalidOperationException("官方據點有其他資料庫關聯；永久刪除已拒絕，請改用停用。");}
+        await DeleteAtomicallyAsync(async()=>{
+            var admin=Admin();
+            var impact=await SiteImpactAsync(admin,id,ct);
+            if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此據點仍有關聯，不能永久刪除。");
+            var s=await (from site in db.DeploymentSites join center in db.Centers on site.CenterId equals center.CenterId
+                where site.DeploymentSiteId==id&&center.OrganizationId==admin.OrganizationId!.Value select site).SingleAsync(ct);
+            await db.DeploymentSiteLocationAssignments.Where(x=>x.DeploymentSiteId==id).ExecuteDeleteAsync(ct);
+            db.DeploymentSites.Remove(s);
+            db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="DeploymentSite",EntityId=id.ToString(),Action="DeploymentSitePermanentDelete",NewValues=JsonSerializer.Serialize(new{impact.Code,impact.Name}),CreatedAt=DateTime.UtcNow});
+            try{await db.SaveChangesAsync(ct);}
+            catch(DbUpdateException){throw new InvalidOperationException("官方據點有其他資料庫關聯；永久刪除已拒絕，請改用停用。");}
+        },ct);
     }
 
     public async Task<V180PersonDeleteImpactDto> PersonImpactAsync(int userId,CancellationToken ct)
@@ -82,6 +95,7 @@ public sealed class V180SafeDeleteService(
 
     public async Task DeletePersonAsync(int userId,CancellationToken ct)
     {
+        await DeleteAtomicallyAsync(async()=>{
         var admin=Admin();
         var impact=await PersonImpactAsync(admin,userId,ct);
         if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此人員不可永久刪除。");
@@ -92,10 +106,6 @@ public sealed class V180SafeDeleteService(
         if(employmentId.HasValue)
             personId=await db.Employments.AsNoTracking().Where(x=>x.EmploymentId==employmentId.Value).Select(x=>(long?)x.PersonId).SingleOrDefaultAsync(ct);
 
-        var strategy=db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async()=>{
-            db.ChangeTracker.Clear();
-            await using var tx=await db.Database.BeginTransactionAsync(ct);
             try
             {
                 await db.UserFavoriteLocations.Where(x=>x.UserId==userId).ExecuteDeleteAsync(ct);
@@ -134,13 +144,12 @@ public sealed class V180SafeDeleteService(
                     CreatedAt=DateTime.UtcNow
                 });
                 await db.SaveChangesAsync(ct);
-                await tx.CommitAsync(ct);
             }
             catch(DbUpdateException)
             {
                 throw new InvalidOperationException("此人員仍有資料庫歷史關聯，無法永久刪除；請改用離職／歷史資料管理。");
             }
-        });
+        },ct);
     }
 
     public async Task<V180TeamDeleteImpactDto> TeamImpactAsync(int teamId,CancellationToken ct)
@@ -148,18 +157,20 @@ public sealed class V180SafeDeleteService(
 
     public async Task DeleteTeamAsync(int teamId,CancellationToken ct)
     {
-        var admin=Admin();
-        var impact=await TeamImpactAsync(admin,teamId,ct);
-        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此小組不可永久刪除。");
-        var row=await db.Teams.SingleAsync(x=>x.TeamId==teamId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
-        db.Teams.Remove(row);
-        db.AuditLogs.Add(new AuditLog{
-            UserId=admin.UserId,EntityType="Team",EntityId=teamId.ToString(),
-            Action="TeamPermanentDelete",
-            NewValues=JsonSerializer.Serialize(new{impact.TeamCode,impact.TeamName}),
-            CreatedAt=DateTime.UtcNow
-        });
-        await db.SaveChangesAsync(ct);
+        await DeleteAtomicallyAsync(async()=>{
+            var admin=Admin();
+            var impact=await TeamImpactAsync(admin,teamId,ct);
+            if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此小組不可永久刪除。");
+            var row=await db.Teams.SingleAsync(x=>x.TeamId==teamId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
+            db.Teams.Remove(row);
+            db.AuditLogs.Add(new AuditLog{
+                UserId=admin.UserId,EntityType="Team",EntityId=teamId.ToString(),
+                Action="TeamPermanentDelete",
+                NewValues=JsonSerializer.Serialize(new{impact.TeamCode,impact.TeamName}),
+                CreatedAt=DateTime.UtcNow
+            });
+            await db.SaveChangesAsync(ct);
+        },ct);
     }
 
     public async Task<V180ProjectDeleteImpactDto> ProjectImpactAsync(int projectId,CancellationToken ct)
@@ -167,19 +178,21 @@ public sealed class V180SafeDeleteService(
 
     public async Task DeleteProjectAsync(int projectId,CancellationToken ct)
     {
-        var admin=Admin();
-        var impact=await ProjectImpactAsync(admin,projectId,ct);
-        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此專案不可永久刪除。");
-        var row=await db.Projects.SingleAsync(x=>x.ProjectId==projectId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
-        await db.ProjectLocations.Where(x=>x.ProjectId==projectId).ExecuteDeleteAsync(ct);
-        db.Projects.Remove(row);
-        db.AuditLogs.Add(new AuditLog{
-            UserId=admin.UserId,EntityType="Project",EntityId=projectId.ToString(),
-            Action="ProjectPermanentDelete",
-            NewValues=JsonSerializer.Serialize(new{impact.ProjectCode,impact.ProjectName}),
-            CreatedAt=DateTime.UtcNow
-        });
-        await db.SaveChangesAsync(ct);
+        await DeleteAtomicallyAsync(async()=>{
+            var admin=Admin();
+            var impact=await ProjectImpactAsync(admin,projectId,ct);
+            if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此專案不可永久刪除。");
+            var row=await db.Projects.SingleAsync(x=>x.ProjectId==projectId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
+            await db.ProjectLocations.Where(x=>x.ProjectId==projectId).ExecuteDeleteAsync(ct);
+            db.Projects.Remove(row);
+            db.AuditLogs.Add(new AuditLog{
+                UserId=admin.UserId,EntityType="Project",EntityId=projectId.ToString(),
+                Action="ProjectPermanentDelete",
+                NewValues=JsonSerializer.Serialize(new{impact.ProjectCode,impact.ProjectName}),
+                CreatedAt=DateTime.UtcNow
+            });
+            await db.SaveChangesAsync(ct);
+        },ct);
     }
 
     public Task<V180VisitTypeDeleteImpactDto> VisitTypeImpactAsync(int visitTypeId,CancellationToken ct)
@@ -187,19 +200,21 @@ public sealed class V180SafeDeleteService(
 
     public async Task DeleteVisitTypeAsync(int visitTypeId,CancellationToken ct)
     {
-        var admin=Admin();
-        var impact=await VisitTypeImpactAsync(admin,visitTypeId,ct);
-        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此拜訪形式不可永久刪除。");
-        var row=await db.VisitTypes.SingleAsync(x=>x.VisitTypeId==visitTypeId,ct);
-        db.VisitTypes.Remove(row);
-        db.AuditLogs.Add(new AuditLog{
-            UserId=admin.UserId,EntityType="VisitType",EntityId=visitTypeId.ToString(),
-            Action="VisitTypePermanentDelete",
-            NewValues=JsonSerializer.Serialize(new{impact.VisitTypeCode,impact.VisitTypeName}),
-            CreatedAt=DateTime.UtcNow
-        });
-        try{await db.SaveChangesAsync(ct);}
-        catch(DbUpdateException){throw new InvalidOperationException("此拜訪形式仍有歷史資料庫關聯，無法永久刪除；請改用停用。");}
+        await DeleteAtomicallyAsync(async()=>{
+            var admin=Admin();
+            var impact=await VisitTypeImpactAsync(admin,visitTypeId,ct);
+            if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此拜訪形式不可永久刪除。");
+            var row=await db.VisitTypes.SingleAsync(x=>x.VisitTypeId==visitTypeId,ct);
+            db.VisitTypes.Remove(row);
+            db.AuditLogs.Add(new AuditLog{
+                UserId=admin.UserId,EntityType="VisitType",EntityId=visitTypeId.ToString(),
+                Action="VisitTypePermanentDelete",
+                NewValues=JsonSerializer.Serialize(new{impact.VisitTypeCode,impact.VisitTypeName}),
+                CreatedAt=DateTime.UtcNow
+            });
+            try{await db.SaveChangesAsync(ct);}
+            catch(DbUpdateException){throw new InvalidOperationException("此拜訪形式仍有歷史資料庫關聯，無法永久刪除；請改用停用。");}
+        },ct);
     }
 
     public Task<V180MileageRateDeleteImpactDto> MileageRateImpactAsync(int mileageRateRuleId,CancellationToken ct)
@@ -207,20 +222,22 @@ public sealed class V180SafeDeleteService(
 
     public async Task DeleteMileageRateAsync(int mileageRateRuleId,CancellationToken ct)
     {
-        var admin=Admin();
-        var impact=await MileageRateImpactAsync(admin,mileageRateRuleId,ct);
-        if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此補助費率不可永久刪除。");
-        var row=await db.MileageRateRules.SingleAsync(
-            x=>x.MileageRateRuleId==mileageRateRuleId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
-        db.MileageRateRules.Remove(row);
-        db.AuditLogs.Add(new AuditLog{
-            UserId=admin.UserId,EntityType="MileageRateRule",EntityId=mileageRateRuleId.ToString(),
-            Action="MileageRatePermanentDelete",
-            NewValues=JsonSerializer.Serialize(new{impact.RuleName,impact.VehicleType,impact.EffectiveFrom}),
-            CreatedAt=DateTime.UtcNow
-        });
-        try{await db.SaveChangesAsync(ct);}
-        catch(DbUpdateException){throw new InvalidOperationException("此補助費率仍有歷史資料庫關聯，無法永久刪除；請改用停用。");}
+        await DeleteAtomicallyAsync(async()=>{
+            var admin=Admin();
+            var impact=await MileageRateImpactAsync(admin,mileageRateRuleId,ct);
+            if(!impact.CanDelete)throw new InvalidOperationException(impact.Reason??"此補助費率不可永久刪除。");
+            var row=await db.MileageRateRules.SingleAsync(
+                x=>x.MileageRateRuleId==mileageRateRuleId&&x.OrganizationId==admin.OrganizationId!.Value,ct);
+            db.MileageRateRules.Remove(row);
+            db.AuditLogs.Add(new AuditLog{
+                UserId=admin.UserId,EntityType="MileageRateRule",EntityId=mileageRateRuleId.ToString(),
+                Action="MileageRatePermanentDelete",
+                NewValues=JsonSerializer.Serialize(new{impact.RuleName,impact.VehicleType,impact.EffectiveFrom}),
+                CreatedAt=DateTime.UtcNow
+            });
+            try{await db.SaveChangesAsync(ct);}
+            catch(DbUpdateException){throw new InvalidOperationException("此補助費率仍有歷史資料庫關聯，無法永久刪除；請改用停用。");}
+        },ct);
     }
 
     private async Task<V180VisitTypeDeleteImpactDto> VisitTypeImpactAsync(CurrentUserDto admin,int visitTypeId,CancellationToken ct)
@@ -260,6 +277,15 @@ public sealed class V180SafeDeleteService(
             return new(userId,identity.UserCode,user.DisplayName,false,0,0,0,0,0,0,"目前登入中的管理者不可刪除自己。");
 
         var eid=identity.EmploymentId;
+        if(eid.HasValue)
+        {
+            var employment=await db.Employments.AsNoTracking().SingleOrDefaultAsync(x=>x.EmploymentId==eid.Value,ct);
+            if(employment is null || employment.OrganizationId!=admin.OrganizationId!.Value
+                || (employment.LegacyUserId.HasValue && employment.LegacyUserId!=userId)
+                || await db.Employments.AnyAsync(x=>x.PersonId==employment.PersonId && x.EmploymentId!=eid.Value,ct)
+                || await db.Persons.AnyAsync(x=>x.PersonId==employment.PersonId && x.LegacyUserId.HasValue && x.LegacyUserId!=userId,ct))
+                return new(userId,identity.UserCode,user.DisplayName,false,0,0,0,0,0,0,"此人員存在共用或跨組織任職資料，不可永久刪除。");
+        }
         var trip=await db.VisitTrips.CountAsync(x=>x.UserId==userId||(eid.HasValue&&x.EmploymentId==eid.Value),ct);
         var snapshots=await db.VisitTripSnapshots.CountAsync(x=>x.UserId==userId||x.ApproverUserId==userId||x.CreatedByUserId==userId,ct);
         var workflow=

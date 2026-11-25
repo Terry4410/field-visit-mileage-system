@@ -138,6 +138,55 @@ public sealed class G1ReportExportHttpSqlTests
             using(var res=await client.PutAsync(projectLocations,body)) Assert.Equal(HttpStatusCode.OK,res.StatusCode);
             using(var res=await client.DeleteAsync(safeDelete)) Assert.Equal(HttpStatusCode.NoContent,res.StatusCode);
             Assert.False(await db.VisitTypes.AsNoTracking().AnyAsync(x=>x.VisitTypeId==unused.VisitTypeId));
+            // Re-check historical references at execution, not only at preview.
+            var usedType=await db.VisitTypes.SingleAsync(x=>x.VisitTypeCode=="G1_ACTIVE");
+            var trip=new VisitTrip{TripNo="G1_DELETE_HISTORY",UserId=user.UserId,OrganizationId=org.OrganizationId,
+                TeamId=team.TeamId,VisitDate=BusinessTime.Today,Status="Draft",CreatedAt=now,CreatedByUserId=user.UserId};
+            db.Add(trip);await db.SaveChangesAsync();
+            db.Add(new VisitTripStop{VisitTripId=trip.VisitTripId,StopSequence=1,VisitTypeId=usedType.VisitTypeId,
+                ProjectId=project.ProjectId,CreatedAt=now});
+            var rate=new MileageRateRule{OrganizationId=org.OrganizationId,RuleName="Used rate",VehicleType="MOTORCYCLE",
+                RatePerKm=2.5m,EffectiveFrom=BusinessTime.Today,IsActive=true,CreatedAt=now};
+            var center=new Center{OrganizationId=org.OrganizationId,CenterCode="G1_USED_CENTER",CenterName="Used center",
+                EffectiveFrom=BusinessTime.Today,IsActive=true};
+            db.AddRange(rate,center);await db.SaveChangesAsync();
+            db.Add(new MileageCalculation{VisitTripId=trip.VisitTripId,MileageRateRuleId=rate.MileageRateRuleId,
+                ApprovedAmount=25m,CreatedAt=now});
+            db.Add(new TeamCenterAssignment{TeamId=team.TeamId,CenterId=center.CenterId,
+                EffectiveFrom=BusinessTime.Today,CreatedAt=now});
+            await db.SaveChangesAsync();
+            async Task Refused(string path)
+            {
+                using var response=await client.DeleteAsync(path);
+                Assert.Equal(HttpStatusCode.BadRequest,response.StatusCode);
+            }
+            await Refused($"api/v1/admin/visit-types/{usedType.VisitTypeId}/permanent");
+            await Refused($"api/v1/admin/projects/{project.ProjectId}/permanent");
+            await Refused($"api/v1/admin/mileage-rate-rules/{rate.MileageRateRuleId}/permanent");
+            await Refused($"api/v1/admin/centers/{center.CenterId}/permanent");
+            await Refused($"api/v1/admin/teams/{team.TeamId}/permanent");
+            Assert.True(await db.VisitTripStops.AsNoTracking().AnyAsync(x=>x.VisitTripId==trip.VisitTripId && x.VisitTypeId==usedType.VisitTypeId && x.ProjectId==project.ProjectId));
+            Assert.Equal(25m,await db.MileageCalculations.AsNoTracking().Where(x=>x.VisitTripId==trip.VisitTripId).Select(x=>x.ApprovedAmount).SingleAsync());
+            var unusedCenter=new Center{OrganizationId=org.OrganizationId,CenterCode="G1_UNUSED_CENTER",CenterName="Unused center",EffectiveFrom=BusinessTime.Today,IsActive=true};
+            var unusedProject=new Project{OrganizationId=org.OrganizationId,ProjectCode="G1_UNUSED_PROJECT",ProjectName="Unused project",LocationMode="List",IsActive=true,CreatedAt=now};
+            var unusedRate=new MileageRateRule{OrganizationId=org.OrganizationId,RuleName="Unused rate",VehicleType="MOTORCYCLE",RatePerKm=3m,EffectiveFrom=BusinessTime.Today,IsActive=true,CreatedAt=now};
+            var unusedTeam=new Team{OrganizationId=org.OrganizationId,TeamCode="G1_UNUSED_TEAM",TeamName="Unused team",IsActive=true,CreatedAt=now};
+            db.AddRange(unusedCenter,unusedProject,unusedRate,unusedTeam);await db.SaveChangesAsync();
+            foreach(var path in new[]{
+                $"api/v1/admin/centers/{unusedCenter.CenterId}/permanent",
+                $"api/v1/admin/projects/{unusedProject.ProjectId}/permanent",
+                $"api/v1/admin/mileage-rate-rules/{unusedRate.MileageRateRuleId}/permanent",
+                $"api/v1/admin/teams/{unusedTeam.TeamId}/permanent"})
+            {using var response=await client.DeleteAsync(path);Assert.Equal(HttpStatusCode.NoContent,response.StatusCode);}
+            Assert.False(await db.Projects.AsNoTracking().AnyAsync(x=>x.ProjectId==unusedProject.ProjectId));
+            Assert.False(await db.Centers.AsNoTracking().AnyAsync(x=>x.CenterId==unusedCenter.CenterId));
+            Assert.False(await db.Teams.AsNoTracking().AnyAsync(x=>x.TeamId==unusedTeam.TeamId));
+            Assert.False(await db.MileageRateRules.AsNoTracking().AnyAsync(x=>x.MileageRateRuleId==unusedRate.MileageRateRuleId));
+            Console.WriteLine("ADMIN_SAFE_DELETE_MASTER_HISTORY_HTTP_PASS used=DENIED unused=DELETED history=UNCHANGED");
+            // Remove disposable historical fixture before the independent export checks below.
+            await db.MileageCalculations.Where(x=>x.VisitTripId==trip.VisitTripId).ExecuteDeleteAsync();
+            await db.VisitTripStops.Where(x=>x.VisitTripId==trip.VisitTripId).ExecuteDeleteAsync();
+            await db.VisitTrips.Where(x=>x.VisitTripId==trip.VisitTripId).ExecuteDeleteAsync();
             Console.WriteLine("ADMIN_MAINTENANCE_LIVE_SCOPE_HTTP_PASS forgedOrg=DENIED revokedRole=DENIED projectLocations=PASS safeDelete=PASS");
             // The old blanket date gate incorrectly rejected every Leader
             // historical download, even for an empty authorized result.
