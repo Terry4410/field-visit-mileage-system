@@ -42,17 +42,6 @@ public sealed class V180SafeDeleteController(
         return NoContent();
     }
 
-    [HttpGet("visit-types/{visitTypeId:int}/delete-impact")]
-    public Task<V180VisitTypeDeleteImpactDto> VisitTypeImpact(int visitTypeId,CancellationToken ct)
-        => service.VisitTypeImpactAsync(visitTypeId,ct);
-
-    [HttpDelete("visit-types/{visitTypeId:int}/permanent")]
-    public async Task<IActionResult> DeleteVisitType(int visitTypeId,CancellationToken ct)
-    {
-        await service.DeleteVisitTypeAsync(visitTypeId,ct);
-        return NoContent();
-    }
-
     [HttpGet("mileage-rate-rules/{mileageRateRuleId:int}/delete-impact")]
     public Task<V180MileageRateDeleteImpactDto> MileageRateImpact(int mileageRateRuleId,CancellationToken ct)
         => service.MileageRateImpactAsync(mileageRateRuleId,ct);

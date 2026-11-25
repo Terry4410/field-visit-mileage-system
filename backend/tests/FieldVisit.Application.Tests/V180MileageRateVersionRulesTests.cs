@@ -7,10 +7,12 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180MileageRateVersionRulesTests
 {
     [Theory]
-    [InlineData("Motorcycle","Motorcycle")]
-    [InlineData("MOTORCYCLE","Motorcycle")]
-    [InlineData("Car","Car")]
-    [InlineData("CAR","Car")]
+    [InlineData("Motorcycle","MOTORCYCLE")]
+    [InlineData("MOTORCYCLE","MOTORCYCLE")]
+    [InlineData("motorcycle","MOTORCYCLE")]
+    [InlineData("Car","CAR")]
+    [InlineData("CAR","CAR")]
+    [InlineData("car","CAR")]
     public void Vehicle_type_is_canonical(string input,string expected)
         => Assert.Equal(expected,V180MileageRateVersionRules.NormalizeVehicleType(input));
 
