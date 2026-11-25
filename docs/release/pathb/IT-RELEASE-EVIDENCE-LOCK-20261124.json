@@ -1867,7 +1867,7 @@
     "remaining": "Full business runtime ACL and cross-team authorization tests, subsequent employee identity provisioning, real formal location behavior, fresh/issued token revocation across uncovered endpoints, actual IIS/SSO/Google/worker and IT security review. Existing G1ReportExportHttpSqlTests source covers some report revocation and scope negatives on EF-shaped fixture; retain scope, not proof of complete app/real company schema. No formal delivery approval."
   },
   "coreRuntimeReview": {
-    "status": "STOP_AFTER_TWO_FIXTURE_FAILURES_HTTP_NOT_EXECUTED",
+    "status": "HISTORICAL_FIXTURE_FAILURES_SUPERSEDED_BY_SCOPED_PASS",
     "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
     "permissionEntries": 58,
     "runs": [
@@ -1886,7 +1886,15 @@
         "root": "After DBA fixture appointment insert preserving triggers, fixture MileageRateRules Motorcycle violates actual binary-collated CHECK allowing MOTORCYCLE/CAR; no trip HTTP reached"
       }
     ],
-    "decision": "Stop same-method third replay under V2.1. Neither run establishes runtime ACL or core trip defect/PASS. Do not grant additional rights or modify constraints. Preserve prior UAT PASS. Next use reviewed actual-schema fixture contract or approved company test environment, verify TeamLeaderAssignments production EF write path if applicable. This is an engineering/IT review open item, not Owner technical task."
+    "decision": "Retain earlier fixture failures as historical; actual corrected fixture and core restricted trip passed. No replay required. See scopedRuntimeAclEvidence for later business subsets; no full ACL certification.",
+    "success": {
+      "run": 45416369420,
+      "job": 138523552505,
+      "deliveryCommit": "f90e90476cf98bb5278e00166114fa959f29dd4e",
+      "applicationSource": "a4281b4d488448153ef3cd09f6ed698d146d3c77",
+      "scope": "Restricted trip create/preview/submit/return/edit/resubmit/approve, immutable snapshot and protected-write denial",
+      "markers": 14
+    }
   },
   "integratedItReviewPackage": {
     "status": "ACTUAL_ZIP_CREATED_VERIFIED_LIBRARY_UPLOAD_SUCCEEDED_REVIEW_ONLY_NOT_IT_DEPLOYMENT_READY",
@@ -1914,5 +1922,991 @@
     },
     "integrity": "Four original artifacts verified against SHA256 and all 90 internal file hashes, nested source CRC and final ZIP 99-entry readback matched",
     "scope": "Consolidated schema, reference roles, first Admin, scoped people ACL, Windows IIS binary/config candidate, exact application source, Chinese readme/IT checklist and evidence. Unvalidated 58 grants not packaged. No production authorization. IT review may proceed in parallel with remaining business ACL and authorization tests; actual company IIS/Entra/SQL TLS, IT Clean Build and production GO pending. Proposed company specs remain subject to IT."
+  },
+  "scopedRuntimeAclEvidence": {
+    "classification": "NONDEPLOY_SCOPED_GRANT_EVIDENCE_NOT_APPROVED_UNION_OR_INSTALLER",
+    "sets": [
+      {
+        "id": "core-trip",
+        "path": "docs/release/pathb/it-core-runtime/core-runtime-review.sql",
+        "deliveryCommit": "f90e90476cf98bb5278e00166114fa959f29dd4e",
+        "blob": "99c8efbc09f4c9153c5880312e37b91af43be2f8",
+        "run": 45416369420,
+        "job": 138523552505,
+        "scope": "Restricted trip create/preview/submit/return/edit/resubmit/approve, immutable snapshot and protected-write denial",
+        "expandedOperations": 58,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "correction-read",
+        "path": "docs/release/pathb/it-browser/correction-read-review.sql",
+        "deliveryCommit": "53eaa8bc25f30b0a3e2b89be145ecbd6fb8e1ebf",
+        "blob": "77916f1b9d833ab3723867754bbd44f53e478bf6",
+        "run": 45420196281,
+        "job": 138537319674,
+        "scope": "Actual SQL 229 before grant; read success after grant and write/broad role denial",
+        "expandedOperations": 1,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "hr-and-location-lookup",
+        "path": "docs/release/pathb/it-browser-business/business-review.sql",
+        "deliveryCommit": "54c0137526a444748bdee36201e0eab8fb06ae53",
+        "blob": "ef25a42d6e1c216302d5811ecd6cfea21d5ef2e2",
+        "run": 45421393168,
+        "job": 138541563576,
+        "scope": "HR required fields/create/edit/readback PASS within failed overall job; location selection observed; not every granted operation used",
+        "expandedOperations": 11,
+        "conclusion": "PARTIAL_PASS_JOB_FAILED",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "team-role-access",
+        "path": "docs/release/pathb/it-browser-access/access-review.sql",
+        "deliveryCommit": "ca005a5d5bf786f650e97f3241d44e5c6a3db2cd",
+        "blob": "6931e74be76ab74e54a5d4f06747f309d78425a5",
+        "run": 45423951583,
+        "job": 138550685555,
+        "scope": "Roleless new/existing token denial, team create/edit, primary membership, role assign, new visitor login, admin API/UI denial, SQL readback",
+        "expandedOperations": 45,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "correction-write",
+        "path": "docs/release/pathb/it-browser-correction/correction-write-review.sql",
+        "deliveryCommit": "193e035c939b4e15d66e165bb5175fd6f3b3842a",
+        "blob": "5dd554b9e7857d84e9bebd86b86c7714dc8f5652",
+        "run": 45427245787,
+        "job": 138562467148,
+        "scope": "Nonfinancial and financial correction close; original and two correction snapshots SQL readback",
+        "expandedOperations": 4,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      },
+      {
+        "id": "fallback-worker",
+        "path": "docs/release/pathb/it-browser-fallback/worker-review.sql",
+        "deliveryCommit": "f3f5025dfd78846d638aba43821ad3704eb4a4b8",
+        "blob": "bef1601a0e352e530061f7c3f45695e34ea3fd8d",
+        "run": 45430307515,
+        "job": 138573453900,
+        "scope": "Fallback enqueue, worker, browser approval, 36.9 amount, exactly one governance event SQL readback",
+        "expandedOperations": 6,
+        "conclusion": "SCOPED_PASS",
+        "grantFileUnchangedAtDeliveryHead": true
+      }
+    ],
+    "uniqueObjectColumnOperations": 104,
+    "exactOverlapWithHistoricalAzureInventory": 73,
+    "notExactMatchWithHistoricalInventory": 31,
+    "overlappingObjectAndColumnScopes": [
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "sets": [
+          "core-trip"
+        ],
+        "columns": [
+          "LocationId",
+          "ReservationStatus"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "sets": [
+          "hr-and-location-lookup"
+        ],
+        "columns": [
+          "TeamId",
+          "UpdatedAt"
+        ]
+      }
+    ],
+    "entries": [
+      {
+        "table": "ApprovalRecords",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "ApprovalRecords",
+        "permission": "SELECT",
+        "column": "ApprovalRecordId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "AuditLogs",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "AuditLogs",
+        "permission": "SELECT",
+        "column": "AuditLogId",
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "BackgroundJobItems",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobItems",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobItems",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobs",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobs",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "BackgroundJobs",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "fallback-worker"
+        ]
+      },
+      {
+        "table": "Centers",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "CorrectionRequestChanges",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "CorrectionRequestChanges",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "correction-read"
+        ]
+      },
+      {
+        "table": "CorrectionRequests",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "correction-write"
+        ]
+      },
+      {
+        "table": "DeploymentSiteLocationAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "DeploymentSites",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "EmploymentDeploymentSiteAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Employments",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "EmploymentStatusPeriods",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "EmploymentStatusPeriods",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "GovernmentLocationMasters",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": "LocationId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "LocationCreateReservations",
+        "permission": "SELECT",
+        "column": "ReservationStatus",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Locations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageCalculations",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageGovernanceEvents",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageGovernanceEvents",
+        "permission": "SELECT",
+        "column": "MileageGovernanceEventId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "MileageRateRules",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Organizations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Persons",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Persons",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "ProjectLocations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Projects",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "Roles",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "RouteCalculationAttempts",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "SchemaVersions",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamCenterAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamDeploymentSiteAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamLeaderAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamLeaderDelegations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "TeamLocationNoteHistory",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "TeamLocationNotes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "TeamMemberships",
+        "permission": "UPDATE",
+        "column": "EffectiveTo",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "IsActive",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "TeamCode",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "TeamName",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Teams",
+        "permission": "UPDATE",
+        "column": "UpdatedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserCapabilities",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "UserDataScopes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "UserEmploymentPeriods",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserFavoriteLocations",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "UserIdentityProfiles",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserIdentityProfiles",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoleAssignments",
+        "permission": "UPDATE",
+        "column": "EffectiveTo",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoles",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoles",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserRoles",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "hr-and-location-lookup"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "column": "TeamId",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "Users",
+        "permission": "UPDATE",
+        "column": "UpdatedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamAssignments",
+        "permission": "UPDATE",
+        "column": "EffectiveTo",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip",
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "AssignedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "AssignedByUserId",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "EndedAt",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "IsActive",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "UserTeamScopes",
+        "permission": "UPDATE",
+        "column": "IsPrimary",
+        "sets": [
+          "team-role-access"
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTrips",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshots",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshots",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshotStops",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripSnapshotStops",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStatusHistory",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStatusHistory",
+        "permission": "SELECT",
+        "column": "VisitTripStatusHistoryId",
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "DELETE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "INSERT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTripStops",
+        "permission": "UPDATE",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      },
+      {
+        "table": "VisitTypes",
+        "permission": "SELECT",
+        "column": null,
+        "sets": [
+          "core-trip"
+        ]
+      }
+    ],
+    "crossTeamProof": {
+      "run": 45428271221,
+      "job": 138566139946,
+      "deliveryCommit": "3db4970b991824cd9e2347050aa36f47dd762dbb",
+      "applicationSource": "ea85a0d3985fc5bab3e2c25cf80d6d29a156d089",
+      "scope": "Two real synthetic Demo identities on actual company schema; authorized read positive controls, unrelated trip/queue/read/approve/return/preview denied, protected row unchanged"
+    },
+    "limitations": "SQL grant file present in passing run does not establish each grant necessary or used. Table-wide Users/Employments UPDATE from HR harness must not override column-limited grants by default. Do not execute union or historical Azure grants. Full formal location and master data writes, complete restricted report export, actual corporate identity/SQL TLS, complete least-privilege boundary remain open."
+  },
+  "currentReviewSnapshot20261125": {
+    "applicationSource": "bd9299541811c90795e2fe0e339cf6827fb9be9d",
+    "liveApiReceipt": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7137486781",
+    "liveFrontend": "b9cad2d9e23a3c8c96157c1926818e842fe0fd0b",
+    "archive": "FieldVisit_v180_IT_Review_Package_20261125.zip",
+    "archiveSha256": "fb89f5f15734818c981f88eab57c8ca3a060c3bd54ebef1cdbd1dd39cf7758dd",
+    "archiveBytes": 37553560,
+    "artifactIds": [
+      14926555963,
+      14925189029,
+      14980373398,
+      14978183035
+    ],
+    "libraryFileId": "libfile_9dcdd660779c8191963cca0e74bf3ddd",
+    "status": "REVIEW_ONLY",
+    "evidence": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7149338743",
+    "ownerLaterFullTestingRequirement": "https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7134309729",
+    "historicalConditionalAcceptance": "NOT FULL UAT SIGNOFF"
   }
 }
