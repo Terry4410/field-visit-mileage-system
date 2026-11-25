@@ -49,8 +49,8 @@ public sealed class G1ReportExportGuard(
             await next();
             return;
         }
-        if (path.EndsWith("/visit-types.xlsx", StringComparison.OrdinalIgnoreCase))
-        { context.Result = Denied("REPORT_EXPORT_VISIT_TYPE_POLICY_HOLD"); return; }
+        // Owner-confirmed company-wide Visit Type master: its existing admin-only
+        // export uses the same live account, organization and role checks before and after generation.
         ActionExecutedContext? executed = null;
         void Stop(ObjectResult result) { context.Result = result; if (executed is not null) executed.Result = result; }
         try

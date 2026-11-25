@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
+using NPOI.XSSF.UserModel;
 
 namespace FieldVisit.Application.Tests;
 
@@ -68,7 +69,49 @@ public sealed class G1ReportExportHttpSqlTests
             role.IsActive=false;await db.SaveChangesAsync();using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             role.IsActive=true;await db.SaveChangesAsync();Token(claimedOrg:otherOrg.OrganizationId);using(var r=await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             foreach(var selected in new[]{"visitor","leader","hr"}){Token(selected);using var r=await client.GetAsync("api/v1/admin/query-exports/personnel-full.xlsx");Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);}
-            Token();using(var r=await client.GetAsync("api/v1/admin/query-exports/visit-types.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            // The Owner confirmed this master is shared company-wide; export is admin-only.
+            const string visitExport="api/v1/admin/query-exports/visit-types.xlsx";
+            db.AddRange(
+                new VisitType{VisitTypeCode="G1_ACTIVE",VisitTypeName="Synthetic Active",Description="Global shared type",SortOrder=10,IsActive=true,CreatedAt=now},
+                new VisitType{VisitTypeCode="G1_INACTIVE",VisitTypeName="Synthetic Inactive",SortOrder=20,IsActive=false,CreatedAt=now});
+            await db.SaveChangesAsync();
+            Token();
+            using(var r=await client.GetAsync(visitExport))
+            {
+                Assert.Equal(HttpStatusCode.OK,r.StatusCode);
+                Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",r.Content.Headers.ContentType?.MediaType);
+                using var workbook=new XSSFWorkbook(new MemoryStream(await r.Content.ReadAsByteArrayAsync()));
+                var sheet=workbook.GetSheet("查詢結果");
+                Assert.Equal("代碼",sheet.GetRow(0).GetCell(0).StringCellValue);
+                Assert.Equal(2,sheet.LastRowNum);
+                Assert.Equal("G1_ACTIVE",sheet.GetRow(1).GetCell(0).StringCellValue);
+                Assert.Equal("Synthetic Active",sheet.GetRow(1).GetCell(1).StringCellValue);
+                Assert.Equal("Global shared type",sheet.GetRow(1).GetCell(2).StringCellValue);
+                Assert.Equal("是",sheet.GetRow(1).GetCell(4).StringCellValue);
+                Assert.Equal("G1_INACTIVE",sheet.GetRow(2).GetCell(0).StringCellValue);
+                Assert.Equal("否",sheet.GetRow(2).GetCell(4).StringCellValue);
+            }
+            Token(claimedOrg:otherOrg.OrganizationId);
+            using(var r=await client.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            Token();user.IsActive=false;await db.SaveChangesAsync();
+            using(var r=await client.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            user.IsActive=true;await db.SaveChangesAsync();
+            hrState.EmploymentStatus=EmploymentStatuses.Leave;await db.SaveChangesAsync();
+            using(var r=await client.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            hrState.EmploymentStatus=EmploymentStatuses.Active;await db.SaveChangesAsync();
+            role.IsActive=false;await db.SaveChangesAsync();
+            using(var r=await client.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            role.IsActive=true;await db.SaveChangesAsync();
+            foreach(var selected in new[]{"visitor","leader","hr","supervisor"})
+            {
+                role.RoleCode=selected;await db.SaveChangesAsync();Token(selected);
+                using var denied=await client.GetAsync(visitExport);
+                Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+            }
+            role.RoleCode="admin";await db.SaveChangesAsync();Token();
+            client.DefaultRequestHeaders.Authorization=null;
+            using(var r=await client.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Unauthorized,r.StatusCode);
+            Token();
             // The old blanket date gate incorrectly rejected every Leader
             // historical download, even for an empty authorized result.
             // The real row-level team/organization negative tests live in
@@ -96,7 +139,9 @@ public sealed class G1ReportExportHttpSqlTests
             })))));
             using var race=raceFactory.CreateClient(new WebApplicationFactoryClientOptions{BaseAddress=new Uri("https://localhost")});race.DefaultRequestHeaders.Authorization=client.DefaultRequestHeaders.Authorization;
             using(var r=await race.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
-            Console.WriteLine("G1_REPORT_HTTP_SQL_PASS positive=PASS preAndPostRevocation=DENIED roleOrg=DENIED unapprovedRoles=DENIED visitType=DENIED");
+            await using(var restore=Db())await restore.Users.Where(x=>x.UserId==user.UserId).ExecuteUpdateAsync(x=>x.SetProperty(v=>v.IsActive,true));
+            using(var r=await race.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            Console.WriteLine("G1_REPORT_HTTP_SQL_PASS positive=PASS preAndPostRevocation=DENIED roleOrg=DENIED unapprovedRoles=DENIED visitTypeAdminWorkbook=PASS visitTypeOtherRoles=DENIED");
         }
         finally{await using var cmd=admin.CreateCommand();cmd.CommandText=$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];";await cmd.ExecuteNonQueryAsync();}
     }
