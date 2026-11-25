@@ -2,7 +2,7 @@ name: IT 10 report workbook bytes and policy denial (NONDEPLOY)
 on:
   push:
     branches: [work/pathb-it-cleanbuild-020-20261123]
-    paths: ['docs/release/pathb/it-final-admin/**', '.github/workflows/it-final-reports-nondeploy.yml']
+    paths: ['docs/release/pathb/it-final-admin/FinalAdminReportBytesSqlTests.cs']
 permissions:
   contents: read
 jobs:
