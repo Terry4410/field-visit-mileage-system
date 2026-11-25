@@ -1,7 +1,7 @@
-name: Final UAT source verification (NONDEPLOY)
+name: Biz User change batch verification (NONDEPLOY)
 on:
   push:
-    branches: [work/pathb-final-integrated-20261125]
+    branches: [work/biz-user-uat-consolidated-20261125]
 permissions:
   contents: read
 jobs:
@@ -28,7 +28,7 @@ jobs:
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund
-          npm test -- src/admin-navigation.test.ts
+          npm test -- src/admin-navigation.test.ts src/leader-batch-return.test.ts src/query-ux.test.ts src/leader-review-queue.test.ts src/leader-mileage-filter.test.ts
           npm run build
       - name: Package exact source Windows IIS candidate
         run: |
@@ -41,6 +41,6 @@ jobs:
           (cd artifacts && sha256sum api-win-x64.zip frontend-iis.zip > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
-          name: fieldvisit-final-uat-it-review-candidate
+          name: fieldvisit-biz-user-intermediate-nondeploy
           path: artifacts/
           retention-days: 30

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dateShortcutRange, projectStatus, tripDateShortcutRange } from './query-ux';
+import { dateShortcutRange, projectStatus, tripDateShortcutRange, projectDateShortcutRange } from './query-ux';
 
 describe('Freeze QRY-001/002 dates', () => {
   it.each([
@@ -35,4 +35,11 @@ it.each([
   [true, null, null, '進行中']
 ])('project status respects inclusive dates and inactive priority', (isActive, startDate, endDate, expected) => {
   expect(projectStatus({ isActive, startDate, endDate }, '2026-09-07')).toBe(expected);
+});
+
+it('project presets include future and whole calendar months without changing other screens',()=>{
+  expect(projectDateShortcutRange('all','2026-12-31')).toEqual({start:'',end:''});
+  expect(projectDateShortcutRange('future','2026-12-31')).toEqual({start:'2027-01-01',end:''});
+  expect(projectDateShortcutRange('nextMonth','2026-12-31')).toEqual({start:'2027-01-01',end:'2027-01-31'});
+  expect(projectDateShortcutRange('month','2026-11-25')).toEqual({start:'2026-11-01',end:'2026-11-30'});
 });

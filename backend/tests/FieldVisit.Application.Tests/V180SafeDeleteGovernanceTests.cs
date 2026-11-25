@@ -76,9 +76,9 @@ public sealed class V180SafeDeleteGovernanceTests
         Assert.Contains("/permanent",teams);
         Assert.Contains("/delete-impact",projects);
         Assert.Contains("/permanent",projects);
-        Assert.DoesNotContain("/admin/visit-types/",admin);
+        Assert.Contains("/admin/visit-types/",admin);
         Assert.DoesNotContain("/admin/mileage-rate-rules/",admin);
-        Assert.DoesNotContain("deleteType",admin);
+        Assert.Contains("deleteType",admin);
         Assert.DoesNotContain("deleteRate",admin);
     }
 

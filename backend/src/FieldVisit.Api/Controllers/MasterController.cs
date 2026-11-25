@@ -52,6 +52,18 @@ public sealed class MasterController(MasterService master) : ControllerBase
     [HttpGet("visit-types")]
     public async Task<ActionResult<List<VisitTypeDto>>> VisitTypes(CancellationToken ct) => Ok(await master.VisitTypesAsync(ct));
 
+    [HttpPost("visit-types")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<VisitTypeDto>> CreateVisitType(SaveVisitTypeRequest request, CancellationToken ct) => Ok(await master.CreateVisitTypeAsync(request, ct));
+
+    [HttpPut("visit-types/{visitTypeId:int}")]
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<VisitTypeDto>> UpdateVisitType(int visitTypeId, SaveVisitTypeRequest request, CancellationToken ct) => Ok(await master.UpdateVisitTypeAsync(visitTypeId, request, ct));
+
+    [HttpDelete("visit-types/{visitTypeId:int}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> DeleteVisitType(int visitTypeId, CancellationToken ct) { await master.DeleteVisitTypeAsync(visitTypeId, ct); return NoContent(); }
+
     [HttpGet("mileage-rate-rules")]
     public async Task<ActionResult<List<MileageRateDto>>> Rates(CancellationToken ct) => Ok(await master.RatesAsync(ct));
 

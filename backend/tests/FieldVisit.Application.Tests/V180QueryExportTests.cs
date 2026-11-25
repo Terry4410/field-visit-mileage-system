@@ -117,19 +117,28 @@ public sealed class V180QueryExportTests
     }
 
     [Fact]
-    public void Visit_types_have_no_write_or_import_http_routes()
+    public void Visit_type_write_routes_require_admin_and_export_is_retained()
     {
         var controllers = typeof(MasterController).Assembly.GetTypes()
             .Where(t => t.IsSubclassOf(typeof(ControllerBase)));
         var routes = controllers.SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .SelectMany(m => m.GetCustomAttributes<HttpMethodAttribute>(true)
-                .Select(a => (Controller: t, Template: a.Template ?? "", Verbs: a.HttpMethods)))).ToList();
+                .Select(a => (Controller: t, Method: m, Template: a.Template ?? "", Verbs: a.HttpMethods)))).ToList();
         Assert.Contains(routes, r => r.Controller == typeof(MasterController)
             && r.Template == "visit-types" && r.Verbs.Contains("GET"));
         Assert.Contains(routes, r => r.Controller == typeof(V180QueryExportController)
             && r.Template == "visit-types.xlsx" && r.Verbs.Contains("GET"));
-        Assert.DoesNotContain(routes, r => r.Template.Contains("visit-types", StringComparison.OrdinalIgnoreCase)
-            && r.Verbs.Any(v => v != "GET"));
+        var writes = routes.Where(r => r.Template.Contains("visit-types", StringComparison.OrdinalIgnoreCase)
+            && r.Verbs.Any(v => v != "GET")).ToList();
+        Assert.Equal(5, writes.Count);
+        foreach (var route in writes)
+        {
+            var auth = route.Controller.GetCustomAttributes<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>(true)
+                .Concat(route.Method.GetCustomAttributes<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>(true));
+            Assert.Contains(auth, a => a.Roles == "admin");
+        }
+        Assert.Contains(writes, r => r.Template == "visit-types/{id:int}/move");
+        Assert.Contains(writes, r => r.Template == "visit-types/{visitTypeId:int}/permanent");
     }
 
     [Fact]

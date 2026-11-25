@@ -1,4 +1,5 @@
-import{useEffect,useState}from"react";
+import{useEffect,useRef,useState}from"react";
+import{ returnSelectedTrips }from"../leader-batch-return";
 import{api}from"../api";
 import{loadLeaderReviewLists}from"../leader-review-queue";
 import{correctionChangeText,withConfirmedCorrectionComment}from"../correction-ui";
@@ -40,6 +41,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const[rows,setRows]=useState<Trip[]>([]);
  const[selected,setSelected]=useState<number[]>([]);
  const[approvalSelected,setApprovalSelected]=useState<number[]>([]);
+ const returnInProgress=useRef(false);
  const[reviewKm,setReviewKm]=useState<Record<number,string>>({});
  const[adjustmentReasons,setAdjustmentReasons]=useState<Record<number,string>>({});
  const[mode,setMode]=useState('AllPending');
@@ -155,6 +157,20 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    }catch(e){setMsg(e instanceof Error?e.message:'批次核准失敗')}finally{setBusy(false)}
  };
 
+ const batchReturn=async()=>{
+   if(busy||returnInProgress.current)return;
+   const targets=approvalRows.filter(t=>approvalSelected.includes(t.visitTripId));
+   if(!targets.length)return setMsg('請先勾選要批次退回的行程。');
+   const reason=window.prompt('請輸入共同退回原因')?.trim();
+   if(!reason)return;
+   if(!window.confirm(`確認批次退回 ${targets.length} 筆行程？`))return;
+   returnInProgress.current=true;setBusy(true);
+   try{
+     const result=await returnSelectedTrips(approvalRows,approvalSelected,reason,(t,note)=>api(`/trips/${t.visitTripId}/return`,{method:'POST',body:JSON.stringify({reason:note,rowVersion:t.rowVersion})}));
+     setMsg(`批次退回：成功 ${result.success} 筆、未確認 ${result.unconfirmed.length} 筆、未執行 ${result.notRun} 筆。${result.unconfirmed.length?'請重新整理確認狀態，不要直接重試：'+result.unconfirmed.join('；'):''}`);
+   }catch(e){setMsg(e instanceof Error?e.message:'批次退回結果未確認。')}
+   finally{setApprovalSelected([]);await load();returnInProgress.current=false;setBusy(false);}
+ };
  const ret=async(t:Trip)=>{
    const reason=window.prompt('請輸入退回原因');if(!reason)return;
    setBusy(true);try{await api(`/trips/${t.visitTripId}/return`,{method:'POST',body:JSON.stringify({reason,rowVersion:t.rowVersion})});setMsg(`已退回 ${t.tripNo}`);await load()}catch(e){setMsg(e instanceof Error?e.message:'退回失敗')}finally{setBusy(false)}
@@ -171,16 +187,16 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
   {loadError&&<div className="note danger-note" role="alert">{loadError}</div>}
   {msg&&<div className="note" role="status">{msg}</div>}
   <div className="card" style={{marginTop:18}}>
-   <div className="section-title"><div><h2>待核准行程</h2><div className="sub">此佇列顯示所有目前待核准行程，不受 Google Maps 重算日期篩選影響。</div></div><div className="actions"><span className="pill">{approvalRows.length} 筆</span><button className="btn small ok" disabled={busy||!approvalSelected.length} onClick={()=>void batchApprove()}>批次核准（{approvalSelected.length}）</button></div></div>
+   <div className="section-title"><div><h2>待核准行程</h2><div className="sub">顯示目前所有待核准行程。</div></div><div className="actions"><span className="pill">{approvalRows.length} 筆</span><button className="btn small ok" disabled={busy||!approvalSelected.length} onClick={()=>void batchApprove()}>批次核准（{approvalSelected.length}）</button><button className="btn small danger" disabled={busy||!approvalSelected.length} onClick={()=>void batchReturn()}>批次退回（{approvalSelected.length}）</button></div></div>
    <div className="table-wrap"><table>
     <thead><tr>
-     <th><input type="checkbox" aria-label="全選待核准行程" title="全選待核准行程" checked={allApprovalSelected} disabled={!approvalRows.length} ref={el=>{if(el)el.indeterminate=someApprovalSelected&&!allApprovalSelected}} onChange={e=>toggleAllApproval(e.target.checked)}/></th>
+     <th><input type="checkbox" aria-label="全選待核准行程" title="全選待核准行程" checked={allApprovalSelected} disabled={busy||!approvalRows.length} ref={el=>{if(el)el.indeterminate=someApprovalSelected&&!allApprovalSelected}} onChange={e=>toggleAllApproval(e.target.checked)}/></th>
      <th>行程編號</th><th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>人工備援</th><th>Google Maps API</th><th>小組長核定</th><th>里程來源</th><th>操作</th>
     </tr></thead>
     <tbody>{approvalRows.map(t=>{
      const noMileage=!hasMinimumVisitStops(t.stops.length);const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
      return <tr key={t.visitTripId}>
-      <td><input type="checkbox" disabled={t.status!=='PendingApproval'} checked={approvalSelected.includes(t.visitTripId)} onChange={e=>setApprovalSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
+      <td><input type="checkbox" disabled={busy||t.status!=='PendingApproval'} checked={approvalSelected.includes(t.visitTripId)} onChange={e=>setApprovalSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
       <td><strong>{t.tripNo||"—"}</strong></td><td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
       <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>
       <td>{km(t.claimedDistanceKm)}</td><td>{noMileage?'N/A':km(t.systemDistanceKm)}</td>

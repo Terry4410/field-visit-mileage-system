@@ -44,3 +44,10 @@ export function projectStatus(p: { isActive: boolean; startDate?: string | null;
   if (p.endDate && p.endDate < today) return '已結束';
   return '進行中';
 }
+
+export type ProjectDateShortcut = 'all'|'month'|'prev'|'nextMonth'|'future'|'custom';
+export function projectDateShortcutRange(kind:Exclude<ProjectDateShortcut,'custom'>,today:string) {
+  if(kind==='all')return {start:'',end:''};
+  if(kind==='future')return {start:tripDateShortcutRange('tomorrow',today).start,end:''};
+  return tripDateShortcutRange(kind,today);
+}

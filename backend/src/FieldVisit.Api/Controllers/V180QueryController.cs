@@ -25,4 +25,7 @@ public sealed class V180QueryController(IV160FinalRepository repository, ICurren
     public async Task<IActionResult> Corrections([FromQuery] V180SearchRequest request, CancellationToken ct)
         => Ok(await repository.SearchCorrectionsAsync(current.GetRequired(), request, ct));
 
+    [HttpPost("visit-types/{id:int}/move"), Authorize(Roles = "admin")]
+    public async Task<IActionResult> MoveVisitType(int id, V180MoveVisitTypeRequest request, CancellationToken ct)
+        => Ok(await repository.MoveVisitTypeAsync(current.GetRequired(), id, request, ct));
 }

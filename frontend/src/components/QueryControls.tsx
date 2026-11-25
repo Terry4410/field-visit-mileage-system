@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react';
 import { formatDateSlash, parseDateSlash } from '../date-slash';
-import { dateShortcutRange, tripDateShortcutRange, type DateShortcut, type TripDateShortcut } from '../query-ux';
+import { dateShortcutRange, tripDateShortcutRange, projectDateShortcutRange, type DateShortcut, type TripDateShortcut, type ProjectDateShortcut } from '../query-ux';
 import { todayTaipei } from '../v160';
 
 function SlashDateField({label, value, onChange, inputRef}: {
@@ -81,18 +81,21 @@ function SlashDateField({label, value, onChange, inputRef}: {
 }
 
 export function DateFilters({ start, end, onChange, label = '日期', displayFormat = 'native', shortcutSet = 'legacy' }: {
-  start: string; end: string; onChange: (start: string, end: string) => void; label?: string; displayFormat?: 'native' | 'slash'; shortcutSet?: 'legacy' | 'trip'
+  start: string; end: string; onChange: (start: string, end: string) => void; label?: string; displayFormat?: 'native' | 'slash'; shortcutSet?: 'legacy' | 'trip' | 'project'
 }) {
   const startInput = useRef<HTMLInputElement>(null);
-  const choices: Array<[DateShortcut | TripDateShortcut, string]> = shortcutSet === 'trip'
+  const choices: Array<[DateShortcut | TripDateShortcut | ProjectDateShortcut, string]> = shortcutSet === 'trip'
     ? [['yesterday', '昨日'], ['today', '今日'], ['tomorrow', '明日'], ['lastWeek', '上週'], ['thisWeek', '本週'], ['nextWeek', '下週'], ['prev', '上月'], ['month', '本月'], ['nextMonth', '下月'], ['custom', '自訂']]
-    : [['month', '本月'], ['prev', '上月'], ['3m', '前3個月'], ['6m', '前6個月'], ['12m', '前12個月'], ['custom', '自訂']];
+    : shortcutSet === 'project'
+      ? [['all','全部'],['month','本月'],['prev','上月'],['nextMonth','下月'],['future','未來'],['custom','自訂']]
+      : [['month', '本月'], ['prev', '上月'], ['3m', '前3個月'], ['6m', '前6個月'], ['12m', '前12個月'], ['custom', '自訂']];
   return <div>
     <div className={`quick-filters ${shortcutSet === 'trip' ? 'trip-date-shortcuts' : ''}`}>{choices.map(([key, text]) =>
       <button type="button" className="btn small outline" key={key} onClick={() => {
         if (key === 'custom') { startInput.current?.focus(); return; }
         const range = shortcutSet === 'trip'
           ? tripDateShortcutRange(key as Exclude<TripDateShortcut, 'custom'>, todayTaipei())
+          : shortcutSet === 'project' ? projectDateShortcutRange(key as Exclude<ProjectDateShortcut,'custom'>,todayTaipei())
           : dateShortcutRange(key as Exclude<DateShortcut, 'custom'>, todayTaipei());
         onChange(range.start, range.end);
       }}>{text}</button>)}</div>
