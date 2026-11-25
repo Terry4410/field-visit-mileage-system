@@ -15,6 +15,19 @@ public sealed class G1ReportExportGuard(
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         var path = context.HttpContext.Request.Path.Value ?? "";
+        // Exact read endpoints only: never widen Admin or trip-report permissions.
+        var normalized = path.TrimEnd('/');
+        var scopedLocation = HttpMethods.IsGet(context.HttpContext.Request.Method)
+            && (normalized.Equals("/api/v1/scoped-location-export/locations", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("/api/v1/scoped-location-export/locations.xlsx", StringComparison.OrdinalIgnoreCase));
+        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var maintenanceRead = HttpMethods.IsGet(context.HttpContext.Request.Method)
+            && parts.Length == 5 && parts[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+            && parts[1].Equals("v1", StringComparison.OrdinalIgnoreCase)
+            && parts[2].Equals("locations", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(parts[3], out _)
+            && parts[4].Equals("maintenance", StringComparison.OrdinalIgnoreCase);
+        var locationRead = scopedLocation || maintenanceRead;
         var adminReport = path.StartsWith("/api/v1/admin/query-exports/", StringComparison.OrdinalIgnoreCase);
         var masterData = path.StartsWith("/api/v1/admin/master-data/", StringComparison.OrdinalIgnoreCase);
         var peopleAdmin = path.Equals("/api/v1/admin/people", StringComparison.OrdinalIgnoreCase)
@@ -39,7 +52,7 @@ public sealed class G1ReportExportGuard(
         var liveAdmin = masterData || peopleAdmin || masterWrite || adminMaintenance || legacyAdminImport;
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
-        if (!adminReport && !tripReport && !liveAdmin) { await next(); return; }
+        if (!adminReport && !tripReport && !liveAdmin && !locationRead) { await next(); return; }
         // Master-data commands cannot trust a signed but stale organization/role claim.
         // Reuse the live account, HR and role check before any SQL write starts.
         if (liveAdmin)
@@ -69,7 +82,7 @@ public sealed class G1ReportExportGuard(
         try
         {
             var token = current.GetRequired();
-            var before = await CheckAsync(token, adminReport, path, context.HttpContext.RequestAborted);
+            var before = await CheckAsync(token, adminReport, path, context.HttpContext.RequestAborted, locationRead, scopedLocation);
             // A calendar date is not an authorization boundary.
             // The export service invokes the same server-side scoped trip
             // repository as the query page. Its current-team / approved
@@ -84,7 +97,7 @@ public sealed class G1ReportExportGuard(
                     : new ObjectResult(new { code = "REPORT_EXPORT_FAILED" }) { StatusCode = executed.Exception is InvalidOperationException ? 400 : 503 };
                 return;
             }
-            var after = await CheckAsync(token, adminReport, path, context.HttpContext.RequestAborted);
+            var after = await CheckAsync(token, adminReport, path, context.HttpContext.RequestAborted, locationRead, scopedLocation);
             if (before != after) executed.Result = Denied("REPORT_EXPORT_SCOPE_CHANGED");
         }
         catch (UnauthorizedAccessException)
@@ -97,12 +110,16 @@ public sealed class G1ReportExportGuard(
         }
     }
 
-    private async Task<string> CheckAsync(CurrentUserDto token, bool adminReport, string path, CancellationToken ct)
+    private async Task<string> CheckAsync(CurrentUserDto token, bool adminReport, string path, CancellationToken ct,
+        bool locationRead = false, bool scopedLocation = false)
     {
         if (token.Roles.Count != 1 || !token.OrganizationId.HasValue)
             throw new UnauthorizedAccessException();
         var role = token.Roles[0].ToLowerInvariant();
         if (adminReport ? role != "admin" : role is not ("admin" or "leader" or "visitor" or "supervisor"))
+            throw new UnauthorizedAccessException();
+        if (scopedLocation && role is not ("visitor" or "leader")
+            || locationRead && role is not ("admin" or "visitor" or "leader"))
             throw new UnauthorizedAccessException();
         var account = await db.Users.AsNoTracking().Where(x => x.UserId == token.UserId)
             .Select(x => new { x.IsActive, x.OrganizationId }).SingleOrDefaultAsync(ct);
@@ -113,8 +130,27 @@ public sealed class G1ReportExportGuard(
         if (live is null || live.OrganizationId != token.OrganizationId
             || !live.Roles.Contains(role, StringComparer.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException();
-        if (role == "leader" && !token.TeamIds.OrderBy(x => x).SequenceEqual(live.TeamIds.OrderBy(x => x)))
+        if ((role == "leader" || locationRead && role == "visitor")
+            && !token.TeamIds.OrderBy(x => x).SequenceEqual(live.TeamIds.OrderBy(x => x)))
             throw new UnauthorizedAccessException();
+        if (locationRead && role != "admin")
+        {
+            // Location notes use the JWT team IDs internally. Do not let a
+            // stale token regain a removed team through a shared Location.
+            // Check effective assignments and the active scope projection,
+            // not merely the legacy primary-team fallback in GetProfileAsync.
+            var today = BusinessTime.Today;
+            var teams = await (from a in db.UserTeamAssignments.AsNoTracking()
+                join t in db.Teams.AsNoTracking() on a.TeamId equals t.TeamId
+                where a.UserId == token.UserId && t.OrganizationId == token.OrganizationId
+                    && t.IsActive && (!t.EffectiveFrom.HasValue || t.EffectiveFrom <= today)
+                    && (!t.EffectiveTo.HasValue || t.EffectiveTo >= today)
+                    && a.EffectiveFrom <= today && (!a.EffectiveTo.HasValue || a.EffectiveTo >= today)
+                    && db.UserTeamScopes.Any(p => p.UserId == token.UserId && p.TeamId == t.TeamId && p.IsActive)
+                select t.TeamId).Distinct().OrderBy(x => x).ToArrayAsync(ct);
+            if (teams.Length == 0 || !token.TeamIds.OrderBy(x => x).SequenceEqual(teams))
+                throw new UnauthorizedAccessException();
+        }
         if (role == "supervisor")
             await access.EnsureExportAllowedAsync(live with { Roles = [role] }, path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? "pdf" : "xlsx", ct);
         return JsonSerializer.Serialize(new {
