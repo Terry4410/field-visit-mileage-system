@@ -59,6 +59,7 @@ public sealed class FinalAdminReportBytesSqlTests
                 new UserIdentityProfile { UserId = user.UserId, UserCode = "FIN-001", UserType = "Internal", CreatedAt = now },
                 new UserEmploymentPeriod { UserId = user.UserId, EmploymentStatus = EmploymentStatuses.Active, EffectiveFrom = from, SourceType = "Synthetic", CreatedAt = now },
                 new UserRole { UserId = user.UserId, RoleId = role.RoleId, AssignedAt = now },
+                new UserRoleAssignment { UserId = user.UserId, RoleId = role.RoleId, EffectiveFrom = from, CreatedAt = now },
                 new UserTeamAssignment { UserId = user.UserId, TeamId = team.TeamId, IsPrimary = true, EffectiveFrom = from, CreatedAt = now });
             var location = new Location { OrganizationId = org.OrganizationId, TeamId = team.TeamId,
                 LocationCode = "FIN-L", LocationName = "Final Location", LocationType = "Official",
