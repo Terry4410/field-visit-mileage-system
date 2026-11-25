@@ -158,7 +158,7 @@ public sealed class G1ReportExportHttpSqlTests
             async Task Refused(string path)
             {
                 using var response=await client.DeleteAsync(path);
-                Assert.Equal(HttpStatusCode.BadRequest,response.StatusCode);
+                Assert.Equal(HttpStatusCode.UnprocessableEntity,response.StatusCode);
             }
             await Refused($"api/v1/admin/visit-types/{usedType.VisitTypeId}/permanent");
             await Refused($"api/v1/admin/projects/{project.ProjectId}/permanent");
@@ -182,7 +182,46 @@ public sealed class G1ReportExportHttpSqlTests
             Assert.False(await db.Centers.AsNoTracking().AnyAsync(x=>x.CenterId==unusedCenter.CenterId));
             Assert.False(await db.Teams.AsNoTracking().AnyAsync(x=>x.TeamId==unusedTeam.TeamId));
             Assert.False(await db.MileageRateRules.AsNoTracking().AnyAsync(x=>x.MileageRateRuleId==unusedRate.MileageRateRuleId));
-            Console.WriteLine("ADMIN_SAFE_DELETE_MASTER_HISTORY_HTTP_PASS used=DENIED unused=DELETED history=UNCHANGED");
+            var location=new Location{OrganizationId=org.OrganizationId,LocationCode="G1_SITE_LOCATION",LocationName="Synthetic location",IsActive=true,ApprovalStatus="Approved",CreatedAt=now};
+            db.Add(location);await db.SaveChangesAsync();
+            DeploymentSite Site(string code)=>new(){CenterId=center.CenterId,SiteCode=code,SiteName=code,EffectiveFrom=BusinessTime.Today,IsActive=true,CreatedAt=now};
+            var usedSite=Site("G1_USED_SITE");var unusedSite=Site("G1_UNUSED_SITE");
+            db.AddRange(usedSite,unusedSite);await db.SaveChangesAsync();
+            foreach(var site in new[]{usedSite,unusedSite})
+                db.Add(new DeploymentSiteLocationAssignment{DeploymentSiteId=site.DeploymentSiteId,LocationId=location.LocationId,EffectiveFrom=site.EffectiveFrom,ChangeReason="UAT Business Admin initial assignment",CreatedAt=now});
+            await db.SaveChangesAsync();
+            trip.StartDeploymentSiteId=usedSite.DeploymentSiteId;await db.SaveChangesAsync();
+            await Refused($"api/v1/admin/deployment-sites/{usedSite.DeploymentSiteId}/permanent");
+            using(var response=await client.DeleteAsync($"api/v1/admin/deployment-sites/{unusedSite.DeploymentSiteId}/permanent"))Assert.Equal(HttpStatusCode.NoContent,response.StatusCode);
+            Assert.True(await db.DeploymentSiteLocationAssignments.AsNoTracking().AnyAsync(x=>x.DeploymentSiteId==usedSite.DeploymentSiteId));
+            Assert.False(await db.DeploymentSiteLocationAssignments.AsNoTracking().AnyAsync(x=>x.DeploymentSiteId==unusedSite.DeploymentSiteId));
+            Assert.True(await db.Locations.AsNoTracking().AnyAsync(x=>x.LocationId==location.LocationId));
+            async Task<(User User,Person Person,Employment Employment)> SeedPerson(string code)
+            {
+                var u=new User{OrganizationId=org.OrganizationId,EmployeeNo=code,DisplayName=code,IsActive=true,CreatedAt=now};
+                db.Add(u);await db.SaveChangesAsync();
+                var p=new Person{DisplayName=code,LegacyUserId=u.UserId,CreatedAt=now,CreatedByUserId=user.UserId};
+                db.Add(p);await db.SaveChangesAsync();
+                var e=new Employment{PersonId=p.PersonId,OrganizationId=org.OrganizationId,EmployeeNo=code,LegacyUserId=u.UserId,SourceType="Synthetic"};
+                db.Add(e);await db.SaveChangesAsync();
+                db.Add(new UserIdentityProfile{UserId=u.UserId,EmploymentId=e.EmploymentId,UserCode=code,UserType=UserTypes.Internal,CreatedAt=now});
+                await db.SaveChangesAsync();return (u,p,e);
+            }
+            var unusedPerson=await SeedPerson("G1_UNUSED_PERSON");
+            var usedPerson=await SeedPerson("G1_USED_PERSON");
+            var sharedPerson=await SeedPerson("G1_SHARED_PERSON");
+            db.Add(new AuditLog{UserId=usedPerson.User.UserId,EntityType="User",Action="SyntheticPriorUse",CreatedAt=now});
+            db.Add(new Employment{PersonId=sharedPerson.Person.PersonId,OrganizationId=otherOrg.OrganizationId,EmployeeNo="G1_OTHER_EMP",SourceType="Synthetic"});
+            await db.SaveChangesAsync();
+            await Refused($"api/v1/admin/people/{usedPerson.User.UserId}/permanent");
+            await Refused($"api/v1/admin/people/{sharedPerson.User.UserId}/permanent");
+            using(var response=await client.DeleteAsync($"api/v1/admin/people/{unusedPerson.User.UserId}/permanent"))Assert.Equal(HttpStatusCode.NoContent,response.StatusCode);
+            Assert.True(await db.Users.AsNoTracking().AnyAsync(x=>x.UserId==usedPerson.User.UserId));
+            Assert.Equal(2,await db.Employments.AsNoTracking().CountAsync(x=>x.PersonId==sharedPerson.Person.PersonId));
+            Assert.False(await db.Users.AsNoTracking().AnyAsync(x=>x.UserId==unusedPerson.User.UserId));
+            Assert.False(await db.Employments.AsNoTracking().AnyAsync(x=>x.EmploymentId==unusedPerson.Employment.EmploymentId));
+            Assert.False(await db.Persons.AsNoTracking().AnyAsync(x=>x.PersonId==unusedPerson.Person.PersonId));
+            Console.WriteLine("ADMIN_SAFE_DELETE_MASTER_HISTORY_HTTP_PASS used=DENIED unused=DELETED history=UNCHANGED sites=PASS people=PASS sharedEmployment=DENIED");
             // Remove disposable historical fixture before the independent export checks below.
             await db.MileageCalculations.Where(x=>x.VisitTripId==trip.VisitTripId).ExecuteDeleteAsync();
             await db.VisitTripStops.Where(x=>x.VisitTripId==trip.VisitTripId).ExecuteDeleteAsync();
