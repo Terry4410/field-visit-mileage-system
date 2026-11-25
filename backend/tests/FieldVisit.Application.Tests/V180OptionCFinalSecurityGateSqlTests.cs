@@ -64,6 +64,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             GRANT SELECT ON dbo.EmploymentStatusPeriods TO [LocationAuditReadTest];
             GRANT SELECT ON dbo.UserEmploymentPeriods TO [LocationAuditReadTest];
             GRANT SELECT ON dbo.UserRoleAssignments TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.UserRoles TO [LocationAuditReadTest];
             GRANT SELECT ON dbo.Roles TO [LocationAuditReadTest];
             GRANT SELECT ON dbo.ChangeRequests TO [LocationAuditReadTest];
             GRANT SELECT ON dbo.ChangeRequestEvents TO [LocationAuditReadTest];
@@ -79,7 +80,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         {
             var ct = CancellationToken.None;
             var denied = await Assert.ThrowsAsync<SqlException>(() => repo.GetMaintenanceAsync(admin, 10, null, ct));
-            Assert.Contains(denied.Errors.Cast<SqlError>(), e => e.Number is 229 or 230);
+            Assert.Contains(denied.Errors.Cast<SqlError>(), e => (e.Number is 229 or 230) && e.Message.Contains("AuditLogs",StringComparison.OrdinalIgnoreCase));
             await h.Exec("REVERT;"); impersonating = false;
             await h.Exec("""
                 GRANT SELECT ON OBJECT::dbo.AuditLogs
