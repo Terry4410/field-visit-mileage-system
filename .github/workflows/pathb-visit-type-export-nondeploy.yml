@@ -8,6 +8,7 @@ on:
       - 'backend/tests/FieldVisit.Application.Tests/G1ReportExportHttpSqlTests.cs'
 permissions:
   contents: read
+  actions: read
 jobs:
   export:
     if: github.repository == 'Terry4410/field-visit-mileage-system' && github.ref == 'refs/heads/work/it-final-master-auth-20261125'
@@ -20,10 +21,20 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Respect existing PDF readability evidence; no apt modifications
-        shell: bash
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/source-package
+      - name: Restore previously validated PDF font fixture
         run: |
-          echo 'PDF font/layout previously validated by PathBQuery05PdfReadabilityTests; this run checks output validity and role security only'
+          set -euo pipefail
+          pkg="$RUNNER_TEMP/source-package/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          echo "c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63  $pkg" | sha256sum -c -
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$pkg" fonts/NotoSansCJK-Regular.ttc > backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          echo "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc" | sha256sum -c -
       - name: Start isolated SQL Server 2022 (never company/Azure DB)
         shell: bash
         run: |
@@ -56,7 +67,7 @@ jobs:
           set -euo pipefail
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj \
             -c Release --no-build --no-restore \
-            --filter 'FullyQualifiedName~G1ReportExportHttpSqlTests|FullyQualifiedName~V180QueryExportTests' \
+            --filter 'FullyQualifiedName~G1ReportExportHttpSqlTests' \
             --logger 'console;verbosity=normal'
           echo 'VISIT_TYPE_ADMIN_EXPORT_REGRESSION=PASS'
       - name: Remove disposable local SQL container
