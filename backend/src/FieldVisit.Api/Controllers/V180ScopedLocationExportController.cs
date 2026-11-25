@@ -24,8 +24,24 @@ public sealed class V180ScopedLocationExportController(
     private async Task<IReadOnlyList<ScopedRow>> ReadAsync(string? q, CancellationToken ct)
     {
         if (q?.Length > 200) throw new InvalidOperationException("搜尋文字不可超過 200 字。");
-        var rows = await locations.ManagedLocationsAsync(true, ct);
-        if (rows.Count > 10000) throw new InvalidOperationException("地點超過 10000 筆，請縮小查詢範圍。");
+        // The existing repository applies live record/team scope and searches
+        // every authorized note history row, including notes older than the
+        // 200 most recent entries returned by the maintenance display.
+        var first = await locations.SearchManagedLocationsAsync(
+            new ManagedLocationQueryRequest(Q: q?.Trim(), Page: 1, PageSize: 100), ct);
+        if (first.TotalCount > 10000)
+            throw new InvalidOperationException("地點超過 10000 筆，請縮小查詢範圍。");
+        var rows = new List<ManagedLocationDto>(first.Items);
+        for (var page = 2; rows.Count < first.TotalCount; page++)
+        {
+            var next = await locations.SearchManagedLocationsAsync(
+                new ManagedLocationQueryRequest(Q: q?.Trim(), Page: page, PageSize: 100), ct);
+            if (next.TotalCount != first.TotalCount || next.Items.Count == 0)
+                throw new InvalidOperationException("地點查詢期間資料已變更，請重新查詢。");
+            rows.AddRange(next.Items);
+        }
+        if (rows.Select(x => x.LocationId).Distinct().Count() != first.TotalCount)
+            throw new InvalidOperationException("地點查詢期間資料已變更，請重新查詢。");
         var data = new List<ScopedRow>();
         foreach (var row in rows)
         {
@@ -35,10 +51,6 @@ public sealed class V180ScopedLocationExportController(
             catch (KeyNotFoundException) { /* No scoped note for this visible row. */ }
             catch (UnauthorizedAccessException) { /* Location visible; note scope denied. */ }
             var latest = detail?.Notes.FirstOrDefault();
-            var searchable = string.Join(" ", new[] {row.LocationCode,row.LocationName,row.Address,
-                row.TaxId,row.MasterNote}.Concat(detail?.Notes.Select(n => n.Note) ?? []));
-            if (!string.IsNullOrWhiteSpace(q)
-                && !searchable.Contains(q.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
             data.Add(new(row, latest?.Note, latest?.ChangedBy, latest?.ChangedAt));
         }
         return data;
