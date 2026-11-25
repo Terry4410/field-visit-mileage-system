@@ -704,6 +704,61 @@ public sealed class V170LocationRepository(
                 sourceId,evidenceNames.TryGetValue(sourceId,out var sourceName)?sourceName:null);
         }).ToList();
 
+        // Canonical publication writes commit the Applied event and request
+        // payload atomically with the published version. Read them separately
+        // from legacy AuditLogs, only for a live Admin in the same organization.
+        // Scoped notes and legacy/non-formal deployments retain their behavior.
+        if (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode
+            && user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase))
+        {
+            var published = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            {
+                await using var tx = await db.Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable,ct);
+                var org = await new V180OptionCLiveAuthorizationAdapter(db)
+                    .RequireIndependentAdminAsync(user.UserId,BusinessTime.Today,ct);
+                if (org != user.OrganizationId)
+                    throw new UnauthorizedAccessException("OPTIONC_HISTORY_ORGANIZATION_DENIED");
+
+                var history = await (
+                    from request in db.ChangeRequests.AsNoTracking()
+                    join e in db.ChangeRequestEvents.AsNoTracking()
+                        on request.ChangeRequestId equals e.ChangeRequestId
+                    join u0 in db.Users.AsNoTracking() on e.ActorUserId equals (int?)u0.UserId into actors
+                    from u in actors.DefaultIfEmpty()
+                    where request.OrganizationId == org
+                        && request.EntityKind == "Location"
+                        && evidenceEntityIds.Contains(request.EntityId)
+                        && request.Status == "Applied" && request.AppliedAt != null
+                        && ((e.EventType == "Applied" && request.ReviewedByUserId != null
+                                && e.ActorUserId == request.ReviewedByUserId
+                                && (request.OperationCode == "CreateLocation"
+                                    || request.OperationCode == "UpdatePublishedLocation"))
+                            || (e.EventType == "DirectLowRiskApplied"
+                                && request.OperationCode == "UpdatePublishedLocation"
+                                && request.RiskCode == "Low"
+                                && e.ActorUserId == request.RequestedByUserId))
+                    orderby e.OccurredAt descending,e.ChangeRequestEventId descending
+                    select new { request.EntityId,request.BeforeJson,request.ProposedJson,
+                        e.ChangeRequestEventId,e.EventType,e.OccurredAt,e.ActorUserId,
+                        ActorName=u==null?null:u.DisplayName }
+                ).Take(100).ToListAsync(ct);
+                await tx.CommitAsync(ct);
+                return history.Select(x =>
+                {
+                    _=int.TryParse(x.EntityId,out var sourceId);
+                    // This is the actual canonical event ID, not an AuditLogs ID.
+                    // A distinct action identifies the source for display keys.
+                    return new V170LocationAuditDto(x.ChangeRequestEventId,
+                        x.EventType=="Applied"?"LocationPublicationApplied":"LocationDirectLowRiskApplied",
+                        x.BeforeJson,x.ProposedJson,x.OccurredAt,x.ActorUserId,x.ActorName,
+                        sourceId,evidenceNames.TryGetValue(sourceId,out var sourceName)?sourceName:null);
+                }).ToList();
+            });
+            audits=audits.Concat(published).OrderByDescending(x=>x.ChangedAt)
+                .ThenByDescending(x=>x.AuditLogId).Take(100).ToList();
+        }
+
         return new V170LocationMaintenanceDto(
             row.LocationId,row.LocationCode,row.LocationName,row.LocationType,row.TeamId,teamName,
             row.City,row.District,row.Address,row.PlusCode,row.TaxId,row.MasterNote,row.IsActive,
