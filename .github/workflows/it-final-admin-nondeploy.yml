@@ -1,0 +1,25 @@
+name: IT final admin uncovered unit delta (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['.github/workflows/it-final-admin-nondeploy.yml']
+permissions:
+  contents: read
+jobs:
+  unit-delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 03508fda5852ffd66705db9c49ab311eede753ee
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run previously uncovered admin and import units on fixed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 03508fda5852ffd66705db9c49ab311eede753ee
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180MileageRateVersionRulesTests|FullyQualifiedName~V180MasterDataAdminTests|FullyQualifiedName~V180MasterDataAdminBulkImportTests|FullyQualifiedName~MultiFormatImportCompatibilityTests|FullyQualifiedName~V180SafeDeleteGovernanceTests|FullyQualifiedName~V180ProjectListAvailabilityTests' --logger 'console;verbosity=normal'
