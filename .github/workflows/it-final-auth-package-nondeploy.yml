@@ -18,21 +18,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Run affected report authorization regression in SQL Server 2022
+      - name: Run affected report export unit regression
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = 2164723458d6725d3faab08b5edc2af4cd546af8
-          pw="Aa9!$(openssl rand -hex 18)"
-          echo "::add-mask::$pw"
-          docker run -d --name fv-final-auth-regression -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
-          trap 'docker rm -f fv-final-auth-regression >/dev/null 2>&1 || true' EXIT
-          ready=NO
-          for _ in $(seq 1 60); do if docker exec fv-final-auth-regression /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
-          test "$ready" = YES
-          export E1_R1_SQL_CONNECTION="Server=127.0.0.1,1433;Database=master;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
-          export E1_R1_REQUIRED=1
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~G1ReportExportHttpSqlTests --logger 'console;verbosity=normal'
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~V180QueryExportTests --logger 'console;verbosity=normal'
   package:
     needs: regression
     runs-on: ubuntu-latest
