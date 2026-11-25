@@ -12,8 +12,9 @@ public static class V180MileageRateVersionRules
     public static string NormalizeVehicleType(string? vehicleType)
     {
         var raw=string.IsNullOrWhiteSpace(vehicleType)?"Motorcycle":vehicleType;
-        return V180MileageCanonicalization.ToDbRequestedVehicleType(
-            V180MileageCanonicalization.CanonicalVehicleType(raw));
+        // MileageRateRules uses a binary SQL CHECK that requires upper-case values.
+        // Route attempts use title-case values and must not be reused for this table.
+        return V180MileageCanonicalization.CanonicalVehicleType(raw);
     }
 
     public static void Validate(string? ruleName,decimal ratePerKm,DateOnly effectiveFrom,DateOnly? effectiveTo)
