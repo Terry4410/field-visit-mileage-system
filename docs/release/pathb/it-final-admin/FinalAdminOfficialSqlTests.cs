@@ -107,7 +107,23 @@ public sealed class FinalAdminOfficialSqlTests
             using(var denied=await client.PostAsJsonAsync("api/v1/admin/master-data/centers",
                 new V180CenterInput("OTHER","Denied",from,null,true)))
                 Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+            using(var denied=await client.PostAsJsonAsync("api/v1/mileage-rate-rules",
+                new CreateMileageRateRequest("Denied Rate","Car",2m,from,null)))
+                Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+            using(var denied=await client.PostAsJsonAsync("api/v1/projects",
+                new SaveProjectRequest(null,"OTHER-P","Denied Project",null,"List",null,null,true)))
+                Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+            using(var denied=await client.PostAsJsonAsync("api/v1/visit-types",
+                new SaveVisitTypeRequest("OTHER-V","Denied Visit",null,1,true)))
+                Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+            using(var denied=await client.GetAsync("api/v1/admin/people"))
+                Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+            using(var denied=await client.GetAsync("api/v1/admin/people/personnel-bulk/template.xlsx"))
+                Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
             Assert.False(await db.Centers.AsNoTracking().AnyAsync(x=>x.CenterCode=="BAD"||x.CenterCode=="OTHER"));
+            Assert.False(await db.MileageRateRules.AsNoTracking().AnyAsync());
+            Assert.False(await db.Projects.AsNoTracking().AnyAsync());
+            Assert.False(await db.VisitTypes.AsNoTracking().AnyAsync());
             var liveRole = await db.UserRoleAssignments.SingleAsync(x=>x.UserId==user.UserId&&x.RoleId==role.RoleId);
             db.Remove(liveRole);await db.SaveChangesAsync();
             Token();
@@ -115,7 +131,7 @@ public sealed class FinalAdminOfficialSqlTests
                 new V180CenterInput("REVOKED","Denied",from,null,true)))
                 Assert.Equal(HttpStatusCode.Forbidden,revoked.StatusCode);
             Assert.False(await db.Centers.AsNoTracking().AnyAsync(x=>x.CenterCode=="REVOKED"));
-            Console.WriteLine("OFFICIAL_DENIAL=PASS visitor=403 forged_org=403 revoked_role=403 no_denied_write");
+            Console.WriteLine("OFFICIAL_DENIAL=PASS visitor=403 forged_org_centers_rates_projects_visittypes_people=403 revoked_role=403 no_denied_write");
         }
         finally
         {
