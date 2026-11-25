@@ -108,7 +108,14 @@ public sealed class FinalAdminOfficialSqlTests
                 new V180CenterInput("OTHER","Denied",from,null,true)))
                 Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
             Assert.False(await db.Centers.AsNoTracking().AnyAsync(x=>x.CenterCode=="BAD"||x.CenterCode=="OTHER"));
-            Console.WriteLine("OFFICIAL_DENIAL=PASS visitor=403 forged_org=403 no_cross_org_write");
+            var liveRole = await db.UserRoleAssignments.SingleAsync(x=>x.UserId==user.UserId&&x.RoleId==role.RoleId);
+            db.Remove(liveRole);await db.SaveChangesAsync();
+            Token();
+            using(var revoked=await client.PostAsJsonAsync("api/v1/admin/master-data/centers",
+                new V180CenterInput("REVOKED","Denied",from,null,true)))
+                Assert.Equal(HttpStatusCode.Forbidden,revoked.StatusCode);
+            Assert.False(await db.Centers.AsNoTracking().AnyAsync(x=>x.CenterCode=="REVOKED"));
+            Console.WriteLine("OFFICIAL_DENIAL=PASS visitor=403 forged_org=403 revoked_role=403 no_denied_write");
         }
         finally
         {

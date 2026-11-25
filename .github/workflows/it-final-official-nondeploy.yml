@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 03508fda5852ffd66705db9c49ab311eede753ee
+          ref: 2164723458d6725d3faab08b5edc2af4cd546af8
           path: app
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C app rev-parse HEAD)" = 03508fda5852ffd66705db9c49ab311eede753ee
+          test "$(git -C app rev-parse HEAD)" = 2164723458d6725d3faab08b5edc2af4cd546af8
           cp delivery/docs/release/pathb/it-final-admin/FinalAdminOfficialSqlTests.cs app/backend/tests/FieldVisit.Application.Tests/
           pw="Aa9!$(openssl rand -hex 18)"
           echo "::add-mask::$pw"
