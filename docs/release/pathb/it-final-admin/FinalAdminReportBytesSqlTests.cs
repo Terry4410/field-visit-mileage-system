@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using FieldVisit.Application;
@@ -20,7 +21,7 @@ public sealed class FinalAdminReportBytesSqlTests
 {
     private const string Key = "final-admin-report-isolated-jwt-key-over-32-characters";
     [Fact]
-    public async Task Eleven_admin_exports_have_real_xlsx_content_and_role_denials()
+    public async Task Ten_enabled_admin_exports_have_real_xlsx_content_and_policy_denials()
     {
         var raw = Environment.GetEnvironmentVariable("FV_FINAL_SQL");
         if (string.IsNullOrWhiteSpace(raw))
@@ -109,8 +110,7 @@ public sealed class FinalAdminReportBytesSqlTests
                 ("roles","查詢結果","FIN-001"), ("teams","查詢結果","FIN-T"),
                 ("members","查詢結果","FIN-001"), ("locations","查詢結果","FIN-L"),
                 ("centers","查詢結果","FIN-C"), ("deployment-sites","查詢結果","FIN-S"),
-                ("locations-official","地點主檔","FIN-L"), ("projects","查詢結果","FIN-P"),
-                ("visit-types","查詢結果","FIN-V")
+                ("locations-official","地點主檔","FIN-L"), ("projects","查詢結果","FIN-P")
             };
             var output = Environment.GetEnvironmentVariable("FV_FINAL_REPORT_DIR") ?? throw new Exception("FV_FINAL_REPORT_DIR_REQUIRED");
             Directory.CreateDirectory(output);
@@ -138,6 +138,79 @@ public sealed class FinalAdminReportBytesSqlTests
                 File.WriteAllBytes(Path.Combine(output, item.Kind + ".xlsx"), bytes);
                 Console.WriteLine($"REPORT_BYTES=PASS kind={item.Kind} bytes={bytes.Length} sheet={item.Sheet} rows={sheet.LastRowNum} expected={item.Expected}");
             }
+            using (var held = await client.GetAsync("api/v1/admin/query-exports/visit-types.xlsx"))
+            {
+                Assert.Equal(HttpStatusCode.Forbidden, held.StatusCode);
+                Assert.Contains("REPORT_EXPORT_VISIT_TYPE_POLICY_HOLD", await held.Content.ReadAsStringAsync());
+            }
+            Console.WriteLine("VISIT_TYPE_REPORT_POLICY=DENIED expected_on_03508fd");
+            var start = BusinessTime.Today.AddDays(-10);
+            using var createdRateResponse = await client.PostAsJsonAsync("api/v1/mileage-rate-rules",
+                new CreateMileageRateRequest("Final Car", "CAR", 2.5m, start, null));
+            Assert.Equal(HttpStatusCode.OK, createdRateResponse.StatusCode);
+            var rate = await createdRateResponse.Content.ReadFromJsonAsync<MileageRateDto>();
+            Assert.NotNull(rate);
+            Assert.Equal("Car", rate.VehicleType);
+            using (var overlap = await client.PostAsJsonAsync("api/v1/mileage-rate-rules",
+                new CreateMileageRateRequest("Overlap", "car", 9m, start.AddDays(1), null)))
+                Assert.False(overlap.IsSuccessStatusCode);
+            Assert.Equal(1, await db.MileageRateRules.CountAsync(x => x.OrganizationId == org.OrganizationId));
+            var approved = new VisitTrip { TripNo = "FIN-APPROVED-RATE", UserId = user.UserId, CreatedByUserId = user.UserId,
+                OrganizationId = org.OrganizationId, TeamId = team.TeamId, VisitDate = BusinessTime.Today,
+                VehicleType = "Car", Status = "Approved", CreatedAt = now };
+            db.Add(approved);
+            await db.SaveChangesAsync();
+            db.Add(new MileageCalculation { VisitTripId = approved.VisitTripId, MileageRateRuleId = rate.MileageRateRuleId,
+                ApprovedDistanceKm = 10m, RatePerKmSnapshot = 2.5m, ApprovedAmount = 25m, CreatedAt = now });
+            await db.SaveChangesAsync();
+            using (var impact = await client.GetAsync($"api/v1/mileage-rate-rules/impact?effectiveFrom={start:yyyy-MM-dd}&vehicleType=car"))
+            {
+                Assert.Equal(HttpStatusCode.OK, impact.StatusCode);
+                var body = await impact.Content.ReadFromJsonAsync<MileageRateImpactDto>();
+                Assert.Equal(1, body?.ApprovedTripCount);
+            }
+            using (var noAck = await client.PutAsJsonAsync($"api/v1/mileage-rate-rules/{rate.MileageRateRuleId}",
+                new UpdateMileageRateRequest("Final Car Updated", "cAr", 3m, start, null, true)))
+                Assert.False(noAck.IsSuccessStatusCode);
+            using (var changed = await client.PutAsJsonAsync($"api/v1/mileage-rate-rules/{rate.MileageRateRuleId}",
+                new UpdateMileageRateRequest("Final Car Updated", "cAr", 3m, start, null, true, true)))
+                Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+            Assert.Equal(25m, await db.MileageCalculations.AsNoTracking()
+                .Where(x => x.VisitTripId == approved.VisitTripId).Select(x => x.ApprovedAmount).SingleAsync());
+            using (var noAck = await client.DeleteAsync($"api/v1/mileage-rate-rules/{rate.MileageRateRuleId}"))
+                Assert.False(noAck.IsSuccessStatusCode);
+            using (var disabled = await client.DeleteAsync($"api/v1/mileage-rate-rules/{rate.MileageRateRuleId}?acknowledgeHistoricalImpact=true"))
+                Assert.Equal(HttpStatusCode.NoContent, disabled.StatusCode);
+            Assert.False(await db.MileageRateRules.AsNoTracking()
+                .Where(x => x.MileageRateRuleId == rate.MileageRateRuleId).Select(x => x.IsActive).SingleAsync());
+            Assert.Equal(25m, await db.MileageCalculations.AsNoTracking()
+                .Where(x => x.VisitTripId == approved.VisitTripId).Select(x => x.ApprovedAmount).SingleAsync());
+            Console.WriteLine("RATE_HTTP_SQL=PASS create canonical=Car overlap=REJECT history_ack=REQUIRED update=PASS deactivate=PASS approved_snapshot=25.00_UNCHANGED");
+            using var projectResponse = await client.PostAsJsonAsync("api/v1/projects",
+                new SaveProjectRequest(team.TeamId, "FIN-P2", "New Project", "Synthetic", "List", null, null, true));
+            Assert.Equal(HttpStatusCode.OK, projectResponse.StatusCode);
+            var newProject = await projectResponse.Content.ReadFromJsonAsync<ProjectDto>();
+            Assert.NotNull(newProject);
+            using (var changed = await client.PutAsJsonAsync($"api/v1/projects/{newProject.ProjectId}",
+                new SaveProjectRequest(team.TeamId, "FIN-P2", "Updated Project", "Synthetic", "List", null, null, true)))
+                Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+            using (var disabled = await client.DeleteAsync($"api/v1/projects/{newProject.ProjectId}"))
+                Assert.Equal(HttpStatusCode.NoContent, disabled.StatusCode);
+            Assert.False(await db.Projects.AsNoTracking()
+                .Where(x => x.ProjectId == newProject.ProjectId).Select(x => x.IsActive).SingleAsync());
+            using var visitResponse = await client.PostAsJsonAsync("api/v1/visit-types",
+                new SaveVisitTypeRequest("FIN-V2", "New Visit", "Synthetic", 2, true));
+            Assert.Equal(HttpStatusCode.OK, visitResponse.StatusCode);
+            var newVisit = await visitResponse.Content.ReadFromJsonAsync<VisitTypeDto>();
+            Assert.NotNull(newVisit);
+            using (var changed = await client.PutAsJsonAsync($"api/v1/visit-types/{newVisit.VisitTypeId}",
+                new SaveVisitTypeRequest("FIN-V2", "Updated Visit", "Synthetic", 2, true)))
+                Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+            using (var disabled = await client.DeleteAsync($"api/v1/visit-types/{newVisit.VisitTypeId}"))
+                Assert.Equal(HttpStatusCode.NoContent, disabled.StatusCode);
+            Assert.False(await db.VisitTypes.AsNoTracking()
+                .Where(x => x.VisitTypeId == newVisit.VisitTypeId).Select(x => x.IsActive).SingleAsync());
+            Console.WriteLine("MASTER_HTTP_SQL=PASS project create/update/deactivate; visit-type create/update/deactivate");
             Token("visitor");
             foreach (var item in cases)
             {
@@ -147,7 +220,7 @@ public sealed class FinalAdminReportBytesSqlTests
             Token("admin", other.OrganizationId);
             using (var response = await client.GetAsync("api/v1/admin/query-exports/teams.xlsx"))
                 Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-            Console.WriteLine("REPORT_DENY=PASS visitor=11/11 forgedOrganization=FORBIDDEN");
+            Console.WriteLine("REPORT_DENY=PASS visitor=10/10 enabled plus visit-type-policy forgedOrganization=FORBIDDEN");
         }
         finally
         {

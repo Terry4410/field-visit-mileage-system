@@ -1,4 +1,4 @@
-name: IT 11 report workbook bytes (NONDEPLOY)
+name: IT 10 report workbook bytes and policy denial (NONDEPLOY)
 on:
   push:
     branches: [work/pathb-it-cleanbuild-020-20261123]
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Run eleven actual report HTTP and XLSX content checks in disposable SQL Server 2022
+      - name: Run ten enabled actual report HTTP and XLSX content checks in disposable SQL Server 2022
         shell: bash
         run: |
           set -euo pipefail
@@ -39,12 +39,12 @@ jobs:
           export FV_FINAL_SQL="Server=127.0.0.1,1433;Database=master;User Id=sa;Password=$pw;Encrypt=True;TrustServerCertificate=True"
           export FV_FINAL_REPORT_DIR="$RUNNER_TEMP/report-xlsx"
           dotnet test app/backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~FinalAdminReportBytesSqlTests --logger 'console;verbosity=normal'
-          test "$(find "$FV_FINAL_REPORT_DIR" -maxdepth 1 -name '*.xlsx' | wc -l)" = 11
+          test "$(find "$FV_FINAL_REPORT_DIR" -maxdepth 1 -name '*.xlsx' | wc -l)" = 10
           (cd "$FV_FINAL_REPORT_DIR" && sha256sum *.xlsx) > "$RUNNER_TEMP/report-sha256.txt"
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: final-admin-11-report-workbooks-03508fda
+          name: final-admin-10-report-workbooks-03508fda
           path: |
             ${{ runner.temp }}/report-xlsx/*.xlsx
             ${{ runner.temp }}/report-sha256.txt
