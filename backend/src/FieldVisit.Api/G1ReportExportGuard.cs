@@ -16,9 +16,32 @@ public sealed class G1ReportExportGuard(
     {
         var path = context.HttpContext.Request.Path.Value ?? "";
         var adminReport = path.StartsWith("/api/v1/admin/query-exports/", StringComparison.OrdinalIgnoreCase);
+        var masterData = path.StartsWith("/api/v1/admin/master-data/", StringComparison.OrdinalIgnoreCase);
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
-        if (!adminReport && !tripReport) { await next(); return; }
+        if (!adminReport && !tripReport && !masterData) { await next(); return; }
+        // Master-data commands cannot trust a signed but stale organization/role claim.
+        // Reuse the live account, HR and role check before any SQL write starts.
+        if (masterData)
+        {
+            try
+            {
+                await CheckAsync(current.GetRequired(), true, path, context.HttpContext.RequestAborted);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                context.Result = Denied("MASTER_DATA_LIVE_AUTHORIZATION_DENIED");
+                return;
+            }
+            catch (OperationCanceledException) when (context.HttpContext.RequestAborted.IsCancellationRequested) { throw; }
+            catch (Exception)
+            {
+                context.Result = new ObjectResult(new { code = "MASTER_DATA_AUTHORIZATION_UNAVAILABLE" }) { StatusCode = 503 };
+                return;
+            }
+            await next();
+            return;
+        }
         if (path.EndsWith("/visit-types.xlsx", StringComparison.OrdinalIgnoreCase))
         { context.Result = Denied("REPORT_EXPORT_VISIT_TYPE_POLICY_HOLD"); return; }
         ActionExecutedContext? executed = null;
