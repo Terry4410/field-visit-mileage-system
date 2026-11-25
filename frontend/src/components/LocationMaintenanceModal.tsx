@@ -29,7 +29,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
   const[officialFrom,setOfficialFrom]=useState(todayTaipei());
 
   const load=async()=>{
-    const suffix=activeTeamId?`?teamId=${activeTeamId}`:"";
+    const suffix=!isAdmin&&activeTeamId?`?teamId=${activeTeamId}`:"";
     const row=await api<LocationMaintenance>(`/locations/${locationId}/maintenance${suffix}`);
     setData(row);setCity(row.city||"");setDistrict(row.district||"");setAddress(row.address||"");setPlus(row.plusCode||"");setTaxId(row.taxId||"");setMasterNote(row.masterNote||"");
     if(!activeTeamId&&row.teamId)setActiveTeamId(row.teamId);
@@ -135,7 +135,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
     setBusy(true);setMsg("");
     try{
       const row=await api<LocationMaintenance>(`/locations/${locationId}/notes`,{method:"POST",body:JSON.stringify({teamId:effectiveTeamId,note:note.trim(),changeReason:noteReason.trim()||null})});
-      setData(row);setNote("");setNoteReason("");setMsg("備註已新增並保留作者與時間歷史。");onChanged?.();
+      setData(previous=>isAdmin&&previous?{...row,addressAudit:previous.addressAudit}:row);setNote("");setNoteReason("");setMsg("備註已新增並保留作者與時間歷史。");onChanged?.();
     }catch(e){setMsg(e instanceof Error?e.message:"備註新增失敗")}finally{setBusy(false)}
   };
 
