@@ -41,6 +41,26 @@ public sealed class V180SqlServerTriggerCompatibilityTests
         return entityType.IsSqlOutputClauseUsed(storeObject);
     }
 
+    // SQL migration 005 and effective trigger 008 require uppercase storage.
+    // Keep the application/route-attempt representation independent.
+    [Theory]
+    [InlineData("Car", "CAR")]
+    [InlineData("cAr", "CAR")]
+    [InlineData("Motorcycle", "MOTORCYCLE")]
+    [InlineData("motorcycle", "MOTORCYCLE")]
+    public void Mileage_rate_storage_and_query_use_schema_canonical_case(string input, string expected)
+    {
+        using var db = CreateSqlServerModelContext();
+        var property = db.Model.FindEntityType(typeof(MileageRateRule))!
+            .FindProperty(nameof(MileageRateRule.VehicleType))!;
+        var converter = property.GetTypeMapping().Converter;
+        Assert.NotNull(converter);
+        Assert.Equal(expected, converter.ConvertToProvider(input));
+        Assert.Equal(expected, converter.ConvertFromProvider(expected));
+        var sql = db.MileageRateRules.Where(x => x.VehicleType == input).ToQueryString();
+        Assert.Contains($"'{expected}'", sql);
+    }
+
     [Theory]
     [InlineData(typeof(Location))]
     [InlineData(typeof(MileageCalculation))]

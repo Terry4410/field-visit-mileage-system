@@ -247,7 +247,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasOne<User>().WithMany().HasForeignKey(x => x.DistanceApprovedByUserId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.InvalidatedByUserId).OnDelete(DeleteBehavior.NoAction);
         });
-        b.Entity<MileageRateRule>(e => { e.ToTable("MileageRateRules", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd(); e.Property(x => x.RatePerKm).HasPrecision(10,2); });
+        b.Entity<MileageRateRule>(e => { e.ToTable("MileageRateRules", table => table.UseSqlOutputClause(false)); e.HasKey(x => x.MileageRateRuleId); e.Property(x => x.MileageRateRuleId).ValueGeneratedOnAdd(); e.Property(x => x.RatePerKm).HasPrecision(10,2); e.Property(x => x.VehicleType).HasConversion(v => V180MileageCanonicalization.CanonicalVehicleType(v), v => v); });
         b.Entity<ApprovalRecord>(e => { e.ToTable("ApprovalRecords"); e.HasKey(x => x.ApprovalRecordId); e.Property(x => x.ApprovalRecordId).ValueGeneratedOnAdd(); });
         b.Entity<VisitTripStatusHistory>(e => { e.ToTable("VisitTripStatusHistory"); e.HasKey(x => x.VisitTripStatusHistoryId); e.Property(x => x.VisitTripStatusHistoryId).ValueGeneratedOnAdd(); });
         b.Entity<AuditLog>(e => { e.ToTable("AuditLogs"); e.HasKey(x => x.AuditLogId); e.Property(x => x.AuditLogId).ValueGeneratedOnAdd(); });

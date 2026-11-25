@@ -349,7 +349,7 @@ public sealed class MasterService(
 
         await EnsureRateHistoricalImpactAcknowledgedAsync(
             user.OrganizationId,
-            row.VehicleType,
+            V180MileageRateVersionRules.NormalizeVehicleType(row.VehicleType),
             row.EffectiveFrom,
             acknowledgeHistoricalImpact,
             ct);
@@ -433,6 +433,6 @@ public sealed class MasterService(
     private static LocationDto MapLocation(Location x) => new(x.LocationId, x.TeamId, x.LocationName, x.LocationType, x.City, x.District, x.Address, x.PlusCode, x.Latitude, x.Longitude, x.IsTemporary, x.ApprovalStatus, x.GeocodingStatus, x.IsActive, x.CreatedAt, Convert.ToBase64String(x.RowVersion ?? []));
     private static ProjectDto MapProject(Project x) => new(x.ProjectId, x.TeamId, x.ProjectCode, x.ProjectName, x.Description, x.LocationMode, x.StartDate, x.EndDate, x.IsActive);
     private static VisitTypeDto MapVisitType(VisitType x) => new(x.VisitTypeId, x.VisitTypeCode, x.VisitTypeName, x.Description, x.SortOrder, x.IsActive);
-    private static MileageRateDto MapRate(MileageRateRule x) => new(x.MileageRateRuleId, x.OrganizationId, x.RuleName, x.VehicleType, x.RatePerKm, x.EffectiveFrom, x.EffectiveTo, x.IsActive);
+    private static MileageRateDto MapRate(MileageRateRule x) => new(x.MileageRateRuleId, x.OrganizationId, x.RuleName, V180MileageRateVersionRules.NormalizeVehicleType(x.VehicleType), x.RatePerKm, x.EffectiveFrom, x.EffectiveTo, x.IsActive);
     private static AuditLog Audit(int userId, string entity, string? id, string action, object value) => new() { UserId = userId, EntityType = entity, EntityId = id, Action = action, NewValues = System.Text.Json.JsonSerializer.Serialize(value), CorrelationId = Guid.NewGuid(), CreatedAt = DateTime.UtcNow };
 }
