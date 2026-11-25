@@ -1,0 +1,48 @@
+name: IT admin runtime candidate allow deny SQL (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths: ['docs/release/pathb/it-final-admin/admin-runtime-*.sql', '.github/workflows/it-final-admin-acl-nondeploy.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install 69-table schema and exercise narrow admin SQL role
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/14926555963/zip > "$RUNNER_TEMP/schema.zip"
+          echo "76ba1802d24e49ff07d61ec823999af6d4d6f7736fdac88774674be9f10e8905  $RUNNER_TEMP/schema.zip" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/schema"
+          unzip -q "$RUNNER_TEMP/schema.zip" -d "$RUNNER_TEMP/schema"
+          (cd "$RUNNER_TEMP/schema" && sha256sum -c SHA256SUMS.txt >/dev/null)
+          pw="Aa9!$(openssl rand -hex 18)"
+          runpw="Bb8!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          echo "::add-mask::$runpw"
+          docker run -d --name fv-final-admin-acl -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f fv-final-admin-acl >/dev/null 2>&1 || true' EXIT
+          cmd(){ docker exec -i fv-final-admin-acl /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -I -b -l 10 -f 65001 "$@"; }
+          ready=NO
+          for _ in $(seq 1 60); do if cmd -d master -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi; sleep 2; done
+          test "$ready" = YES
+          db=FieldVisitCompanyCoreTest
+          server="$(cmd -d master -h -1 -W -Q "SET NOCOUNT ON;SELECT CONVERT(nvarchar(128),SERVERPROPERTY(N'ServerName'));" | tr -d '\r' | head -n 1)"
+          [[ "$server" =~ ^[a-zA-Z0-9_.-]+$ ]]
+          cmd -d master -Q "CREATE DATABASE [$db]; CREATE LOGIN fv_core_test WITH PASSWORD=N'$runpw',CHECK_POLICY=OFF;" >/dev/null
+          cmd -d "$db" -v FVServer="$server" FVDatabase="$db" < "$RUNNER_TEMP/schema/01-schema-install.sql" > "$RUNNER_TEMP/install.log" 2>&1 || { grep -Eo '^Msg [0-9]+' "$RUNNER_TEMP/install.log"; exit 1; }
+          cmd -d "$db" -Q "CREATE USER fv_core_test FOR LOGIN fv_core_test; CREATE ROLE FieldVisitCoreRuntimeReview; ALTER ROLE FieldVisitCoreRuntimeReview ADD MEMBER fv_core_test;" >/dev/null
+          cmd -d "$db" < docs/release/pathb/it-core-runtime/core-runtime-review.sql >/dev/null
+          cmd -d "$db" < docs/release/pathb/it-final-admin/admin-runtime-delta-review.sql >/dev/null
+          cmd -d "$db" -Q "INSERT dbo.Organizations(OrganizationCode,OrganizationName,IsActive,CreatedAt) VALUES(N'ACL',N'ACL Synthetic',1,SYSUTCDATETIME());" >/dev/null
+          cmd -d "$db" < docs/release/pathb/it-final-admin/admin-runtime-allow-deny.sql
