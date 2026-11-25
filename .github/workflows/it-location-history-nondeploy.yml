@@ -1,0 +1,74 @@
+name: IT canonical location history SQL delta (NONDEPLOY)
+on:
+  push:
+    branches: [work/pathb-it-cleanbuild-020-20261123]
+    paths:
+      - 'docs/release/pathb/it-history-regression/**'
+      - '.github/workflows/it-location-history-nondeploy.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  isolated-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 03508fda5852ffd66705db9c49ab311eede753ee
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: delivery
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: PathB-REPORT-EXPORT-3ROLES-API-package-8442bae3
+          run-id: 45312411080
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/source-package
+      - name: Prepare exact app and one test-only history method
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C app rev-parse HEAD)" = 03508fda5852ffd66705db9c49ab311eede753ee
+          pkg="$RUNNER_TEMP/source-package/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
+          echo "c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63  $pkg" | sha256sum -c - >/dev/null
+          mkdir -p app/backend/src/FieldVisit.Infrastructure/fonts
+          unzip -p "$pkg" fonts/NotoSansCJK-Regular.ttc > app/backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
+          echo "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  app/backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc" | sha256sum -c - >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('app/backend/tests/FieldVisit.Application.Tests/V180OptionCFinalSecurityGateSqlTests.cs')
+          text=path.read_text()
+          insertion=Path('delivery/docs/release/pathb/it-history-regression/history_regression_method.txt').read_text()
+          marker='    private sealed class Harness:IAsyncDisposable'
+          assert text.count(marker)==1
+          path.write_text(text.replace(marker,insertion+marker))
+          PY
+      - name: Run one real disposable SQL Server 2022 history readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          pw="Aa9!$(openssl rand -hex 18)"
+          echo "::add-mask::$pw"
+          docker run -d --name fv-it-history -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD="$pw" -p 127.0.0.1:1433:1433 mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+          trap 'docker rm -f fv-it-history >/dev/null 2>&1 || true' EXIT
+          ready=NO
+          for _ in $(seq 1 60); do
+            if docker exec fv-it-history /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -l 3 -b -Q 'SELECT 1' >/dev/null 2>&1; then ready=YES; break; fi
+            sleep 2
+          done
+          test "$ready" = YES
+          export E1_R1_SQL_CONNECTION="Server=localhost,1433;Database=master;User Id=sa;Password=$pw;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5"
+          echo "::add-mask::$E1_R1_SQL_CONNECTION"
+          export E1_R1_REQUIRED=1 OPTIONC_EXECUTION_MODE=IsolatedSqlTest
+          export ConnectionStrings__DefaultConnection="$E1_R1_SQL_CONNECTION"
+          export UatAutomation__CleanupEnabled=false BackgroundJobs__WorkerEnabled=false BackgroundJobs__RecoverOnStartup=false
+          export Providers__Route=Mock Providers__Geocoding=Mock
+          dotnet test app/backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~R10_admin_canonical_location_history_reads_applied_event_and_fails_closed_after_revocation' --logger 'console;verbosity=normal'
