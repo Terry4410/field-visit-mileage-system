@@ -4,6 +4,7 @@ on:
     branches: [work/it-corporate-formal-location-20261124]
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/it-corporate-formal-location-nondeploy.yml'
 permissions:
   contents: read
@@ -23,4 +24,20 @@ jobs:
         run: |
           set -euo pipefail
           if grep -R -n 'V180OptionCExecutionPolicy.IsPathBUatMode' backend/src --include='*.cs'; then exit 1; fi
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~CorporateFormalLocationTargetTests --logger "console;verbosity=normal"
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~CorporateFormalLocationTargetTests|FullyQualifiedName~V180QueryExportTests' --logger "console;verbosity=normal"
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
