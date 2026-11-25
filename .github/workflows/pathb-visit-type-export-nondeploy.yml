@@ -63,7 +63,9 @@ jobs:
         run: |
           set -euo pipefail
           dotnet build backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --nologo
-      - name: Real SQL HTTP and in-memory per-row scope positive negative tests
+      - name: Real restricted SQL location history positive and negative tests
+        env:
+          OPTIONC_EXECUTION_MODE: IsolatedSqlTest
         shell: bash
         run: |
           set -euo pipefail
