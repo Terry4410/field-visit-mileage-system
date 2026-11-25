@@ -1,7 +1,7 @@
 name: Biz User change batch verification (NONDEPLOY)
 on:
   push:
-    branches: [work/biz-user-uat-consolidated-20261125]
+    branches: [work/biz-user-uat-final-ci-20261126]
 permissions:
   contents: read
 jobs:
