@@ -2,6 +2,7 @@ using System.Reflection;
 using FieldVisit.Api.Controllers;
 using FieldVisit.Application;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Routing;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using Xunit;
@@ -112,6 +113,23 @@ public sealed class V180QueryExportTests
         Assert.Contains("centers.xlsx",endpoints);
         Assert.Contains("deployment-sites.xlsx",endpoints);
         Assert.Contains("locations-official.xlsx",endpoints);
+        Assert.Contains("visit-types.xlsx",endpoints);
+    }
+
+    [Fact]
+    public void Visit_types_have_no_write_or_import_http_routes()
+    {
+        var controllers = typeof(MasterController).Assembly.GetTypes()
+            .Where(t => t.IsSubclassOf(typeof(ControllerBase)));
+        var routes = controllers.SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .SelectMany(m => m.GetCustomAttributes<HttpMethodAttribute>(true)
+                .Select(a => (Controller: t, Template: a.Template ?? "", Verbs: a.HttpMethods)))).ToList();
+        Assert.Contains(routes, r => r.Controller == typeof(MasterController)
+            && r.Template == "visit-types" && r.Verbs.Contains("GET"));
+        Assert.Contains(routes, r => r.Controller == typeof(V180QueryExportController)
+            && r.Template == "visit-types.xlsx" && r.Verbs.Contains("GET"));
+        Assert.DoesNotContain(routes, r => r.Template.Contains("visit-types", StringComparison.OrdinalIgnoreCase)
+            && r.Verbs.Any(v => v != "GET"));
     }
 
     [Fact]
