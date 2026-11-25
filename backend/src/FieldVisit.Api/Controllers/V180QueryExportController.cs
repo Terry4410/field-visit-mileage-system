@@ -42,9 +42,9 @@ public sealed class V180QueryExportController(
         request = request with { UserType = "Internal" };
         var rows = await GetAllAsync(page => people.QueryAsync(request with { Page = page, PageSize = BatchSize }, ct), ct);
         return Workbook("角色與登入", request,
-            ["工號", "姓名", "角色", "人事狀態", "實際登入", "管理小組"],
+            ["工號", "姓名", "角色", "人事狀態", "登入資格", "管理小組"],
             rows.Select(x => Cells(x.EmployeeNo ?? x.UserCode, x.DisplayName,
-                string.Join("、", x.Roles), x.EmploymentStatus, x.ActualAccess ? "可登入" : "不可登入",
+                string.Join("、", x.Roles), x.EmploymentStatus, LoginEligibilityLabel(x.ActualAccess,x.Roles.Count),
                 string.Join("、", x.TeamAssignments.Select(t => t.TeamName + (t.IsPrimary ? " ★" : ""))))));
     }
 
@@ -418,6 +418,12 @@ public sealed class V180QueryExportController(
         return bounds.ToList();
     }
 
+    // ActualAccess is HR/account eligibility; the report's current role
+    // projection does not prove authentication or legacy role fallback.
+    private static string LoginEligibilityLabel(bool hrEligible,int currentRoleCount) =>
+        !hrEligible?"人事／帳號資格不符":
+        currentRoleCount==0?"人事資格符合；未列有效角色":"人事及角色資格符合";
+
     private sealed record PersonnelColumn(string Id, string Header, Func<V170PeopleRowDto,string> Getter);
     private static readonly PersonnelColumn[] AllPersonnelColumns =
     [
@@ -433,7 +439,7 @@ public sealed class V180QueryExportController(
         new("primarySite","主要派駐據點",x=>x.PrimaryDeploymentSiteName??""),
         new("primaryCenter","就業中心",x=>x.PrimaryCenterName??""),
         new("roles","目前角色",x=>string.Join("、",x.Roles)),
-        new("login","實際登入",x=>x.ActualAccess?"允許登入":"不可登入"),
+        new("login","登入資格",x=>LoginEligibilityLabel(x.ActualAccess,x.Roles.Count)),
         new("authorizationFrom","授權起日",x=>Cells(x.AuthorizationFrom)[0]),
         new("authorizationTo","授權迄日",x=>Cells(x.AuthorizationTo)[0])
     ];
