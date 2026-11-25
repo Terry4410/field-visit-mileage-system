@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 2164723458d6725d3faab08b5edc2af4cd546af8
+          ref: 87d69e1788179e82193389c88eca53b3db38f170
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 2164723458d6725d3faab08b5edc2af4cd546af8
+          test "$(git rev-parse HEAD)" = 87d69e1788179e82193389c88eca53b3db38f170
           dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter FullyQualifiedName~V180QueryExportTests --logger 'console;verbosity=normal'
   package:
     needs: regression
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 2164723458d6725d3faab08b5edc2af4cd546af8
+          ref: 87d69e1788179e82193389c88eca53b3db38f170
           path: app
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -73,9 +73,9 @@ jobs:
           cp -a app/frontend/dist/. "$RUNNER_TEMP/review/frontend/"
           cp delivery/docs/release/pathb/it-iis-review/appsettings.json "$RUNNER_TEMP/review/api/appsettings.json"
           cp delivery/docs/release/pathb/it-iis-review/config.js "$RUNNER_TEMP/review/frontend/config.js"
-          test "$(git -C app rev-parse HEAD)" = 2164723458d6725d3faab08b5edc2af4cd546af8
-          sed -e 's/a4281b4d488448153ef3cd09f6ed698d146d3c77/2164723458d6725d3faab08b5edc2af4cd546af8/g' -e 's/03508fda5852ffd66705db9c49ab311eede753ee/2164723458d6725d3faab08b5edc2af4cd546af8/g' delivery/docs/release/pathb/it-iis-review/README.md > "$RUNNER_TEMP/review/README.md"
-          grep -F 'Exact application source 2164723458d6725d3faab08b5edc2af4cd546af8' "$RUNNER_TEMP/review/README.md"
+          test "$(git -C app rev-parse HEAD)" = 87d69e1788179e82193389c88eca53b3db38f170
+          sed -e 's/a4281b4d488448153ef3cd09f6ed698d146d3c77/87d69e1788179e82193389c88eca53b3db38f170/g' -e 's/03508fda5852ffd66705db9c49ab311eede753ee/87d69e1788179e82193389c88eca53b3db38f170/g' delivery/docs/release/pathb/it-iis-review/README.md > "$RUNNER_TEMP/review/README.md"
+          grep -F 'Exact application source 87d69e1788179e82193389c88eca53b3db38f170' "$RUNNER_TEMP/review/README.md"
           # Hash routing requires no URL rewrite. Explicit static default doc and no browsing.
           cat > "$RUNNER_TEMP/review/frontend/web.config" <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
@@ -104,14 +104,14 @@ jobs:
           assert not c['BackgroundJobs']['WorkerEnabled']
           assert not list(p.rglob('*.ttc')) and not list(p.rglob('*.otf'))
           assert 'azurewebsites.net' not in (f/'config.js').read_text() and '"AUTH_MODE": "Entra"' in (f/'config.js').read_text()
-          (p/'manifest.json').write_text(json.dumps({'source':'2164723458d6725d3faab08b5edc2af4cd546af8','target':'Windows x64 IIS .NET 8 framework-dependent','status':'NONDEPLOY_REVIEW_ONLY','actualIIS':'NOT_RUN','actualEntra':'NOT_RUN','runtimeACL':'INCOMPLETE','font':'embedded resource preserved; actual Windows PDF not tested'},indent=2)+'\n')
+          (p/'manifest.json').write_text(json.dumps({'source':'87d69e1788179e82193389c88eca53b3db38f170','target':'Windows x64 IIS .NET 8 framework-dependent','status':'NONDEPLOY_REVIEW_ONLY','actualIIS':'NOT_RUN','actualEntra':'NOT_RUN','runtimeACL':'INCOMPLETE','font':'embedded resource preserved; actual Windows PDF not tested'},indent=2)+'\n')
           (p/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(q.read_bytes()).hexdigest()+'  '+q.relative_to(p).as_posix()+'\n' for q in sorted(p.rglob('*')) if q.is_file() and q.name!='SHA256SUMS.txt'))
           print('WINDOWS_X64_IIS_PACKAGE_CONTENTS_AND_SAFE_DEFAULTS=PASS')
           PY
           (cd "$RUNNER_TEMP/review" && sha256sum -c SHA256SUMS.txt >/dev/null)
       - uses: actions/upload-artifact@v4
         with:
-          name: fieldvisit-v180-windows-iis-review-21647234
+          name: fieldvisit-v180-windows-iis-review-87d69e17
           path: ${{ runner.temp }}/review
           if-no-files-found: error
           retention-days: 30
@@ -131,12 +131,12 @@ jobs:
               assert 'source/frontend/package-lock.json' in names
               assert not any(n.lower().endswith(('.ttc','.ttf','.otf','.pfx','.pem','.key')) for n in names)
               print('UPDATED_TRACKED_SOURCE_FILE_COUNT='+str(len(names)))
-          (p/'SOURCE_SHA.txt').write_text('2164723458d6725d3faab08b5edc2af4cd546af8\n',encoding='utf-8')
+          (p/'SOURCE_SHA.txt').write_text('87d69e1788179e82193389c88eca53b3db38f170\n',encoding='utf-8')
           (p/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(q.read_bytes()).hexdigest()+'  '+q.name+'\n' for q in sorted(p.iterdir())),encoding='utf-8')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: fieldvisit-v180-it-exact-application-source-21647234
+          name: fieldvisit-v180-it-exact-application-source-87d69e17
           path: ${{ runner.temp }}/source
           if-no-files-found: error
           retention-days: 30
