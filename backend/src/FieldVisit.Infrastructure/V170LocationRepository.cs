@@ -671,9 +671,11 @@ public sealed class V170LocationRepository(
                 x.LocationName))
             .ToListAsync(ct);
 
-        // An explicit team selection requests scoped notes, not master-data audit history.
-        // Keep the unscoped maintenance view's existing audit behavior unchanged.
-        if (teamId.HasValue)
+        // Explicit team selection is notes-only. In formal-location mode,
+        // only Admin may request master-data audit history, even with no team filter.
+        // Legacy/non-formal deployments retain their existing behavior.
+        if (teamId.HasValue || (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode
+            && !user.Roles.Contains("admin",StringComparer.OrdinalIgnoreCase)))
             return new V170LocationMaintenanceDto(
                 row.LocationId,row.LocationCode,row.LocationName,row.LocationType,row.TeamId,teamName,
                 row.City,row.District,row.Address,row.PlusCode,row.TaxId,row.MasterNote,row.IsActive,
@@ -692,15 +694,19 @@ public sealed class V170LocationRepository(
                     ||audit.Action=="LocationDuplicateSuspected"
                     ||audit.Action=="LocationDuplicateSuspectCleared")
             orderby audit.CreatedAt descending,audit.AuditLogId descending
-            select new{audit,u}
+            // Project only fields used by the maintenance DTO. Do not read
+            // IP addresses, correlation identifiers or the full audit/user entity.
+            select new { audit.AuditLogId, audit.Action, audit.OldValues,
+                audit.NewValues, audit.CreatedAt, audit.UserId, audit.EntityId,
+                ActorName = u == null ? null : u.DisplayName }
         ).Take(100).ToListAsync(ct);
 
         var audits=auditRows.Select(x=>
         {
-            _=int.TryParse(x.audit.EntityId,out var sourceId);
+            _=int.TryParse(x.EntityId,out var sourceId);
             return new V170LocationAuditDto(
-                x.audit.AuditLogId,x.audit.Action,x.audit.OldValues,x.audit.NewValues,
-                x.audit.CreatedAt,x.audit.UserId,x.u!=null?x.u.DisplayName:null,
+                x.AuditLogId,x.Action,x.OldValues,x.NewValues,
+                x.CreatedAt,x.UserId,x.ActorName,
                 sourceId,evidenceNames.TryGetValue(sourceId,out var sourceName)?sourceName:null);
         }).ToList();
 

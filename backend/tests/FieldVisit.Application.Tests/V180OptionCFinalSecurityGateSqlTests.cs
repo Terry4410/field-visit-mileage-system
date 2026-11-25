@@ -21,6 +21,105 @@ namespace FieldVisit.Application.Tests;
 public sealed class V180OptionCFinalSecurityGateSqlTests
 {
     [Fact]
+    public async Task R10_admin_location_history_under_column_scoped_audit_permission()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlServer(h.Db, sql => sql.EnableRetryOnFailure()).Options;
+        await using var db = new AppDbContext(options);
+        var batches = System.Text.RegularExpressions.Regex.Split(
+            db.Database.GenerateCreateScript(), @"(?im)^\s*GO\s*$");
+        foreach (var table in new[] { "TeamLocationNotes", "TeamLocationNoteHistory", "AuditLogs" })
+        {
+            var ddl = Assert.Single(batches.Where(b => b.TrimStart().StartsWith(
+                $"CREATE TABLE [{table}]", StringComparison.Ordinal)));
+            await h.Exec(ddl);
+        }
+        var request = await h.CreateRequest(10);
+        await h.PrepareStage(request);
+        await using (var tx = await h.Begin())
+        {
+            await Service().ApproveAsync(h.Db, tx, request, 1, 2, Guid.NewGuid(),
+                "Independent approval", CancellationToken.None);
+            await tx.CommitAsync();
+        }
+        Assert.Equal("Applied", await h.RequestStatus(request));
+        Assert.Equal("1", await h.EventCount(request, "Applied"));
+        var admin = new CurrentUserDto(2, "E2", "Admin", null, 1, 1, null,
+            new[] { "admin" }, new[] { new TeamScopeDto(1, "Team 1", true) });
+        var outsider = new CurrentUserDto(3, "E3", "Other", null, 2, 2, null,
+            new[] { "admin" }, new[] { new TeamScopeDto(2, "Team 2", true) });
+        await h.Exec("""
+            INSERT dbo.AuditLogs(UserId,EntityType,EntityId,Action,OldValues,NewValues,CreatedAt)
+              VALUES(2,N'Location',N'10',N'LocationMaintenanceUpdate',N'old legacy',N'new legacy',SYSUTCDATETIME()),
+                    (2,N'OtherEntity',N'10',N'LocationMaintenanceUpdate',N'other old',N'not location',SYSUTCDATETIME());
+            CREATE USER [LocationAuditReadTest] WITHOUT LOGIN;
+            GRANT SELECT ON dbo.Locations TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.Teams TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.Users TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.TeamLocationNoteHistory TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.UserIdentityProfiles TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.Employments TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.EmploymentStatusPeriods TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.UserEmploymentPeriods TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.UserRoleAssignments TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.Roles TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.ChangeRequests TO [LocationAuditReadTest];
+            GRANT SELECT ON dbo.ChangeRequestEvents TO [LocationAuditReadTest];
+            GRANT SELECT ON OBJECT::dbo.AuditLogs (AuditLogId) TO [LocationAuditReadTest];
+            EXECUTE AS USER = N'LocationAuditReadTest';
+            """);
+        var repo = new V170LocationRepository(db);
+        var impersonating = true;
+        var prior = Environment.GetEnvironmentVariable(V180OptionCExecutionPolicy.ModeVariable);
+        Environment.SetEnvironmentVariable(V180OptionCExecutionPolicy.ModeVariable,
+            V180OptionCExecutionPolicy.PathBUatFormalLocationsMode);
+        try
+        {
+            var ct = CancellationToken.None;
+            var denied = await Assert.ThrowsAsync<SqlException>(() => repo.GetMaintenanceAsync(admin, 10, null, ct));
+            Assert.Contains(denied.Errors.Cast<SqlError>(), e => e.Number is 229 or 230);
+            await h.Exec("REVERT;"); impersonating = false;
+            await h.Exec("""
+                GRANT SELECT ON OBJECT::dbo.AuditLogs
+                    (UserId,EntityType,EntityId,Action,OldValues,NewValues,CreatedAt)
+                    TO [LocationAuditReadTest];
+                EXECUTE AS USER = N'LocationAuditReadTest';
+                """); impersonating = true;
+            Assert.Equal("0",await h.Scalar("SELECT CONVERT(varchar(1),HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'SELECT',N'IpAddress',N'COLUMN'))"));
+            Assert.Equal("0",await h.Scalar("SELECT CONVERT(varchar(1),HAS_PERMS_BY_NAME(N'dbo.AuditLogs',N'OBJECT',N'SELECT',N'CorrelationId',N'COLUMN'))"));
+            var detail = await repo.GetMaintenanceAsync(admin, 10, null, ct);
+            var legacy = Assert.Single(detail.AddressAudit, a => a.Action == "LocationMaintenanceUpdate");
+            Assert.Equal("new legacy", legacy.NewValues);
+            var visitor = new CurrentUserDto(1, "E1", "Visitor", null, 1, 1, null,
+                new[] { "visitor" }, new[] { new TeamScopeDto(1, "Team 1", true) });
+            var visitorDetail = await repo.GetMaintenanceAsync(visitor, 10, null, ct);
+            Assert.Empty(visitorDetail.AddressAudit);
+            var publication = Assert.Single(detail.AddressAudit,
+                a => a.Action == "LocationPublicationApplied");
+            Assert.Contains("Changed 10", publication.NewValues);
+            Assert.Equal(10, publication.SourceLocationId);
+            var scoped = await repo.GetMaintenanceAsync(admin, 10, 1, CancellationToken.None);
+            Assert.Empty(scoped.AddressAudit);
+            await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+                repo.GetMaintenanceAsync(outsider, 10, null, CancellationToken.None));
+            await h.Exec("REVERT;"); impersonating = false;
+            await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo='2000-01-02' WHERE UserId=2");
+            await h.Exec("EXECUTE AS USER = N'LocationAuditReadTest';"); impersonating = true;
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                repo.GetMaintenanceAsync(admin, 10, null, CancellationToken.None));
+            Console.WriteLine("R10_LOCATION_AUDIT_COLUMN_SQL_PASS legacy=PASS canonical=PASS missing_permission=DENIED unused_columns=DENIED visitor_audit=EMPTY org_isolation=PASS revocation=DENIED");
+        }
+        finally
+        {
+            if (impersonating) await h.Exec("REVERT;");
+            Environment.SetEnvironmentVariable(V180OptionCExecutionPolicy.ModeVariable, prior);
+        }
+    }
+
+
+    [Fact]
     public async Task PathB_scoped_team_notes_save_without_audit_read_and_deny_foreign_team()
     {
         await using var h = await Harness.TryCreateAsync();
