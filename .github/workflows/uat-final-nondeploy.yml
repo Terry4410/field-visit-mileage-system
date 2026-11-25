@@ -40,7 +40,7 @@ jobs:
       - name: Backend build and affected regression
         run: |
           dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryExportTests|FullyQualifiedName~V180TripContextContractTests|FullyQualifiedName~V180PeopleResponsibilitySplitTests|FullyQualifiedName~Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit' --logger 'console;verbosity=normal'
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryExportTests|FullyQualifiedName~V180TripContextContractTests|FullyQualifiedName~V180PeopleResponsibilitySplitTests|FullyQualifiedName~V170PeopleQueryRulesTests|FullyQualifiedName~Frozen_lowrisk_policy_direct_save_uses_live_write_scope_and_atomic_version_audit' --logger 'console;verbosity=normal'
       - name: Frontend build and affected navigation
         working-directory: frontend
         run: |
