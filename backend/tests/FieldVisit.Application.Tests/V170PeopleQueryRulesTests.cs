@@ -88,4 +88,11 @@ public sealed class V170PeopleQueryRulesTests
                 new V170PeopleQueryRequest(
                     DataIssue: "MissingEverything")));
     }
+    [Fact]
+    public void Normalize_Accepts_Missing_Business_Role_Filter()
+    {
+        var result = V170PeopleQueryRules.Normalize(
+            new V170PeopleQueryRequest(DataIssue: " MissingBusinessRole "));
+        Assert.Equal("MissingBusinessRole", result.DataIssue);
+    }
 }
