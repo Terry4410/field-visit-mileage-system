@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: bd9299541811c90795e2fe0e339cf6827fb9be9d
+          ref: 03508fda5852ffd66705db9c49ab311eede753ee
           path: app
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -56,9 +56,9 @@ jobs:
           cp -a app/frontend/dist/. "$RUNNER_TEMP/review/frontend/"
           cp delivery/docs/release/pathb/it-iis-review/appsettings.json "$RUNNER_TEMP/review/api/appsettings.json"
           cp delivery/docs/release/pathb/it-iis-review/config.js "$RUNNER_TEMP/review/frontend/config.js"
-          test "$(git -C app rev-parse HEAD)" = bd9299541811c90795e2fe0e339cf6827fb9be9d
-          sed 's/a4281b4d488448153ef3cd09f6ed698d146d3c77/bd9299541811c90795e2fe0e339cf6827fb9be9d/g' delivery/docs/release/pathb/it-iis-review/README.md > "$RUNNER_TEMP/review/README.md"
-          grep -F 'Exact application source bd9299541811c90795e2fe0e339cf6827fb9be9d' "$RUNNER_TEMP/review/README.md"
+          test "$(git -C app rev-parse HEAD)" = 03508fda5852ffd66705db9c49ab311eede753ee
+          sed 's/a4281b4d488448153ef3cd09f6ed698d146d3c77/03508fda5852ffd66705db9c49ab311eede753ee/g' delivery/docs/release/pathb/it-iis-review/README.md > "$RUNNER_TEMP/review/README.md"
+          grep -F 'Exact application source 03508fda5852ffd66705db9c49ab311eede753ee' "$RUNNER_TEMP/review/README.md"
           # Hash routing requires no URL rewrite. Explicit static default doc and no browsing.
           cat > "$RUNNER_TEMP/review/frontend/web.config" <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
@@ -87,14 +87,14 @@ jobs:
           assert not c['BackgroundJobs']['WorkerEnabled']
           assert not list(p.rglob('*.ttc')) and not list(p.rglob('*.otf'))
           assert 'azurewebsites.net' not in (f/'config.js').read_text() and '"AUTH_MODE": "Entra"' in (f/'config.js').read_text()
-          (p/'manifest.json').write_text(json.dumps({'source':'bd9299541811c90795e2fe0e339cf6827fb9be9d','target':'Windows x64 IIS .NET 8 framework-dependent','status':'NONDEPLOY_REVIEW_ONLY','actualIIS':'NOT_RUN','actualEntra':'NOT_RUN','runtimeACL':'INCOMPLETE','font':'embedded resource preserved; actual Windows PDF not tested'},indent=2)+'\n')
+          (p/'manifest.json').write_text(json.dumps({'source':'03508fda5852ffd66705db9c49ab311eede753ee','target':'Windows x64 IIS .NET 8 framework-dependent','status':'NONDEPLOY_REVIEW_ONLY','actualIIS':'NOT_RUN','actualEntra':'NOT_RUN','runtimeACL':'INCOMPLETE','font':'embedded resource preserved; actual Windows PDF not tested'},indent=2)+'\n')
           (p/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(q.read_bytes()).hexdigest()+'  '+q.relative_to(p).as_posix()+'\n' for q in sorted(p.rglob('*')) if q.is_file() and q.name!='SHA256SUMS.txt'))
           print('WINDOWS_X64_IIS_PACKAGE_CONTENTS_AND_SAFE_DEFAULTS=PASS')
           PY
           (cd "$RUNNER_TEMP/review" && sha256sum -c SHA256SUMS.txt >/dev/null)
       - uses: actions/upload-artifact@v4
         with:
-          name: fieldvisit-v180-windows-iis-review
+          name: fieldvisit-v180-windows-iis-review-03508fd
           path: ${{ runner.temp }}/review
           if-no-files-found: error
           retention-days: 30
