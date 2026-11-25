@@ -112,6 +112,33 @@ public sealed class G1ReportExportHttpSqlTests
             client.DefaultRequestHeaders.Authorization=null;
             using(var r=await client.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Unauthorized,r.StatusCode);
             Token();
+            // Enabling admin SQL DML must not unlock operations for stale or forged admin scope.
+            var unused = new VisitType { VisitTypeCode="G1_SAFE_DELETE", VisitTypeName="Unused synthetic type",
+                SortOrder=30,IsActive=true,CreatedAt=now };
+            var project = new Project { OrganizationId=org.OrganizationId,TeamId=team.TeamId,
+                ProjectCode="G1_SCOPE",ProjectName="Synthetic scope",LocationMode="List",
+                StartDate=BusinessTime.Today,IsActive=true,CreatedAt=now };
+            db.AddRange(unused,project);await db.SaveChangesAsync();
+            var safeDelete=$"api/v1/admin/visit-types/{unused.VisitTypeId}/permanent";
+            var impact=$"api/v1/admin/visit-types/{unused.VisitTypeId}/delete-impact";
+            var projectLocations=$"api/v1/admin/projects/{project.ProjectId}/locations";
+            async Task DeniedAdminMaintenance()
+            {
+                using(var res=await client.GetAsync(impact)) Assert.Equal(HttpStatusCode.Forbidden,res.StatusCode);
+                using(var res=await client.DeleteAsync(safeDelete)) Assert.Equal(HttpStatusCode.Forbidden,res.StatusCode);
+                using(var body=new StringContent("{\"locationIds\":[]}",Encoding.UTF8,"application/json"))
+                using(var res=await client.PutAsync(projectLocations,body)) Assert.Equal(HttpStatusCode.Forbidden,res.StatusCode);
+                Assert.True(await db.VisitTypes.AsNoTracking().AnyAsync(x=>x.VisitTypeId==unused.VisitTypeId));
+            }
+            Token(claimedOrg:otherOrg.OrganizationId);await DeniedAdminMaintenance();
+            Token();role.IsActive=false;await db.SaveChangesAsync();await DeniedAdminMaintenance();
+            role.IsActive=true;await db.SaveChangesAsync();
+            using(var res=await client.GetAsync(impact)) Assert.Equal(HttpStatusCode.OK,res.StatusCode);
+            using(var body=new StringContent("{\"locationIds\":[]}",Encoding.UTF8,"application/json"))
+            using(var res=await client.PutAsync(projectLocations,body)) Assert.Equal(HttpStatusCode.OK,res.StatusCode);
+            using(var res=await client.DeleteAsync(safeDelete)) Assert.Equal(HttpStatusCode.NoContent,res.StatusCode);
+            Assert.False(await db.VisitTypes.AsNoTracking().AnyAsync(x=>x.VisitTypeId==unused.VisitTypeId));
+            Console.WriteLine("ADMIN_MAINTENANCE_LIVE_SCOPE_HTTP_PASS forgedOrg=DENIED revokedRole=DENIED projectLocations=PASS safeDelete=PASS");
             // The old blanket date gate incorrectly rejected every Leader
             // historical download, even for an empty authorized result.
             // The real row-level team/organization negative tests live in

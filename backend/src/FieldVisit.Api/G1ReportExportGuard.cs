@@ -23,7 +23,14 @@ public sealed class G1ReportExportGuard(
             && new[] { "/api/v1/mileage-rate-rules", "/api/v1/projects", "/api/v1/visit-types" }
                 .Any(prefix => path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
                     || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase));
-        var liveAdmin = masterData || peopleAdmin || masterWrite;
+        // Newly enabled admin maintenance and safe-delete permissions require
+        // the same fresh account/HR/organization/role check, not stale JWT claims.
+        var adminMaintenance = new[] { "/api/v1/admin/projects", "/api/v1/admin/teams",
+                "/api/v1/admin/visit-types", "/api/v1/admin/mileage-rate-rules",
+                "/api/v1/admin/centers", "/api/v1/admin/deployment-sites", "/api/v1/admin/users" }
+            .Any(prefix => path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase));
+        var liveAdmin = masterData || peopleAdmin || masterWrite || adminMaintenance;
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
         if (!adminReport && !tripReport && !liveAdmin) { await next(); return; }
