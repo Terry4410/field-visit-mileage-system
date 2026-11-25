@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 33c2fe5a96665e02d44a0754ac3cd16e90b54878
+          ref: a06595741e2a86a87b13a8ae9a82d3ad94f400ff
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 33c2fe5a96665e02d44a0754ac3cd16e90b54878
+          test "$(git rev-parse HEAD)" = a06595741e2a86a87b13a8ae9a82d3ad94f400ff
           old="$RUNNER_TEMP/known-font-source/PathB_REPORT_EXPORT_3ROLES_API_fix_8442bae3_once_20261124.zip"
           echo "c4a35f4623fcffe03e5f83a9b1aeacdf57f1dc70083b1f6302fbca181b841d63  $old" | sha256sum -c -
           mkdir -p backend/src/FieldVisit.Infrastructure/fonts
@@ -61,8 +61,8 @@ jobs:
           unzip -p "$RUNNER_TEMP/release/Rollback_API_c6c68685.zip" appsettings.json > "$RUNNER_TEMP/old-api-settings.json"
           cmp "$RUNNER_TEMP/old-api-settings.json" "$dst/appsettings.json"
           echo API_DEFAULT_SETTINGS_UNCHANGED=PASS
-          (cd "$dst" && zip -qr "$RUNNER_TEMP/release/PathB_API_33c2fe5a.zip" .)
-          unzip -tq "$RUNNER_TEMP/release/PathB_API_33c2fe5a.zip"
+          (cd "$dst" && zip -qr "$RUNNER_TEMP/release/PathB_API_a0659574.zip" .)
+          unzip -tq "$RUNNER_TEMP/release/PathB_API_a0659574.zip"
       - name: Seal API-only candidate and rollback
         shell: bash
         run: |
@@ -77,13 +77,13 @@ jobs:
                   assert {'FieldVisit.Api.dll','FieldVisit.Infrastructure.dll','appsettings.json'}.issubset(f.namelist())
               hashes[z.name]=hashlib.sha256(z.read_bytes()).hexdigest()
           assert len(hashes)==2
-          (p/'manifest.json').write_text(json.dumps({'source':'33c2fe5a96665e02d44a0754ac3cd16e90b54878','rollbackApiSource':'c6c686852de303c604803ca2192a5c4b04ded4ff','rollbackArtifact':14993602382,'target':'Path B UAT only','api':'api-fieldvisit-pathb-uat','frontend':'UNCHANGED','mode':'NONDEPLOY','liveAzurePreflight':'NOT_RUN','deployment':'NOT_EXECUTED','sha256':hashes},indent=2)+'\n')
+          (p/'manifest.json').write_text(json.dumps({'source':'a06595741e2a86a87b13a8ae9a82d3ad94f400ff','rollbackApiSource':'c6c686852de303c604803ca2192a5c4b04ded4ff','rollbackArtifact':14993602382,'target':'Path B UAT only','api':'api-fieldvisit-pathb-uat','frontend':'UNCHANGED','mode':'NONDEPLOY','liveAzurePreflight':'NOT_RUN','deployment':'NOT_EXECUTED','sha256':hashes},indent=2)+'\n')
           PY
           (cd "$RUNNER_TEMP/release" && sha256sum *.zip *.json > SHA256SUMS && sha256sum -c SHA256SUMS)
           echo API_ONLY_PACKAGE_AND_ROLLBACK=PASS
       - uses: actions/upload-artifact@v4
         with:
-          name: pathb-api-only-33c2fe5a-review-nondeploy
+          name: pathb-api-only-a0659574-review-nondeploy
           path: ${{ runner.temp }}/release
           if-no-files-found: error
           retention-days: 14

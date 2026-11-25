@@ -261,7 +261,6 @@ BEGIN TRANSACTION;
 GRANT DELETE ON OBJECT::dbo.[VisitTypes] TO [FieldVisitCoreRuntimeReview];
 GRANT DELETE ON OBJECT::dbo.[Projects] TO [FieldVisitCoreRuntimeReview];
 GRANT DELETE ON OBJECT::dbo.[ProjectLocations] TO [FieldVisitCoreRuntimeReview];
-GRANT DELETE ON OBJECT::dbo.[MileageRateRules] TO [FieldVisitCoreRuntimeReview];
 GRANT DELETE ON OBJECT::dbo.[Centers] TO [FieldVisitCoreRuntimeReview];
 GRANT DELETE ON OBJECT::dbo.[DeploymentSites] TO [FieldVisitCoreRuntimeReview];
 GRANT DELETE ON OBJECT::dbo.[DeploymentSiteLocationAssignments] TO [FieldVisitCoreRuntimeReview];
@@ -295,7 +294,7 @@ BEGIN TRY
  IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.VisitTypes',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_VisitTypes',1;
  IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Projects',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Projects',1;
  IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.ProjectLocations',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_ProjectLocations',1;
- IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_MileageRateRules',1;
+ IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.MileageRateRules',N'OBJECT',N'DELETE'),0)<>0 THROW 51000,'PROTECTED_DELETE_MileageRateRules',1;
  IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.Centers',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_Centers',1;
  IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.DeploymentSites',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_DeploymentSites',1;
  IF COALESCE(HAS_PERMS_BY_NAME(N'dbo.DeploymentSiteLocationAssignments',N'OBJECT',N'DELETE'),0)<>1 THROW 51000,'SAFE_DELETE_DeploymentSiteLocationAssignments',1;
@@ -346,13 +345,12 @@ BEGIN TRY
  -- Real restricted DML on the unused synthetic routine fixtures only.
  DELETE dbo.VisitTypes WHERE VisitTypeCode=N'ACL-V';
  DELETE dbo.Projects WHERE ProjectCode=N'ACL-P';
- DELETE dbo.MileageRateRules WHERE RuleName=N'ACL rate';
  DELETE dbo.Centers WHERE CenterCode=N'ACL-C';
  IF EXISTS(SELECT 1 FROM dbo.VisitTypes WHERE VisitTypeCode=N'ACL-V')
  OR EXISTS(SELECT 1 FROM dbo.Projects WHERE ProjectCode=N'ACL-P')
- OR EXISTS(SELECT 1 FROM dbo.MileageRateRules WHERE RuleName=N'ACL rate')
+ OR NOT EXISTS(SELECT 1 FROM dbo.MileageRateRules WHERE RuleName=N'ACL rate' AND IsActive=0)
  OR EXISTS(SELECT 1 FROM dbo.Centers WHERE CenterCode=N'ACL-C') THROW 51000,'SAFE_DELETE_READBACK_FAILED',1;
- PRINT 'ADMIN_SAFE_DELETE_ACL_MATRIX=PASS unused_masters=DELETED protected_history=DENIED';
+ PRINT 'ADMIN_SAFE_DELETE_ACL_MATRIX=PASS unused_masters=DELETED protected_history=DENIED rate_retained=PASS';
  REVERT;
 END TRY
 BEGIN CATCH
