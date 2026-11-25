@@ -17,12 +17,19 @@ public sealed class G1ReportExportGuard(
         var path = context.HttpContext.Request.Path.Value ?? "";
         var adminReport = path.StartsWith("/api/v1/admin/query-exports/", StringComparison.OrdinalIgnoreCase);
         var masterData = path.StartsWith("/api/v1/admin/master-data/", StringComparison.OrdinalIgnoreCase);
+        var peopleAdmin = path.Equals("/api/v1/admin/people", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/api/v1/admin/people/", StringComparison.OrdinalIgnoreCase);
+        var masterWrite = !HttpMethods.IsGet(context.HttpContext.Request.Method)
+            && new[] { "/api/v1/mileage-rate-rules", "/api/v1/projects", "/api/v1/visit-types" }
+                .Any(prefix => path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase));
+        var liveAdmin = masterData || peopleAdmin || masterWrite;
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
-        if (!adminReport && !tripReport && !masterData) { await next(); return; }
+        if (!adminReport && !tripReport && !liveAdmin) { await next(); return; }
         // Master-data commands cannot trust a signed but stale organization/role claim.
         // Reuse the live account, HR and role check before any SQL write starts.
-        if (masterData)
+        if (liveAdmin)
         {
             try
             {
@@ -30,13 +37,13 @@ public sealed class G1ReportExportGuard(
             }
             catch (UnauthorizedAccessException)
             {
-                context.Result = Denied("MASTER_DATA_LIVE_AUTHORIZATION_DENIED");
+                context.Result = Denied("ADMIN_LIVE_AUTHORIZATION_DENIED");
                 return;
             }
             catch (OperationCanceledException) when (context.HttpContext.RequestAborted.IsCancellationRequested) { throw; }
             catch (Exception)
             {
-                context.Result = new ObjectResult(new { code = "MASTER_DATA_AUTHORIZATION_UNAVAILABLE" }) { StatusCode = 503 };
+                context.Result = new ObjectResult(new { code = "ADMIN_AUTHORIZATION_UNAVAILABLE" }) { StatusCode = 503 };
                 return;
             }
             await next();
