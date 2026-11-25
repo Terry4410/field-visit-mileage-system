@@ -156,6 +156,7 @@ public static class V170PeopleQueryRules
         {
             "MissingEmploymentStatus",
             "MissingPrimaryDeploymentSite",
+            "MissingBusinessRole",
             "MissingEmail"
         };
 

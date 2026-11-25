@@ -17,7 +17,7 @@ describe("Option C review UI fail-closed candidate",()=>{
  it("keeps Pending/Rejected/Applied status feedback explicit",()=>{
   expect(statusLabel("Pending")).toBe("待審核");
   expect(statusLabel("Rejected")).toBe("已退回");
-  expect(statusLabel("Applied")).toBe("已套用");
+  expect(statusLabel("Applied")).toBe("已完成");
   expect(isTerminalStatus("Pending")).toBe(false);
   expect(isTerminalStatus("Applied")).toBe(true);
  });

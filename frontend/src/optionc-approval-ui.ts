@@ -1,4 +1,4 @@
-export type OptionCRequest={operationCode?:string;requestPublicId:string;entityId:string;teamId:number|null;riskCode:string;status:string;requestedByUserId:number;submittedAt:string;beforeJson:string|null;proposedJson:string;rowVersion:string};
+export type OptionCRequest={operationCode?:string;requestPublicId:string;entityId:string;teamId:number|null;riskCode:string;status:string;requestedByUserId:number;applicantName?:string|null;submittedAt:string;reviewedAt?:string|null;beforeJson:string|null;proposedJson:string;rowVersion:string};
 export const fields=["LocationName","City","District","Address","PlusCode","TaxId","MasterNote"] as const;
 type Field=typeof fields[number];
 export function safeFields(json:string|null):Record<Field,string>{
@@ -31,7 +31,7 @@ export function statusLabel(status:string):string{
  switch(status){
   case "Pending": return "待審核";
   case "Rejected": return "已退回";
-  case "Applied": return "已套用";
+  case "Applied": return "已完成";
   default: return "狀態待查核";
  }
 }

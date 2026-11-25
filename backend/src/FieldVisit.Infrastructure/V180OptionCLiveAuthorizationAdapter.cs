@@ -48,8 +48,9 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
         if (team is null) throw new UnauthorizedAccessException("OPTIONC_TEAM_NOT_CURRENT");
         var roles = await EffectiveRolesAsync(actorUserId, today, ct);
         var scoped = await HasCurrentTeamScopeAsync(actorUserId, teamId, today, ct);
-        var visitor = location.CreatedByUserId == actorUserId
-            && roles.Contains("visitor") && await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+        // Published customer locations belong to the effective team. Draft
+        // editing remains creator-only in the separate managed-draft path.
+        var visitor = roles.Contains("visitor") && await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
             x.EmploymentId == actor.EmploymentId && x.TeamId == teamId
             && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
         var leader = roles.Contains("leader") && (await db.TeamLeaderAssignments.AsNoTracking().AnyAsync(x =>
@@ -68,8 +69,8 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
     }
 
     /// <summary>
-    /// Frozen Scheme A direct-LowRisk write boundary. A Visitor may maintain
-    /// only a Location they own; a Leader may maintain any Location in a
+    /// Direct-LowRisk write boundary. A Visitor may maintain an eligible
+    /// published customer Location in their current team; a Leader in a
     /// currently appointed/delegated managed team. Shared read scope is never
     /// accepted as write authority. This method must execute in the same
     /// serializable transaction that locks and versions the Location.
@@ -275,8 +276,8 @@ public sealed class V180OptionCLiveAuthorizationAdapter(AppDbContext db)
                 x.UserId == requester.UserId && x.TeamId == teamId
                 && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today), ct);
         // An Admin may originate a scoped CreateLocation, but may never self-review.
-        // Existing update submission remains separately restricted to owner
-        // Visitor/Leader actors by AuthorizeSubmissionAsync.
+        // Published updates remain independently restricted to current
+        // Visitor membership or Leader appointment by AuthorizeSubmissionAsync.
         return requester.OrganizationId == organizationId && scoped
             && (member || leader || roles.Contains("admin"));
     }

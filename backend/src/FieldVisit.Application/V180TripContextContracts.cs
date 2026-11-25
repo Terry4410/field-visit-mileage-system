@@ -75,6 +75,8 @@ public static class V180TripPersistenceRules
             throw new InvalidOperationException("TRIP_CONTEXT_EMPLOYMENT_CHANGED：人員資料已變更，請重新開啟行程。");
         if (!context.EligibleForTrip || context.SelectedTeamId != teamId)
             throw new InvalidOperationException($"{context.ValidationCode}：{context.ValidationMessage} 請重新開啟行程並確認小組。");
+        if (!context.PrimaryDeploymentSiteId.HasValue)
+            throw new InvalidOperationException("PRIMARY_DEPLOYMENT_SITE_REQUIRED：外訪員缺少有效的主要派駐據點，請先由人事管理者補齊，再送出行程。");
         if (!startSiteId.HasValue)
             throw new InvalidOperationException("START_DEPLOYMENT_SITE_REQUIRED：送出前請選擇出發派駐點。");
         if (!endSiteId.HasValue)

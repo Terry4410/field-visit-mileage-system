@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using FieldVisit.Api.Controllers;
 using FieldVisit.Application;
 using Microsoft.AspNetCore.Mvc;
@@ -154,6 +155,26 @@ public sealed class V180QueryExportTests
         using var book = new XSSFWorkbook(data);
         Assert.Equal("符合查詢筆數", book.GetSheet("匯出資訊").GetRow(5).GetCell(0).StringCellValue);
         Assert.Equal("2", book.GetSheet("匯出資訊").GetRow(5).GetCell(1).StringCellValue);
+    }
+
+    [Fact]
+    public void Preview_uses_exported_workbook_rows_filters_metadata_and_paginates()
+    {
+        var controller = new V180QueryExportController(null!,null!,null!,null!,null!,null!);
+        var workbook = typeof(V180QueryExportController).GetMethod("Workbook", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var file = (FileContentResult)workbook.Invoke(controller,
+            ["人事資料", new { Keyword = "001" }, new[] { "工號", "人事狀態" },
+             new[] { new[] { "001", "在職" }, new[] { "002", "留停" }, new[] { "003", "離職" } }.AsEnumerable(), "全組織"])!;
+        var preview = typeof(V180QueryExportController).GetMethod("PreviewWorkbook",BindingFlags.Static | BindingFlags.NonPublic)!;
+        JsonElement At(int page) => JsonSerializer.SerializeToElement(preview.Invoke(null,[file.FileContents,page,2]));
+        var first=At(1);
+        Assert.Equal(3,first.GetProperty("totalCount").GetInt32());
+        Assert.Equal("查詢結果",first.GetProperty("sheetName").GetString());
+        Assert.Equal("工號",first.GetProperty("headers")[0].GetString());
+        Assert.Equal("001",first.GetProperty("rows")[0][0].GetString());
+        Assert.Equal("在職",first.GetProperty("rows")[0][1].GetString());
+        Assert.Equal("003",At(2).GetProperty("rows")[0][0].GetString());
+        Assert.Equal(0,At(3).GetProperty("rows").GetArrayLength());
     }
 
     [Fact]

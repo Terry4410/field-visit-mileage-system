@@ -7,6 +7,7 @@ import{usePagedQuery}from"../use-query";
 import{Pagination}from"../components/QueryControls";
 import{todayTaipei}from"../v160";
 import PeopleManagementBulkPanel from"../components/PeopleManagementBulkPanel";
+import{completenessWarnings}from"../people-completeness";
 
 type Props={mode?:"teams"|"members"|"bulk"};
 type TeamAssignment={teamId:number;isPrimary:boolean};
@@ -80,7 +81,7 @@ function MemberConfiguration(){
    {!selectedTeamId?<div className="empty">請先選擇管理小組。</div>:<>
     <div className="note" style={{marginBottom:10}}><strong>{selectedTeam?.teamName}</strong>｜目前只顯示此小組成員。若要新增成員，請使用右上「＋加入小組成員」。</div>
     {memberQuery.error&&<div className="note danger-note">{memberQuery.error}</div>}
-    <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>角色（唯讀）</th><th>主要派駐據點（唯讀）</th><th>主要小組</th><th>其他小組</th><th>操作</th></tr></thead><tbody>{memberQuery.data.items.map(u=>{const primary=u.teamAssignments.find(s=>s.isPrimary);const others=u.teamAssignments.filter(s=>!s.isPrimary);return <tr key={u.userId}><td>{u.employeeNo||u.userCode}</td><td>{u.displayName}</td><td>{u.roles.map(r=>roleLabel[r]||r).join("、")||"—"}</td><td>{primarySiteLabel(u)}</td><td>{primary?.teamName||"—"}{primary&&" ★"}</td><td>{others.map(s=>s.teamName).join("、")||"—"}</td><td><button className="btn small secondary" onClick={()=>{setAdjustUser(u);setOtherTeamId("")}}>調整歸屬</button></td></tr>})}</tbody></table></div>
+    <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>角色（唯讀）</th><th>主要派駐據點（唯讀）</th><th>主要小組</th><th>其他小組</th><th>資料完整性</th><th>操作</th></tr></thead><tbody>{memberQuery.data.items.map(u=>{const primary=u.teamAssignments.find(s=>s.isPrimary);const others=u.teamAssignments.filter(s=>!s.isPrimary);return <tr key={u.userId}><td>{u.employeeNo||u.userCode}</td><td>{u.displayName}</td><td>{u.roles.map(r=>roleLabel[r]||r).join("、")||"—"}</td><td>{primarySiteLabel(u)}</td><td>{primary?.teamName||"—"}{primary&&" ★"}</td><td>{others.map(s=>s.teamName).join("、")||"—"}</td><td>{completenessWarnings(u).join("；")||"完整"}</td><td><button className="btn small secondary" onClick={()=>{setAdjustUser(u);setOtherTeamId("")}}>調整歸屬</button></td></tr>})}</tbody></table></div>
     <Pagination {...memberQuery.data} page={memberQuery.page} pageSize={memberQuery.pageSize} busy={memberQuery.loading||busy} onPage={memberQuery.setPage} onPageSize={memberQuery.setPageSize}/>
    </>}
   </div>

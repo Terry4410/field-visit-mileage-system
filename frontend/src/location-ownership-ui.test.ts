@@ -64,9 +64,9 @@ describe("Published location candidate actions",()=>{
   expect(OPTIONC_DIRECT_LOWRISK_UI_ENABLED).toBe(false);
   expect(OPTIONC_APPROVAL_UI_ENABLED).toBe(false);
  });
- it("allows owner Visitor or scoped Leader; rejects peer and out-of-scope rows",()=>{
+ it("allows a current same-team Visitor or scoped Leader, but not out-of-scope rows",()=>{
   expect(mayRequestPublishedChange(published,4,"visitor",[7])).toBe(true);
-  expect(mayRequestPublishedChange(published,5,"visitor",[7])).toBe(false);
+  expect(mayRequestPublishedChange(published,5,"visitor",[7])).toBe(true);
   expect(mayRequestPublishedChange(published,5,"leader",[7])).toBe(true);
   expect(mayRequestPublishedChange(published,4,"visitor",[8])).toBe(false);
   expect(mayRequestPublishedChange(published,5,"leader",[])).toBe(false);

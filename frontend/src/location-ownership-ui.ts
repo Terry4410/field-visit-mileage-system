@@ -50,7 +50,7 @@ export const mayRequestPublishedChange = (
   && row.locationType === "Customer" && row.approvalStatus === "Approved"
   && row.isActive && !row.isTemporary && !row.duplicateOfLocationId
   && !row.duplicateReason?.trim() && !!row.rowVersion
-  && (role === "leader" || row.createdByUserId === userId);
+  && (role === "leader" || role === "visitor");
 
 export const validTaiwanTaxId = (input: string) => {
   const value=input.trim();

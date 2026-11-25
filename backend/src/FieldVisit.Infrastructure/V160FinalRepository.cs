@@ -791,13 +791,25 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
         var visible = (await V180OptionCCreateReservationGuard.LegacyVisibleLocationsAsync(
             db, ct)).AsNoTracking();
         IQueryable<Location> q;
+        var permittedNoteTeamIds = Array.Empty<int>();
+        var adminMaySeeNotes = HasRole(user, "admin");
         if (HasRole(user, "visitor") && !HasRole(user, "admin") && !HasRole(user, "leader"))
         {
             var currentTeams = await EnsureVisitorCurrentAsync(user, ct);
+            permittedNoteTeamIds = currentTeams.ToArray();
             q = visible.Where(x => x.OrganizationId == user.OrganizationId
                 && (x.TeamId == null || (x.TeamId.HasValue && currentTeams.Contains(x.TeamId.Value))));
         }
-        else if (IsLeaderDraftActor(user)) q = await LeaderDraftReadScopeAsync(user, visible, ct);
+        else if (IsLeaderDraftActor(user))
+        {
+            q = await LeaderDraftReadScopeAsync(user, visible, ct);
+            permittedNoteTeamIds = await db.UserTeamAssignments.AsNoTracking()
+                .Where(a => a.UserId == user.UserId && a.EffectiveFrom <= BusinessTime.Today
+                    && (!a.EffectiveTo.HasValue || a.EffectiveTo >= BusinessTime.Today)
+                    && db.UserTeamScopes.Any(s => s.UserId == user.UserId
+                        && s.TeamId == a.TeamId && s.IsActive))
+                .Select(a => a.TeamId).Distinct().ToArrayAsync(ct);
+        }
         else q = ApplyLocationScope(visible, user);
 
         if (!string.IsNullOrWhiteSpace(request.Q))
@@ -811,9 +823,13 @@ public sealed partial class V160FinalRepository(AppDbContext db, IV170AccessCont
                 || (x.TaxId != null && x.TaxId.Contains(keyword))
                 || (x.MasterNote != null && x.MasterNote.Contains(keyword))
                 || db.TeamLocationNotes.AsNoTracking().Any(n =>
-                    n.LocationId == x.LocationId && n.Note != null && n.Note.Contains(keyword))
+                    (!x.TeamId.HasValue || n.TeamId == x.TeamId.Value)
+                    && (adminMaySeeNotes || permittedNoteTeamIds.Contains(n.TeamId))
+                    && n.LocationId == x.LocationId && n.Note != null && n.Note.Contains(keyword))
                 || db.TeamLocationNoteHistories.AsNoTracking().Any(h =>
-                    h.LocationId == x.LocationId
+                    (!x.TeamId.HasValue || h.TeamId == x.TeamId.Value)
+                    && (adminMaySeeNotes || permittedNoteTeamIds.Contains(h.TeamId))
+                    && h.LocationId == x.LocationId
                     && ((h.NewNote != null && h.NewNote.Contains(keyword))
                         || (h.OldNote != null && h.OldNote.Contains(keyword)))));
         }
