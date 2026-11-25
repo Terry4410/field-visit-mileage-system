@@ -198,7 +198,7 @@ DECLARE @auditRequired TABLE(c sysname PRIMARY KEY);
 INSERT @auditRequired VALUES(N'AuditLogId'),(N'UserId'),(N'EntityType'),(N'EntityId'),(N'Action'),(N'OldValues'),(N'NewValues'),(N'CreatedAt');
 IF EXISTS(SELECT 1 FROM (SELECT t,c FROM @required UNION SELECT t,c FROM @protected) q
  WHERE OBJECT_ID(N'dbo.'+QUOTENAME(q.t),N'U') IS NULL
- OR (q.c<>N'' AND NOT EXISTS(SELECT 1 FROM sys.columns sc WHERE sc.object_id=OBJECT_ID(N'dbo.'+QUOTENAME(q.t),N'U') AND sc.name=q.c)))
+ OR (q.c<>N'' AND NOT EXISTS(SELECT 1 FROM sys.columns sc WHERE sc.object_id=OBJECT_ID(N'dbo.'+QUOTENAME(q.t),N'U') AND sc.name COLLATE DATABASE_DEFAULT=q.c COLLATE DATABASE_DEFAULT)))
  THROW 52004,N'OBJECT_OR_COLUMN_MISMATCH',1;
 DECLARE @runtime int=DATABASE_PRINCIPAL_ID(N'api-fieldvisit-pathb-uat_pathb');
 DECLARE @principals TABLE(id int PRIMARY KEY);
@@ -212,7 +212,7 @@ BEGIN
 END;
 -- Never overwrite a direct or inherited explicit DENY affecting candidate rights.
 IF EXISTS(SELECT 1 FROM sys.database_permissions d JOIN @principals p ON p.id=d.grantee_principal_id
- JOIN @required q ON d.permission_name IN(q.p,N'CONTROL')
+ JOIN @required q ON d.permission_name COLLATE DATABASE_DEFAULT IN(q.p COLLATE DATABASE_DEFAULT,N'CONTROL')
  WHERE d.state='D' AND (d.class=0 OR (d.class=3 AND d.major_id=SCHEMA_ID(N'dbo'))
  OR (d.class=1 AND d.major_id=OBJECT_ID(N'dbo.'+QUOTENAME(q.t),N'U')
  AND (d.minor_id=0 OR q.c=N'' OR d.minor_id=COLUMNPROPERTY(d.major_id,q.c,'ColumnId')))))
