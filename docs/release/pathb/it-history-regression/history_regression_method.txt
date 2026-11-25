@@ -1,0 +1,56 @@
+    [Fact]
+    public async Task R10_admin_canonical_location_history_reads_applied_event_and_fails_closed_after_revocation()
+    {
+        await using var h = await Harness.TryCreateAsync();
+        if (h is null) return;
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlServer(h.ConnectionString, sql => sql.EnableRetryOnFailure()).Options;
+        await using var db = new AppDbContext(options);
+        var batches = System.Text.RegularExpressions.Regex.Split(
+            db.Database.GenerateCreateScript(), @"(?im)^\s*GO\s*$");
+        foreach (var table in new[] { "TeamLocationNotes", "TeamLocationNoteHistory", "AuditLogs" })
+        {
+            var ddl = Assert.Single(batches.Where(b => b.TrimStart().StartsWith(
+                $"CREATE TABLE [{table}]", StringComparison.Ordinal)));
+            await h.Exec(ddl);
+        }
+        var request = await h.CreateRequest(10);
+        await h.PrepareStage(request);
+        await using (var tx = await h.Begin())
+        {
+            await Service().ApproveAsync(h.Db, tx, request, 1, 2, Guid.NewGuid(),
+                "Independent approval", CancellationToken.None);
+            await tx.CommitAsync();
+        }
+        Assert.Equal("Applied", await h.RequestStatus(request));
+        Assert.Equal("1", await h.EventCount(request, "Applied"));
+        var admin = new CurrentUserDto(2, "E2", "Admin", null, 1, 1, null,
+            new[] { "admin" }, new[] { new TeamScopeDto(1, "Team 1", true) });
+        var outsider = new CurrentUserDto(3, "E3", "Other", null, 2, 2, null,
+            new[] { "admin" }, new[] { new TeamScopeDto(2, "Team 2", true) });
+        var repo = new V170LocationRepository(db);
+        var prior = Environment.GetEnvironmentVariable(V180OptionCExecutionPolicy.ModeVariable);
+        Environment.SetEnvironmentVariable(V180OptionCExecutionPolicy.ModeVariable,
+            V180OptionCExecutionPolicy.PathBUatFormalLocationsMode);
+        try
+        {
+            var detail = await repo.GetMaintenanceAsync(admin, 10, null, CancellationToken.None);
+            var publication = Assert.Single(detail.AddressAudit,
+                a => a.Action == "LocationPublicationApplied");
+            Assert.Contains("Changed 10", publication.NewValues);
+            Assert.Equal(10, publication.SourceLocationId);
+            var scoped = await repo.GetMaintenanceAsync(admin, 10, 1, CancellationToken.None);
+            Assert.Empty(scoped.AddressAudit);
+            await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+                repo.GetMaintenanceAsync(outsider, 10, null, CancellationToken.None));
+            await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo='2000-01-02' WHERE UserId=2");
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                repo.GetMaintenanceAsync(admin, 10, null, CancellationToken.None));
+            Console.WriteLine("R10_CANONICAL_LOCATION_HISTORY_SQL_PASS event=1 org_isolation=true revocation=true scoped_notes_no_audit=true");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(V180OptionCExecutionPolicy.ModeVariable, prior);
+        }
+    }
+
