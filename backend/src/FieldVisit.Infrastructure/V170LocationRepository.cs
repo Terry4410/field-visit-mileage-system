@@ -1140,6 +1140,8 @@ public sealed class V170LocationRepository(
         if(!survivor.IsActive)blocking="保留地點必須為啟用狀態。";
         else if(source.DuplicateOfLocationId.HasValue)blocking="來源地點已標記為其他地點的 duplicate。";
         else if(deploymentRefs>0)blocking="來源地點仍有 current/future 派駐據點關聯，必須先由管理者調整該關聯。";
+        else if(new[]{source,survivor}.Any(x=>!x.IsTemporary&&x.ApprovalStatus=="Approved"))
+            blocking="涉及正式地點，沿用或合併須經受控審核；目前不可直接執行。";
 
         var teamIds=new[]{source.TeamId,survivor.TeamId}.Where(x=>x.HasValue).Select(x=>x!.Value).Distinct().ToArray();
         var teamNames=await db.Teams.AsNoTracking().Where(x=>teamIds.Contains(x.TeamId))

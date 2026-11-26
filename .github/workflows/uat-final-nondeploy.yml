@@ -102,7 +102,7 @@ jobs:
         env:
           PATHB_PDF_VERIFY_DIR: ${{ runner.temp }}/final-pdf
         run: |
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryRegressionTests.Correction|FullyQualifiedName~V180QueryRegressionTests.Explicit_all_corrections|FullyQualifiedName~V180HistoryRateReportTests|FullyQualifiedName~PathBQuery05PdfReadabilityTests|FullyQualifiedName~G1ReportExportHttpSqlTests' --logger 'console;verbosity=normal'
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryRegressionTests.Correction|FullyQualifiedName~V180QueryRegressionTests.Explicit_all_corrections|FullyQualifiedName~V180HistoryRateReportTests|FullyQualifiedName~V180LocationPlusCodeTests|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers|FullyQualifiedName~PathBQuery05PdfReadabilityTests|FullyQualifiedName~G1ReportExportHttpSqlTests' --logger 'console;verbosity=normal'
           for title in 更正歷史 補助費率; do
             pdftotext "$PATHB_PDF_VERIFY_DIR/$title.pdf" "$PATHB_PDF_VERIFY_DIR/$title.txt"
             grep -q '最後一筆確認' "$PATHB_PDF_VERIFY_DIR/$title.txt"

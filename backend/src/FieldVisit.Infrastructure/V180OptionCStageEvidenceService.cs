@@ -11,6 +11,7 @@ namespace FieldVisit.Infrastructure;
 public sealed record V180OptionCGeocodeEvidence(string StageRowVersion, bool Succeeded, decimal? Latitude, decimal? Longitude, string Reason)
 {
     public Guid EvidenceKey { get; init; }
+    public string? PlusCode { get; init; }
 }
 public sealed record V180OptionCDuplicateEvidence(string StageRowVersion, bool Cleared, string Reason, Guid EvidenceKey);
 public sealed record V180OptionCStageEvidenceView(Guid RequestPublicId, string StageStatus, string GeocodeStatus, string DuplicateReviewStatus, string StageRowVersion);
@@ -113,6 +114,11 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                     || !reviewer.OrganizationMatches || !reviewer.TeamMatches)
                     throw new UnauthorizedAccessException("OPTIONC_STAGE_SCOPE_DENIED");
             }
+            if (row.RiskCode == "High" && row.OperationCode == "UpdatePublishedLocation"
+                && (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode
+                    || await V180OptionCLeaderReviewService.Schema.ExistsAsync(connection, sqlTx, ct)))
+                await V180OptionCLeaderReviewService.Schema.RequireApprovedAsync(
+                    connection, sqlTx, row.ChangeRequestId, row.RequestedByUserId, ct);
             if (row.OperationCode == "CreateLocation")
             {
                 await RequireLiveCreateLeaderAsync(auth, row.ChangeRequestId,
@@ -169,7 +175,17 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
     }
 
     public Task<V180OptionCStageEvidenceView> RecordGeocodeAsync(Guid id, V180OptionCGeocodeEvidence input, CancellationToken ct)
-        => TransitionAsync(id, input.StageRowVersion, input.Reason, input.Succeeded, input.Latitude, input.Longitude, null, input.EvidenceKey, ct);
+    {
+        var latitude = input.Latitude;
+        var longitude = input.Longitude;
+        if (input.PlusCode is not null)
+        {
+            if (!input.Succeeded || latitude is not null || longitude is not null)
+                throw new InvalidOperationException("請使用完整 Plus Code 或經緯度其中一種定位方式。");
+            (latitude, longitude) = V180LocationPlusCode.Decode(input.PlusCode);
+        }
+        return TransitionAsync(id, input.StageRowVersion, input.Reason, input.Succeeded, latitude, longitude, null, input.EvidenceKey, ct);
+    }
 
     public Task<V180OptionCStageEvidenceView> RecordDuplicateReviewAsync(Guid id, V180OptionCDuplicateEvidence input, CancellationToken ct)
         => TransitionAsync(id, input.StageRowVersion, input.Reason, false, null, null, input.Cleared, input.EvidenceKey, ct);
@@ -284,6 +300,10 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                     .Select(x => x.OperationCode).SingleAsync(ct);
                 if (operation == "CreateLocation")
                     await RequireLiveCreateLeaderAsync(auth,requestId,requesterId,org,teamId,ct);
+                else if (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode
+                    || await V180OptionCLeaderReviewService.Schema.ExistsAsync(connection, sqlTx, ct))
+                    await V180OptionCLeaderReviewService.Schema.RequireApprovedAsync(
+                        connection, sqlTx, requestId, requesterId, ct);
             }
 
             var sqlTx=(SqlTransaction)tx.GetDbTransaction();

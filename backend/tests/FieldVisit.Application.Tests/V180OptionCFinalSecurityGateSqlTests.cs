@@ -2711,6 +2711,14 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var submitted = await submit.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_LEADER_SUBMIT_RESPONSE_MISSING");
 
+        using var beforeReviewAdmin = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+        beforeReviewAdmin.DefaultRequestHeaders.Authorization = new("Bearer", Token(2, "E2", "admin"));
+        var beforeQueue = await beforeReviewAdmin.GetFromJsonAsync<List<V180B3RequestView>>("api/v1/optionc-candidate/requests/queue");
+        Assert.NotNull(beforeQueue);
+        Assert.DoesNotContain(beforeQueue!, x => x.RequestPublicId == submitted.RequestPublicId);
+        using var prematureStage = await beforeReviewAdmin.GetAsync($"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/stage");
+        Assert.False(prematureStage.IsSuccessStatusCode);
+
         using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
         var leaderReview = await leader.PostAsJsonAsync(
@@ -2730,6 +2738,9 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             "SELECT RowVersion FROM dbo.LocationPublicationStages WHERE ChangeRequestId=(SELECT ChangeRequestId FROM dbo.ChangeRequests WHERE RequestPublicId=@id)",
             h.Db) { Parameters = { new SqlParameter("@id", submitted.RequestPublicId) } }.ExecuteScalarAsync()
             ?? throw new InvalidOperationException("OPTIONC_STAGE_FIXTURE_MISSING"));
+        var afterQueue = await admin.GetFromJsonAsync<List<V180B3RequestView>>("api/v1/optionc-candidate/requests/queue");
+        Assert.NotNull(afterQueue);
+        Assert.Contains(afterQueue!, x => x.RequestPublicId == submitted.RequestPublicId);
         var geocode = await admin.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{submitted.RequestPublicId}/geocode-evidence",
             new V180OptionCGeocodeEvidence(Convert.ToBase64String(stageVersion), true,

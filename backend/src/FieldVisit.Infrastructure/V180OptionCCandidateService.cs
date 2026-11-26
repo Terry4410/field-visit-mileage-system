@@ -886,11 +886,19 @@ public sealed class V180OptionCCandidateService(
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var org = await new V180OptionCLiveAuthorizationAdapter(db)
             .RequireIndependentAdminAsync(actorId, BusinessTime.Today, ct);
-        var rows = await db.ChangeRequests.AsNoTracking().Where(x => x.OrganizationId == org
+        var pending = db.ChangeRequests.AsNoTracking().Where(x => x.OrganizationId == org
             && x.EntityKind == "Location"
             && (x.OperationCode == "UpdatePublishedLocation" || x.OperationCode == "CreateLocation")
-            && x.RiskCode == "High" && x.Status == "Pending")
-            .OrderBy(x => x.SubmittedAt).Take(100).ToListAsync(ct);
+            && x.RiskCode == "High" && x.Status == "Pending");
+        var connection = (SqlConnection)db.Database.GetDbConnection();
+        var sqlTx = (SqlTransaction)tx.GetDbTransaction();
+        if (V180OptionCExecutionPolicy.IsRestrictedFormalLocationMode
+            || await V180OptionCLeaderReviewService.Schema.ExistsAsync(connection, sqlTx, ct))
+            pending = pending.Where(x => db.LeaderReviews.Any(l =>
+                l.ChangeRequestId == x.ChangeRequestId && l.ReviewStage == "LeaderFirstLevel"
+                && l.Status == "Approved" && l.ReviewerUserId != null
+                && l.ReviewerUserId != x.RequestedByUserId));
+        var rows = await pending.OrderBy(x => x.SubmittedAt).Take(100).ToListAsync(ct);
         var visible = new List<V180B3ChangeRequest>();
         foreach (var row in rows)
         {

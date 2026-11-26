@@ -16,10 +16,12 @@ export default function LocationApprovalQueuePage(){
  const [rows,setRows]=useState<OptionCRequest[]>([]),[selected,setSelected]=useState(""),[stage,setStage]=useState<Stage|null>(null);
  const [reason,setReason]=useState(""),[decisionReason,setDecisionReason]=useState(""),[latitude,setLatitude]=useState(""),[longitude,setLongitude]=useState("");
  const [query,setQuery]=useState(""),[typeFilter,setTypeFilter]=useState("all");
+ const [plusCode,setPlusCode]=useState(""),[manualCoordinates,setManualCoordinates]=useState(false);
  const [error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  const load=useCallback(async()=>{if(OPTIONC_APPROVAL_UI_ENABLED)setRows(await api<OptionCRequest[]>("/optionc-candidate/requests/queue"));},[]);
  const loadStage=useCallback(async(id:string)=>{
   if(!OPTIONC_APPROVAL_UI_ENABLED)return;
+  setStage(null);
   setStage(await api<Stage>(`/optionc-candidate/requests/${encodeURIComponent(id)}/stage`));
  },[]);
  useEffect(()=>{if(OPTIONC_APPROVAL_UI_ENABLED)void load().catch(e=>setError(String(e)));},[load]);
@@ -32,17 +34,20 @@ export default function LocationApprovalQueuePage(){
  const matchedStage=matchingHighRiskStage(row,stage);
  const publishReady=mayPublishHighRisk(row,stage);
  const evidenceReason=reason.trim().length>0&&reason.trim().length<=100;
- const select=(id:string)=>{setSelected(id);setStage(null);setReason("");setDecisionReason("");setLatitude("");setLongitude("");setError("");void loadStage(id).catch(e=>setError(`審核階段尚不可檢視（可能仍待小組長初審或權限不足）：${String(e)}`));};
+ const select=(id:string)=>{setSelected(id);setStage(null);setReason("");setDecisionReason("");setLatitude("");setLongitude("");setPlusCode("");setManualCoordinates(false);setError("");void loadStage(id).catch(e=>setError(`審核階段尚不可檢視（可能仍待小組長初審或權限不足）：${String(e)}`));};
  const evidence=async(kind:"geocode"|"duplicate",cleared=true)=>{
   if(!row||!eligible||!matchedStage||!evidenceReason||busy)return;
   if(kind==="geocode"&&matchedStage.stageStatus!=="PendingGeocode")return;
   if(kind==="duplicate"&&matchedStage.stageStatus!=="PendingDuplicateReview")return;
   const lat=Number(latitude),lon=Number(longitude);
-  if(kind==="geocode"&&(!latitude.trim()||!longitude.trim()||!Number.isFinite(lat)||!Number.isFinite(lon)||lat< -90||lat>90||lon< -180||lon>180)){
+  if(kind==="geocode"&&manualCoordinates&&(!latitude.trim()||!longitude.trim()||!Number.isFinite(lat)||!Number.isFinite(lon)||lat< -90||lat>90||lon< -180||lon>180)){
    setError("請提供有效緯度（-90～90）及經度（-180～180）。");return;
   }
+  if(kind==="geocode"&&!manualCoordinates&&!/^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,7}$/i.test(plusCode.trim())){
+    setError("請貼上完整 Plus Code（加號前八碼、後至少兩碼），不要輸入簡短代碼或城市名稱。");return;
+  }
   const body=kind==="geocode"
-    ?{stageRowVersion:matchedStage.stageRowVersion,succeeded:true,latitude:lat,longitude:lon,reason:reason.trim(),evidenceKey:crypto.randomUUID()}
+    ?{stageRowVersion:matchedStage.stageRowVersion,succeeded:true,...(manualCoordinates?{latitude:lat,longitude:lon}:{plusCode:plusCode.trim().toUpperCase()}),reason:reason.trim(),evidenceKey:crypto.randomUUID()}
     :{stageRowVersion:matchedStage.stageRowVersion,cleared,reason:reason.trim(),evidenceKey:crypto.randomUUID()};
   setBusy(true);setError("");setMessage("");
   try{
@@ -64,7 +69,7 @@ export default function LocationApprovalQueuePage(){
    await api(`/optionc-candidate/requests/${encodeURIComponent(row.requestPublicId)}/${endpoint}`,{method:"POST",body:JSON.stringify(data)});
    setMessage(action==="approve"?"已提交獨立核准與受控發布。":"已完成拒絕。");
    setSelected("");setStage(null);setReason("");await load();
-  }catch(e){setError(`${String(e)}；如提交結果不明請先查核 Request/audit，勿直接重送。`);}
+  }catch(e){setStage(null);setError(String(e).includes("OPTIONC_LEADER_REVIEW_REQUIRED")?"尚未完成小組長初審，請先由小組長審核，再重新整理佇列。":`${String(e)}；如提交結果不明請先查核 Request/audit，勿直接重送。`);}
   finally{setBusy(false);}
  };
  return <div className="card"><h2>地點申請複審</h2><p>請依案件的審核進度，確認地址與座標、檢查是否重複，再完成核准。初審及必要檢查尚未完成時，不可發布正式地點。</p>
@@ -79,9 +84,9 @@ export default function LocationApprovalQueuePage(){
    <p>審核階段：{stageLabel[matchedStage?.stageStatus||""]||"未載入／待初審"}｜座標：{stageLabel[matchedStage?.geocodeStatus||""]||"—"}｜重複檢查：{stageLabel[matchedStage?.duplicateReviewStatus||""]||"—"}</p>
    <button className="btn small secondary" disabled={busy||!eligible} onClick={()=>void loadStage(row.requestPublicId).catch(e=>setError(String(e)))}>重新整理審核進度</button>
    <div className="field"><label htmlFor="admin-location-review-reason">核對說明（必填，100 字）</label><textarea id="admin-location-review-reason" rows={3} value={reason} maxLength={100} disabled={busy||!eligible} onChange={e=>setReason(e.target.value)}/><div className="hint">{reason.length} / 100 字</div></div>
-   {matchedStage?.stageStatus==="PendingGeocode"&&<><div className="note">可手動開啟地圖確認地址及座標，再填入下方欄位；不會自動寫入或產生座標。</div><a className="btn small outline" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([safeFields(row.proposedJson).Address,safeFields(row.proposedJson).LocationName].filter(Boolean).join(" "))}`} target="_blank" rel="noopener noreferrer">開啟地圖核對</a><div className="grid cols-2"><div className="field"><label>緯度</label><input value={latitude} onChange={e=>setLatitude(e.target.value)}/></div><div className="field"><label>經度</label><input value={longitude} onChange={e=>setLongitude(e.target.value)}/></div></div></>}
+   {matchedStage?.stageStatus==="PendingGeocode"&&<><div className="note">開啟地圖核對正確位置後，貼上完整 Plus Code；系統會轉換座標。此代碼僅作定位核對，不會改寫申請內容。</div><a className="btn small outline" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([safeFields(row.proposedJson).Address,safeFields(row.proposedJson).LocationName].filter(Boolean).join(" "))}`} target="_blank" rel="noopener noreferrer">開啟地圖核對</a><div className="field"><label><input type="checkbox" checked={manualCoordinates} disabled={busy} onChange={e=>setManualCoordinates(e.target.checked)}/> 進階：手動輸入經緯度</label></div>{manualCoordinates?<div className="grid cols-2"><div className="field"><label>緯度</label><input value={latitude} disabled={busy} onChange={e=>setLatitude(e.target.value)}/></div><div className="field"><label>經度</label><input value={longitude} disabled={busy} onChange={e=>setLongitude(e.target.value)}/></div></div>:<div className="field"><label>Plus Code（位置代碼）</label><input value={plusCode} disabled={busy} onChange={e=>setPlusCode(e.target.value)} placeholder="貼上完整位置代碼"/><div className="hint">加號前須有八碼；簡短代碼請改用完整代碼，或選擇進階定位。</div></div>}</>}
    {matchedStage?.duplicateReviewStatus==="Blocked"&&<div className="note">此申請仍未發布。請核對既有地點；確認不同後才可繼續核准，若確為同一地點則不核准本申請。不要直接合併未發布的申請資料。</div>}
-   {matchedStage&&<div className="actions"><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingGeocode"} onClick={()=>void evidence("geocode")}>確認地址及座標</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",true)}>確認為不同地點</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",false)}>標記疑似重複</button></div>}
+   {matchedStage&&<div className="actions"><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingGeocode"} onClick={()=>void evidence("geocode")}>確認地址及定位</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",true)}>確認為不同地點</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",false)}>標記疑似重複</button></div>}
    <div className="field"><label>審核意見（必填，100 字）<textarea maxLength={100} value={decisionReason} disabled={busy||!eligible} onChange={e=>setDecisionReason(e.target.value)}/></label></div><div className="actions"><button className="btn secondary" disabled={!eligible||busy||!decisionReason.trim()} onClick={()=>void decide("reject")}>不核准</button><button className="btn ok" disabled={!eligible||busy||!decisionReason.trim()||!publishReady} onClick={()=>void decide("approve")}>{isCreate?"核准並發布新地點":"確認核准"}</button></div>
   </section>}
  </div>;
