@@ -38,6 +38,7 @@ function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}
 function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){const[d,setD]=useState<DashboardSummary|null>(null);useEffect(()=>{api<DashboardSummary>('/dashboard').then(setD).catch(e=>setMsg(e.message))},[]);return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待審更正" value={d?.pendingCorrections??'—'}/></div>{msg&&<div className="note">{msg}</div>}</>}
 
 function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;busy:boolean;setBusy:(v:boolean)=>void}){
+ const[reviewTab,setReviewTab]=useState<'approval'|'mileage'|'correction'>('approval');
  const[rows,setRows]=useState<Trip[]>([]);
  const[selected,setSelected]=useState<number[]>([]);
  const[approvalSelected,setApprovalSelected]=useState<number[]>([]);
@@ -186,7 +187,8 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  return <>
   {loadError&&<div className="note danger-note" role="alert">{loadError}</div>}
   {msg&&<div className="note" role="status">{msg}</div>}
-  <div className="card" style={{marginTop:18}}>
+  <div className="actions" role="tablist" aria-label="行程審核分類">{([["approval",`待審核行程（${approvalRows.length}）`],["mileage",`里程重算（${calculableRows.length}）`],["correction",`更正申請（${correctionLoadFailed?"讀取失敗":corrections.length}）`]] as const).map(([key,label])=><button type="button" key={key} role="tab" aria-selected={reviewTab===key} disabled={busy} className={reviewTab===key?"btn":"btn secondary"} onClick={()=>setReviewTab(key)}>{label}</button>)}</div>
+  {reviewTab==="approval"&&<div className="card" role="tabpanel" style={{marginTop:18}}>
    <div className="section-title"><div><h2>待核准行程</h2><div className="sub">顯示目前所有待核准行程。</div></div><div className="actions"><span className="pill">{approvalRows.length} 筆</span><button className="btn small ok" disabled={busy||!approvalSelected.length} onClick={()=>void batchApprove()}>批次核准（{approvalSelected.length}）</button><button className="btn small danger" disabled={busy||!approvalSelected.length} onClick={()=>void batchReturn()}>批次退回（{approvalSelected.length}）</button></div></div>
    <div className="table-wrap"><table>
     <thead><tr>
@@ -206,10 +208,9 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
      </tr>
     })}</tbody>
    </table></div>
-  </div>
+  </div>}
 
-  <details className="card" style={{marginTop:18}}>
-   <summary style={{cursor:"pointer",fontWeight:700}}>Google Maps 里程重算（{calculableRows.length} 筆）</summary>
+  {reviewTab==="mileage"&&<div className="card" role="tabpanel" style={{marginTop:18}}>
    <div className="section-title"><div><h2>重新計算里程</h2><div className="sub">依派駐中心 → 拜訪順序 → 返回中心取得 Google Maps API 路線；API 失敗時才使用人工備援。</div></div></div>
    <div className="actions">
     <select value={mode} onChange={e=>{const next=e.target.value;setMode(next);if(next!=='Selected')setSelected([])}}>
@@ -241,14 +242,14 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
     })}</tbody>
    </table></div>}
    </div>
-  </details>
+  </div>}
 
-  <div className="card" style={{marginTop:18}}>
+  {reviewTab==="correction"&&<div className="card" role="tabpanel" style={{marginTop:18}}>
    <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><span className="pill">{correctionLoadFailed?"讀取失敗":corrections.length}</span></div>
    <div className="table-wrap"><table><thead><tr><th>Trip</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead>
    <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)} disabled={r.changes.length===0} title={r.changes.length===0?"缺少更正差異明細，禁止核准":undefined}>通過</button>{r.changes.length===0&&<span role="alert" className="hint">差異明細缺失，禁止核准</span>}<button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody>
    </table></div>
-  </div>
+  </div>}
  </>;
 }
 

@@ -25,7 +25,7 @@ export default function LocationDuplicateReviewPage(){
  return <>
   <LocationAdminTabs/>
   <div className="card">
-   <div className="section-title"><div><h2>疑似重複覆核</h2><div className="sub">這是獨立的例外處理工作佇列；一般地點主檔不再直接執行覆核或合併。</div></div></div>
+   <div className="section-title"><div><h2>重複地點處理</h2><div className="sub">請比對來源與既有地點：不同地點可各自保留；相同地點可沿用既有主檔；需要整合資料時才逐欄合併。</div></div></div>
    <div className="quick-filters">{statuses.map(([value,label])=><button type="button" key={value} className={`btn small ${status===value?"":"outline"}`} onClick={()=>{setStatus(value);setReview(null)}}>{label}</button>)}</div>
    <div className="field" style={{marginTop:12}}><label>搜尋</label><input value={q} onChange={e=>setQ(e.target.value)} placeholder="地點代碼、名稱、地址、Plus Code 或統編"/></div>
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}{query.error&&<div className="note danger-note">{query.error}</div>}

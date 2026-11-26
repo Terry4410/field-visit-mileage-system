@@ -8,12 +8,12 @@ export function locationAdminGroups(approvalEnabled:boolean){
    {path:"/admin/locations/bulk",label:"Excel 批次維護"}
   ]},
   {label:"審核與資料品質",items:[
-   {path:"/admin/locations/duplicates",label:"疑似重複覆核"},
-   ...(approvalEnabled?[{path:"/admin/locations/approvals",label:"地點變更核准"}]:[])
+   {path:"/admin/locations/duplicates",label:"重複地點處理"},
+   ...(approvalEnabled?[{path:"/admin/locations/approvals",label:"地點申請複審"}]:[])
   ]},
   {label:"官方資料維護",items:[
-   {path:"/admin/locations/centers",label:"就業中心"},
-   {path:"/admin/locations/official",label:"官方據點"}
+   {path:"/admin/locations/centers",label:"就業中心主檔"},
+   {path:"/admin/locations/official",label:"鄉鎮台"}
   ]}
  ];
 }

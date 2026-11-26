@@ -648,11 +648,11 @@ export default function VisitorPage(){
           預設由人事歸屬的主要就業中心／派駐據點帶入；可改選公司其他有效中心或就業服務站。此處修改只影響本次行程，不會修改人員主檔。
         </div>
         <div className="field">
-          <label>搜尋官方據點</label>
+          <label>搜尋鄉鎮台</label>
           <input value={endpointSearch} onChange={e=>setEndpointSearch(e.target.value)} placeholder="搜尋中心、就業服務站、代碼或地址"/>
         </div>
         <div className="section-title smart-result-title">
-          <strong>官方據點</strong>
+          <strong>鄉鎮台</strong>
           <span className="pill">{filteredOfficialDeploymentSites.length} 筆</span>
         </div>
         <div className="existing-location-results">
@@ -669,7 +669,7 @@ export default function VisitorPage(){
               </span>
             </label>;
           })}
-          {filteredOfficialDeploymentSites.length===0&&<div className="empty compact-empty">查無符合條件的有效官方據點。</div>}
+          {filteredOfficialDeploymentSites.length===0&&<div className="empty compact-empty">查無符合條件的有效鄉鎮台。</div>}
         </div>
         <div className="modal-sticky-actions">
           <button className="btn secondary" onClick={()=>{setModal(null);setEditingEndpoint(null);setEndpointDraftSiteId("");setEndpointSearch("")}}>取消</button>

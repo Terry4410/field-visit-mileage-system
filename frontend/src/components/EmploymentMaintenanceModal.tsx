@@ -41,7 +41,7 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
     const [available,allAssignments]=await Promise.allSettled([api<MasterRow[]>("/admin/master-data/deployment-sites"),api<MasterRow[]>("/admin/master-data/employment-sites")]);
     if(available.status==="fulfilled")setSites(available.value);
     if(allAssignments.status==="fulfilled")setAssignments(allAssignments.value.filter(x=>x.key===row.employeeNo));
-    const failures=[available.status==="rejected"?"官方據點清單":"",allAssignments.status==="rejected"?"派駐資料清單":""].filter(Boolean);
+    const failures=[available.status==="rejected"?"鄉鎮台清單":"",allAssignments.status==="rejected"?"派駐資料清單":""].filter(Boolean);
     setSiteLoadFailed(failures.length>0);
     setMsg(failures.length?`${failures.join("、")}載入失敗；人事資料仍可查看，派駐設定請暫緩修改。`:"");
   };

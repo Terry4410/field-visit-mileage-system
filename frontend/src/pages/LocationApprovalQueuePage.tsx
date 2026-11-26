@@ -20,7 +20,7 @@ export default function LocationApprovalQueuePage(){
   setStage(await api<Stage>(`/optionc-candidate/requests/${encodeURIComponent(id)}/stage`));
  },[]);
  useEffect(()=>{if(OPTIONC_APPROVAL_UI_ENABLED)void load().catch(e=>setError(String(e)));},[load]);
- if(!OPTIONC_APPROVAL_UI_ENABLED)return <div role="status">地點變更核准尚未授權啟用。</div>;
+ if(!OPTIONC_APPROVAL_UI_ENABLED)return <div role="status">地點申請複審尚未授權啟用。</div>;
  if(!user?.roles.some(r=>r.toLowerCase()==="admin"))return <div role="alert">沒有管理員權限。</div>;
  const row=rows.find(x=>x.requestPublicId===selected);
  const eligible=!!row&&mayReview(row,user.userId)&&
@@ -28,7 +28,7 @@ export default function LocationApprovalQueuePage(){
  const isCreate=row?.operationCode==="CreateLocation";
  const matchedStage=matchingHighRiskStage(row,stage);
  const publishReady=mayPublishHighRisk(row,stage);
- const evidenceReason=reason.trim().length>0&&reason.trim().length<=1000;
+ const evidenceReason=reason.trim().length>0&&reason.trim().length<=100;
  const select=(id:string)=>{setSelected(id);setStage(null);setReason("");setDecisionReason("");setLatitude("");setLongitude("");setError("");void loadStage(id).catch(e=>setError(`審核階段尚不可檢視（可能仍待小組長初審或權限不足）：${String(e)}`));};
  const evidence=async(kind:"geocode"|"duplicate",cleared=true)=>{
   if(!row||!eligible||!matchedStage||!evidenceReason||busy)return;
@@ -64,7 +64,7 @@ export default function LocationApprovalQueuePage(){
   }catch(e){setError(`${String(e)}；如提交結果不明請先查核 Request/audit，勿直接重送。`);}
   finally{setBusy(false);}
  };
- return <div className="card"><h2>地點變更管理者複審</h2><p>僅處理即時授權的案件。新增及正式地點異動皆須完成必要地理及重複檢查；伺服器另行驗證初審與發布權限。</p>
+ return <div className="card"><h2>地點申請複審</h2><p>請依案件的審核進度，確認地址與座標、檢查是否重複，再完成核准。初審及必要檢查尚未完成時，不可發布正式地點。</p>
   {message&&<div role="status" className="note ok-note">{message}</div>}
   {error&&<div role="alert" className="note danger-note">{error}</div>}
   <button className="btn secondary" disabled={busy} onClick={()=>void load().catch(e=>setError(String(e)))}>重新整理佇列</button>
@@ -73,11 +73,11 @@ export default function LocationApprovalQueuePage(){
   {row&&<section><h3>差異內容</h3><div className="table-wrap"><table><thead><tr><th>欄位</th><th>原值</th><th>申請值</th></tr></thead><tbody>{differences(row).map(x=><tr key={x.field}><td>{label[x.field]}</td><td>{x.before||"—"}</td><td>{x.after||"—"}</td></tr>)}</tbody></table></div>
    {!eligible&&<div role="alert">本人申請、作業代碼未知或狀態無效，不允許複審。</div>}
    <p>審核階段：{stageLabel[matchedStage?.stageStatus||""]||"未載入／待初審"}｜座標：{stageLabel[matchedStage?.geocodeStatus||""]||"—"}｜重複檢查：{stageLabel[matchedStage?.duplicateReviewStatus||""]||"—"}</p>
-   <button className="btn small secondary" disabled={busy||!eligible} onClick={()=>void loadStage(row.requestPublicId).catch(e=>setError(String(e)))}>重新讀取審核階段</button>
-   <div className="field"><label htmlFor="admin-location-review-reason">審核證據理由（必填）</label><textarea id="admin-location-review-reason" rows={5} value={reason} maxLength={1000} disabled={busy||!eligible} onChange={e=>setReason(e.target.value)}/><div className="hint">{reason.length} / 1000 字</div></div>
+   <button className="btn small secondary" disabled={busy||!eligible} onClick={()=>void loadStage(row.requestPublicId).catch(e=>setError(String(e)))}>重新整理審核進度</button>
+   <div className="field"><label htmlFor="admin-location-review-reason">核對說明（必填，100 字）</label><textarea id="admin-location-review-reason" rows={3} value={reason} maxLength={100} disabled={busy||!eligible} onChange={e=>setReason(e.target.value)}/><div className="hint">{reason.length} / 100 字</div></div>
    {matchedStage?.stageStatus==="PendingGeocode"&&<><div className="note">可手動開啟地圖確認地址及座標，再填入下方欄位；不會自動寫入或產生座標。</div><a className="btn small outline" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([safeFields(row.proposedJson).Address,safeFields(row.proposedJson).LocationName].filter(Boolean).join(" "))}`} target="_blank" rel="noopener noreferrer">開啟地圖核對</a><div className="grid cols-2"><div className="field"><label>緯度</label><input value={latitude} onChange={e=>setLatitude(e.target.value)}/></div><div className="field"><label>經度</label><input value={longitude} onChange={e=>setLongitude(e.target.value)}/></div></div></>}
-   {matchedStage&&<div className="actions"><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingGeocode"} onClick={()=>void evidence("geocode")}>記錄座標證據</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",true)}>確認非重複</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",false)}>標記疑似重複</button></div>}
-   <div className="field"><label>審核意見（必填，100 字）<textarea maxLength={100} value={decisionReason} disabled={busy||!eligible} onChange={e=>setDecisionReason(e.target.value)}/></label></div><div className="actions"><button className="btn secondary" disabled={!eligible||busy||!decisionReason.trim()} onClick={()=>void decide("reject")}>拒絕</button><button className="btn ok" disabled={!eligible||busy||!decisionReason.trim()||!publishReady} onClick={()=>void decide("approve")}>{isCreate?"獨立核准並發布新地點":"獨立核准"}</button></div>
+   {matchedStage&&<div className="actions"><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingGeocode"} onClick={()=>void evidence("geocode")}>確認地址及座標</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",true)}>確認為不同地點</button><button className="btn secondary" disabled={!eligible||busy||!evidenceReason||matchedStage?.stageStatus!=="PendingDuplicateReview"} onClick={()=>void evidence("duplicate",false)}>標記疑似重複</button></div>}
+   <div className="field"><label>審核意見（必填，100 字）<textarea maxLength={100} value={decisionReason} disabled={busy||!eligible} onChange={e=>setDecisionReason(e.target.value)}/></label></div><div className="actions"><button className="btn secondary" disabled={!eligible||busy||!decisionReason.trim()} onClick={()=>void decide("reject")}>不核准</button><button className="btn ok" disabled={!eligible||busy||!decisionReason.trim()||!publishReady} onClick={()=>void decide("approve")}>{isCreate?"核准並發布新地點":"確認核准"}</button></div>
   </section>}
  </div>;
 }

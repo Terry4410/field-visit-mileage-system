@@ -12,8 +12,8 @@ const reports:{kind:ReportKind;title:string;description:string}[]=[
  {kind:"members",title:"小組成員配置",description:"指定小組的成員現況，不代替人事完整履歷"},
  {kind:"locations",title:"地點主檔",description:"地點基本資料、統一編號及備註"},
  {kind:"centers",title:"就業中心",description:"中心代碼、名稱及有效期間"},
- {kind:"deployment-sites",title:"官方據點",description:"據點、所屬中心、Location 與有效期間"},
- {kind:"locations-official",title:"地點與官方據點整合",description:"多工作表含據點搬遷與小組對應歷史"},
+ {kind:"deployment-sites",title:"鄉鎮台",description:"據點、所屬中心、Location 與有效期間"},
+ {kind:"locations-official",title:"地點與鄉鎮台整合",description:"多工作表含據點搬遷與小組對應歷史"},
  {kind:"projects",title:"專案管理",description:"專案主檔"},
  {kind:"visit-types",title:"拜訪型式",description:"拜訪型式代碼、名稱與排序"}
 ];
