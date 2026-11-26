@@ -36,6 +36,6 @@ public static class V180MileageRateVersionRules
             .Where(x=>!excludedMileageRateRuleId.HasValue||x.MileageRateRuleId!=excludedMileageRateRuleId.Value)
             .FirstOrDefault(x=>x.EffectiveFrom<=requestedTo&&effectiveFrom<=(x.EffectiveTo??DateOnly.MaxValue));
         if(conflict is not null)
-            throw new InvalidOperationException($"同一交通工具的補助費率有效期間不可重疊；與「{conflict.RuleName}」期間重疊。");
+            throw new InvalidOperationException($"同一交通工具的補助費率有效期間不可重疊；與「{conflict.RuleName}」（{conflict.EffectiveFrom:yyyy/MM/dd}～{(conflict.EffectiveTo.HasValue ? conflict.EffectiveTo.Value.ToString("yyyy/MM/dd") : "無期限")}）期間重疊。請先調整舊費率失效日或本次生效日，已核准行程不會自動重算。");
     }
 }

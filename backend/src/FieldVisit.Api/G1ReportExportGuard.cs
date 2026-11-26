@@ -28,6 +28,10 @@ public sealed class G1ReportExportGuard(
             && int.TryParse(parts[3], out _)
             && parts[4].Equals("maintenance", StringComparison.OrdinalIgnoreCase);
         var locationRead = scopedLocation || maintenanceRead;
+        // Own request history is independent of current team membership; it still requires fresh actor/HR/role authorization before and after the action.
+        var ownLocationRequest = HttpMethods.IsGet(context.HttpContext.Request.Method)
+            && (normalized.Equals("/api/v1/optionc-candidate/requests/mine/search",StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("/api/v1/optionc-candidate/requests/mine.xlsx",StringComparison.OrdinalIgnoreCase));
         var adminReport = path.StartsWith("/api/v1/admin/query-exports/", StringComparison.OrdinalIgnoreCase);
         var masterData = path.StartsWith("/api/v1/admin/master-data/", StringComparison.OrdinalIgnoreCase);
         var peopleAdmin = path.Equals("/api/v1/admin/people", StringComparison.OrdinalIgnoreCase)
@@ -52,7 +56,7 @@ public sealed class G1ReportExportGuard(
         var liveAdmin = masterData || peopleAdmin || masterWrite || adminMaintenance || legacyAdminImport;
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
-        if (!adminReport && !tripReport && !liveAdmin && !locationRead) { await next(); return; }
+        if (!adminReport && !tripReport && !liveAdmin && !locationRead && !ownLocationRequest) { await next(); return; }
         // Master-data commands cannot trust a signed but stale organization/role claim.
         // Reuse the live account, HR and role check before any SQL write starts.
         if (liveAdmin)

@@ -107,6 +107,11 @@ public sealed class ScopedLocationHttpSqlTests
                 using(var response=await client.GetAsync(maintenance)){Assert.Equal(HttpStatusCode.OK,response.StatusCode);Assert.Contains(note,await response.Content.ReadAsStringAsync());}
             }
             Token(a,b);await Visible("SECRET_A");
+            using(var filtered=await client.GetAsync(excel+"?teamId="+b.TeamId+"&status=Approved"))
+            {
+                Assert.Equal(HttpStatusCode.OK,filtered.StatusCode);using var stream=new MemoryStream(await filtered.Content.ReadAsByteArrayAsync());using var book=new XSSFWorkbook(stream);
+                var sheet=book.GetSheetAt(0);Assert.Equal(1,sheet.LastRowNum);Assert.Equal("LEADER-B",sheet.GetRow(1).GetCell(0).StringCellValue);
+            }
             // Scope projection and effective dates are independently checked.
             sa.IsActive=false;await db.SaveChangesAsync();await Denied();
             aa.EffectiveTo=BusinessTime.Today.AddDays(-1);await db.SaveChangesAsync();await Denied();
