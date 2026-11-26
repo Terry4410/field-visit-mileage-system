@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      SOURCE_SHA: 'e6ba680abd1466f5c2e0c7304bb6aff0cf95fedf'
+      SOURCE_SHA: 'a444fea4d24e316c35c5881eece4b22217aabea7'
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 'e6ba680abd1466f5c2e0c7304bb6aff0cf95fedf'
+          ref: 'a444fea4d24e316c35c5881eece4b22217aabea7'
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -25,16 +25,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45773927604 > "$RUNNER_TEMP/accepted-ci.json"
+          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45775482345 > "$RUNNER_TEMP/accepted-ci.json"
           jq -e --arg sha "$SOURCE_SHA" '.head_sha == $sha and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/accepted-ci.json"
-          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45773927604/jobs > "$RUNNER_TEMP/accepted-jobs.json"
+          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45775482345/jobs > "$RUNNER_TEMP/accepted-jobs.json"
           jq -e '.jobs | any(.name == "verify-people-and-location-delta" and .conclusion == "success")' "$RUNNER_TEMP/accepted-jobs.json"
           gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45763539116 > "$RUNNER_TEMP/backend-ci.json"
           jq -e '.head_sha == "8ba71f3e2660ecc972f2d8cd32be99998250db26" and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/backend-ci.json"
           gh api repos/Terry4410/field-visit-mileage-system/compare/8ba71f3e2660ecc972f2d8cd32be99998250db26...1630ae07a6e764004d65c83346f8cbd9af8b0ff6 > "$RUNNER_TEMP/prior-delta.json"
           jq -e '.status == "ahead" and (.files | length == 9) and (.files | all(.filename | startswith("frontend/") or . == ".github/workflows/uat-final-nondeploy.yml"))' "$RUNNER_TEMP/prior-delta.json"
-          gh api repos/Terry4410/field-visit-mileage-system/compare/1630ae07a6e764004d65c83346f8cbd9af8b0ff6...e6ba680abd1466f5c2e0c7304bb6aff0cf95fedf > "$RUNNER_TEMP/delta.json"
-          jq -e '.status == "ahead" and (.files | length == 22) and (.files | all(.filename | startswith("frontend/") or . == ".github/workflows/uat-final-nondeploy.yml"))' "$RUNNER_TEMP/delta.json"
+          gh api repos/Terry4410/field-visit-mileage-system/compare/1630ae07a6e764004d65c83346f8cbd9af8b0ff6...a444fea4d24e316c35c5881eece4b22217aabea7 > "$RUNNER_TEMP/delta.json"
+          jq -e '.status == "ahead" and (.files | length == 28) and (.files | all(.filename | startswith("frontend/") or . == ".github/workflows/uat-final-nondeploy.yml"))' "$RUNNER_TEMP/delta.json"
       - name: Recover verified live API, Windows API and frontend rollback without rebuilding backend
         run: |
           set -euo pipefail
@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          # Exact-source UI tests passed in run 45773927604; backend unchanged from 45763539116.
+          # Exact-source UI tests passed in run 45775482345; backend unchanged from 45763539116.
           npm run build
           mkdir -p "$RUNNER_TEMP/it-frontend"
           cp -a dist/. "$RUNNER_TEMP/it-frontend/"
@@ -89,7 +89,7 @@ jobs:
           Frontend-only runtime delta. Path B API and Windows/IIS API bytes reused from accepted 1630ae07, not rebuilt; no API redeployment needed. Both rollback packages are byte-for-byte the accepted 1630ae07 version.
           Windows/IIS package is an IT review candidate. Frontend config.js is deliberately absent until IT sets approved corporate URL and Entra settings. See Source_SQL_IT zip for database/clean-install, migrations, docs and source.
           Company master seed, AD/Windows SSO, service identity grants, Clean Build and Production Ready remain IT environment verification. Do not run UAT synthetic seed in production.
-          Accepted isolated CI: 45773927604 (51 UI tests and build); unchanged backend and prior UI evidence from 45763539116 (74 backend / 10 frontend).
+          Accepted isolated CI: 45775482345 (57 UI tests and build); unchanged backend and prior UI evidence from 45763539116 (74 backend / 10 frontend).
           Owner scope freeze: Email notification is excluded from this UAT and deferred to IT development after handover; preserve existing 1800_006 and design references, no activation or delivery.
           No SQL, ACL, Azure or environment write occurred in this workflow.
           EOF
@@ -114,7 +114,7 @@ jobs:
               assert {'index.html','config.js'}.issubset(z.namelist())
           with zipfile.ZipFile(p/f'Source_SQL_IT_{prefix}.zip') as z:
               assert {'database/clean-install/v180/README.md','backend/src/FieldVisit.Api/Program.cs','docs/release/g1-execution/promotion/API-RUNTIME-SQL-GRANT-CANDIDATE.sql'}.issubset(z.namelist())
-          (p/'manifest.json').write_text(json.dumps({'source':os.environ['SOURCE_SHA'],'schema':'1.8.0-010','rollbackSource':'1630ae07a6e764004d65c83346f8cbd9af8b0ff6','rollbackArtifact':15092330045,'apiBinarySource':'1630ae07a6e764004d65c83346f8cbd9af8b0ff6','runtimeDelta':'frontend-only','email':'deferred-to-IT','target':'Path B UAT only','mode':'NONDEPLOY','deployment':'NOT_EXECUTED','itCleanBuild':'NOT_RUN','verificationRun':45773927604,'backendVerificationRun':45763539116,'backendVerifiedSource':'8ba71f3e2660ecc972f2d8cd32be99998250db26','sha256':hashes},indent=2)+'\n')
+          (p/'manifest.json').write_text(json.dumps({'source':os.environ['SOURCE_SHA'],'schema':'1.8.0-010','rollbackSource':'1630ae07a6e764004d65c83346f8cbd9af8b0ff6','rollbackArtifact':15092330045,'apiBinarySource':'1630ae07a6e764004d65c83346f8cbd9af8b0ff6','runtimeDelta':'frontend-only','email':'deferred-to-IT','target':'Path B UAT only','mode':'NONDEPLOY','deployment':'NOT_EXECUTED','itCleanBuild':'NOT_RUN','verificationRun':45775482345,'backendVerificationRun':45763539116,'backendVerifiedSource':'8ba71f3e2660ecc972f2d8cd32be99998250db26','sha256':hashes},indent=2)+'\n')
           PY
           (cd artifacts && sha256sum *.zip manifest.json HANDOVER_README.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
