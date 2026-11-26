@@ -3,6 +3,8 @@ import{
   correctionChangeText,
   correctionFieldLabel,
   correctionStatusLabel,
+  ALL_CORRECTION_STATUSES,
+  correctionSearchEnabled,
   isPendingCorrection,
   withConfirmedCorrectionComment
 }from"./correction-ui";
@@ -109,3 +111,5 @@ describe("correction comment cancellation",()=>{
 });
 
 it("labels correction workflow status in Chinese",()=>{expect(correctionStatusLabel("PendingAdminClose")).toBe("待管理者結案");expect(correctionStatusLabel("Rejected")).toBe("已退回")});
+
+it("supports explicit All with blank or valid dates and rejects reversed dates",()=>{expect(ALL_CORRECTION_STATUSES).toBe("All");expect(correctionSearchEnabled("","")).toBe(true);expect(correctionSearchEnabled("2026-11-01","")).toBe(true);expect(correctionSearchEnabled("","2026-11-30")).toBe(true);expect(correctionSearchEnabled("2026-11-01","2026-11-30")).toBe(true);expect(correctionSearchEnabled("2026-11-30","2026-11-01")).toBe(false)});

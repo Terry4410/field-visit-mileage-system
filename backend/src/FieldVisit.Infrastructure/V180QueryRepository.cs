@@ -88,9 +88,10 @@ public sealed partial class V160FinalRepository
         if (r.Status is null && r.Keyword is null && !r.StartDate.HasValue && !r.EndDate.HasValue && !r.TeamId.HasValue)
             throw new InvalidOperationException("請設定更正查詢條件，或選擇待審狀態。");
         if (r.Status is { } status) {
-            if (status is not ("PendingLeaderReview" or "PendingAdminClose" or "Closed" or "Rejected"))
+            if (status is not ("All" or "PendingLeaderReview" or "PendingAdminClose" or "Closed" or "Rejected"))
                 throw new InvalidOperationException("更正狀態不正確。");
-            q = q.Where(x => x.Status == status);
+            // Explicit All bypasses only the status predicate, never the scoped query or paging.
+            if (status != "All") q = q.Where(x => x.Status == status);
         }
         // Date controls explicitly represent request date in business timezone.
         if (r.StartDate.HasValue) {

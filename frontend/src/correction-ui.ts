@@ -206,3 +206,7 @@ export async function withConfirmedCorrectionComment(
 }
 
 export function correctionStatusLabel(status?:string|null){return ({PendingLeaderReview:"待小組長審核",PendingAdminClose:"待管理者結案",Closed:"已結案",Rejected:"已退回"} as Record<string,string>)[status||""]||status||"—"}
+
+// Explicit All is a valid paginated query; blank dates mean no date restriction.
+export const ALL_CORRECTION_STATUSES="All";
+export function correctionSearchEnabled(start:string,end:string){return !start||!end||start<=end}

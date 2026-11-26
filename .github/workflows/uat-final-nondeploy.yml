@@ -73,6 +73,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Correction query scoped regression (NONDEPLOY)
+        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryRegressionTests.Correction|FullyQualifiedName~V180QueryRegressionTests.Explicit_all_corrections' --logger 'console;verbosity=normal'
       - name: Frontend read-only detail delta
         working-directory: frontend
         run: |

@@ -294,6 +294,48 @@ public sealed class V180QueryRegressionTests
     }
 
 
+    [Fact]
+    public async Task Explicit_all_corrections_preserves_scope_filters_and_pagination()
+    {
+        await using var db = MemoryDb();
+        await SeedHistory(db);
+        db.Users.AddRange(new User { UserId = 2, OrganizationId = 1, EmployeeNo = "OTHER-TEAM", DisplayName = "Other team" },
+            new User { UserId = 3, OrganizationId = 2, EmployeeNo = "OTHER-ORG", DisplayName = "Other org" });
+        db.Teams.AddRange(new Team { TeamId = 20, OrganizationId = 1, TeamCode = "T20", TeamName = "Other team" },
+            new Team { TeamId = 30, OrganizationId = 2, TeamCode = "T30", TeamName = "Other org" });
+        for (int id = 2; id <= 3; id++) {
+            var org = id == 2 ? 1 : 2; var team = id * 10;
+            db.VisitTrips.Add(new VisitTrip { VisitTripId = id, TripNo = $"OTHER-{id}", UserId = id, OrganizationId = org, TeamId = team, VisitDate = new(2026,9,7), Status = TripStatuses.Approved });
+            db.VisitTripSnapshots.Add(new VisitTripSnapshot { VisitTripSnapshotId = id+10, VisitTripId = id, SnapshotVersion = 1, TripNo = $"OTHER-{id}", UserId = id, OrganizationId = org, TeamId = team, EmployeeNoSnapshot = $"E{id}", DisplayNameSnapshot = $"Other {id}", VisitDate = new(2026,9,7) });
+        }
+        var proposal = new CorrectionProposal(new(2026,9,7), null, null, null, 10, 9, 2.5m, 22.5m, []);
+        var json = JsonSerializer.Serialize(proposal, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        string[] states = ["PendingLeaderReview", "PendingAdminClose", "Closed", "Rejected"];
+        for(int i=1;i<=6;i++) {
+            var tripId=i<=4?1:i-3;
+            db.CorrectionRequests.Add(new CorrectionRequest { CorrectionRequestId=i, VisitTripId=tripId, BaseSnapshotId=tripId==1?2:tripId+10, RequestedByUserId=tripId, Status=states[(i-1)%4], Reason=i==2?"FINDME":"Other", RequestedAt=new DateTime(2026,9,6,16,0,0,DateTimeKind.Utc).AddDays(i-1), ProposedChangesJson=json });
+        }
+        await db.SaveChangesAsync();
+        var repo=Repo(db);
+        var admin=await repo.SearchCorrectionsAsync(Actor(), new(Status:"All",PageSize:2), default);
+        Assert.Equal(5,admin.TotalCount); Assert.Equal(new long[]{5,4},admin.Items.Select(x=>x.CorrectionRequestId));
+        var next=await repo.SearchCorrectionsAsync(Actor(), new(Status:"All",Page:2,PageSize:2), default);
+        Assert.Equal(new long[]{3,2},next.Items.Select(x=>x.CorrectionRequestId));
+        foreach(var role in new[]{"visitor","leader"}) {
+            var scoped=await repo.SearchCorrectionsAsync(Actor(role), new(Status:"All"), default);
+            Assert.Equal(new long[]{4,3,2,1},scoped.Items.Select(x=>x.CorrectionRequestId));
+        }
+        var other=await repo.SearchCorrectionsAsync(Actor(org:2), new(Status:"All"), default);
+        Assert.Equal(6,Assert.Single(other.Items).CorrectionRequestId);
+        var filtered=await repo.SearchCorrectionsAsync(Actor(), new(Status:"All",Keyword:"FINDME",StartDate:new(2026,9,8),EndDate:new(2026,9,8)),default);
+        Assert.Equal(2,Assert.Single(filtered.Items).CorrectionRequestId);
+        var closed=await repo.SearchCorrectionsAsync(Actor(), new(Status:"Closed"),default);
+        Assert.Equal(3,Assert.Single(closed.Items).CorrectionRequestId);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>repo.SearchCorrectionsAsync(Actor(),new(Status:"Invalid"),default));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>repo.SearchCorrectionsAsync(Actor(),new(Status:"All",StartDate:new(2026,9,9),EndDate:new(2026,9,8)),default));
+        Assert.Equal(6,await db.CorrectionRequests.CountAsync()); Assert.Equal(4,await db.VisitTripSnapshots.CountAsync());
+    }
+
     [Theory]
     [InlineData("Leader says ok")]
     [InlineData("Admin closed note")]
