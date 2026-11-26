@@ -2,6 +2,7 @@ import{describe,expect,it,vi}from"vitest";
 import{
   correctionChangeText,
   correctionFieldLabel,
+  correctionStatusLabel,
   isPendingCorrection,
   withConfirmedCorrectionComment
 }from"./correction-ui";
@@ -106,3 +107,5 @@ describe("correction comment cancellation",()=>{
     expect(submit).toHaveBeenCalledWith(comments);
   });
 });
+
+it("labels correction workflow status in Chinese",()=>{expect(correctionStatusLabel("PendingAdminClose")).toBe("待管理者結案");expect(correctionStatusLabel("Rejected")).toBe("已退回")});

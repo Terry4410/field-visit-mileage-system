@@ -204,3 +204,5 @@ export async function withConfirmedCorrectionComment(
   if(comments===null)return;
   await submit(comments);
 }
+
+export function correctionStatusLabel(status?:string|null){return ({PendingLeaderReview:"待小組長審核",PendingAdminClose:"待管理者結案",Closed:"已結案",Rejected:"已退回"} as Record<string,string>)[status||""]||status||"—"}

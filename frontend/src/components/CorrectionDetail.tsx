@@ -1,9 +1,8 @@
 import type {CorrectionRequest} from "../types";
-import {correctionChangeText} from "../correction-ui";
+import {correctionChangeText,correctionStatusLabel} from "../correction-ui";
 import {km,money,timeRange} from "../v160";
 import ReadOnlyDetail from "./ReadOnlyDetail";
 
-const statusLabels:Record<string,string>={PendingLeaderReview:"待小組長審核",PendingAdminClose:"待管理者結案",Closed:"已結案",Rejected:"已拒絕"};
 const present=(value?:string|null)=>value?.trim()?value:"—";
 const wrap=(value?:string|null)=><span style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{present(value)}</span>;
 
@@ -11,7 +10,7 @@ export default function CorrectionDetail({row,onClose}:{row:CorrectionRequest;on
  const p=row.proposal;
  return <ReadOnlyDetail title={"更正明細｜"+row.tripNo} onClose={onClose} fields={[
   ["更正編號",row.correctionRequestId],["外訪員",row.visitorName],["小組",present(row.teamName)],
-  ["狀態",statusLabels[row.status]||row.status],["申請時間",row.requestedAt],["申請人",present(row.requestedBy)],
+  ["狀態",correctionStatusLabel(row.status)],["申請時間",row.requestedAt],["申請人",present(row.requestedBy)],
   ["更正原因",wrap(row.reason)],["原核准版本","V"+row.baseSnapshotVersion],
   ["更正結果版本",row.resultSnapshotVersion!=null?"V"+row.resultSnapshotVersion:"—"],
   ["小組長審核",present(row.leaderReviewedBy)],["審核時間",present(row.leaderReviewedAt)],["審核說明",wrap(row.leaderComments)],
