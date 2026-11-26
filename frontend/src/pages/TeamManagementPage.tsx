@@ -32,7 +32,7 @@ export default function TeamManagementPage({mode="teams"}:Props){
 }
 
 function TeamSettings(){
- const[viewTeam,setViewTeam]=useState<ManagedTeam|null>(null);
+ const[viewTeam,setViewTeam]=useState<(ManagedTeam&{memberCount:number})|null>(null);
  const[keyword,setKeyword]=useState(""),[filterActive,setFilterActive]=useState(""),[edit,setEdit]=useState<ManagedTeam|null>(null),[modalOpen,setModalOpen]=useState(false),[code,setCode]=useState(""),[name,setName]=useState(""),[active,setActive]=useState(true),[busy,setBusy]=useState(false),[msg,setMsg]=useState("");
  const query=usePagedQuery<ManagedTeam&{memberCount:number}>("/admin/teams/search",{keyword,isActive:filterActive===""?undefined:filterActive==="true"});
  const resetForm=()=>{setEdit(null);setCode("");setName("");setActive(true)};
