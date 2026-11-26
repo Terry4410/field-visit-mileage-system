@@ -66,6 +66,23 @@ jobs:
     if: github.ref == 'refs/heads/work/biz-user-uat-people-20261126'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'FieldVisit_Recovery!Sql2022'
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Recovery!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+      E1_R1_REQUIRED: '1'
+      E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,7 +96,7 @@ jobs:
       - name: Backend build and personnel delta tests
         run: |
           dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180InternalUserCreateRulesTests|FullyQualifiedName~V170AccessRulesTests|FullyQualifiedName~V180PeopleResponsibilitySplitTests|FullyQualifiedName~V180AdminInformationArchitectureTests|FullyQualifiedName~V180MasterDataAdminTests' --logger 'console;verbosity=normal'
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180InternalUserCreateRulesTests|FullyQualifiedName~V170AccessRulesTests|FullyQualifiedName~V180PeopleResponsibilitySplitTests|FullyQualifiedName~V180AdminInformationArchitectureTests|FullyQualifiedName~V180MasterDataAdminTests|FullyQualifiedName~Guided_leave_return_commits_periods_and_site_history_in_isolated_sql|FullyQualifiedName~Personnel_bulk_cannot_break_active_site_coverage_in_isolated_sql' --logger 'console;verbosity=normal'
       - name: Frontend focused verification
         working-directory: frontend
         run: |

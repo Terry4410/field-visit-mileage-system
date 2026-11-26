@@ -37,7 +37,7 @@ public sealed class V180PersonnelBulkService(AppDbContext db) : IV180PersonnelBu
                 new[] { "項目", "說明" },
                 new[] { "UserCode", "穩定識別鍵，只用來找到既有內部人員；請勿自行變更。" },
                 new[] { "Personnel", "EmployeeNo、姓名、Email、入職日、離職日皆可維護，與單筆人事畫面一致。" },
-                new[] { "EmploymentStatus", "同一人可建立多個不重疊的 Active / Leave / Terminated / PreHire 有效期間。" },
+                new[] { "EmploymentStatus", "同一人可建立多個不重疊的 Active / Leave / Terminated / PreHire 有效期間；涉及既有派駐期間的留停／復職請使用單筆人事異動。" },
                 new[] { "責任邊界", "此 Excel 不修改角色或小組歸屬；角色在人員與權限、小組在小組與成員維護。" },
                 new[] { "安全", "上傳先預覽；確認時會重新驗證，整批以單一 transaction 套用。" }
             }));
@@ -96,6 +96,7 @@ public sealed class V180PersonnelBulkService(AppDbContext db) : IV180PersonnelBu
                         x.EmploymentId == target.EmploymentId && x.EmploymentStatusPeriodId != existingId).ToListAsync(ct);
                     if (others.Any(x => Overlaps(from, to, x.EffectiveFrom, x.EffectiveTo)))
                         throw new InvalidOperationException("OVERLAPPING_EMPLOYMENT_STATUS");
+                    await EnsureSiteCoverageAsync(target.EmploymentId, existing, status, from, to, ct);
                     if (!stagedStatus.TryGetValue(userCode, out var staged)) stagedStatus[userCode] = staged = [];
                     if (staged.Any(x => Overlaps(from, to, x.From, x.To)))
                         throw new InvalidOperationException("OVERLAPPING_EMPLOYMENT_STATUS_IN_WORKBOOK");
@@ -126,6 +127,12 @@ public sealed class V180PersonnelBulkService(AppDbContext db) : IV180PersonnelBu
         {
             db.ChangeTracker.Clear();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            var lockIds = new HashSet<long>();
+            foreach (var row in rows.Where(x => x.Sheet == "EmploymentStatus"))
+                lockIds.Add((await ResolveAsync(orgId, Required(row, "UserCode"), ct)).EmploymentId);
+            var statusRepository = new V180MasterDataAdminRepository(db);
+            foreach (var employmentId in lockIds.OrderBy(x => x))
+                await statusRepository.AcquireEmploymentStatusSiteInvariantLockAsync(employmentId, ct);
             var applied = 0;var noChange = 0;
             foreach (var row in rows)
             {
@@ -162,11 +169,13 @@ public sealed class V180PersonnelBulkService(AppDbContext db) : IV180PersonnelBu
                     var existingId = existing?.EmploymentStatusPeriodId ?? 0;
                     if (await db.EmploymentStatusPeriods.AsNoTracking().AnyAsync(x => x.EmploymentId == target.EmploymentId && x.EmploymentStatusPeriodId != existingId && x.EffectiveFrom <= (to ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || from <= x.EffectiveTo.Value), ct))
                         throw new InvalidOperationException($"OVERLAPPING_EMPLOYMENT_STATUS:{userCode}:{from:yyyy-MM-dd}");
+                    await EnsureSiteCoverageAsync(target.EmploymentId, existing, status, from, to, ct);
                     if(existing is not null&&string.Equals(existing.EmploymentStatus,status,StringComparison.OrdinalIgnoreCase)&&existing.EffectiveTo==to){noChange++;continue;}
                     var oldValues=existing is null?null:new{existing.EmploymentStatus,existing.EffectiveFrom,existing.EffectiveTo};
                     if(existing is null){existing=new EmploymentStatusPeriod{EmploymentId=target.EmploymentId,EffectiveFrom=from,SourceType="Excel",SourceReference="PersonnelBulk"};db.EmploymentStatusPeriods.Add(existing);}
                     existing.EmploymentStatus=status;existing.EffectiveTo=to;
                     db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="EmploymentStatusPeriod",EntityId=$"{target.EmploymentId}:{from:yyyy-MM-dd}",Action=existingId==0?"PersonnelBulkCreate":"PersonnelBulkUpdate",OldValues=oldValues is null?null:JsonSerializer.Serialize(oldValues),NewValues=JsonSerializer.Serialize(new{status,from,to}),CreatedAt=DateTime.UtcNow});
+                    await db.SaveChangesAsync(ct); // subsequent status rows see changes; transaction remains atomic
                     applied++;
                 }
             }
@@ -174,6 +183,24 @@ public sealed class V180PersonnelBulkService(AppDbContext db) : IV180PersonnelBu
             result=new V180SimpleBulkConfirmResultDto(applied,noChange,0,[]);
         });
         return result;
+    }
+
+    private async Task EnsureSiteCoverageAsync(long employmentId, EmploymentStatusPeriod? existing,
+        string status, DateOnly from, DateOnly? to, CancellationToken ct)
+    {
+        if (existing is null || existing.EmploymentStatus != EmploymentStatuses.Active
+            || (status == EmploymentStatuses.Active && existing.EffectiveFrom == from && existing.EffectiveTo == to))
+            return;
+        var assignments = await db.EmploymentDeploymentSiteAssignments.AsNoTracking()
+            .Where(x => x.EmploymentId == employmentId).ToListAsync(ct);
+        var others = await db.EmploymentStatusPeriods.AsNoTracking()
+            .Where(x => x.EmploymentId == employmentId && x.EmploymentStatusPeriodId != existing.EmploymentStatusPeriodId
+                && x.EmploymentStatus == EmploymentStatuses.Active).ToListAsync(ct);
+        foreach (var assignment in assignments)
+            if (!(status == EmploymentStatuses.Active &&
+                    V180MasterDataValidationService.Covers(from, to, assignment.EffectiveFrom, assignment.EffectiveTo))
+                && !others.Any(x => V180MasterDataValidationService.Covers(x.EffectiveFrom, x.EffectiveTo, assignment.EffectiveFrom, assignment.EffectiveTo)))
+                throw new InvalidOperationException("EMPLOYMENT_STATUS_CHANGE_BREAKS_EMPLOYMENT_SITE");
     }
 
     private async Task<Target> ResolveAsync(int orgId,string userCode,CancellationToken ct,bool tracking=false)

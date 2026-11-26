@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
 using FieldVisit.Application;
 using FieldVisit.Domain.Entities;
 using FieldVisit.Infrastructure;
@@ -282,6 +284,93 @@ public sealed class V180SqlServerRuntimeInvariantProofTests
         await using var verify = fixture.Context();
         Assert.True(await verify.Centers.AnyAsync(x => x.CenterCode == "C02"));
         Assert.Single(await verify.AuditLogs.Where(x => x.EntityType == "Center").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Guided_leave_return_commits_periods_and_site_history_in_isolated_sql()
+    {
+        if (!RuntimeRequired(out var root)) return;
+        var fixture = await CreateFixtureAsync(root, includeTeamSite: true);
+        var leave = BusinessTime.Today.AddDays(1);
+        var returnDate = leave.AddDays(2);
+        await using (var db = fixture.Context())
+        {
+            var repo = new V180MasterDataAdminRepository(db);
+            await repo.SaveEmploymentSiteAsync(fixture.Admin,null,
+                new V180EmploymentSiteInput("E01","S01",true,new DateOnly(2021,1,1),null),default);
+            var active = await db.EmploymentStatusPeriods.SingleAsync();
+            var request = new V180EmploymentStatusInput("E01",EmploymentStatuses.Leave,leave,null,
+                Convert.ToBase64String(active.RowVersion),Transition:true);
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>repo.SaveEmploymentStatusAsync(fixture.Admin,null,request,default));
+            await repo.SaveEmploymentStatusAsync(fixture.Admin,null,request with { ConfirmEndSites=true },default);
+        }
+        await using (var db = fixture.Context())
+        {
+            var repo = new V180MasterDataAdminRepository(db);
+            var periods = await db.EmploymentStatusPeriods.OrderBy(x=>x.EffectiveFrom).ToListAsync();
+            Assert.Equal(2,periods.Count);
+            Assert.Equal(leave.AddDays(-1),periods[0].EffectiveTo);
+            Assert.Equal(leave.AddDays(-1),(await db.EmploymentDeploymentSiteAssignments.SingleAsync()).EffectiveTo);
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>repo.SaveEmploymentSiteAsync(fixture.Admin,null,
+                new V180EmploymentSiteInput("E01","S01",true,leave,null),default));
+            await repo.SaveEmploymentStatusAsync(fixture.Admin,null,new V180EmploymentStatusInput("E01",
+                EmploymentStatuses.Active,returnDate,null,Convert.ToBase64String(periods[1].RowVersion),Transition:true),default);
+            await repo.SaveEmploymentSiteAsync(fixture.Admin,null,new V180EmploymentSiteInput("E01","S01",true,returnDate,null),default);
+        }
+        await using var verify=fixture.Context();
+        var history=await verify.EmploymentStatusPeriods.OrderBy(x=>x.EffectiveFrom).ToListAsync();
+        Assert.Equal(new[]{EmploymentStatuses.Active,EmploymentStatuses.Leave,EmploymentStatuses.Active},history.Select(x=>x.EmploymentStatus));
+        Assert.Equal(returnDate.AddDays(-1),history[1].EffectiveTo);
+        var sites=await verify.EmploymentDeploymentSiteAssignments.OrderBy(x=>x.EffectiveFrom).ToListAsync();
+        Assert.Equal(2,sites.Count);
+        Assert.Equal(leave.AddDays(-1),sites[0].EffectiveTo);
+        Assert.Equal(returnDate,sites[1].EffectiveFrom);
+        Assert.Null(sites[1].EffectiveTo);
+        Assert.Single(await verify.TeamMemberships.ToListAsync());
+        Assert.Equal(2,await verify.AuditLogs.CountAsync(x=>x.Action=="GuidedTransition"));
+    }
+
+    [Fact]
+    public async Task Personnel_bulk_cannot_break_active_site_coverage_in_isolated_sql()
+    {
+        if (!RuntimeRequired(out var root)) return;
+        var fixture=await CreateFixtureAsync(root,includeTeamSite:true);
+        await using var db=fixture.Context();
+        db.UserIdentityProfiles.Add(new UserIdentityProfile
+        {
+            UserId=fixture.Admin.UserId,EmploymentId=fixture.EmploymentId,UserType=UserTypes.Internal,
+            UserCode="bulk-e01",IdentityProvider="Demo"
+        });
+        await db.SaveChangesAsync();
+        var repo=new V180MasterDataAdminRepository(db);
+        await repo.SaveEmploymentSiteAsync(fixture.Admin,null,
+            new V180EmploymentSiteInput("E01","S01",true,new DateOnly(2021,1,1),null),default);
+        var service=new V180PersonnelBulkService(db);
+        var template=await service.CreateTemplateAsync(fixture.Admin,default);
+        using var stream=new MemoryStream();
+        stream.Write(template.Content);
+        stream.Position=0;
+        using(var book=SpreadsheetDocument.Open(stream,true))
+        {
+            var wb=book.WorkbookPart!;
+            WorksheetPart Part(string name)=>(WorksheetPart)wb.GetPartById(wb.Workbook.Sheets!.Elements<Sheet>().Single(x=>x.Name!.Value==name).Id!);
+            var personnel=Part("Personnel");
+            personnel.Worksheet.Descendants<Row>().Skip(1).Single().Remove();
+            personnel.Worksheet.Save();
+            var status=Part("EmploymentStatus");
+            var cells=status.Worksheet.Descendants<Row>().Skip(1).Single().Elements<Cell>().ToArray();
+            var values=new[]{"bulk-e01","Leave","2020-01-01",""};
+            for(var i=0;i<cells.Length;i++) cells[i].InlineString=new InlineString(new Text(values[i]));
+            status.Worksheet.Save();
+        }
+        var workbook=stream.ToArray();
+        var preview=await service.PreviewAsync(fixture.Admin,workbook,default);
+        Assert.Equal(1,preview.ErrorCount);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>service.ConfirmAsync(fixture.Admin,workbook,default));
+        await using var verify=fixture.Context();
+        Assert.Equal(EmploymentStatuses.Active,(await verify.EmploymentStatusPeriods.SingleAsync()).EmploymentStatus);
+        Assert.Null((await verify.EmploymentDeploymentSiteAssignments.SingleAsync()).EffectiveTo);
+        Assert.Single(await verify.AuditLogs.ToListAsync());
     }
 
     private static async Task<RuntimeFixture> CreateFixtureAsync(

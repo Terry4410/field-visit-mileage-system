@@ -1545,7 +1545,7 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                 "TEAM_SITE_COVERAGE_INVARIANT_LOCK_FAILED");
     }
 
-    private async Task AcquireEmploymentStatusSiteInvariantLockAsync(
+    internal async Task AcquireEmploymentStatusSiteInvariantLockAsync(
         long employmentId,
         CancellationToken ct)
     {
