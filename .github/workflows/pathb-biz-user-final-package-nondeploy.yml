@@ -11,16 +11,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      SOURCE_SHA: '1630ae07a6e764004d65c83346f8cbd9af8b0ff6'
+      SOURCE_SHA: 'e6ba680abd1466f5c2e0c7304bb6aff0cf95fedf'
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: '1630ae07a6e764004d65c83346f8cbd9af8b0ff6'
+          ref: 'e6ba680abd1466f5c2e0c7304bb6aff0cf95fedf'
           persist-credentials: false
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -28,51 +25,40 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45765361546 > "$RUNNER_TEMP/accepted-ci.json"
+          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45773927604 > "$RUNNER_TEMP/accepted-ci.json"
           jq -e --arg sha "$SOURCE_SHA" '.head_sha == $sha and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/accepted-ci.json"
-          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45765361546/jobs > "$RUNNER_TEMP/accepted-jobs.json"
+          gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45773927604/jobs > "$RUNNER_TEMP/accepted-jobs.json"
           jq -e '.jobs | any(.name == "verify-people-and-location-delta" and .conclusion == "success")' "$RUNNER_TEMP/accepted-jobs.json"
           gh api repos/Terry4410/field-visit-mileage-system/actions/runs/45763539116 > "$RUNNER_TEMP/backend-ci.json"
           jq -e '.head_sha == "8ba71f3e2660ecc972f2d8cd32be99998250db26" and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/backend-ci.json"
-          gh api repos/Terry4410/field-visit-mileage-system/compare/8ba71f3e2660ecc972f2d8cd32be99998250db26...1630ae07a6e764004d65c83346f8cbd9af8b0ff6 > "$RUNNER_TEMP/delta.json"
-          jq -e '.status == "ahead" and (.files | length == 9) and (.files | all(.filename | startswith("frontend/") or . == ".github/workflows/uat-final-nondeploy.yml"))' "$RUNNER_TEMP/delta.json"
-      - name: Recover the accepted 6e4b61ac rollback bytes
+          gh api repos/Terry4410/field-visit-mileage-system/compare/8ba71f3e2660ecc972f2d8cd32be99998250db26...1630ae07a6e764004d65c83346f8cbd9af8b0ff6 > "$RUNNER_TEMP/prior-delta.json"
+          jq -e '.status == "ahead" and (.files | length == 9) and (.files | all(.filename | startswith("frontend/") or . == ".github/workflows/uat-final-nondeploy.yml"))' "$RUNNER_TEMP/prior-delta.json"
+          gh api repos/Terry4410/field-visit-mileage-system/compare/1630ae07a6e764004d65c83346f8cbd9af8b0ff6...e6ba680abd1466f5c2e0c7304bb6aff0cf95fedf > "$RUNNER_TEMP/delta.json"
+          jq -e '.status == "ahead" and (.files | length == 22) and (.files | all(.filename | startswith("frontend/") or . == ".github/workflows/uat-final-nondeploy.yml"))' "$RUNNER_TEMP/delta.json"
+      - name: Recover verified live API, Windows API and frontend rollback without rebuilding backend
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/previous" artifacts
-          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/15084352001/zip > "$RUNNER_TEMP/previous/6e4b-package.zip"
-          echo "480e0514bb1a06b2543a2a997e963675285e49f81d366277ed220aab52ef7429  $RUNNER_TEMP/previous/6e4b-package.zip" | sha256sum -c -
-          unzip -p "$RUNNER_TEMP/previous/6e4b-package.zip" PathB_Final_API_6e4b61ac.zip > artifacts/Rollback_API_6e4b61ac.zip
-          unzip -p "$RUNNER_TEMP/previous/6e4b-package.zip" PathB_Final_Frontend_6e4b61ac.zip > artifacts/Rollback_Frontend_6e4b61ac.zip
-          echo "b2d2388bdc5fe2025b19387bad96b56519d3c4c7a5a722d6f9325fe25f0f8eba  artifacts/Rollback_API_6e4b61ac.zip" | sha256sum -c -
-          echo "abb7cf327dea6ec7dad49c161ac24cc8236efb78784732b17abb00488145a263  artifacts/Rollback_Frontend_6e4b61ac.zip" | sha256sum -c -
-          unzip -tq artifacts/Rollback_API_6e4b61ac.zip
-          unzip -tq artifacts/Rollback_Frontend_6e4b61ac.zip
-      - name: Reuse the accepted CJK font and publish API for both hosts
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y fonts-noto-cjk
-          font=/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
-          echo "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  $font" | sha256sum -c -
-          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
-          cp "$font" backend/src/FieldVisit.Infrastructure/fonts/NotoSansCJK-Regular.ttc
-          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$RUNNER_TEMP/api-linux"
-          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -r win-x64 --self-contained false -o "$RUNNER_TEMP/api-win"
-          test "$(stat -c '%s' "$RUNNER_TEMP/api-linux/FieldVisit.Infrastructure.dll")" -gt 19000000
-          test "$(stat -c '%s' "$RUNNER_TEMP/api-win/FieldVisit.Infrastructure.dll")" -gt 19000000
-          unzip -p artifacts/Rollback_API_6e4b61ac.zip appsettings.json > "$RUNNER_TEMP/previous/appsettings.json"
-          cmp "$RUNNER_TEMP/previous/appsettings.json" "$RUNNER_TEMP/api-linux/appsettings.json"
-          cmp "$RUNNER_TEMP/previous/appsettings.json" "$RUNNER_TEMP/api-win/appsettings.json"
-          test "$(jq -r '.OptionC.Candidate.Enabled' "$RUNNER_TEMP/api-linux/appsettings.json")" = false
-          (cd "$RUNNER_TEMP/api-linux" && zip -qr "$GITHUB_WORKSPACE/artifacts/PathB_Final_API_${SOURCE_SHA:0:8}.zip" .)
-          (cd "$RUNNER_TEMP/api-win" && zip -qr "$GITHUB_WORKSPACE/artifacts/API_Windows_IIS_${SOURCE_SHA:0:8}.zip" .)
+          gh api repos/Terry4410/field-visit-mileage-system/actions/artifacts/15092330045/zip > "$RUNNER_TEMP/previous/1630-package.zip"
+          echo "f561bf96e6866a1bd50ca29d9468b46936e302b329a3297b7075211c180c20d5  $RUNNER_TEMP/previous/1630-package.zip" | sha256sum -c -
+          unzip -p "$RUNNER_TEMP/previous/1630-package.zip" PathB_Final_API_1630ae07.zip > artifacts/Rollback_API_1630ae07.zip
+          unzip -p "$RUNNER_TEMP/previous/1630-package.zip" PathB_Final_Frontend_1630ae07.zip > artifacts/Rollback_Frontend_1630ae07.zip
+          unzip -p "$RUNNER_TEMP/previous/1630-package.zip" API_Windows_IIS_1630ae07.zip > "artifacts/API_Windows_IIS_${SOURCE_SHA:0:8}.zip"
+          unzip -p "$RUNNER_TEMP/previous/1630-package.zip" manifest.json > "$RUNNER_TEMP/previous/manifest.json"
+          echo "0f74456321000b83c75112155e0e20ed84a3751ec9a9d76e390f3f59c8a3dfb5  artifacts/Rollback_API_1630ae07.zip" | sha256sum -c -
+          echo "fe8f8741d1f50424ad06f138db827a1da34391e97bf650897ff8569de856091f  artifacts/Rollback_Frontend_1630ae07.zip" | sha256sum -c -
+          jq -e --arg sha '1630ae07a6e764004d65c83346f8cbd9af8b0ff6' '.source == $sha' "$RUNNER_TEMP/previous/manifest.json"
+          printf '%s  %s\n' "$(jq -er '.sha256["API_Windows_IIS_1630ae07.zip"]' "$RUNNER_TEMP/previous/manifest.json")" "artifacts/API_Windows_IIS_${SOURCE_SHA:0:8}.zip" | sha256sum -c -
+          cp artifacts/Rollback_API_1630ae07.zip "artifacts/PathB_Final_API_${SOURCE_SHA:0:8}.zip"
+          cmp artifacts/Rollback_API_1630ae07.zip "artifacts/PathB_Final_API_${SOURCE_SHA:0:8}.zip"
+          unzip -tq artifacts/Rollback_API_1630ae07.zip
+          unzip -tq artifacts/Rollback_Frontend_1630ae07.zip
       - name: Build static frontend and preserve exact Path B runtime config
         working-directory: frontend
         run: |
           set -euo pipefail
           npm ci --no-audit --no-fund
-          # Exact-source UI tests passed in run 45765361546; backend unchanged from 45763539116.
+          # Exact-source UI tests passed in run 45773927604; backend unchanged from 45763539116.
           npm run build
           mkdir -p "$RUNNER_TEMP/it-frontend"
           cp -a dist/. "$RUNNER_TEMP/it-frontend/"
@@ -89,7 +75,7 @@ jobs:
           assert s.count('AUTH_MODE: "Demo",')==1
           p.write_text(s.replace('AUTH_MODE: "Demo",','AUTH_MODE: "Demo",\n  FORMAL_LOCATION_UAT: true,'))
           PY
-          unzip -p "$GITHUB_WORKSPACE/artifacts/Rollback_Frontend_6e4b61ac.zip" config.js > "$RUNNER_TEMP/previous/config.js"
+          unzip -p "$GITHUB_WORKSPACE/artifacts/Rollback_Frontend_1630ae07.zip" config.js > "$RUNNER_TEMP/previous/config.js"
           cmp "$RUNNER_TEMP/previous/config.js" dist/config.js
           (cd dist && zip -qr "$GITHUB_WORKSPACE/artifacts/PathB_Final_Frontend_${SOURCE_SHA:0:8}.zip" .)
       - name: Seal source, schema and deployment candidates
@@ -100,10 +86,11 @@ jobs:
           Exact source: $SOURCE_SHA
           Schema marker: 1.8.0-010 (unchanged)
           Path B target: existing API and Static Web App ONLY; deployment NOT EXECUTED
-          Path B API and frontend are paired; both rollback packages are byte-for-byte the accepted 6e4b61ac version.
+          Frontend-only runtime delta. Path B API and Windows/IIS API bytes reused from accepted 1630ae07, not rebuilt; no API redeployment needed. Both rollback packages are byte-for-byte the accepted 1630ae07 version.
           Windows/IIS package is an IT review candidate. Frontend config.js is deliberately absent until IT sets approved corporate URL and Entra settings. See Source_SQL_IT zip for database/clean-install, migrations, docs and source.
           Company master seed, AD/Windows SSO, service identity grants, Clean Build and Production Ready remain IT environment verification. Do not run UAT synthetic seed in production.
-          Accepted isolated CI: 45765361546 (26 UI tests); unchanged backend and prior UI evidence from 45763539116 (74 backend / 10 frontend).
+          Accepted isolated CI: 45773927604 (51 UI tests and build); unchanged backend and prior UI evidence from 45763539116 (74 backend / 10 frontend).
+          Owner scope freeze: Email notification is excluded from this UAT and deferred to IT development after handover; preserve existing 1800_006 and design references, no activation or delivery.
           No SQL, ACL, Azure or environment write occurred in this workflow.
           EOF
           python3 - <<'PY'
@@ -117,16 +104,17 @@ jobs:
                   assert f.testzip() is None,z
                   assert all(not pathlib.PurePosixPath(n).is_absolute() and '..' not in pathlib.PurePosixPath(n).parts for n in f.namelist()),z
               hashes[z.name]=hashlib.sha256(z.read_bytes()).hexdigest()
-          assert hashes['Rollback_API_6e4b61ac.zip']=='b2d2388bdc5fe2025b19387bad96b56519d3c4c7a5a722d6f9325fe25f0f8eba'
-          assert hashes['Rollback_Frontend_6e4b61ac.zip']=='abb7cf327dea6ec7dad49c161ac24cc8236efb78784732b17abb00488145a263'
+          assert hashes['Rollback_API_1630ae07.zip']=='0f74456321000b83c75112155e0e20ed84a3751ec9a9d76e390f3f59c8a3dfb5'
+          assert hashes['Rollback_Frontend_1630ae07.zip']=='fe8f8741d1f50424ad06f138db827a1da34391e97bf650897ff8569de856091f'
           prefix=os.environ['SOURCE_SHA'][:8]
+          assert hashes[f'PathB_Final_API_{prefix}.zip']==hashes['Rollback_API_1630ae07.zip']
           with zipfile.ZipFile(p/f'PathB_Final_API_{prefix}.zip') as z:
               assert {'FieldVisit.Api.dll','FieldVisit.Infrastructure.dll','appsettings.json'}.issubset(z.namelist())
           with zipfile.ZipFile(p/f'PathB_Final_Frontend_{prefix}.zip') as z:
               assert {'index.html','config.js'}.issubset(z.namelist())
           with zipfile.ZipFile(p/f'Source_SQL_IT_{prefix}.zip') as z:
               assert {'database/clean-install/v180/README.md','backend/src/FieldVisit.Api/Program.cs','docs/release/g1-execution/promotion/API-RUNTIME-SQL-GRANT-CANDIDATE.sql'}.issubset(z.namelist())
-          (p/'manifest.json').write_text(json.dumps({'source':os.environ['SOURCE_SHA'],'schema':'1.8.0-010','rollbackSource':'6e4b61ac883a63c81504e73d6574dae7ff7cfa5c','rollbackArtifact':15084352001,'target':'Path B UAT only','mode':'NONDEPLOY','deployment':'NOT_EXECUTED','itCleanBuild':'NOT_RUN','verificationRun':45765361546,'backendVerificationRun':45763539116,'backendVerifiedSource':'8ba71f3e2660ecc972f2d8cd32be99998250db26','sha256':hashes},indent=2)+'\n')
+          (p/'manifest.json').write_text(json.dumps({'source':os.environ['SOURCE_SHA'],'schema':'1.8.0-010','rollbackSource':'1630ae07a6e764004d65c83346f8cbd9af8b0ff6','rollbackArtifact':15092330045,'apiBinarySource':'1630ae07a6e764004d65c83346f8cbd9af8b0ff6','runtimeDelta':'frontend-only','email':'deferred-to-IT','target':'Path B UAT only','mode':'NONDEPLOY','deployment':'NOT_EXECUTED','itCleanBuild':'NOT_RUN','verificationRun':45773927604,'backendVerificationRun':45763539116,'backendVerifiedSource':'8ba71f3e2660ecc972f2d8cd32be99998250db26','sha256':hashes},indent=2)+'\n')
           PY
           (cd artifacts && sha256sum *.zip manifest.json HANDOVER_README.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
