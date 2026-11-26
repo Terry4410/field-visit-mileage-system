@@ -8,7 +8,7 @@ import OfficialSiteMaintenance from "../components/OfficialSiteMaintenance";
 import {LocationDetail} from "../components/ReadOnlyDetail";
 import AdminImportPanel from "../components/AdminImportPanel";
 import LocationAdminTabs from "../components/LocationAdminTabs";
-import type{BackgroundJob,DashboardSummary,ManagedLocation,MileageRate,Team,VisitType,VisitTypeDeleteImpact}from"../types";
+import type{BackgroundJob,DashboardSummary,ManagedLocation,MileageRate,Team}from"../types";
 import{money,todayTaipei}from"../v160";
 
 import { usePagedQuery } from '../use-query';
@@ -44,7 +44,7 @@ export default function AdminPage({section}:Props){
  if(section==='locations-bulk')return <><LocationAdminTabs/><Locations mode="bulk" busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
  if(section==='official-centers')return <><LocationAdminTabs/><OfficialSiteMaintenance mode="centers"/></>;
  if(section==='official-sites')return <><LocationAdminTabs/><OfficialSiteMaintenance mode="sites"/></>;
- if(section==='visit-types')return <VisitTypes busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
+ if(section==='visit-types')return <VisitTypes/>;
  if(section==='rates')return <Rates busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
  return null;
 }
@@ -139,17 +139,8 @@ function Locations({mode,busy,setBusy,msg,setMsg}:{mode:"list"|"new"|"bulk";busy
 }
 
 
-function VisitTypes({busy,setBusy,msg,setMsg}:{busy:boolean;setBusy:(v:boolean)=>void;msg:string;setMsg:(v:string)=>void}){
- const[types,setTypes]=useState<VisitType[]>([]),[typeEdit,setTypeEdit]=useState<VisitType|null>(null),[typeCode,setTypeCode]=useState(''),[typeName,setTypeName]=useState(''),[typeDesc,setTypeDesc]=useState(''),[typeActive,setTypeActive]=useState(true);
- const load=async()=>setTypes(await api<VisitType[]>('/visit-types'));
- useEffect(()=>{void load().catch(e=>setMsg(e instanceof Error?e.message:'拜訪型式載入失敗'))},[]);
- const moveType=async(v:VisitType,direction:'up'|'down')=>{setBusy(true);setMsg('');try{setTypes(await api<VisitType[]>(`/visit-types/${v.visitTypeId}/move`,{method:'POST',body:JSON.stringify({direction,expectedOrder:types.map(x=>({visitTypeId:x.visitTypeId,sortOrder:x.sortOrder}))})}))}catch(e){setMsg(e instanceof Error?e.message:'排序失敗');await load()}finally{setBusy(false)}};
- const resetType=()=>{setTypeEdit(null);setTypeCode('');setTypeName('');setTypeDesc('');setTypeActive(true)};
- const openType=(v:VisitType)=>{setTypeEdit(v);setTypeCode(v.visitTypeCode);setTypeName(v.visitTypeName);setTypeDesc(v.description||'');setTypeActive(v.isActive)};
- const saveType=async()=>{setBusy(true);setMsg('');try{const body={visitTypeCode:typeCode,visitTypeName:typeName,description:typeDesc||null,isActive:typeActive};if(typeEdit)await api(`/visit-types/${typeEdit.visitTypeId}`,{method:'PUT',body:JSON.stringify(body)});else await api('/visit-types',{method:'POST',body:JSON.stringify(body)});setMsg(typeEdit?'拜訪型式已修改。':'拜訪型式已新增。');resetType();await load()}catch(e){setMsg(e instanceof Error?e.message:'儲存失敗')}finally{setBusy(false)}};
- const deactivateType=async(v:VisitType)=>{if(!window.confirm(`確定停用拜訪型式「${v.visitTypeName}」？歷史 Snapshot 不受影響。`))return;setBusy(true);setMsg('');try{await api(`/visit-types/${v.visitTypeId}`,{method:'DELETE'});setMsg('拜訪型式已停用。');if(typeEdit?.visitTypeId===v.visitTypeId)resetType();await load()}catch(e){setMsg(e instanceof Error?e.message:'停用失敗')}finally{setBusy(false)}};
- const deleteType=async(v:VisitType)=>{setBusy(true);setMsg('');try{const x=await api<VisitTypeDeleteImpact>(`/admin/visit-types/${v.visitTypeId}/delete-impact`);if(!x.canDelete){setMsg(x.reason||'此拜訪型式已有歷史使用，只能停用。');return}if(!window.confirm(`永久刪除拜訪型式「${v.visitTypeName}」？\n\n此動作只允許從未被行程或 Snapshot 使用的資料，且無法復原。`))return;await api(`/admin/visit-types/${v.visitTypeId}/permanent`,{method:'DELETE'});setMsg(`拜訪型式「${v.visitTypeName}」已永久刪除。`);if(typeEdit?.visitTypeId===v.visitTypeId)resetType();await load()}catch(e){setMsg(e instanceof Error?e.message:'拜訪型式刪除失敗')}finally{setBusy(false)}};
- return <><div className="card"><div className="section-title"><div><h2>拜訪型式</h2><div className="sub">全公司共用標準主檔，由管理者統一維護。</div></div><ExportFilteredButton dataset="visit-types" filters={{}} label="下載拜訪型式 Excel" />{typeEdit&&<button className="btn small outline" onClick={resetType}>取消修改</button>}</div><div className="grid cols-2"><div className="field"><label>代碼</label><input value={typeCode} onChange={e=>setTypeCode(e.target.value)}/></div><div className="field"><label>名稱</label><input value={typeName} onChange={e=>setTypeName(e.target.value)}/></div><div className="field"><label>說明</label><input value={typeDesc} onChange={e=>setTypeDesc(e.target.value)}/></div><label className="check-row"><input type="checkbox" checked={typeActive} onChange={e=>setTypeActive(e.target.checked)}/>啟用</label></div><button className="btn" onClick={()=>void saveType()} disabled={busy}>{typeEdit?'儲存拜訪型式':'新增拜訪型式'}</button><div className="route-list">{types.map((v,index)=><div className="route-item" key={v.visitTypeId}><div className="route-index">{index+1}</div><div><div className="route-name">{v.visitTypeName}</div><div className="route-address">{v.visitTypeCode}{!v.isActive?'｜停用':''}</div></div><div className="actions"><button className="btn small outline" aria-label={`上移 ${v.visitTypeName}`} disabled={busy||index===0} onClick={()=>void moveType(v,'up')}>↑</button><button className="btn small outline" aria-label={`下移 ${v.visitTypeName}`} disabled={busy||index===types.length-1} onClick={()=>void moveType(v,'down')}>↓</button><button className="btn small secondary" onClick={()=>openType(v)}>修改</button>{v.isActive&&<button className="btn small outline" disabled={busy} onClick={()=>void deactivateType(v)}>停用</button>}<button className="btn small danger" disabled={busy} onClick={()=>void deleteType(v)}>刪除</button></div></div>)}</div></div>{msg&&<div className="note">{msg}</div>}</>
+function VisitTypes(){
+  return <div className="card"><div className="section-title"><div><h2>拜訪型式</h2><div className="sub">全公司共用標準主檔；管理者可下載 Excel，行程仍可選用有效的拜訪型式。</div></div><ExportFilteredButton dataset="visit-types" filters={{}} label="下載拜訪型式 Excel" /></div></div>;
 }
 
 type MileageRateImpact={effectiveFrom:string;vehicleType:string;approvedTripCount:number;firstApprovedVisitDate:string|null;lastApprovedVisitDate:string|null;requiresAcknowledgement:boolean};
