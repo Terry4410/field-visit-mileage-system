@@ -113,3 +113,5 @@ describe("correction comment cancellation",()=>{
 it("labels correction workflow status in Chinese",()=>{expect(correctionStatusLabel("PendingAdminClose")).toBe("待管理者結案");expect(correctionStatusLabel("Rejected")).toBe("已退回")});
 
 it("supports explicit All with blank or valid dates and rejects reversed dates",()=>{expect(ALL_CORRECTION_STATUSES).toBe("All");expect(correctionSearchEnabled("","")).toBe(true);expect(correctionSearchEnabled("2026-11-01","")).toBe(true);expect(correctionSearchEnabled("","2026-11-30")).toBe(true);expect(correctionSearchEnabled("2026-11-01","2026-11-30")).toBe(true);expect(correctionSearchEnabled("2026-11-30","2026-11-01")).toBe(false)});
+
+it("uses Taipei request date at the UTC day boundary",async()=>{const{correctionRequestDate}=await import("./correction-ui");expect(correctionRequestDate("2026-11-25T16:00:00Z")).toBe("2026-11-26");expect(correctionRequestDate("2026-11-25T15:59:59")).toBe("2026-11-25")});

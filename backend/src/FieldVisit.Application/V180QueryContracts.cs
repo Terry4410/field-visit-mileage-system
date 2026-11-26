@@ -3,7 +3,8 @@ namespace FieldVisit.Application;
 public sealed record V180SearchRequest(
     string? Keyword = null, string? Status = null, int? TeamId = null,
     DateOnly? StartDate = null, DateOnly? EndDate = null,
-    bool? IsActive = null, string? Role = null, int Page = 1, int PageSize = 50);
+    bool? IsActive = null, string? Role = null, int Page = 1, int PageSize = 50,
+    long? VisitTripId = null, string? TripNo = null);
 
 public sealed record V180TeamRow(int TeamId, int OrganizationId, string TeamCode,
     string TeamName, bool IsActive, int MemberCount);
@@ -44,5 +45,35 @@ public static class V180QueryRules
         if (next < 0 || next >= ordered.Count) return ordered;
         (ordered[index], ordered[next]) = (ordered[next], ordered[index]);
         return ordered.Select((x, i) => x with { SortOrder = checked((i + 1) * 10) }).ToList();
+    }
+}
+
+public sealed record MileageRateQueryRequest(string? Keyword = null, string? Status = null,
+    string? VehicleType = null, DateOnly? StartDate = null, DateOnly? EndDate = null,
+    int Page = 1, int PageSize = 50);
+
+public static class V180MileageRateQueryRules
+{
+    public static MileageRateQueryRequest Normalize(MileageRateQueryRequest request)
+    {
+        var search = V180QueryRules.Normalize(new(Keyword: request.Keyword, Status: request.Status,
+            StartDate: request.StartDate, EndDate: request.EndDate, Page: request.Page, PageSize: request.PageSize));
+        var vehicle = string.IsNullOrWhiteSpace(request.VehicleType) ? null : request.VehicleType.Trim();
+        if (vehicle is not (null or "Car" or "Motorcycle")) throw new InvalidOperationException("交通工具不正確。");
+        if (search.Status is not (null or "Active" or "Inactive")) throw new InvalidOperationException("費率狀態不正確。");
+        return request with { Keyword = search.Keyword, Status = search.Status, VehicleType = vehicle, Page = search.Page, PageSize = search.PageSize };
+    }
+
+    // Source rows must already be obtained through the existing authorized master service.
+    public static IReadOnlyList<MileageRateDto> Filter(IEnumerable<MileageRateDto> rows, MileageRateQueryRequest input)
+    {
+        var r = Normalize(input);
+        return rows.Where(x =>
+            (r.VehicleType is null || x.VehicleType == r.VehicleType) &&
+            (r.Status is null || x.IsActive == (r.Status == "Active")) &&
+            (r.Keyword is null || x.RuleName.Contains(r.Keyword, StringComparison.OrdinalIgnoreCase)) &&
+            (!r.StartDate.HasValue || !x.EffectiveTo.HasValue || x.EffectiveTo >= r.StartDate) &&
+            (!r.EndDate.HasValue || x.EffectiveFrom <= r.EndDate))
+            .OrderByDescending(x => x.EffectiveFrom).ThenBy(x => x.VehicleType).ThenByDescending(x => x.MileageRateRuleId).ToArray();
     }
 }

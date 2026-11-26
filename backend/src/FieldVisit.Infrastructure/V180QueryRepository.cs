@@ -85,7 +85,14 @@ public sealed partial class V160FinalRepository
     {
         var r = V180QueryRules.Normalize(input);
         var q = await ScopedCorrectionsAsync(user, ct);
-        if (r.Status is null && r.Keyword is null && !r.StartDate.HasValue && !r.EndDate.HasValue && !r.TeamId.HasValue)
+        if (r.VisitTripId.HasValue || r.TripNo is not null)
+        {
+            if (r.VisitTripId is null or <= 0 || string.IsNullOrWhiteSpace(r.TripNo) || r.TripNo.Length > 200)
+                throw new InvalidOperationException("行程識別條件不完整。");
+            q = q.Where(x => x.VisitTripId == r.VisitTripId && db.VisitTripSnapshots.Any(s =>
+                s.VisitTripSnapshotId == x.BaseSnapshotId && s.TripNo == r.TripNo));
+        }
+        if (r.Status is null && r.Keyword is null && !r.StartDate.HasValue && !r.EndDate.HasValue && !r.TeamId.HasValue && !r.VisitTripId.HasValue)
             throw new InvalidOperationException("請設定更正查詢條件，或選擇待審狀態。");
         if (r.Status is { } status) {
             if (status is not ("All" or "PendingLeaderReview" or "PendingAdminClose" or "Closed" or "Rejected"))

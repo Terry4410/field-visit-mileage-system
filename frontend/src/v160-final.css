@@ -48,3 +48,10 @@ button,.btn,a.btn,input,select,textarea{min-height:44px}.btn.small{min-height:44
 .effective-flags{display:flex;align-items:center;gap:12px 28px;flex-wrap:wrap;margin:8px 0 14px}
 .effective-flags .check-row{margin-top:0}
 .admin-list-filters{margin-bottom:12px}
+
+/* Shared trip/correction navigation; retain each panel's own query state. */
+.trip-query-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.trip-query-tabs button{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--muted);padding:10px 20px;font-weight:600}
+.trip-query-tabs button.active{color:var(--primary);border-bottom-color:var(--primary)}
+.trip-query-tabs button:focus-visible{outline:2px solid var(--primary);outline-offset:-3px}
+@media(max-width:600px){.trip-query-tabs button{flex:1;padding:10px 6px}}

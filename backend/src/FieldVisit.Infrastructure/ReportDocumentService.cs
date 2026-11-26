@@ -43,6 +43,56 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
 
     public Task<ReportExportContext> CreatePdfAsync(IReadOnlyList<TripQueryRowDto> rows, TripQueryRequest request, CurrentUserDto user, CancellationToken ct)
     {
+        var generated = BusinessTime.Now;
+        var filter = $"期間：{request.StartDate:yyyy/MM/dd} ～ {request.EndDate:yyyy/MM/dd}　匯出人：{user.DisplayName}　匯出時間：{generated:yyyy/MM/dd HH:mm}　總筆數：{rows.Count}";
+        var sumKm = rows.Sum(x => x.ApprovedDistanceKm ?? 0m);
+        var sumAmount = rows.Sum(x => x.SubsidyAmount ?? 0m);
+        return CreateTablePdfAsync(rows.Count, i => PdfTableCells(rows[i]), i => rows[i].TripNo,
+            ["日期／時間", "行程編號", "外訪員／小組", "專案／拜訪形式", "拜訪路線", "里程（km）", "費率／補助", "狀態"],
+            [90f, 132f, 92f, 104f, 132f, 108f, 75f, 52.89f],
+            "外訪行程與里程管理系統－行程查詢報表", filter,
+            $"核定總里程：{sumKm:0.##} km　補助總金額：NT$ {sumAmount:0.00}", "查無符合條件的行程。",
+            $"外訪行程查詢_{BusinessTime.Today:yyyyMMdd}.pdf", ct);
+    }
+
+    // Reuse the existing CJK font, complete-row pagination and Excel cell writer.
+    // Callers supply only rows read through the server's authorized query.
+    public Task<ReportExportContext> CreateTabularAsync(string format, string title, string[] headers,
+        float[] columns, IReadOnlyList<object?[]> rows, string filters, CurrentUserDto user, CancellationToken ct)
+    {
+        if (headers.Length != columns.Length || rows.Any(x => x.Length != headers.Length))
+            throw new InvalidOperationException("REPORT_TABLE_SHAPE_INVALID");
+        var metadata = $"匯出人：{user.DisplayName}　匯出時間：{BusinessTime.Now:yyyy/MM/dd HH:mm}　總筆數：{rows.Count}";
+        var filename = $"{title}_{BusinessTime.Today:yyyyMMdd}.{format}";
+        if (format == "pdf")
+        {
+            static string CellText(object? value) => value switch {
+                decimal d => d.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+                null => "—", _ => value.ToString() ?? "—"
+            };
+            return CreateTablePdfAsync(rows.Count, i => rows[i].Select(CellText).ToArray(),
+                i => CellText(rows[i][1]), headers, columns, title, filters + "\n" + metadata,
+                $"總筆數：{rows.Count}", "查無符合條件的資料。", filename, ct);
+        }
+        if (format != "xlsx") throw new InvalidOperationException("只支援 xlsx 或 pdf。");
+        using var stream = new MemoryStream();
+        using (var doc = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook, true))
+        {
+            var book = doc.AddWorkbookPart();
+            book.Workbook = new Workbook();
+            AddWorkbookStyles(book);
+            var sheets = book.Workbook.AppendChild(new Sheets());
+            AddWorksheet(book, sheets, 1, "查詢結果", new IReadOnlyList<object?>[] { headers.Cast<object?>().ToArray() }.Concat(rows));
+            AddWorksheet(book, sheets, 2, "查詢條件", new IReadOnlyList<object?>[] { new object?[] { "條件", filters }, new object?[] { "匯出資訊", metadata } });
+            book.Workbook.Save();
+        }
+        return Task.FromResult(new ReportExportContext(filename, stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+    }
+
+    private Task<ReportExportContext> CreateTablePdfAsync(int rowCount, Func<int,string[]> getCells,
+        Func<int,string> continuation, string[] headers, float[] columns, string title, string filter,
+        string footer, string emptyText, string filename, CancellationToken ct)
+    {
         using var stream = new MemoryStream();
         using var document = SKDocument.CreatePdf(stream);
         var typeface = ResolveTypeface();
@@ -57,20 +107,10 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         const float width = 841.89f, height = 595.28f; // A4 landscape, print-friendly
         const float left = 28f, right = 28f, top = 28f, bottom = 28f;
         const float footerReserve = 35f;
-        // Eight grouped columns retain all 14 original data fields without
-        // a microscopic font. Values within a cell may wrap over several lines.
-        var columns = new[] { 90f, 132f, 92f, 104f, 132f, 108f, 75f, 52.89f };
-        var headers = new[]
-        {
-            "日期／時間", "行程編號", "外訪員／小組", "專案／拜訪形式",
-            "拜訪路線", "里程（km）", "費率／補助", "狀態"
-        };
         var usableWidth = width - left - right;
         if (Math.Abs(columns.Sum() - usableWidth) > 0.1f)
             throw new InvalidOperationException("PDF_TABLE_WIDTH_INVALID");
 
-        var generated = BusinessTime.Now;
-        var filter = $"期間：{request.StartDate:yyyy/MM/dd} ～ {request.EndDate:yyyy/MM/dd}　匯出人：{user.DisplayName}　匯出時間：{generated:yyyy/MM/dd HH:mm}　總筆數：{rows.Count}";
         var filterLines = WrapPdfBand(filter, bodyPaint, usableWidth);
         var tableHeaderY = top + 30f + filterLines.Count * 15f + 16f;
         var bodyTop = tableHeaderY + PdfHeaderHeight;
@@ -83,10 +123,10 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         // including exceptionally long routes spanning several pages.
         var pages = new List<List<PdfTableFragment>> { new() };
         var usedHeight = 0f;
-        for (var tripIndex = 0; tripIndex < rows.Count; tripIndex++)
+        for (var tripIndex = 0; tripIndex < rowCount; tripIndex++)
         {
             ct.ThrowIfCancellationRequested();
-            var cells = PdfTableCells(rows[tripIndex]);
+            var cells = getCells(tripIndex);
             var wrapped = columns.Select((columnWidth, index) =>
                 WrapPdfBand(cells[index], bodyPaint, columnWidth - PdfTableCellPadding * 2)).ToArray();
             var totalLines = wrapped.Max(lines => lines.Count);
@@ -128,12 +168,10 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
             }
         }
 
-        var sumKm = rows.Sum(x => x.ApprovedDistanceKm ?? 0m);
-        var sumAmount = rows.Sum(x => x.SubsidyAmount ?? 0m);
         for (var pageNumber = 0; pageNumber < pages.Count; pageNumber++)
         {
             using var canvas = document.BeginPage(width, height);
-            canvas.DrawText("外訪行程與里程管理系統－行程查詢報表", left, top + 19f, titlePaint);
+            canvas.DrawText(title, left, top + 19f, titlePaint);
             for (var i = 0; i < filterLines.Count; i++)
                 canvas.DrawText(filterLines[i], left, top + 36f + i * 15f + bodyPaint.TextSize, bodyPaint);
 
@@ -167,7 +205,7 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
                         if (fragment.Offset > 0 && j == 0 && col == 0 && string.IsNullOrEmpty(text))
                             text = "續頁";
                         if (fragment.Offset > 0 && j == 0 && col == 1 && string.IsNullOrEmpty(text))
-                            text = rows[fragment.TripIndex].TripNo;
+                            text = continuation(fragment.TripIndex);
                         if (string.IsNullOrEmpty(text)) continue;
                         var paint = col == 1 ? boldPaint : bodyPaint;
                         canvas.DrawText(text, cursorX + PdfTableCellPadding,
@@ -177,10 +215,10 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
                 }
                 y += rowHeight;
             }
-            if (rows.Count == 0)
-                canvas.DrawText("查無符合條件的行程。", left + PdfTableCellPadding, bodyTop + 22f, bodyPaint);
+            if (rowCount == 0)
+                canvas.DrawText(emptyText, left + PdfTableCellPadding, bodyTop + 22f, bodyPaint);
 
-            canvas.DrawText($"核定總里程：{sumKm:0.##} km　補助總金額：NT$ {sumAmount:0.00}",
+            canvas.DrawText(footer,
                 left, height - bottom - 10f, boldPaint);
             canvas.DrawText($"第 {pageNumber + 1} / {pages.Count} 頁",
                 width - right - 105f, height - bottom - 10f, bodyPaint);
@@ -188,8 +226,7 @@ public sealed class ReportDocumentService(IConfiguration configuration) : IRepor
         }
 
         document.Close();
-        var name = $"外訪行程查詢_{BusinessTime.Today:yyyyMMdd}.pdf";
-        return Task.FromResult(new ReportExportContext(name, stream.ToArray(), "application/pdf"));
+        return Task.FromResult(new ReportExportContext(filename, stream.ToArray(), "application/pdf"));
     }
 
     private static string[] PdfTableCells(TripQueryRowDto trip) =>

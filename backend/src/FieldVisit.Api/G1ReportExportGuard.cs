@@ -56,7 +56,11 @@ public sealed class G1ReportExportGuard(
         var liveAdmin = masterData || peopleAdmin || masterWrite || adminMaintenance || legacyAdminImport;
         var tripReport = path.Equals("/api/v1/query/trips/export.xlsx", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/api/v1/query/trips/export.pdf", StringComparison.OrdinalIgnoreCase);
-        if (!adminReport && !tripReport && !liveAdmin && !locationRead && !ownLocationRequest) { await next(); return; }
+        var correctionReport = HttpMethods.IsGet(context.HttpContext.Request.Method)
+            && (normalized.Equals("/api/v1/corrections/export.xlsx", StringComparison.OrdinalIgnoreCase)
+                || normalized.Equals("/api/v1/corrections/export.pdf", StringComparison.OrdinalIgnoreCase));
+        if (!adminReport && !tripReport && !correctionReport && !liveAdmin && !locationRead && !ownLocationRequest) { await next(); return; }
+        if (correctionReport) path = normalized;
         // Master-data commands cannot trust a signed but stale organization/role claim.
         // Reuse the live account, HR and role check before any SQL write starts.
         if (liveAdmin)

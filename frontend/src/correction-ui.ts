@@ -210,3 +210,10 @@ export function correctionStatusLabel(status?:string|null){return ({PendingLeade
 // Explicit All is a valid paginated query; blank dates mean no date restriction.
 export const ALL_CORRECTION_STATUSES="All";
 export function correctionSearchEnabled(start:string,end:string){return !start||!end||start<=end}
+
+// Match the server's Taipei business-date filter rather than the UTC calendar day.
+export function correctionRequestDate(value:string){
+ const timestamp=new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)?value:value+"Z");
+ if(!Number.isFinite(timestamp.getTime()))return value.slice(0,10);
+ return new Intl.DateTimeFormat("sv-SE",{timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit"}).format(timestamp);
+}

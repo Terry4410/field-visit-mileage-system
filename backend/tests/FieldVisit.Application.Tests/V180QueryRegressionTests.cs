@@ -325,6 +325,12 @@ public sealed class V180QueryRegressionTests
             var scoped=await repo.SearchCorrectionsAsync(Actor(role), new(Status:"All"), default);
             Assert.Equal(new long[]{4,3,2,1},scoped.Items.Select(x=>x.CorrectionRequestId));
         }
+        var exact=await repo.SearchCorrectionsAsync(Actor(), new(Status:"All",VisitTripId:1,TripNo:"FROZEN-TRIP",PageSize:2), default);
+        Assert.Equal(4,exact.TotalCount); Assert.Equal(new long[]{4,3},exact.Items.Select(x=>x.CorrectionRequestId));
+        var deniedExact=await repo.SearchCorrectionsAsync(Actor("visitor"), new(Status:"All",VisitTripId:2,TripNo:"OTHER-2"), default);
+        Assert.Empty(deniedExact.Items);
+        var wrongNo=await repo.SearchCorrectionsAsync(Actor(), new(Status:"All",VisitTripId:1,TripNo:"OTHER-2"), default);
+        Assert.Empty(wrongNo.Items);
         var other=await repo.SearchCorrectionsAsync(Actor(org:2), new(Status:"All"), default);
         Assert.Equal(6,Assert.Single(other.Items).CorrectionRequestId);
         var filtered=await repo.SearchCorrectionsAsync(Actor(), new(Status:"All",Keyword:"FINDME",StartDate:new(2026,9,8),EndDate:new(2026,9,8)),default);
@@ -334,6 +340,38 @@ public sealed class V180QueryRegressionTests
         await Assert.ThrowsAsync<InvalidOperationException>(()=>repo.SearchCorrectionsAsync(Actor(),new(Status:"Invalid"),default));
         await Assert.ThrowsAsync<InvalidOperationException>(()=>repo.SearchCorrectionsAsync(Actor(),new(Status:"All",StartDate:new(2026,9,9),EndDate:new(2026,9,8)),default));
         Assert.Equal(6,await db.CorrectionRequests.CountAsync()); Assert.Equal(4,await db.VisitTripSnapshots.CountAsync());
+    }
+
+    private sealed class ReportActor(CurrentUserDto actor) : ICurrentUserService
+    { public CurrentUserDto GetRequired()=>actor; }
+
+    [Fact]
+    public async Task Correction_export_reads_all_pages_of_exact_scoped_trip()
+    {
+        await using var db=MemoryDb();
+        await SeedHistory(db);
+        var proposal=new CorrectionProposal(new(2026,9,7),null,null,null,10,9,2.5m,22.5m,[]);
+        var json=JsonSerializer.Serialize(proposal,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        for(var i=1;i<=105;i++)
+            db.CorrectionRequests.Add(new CorrectionRequest{CorrectionRequestId=1000+i,VisitTripId=1,BaseSnapshotId=2,
+                RequestedByUserId=1,Status="Closed",Reason=$"EXPORT-{i:000}",RequestedAt=new DateTime(2026,9,6,16,0,0,DateTimeKind.Utc).AddMinutes(i),ProposedChangesJson=json});
+        await db.SaveChangesAsync();
+        foreach(var role in new[]{"admin","leader","visitor"})
+        {
+            var controller=new FieldVisit.Api.Controllers.V180HistoryRateReportController(Repo(db),new ReportActor(Actor(role)),null!,new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+            var file=Assert.IsType<Microsoft.AspNetCore.Mvc.FileContentResult>(await controller.CorrectionExcel(new(Status:"All",VisitTripId:1,TripNo:"FROZEN-TRIP",Page:3,PageSize:1),default));
+            using var book=new NPOI.XSSF.UserModel.XSSFWorkbook(new MemoryStream(file.FileContents));
+            var sheet=book.GetSheet("查詢結果");
+            Assert.Equal(105,sheet.LastRowNum);
+            Assert.Equal("EXPORT-105",sheet.GetRow(1).GetCell(3).StringCellValue);
+            Assert.Equal("EXPORT-001",sheet.GetRow(105).GetCell(3).StringCellValue);
+            Assert.Equal("2026-09-07",sheet.GetRow(1).GetCell(0).StringCellValue);
+        }
+        var outsider=new FieldVisit.Api.Controllers.V180HistoryRateReportController(Repo(db),new ReportActor(Actor(org:2)),null!,new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+        var denied=Assert.IsType<Microsoft.AspNetCore.Mvc.FileContentResult>(await outsider.CorrectionExcel(new(Status:"All",VisitTripId:1,TripNo:"FROZEN-TRIP"),default));
+        using var empty=new NPOI.XSSF.UserModel.XSSFWorkbook(new MemoryStream(denied.FileContents));
+        Assert.Equal(0,empty.GetSheet("查詢結果").LastRowNum);
+        Assert.Equal(105,await db.CorrectionRequests.CountAsync());
     }
 
     [Theory]

@@ -65,7 +65,24 @@ jobs:
   verify-people-and-location-delta:
     if: github.ref == 'refs/heads/work/biz-user-uat-people-20261126'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'FieldVisit_Recovery!Sql2022'
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'FieldVisit_Recovery!Sql2022' -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      OPTIONC_EXECUTION_MODE: IsolatedSqlTest
+      E1_R1_REQUIRED: '1'
+      E1_R1_SQL_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=FieldVisit_Recovery!Sql2022;Encrypt=False;TrustServerCertificate=True;Connect Timeout=5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,11 +93,24 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Correction query scoped regression (NONDEPLOY)
-        run: dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryRegressionTests.Correction|FullyQualifiedName~V180QueryRegressionTests.Explicit_all_corrections' --logger 'console;verbosity=normal'
+      - name: Reuse existing CJK font and PDF text verification
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk poppler-utils
+          mkdir -p backend/src/FieldVisit.Infrastructure/fonts
+          cp /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc backend/src/FieldVisit.Infrastructure/fonts/
+      - name: Final query and export scoped regression (NONDEPLOY)
+        env:
+          PATHB_PDF_VERIFY_DIR: ${{ runner.temp }}/final-pdf
+        run: |
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryRegressionTests.Correction|FullyQualifiedName~V180QueryRegressionTests.Explicit_all_corrections|FullyQualifiedName~V180HistoryRateReportTests|FullyQualifiedName~PathBQuery05PdfReadabilityTests|FullyQualifiedName~G1ReportExportHttpSqlTests' --logger 'console;verbosity=normal'
+          for title in 更正歷史 補助費率; do
+            pdftotext "$PATHB_PDF_VERIFY_DIR/$title.pdf" "$PATHB_PDF_VERIFY_DIR/$title.txt"
+            grep -q '最後一筆確認' "$PATHB_PDF_VERIFY_DIR/$title.txt"
+            grep -q "$title" "$PATHB_PDF_VERIFY_DIR/$title.txt"
+          done
       - name: Frontend read-only detail delta
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund
-          npm test -- src/admin-correction-batch.test.ts src/correction-detail.test.ts src/correction-ui.test.ts src/query-approved-snapshot-detail.test.ts src/person-detail.test.ts src/people-completeness.test.ts src/detail-entry.test.ts src/official-site-admin.test.ts src/leader-review-queue.test.ts
+          npm test -- src/final-query-ui.test.ts src/admin-correction-batch.test.ts src/correction-detail.test.ts src/correction-ui.test.ts src/query-approved-snapshot-detail.test.ts src/person-detail.test.ts src/people-completeness.test.ts src/detail-entry.test.ts src/official-site-admin.test.ts src/leader-review-queue.test.ts
           npm run build

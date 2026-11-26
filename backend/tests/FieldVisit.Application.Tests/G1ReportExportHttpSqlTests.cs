@@ -238,6 +238,28 @@ public sealed class G1ReportExportHttpSqlTests
             await db.VisitTripStops.Where(x=>x.VisitTripId==trip.VisitTripId).ExecuteDeleteAsync();
             await db.VisitTrips.Where(x=>x.VisitTripId==trip.VisitTripId).ExecuteDeleteAsync();
             Console.WriteLine("ADMIN_MAINTENANCE_LIVE_SCOPE_HTTP_PASS forgedOrg=DENIED revokedRole=DENIED projectLocations=PASS safeDelete=PASS");
+            // New rate search and exports share the same scoped master query.
+            db.Add(new MileageRateRule{OrganizationId=otherOrg.OrganizationId,RuleName="Unused rate",VehicleType="MOTORCYCLE",RatePerKm=99m,EffectiveFrom=BusinessTime.Today,IsActive=true,CreatedAt=now});
+            await db.SaveChangesAsync();
+            const string ratePath="api/v1/admin/query-exports/mileage-rates/";
+            const string rateFilter="?keyword=Unused%20rate&vehicleType=Motorcycle&status=Active";
+            Token();
+            using(var r=await client.GetAsync(ratePath+"search"+rateFilter)){
+                Assert.Equal(HttpStatusCode.OK,r.StatusCode);
+                using var json=System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync());
+                Assert.Equal(1,json.RootElement.GetProperty("totalCount").GetInt32());
+                Assert.Equal(3m,json.RootElement.GetProperty("items")[0].GetProperty("ratePerKm").GetDecimal());
+            }
+            using(var r=await client.GetAsync(ratePath+"export.xlsx"+rateFilter)){
+                Assert.Equal(HttpStatusCode.OK,r.StatusCode);
+                using var book=new XSSFWorkbook(new MemoryStream(await r.Content.ReadAsByteArrayAsync()));
+                var sheet=book.GetSheet("查詢結果");
+                Assert.Equal(1,sheet.LastRowNum);Assert.Equal(3d,sheet.GetRow(1).GetCell(3).NumericCellValue);
+            }
+            using(var r=await client.GetAsync(ratePath+"export.pdf"+rateFilter)){
+                Assert.Equal(HttpStatusCode.OK,r.StatusCode);
+                Assert.Equal("%PDF-",Encoding.ASCII.GetString((await r.Content.ReadAsByteArrayAsync()).AsSpan(0,5)));
+            }
             // The old blanket date gate incorrectly rejected every Leader
             // historical download, even for an empty authorized result.
             // The real row-level team/organization negative tests live in
@@ -246,6 +268,17 @@ public sealed class G1ReportExportHttpSqlTests
             foreach (var selected in new[]{"leader","visitor","admin"})
             {
                 role.RoleCode=selected;await db.SaveChangesAsync();Token(selected);
+                if(selected!="admin")
+                    foreach(var endpoint in new[]{"search","export.xlsx","export.pdf"}){
+                        using var denied=await client.GetAsync(ratePath+endpoint+rateFilter);
+                        Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+                    }
+                foreach(var format in new[]{"xlsx","pdf"}){
+                    using var history=await client.GetAsync($"api/v1/corrections/export.{format}?status=All");
+                    Assert.Equal(HttpStatusCode.OK,history.StatusCode);
+                    var bytes=await history.Content.ReadAsByteArrayAsync();
+                    Assert.Equal(format=="pdf"?"%PDF-":"PK",Encoding.ASCII.GetString(bytes.AsSpan(0,format=="pdf"?5:2)));
+                }
                 foreach (var format in new[]{"xlsx","pdf"})
                 {
                     using var response=await client.GetAsync($"api/v1/query/trips/export.{format}{historical}");
@@ -267,6 +300,11 @@ public sealed class G1ReportExportHttpSqlTests
             using(var r=await race.GetAsync("api/v1/admin/query-exports/teams.xlsx"))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
             await using(var restore=Db())await restore.Users.Where(x=>x.UserId==user.UserId).ExecuteUpdateAsync(x=>x.SetProperty(v=>v.IsActive,true));
             using(var r=await race.GetAsync(visitExport))Assert.Equal(HttpStatusCode.Forbidden,r.StatusCode);
+            foreach(var endpoint in new[]{"api/v1/corrections/export.xlsx?status=All",ratePath+"export.xlsx"+rateFilter}){
+                await using(var restore=Db())await restore.Users.Where(x=>x.UserId==user.UserId).ExecuteUpdateAsync(x=>x.SetProperty(v=>v.IsActive,true));
+                using var denied=await race.GetAsync(endpoint);Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
+            }
+            Console.WriteLine("FINAL_HISTORY_RATE_HTTP_SQL_PASS adminRate=ALLOW otherOrg=EXCLUDED nonAdminRate=DENIED correctionThreeRoles=ALLOW postGenerationRevocation=DENIED");
             Console.WriteLine("G1_REPORT_HTTP_SQL_PASS positive=PASS preAndPostRevocation=DENIED roleOrg=DENIED unapprovedRoles=DENIED visitTypeAdminWorkbook=PASS visitTypeOtherRoles=DENIED");
         }
         finally{await using var cmd=admin.CreateCommand();cmd.CommandText=$"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];";await cmd.ExecuteNonQueryAsync();}
