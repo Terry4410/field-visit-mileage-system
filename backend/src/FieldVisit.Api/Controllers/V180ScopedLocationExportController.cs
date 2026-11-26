@@ -57,9 +57,9 @@ public sealed class V180ScopedLocationExportController(
     }
 
     [HttpGet("locations.xlsx")]
-    public async Task<IActionResult> Download([FromQuery] string? q, CancellationToken ct)
+    public async Task<IActionResult> Download([FromQuery] string? q, CancellationToken ct, [FromQuery] int? teamId = null, [FromQuery] string? city = null, [FromQuery] string? status = null)
     {
-        var data = await ReadAsync(q, ct);
+        var data = (await ReadAsync(q, ct)).Where(x => (!teamId.HasValue || x.Location.TeamId == teamId.Value) && (string.IsNullOrEmpty(city) || x.Location.City == city) && (string.IsNullOrEmpty(status) || x.Location.ApprovalStatus == status)).ToList();
         using var book = new XSSFWorkbook();
         var sheet = book.CreateSheet("授權地點清單");
         string[] headers = ["代碼","名稱","地址","Plus Code","統一編號","小組","主檔備註",

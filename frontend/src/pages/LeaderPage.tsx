@@ -1,5 +1,6 @@
 import{useEffect,useRef,useState}from"react";
 import{ returnSelectedTrips }from"../leader-batch-return";
+import{reviewSelectedCorrections}from"../leader-batch-correction";
 import{api}from"../api";
 import{loadLeaderReviewLists}from"../leader-review-queue";
 import{correctionChangeText,withConfirmedCorrectionComment}from"../correction-ui";
@@ -50,6 +51,8 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const[end,setEnd]=useState(todayTaipei());
  const[job,setJob]=useState<BackgroundJob|null>(null);
  const[corrections,setCorrections]=useState<CorrectionRequest[]>([]);
+ const[correctionSelected,setCorrectionSelected]=useState<number[]>([]);
+ const correctionInProgress=useRef(false);
  const[loadError,setLoadError]=useState('');
  const[correctionLoadFailed,setCorrectionLoadFailed]=useState(false);
 
@@ -78,6 +81,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
   ).then(result=>{
     setRows(result.trips);
     setCorrections(result.corrections);
+    setCorrectionSelected(current=>current.filter(id=>result.corrections.some(r=>r.correctionRequestId===id&&r.status==="PendingLeaderReview")));
     setCorrectionLoadFailed(result.correctionsFailed);
     setLoadError(result.errors.join('；'));
     setReviewKm(Object.fromEntries(result.trips.map(x=>[x.visitTripId,String(x.approvedDistanceKm??x.systemDistanceKm??x.claimedDistanceKm??'')])));
@@ -182,6 +186,14 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    setBusy(true);try{await api(`/corrections/${r.correctionRequestId}/leader-review`,{method:'POST',body:JSON.stringify({approve,comments,rowVersion:r.rowVersion})});setMsg(approve?'更正申請已通過；若涉及財務將送管理者結案。':'更正申請已拒絕。');await load()}catch(e){setMsg(e instanceof Error?e.message:'更正審核失敗')}finally{setBusy(false)}
  });
 
+ const batchCorrection=async(approve:boolean)=>{
+   if(busy||correctionInProgress.current||!correctionSelected.length||correctionLoadFailed)return;
+   const note=window.prompt(approve?"共同審核說明（選填）":"共同不核准原因（必填）");if(note===null||!approve&&!note.trim())return;
+   if(!window.confirm(`確認批次${approve?"核准":"不核准"} ${correctionSelected.length} 筆更正申請？涉及財務者仍送管理者結案。`))return;
+   correctionInProgress.current=true;setBusy(true);
+   try{const result=await reviewSelectedCorrections(corrections,correctionSelected,approve,note,(r,decision,comments)=>api(`/corrections/${r.correctionRequestId}/leader-review`,{method:"POST",body:JSON.stringify({approve:decision,comments,rowVersion:r.rowVersion})}));setMsg(`批次更正審核：成功 ${result.success} 筆、未確認 ${result.unconfirmed.length} 筆、未執行 ${result.notRun} 筆。${result.unconfirmed.length?"請重新整理確認，勿直接重送："+result.unconfirmed.join("；"):""}`)}catch(e){setMsg(e instanceof Error?e.message:"批次結果未確認")}finally{setCorrectionSelected([]);await load();correctionInProgress.current=false;setBusy(false)}
+ };
+ const correctionTargets=corrections.filter(r=>correctionSelected.includes(r.correctionRequestId));
  const sourceText=(t:Trip)=>t.mileageSource==='GoogleMapsAPI'?'Google Maps API':t.mileageSource==='ManualFallback'?'人工備援':t.status==='Returned'?'需補人工備援':'待 Google Maps 計算';
 
  return <>
@@ -245,9 +257,9 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
   </div>}
 
   {reviewTab==="correction"&&<div className="card" role="tabpanel" style={{marginTop:18}}>
-   <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><span className="pill">{correctionLoadFailed?"讀取失敗":corrections.length}</span></div>
-   <div className="table-wrap"><table><thead><tr><th>Trip</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead>
-   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)} disabled={r.changes.length===0} title={r.changes.length===0?"缺少更正差異明細，禁止核准":undefined}>通過</button>{r.changes.length===0&&<span role="alert" className="hint">差異明細缺失，禁止核准</span>}<button className="btn small danger" onClick={()=>void reviewCorrection(r,false)}>拒絕</button></div></td></tr>)}</tbody>
+   <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><div className="actions"><span className="pill">{correctionLoadFailed?"讀取失敗":corrections.length}</span><button type="button" className="btn small ok" disabled={busy||correctionLoadFailed||!correctionTargets.length||correctionTargets.some(r=>!r.changes.length)} onClick={()=>void batchCorrection(true)}>批次核准（{correctionTargets.length}）</button><button type="button" className="btn small danger" disabled={busy||correctionLoadFailed||!correctionTargets.length} onClick={()=>void batchCorrection(false)}>批次不核准（{correctionTargets.length}）</button></div></div>
+   <div className="table-wrap"><table><thead><tr><th><input type="checkbox" aria-label="全選更正申請" checked={corrections.length>0&&corrections.every(r=>correctionSelected.includes(r.correctionRequestId))} disabled={busy||correctionLoadFailed||!corrections.length} onChange={e=>setCorrectionSelected(e.target.checked?corrections.map(r=>r.correctionRequestId):[])}/></th><th>行程編號</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead>
+   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td><input type="checkbox" aria-label={`選取更正 ${r.tripNo}`} disabled={busy||correctionLoadFailed} checked={correctionSelected.includes(r.correctionRequestId)} onChange={e=>setCorrectionSelected(current=>e.target.checked?[...new Set([...current,r.correctionRequestId])]:current.filter(id=>id!==r.correctionRequestId))}/></td><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)} disabled={busy||r.changes.length===0} title={r.changes.length===0?"缺少更正差異明細，禁止核准":undefined}>通過</button>{r.changes.length===0&&<span role="alert" className="hint">差異明細缺失，禁止核准</span>}<button className="btn small danger" disabled={busy} onClick={()=>void reviewCorrection(r,false)}>不核准</button></div></td></tr>)}</tbody>
    </table></div>
   </div>}
  </>;

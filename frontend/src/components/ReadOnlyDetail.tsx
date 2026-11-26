@@ -1,0 +1,8 @@
+import type {ReactNode} from "react";
+export default function ReadOnlyDetail({title,fields,onClose,children}:{title:string;fields:readonly (readonly [string,ReactNode])[];onClose:()=>void;children?:ReactNode}){
+ return <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className="modal-panel" role="dialog" aria-modal="true" aria-label={title}><button type="button" className="btn small outline modal-close" onClick={onClose}>關閉</button><h3>{title}</h3><div className="table-wrap"><table><tbody>{fields.map(([label,value])=><tr key={label}><th>{label}</th><td>{value??"—"}</td></tr>)}</tbody></table></div>{children}</div></div>;
+}
+export function LocationDetail({row,onClose}:{row:{locationName:string;locationCode?:string;teamName?:string|null;city?:string|null;district?:string|null;address?:string|null;plusCode?:string|null;taxId?:string|null;masterNote?:string|null;latitude?:number|null;longitude?:number|null;approvalStatus?:string;isActive?:boolean};onClose:()=>void}){
+ const coords=row.latitude!=null&&row.longitude!=null?`${row.latitude}, ${row.longitude}`:null;
+ return <ReadOnlyDetail title={row.locationName} onClose={onClose} fields={[["地點代碼",row.locationCode],["所屬小組",row.teamName||"—"],["縣市",row.city],["鄉鎮區",row.district],["地址",row.address],["Plus Code",row.plusCode],["統一編號",row.taxId],["主檔備註",row.masterNote],["經緯度",coords],["審核狀態",row.approvalStatus],["啟用狀態",row.isActive==null?"—":row.isActive?"啟用":"未啟用"]]}>{(coords||row.address||row.plusCode)&&<div className="actions"><a className="btn small outline" target="_blank" rel="noopener noreferrer" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(coords||row.address||row.plusCode||"")}`}>Google Maps</a></div>}</ReadOnlyDetail>;
+}

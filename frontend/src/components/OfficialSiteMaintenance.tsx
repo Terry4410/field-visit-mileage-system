@@ -4,6 +4,7 @@ import{usePagedQuery}from"../use-query";
 import type{ManagedLocation}from"../types";
 import{todayTaipei}from"../v160";
 import ExportFilteredButton from "./ExportFilteredButton";
+import ReadOnlyDetail from "./ReadOnlyDetail";
 
 type MasterRow={
  id:number;key:string;parentKey?:string|null;detail?:string|null;
@@ -29,6 +30,7 @@ function lifecycleLabel(row:MasterRow){
 
 export default function OfficialSiteMaintenance({mode="sites"}:Props){
  const[centers,setCenters]=useState<MasterRow[]>([]);
+ const[detail,setDetail]=useState<MasterRow|null>(null);
  const[sites,setSites]=useState<MasterRow[]>([]);
  const[msg,setMsg]=useState("");
  const[busy,setBusy]=useState(false);
@@ -229,11 +231,12 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
    <div className="effective-flags"><label className="check-row"><input type="checkbox" checked={centerNoEnd} onChange={e=>{setCenterNoEnd(e.target.checked);if(e.target.checked)setCenterTo("")}}/>無期限</label><label className="check-row"><input type="checkbox" checked={centerActive} onChange={e=>setCenterActive(e.target.checked)}/>啟用</label></div>
    <button className="btn" disabled={busy} onClick={()=>void saveCenter()}>{centerEdit?"儲存中心修改":"新增就業中心"}</button>
   </div>
+  {detail&&<ReadOnlyDetail title={detail.detail||detail.key} onClose={()=>setDetail(null)} fields={[["中心代碼",detail.key],["狀態",lifecycleLabel(detail)],["生效日",detail.effectiveFrom],["失效日",detail.effectiveTo||"無期限"],["所屬鄉鎮台",sites.filter(x=>x.parentKey===detail.key).map(x=>x.detail||x.key).join("、")||"—"]]}/>}
   <div className="card">
    <div className="section-title"><div><h2>就業中心清單</h2><div className="sub">狀態依啟用旗標與有效期間衍生為未生效／有效／已失效／停用。</div></div><ExportFilteredButton dataset="centers" filters={{keyword:centerKeyword,status:centerStatus}}/></div>
    <div className="admin-list-filters grid cols-2"><label>關鍵字<input value={centerKeyword} onChange={e=>setCenterKeyword(e.target.value)} placeholder="Center Code 或中心名稱"/></label><label>狀態<select value={centerStatus} onChange={e=>setCenterStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
    <div className="table-wrap"><table><thead><tr><th>Code</th><th>名稱</th><th>有效期間</th><th>狀態</th><th>操作</th></tr></thead><tbody>
-    {filteredCenters.map(x=><tr key={x.id}><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><button className="btn small outline" disabled={busy} onClick={()=>openCenter(x)}>修改</button> <button className="btn small danger" disabled={busy} onClick={()=>void safeDelete(x,"centers")}>刪除</button></td></tr>)}
+    {filteredCenters.map(x=><tr key={x.id}><td>{x.key}</td><td><button type="button" className="btn small outline" onClick={()=>setDetail(x)}>{x.detail||x.key}</button></td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><button className="btn small outline" disabled={busy} onClick={()=>openCenter(x)}>修改</button> <button className="btn small danger" disabled={busy} onClick={()=>void safeDelete(x,"centers")}>刪除</button></td></tr>)}
     {!filteredCenters.length&&<tr><td colSpan={5}>查無符合條件的就業中心。</td></tr>}
    </tbody></table></div>
   </div>
@@ -270,11 +273,12 @@ export default function OfficialSiteMaintenance({mode="sites"}:Props){
     <div className="section-title"><div><h2>鄉鎮台清單</h2><div className="sub">可依就業中心或關鍵字搜尋 Site Code、據點名稱、Location Code 與中心名稱。</div></div><ExportFilteredButton dataset="deployment-sites" filters={{keyword:siteKeyword,status:siteStatus,centerCode:siteCenterFilter}}/></div>
     <div className="admin-list-filters grid cols-2"><label>關鍵字<input value={siteKeyword} onChange={e=>setSiteKeyword(e.target.value)} placeholder="Site Code／據點／Location／就業中心"/></label><label>就業中心<select value={siteCenterFilter} onChange={e=>setSiteCenterFilter(e.target.value)}><option value="">全部</option>{centers.map(x=><option key={x.id} value={x.key}>{x.key}｜{x.detail||""}</option>)}</select></label><label>狀態<select value={siteStatus} onChange={e=>setSiteStatus(e.target.value)}><option value="">全部</option><option>未生效</option><option>有效</option><option>已失效</option><option>停用</option></select></label></div>
     <div className="table-wrap"><table><thead><tr><th>中心</th><th>Site Code</th><th>據點</th><th>Location</th><th>有效期間</th><th>狀態</th><th>操作</th></tr></thead><tbody>
-     {filteredSites.map(x=><tr key={x.id}><td>{centers.find(c=>c.key===x.parentKey)?.detail||x.parentKey||"—"}</td><td>{x.key}</td><td>{x.detail||"—"}</td><td>{x.referenceKey||"需修復 Location coverage"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><div className="actions"><button className="btn small outline" disabled={busy} onClick={()=>openSite(x)}>修改</button><button className="btn small danger" disabled={busy} onClick={()=>void safeDelete(x,"deployment-sites")}>刪除</button><button className="btn small secondary" disabled={busy||lifecycleLabel(x)==="停用"} onClick={()=>openRelocation(x)}>據點搬遷</button></div></td></tr>)}
+     {filteredSites.map(x=><tr key={x.id}><td>{centers.find(c=>c.key===x.parentKey)?.detail||x.parentKey||"—"}</td><td>{x.key}</td><td><button type="button" className="btn small outline" onClick={()=>setDetail(x)}>{x.detail||x.key}</button></td><td>{x.referenceKey||"需修復 Location coverage"}</td><td>{x.effectiveFrom}～{x.effectiveTo||"無期限"}</td><td>{lifecycleLabel(x)}</td><td><div className="actions"><button className="btn small outline" disabled={busy} onClick={()=>openSite(x)}>修改</button><button className="btn small danger" disabled={busy} onClick={()=>void safeDelete(x,"deployment-sites")}>刪除</button><button className="btn small secondary" disabled={busy||lifecycleLabel(x)==="停用"} onClick={()=>openRelocation(x)}>據點搬遷</button></div></td></tr>)}
      {!filteredSites.length&&<tr><td colSpan={7}>查無符合條件的鄉鎮台。</td></tr>}
     </tbody></table></div>
    </div>
   </div>
+  {detail&&<ReadOnlyDetail title={detail.detail||detail.key} onClose={()=>setDetail(null)} fields={[["鄉鎮台代碼",detail.key],["所屬就業中心",centers.find(c=>c.key===detail.parentKey)?.detail||detail.parentKey],["正式地點代碼",detail.referenceKey],["狀態",lifecycleLabel(detail)],["生效日",detail.effectiveFrom],["失效日",detail.effectiveTo||"無期限"]]}/>}
   {relocationSite&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setRelocationSite(null)}}><div className="modal-panel" role="dialog" aria-modal="true"><button className="btn small outline modal-close" disabled={busy} onClick={()=>setRelocationSite(null)}>關閉</button><h3>據點搬遷｜{relocationSite.detail||relocationSite.key}</h3><div className="note">這不是直接改寫舊 Location。系統會關閉舊關聯期間，再建立新期間，歷史 Snapshot 保留。</div><label>搬遷生效日<input type="date" value={relocationDate} onChange={e=>setRelocationDate(e.target.value)}/></label><label>搬遷原因<input value={relocationReason} onChange={e=>setRelocationReason(e.target.value)} placeholder="例如辦公室搬遷"/></label><label>搜尋新正式 Location<input value={relocationSearch} onChange={e=>setRelocationSearch(e.target.value)} placeholder="地點代碼、名稱或地址"/></label>{relocationLocationCode&&<div className="note ok-note">已選擇：{relocationLocationCode}｜{relocationLocationLabel}</div>}{!!relocationSearch.trim()&&<div className="existing-location-results">{relocationLocations.map(x=><button type="button" className="existing-location-choice" key={x.locationId} onClick={()=>chooseRelocationLocation(x)}><span>○</span><span><strong>{x.locationName}</strong><small>{x.locationCode}｜{x.address||x.plusCode||"—"}</small></span></button>)}{!relocationQuery.loading&&!relocationLocations.length&&<div className="empty compact-empty">查無符合條件的正式 Location。</div>}</div>}<div className="actions" style={{marginTop:14}}><button className="btn ok" disabled={busy||!relocationLocationCode||!relocationDate||!relocationReason.trim()} onClick={()=>void relocate()}>確認據點搬遷</button><button className="btn outline" disabled={busy} onClick={()=>setRelocationSite(null)}>取消</button></div></div></div>}
  </div>;
 }

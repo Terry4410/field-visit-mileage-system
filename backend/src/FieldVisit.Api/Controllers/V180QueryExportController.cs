@@ -187,7 +187,7 @@ public sealed class V180QueryExportController(
         var sites = (await official.ListAsync("deployment-sites", ct)).OrderBy(x => x.ParentKey).ThenBy(x => x.Key).ToList();
         GuardOfficialCount(sites.Count);
         var filtered = sites.Where(x => MatchSite(x, keyword, status, centerCode, centerNames));
-        return Workbook("官方據點", new { keyword, status, centerCode },
+        return Workbook("鄉鎮台", new { keyword, status, centerCode },
             ["Center Code", "就業中心", "Site Code", "據點名稱", "Location Code", "生效日", "失效日", "目前狀態"],
             filtered.Select(x => Cells(x.ParentKey, centerNames.GetValueOrDefault(x.ParentKey ?? ""), x.Key,
                 x.Detail, x.ReferenceKey, x.EffectiveFrom, x.EffectiveTo, StatusOf(x))));
@@ -204,7 +204,7 @@ public sealed class V180QueryExportController(
         var teamCenters = await official.ListAsync("team-centers", ct);
         var teamSites = await official.ListAsync("team-sites", ct);
         foreach(var count in new[] {centers.Count,sites.Count,assignments.Count,teamCenters.Count,teamSites.Count}) GuardOfficialCount(count);
-        return WorkbookSheets("地點與官方據點整合",
+        return WorkbookSheets("地點與鄉鎮台整合",
             new {LocationFilters=request, OfficialCenterAndSiteScope="目前 Organization 全部已授權主檔與歷史，不受地點主檔文字篩選影響"},
         [
             new ExportSheet("地點主檔",
@@ -213,7 +213,7 @@ public sealed class V180QueryExportController(
             new ExportSheet("就業中心",
                 ["Center Code","中心名稱","生效日","失效日","狀態"],
                 centers.Select(x=>Cells(x.Key,x.Detail,x.EffectiveFrom,x.EffectiveTo,StatusOf(x)))),
-            new ExportSheet("官方據點",
+            new ExportSheet("鄉鎮台",
                 ["Center Code","Site Code","據點名稱","目前 Location Code","生效日","失效日","狀態"],
                 sites.Select(x=>Cells(x.ParentKey,x.Key,x.Detail,x.ReferenceKey,x.EffectiveFrom,x.EffectiveTo,StatusOf(x)))),
             new ExportSheet("據點地點歷史",

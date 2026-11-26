@@ -178,7 +178,7 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
         string reason, bool geocodeSucceeded, decimal? latitude, decimal? longitude, bool? duplicateCleared,
         Guid evidenceKey, CancellationToken ct)
     {
-        if (id == Guid.Empty || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim() || reason.Length > 1000)
+        if (id == Guid.Empty || string.IsNullOrWhiteSpace(reason) || reason != reason.Trim() || reason.Length > 100)
             throw new InvalidOperationException("OPTIONC_STAGE_EVIDENCE_INPUT_INVALID");
         var expected = V180B3RowVersionRules.Parse(expectedStageVersion);
         if (evidenceKey == Guid.Empty)
