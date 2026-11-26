@@ -204,6 +204,7 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
 
         var connection = await RequireTargetAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var sqlTx = (SqlTransaction)tx.GetDbTransaction();
         try
         {
             var actorId = current.GetRequired().UserId;
@@ -306,7 +307,6 @@ public sealed class V180OptionCStageEvidenceService(AppDbContext db, ICurrentUse
                         connection, sqlTx, requestId, requesterId, ct);
             }
 
-            var sqlTx=(SqlTransaction)tx.GetDbTransaction();
             int changed;
             if (duplicateCleared.HasValue)
             {

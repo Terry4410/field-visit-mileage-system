@@ -65,7 +65,7 @@ jobs:
   verify-people-and-location-delta:
     if: github.ref == 'refs/heads/work/biz-user-uat-people-20261126'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -102,7 +102,7 @@ jobs:
         env:
           PATHB_PDF_VERIFY_DIR: ${{ runner.temp }}/final-pdf
         run: |
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryRegressionTests.Correction|FullyQualifiedName~V180QueryRegressionTests.Explicit_all_corrections|FullyQualifiedName~V180HistoryRateReportTests|FullyQualifiedName~V180LocationPlusCodeTests|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers|FullyQualifiedName~PathBQuery05PdfReadabilityTests|FullyQualifiedName~G1ReportExportHttpSqlTests' --logger 'console;verbosity=normal'
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180QueryRegressionTests.Correction|FullyQualifiedName~V180QueryRegressionTests.Explicit_all_corrections|FullyQualifiedName~V180QueryRegressionTests.Survivor_location_keyword|FullyQualifiedName~V180HistoryRateReportTests|FullyQualifiedName~V180LocationPlusCodeTests|FullyQualifiedName~V170LocationDuplicateReviewRulesTests|FullyQualifiedName~V170LocationSearchRulesTests|FullyQualifiedName~V180OptionCBatch4WorkflowTests|FullyQualifiedName~R6_full_010_to_020_chain_runs_real_highrisk_leader_evidence_admin_writers|FullyQualifiedName~PathBQuery05PdfReadabilityTests|FullyQualifiedName~G1ReportExportHttpSqlTests' --logger 'console;verbosity=normal'
           for title in 更正歷史 補助費率; do
             pdftotext "$PATHB_PDF_VERIFY_DIR/$title.pdf" "$PATHB_PDF_VERIFY_DIR/$title.txt"
             grep -q '最後一筆確認' "$PATHB_PDF_VERIFY_DIR/$title.txt"
@@ -114,3 +114,47 @@ jobs:
           npm ci --no-audit --no-fund
           npm test -- src/final-query-ui.test.ts src/admin-correction-batch.test.ts src/correction-detail.test.ts src/correction-ui.test.ts src/query-approved-snapshot-detail.test.ts src/person-detail.test.ts src/people-completeness.test.ts src/detail-entry.test.ts src/official-site-admin.test.ts src/leader-review-queue.test.ts
           npm run build
+      - name: Package paired Path B and Windows IIS IT review candidate
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts "$RUNNER_TEMP/api-linux" "$RUNNER_TEMP/api-win" "$RUNNER_TEMP/frontend-it"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -p:UseAppHost=false -o "$RUNNER_TEMP/api-linux"
+          dotnet publish backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release -r win-x64 --self-contained false -o "$RUNNER_TEMP/api-win"
+          (cd "$RUNNER_TEMP/api-linux" && zip -qr "$GITHUB_WORKSPACE/artifacts/PathB_API_${GITHUB_SHA:0:8}.zip" .)
+          (cd "$RUNNER_TEMP/api-win" && zip -qr "$GITHUB_WORKSPACE/artifacts/Windows_IIS_API_${GITHUB_SHA:0:8}.zip" .)
+          cp -a frontend/dist/. "$RUNNER_TEMP/frontend-it/"
+          rm -f "$RUNNER_TEMP/frontend-it/config.js"
+          printf '%s\n' 'IT supplies approved API URL, corporate identity configuration and feature flags in config.js before IIS hosting; UAT Demo configuration is excluded.' > "$RUNNER_TEMP/frontend-it/CONFIG_REQUIRED.txt"
+          (cd "$RUNNER_TEMP/frontend-it" && zip -qr "$GITHUB_WORKSPACE/artifacts/Windows_IIS_Frontend_${GITHUB_SHA:0:8}.zip" .)
+          (cd frontend && node scripts/prepare-pathb-artifact.mjs)
+          (cd frontend/dist && zip -qr "$GITHUB_WORKSPACE/artifacts/PathB_Frontend_${GITHUB_SHA:0:8}.zip" .)
+          git archive --format=zip -o "artifacts/Source_SQL_Migrations_${GITHUB_SHA:0:8}.zip" "$GITHUB_SHA"
+          cat > artifacts/IT_HANDOVER.txt <<EOF
+          SOURCE_SHA=$GITHUB_SHA
+          SCHEMA=1.8.0-010
+          DEPLOYMENT=NOT_EXECUTED
+          PATHB_API_AND_FRONTEND=PAIRED_CANDIDATES
+          WINDOWS_IIS=REVIEW_CANDIDATE
+          Source archive contains versioned database/clean-install, migrations, initialization sources, permissions references, code and deployment documentation.
+          The previously validated 69-table ordered SQL review layers and permissions inventory in FieldVisit_v180_IT_Final_Handover_79031b6_20261125.zip remain historical evidence and must be reviewed against this exact source before IT execution.
+          Corporate identity choice, company seed, service account grants and independent IT Clean Build remain NOT_RUN. No Azure/SQL/ACL write occurs in this workflow.
+          EOF
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,zipfile
+          p=pathlib.Path('artifacts'); files=sorted(p.glob('*.zip')); assert len(files)==5
+          for z in files:
+              with zipfile.ZipFile(z) as f: assert f.testzip() is None,z
+          prefix=os.environ['GITHUB_SHA'][:8]
+          with zipfile.ZipFile(p/f'PathB_API_{prefix}.zip') as z: assert {'FieldVisit.Api.dll','FieldVisit.Infrastructure.dll','appsettings.json'}.issubset(z.namelist())
+          with zipfile.ZipFile(p/f'PathB_Frontend_{prefix}.zip') as z: assert {'index.html','config.js'}.issubset(z.namelist())
+          with zipfile.ZipFile(p/f'Source_SQL_Migrations_{prefix}.zip') as z: assert {'database/clean-install/v180/README.md','backend/src/FieldVisit.Api/Program.cs'}.issubset(z.namelist())
+          hashes={z.name:hashlib.sha256(z.read_bytes()).hexdigest() for z in files}
+          (p/'manifest.json').write_text(json.dumps({'source':os.environ['GITHUB_SHA'],'schema':'1.8.0-010','mode':'NONDEPLOY','itCleanBuild':'NOT_RUN','sha256':hashes},indent=2)+'\n')
+          PY
+          (cd artifacts && sha256sum *.zip manifest.json IT_HANDOVER.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fieldvisit-final-uat-${{ github.sha }}-nondeploy
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
