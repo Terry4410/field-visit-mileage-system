@@ -8,6 +8,7 @@ import{Pagination}from"../components/QueryControls";
 import{todayTaipei}from"../v160";
 import EmploymentMaintenanceModal from"../components/EmploymentMaintenanceModal";
 import PeopleManagementBulkPanel from"../components/PeopleManagementBulkPanel";
+import PersonDetail,{PersonDetailButton} from "../components/PersonDetail";
 import{employmentStatusLabel}from"../employment-status";
 import{businessAccessLabel,completenessWarnings}from"../people-completeness";
 
@@ -30,6 +31,7 @@ export default function PeopleAndAccessPage({mode="people"}:Props){
 }
 
 function PersonnelList(){
+ const[detailPerson,setDetailPerson]=useState<V170PeopleRow|null>(null);
  const[keyword,setKeyword]=useState(""),[employmentStatus,setEmploymentStatus]=useState(""),[hireFrom,setHireFrom]=useState(""),[hireTo,setHireTo]=useState(""),[terminationFrom,setTerminationFrom]=useState(""),[terminationTo,setTerminationTo]=useState(""),[historyStatus,setHistoryStatus]=useState(""),[historyFrom,setHistoryFrom]=useState(""),[historyTo,setHistoryTo]=useState(""),[primarySiteId,setPrimarySiteId]=useState(""),[teamId,setTeamId]=useState(""),[dataIssue,setDataIssue]=useState(""),[advanced,setAdvanced]=useState(false),[employmentUserId,setEmploymentUserId]=useState<number|null>(null),[createOpen,setCreateOpen]=useState(false),[created,setCreated]=useState<{userId:number;displayName:string}|null>(null),[teams,setTeams]=useState<Team[]>([]),[sites,setSites]=useState<MasterDataRow[]>([]),[centers,setCenters]=useState<MasterDataRow[]>([]),[lookupError,setLookupError]=useState(""),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false);
  const validDates=(!hireFrom||!hireTo||hireFrom<=hireTo)&&(!terminationFrom||!terminationTo||terminationFrom<=terminationTo)&&(!historyFrom||!historyTo||historyFrom<=historyTo);
  const query=usePagedQuery<V170PeopleRow>("/admin/people",{userType:"Internal",keyword,employmentStatus:employmentStatus||undefined,hireFrom:hireFrom||undefined,hireTo:hireTo||undefined,terminationFrom:terminationFrom||undefined,terminationTo:terminationTo||undefined,historicalEmploymentStatus:historyStatus||undefined,employmentStatusFrom:historyStatus&&historyFrom?historyFrom:undefined,employmentStatusTo:historyStatus&&historyTo?historyTo:undefined,primaryDeploymentSiteId:primarySiteId?Number(primarySiteId):undefined,teamId:teamId?Number(teamId):undefined,dataIssue:dataIssue||undefined,sort:"code_asc"},validDates);
@@ -73,9 +75,10 @@ function PersonnelList(){
    {created&&<div className="note ok-note" style={{marginBottom:10}}>已建立「{created.displayName}」的人事主檔。下一步可至 <NavLink to="/admin/users/roles">角色與登入</NavLink> 設定角色，再到 <NavLink to="/admin/teams/members">小組與成員</NavLink> 設定管理小組；派駐據點仍由人事維護入口管理。</div>}
    {lookupError&&<div className="note danger-note">{lookupError}</div>}
    {query.error&&<div className="note danger-note">{query.error}</div>}
-   <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>目前人事狀態</th><th>入職日</th><th>離職日</th><th>主要派駐據點</th><th>管理小組（唯讀）</th><th>資料完整性</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td>{u.employeeNo||u.userCode}</td><td><strong>{u.displayName}</strong><div className="sub">{u.email||"—"}</div></td><td>{employmentStatusLabel(u.employmentStatus)}</td><td>{u.hireDate||"—"}</td><td>{u.terminationDate||"—"}</td><td>{primarySiteLabel(u)}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td>{completenessWarnings(u).join("；")||"完整"}</td><td><div className="actions"><button className="btn small secondary" disabled={busy} onClick={()=>setEmploymentUserId(u.userId)}>維護人事資料</button><button className="btn small danger" disabled={busy} onClick={()=>void deletePerson(u)}>刪除</button></div></td></tr>)}</tbody></table></div>
+   <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>目前人事狀態</th><th>入職日</th><th>離職日</th><th>主要派駐據點</th><th>管理小組（唯讀）</th><th>資料完整性</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td><PersonDetailButton row={u} field="code" onOpen={setDetailPerson}/></td><td><PersonDetailButton row={u} field="name" onOpen={setDetailPerson}/><div className="sub">{u.email||"—"}</div></td><td>{employmentStatusLabel(u.employmentStatus)}</td><td>{u.hireDate||"—"}</td><td>{u.terminationDate||"—"}</td><td>{primarySiteLabel(u)}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td>{completenessWarnings(u).join("；")||"完整"}</td><td><div className="actions"><button className="btn small secondary" disabled={busy} onClick={()=>setEmploymentUserId(u.userId)}>維護人事資料</button><button className="btn small danger" disabled={busy} onClick={()=>void deletePerson(u)}>刪除</button></div></td></tr>)}</tbody></table></div>
    <Pagination {...query.data} page={query.page} pageSize={query.pageSize} busy={query.loading} onPage={query.setPage} onPageSize={query.setPageSize}/>
   </div>
+  {detailPerson&&<PersonDetail key={detailPerson.userId} row={detailPerson} onClose={()=>setDetailPerson(null)}/>}
   {employmentUserId!==null&&<EmploymentMaintenanceModal userId={employmentUserId} onClose={()=>setEmploymentUserId(null)} onChanged={()=>query.reload()}/>}
   {createOpen&&<CreateInternalPersonModal onClose={()=>setCreateOpen(false)} onCreated={person=>{setCreateOpen(false);setCreated(person);query.reload()}}/>}
  </>;
@@ -111,6 +114,7 @@ function CreateInternalPersonModal({onClose,onCreated}:{onClose:()=>void;onCreat
 }
 
 function RoleLoginList(){
+ const[detailPerson,setDetailPerson]=useState<V170PeopleRow|null>(null);
  const[keyword,setKeyword]=useState(""),[role,setRole]=useState(""),[employmentStatus,setEmploymentStatus]=useState(""),[teamId,setTeamId]=useState(""),[dataIssue,setDataIssue]=useState(""),[msg,setMsg]=useState(""),[busy,setBusy]=useState(false),[access,setAccess]=useState<V170PeopleRow|null>(null),[roles,setRoles]=useState<string[]>([]),[teams,setTeams]=useState<Team[]>([]);
  const query=usePagedQuery<V170PeopleRow>("/admin/people",{userType:"Internal",keyword,role:role||undefined,employmentStatus:employmentStatus||undefined,teamId:teamId?Number(teamId):undefined,dataIssue:dataIssue||undefined,sort:"code_asc"});
  useEffect(()=>{api<Team[]>("/teams").then(setTeams).catch(e=>setMsg(e instanceof Error?e.message:"小組清單載入失敗"))},[]);
@@ -129,9 +133,10 @@ function RoleLoginList(){
     <label>業務授權<select value={dataIssue} onChange={e=>setDataIssue(e.target.value)}><option value="">全部</option><option value="MissingBusinessRole">缺業務角色</option><option value="MissingPrimaryDeploymentSite">外訪員缺主要派駐據點</option></select></label>
    </div>
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}{query.error&&<div className="note danger-note">{query.error}</div>}
-   <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>角色</th><th>人事狀態</th><th>業務授權</th><th>資料完整性</th><th>管理小組（唯讀）</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td>{u.employeeNo||u.userCode}</td><td>{u.displayName}</td><td>{u.roles.map(r=>roleOptions.find(x=>x.code===r)?.label||r).join("、")||"—"}</td><td>{employmentStatusLabel(u.employmentStatus)}</td><td>{businessAccessLabel(u)}</td><td>{completenessWarnings(u).join("；")||"完整"}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td><button className="btn small secondary" onClick={()=>openAccess(u)}>維護角色</button></td></tr>)}</tbody></table></div>
+   <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>角色</th><th>人事狀態</th><th>業務授權</th><th>資料完整性</th><th>管理小組（唯讀）</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td><PersonDetailButton row={u} field="code" onOpen={setDetailPerson}/></td><td><PersonDetailButton row={u} field="name" onOpen={setDetailPerson}/></td><td>{u.roles.map(r=>roleOptions.find(x=>x.code===r)?.label||r).join("、")||"—"}</td><td>{employmentStatusLabel(u.employmentStatus)}</td><td>{businessAccessLabel(u)}</td><td>{completenessWarnings(u).join("；")||"完整"}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td><button className="btn small secondary" onClick={()=>openAccess(u)}>維護角色</button></td></tr>)}</tbody></table></div>
    <Pagination {...query.data} page={query.page} pageSize={query.pageSize} busy={query.loading||busy} onPage={query.setPage} onPageSize={query.setPageSize}/>
   </div>
+  {detailPerson&&<PersonDetail key={detailPerson.userId} row={detailPerson} onClose={()=>setDetailPerson(null)}/>}
   {access&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setAccess(null)}}><div className="modal-panel" role="dialog" aria-modal="true"><button className="btn small outline modal-close" disabled={busy} onClick={()=>setAccess(null)}>關閉</button><h3>角色與登入｜{access.displayName}</h3><div className="note">實際登入：{loginStatusLabel(access)}<br/>登入資格由人事狀態有效期間自動判斷；這裡只維護角色。<br/>管理小組：{access.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"尚未設定"}（唯讀），如需調整請至「小組與成員」。</div><h4>角色</h4>{roleOptions.map(r=><label className="check-row" key={r.code}><input type="checkbox" checked={roles.includes(r.code)} onChange={e=>toggleRole(r.code,e.target.checked)}/>{r.label}</label>)}<div className="actions" style={{marginTop:14}}><button className="btn ok" disabled={busy} onClick={()=>void saveAccess()}>儲存角色</button><button className="btn outline" disabled={busy} onClick={()=>setAccess(null)}>取消</button></div></div></div>}
  </>;
 }

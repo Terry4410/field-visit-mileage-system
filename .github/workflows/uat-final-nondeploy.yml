@@ -77,5 +77,5 @@ jobs:
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund
-          npm test -- src/correction-detail.test.ts src/correction-ui.test.ts src/query-approved-snapshot-detail.test.ts
+          npm test -- src/correction-detail.test.ts src/correction-ui.test.ts src/query-approved-snapshot-detail.test.ts src/person-detail.test.ts src/people-completeness.test.ts
           npm run build
