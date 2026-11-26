@@ -44,7 +44,7 @@ function PersonnelList(){
  return <>
   <Tabs/>
   <div className="card">
-   <div className="section-title"><div><h2>人事資料</h2><div className="sub">此頁只維護人事事實與就業中心／派駐據點；管理小組僅供查詢參考，請至「小組與成員」維護。</div></div><div className="actions"><ExportFilteredButton dataset="personnel-full" filters={query.appliedFilters} label="匯出完整人事歷史 Excel" disabled={query.loading||!validDates}/><button className="btn" onClick={()=>{setCreated(null);setCreateOpen(true)}}>＋新增人員</button></div></div>
+   <div className="section-title"><div><h2>人事資料</h2><div className="sub">可在同一視窗維護人事資料、角色、管理小組及派駐據點；各分頁依原有規則獨立儲存。</div></div><div className="actions"><ExportFilteredButton dataset="personnel-full" filters={query.appliedFilters} label="匯出完整人事歷史 Excel" disabled={query.loading||!validDates}/><button className="btn" onClick={()=>{setCreated(null);setCreateOpen(true)}}>＋新增人員</button></div></div>
    <div className="field"><label>搜尋人員</label><input value={keyword} onChange={e=>setKeyword(e.target.value)} placeholder="工號、姓名或 Email"/></div>
    <div className="quick-filters" style={{marginBottom:10}}>
     {statusOptions.map(([value,label])=><button type="button" key={value||"all"} className={`btn small ${employmentStatus===value&&!dataIssue?"":"outline"}`} onClick={()=>setQuick(value)}>{label}</button>)}
@@ -72,15 +72,15 @@ function PersonnelList(){
    </div>}
    {!validDates&&<div role="alert" className="note danger-note">日期區間的迄日不可早於起日。</div>}
    {msg&&<div className="note" style={{marginBottom:10}}>{msg}</div>}
-   {created&&<div className="note ok-note" style={{marginBottom:10}}>已建立「{created.displayName}」的人事主檔。下一步可至 <NavLink to="/admin/users/roles">角色與登入</NavLink> 設定角色，再到 <NavLink to="/admin/teams/members">小組與成員</NavLink> 設定管理小組；派駐據點仍由人事維護入口管理。</div>}
+   {created&&employmentUserId===null&&<div className="note ok-note" style={{marginBottom:10}}>已建立「{created.displayName}」的人事主檔。請確認資料完整性。 <button type="button" className="btn small outline" onClick={()=>setEmploymentUserId(created.userId)}>繼續維護此人員</button></div>}
    {lookupError&&<div className="note danger-note">{lookupError}</div>}
    {query.error&&<div className="note danger-note">{query.error}</div>}
    <div className="table-wrap"><table><thead><tr><th>工號</th><th>姓名</th><th>目前人事狀態</th><th>入職日</th><th>離職日</th><th>主要派駐據點</th><th>管理小組（唯讀）</th><th>資料完整性</th><th>操作</th></tr></thead><tbody>{query.data.items.map(u=><tr key={u.userId}><td><PersonDetailButton row={u} field="code" onOpen={setDetailPerson}/></td><td><PersonDetailButton row={u} field="name" onOpen={setDetailPerson}/><div className="sub">{u.email||"—"}</div></td><td>{employmentStatusLabel(u.employmentStatus)}</td><td>{u.hireDate||"—"}</td><td>{u.terminationDate||"—"}</td><td>{primarySiteLabel(u)}</td><td>{u.teamAssignments.map(s=>`${s.teamName}${s.isPrimary?" ★":""}`).join("、")||"—"}</td><td>{completenessWarnings(u).join("；")||"完整"}</td><td><div className="actions"><button className="btn small secondary" disabled={busy} onClick={()=>setEmploymentUserId(u.userId)}>維護人事資料</button><button className="btn small danger" disabled={busy} onClick={()=>void deletePerson(u)}>刪除</button></div></td></tr>)}</tbody></table></div>
    <Pagination {...query.data} page={query.page} pageSize={query.pageSize} busy={query.loading} onPage={query.setPage} onPageSize={query.setPageSize}/>
   </div>
   {detailPerson&&<PersonDetail key={detailPerson.userId} row={detailPerson} onClose={()=>setDetailPerson(null)}/>}
-  {employmentUserId!==null&&<EmploymentMaintenanceModal userId={employmentUserId} onClose={()=>setEmploymentUserId(null)} onChanged={()=>query.reload()}/>}
-  {createOpen&&<CreateInternalPersonModal onClose={()=>setCreateOpen(false)} onCreated={person=>{setCreateOpen(false);setCreated(person);query.reload()}}/>}
+  {employmentUserId!==null&&<EmploymentMaintenanceModal key={employmentUserId} userId={employmentUserId} newlyCreated={created?.userId===employmentUserId} onClose={()=>setEmploymentUserId(null)} onChanged={()=>query.reload()}/>}
+  {createOpen&&<CreateInternalPersonModal onClose={()=>setCreateOpen(false)} onCreated={person=>{setCreateOpen(false);setCreated(person);setEmploymentUserId(person.userId);query.reload()}}/>}
  </>;
 }
 
@@ -98,7 +98,8 @@ function CreateInternalPersonModal({onClose,onCreated}:{onClose:()=>void;onCreat
  };
  return <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}><div className="modal-panel" role="dialog" aria-modal="true" aria-label="新增人員">
   <button className="btn small outline modal-close" disabled={busy} onClick={onClose}>關閉</button><h3>新增人員</h3>
-  <div className="note">建立後請接續設定業務角色、小組及外訪員的主要派駐據點；人事狀態依入職日自動判斷。</div>
+  <div className="note">先建立基本資料，接著在同一視窗設定管理小組、角色及派駐據點；人事狀態依入職日自動判斷。</div>
+  <nav className="actions" aria-label="新增人員步驟"><button type="button" className="btn small" aria-current="step">基本資料</button>{["人事狀態","管理小組","派駐據點","業務角色"].map(label=><button type="button" key={label} className="btn small outline" disabled>{label}</button>)}</nav>
   {error&&<div className="note danger-note" role="alert">{error}</div>}
   <form onSubmit={e=>{e.preventDefault();if(!busy)void save()}}>
    <div className="grid cols-2">
@@ -108,7 +109,7 @@ function CreateInternalPersonModal({onClose,onCreated}:{onClose:()=>void;onCreat
     <label>入職日（必填）<input required type="date" value={hireDate} onChange={e=>setHireDate(e.target.value)}/></label>
    </div>
    <div className="note" aria-live="polite">人事狀態（自動判斷）：<strong>{!hireDate?"請選擇入職日":future?"未到職":"在職"}</strong>{future?"；入職日將自動轉為在職，仍須有有效業務角色才能使用系統。":""}</div>
-   <div className="actions" style={{marginTop:14}}><button type="submit" className="btn ok" disabled={busy||!ready}>建立人事主檔</button><button type="button" className="btn outline" disabled={busy} onClick={onClose}>取消</button></div>
+   <div className="actions" style={{marginTop:14}}><button type="submit" className="btn ok" disabled={busy||!ready}>建立並繼續</button><button type="button" className="btn outline" disabled={busy} onClick={onClose}>取消</button></div>
   </form>
  </div></div>;
 }

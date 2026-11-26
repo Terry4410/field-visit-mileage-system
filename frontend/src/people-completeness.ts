@@ -16,3 +16,20 @@ export function completenessWarnings(u:V170PeopleRow):string[]{
   warnings.push("缺管理小組");
  return warnings;
 }
+
+// Current projections only; preserve history via existing effective-date APIs.
+export function currentAssignments(detail:import("./types").V170PersonDetail){
+ const roles=(detail.roleAssignments as {roleCode:string;isCurrent:boolean}[]).filter(x=>x.isCurrent).map(x=>x.roleCode);
+ const teams=(detail.teamAssignments as {teamId:number;isPrimary:boolean;isCurrent:boolean}[]).filter(x=>x.isCurrent).map(x=>({teamId:x.teamId,isPrimary:x.isPrimary}));
+ return {roles,teams};
+}
+export function validTeamSelection(teams:{teamId:number;isPrimary:boolean}[],required:boolean):boolean{
+ return new Set(teams.map(x=>x.teamId)).size===teams.length&&(teams.length===0?!required:teams.filter(x=>x.isPrimary).length===1);
+}
+export function setupWarnings(roles:string[],teams:{teamId:number;isPrimary:boolean}[],hasPrimarySite:boolean|null):string[]{
+ const result:string[]=[];
+ if(!roles.length)result.push("業務角色未設定");
+ if(!validTeamSelection(teams,roles.some(r=>r==="visitor"||r==="leader")))result.push("管理小組或主要小組未設定");
+ if(roles.includes("visitor")&&hasPrimarySite!==true)result.push(hasPrimarySite===null?"主要派駐據點尚未確認":"主要派駐據點未設定");
+ return result;
+}

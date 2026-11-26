@@ -1,15 +1,20 @@
 import{useEffect,useState}from"react";
 import{api}from"../api";
-import type{V170PersonDetail}from"../types";
+import type{V170PersonDetail,ManagedTeam}from"../types";
+import{currentAssignments,setupWarnings,validTeamSelection}from"../people-completeness";
 import{todayTaipei}from"../v160";
 import{employmentStatusLabel}from"../employment-status";
 
-type Props={userId:number;onClose:()=>void;onChanged?:()=>void};
+type Props={userId:number;onClose:()=>void;onChanged?:()=>void;newlyCreated?:boolean};
+const roleChoices=[{code:"visitor",label:"外訪員"},{code:"leader",label:"小組長"},{code:"admin",label:"管理者"}];
+type Tab="basic"|"status"|"sites"|"teams"|"roles";
+type TeamSelection={teamId:number;isPrimary:boolean};
 type MasterRow={id:number;key:string;parentKey?:string;detail?:string;effectiveFrom:string;effectiveTo?:string;isPrimary?:boolean;rowVersion?:string};
 
-export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Props){
+export default function EmploymentMaintenanceModal({userId,onClose,onChanged,newlyCreated=false}:Props){
   const[data,setData]=useState<V170PersonDetail|null>(null);
-  const[tab,setTab]=useState<"basic"|"status"|"sites">("basic");
+  const[tab,setTab]=useState<Tab>(newlyCreated?"teams":"basic");
+  const[roles,setRoles]=useState<string[]>([]),[selectedTeams,setSelectedTeams]=useState<TeamSelection[]>([]),[availableTeams,setAvailableTeams]=useState<ManagedTeam[]>([]),[teamLoadFailed,setTeamLoadFailed]=useState(false),[reloadRequired,setReloadRequired]=useState(false);
   const[statusRows,setStatusRows]=useState<MasterRow[]>([]);
   const[statusLoadFailed,setStatusLoadFailed]=useState(false);
   const[transitionDate,setTransitionDate]=useState(todayTaipei());
@@ -39,12 +44,15 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
   const load=async()=>{
     const row=await api<V170PersonDetail>(`/admin/people/${userId}`);
     setData(row);
+    const current=currentAssignments(row);setRoles(current.roles);setSelectedTeams(current.teams);
     setEmployeeNo(row.employeeNo||"");
     setDisplayName(row.displayName||"");
     setEmail(row.email||"");
     setHireDate(row.hireDate||"");
     setTerminationDate(row.terminationDate||"");
-    const [available,allAssignments,allStatuses]=await Promise.allSettled([api<MasterRow[]>("/admin/master-data/deployment-sites"),api<MasterRow[]>("/admin/master-data/employment-sites"),api<MasterRow[]>("/admin/master-data/employment-status")]);
+    const [available,allAssignments,allStatuses,teamRows]=await Promise.allSettled([api<MasterRow[]>("/admin/master-data/deployment-sites"),api<MasterRow[]>("/admin/master-data/employment-sites"),api<MasterRow[]>("/admin/master-data/employment-status"),api<ManagedTeam[]>("/admin/teams?includeInactive=true")]);
+    setTeamLoadFailed(teamRows.status==="rejected");setAvailableTeams(teamRows.status==="fulfilled"?teamRows.value:[]);
+    if(newlyCreated&&row.hireDate&&row.hireDate>todayTaipei())setSiteFrom(row.hireDate);
     setStatusLoadFailed(allStatuses.status==="rejected");
     setStatusRows(allStatuses.status==="fulfilled"?allStatuses.value.filter(x=>x.key===row.employeeNo):[]);
     if(available.status==="fulfilled")setSites(available.value);
@@ -123,15 +131,48 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
     finally{setBusy(false)}
   };
 
-  if(!data)return <div className="modal"><div className="modal-panel"><button className="btn small outline modal-close" onClick={onClose}>關閉</button><h3>人事資料維護</h3><div className="note">{msg||"載入中…"}</div></div></div>;
+  const saved=data?currentAssignments(data):{roles:[],teams:[]};
+  const relevantDate=data?.hireDate&&data.hireDate>todayTaipei()?data.hireDate:todayTaipei();
+  const primarySite=assignments.some(a=>a.isPrimary&&a.effectiveFrom<=relevantDate&&(!a.effectiveTo||a.effectiveTo>=relevantDate));
+  const missing=setupWarnings(saved.roles,saved.teams,siteLoadFailed?null:primarySite);
+  const rolesDirty=JSON.stringify([...roles].sort())!==JSON.stringify([...saved.roles].sort());
+  const normalize=(items:TeamSelection[])=>JSON.stringify([...items].sort((a,b)=>a.teamId-b.teamId));
+  const teamsDirty=normalize(selectedTeams)!==normalize(saved.teams);
+  const basicDirty=!!data&&(employeeNo!==(data.employeeNo||"")||displayName!==(data.displayName||"")||email!==(data.email||"")||hireDate!==(data.hireDate||"")||terminationDate!==(data.terminationDate||""));
+  const unsaved=rolesDirty||teamsDirty||basicDirty;
+  const discardCurrent=()=>{if(!unsaved)return true;if(!window.confirm("尚有未儲存的基本資料、角色或小組設定。確定放棄未儲存變更？"))return false;setRoles(saved.roles);setSelectedTeams(saved.teams);if(data){setEmployeeNo(data.employeeNo||"");setDisplayName(data.displayName||"");setEmail(data.email||"");setHireDate(data.hireDate||"");setTerminationDate(data.terminationDate||"")}return true};
+  const changeTab=(next:Tab)=>{if(next!==tab&&discardCurrent()){setTab(next);setMsg("")}};
+  const close=()=>{if(busy)return;if(unsaved&&!window.confirm("尚有未儲存的變更。確定關閉？"))return;if(newlyCreated&&(missing.length>0||reloadRequired||!data)&&!window.confirm("人事主檔已建立，但設定可能尚未完整。確定暫時離開？稍後可由維護人事資料繼續。"))return;onClose()};
+  const toggleTeam=(id:number,checked:boolean)=>setSelectedTeams(rows=>{if(checked)return rows.some(x=>x.teamId===id)?rows:[...rows,{teamId:id,isPrimary:rows.length===0}];const next=rows.filter(x=>x.teamId!==id);return next.length&&!next.some(x=>x.isPrimary)?next.map((x,i)=>({...x,isPrimary:i===0})):next});
+  const saveAccessPart=async(part:"roles"|"teams")=>{
+    if(!data||reloadRequired||busy)return;
+    if(part==="roles"){
+      if(saved.roles.some(r=>!roleChoices.some(c=>c.code===r)))return setMsg("此人員含其他既有角色，請使用原角色維護入口確認，不在此視窗變更。");
+      if(!roles.length&&!window.confirm("確定撤銷全部業務角色？此人員將無法進入系統。"))return;
+      if(roles.some(r=>r==="visitor"||r==="leader")&&!validTeamSelection(saved.teams,true))return setMsg("請先在管理小組分頁儲存至少一個小組及主要小組。");
+      if(roles.includes("visitor")&&(siteLoadFailed||!primarySite)&&!window.confirm("外訪員尚無已確認的主要派駐據點，仍要儲存角色？請於送出行程前補齊。"))return;
+    }else if(teamLoadFailed||!validTeamSelection(selectedTeams,saved.roles.some(r=>r==="visitor"||r==="leader")))return setMsg("請確認小組清單及主要小組；外訪員與小組長至少需要一個小組。");
+    setBusy(true);setMsg("");
+    try{
+      const body=part==="roles"?{roles,effectiveFrom:todayTaipei()}:{teamAssignments:selectedTeams,effectiveFrom:todayTaipei()};
+      await api(`/admin/people/internal-users/${userId}/${part==="roles"?"roles":"team-memberships"}`,{method:"PUT",body:JSON.stringify(body)});
+      onChanged?.();
+      try{await load();setMsg(part==="roles"?"業務角色已儲存。":"管理小組已儲存。")}catch{setReloadRequired(true);setMsg("設定已送出，但重新載入失敗。請關閉後重新開啟確認，不要重複儲存。")}
+    }catch(e){setReloadRequired(true);setMsg((e instanceof Error?e.message:"設定更新未確認")+"；請關閉後重新開啟確認結果，再決定是否重試。")}
+    finally{setBusy(false)}
+  };
+
+  if(!data)return <div className="modal"><div className="modal-panel"><button className="btn small outline modal-close" onClick={close}>關閉</button><h3>人事資料維護</h3><div className="note">{msg||"載入中…"}</div></div></div>;
 
   return <div className="modal"><div className="modal-panel" role="dialog" aria-modal="true" aria-label="人事資料維護">
-    <button className="btn small outline modal-close" disabled={busy} onClick={onClose}>關閉</button>
-    <h3>人事資料維護｜{data.displayName}</h3>
+    <button className="btn small outline modal-close" disabled={busy} onClick={close}>關閉</button>
+    <h3>{newlyCreated?"新增人員設定":"人事資料維護"}｜{data.displayName}</h3>
     <div className="note">工號：{data.employeeNo||"—"}｜目前人事狀態：<strong>{employmentStatusLabel(data.employmentStatus)}</strong>｜人事登入資格：<strong>{data.actualAccess?"符合":"暫停"}</strong>（業務角色另行判斷）</div>
+    <div className={`note ${missing.length?"":"ok-note"}`} aria-live="polite">各分頁獨立儲存。{missing.length?"尚待確認："+missing.join("；"):"角色、小組及派駐設定已符合目前檢查條件。"}{newlyCreated?" 建議先設定小組與派駐據點，再儲存業務角色。":""}</div>
+    {reloadRequired&&<div className="note danger-note" role="alert">請關閉並重新開啟確認最新資料後再繼續。</div>}
     {msg&&<div className="note" style={{marginTop:10}}>{msg}</div>}
 
-    <nav className="actions" aria-label="人事資料維護子功能" style={{marginTop:14}}>{([{key:"basic",label:"基本資料"},{key:"status",label:"人事狀態"},{key:"sites",label:"派駐據點"}] as const).map(x=><button type="button" key={x.key} className={`btn small ${tab===x.key?"":"outline"}`} aria-pressed={tab===x.key} disabled={busy} onClick={()=>{setTab(x.key);setMsg("")}}>{x.label}</button>)}</nav>
+    <nav className="actions" aria-label="人事資料維護子功能" style={{marginTop:14}}>{([{key:"basic",label:"基本資料"},{key:"status",label:"人事狀態"},{key:"teams",label:"管理小組"},{key:"sites",label:"派駐據點"},{key:"roles",label:"業務角色"}] as const).map(x=><button type="button" key={x.key} className={`btn small ${tab===x.key?"":"outline"}`} aria-pressed={tab===x.key} disabled={busy||reloadRequired} onClick={()=>changeTab(x.key)}>{x.label}</button>)}</nav>
     {tab==="basic"&&<>
     <div className="grid cols-2" style={{marginTop:14}}>
       <div className="field"><label>工號</label><input value={employeeNo} onChange={e=>setEmployeeNo(e.target.value)}/></div>
@@ -166,6 +207,18 @@ export default function EmploymentMaintenanceModal({userId,onClose,onChanged}:Pr
       {data.employmentPeriods.map(p=><tr key={p.userEmploymentPeriodId}><td>{employmentStatusLabel(p.employmentStatus)}</td><td>{p.effectiveFrom}</td><td>{p.effectiveTo||"無期限"}</td><td>{p.isCurrent?"是":"—"}</td><td>{p.sourceType}{p.sourceReference?`｜${p.sourceReference}`:""}</td><td><button type="button" className="btn small outline" disabled={busy||statusLoadFailed||!statusRows.find(x=>x.id===p.userEmploymentPeriodId)?.rowVersion} onClick={()=>{const row=statusRows.find(x=>x.id===p.userEmploymentPeriodId);if(!row?.rowVersion)return;setEditingStatus(row);setStatus(p.employmentStatus);setStatusFrom(p.effectiveFrom);setStatusTo(p.effectiveTo||"");setStatusNoEnd(!p.effectiveTo);setAdvancedStatus(true)}}>更正期間</button></td></tr>)}
     </tbody></table></div>
 
+    </>}
+    {tab==="teams"&&<>
+    <h4>管理小組</h4><div className="note">可屬於多個小組；有小組時須指定一個主要小組。儲存只修改小組歸屬，不修改角色。</div>
+    {teamLoadFailed&&<div className="note danger-note">小組清單載入失敗，請重新開啟。</div>}
+    {availableTeams.filter(t=>t.isActive||selectedTeams.some(x=>x.teamId===t.teamId)).map(t=><div className="actions" key={t.teamId}><label className="check-row"><input type="checkbox" disabled={busy||reloadRequired||teamLoadFailed||(!t.isActive&&!selectedTeams.some(x=>x.teamId===t.teamId))} checked={selectedTeams.some(x=>x.teamId===t.teamId)} onChange={e=>toggleTeam(t.teamId,e.target.checked)}/>{t.teamName}{!t.isActive?"（停用）":""}</label>{selectedTeams.some(x=>x.teamId===t.teamId)&&<label className="check-row"><input type="radio" name="primaryTeam" disabled={busy||reloadRequired||teamLoadFailed} checked={selectedTeams.some(x=>x.teamId===t.teamId&&x.isPrimary)} onChange={()=>setSelectedTeams(rows=>rows.map(x=>({...x,isPrimary:x.teamId===t.teamId}))}/>主要小組</label>}</div>)}
+    <button className="btn ok" disabled={busy||reloadRequired||teamLoadFailed||!teamsDirty||!validTeamSelection(selectedTeams,saved.roles.some(r=>r==="visitor"||r==="leader"))} onClick={()=>void saveAccessPart("teams")}>儲存管理小組</button>
+    </>}
+    {tab==="roles"&&<>
+    <h4>業務角色</h4><div className="note">角色與人事狀態及企業身分驗證分開判斷；未設定角色無法進入系統。</div>
+    {saved.roles.some(r=>!roleChoices.some(c=>c.code===r))&&<div className="note danger-note">包含其他既有角色：{saved.roles.filter(r=>!roleChoices.some(c=>c.code===r)).join("、")}。此處不變更。</div>}
+    {roleChoices.map(r=><label className="check-row" key={r.code}><input type="checkbox" disabled={busy||reloadRequired||saved.roles.some(x=>!roleChoices.some(c=>c.code===x))} checked={roles.includes(r.code)} onChange={e=>setRoles(rows=>e.target.checked?[...new Set([...rows,r.code])]:rows.filter(x=>x!==r.code))}/>{r.label}</label>)}
+    <button className="btn ok" disabled={busy||reloadRequired||!rolesDirty||saved.roles.some(r=>!roleChoices.some(c=>c.code===r))} onClick={()=>void saveAccessPart("roles")}>儲存業務角色</button>
     </>}
     {tab==="sites"&&<>
     <h4>所屬就業中心／派駐據點</h4>
