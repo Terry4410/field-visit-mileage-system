@@ -82,9 +82,32 @@ function PersonnelList(){
 }
 
 function CreateInternalPersonModal({onClose,onCreated}:{onClose:()=>void;onCreated:(person:{userId:number;displayName:string})=>void}){
- const[employeeNo,setEmployeeNo]=useState(""),[displayName,setDisplayName]=useState(""),[email,setEmail]=useState(""),[hireDate,setHireDate]=useState(""),[terminationDate,setTerminationDate]=useState(""),[status,setStatus]=useState("Active"),[effectiveFrom,setEffectiveFrom]=useState(todayTaipei()),[busy,setBusy]=useState(false),[error,setError]=useState("");
- const save=async()=>{if(!employeeNo.trim()||!displayName.trim())return setError("工號與姓名為必填。");if(status==="Terminated"&&!terminationDate)return setError("初始狀態為離職時，離職日必填。");setBusy(true);setError("");try{const result=await api<{userId:number;displayName:string}>("/admin/people/internal-users",{method:"POST",body:JSON.stringify({employeeNo:employeeNo.trim(),displayName:displayName.trim(),email:email.trim()||null,hireDate:hireDate||null,terminationDate:terminationDate||null,initialEmploymentStatus:status,statusEffectiveFrom:effectiveFrom})});onCreated({userId:result.userId,displayName:result.displayName})}catch(e){setError(`${e instanceof Error?e.message:"新增人員失敗"}；請先以工號搜尋清單，確認是否已建立，再決定下一步。請勿直接重按建立。`)}finally{setBusy(false)}};
- return <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}><div className="modal-panel" role="dialog" aria-modal="true"><button className="btn small outline modal-close" disabled={busy} onClick={onClose}>關閉</button><h3>新增人員</h3><div className="note">此步驟只建立人事事實；角色、小組與派駐據點分開維護，避免一次表單同時改動不同權責資料。</div>{error&&<div className="note danger-note">{error}</div>}<div className="grid cols-2"><label>工號<input value={employeeNo} onChange={e=>setEmployeeNo(e.target.value)} autoFocus/></label><label>姓名<input value={displayName} onChange={e=>setDisplayName(e.target.value)}/></label><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><label>入職日<input type="date" value={hireDate} onChange={e=>setHireDate(e.target.value)}/></label><label>離職日<input type="date" value={terminationDate} onChange={e=>setTerminationDate(e.target.value)}/><span className="sub">空白代表尚未離職，不代表無期限。</span></label><label>初始人事狀態<select value={status} onChange={e=>setStatus(e.target.value)}><option value="Active">在職</option><option value="Leave">留停</option><option value="Terminated">離職</option><option value="PreHire">未到職</option></select></label><label>狀態生效日<input type="date" value={effectiveFrom} onChange={e=>setEffectiveFrom(e.target.value)}/></label></div><div className="actions" style={{marginTop:14}}><button className="btn ok" disabled={busy||!effectiveFrom} onClick={()=>void save()}>建立人事主檔</button><button className="btn outline" disabled={busy} onClick={onClose}>取消</button></div></div></div>
+ const[employeeNo,setEmployeeNo]=useState(""),[displayName,setDisplayName]=useState(""),[email,setEmail]=useState(""),[hireDate,setHireDate]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ const ready=Boolean(employeeNo.trim()&&displayName.trim()&&email.trim()&&hireDate);
+ const future=Boolean(hireDate&&hireDate>todayTaipei());
+ const save=async()=>{
+  if(!ready)return setError("工號、姓名、Email 及入職日為必填。");
+  setBusy(true);setError("");
+  try{
+   const result=await api<{userId:number;displayName:string}>("/admin/people/internal-users",{method:"POST",body:JSON.stringify({employeeNo:employeeNo.trim(),displayName:displayName.trim(),email:email.trim(),hireDate,terminationDate:null,initialEmploymentStatus:"Active",statusEffectiveFrom:hireDate})});
+   onCreated({userId:result.userId,displayName:result.displayName});
+  }catch(e){setError(`${e instanceof Error?e.message:"新增人員失敗"}；請先以工號搜尋清單，確認是否已建立，再決定下一步。請勿直接重按建立。`)}finally{setBusy(false)}
+ };
+ return <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}><div className="modal-panel" role="dialog" aria-modal="true" aria-label="新增人員">
+  <button className="btn small outline modal-close" disabled={busy} onClick={onClose}>關閉</button><h3>新增人員</h3>
+  <div className="note">建立後請接續設定業務角色、小組及外訪員的主要派駐據點；人事狀態依入職日自動判斷。</div>
+  {error&&<div className="note danger-note" role="alert">{error}</div>}
+  <form onSubmit={e=>{e.preventDefault();if(!busy)void save()}}>
+   <div className="grid cols-2">
+    <label>工號（必填）<input required maxLength={100} value={employeeNo} onChange={e=>setEmployeeNo(e.target.value)} autoFocus/></label>
+    <label>姓名（必填）<input required maxLength={100} value={displayName} onChange={e=>setDisplayName(e.target.value)}/></label>
+    <label>Email（必填）<input required type="email" maxLength={256} value={email} onChange={e=>setEmail(e.target.value)}/></label>
+    <label>入職日（必填）<input required type="date" value={hireDate} onChange={e=>setHireDate(e.target.value)}/></label>
+   </div>
+   <div className="note" aria-live="polite">人事狀態（自動判斷）：<strong>{!hireDate?"請選擇入職日":future?"未到職":"在職"}</strong>{future?"；入職日將自動轉為在職，仍須有有效業務角色才能使用系統。":""}</div>
+   <div className="actions" style={{marginTop:14}}><button type="submit" className="btn ok" disabled={busy||!ready}>建立人事主檔</button><button type="button" className="btn outline" disabled={busy} onClick={onClose}>取消</button></div>
+  </form>
+ </div></div>;
 }
 
 function RoleLoginList(){

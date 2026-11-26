@@ -345,63 +345,40 @@ public sealed record CreateInternalUserRequest(
 
 public static class V180InternalUserCreateRules
 {
-    private static readonly HashSet<string> AllowedStatuses =
-        new(
-            [
-                EmploymentStatuses.Active,
-                EmploymentStatuses.Leave,
-                EmploymentStatuses.Terminated,
-                EmploymentStatuses.PreHire
-            ],
-            StringComparer.OrdinalIgnoreCase);
-
+    // Ordinary personnel onboarding creates an Active period beginning on HireDate.
+    // The existing access and query rules derive PreHire until that date.
+    // Leave and termination are subsequent effective-dated personnel actions.
     public static CreateInternalUserRequest Normalize(
         CreateInternalUserRequest request)
     {
         var employeeNo = (request.EmployeeNo ?? "").Trim();
         var displayName = (request.DisplayName ?? "").Trim();
-        var email = string.IsNullOrWhiteSpace(request.Email)
-            ? null
-            : request.Email.Trim().ToLowerInvariant();
+        var email = (request.Email ?? "").Trim().ToLowerInvariant();
         var status = (request.InitialEmploymentStatus ?? "").Trim();
 
         if (employeeNo.Length == 0 || employeeNo.Length > 100)
             throw new InvalidOperationException("工號為必填，且不可超過 100 個字元。");
         if (displayName.Length == 0 || displayName.Length > 100)
             throw new InvalidOperationException("姓名為必填，且不可超過 100 個字元。");
-        if (email is not null)
-        {
-            if (email.Length > 256)
-                throw new InvalidOperationException("Email 不可超過 256 個字元。");
-            try { _ = new MailAddress(email); }
-            catch { throw new InvalidOperationException("Email 格式不正確。"); }
-        }
-        if (!AllowedStatuses.Contains(status))
-            throw new InvalidOperationException("初始人事狀態只允許 Active、Leave、Terminated、PreHire。");
-        status = status.ToLowerInvariant() switch
-        {
-            "active" => EmploymentStatuses.Active,
-            "leave" => EmploymentStatuses.Leave,
-            "terminated" => EmploymentStatuses.Terminated,
-            "prehire" => EmploymentStatuses.PreHire,
-            _ => status
-        };
+        if (email.Length == 0 || email.Length > 256)
+            throw new InvalidOperationException("Email 為必填，且不可超過 256 個字元。");
+        try { _ = new MailAddress(email); }
+        catch { throw new InvalidOperationException("Email 格式不正確。"); }
 
-        if (request.HireDate.HasValue
-            && request.TerminationDate.HasValue
-            && request.TerminationDate.Value < request.HireDate.Value)
-            throw new InvalidOperationException("離職日不可早於入職日。");
-
-        if (status == EmploymentStatuses.Terminated
-            && !request.TerminationDate.HasValue)
-            throw new InvalidOperationException("初始狀態為離職時，離職日必填。");
+        if (request.HireDate is not DateOnly hireDate || hireDate == DateOnly.MinValue)
+            throw new InvalidOperationException("入職日為必填。");
+        if (!string.Equals(status, EmploymentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("新增人員的初始狀態由入職日決定；留停及離職請至人事資料維護。");
+        if (request.TerminationDate.HasValue)
+            throw new InvalidOperationException("新增人員不可設定離職日；請至人事資料維護。");
 
         return request with
         {
             EmployeeNo = employeeNo,
             DisplayName = displayName,
             Email = email,
-            InitialEmploymentStatus = status
+            InitialEmploymentStatus = EmploymentStatuses.Active,
+            StatusEffectiveFrom = hireDate
         };
     }
 }

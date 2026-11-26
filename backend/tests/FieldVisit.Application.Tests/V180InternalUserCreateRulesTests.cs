@@ -64,6 +64,54 @@ public sealed class V180InternalUserCreateRulesTests
                 new DateOnly(2026, 10, 8))));
     }
 
+    [Theory]
+    [InlineData(2025, 1, 15)]
+    [InlineData(2035, 1, 15)]
+    public void Ordinary_create_stores_active_from_hire_date_not_form_date(int year,int month,int day)
+    {
+        var hire = new DateOnly(year,month,day);
+        var result = V180InternalUserCreateRules.Normalize(new(
+            "E100","Tester","user@example.com",hire,null,
+            EmploymentStatuses.Active,new DateOnly(2026,10,8)));
+        Assert.Equal(hire,result.StatusEffectiveFrom);
+        Assert.Equal(EmploymentStatuses.Active,result.InitialEmploymentStatus);
+        Assert.Null(result.TerminationDate);
+    }
+
+    [Theory]
+    [InlineData("Leave")]
+    [InlineData("Terminated")]
+    [InlineData("PreHire")]
+    public void Ordinary_create_rejects_manually_selected_nonactive_states(string status)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            V180InternalUserCreateRules.Normalize(new(
+                "E100","Tester","user@example.com",new DateOnly(2026,10,8),
+                null,status,new DateOnly(2026,10,8))));
+    }
+
+    [Fact]
+    public void Ordinary_create_requires_hire_date_and_email()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            V180InternalUserCreateRules.Normalize(new(
+                "E100","Tester","user@example.com",null,null,
+                EmploymentStatuses.Active,new DateOnly(2026,10,8))));
+        Assert.Throws<InvalidOperationException>(() =>
+            V180InternalUserCreateRules.Normalize(new(
+                "E100","Tester",null,new DateOnly(2026,10,8),null,
+                EmploymentStatuses.Active,new DateOnly(2026,10,8))));
+    }
+
+    [Fact]
+    public void Ordinary_create_rejects_termination_date_even_with_active_status()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            V180InternalUserCreateRules.Normalize(new(
+                "E100","Tester","user@example.com",new DateOnly(2026,10,8),
+                new DateOnly(2035,1,1),EmploymentStatuses.Active,new DateOnly(2026,10,8))));
+    }
+
     [Fact]
     public void Invalid_email_is_rejected()
     {
@@ -72,7 +120,7 @@ public sealed class V180InternalUserCreateRulesTests
                 "E100",
                 "Tester",
                 "not-an-email",
-                null,
+                new DateOnly(2026, 10, 8),
                 null,
                 EmploymentStatuses.Active,
                 new DateOnly(2026, 10, 8))));
