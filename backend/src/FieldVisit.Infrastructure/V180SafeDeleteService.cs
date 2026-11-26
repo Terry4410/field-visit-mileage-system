@@ -41,7 +41,7 @@ public sealed class V180SafeDeleteService(
         var history=await db.VisitTripSnapshots.CountAsync(x=>EF.Property<int?>(x,"CenterIdSnapshot")==id,ct);
         var can=sites==0&&assignments==0&&history==0;
         return new(id,c.CenterCode,c.CenterName,can,sites,assignments,history,
-            can?null:$"存在歷史或關聯：官方據點 {sites}、小組中心關聯 {assignments}、歷史 Snapshot {history}。只能停用，不能永久刪除。");
+            can?null:$"存在歷史或關聯：鄉鎮台 {sites}、小組中心關聯 {assignments}、歷史 Snapshot {history}。只能停用，不能永久刪除。");
     }
     public async Task DeleteCenterAsync(int id,CancellationToken ct)
     {
@@ -61,7 +61,7 @@ public sealed class V180SafeDeleteService(
     {
         var s=await (from site in db.DeploymentSites.AsNoTracking() join center in db.Centers on site.CenterId equals center.CenterId
             where site.DeploymentSiteId==id&&center.OrganizationId==admin.OrganizationId!.Value select site).SingleOrDefaultAsync(ct)
-            ??throw new KeyNotFoundException("找不到此組織的官方據點。");
+            ??throw new KeyNotFoundException("找不到此組織的鄉鎮台。");
         var loc=await db.DeploymentSiteLocationAssignments.AsNoTracking().Where(x=>x.DeploymentSiteId==id).ToListAsync(ct);
         var teams=await db.TeamDeploymentSiteAssignments.CountAsync(x=>x.DeploymentSiteId==id,ct);
         var employment=await db.EmploymentDeploymentSiteAssignments.CountAsync(x=>x.DeploymentSiteId==id,ct);
@@ -86,7 +86,7 @@ public sealed class V180SafeDeleteService(
             db.DeploymentSites.Remove(s);
             db.AuditLogs.Add(new AuditLog{UserId=admin.UserId,EntityType="DeploymentSite",EntityId=id.ToString(),Action="DeploymentSitePermanentDelete",NewValues=JsonSerializer.Serialize(new{impact.Code,impact.Name}),CreatedAt=DateTime.UtcNow});
             try{await db.SaveChangesAsync(ct);}
-            catch(DbUpdateException){throw new InvalidOperationException("官方據點有其他資料庫關聯；永久刪除已拒絕，請改用停用。");}
+            catch(DbUpdateException){throw new InvalidOperationException("鄉鎮台有其他資料庫關聯；永久刪除已拒絕，請改用停用。");}
         },ct);
     }
 

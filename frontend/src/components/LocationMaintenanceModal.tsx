@@ -46,7 +46,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
         setOfficialSiteName(resultOfficial.siteName||row.locationName);
         setOfficialFrom(resultOfficial.effectiveFrom||todayTaipei());
       }catch(e){
-        setMsg(e instanceof Error?e.message:"官方據點狀態載入失敗");
+        setMsg(e instanceof Error?e.message:"鄉鎮台狀態載入失敗");
       }
     }
   };
@@ -64,7 +64,7 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
   const createOfficialSite=async()=>{
     if(!data)return;
     if(!officialCenterCode)return setMsg("請選擇所屬就業中心。");
-    if(!officialSiteName.trim())return setMsg("請輸入官方據點名稱。");
+    if(!officialSiteName.trim())return setMsg("請輸入鄉鎮台名稱。");
     setBusy(true);setMsg("");
     try{
       const row=await api<LocationOfficialSite>("/admin/master-data/location-official-site",{
@@ -81,9 +81,9 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
       setOfficialCenterCode(row.centerCode||officialCenterCode);
       setOfficialSiteName(row.siteName||officialSiteName);
       setOfficialFrom(row.effectiveFrom||officialFrom);
-      setMsg("此地點已設為官方據點；Site Code 已由系統自動產生，可直接供行程起點／終點使用。");
+      setMsg("此地點已設為鄉鎮台；Site Code 已由系統自動產生，可直接供行程起點／終點使用。");
       onChanged?.();
-    }catch(e){setMsg(e instanceof Error?e.message:"官方據點建立失敗")}
+    }catch(e){setMsg(e instanceof Error?e.message:"鄉鎮台建立失敗")}
     finally{setBusy(false)}
   };
 
@@ -160,25 +160,25 @@ export default function LocationMaintenanceModal({locationId,teamId,onClose,onCh
     <div className="actions"><button className="btn ok" disabled={busy||(lowRiskOnly&&!OPTIONC_DIRECT_LOWRISK_UI_ENABLED)} onClick={()=>void save()}>{lowRiskOnly?"儲存主檔備註":"儲存地點資料"}</button></div>
 
     {isAdmin&&!lowRiskOnly&&<><hr/>
-      <div className="section-title"><div><h4>官方據點</h4><div className="sub">Location-first：地點完成解析／發布後，只需在這裡指定所屬中心；Site Code 由系統自動產生。</div></div></div>
-      {officialSite===null?<div className="note">官方據點狀態載入中…</div>:
+      <div className="section-title"><div><h4>鄉鎮台</h4><div className="sub">Location-first：地點完成解析／發布後，只需在這裡指定所屬中心；Site Code 由系統自動產生。</div></div></div>
+      {officialSite===null?<div className="note">鄉鎮台狀態載入中…</div>:
        officialSite.isOfficialSite?
         <div className="note ok-note">
-          <strong>✓ 此地點已是官方據點</strong>
+          <strong>✓ 此地點已是鄉鎮台</strong>
           <div style={{marginTop:6}}>{officialSite.centerName||officialSite.centerCode||"—"}／{officialSite.siteName||data.locationName}</div>
           <div className="muted" style={{marginTop:4}}>系統代碼：{officialSite.siteCode||"—"}｜有效期間：{officialSite.effectiveFrom||"—"}～{officialSite.effectiveTo||"無期限"}｜{officialSite.isActive===false?"停用":"啟用"}</div>
-          <div className="muted" style={{marginTop:4}}>若要停用、搬遷或調整歷史有效期間，請切換「官方據點進階維護」子分頁。</div>
+          <div className="muted" style={{marginTop:4}}>若要停用、搬遷或調整歷史有效期間，請切換「鄉鎮台進階維護」子分頁。</div>
         </div>
        :<>
-        <label className="check-row"><input type="checkbox" checked={officialChecked} onChange={e=>{setOfficialChecked(e.target.checked);if(e.target.checked&&!officialSiteName)setOfficialSiteName(data.locationName)}}/>此地點為官方據點</label>
+        <label className="check-row"><input type="checkbox" checked={officialChecked} onChange={e=>{setOfficialChecked(e.target.checked);if(e.target.checked&&!officialSiteName)setOfficialSiteName(data.locationName)}}/>此地點為鄉鎮台</label>
         {officialChecked&&<>
           <div className="grid cols-2" style={{marginTop:12}}>
             <div className="field"><label>所屬就業中心</label><select value={officialCenterCode} onChange={e=>setOfficialCenterCode(e.target.value)}><option value="">請選擇</option>{eligibleOfficialCenters.map(x=><option key={x.id} value={x.key}>{x.detail||x.key}</option>)}</select></div>
-            <div className="field"><label>官方據點名稱</label><input value={officialSiteName} onChange={e=>setOfficialSiteName(e.target.value)} placeholder={data.locationName}/></div>
+            <div className="field"><label>鄉鎮台名稱</label><input value={officialSiteName} onChange={e=>setOfficialSiteName(e.target.value)} placeholder={data.locationName}/></div>
             <div className="field"><label>生效日</label><input type="date" value={officialFrom} onChange={e=>setOfficialFrom(e.target.value)}/></div>
             <div className="field"><label>Site Code</label><input value="系統自動產生" disabled/></div>
           </div>
-          <button className="btn secondary" disabled={busy||!officialCenterCode||!officialSiteName.trim()} onClick={()=>void createOfficialSite()}>設為官方據點</button>
+          <button className="btn secondary" disabled={busy||!officialCenterCode||!officialSiteName.trim()} onClick={()=>void createOfficialSite()}>設為鄉鎮台</button>
         </>}
        </>}
     </>}

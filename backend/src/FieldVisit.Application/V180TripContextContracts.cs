@@ -127,7 +127,7 @@ public static class V180TripPersistenceRules
 
         if (matches.Count == 0)
             throw new InvalidOperationException(
-                $"{endpointCode}_DEPLOYMENT_SITE_NOT_AVAILABLE：{endpointLabel}派駐點不是本日期可使用的公司官方據點。");
+                $"{endpointCode}_DEPLOYMENT_SITE_NOT_AVAILABLE：{endpointLabel}派駐點不是本日期可使用的公司鄉鎮台。");
         if (matches.Count > 1)
             throw new InvalidOperationException(
                 $"{endpointCode}_DEPLOYMENT_SITE_AMBIGUOUS：{endpointLabel}派駐點解析結果不唯一。");
@@ -145,7 +145,7 @@ public static class V180TripPersistenceRules
         if (requested.HasValue)
         {
             if (!eligible.Contains(requested.Value))
-                throw new InvalidOperationException($"DEPLOYMENT_SITE_INELIGIBLE：{label}派駐點不是本日期可使用的公司官方據點。");
+                throw new InvalidOperationException($"DEPLOYMENT_SITE_INELIGIBLE：{label}派駐點不是本日期可使用的公司鄉鎮台。");
 
             return requested;
         }

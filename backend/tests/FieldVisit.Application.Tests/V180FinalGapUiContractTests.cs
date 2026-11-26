@@ -35,8 +35,8 @@ public sealed class V180FinalGapUiContractTests
         Assert.Contains("/admin/locations/official", app);
         Assert.Contains("LocationAdminTabs", admin);
         Assert.Contains("official-sites", admin);
-        Assert.Contains("切換「官方據點進階維護」子分頁", modal);
-        Assert.DoesNotContain("頁面下方「官方據點進階維護」", modal);
+        Assert.Contains("切換「鄉鎮台進階維護」子分頁", modal);
+        Assert.DoesNotContain("頁面下方「鄉鎮台進階維護」", modal);
     }
 
     [Fact]
