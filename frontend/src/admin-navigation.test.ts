@@ -21,5 +21,6 @@ describe("admin navigation consolidation",()=>{
    "/admin/locations/centers","/admin/locations/official"
   ]);
   expect(items.filter(x=>x.path==="/admin/locations/approvals")).toHaveLength(enabled?1:0);
+  expect(items.find(x=>x.path==="/admin/locations/centers")?.label).toBe("就業中心");
  });
 });

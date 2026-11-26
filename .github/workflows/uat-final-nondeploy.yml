@@ -1,11 +1,12 @@
 name: Biz User change batch verification (NONDEPLOY)
 on:
   push:
-    branches: [work/biz-user-uat-final-ci-20261126]
+    branches: [work/biz-user-uat-final-ci-20261126, work/biz-user-uat-people-20261126]
 permissions:
   contents: read
 jobs:
   verify-and-package:
+    if: github.ref == 'refs/heads/work/biz-user-uat-final-ci-20261126'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -61,3 +62,27 @@ jobs:
           name: fieldvisit-biz-user-final-candidate-nondeploy
           path: artifacts/
           retention-days: 30
+  verify-people-and-location-delta:
+    if: github.ref == 'refs/heads/work/biz-user-uat-people-20261126'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Backend build and personnel delta tests
+        run: |
+          dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180InternalUserCreateRulesTests|FullyQualifiedName~V170AccessRulesTests|FullyQualifiedName~V180PeopleResponsibilitySplitTests|FullyQualifiedName~V180AdminInformationArchitectureTests' --logger 'console;verbosity=normal'
+      - name: Frontend focused verification
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm test -- src/official-site-admin.test.ts src/official-site-location-first.test.ts src/admin-navigation.test.ts src/people-completeness.test.ts
+          npm run build

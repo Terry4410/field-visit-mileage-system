@@ -42,8 +42,8 @@ export default function AdminPage({section}:Props){
  if(section==='locations')return <><LocationAdminTabs/><Locations mode="list" busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
  if(section==='locations-new')return <><LocationAdminTabs/><Locations mode="new" busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
  if(section==='locations-bulk')return <><LocationAdminTabs/><Locations mode="bulk" busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/></>;
- if(section==='official-centers')return <><LocationAdminTabs/><OfficialSiteMaintenance mode="centers"/></>;
- if(section==='official-sites')return <><LocationAdminTabs/><OfficialSiteMaintenance mode="sites"/></>;
+ if(section==='official-centers')return <><LocationAdminTabs/><OfficialSiteMaintenance key="centers" mode="centers"/></>;
+ if(section==='official-sites')return <><LocationAdminTabs/><OfficialSiteMaintenance key="sites" mode="sites"/></>;
  if(section==='visit-types')return <VisitTypes busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
  if(section==='rates')return <Rates busy={busy} setBusy={setBusy} msg={msg} setMsg={setMsg}/>;
  return null;
