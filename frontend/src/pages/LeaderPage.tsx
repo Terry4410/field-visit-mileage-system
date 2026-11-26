@@ -1,3 +1,6 @@
+import TripReviewDetail from "../components/TripReviewDetail";
+import CorrectionDetail from "../components/CorrectionDetail";
+import DetailLink from "../components/DetailLink";
 import{useEffect,useRef,useState}from"react";
 import{ returnSelectedTrips }from"../leader-batch-return";
 import{reviewSelectedCorrections}from"../leader-batch-correction";
@@ -39,6 +42,8 @@ function Stat({label,value,hint}:{label:string;value:string|number;hint?:string}
 function Dashboard({msg,setMsg}:{msg:string;setMsg:(v:string)=>void}){const[d,setD]=useState<DashboardSummary|null>(null);useEffect(()=>{api<DashboardSummary>('/dashboard').then(setD).catch(e=>setMsg(e.message))},[]);return <><div className="grid cols-5 dashboard-cards"><Stat label="本月行程" value={d?.thisMonthTrips??'—'}/><Stat label="待核准" value={d?.pendingApproval??'—'}/><Stat label="已核准" value={d?.approved??'—'}/><Stat label="待確認地點" value={d?.pendingLocations??'—'}/><Stat label="待審更正" value={d?.pendingCorrections??'—'}/></div>{msg&&<div className="note">{msg}</div>}</>}
 
 function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;busy:boolean;setBusy:(v:boolean)=>void}){
+ const[tripDetail,setTripDetail]=useState<Trip|null>(null);
+ const[correctionDetail,setCorrectionDetail]=useState<CorrectionRequest|null>(null);
  const[reviewTab,setReviewTab]=useState<'approval'|'mileage'|'correction'>('approval');
  const[rows,setRows]=useState<Trip[]>([]);
  const[selected,setSelected]=useState<number[]>([]);
@@ -197,6 +202,8 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
  const sourceText=(t:Trip)=>t.mileageSource==='GoogleMapsAPI'?'Google Maps API':t.mileageSource==='ManualFallback'?'人工備援':t.status==='Returned'?'需補人工備援':'待 Google Maps 計算';
 
  return <>
+  {tripDetail&&rows.some(t=>t.visitTripId===tripDetail.visitTripId&&t.rowVersion===tripDetail.rowVersion)&&<TripReviewDetail trip={tripDetail} onClose={()=>setTripDetail(null)}/>}
+  {correctionDetail&&corrections.some(r=>r.correctionRequestId===correctionDetail.correctionRequestId&&r.rowVersion===correctionDetail.rowVersion)&&<CorrectionDetail row={correctionDetail} onClose={()=>setCorrectionDetail(null)}/>}
   {loadError&&<div className="note danger-note" role="alert">{loadError}</div>}
   {msg&&<div className="note" role="status">{msg}</div>}
   <div className="actions" role="tablist" aria-label="行程審核分類">{([["approval",`待審核行程（${approvalRows.length}）`],["mileage",`里程重算（${calculableRows.length}）`],["correction",`更正申請（${correctionLoadFailed?"讀取失敗":corrections.length}）`]] as const).map(([key,label])=><button type="button" key={key} role="tab" aria-selected={reviewTab===key} disabled={busy} className={reviewTab===key?"btn":"btn secondary"} onClick={()=>setReviewTab(key)}>{label}</button>)}</div>
@@ -211,7 +218,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
      const noMileage=!hasMinimumVisitStops(t.stops.length);const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
      return <tr key={t.visitTripId}>
       <td><input type="checkbox" disabled={busy||t.status!=='PendingApproval'} checked={approvalSelected.includes(t.visitTripId)} onChange={e=>setApprovalSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
-      <td><strong>{t.tripNo||"—"}</strong></td><td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
+      <td><DetailLink onClick={()=>setTripDetail(t)}>{t.tripNo||"—"}</DetailLink></td><td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
       <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>
       <td>{km(t.claimedDistanceKm)}</td><td>{noMileage?'N/A':km(t.systemDistanceKm)}</td>
       <td>{noMileage?<span className="pill">N/A</span>:<><input className="mileage-input" type="number" step="0.1" value={reviewKm[t.visitTripId]||''} onChange={e=>setReviewKm(x=>({...x,[t.visitTripId]:e.target.value}))}/>{t.mileageSource==='GoogleMapsAPI'&&Math.abs(Number(reviewKm[t.visitTripId]||t.systemDistanceKm)-Number(t.systemDistanceKm||0))>0.000001&&<input aria-label={`${t.tripNo} 里程調整原因`} className="mileage-input" type="text" maxLength={500} placeholder="個別調整原因（至少 8 字）" value={adjustmentReasons[t.visitTripId]||''} onChange={e=>setAdjustmentReasons(x=>({...x,[t.visitTripId]:e.target.value}))}/>}</>}</td>
@@ -241,13 +248,13 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
    {!!calculableRows.length&&<div className="table-wrap"><table>
     <thead><tr>
      <th><input type="checkbox" aria-label="全選可重算行程" title="全選可重算行程" checked={allCalculableSelected} disabled={!selectionEnabled||!calculableRows.length} ref={el=>{if(el)el.indeterminate=selectionEnabled&&someCalculableSelected&&!allCalculableSelected}} onChange={e=>toggleAllCalculable(e.target.checked)}/></th>
-     <th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>人工備援</th><th>Google Maps API</th><th>狀態</th>
+     <th>行程編號</th><th>日期</th><th>時間</th><th>外訪員</th><th>小組</th><th>路線</th><th>人工備援</th><th>Google Maps API</th><th>狀態</th>
     </tr></thead>
     <tbody>{calculableRows.map(t=>{
      const noMileage=!hasMinimumVisitStops(t.stops.length);const overlap=hasLeaderTimeOverlap(t,rows);const overlapText=leaderOverlapWarningText(t,rows);
      return <tr key={t.visitTripId}>
       <td><input type="checkbox" disabled={!selectionEnabled} title={!selectionEnabled?'請先選擇「勾選指定行程」':'選取日期區間內待計算行程'} checked={selected.includes(t.visitTripId)} onChange={e=>setSelected(x=>e.target.checked?[...x,t.visitTripId]:x.filter(id=>id!==t.visitTripId))}/></td>
-      <td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
+      <td><DetailLink onClick={()=>setTripDetail(t)}>{t.tripNo||"—"}</DetailLink></td><td>{t.visitDate}</td><td><div>{formatTripTime(t)}</div>{overlap&&overlapText&&<div style={{marginTop:4,fontSize:12,fontWeight:700,color:'#b45309',whiteSpace:'nowrap'}}>{overlapText}</div>}</td>
       <td>{t.visitorName}</td><td>{t.teamName||'—'}</td><td>{tripRouteSummary(t)}</td>
       <td>{km(t.claimedDistanceKm)}</td><td>{km(t.systemDistanceKm)}</td><td>{t.status}</td>
      </tr>
@@ -259,7 +266,7 @@ function Review({msg,setMsg,busy,setBusy}:{msg:string;setMsg:(v:string)=>void;bu
   {reviewTab==="correction"&&<div className="card" role="tabpanel" style={{marginTop:18}}>
    <div className="section-title"><div><h2>更正申請審核</h2><div className="sub">非財務更正可由小組長完成；核定里程/補助變更會再送管理者結案。</div></div><div className="actions"><span className="pill">{correctionLoadFailed?"讀取失敗":corrections.length}</span><button type="button" className="btn small ok" disabled={busy||correctionLoadFailed||!correctionTargets.length||correctionTargets.some(r=>!r.changes.length)} onClick={()=>void batchCorrection(true)}>批次核准（{correctionTargets.length}）</button><button type="button" className="btn small danger" disabled={busy||correctionLoadFailed||!correctionTargets.length} onClick={()=>void batchCorrection(false)}>批次不核准（{correctionTargets.length}）</button></div></div>
    <div className="table-wrap"><table><thead><tr><th><input type="checkbox" aria-label="全選更正申請" checked={corrections.length>0&&corrections.every(r=>correctionSelected.includes(r.correctionRequestId))} disabled={busy||correctionLoadFailed||!corrections.length} onChange={e=>setCorrectionSelected(e.target.checked?corrections.map(r=>r.correctionRequestId):[])}/></th><th>行程編號</th><th>外訪員</th><th>小組</th><th>原因</th><th>差異</th><th>操作</th></tr></thead>
-   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td><input type="checkbox" aria-label={`選取更正 ${r.tripNo}`} disabled={busy||correctionLoadFailed} checked={correctionSelected.includes(r.correctionRequestId)} onChange={e=>setCorrectionSelected(current=>e.target.checked?[...new Set([...current,r.correctionRequestId])]:current.filter(id=>id!==r.correctionRequestId))}/></td><td>{r.tripNo}</td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)} disabled={busy||r.changes.length===0} title={r.changes.length===0?"缺少更正差異明細，禁止核准":undefined}>通過</button>{r.changes.length===0&&<span role="alert" className="hint">差異明細缺失，禁止核准</span>}<button className="btn small danger" disabled={busy} onClick={()=>void reviewCorrection(r,false)}>不核准</button></div></td></tr>)}</tbody>
+   <tbody>{corrections.map(r=><tr key={r.correctionRequestId}><td><input type="checkbox" aria-label={`選取更正 ${r.tripNo}`} disabled={busy||correctionLoadFailed} checked={correctionSelected.includes(r.correctionRequestId)} onChange={e=>setCorrectionSelected(current=>e.target.checked?[...new Set([...current,r.correctionRequestId])]:current.filter(id=>id!==r.correctionRequestId))}/></td><td><DetailLink onClick={()=>setCorrectionDetail(r)}>{r.tripNo}</DetailLink></td><td>{r.visitorName}</td><td>{r.teamName||'—'}</td><td>{r.reason}</td><td>{r.changes.length?<div className="correction-change-list">{r.changes.map((c,i)=><div key={i}>{correctionChangeText(c)}</div>)}</div>:'—'}</td><td><div className="actions"><button className="btn small ok" onClick={()=>void reviewCorrection(r,true)} disabled={busy||r.changes.length===0} title={r.changes.length===0?"缺少更正差異明細，禁止核准":undefined}>通過</button>{r.changes.length===0&&<span role="alert" className="hint">差異明細缺失，禁止核准</span>}<button className="btn small danger" disabled={busy} onClick={()=>void reviewCorrection(r,false)}>不核准</button></div></td></tr>)}</tbody>
    </table></div>
   </div>}
  </>;

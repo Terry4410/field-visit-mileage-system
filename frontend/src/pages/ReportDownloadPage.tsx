@@ -1,3 +1,5 @@
+import ReportRowDetail,{reportDetailColumn} from "../components/ReportRowDetail";
+import DetailLink from "../components/DetailLink";
 import{useEffect,useMemo,useState}from"react";
 import{api,apiDownload}from"../api";
 import{qs}from"../v160";
@@ -44,6 +46,7 @@ export default function ReportDownloadPage(){
  const[msg,setMsg]=useState("");
  const[preview,setPreview]=useState<Preview|null>(null);
  const[previewPage,setPreviewPage]=useState(1);
+ const[detailRow,setDetailRow]=useState<string[]|null>(null);
  useEffect(()=>{api<ManagedTeam[]>("/admin/teams?includeInactive=true").then(setTeams).catch(()=>setTeams([]))},[]);
  const isPersonnel=kind==="personnel-full";
  const needsTeam=kind==="members";
@@ -70,10 +73,10 @@ export default function ReportDownloadPage(){
   }
   return base;
  },[kind,keyword,employmentStatus,teamId,siteStatus,selected,includeHistory,isPersonnel]);
- useEffect(()=>{setPreview(null);setPreviewPage(1)},[request]);
+ useEffect(()=>{setPreview(null);setPreviewPage(1);setDetailRow(null)},[request]);
  const loadPreview=async(page=1)=>{
   if(busy||isPersonnel&&selected.length===0||needsTeam&&!teamId)return;
-  setBusy(true);setMsg("");
+  setBusy(true);setMsg("");setDetailRow(null);
   try{
    const suffix=qs({...request,previewPage:page,previewPageSize:20});
    const result=await api<Preview>(`/admin/query-exports/${kind}/preview?${suffix}`);
@@ -110,7 +113,8 @@ export default function ReportDownloadPage(){
   </>}
   <div className="note" style={{marginTop:18}}>檔名示例：<code>{filenamePreview}</code><div className="sub">上限依後端匯出規則控管；Excel 全部儲存為文字，避免代碼前導零消失或公式被執行。</div></div>
   <div className="actions" style={{marginTop:14}}><button className="btn secondary" disabled={busy||isPersonnel&&selected.length===0||needsTeam&&!teamId} onClick={()=>void loadPreview()}>預覽查詢結果</button><button className="btn ok" disabled={busy||isPersonnel&&selected.length===0||needsTeam&&!teamId} onClick={()=>void download()}>{busy?"正在處理…":"下載 Excel 報表"}</button></div>
-  {preview&&<section aria-label="報表預覽"><h3>查詢結果預覽｜{preview.sheetName}</h3><p>符合條件 {preview.totalCount} 筆；第 {previewPage} 頁，每頁 {preview.pageSize} 筆。Excel 將匯出全部符合授權及篩選的結果。</p>{preview.sheets.length>1&&<div className="sub">其他工作表：{preview.sheets.filter(x=>x!==preview.sheetName).join("、")}；完整人事歷史請下載 Excel 查閱。</div>}{preview.totalCount===0?<div className="empty">沒有符合條件的資料。</div>:<><div className="table-wrap"><table><thead><tr>{preview.headers.map((h,i)=><th key={i}>{h}</th>)}</tr></thead><tbody>{preview.rows.map((row,i)=><tr key={i}>{row.map((v,j)=><td key={j}>{v||"—"}</td>)}</tr>)}</tbody></table></div><div className="actions"><button className="btn small outline" disabled={busy||previewPage===1} onClick={()=>void loadPreview(previewPage-1)}>上一頁</button><button className="btn small outline" disabled={busy||previewPage*preview.pageSize>=preview.totalCount} onClick={()=>void loadPreview(previewPage+1)}>下一頁</button></div></>}</section>}
+  {preview&&<section aria-label="報表預覽"><h3>查詢結果預覽｜{preview.sheetName}</h3><p>符合條件 {preview.totalCount} 筆；第 {previewPage} 頁，每頁 {preview.pageSize} 筆。Excel 將匯出全部符合授權及篩選的結果。</p>{preview.sheets.length>1&&<div className="sub">其他工作表：{preview.sheets.filter(x=>x!==preview.sheetName).join("、")}；完整人事歷史請下載 Excel 查閱。</div>}{preview.totalCount===0?<div className="empty">沒有符合條件的資料。</div>:<><div className="table-wrap"><table><thead><tr>{preview.headers.map((h,i)=><th key={i}>{h}</th>)}<th>明細</th></tr></thead><tbody>{preview.rows.map((row,i)=><tr key={i}>{row.map((v,j)=><td key={j}>{v&&reportDetailColumn(kind,preview.headers[j])?<DetailLink onClick={()=>setDetailRow(row)}>{v}</DetailLink>:v||"—"}</td>)}<td><DetailLink onClick={()=>setDetailRow(row)}>查看明細</DetailLink></td></tr>)}</tbody></table></div><div className="actions"><button className="btn small outline" disabled={busy||previewPage===1} onClick={()=>void loadPreview(previewPage-1)}>上一頁</button><button className="btn small outline" disabled={busy||previewPage*preview.pageSize>=preview.totalCount} onClick={()=>void loadPreview(previewPage+1)}>下一頁</button></div></>}</section>}
+  {preview&&detailRow&&<ReportRowDetail kind={kind} sheetName={preview.sheetName} headers={preview.headers} row={detailRow} onClose={()=>setDetailRow(null)}/>}
   {msg&&<div role="status" className="note" style={{marginTop:12}}>{msg}</div>}
  </div>;
 }

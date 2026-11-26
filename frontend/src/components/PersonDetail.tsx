@@ -1,3 +1,4 @@
+import DetailLink from "./DetailLink";
 import {useEffect,useState} from "react";
 import {api} from "../api";
 import type {V170PeopleRow,V170PersonDetail} from "../types";
@@ -9,7 +10,7 @@ const roleLabels:Record<string,string>={visitor:"外訪員",leader:"小組長",a
 type DetailRole={roleCode:string;isCurrent:boolean};
 type DetailTeam={teamId:number;teamCode:string;teamName:string;isPrimary:boolean;isCurrent:boolean};
 export function PersonDetailButton({row,field,onOpen}:{row:V170PeopleRow;field:"code"|"name";onOpen:(row:V170PeopleRow)=>void}){
- return <button type="button" className="btn small outline" aria-label={`查看人員明細 ${row.employeeNo||row.userCode} ${row.displayName}`} onClick={()=>onOpen(row)}>{field==="code"?row.employeeNo||row.userCode:row.displayName}</button>;
+ return <DetailLink ariaLabel={`查看人員明細 ${row.employeeNo||row.userCode} ${row.displayName}`} onClick={()=>onOpen(row)}>{field==="code"?row.employeeNo||row.userCode:row.displayName}</DetailLink>;
 }
 
 export function resolvePersonSummary(row:V170PeopleRow,detail:V170PersonDetail):V170PeopleRow{
