@@ -2485,7 +2485,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
             builder.UseSetting("BackgroundJobs:RecoverOnStartup", "false");
         });
         using var visitor = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
-        visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor"));
+        visitor.DefaultRequestHeaders.Authorization = new("Bearer", Token(1, "E1", "visitor", 1, 1));
         var rowVersion = (byte[])(await new SqlCommand("SELECT RowVersion FROM dbo.Locations WHERE LocationId=10", h.Db).ExecuteScalarAsync()
             ?? throw new InvalidOperationException("ROWVERSION_TEST_FIXTURE_MISSING"));
         var submit = await visitor.PostAsJsonAsync("api/v1/optionc-candidate/locations/10/changes", new V180B3SubmitLocation(
@@ -2609,7 +2609,7 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Pending", await h.RequestStatus(rejectedRequest.RequestPublicId));
         using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions {
             BaseAddress = new Uri("https://localhost") });
-        leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
+        leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader", 1, 1));
         using (var otherOwner = await leader.GetAsync("api/v1/optionc-candidate/requests/mine/search?status=pending"))
         {
             Assert.Equal(System.Net.HttpStatusCode.OK, otherOwner.StatusCode);
