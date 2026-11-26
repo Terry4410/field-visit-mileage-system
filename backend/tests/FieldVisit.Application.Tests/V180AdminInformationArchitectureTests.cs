@@ -13,7 +13,7 @@ public sealed class V180AdminInformationArchitectureTests
         var maintenance = ReadRepositoryFile("frontend/src/components/LocationMaintenanceModal.tsx");
 
         Assert.Contains("/admin/locations/duplicates", app);
-        Assert.Contains("疑似重複覆核", tabs);
+        Assert.Contains("重複地點處理", tabs);
         Assert.Contains("未處理", review);
         Assert.Contains("已確認不同", review);
         Assert.Contains("已沿用", review);
@@ -56,7 +56,7 @@ public sealed class V180AdminInformationArchitectureTests
         Assert.DoesNotContain("function Projects(", admin);
         Assert.DoesNotContain("function Corrections(", admin);
         Assert.Contains("function VisitTypes(", admin);
-        Assert.Contains("<h2>拜訪形式</h2>", admin);
+        Assert.Contains("<h2>拜訪型式</h2>", admin);
     }
 
     [Fact]
