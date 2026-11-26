@@ -79,7 +79,7 @@ jobs:
       - name: Backend build and personnel delta tests
         run: |
           dotnet build backend/src/FieldVisit.Api/FieldVisit.Api.csproj -c Release
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180InternalUserCreateRulesTests|FullyQualifiedName~V170AccessRulesTests|FullyQualifiedName~V180PeopleResponsibilitySplitTests|FullyQualifiedName~V180AdminInformationArchitectureTests' --logger 'console;verbosity=normal'
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~V180InternalUserCreateRulesTests|FullyQualifiedName~V170AccessRulesTests|FullyQualifiedName~V180PeopleResponsibilitySplitTests|FullyQualifiedName~V180AdminInformationArchitectureTests|FullyQualifiedName~V180MasterDataAdminTests' --logger 'console;verbosity=normal'
       - name: Frontend focused verification
         working-directory: frontend
         run: |

@@ -202,6 +202,86 @@ public sealed class V180MasterDataAdminTests
     }
 
     [Fact]
+    public async Task Guided_leave_preserves_history_and_requires_explicit_site_confirmation()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentStatusPeriodId = 1, EmploymentId = 100, EmploymentStatus = EmploymentStatuses.Active,
+            EffectiveFrom = Today.AddDays(-30), SourceType = "UAT", RowVersion = [1]
+        });
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
+        {
+            EmploymentDeploymentSiteAssignmentId = 1, EmploymentId = 100, DeploymentSiteId = 40,
+            EffectiveFrom = Today.AddDays(-10), IsPrimary = true, CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+        var request = new V180EmploymentStatusInput("E100", EmploymentStatuses.Leave, Today, null,
+            Convert.ToBase64String([1]), Transition: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            repository.SaveEmploymentStatusAsync(User("admin"), null, request, default));
+        Assert.Null((await db.EmploymentStatusPeriods.SingleAsync()).EffectiveTo);
+        Assert.Null((await db.EmploymentDeploymentSiteAssignments.SingleAsync()).EffectiveTo);
+
+        var result = await repository.SaveEmploymentStatusAsync(User("admin"), null,
+            request with { ConfirmEndSites = true }, default);
+        Assert.Equal(EmploymentStatuses.Leave, result.ParentKey);
+        Assert.Equal(Today.AddDays(-1), (await db.EmploymentStatusPeriods.SingleAsync(x => x.EmploymentStatusPeriodId == 1)).EffectiveTo);
+        Assert.Equal(Today.AddDays(-1), (await db.EmploymentDeploymentSiteAssignments.SingleAsync()).EffectiveTo);
+        Assert.Single(await db.UserRoleAssignments.ToListAsync());
+        Assert.Single(await db.TeamMemberships.ToListAsync());
+        Assert.Contains(await db.AuditLogs.ToListAsync(), x => x.Action == "EndForLeave");
+    }
+
+    [Fact]
+    public async Task Guided_return_preserves_leave_and_does_not_assume_site_validity()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentStatusPeriodId = 1, EmploymentId = 100, EmploymentStatus = EmploymentStatuses.Leave,
+            EffectiveFrom = Today.AddDays(-10), SourceType = "UAT", RowVersion = [1]
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+        var result = await repository.SaveEmploymentStatusAsync(User("admin"), null,
+            new V180EmploymentStatusInput("E100", EmploymentStatuses.Active, Today, null,
+                Convert.ToBase64String([1]), Transition: true), default);
+        Assert.Equal(EmploymentStatuses.Active, result.ParentKey);
+        Assert.Equal(Today.AddDays(-1), (await db.EmploymentStatusPeriods.SingleAsync(x => x.EmploymentStatusPeriodId == 1)).EffectiveTo);
+        Assert.Empty(await db.EmploymentDeploymentSiteAssignments.ToListAsync());
+        Assert.Single(await db.UserRoleAssignments.ToListAsync());
+        Assert.Single(await db.TeamMemberships.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Guided_transition_rejects_future_site_schedule_without_mutation()
+    {
+        await using var db = Db();
+        SeedVisitorIdentity(db);
+        db.EmploymentStatusPeriods.Add(new EmploymentStatusPeriod
+        {
+            EmploymentStatusPeriodId = 1, EmploymentId = 100, EmploymentStatus = EmploymentStatuses.Active,
+            EffectiveFrom = Today.AddDays(-30), SourceType = "UAT", RowVersion = [1]
+        });
+        db.EmploymentDeploymentSiteAssignments.Add(new EmploymentDeploymentSiteAssignment
+        {
+            EmploymentDeploymentSiteAssignmentId = 1, EmploymentId = 100, DeploymentSiteId = 40,
+            EffectiveFrom = Today.AddDays(1), IsPrimary = true, CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var repository = new V180MasterDataAdminRepository(db);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveEmploymentStatusAsync(User("admin"), null,
+            new V180EmploymentStatusInput("E100", EmploymentStatuses.Leave, Today, null,
+                Convert.ToBase64String([1]), Transition: true, ConfirmEndSites: true), default));
+        Assert.Null((await db.EmploymentStatusPeriods.SingleAsync()).EffectiveTo);
+        Assert.Null((await db.EmploymentDeploymentSiteAssignments.SingleAsync()).EffectiveTo);
+    }
+
+    [Fact]
     public async Task Employment_status_overlap_is_rejected()
     {
         await using var db = Db();

@@ -355,6 +355,13 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
         V180MasterDataValidationService.Period(input.EffectiveFrom, input.EffectiveTo);
         V180MasterDataValidationService.Status(input.Status);
         var employment = await Employment(admin, input.EmployeeNo, ct);
+        if (input.Transition)
+        {
+            if (id.HasValue || input.EffectiveTo.HasValue)
+                throw new InvalidOperationException("人事異動請使用生效日，不可指定既有期間或結束日。");
+            return await ExecuteEmploymentSiteInvariantsAsync(employment.EmploymentId,
+                () => TransitionEmploymentStatusAsync(admin, employment.EmploymentId, input, ct), ct);
+        }
 
         return await ExecuteEmploymentStatusSiteInvariantAsync(
             employment.EmploymentId,
@@ -366,6 +373,69 @@ public sealed class V180MasterDataAdminRepository(AppDbContext db) : IV180Master
                 input,
                 ct),
             ct);
+    }
+
+    // Guided leave/return: preserve prior periods and site history in the same transaction.
+    // An open-ended leave has no assumed return date or assumed future site coverage.
+    private async Task<V180MasterDataRow> TransitionEmploymentStatusAsync(
+        CurrentUserDto admin, long employmentId, V180EmploymentStatusInput input, CancellationToken ct)
+    {
+        var from = input.EffectiveFrom;
+        if (from < BusinessTime.Today)
+            throw new InvalidOperationException("人事異動生效日不可早於今天；歷史更正請使用期間維護。");
+        var employment = await db.Employments.SingleAsync(x =>
+            x.EmploymentId == employmentId && x.OrganizationId == Org(admin), ct);
+        if ((employment.HireDate.HasValue && employment.HireDate.Value > from)
+            || (employment.TerminationDate.HasValue && employment.TerminationDate.Value <= from))
+            throw new InvalidOperationException("異動日期不在可使用的任職期間。");
+
+        var periods = await db.EmploymentStatusPeriods.Where(x => x.EmploymentId == employmentId).ToListAsync(ct);
+        var previous = periods.Where(x => x.EffectiveFrom < from && !x.EffectiveTo.HasValue).ToList();
+        if (previous.Count != 1 || periods.Any(x => x.EmploymentStatusPeriodId != previous[0].EmploymentStatusPeriodId
+            && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= from)))
+            throw new InvalidOperationException("無法確認唯一未結束的狀態，或已有未來異動；請先確認期間資料。");
+        var prior = previous[0];
+        V180MasterDataValidationService.RowVersion(input.RowVersion, prior.RowVersion);
+        var target = input.Status.Trim();
+        if (!((prior.EmploymentStatus == EmploymentStatuses.Active && target == EmploymentStatuses.Leave)
+            || (prior.EmploymentStatus == EmploymentStatuses.Leave && target == EmploymentStatuses.Active)))
+            throw new InvalidOperationException("僅允許在職轉留停或留停轉復職。");
+
+        var sites = await db.EmploymentDeploymentSiteAssignments.Where(x =>
+            x.EmploymentId == employmentId && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= from)).ToListAsync(ct);
+        if (sites.Any(x => x.EffectiveFrom >= from))
+            throw new InvalidOperationException("已有同日或未來派駐排程，請先確認派駐期間後再辦理人事異動。");
+        if (sites.Count > 0 && target != EmploymentStatuses.Leave)
+            throw new InvalidOperationException("留停期間仍有有效派駐資料；請先確認既有派駐期間。");
+        if (sites.Count > 0 && !input.ConfirmEndSites)
+            throw new InvalidOperationException("留停將結束有效派駐期間；請確認後再辦理。");
+
+        var end = from.AddDays(-1);
+        // All validation precedes mutation. No role, membership or trip rows are changed.
+        foreach (var site in sites)
+        {
+            var oldEnd = site.EffectiveTo;
+            site.EffectiveTo = end;
+            AddAudit(admin, "EmploymentDeploymentSiteAssignment", site.EmploymentDeploymentSiteAssignmentId.ToString(),
+                "EndForLeave", new { site.DeploymentSiteId, site.IsPrimary, site.EffectiveFrom, PreviousEffectiveTo = oldEnd, EffectiveTo = end });
+        }
+        prior.EffectiveTo = end;
+        AddAudit(admin, "EmploymentStatusPeriod", prior.EmploymentStatusPeriodId.ToString(),
+            "EndForTransition", new { prior.EmploymentStatus, prior.EffectiveFrom, PreviousEffectiveTo = (DateOnly?)null, EffectiveTo = end });
+        var next = new EmploymentStatusPeriod
+        {
+            EmploymentId = employmentId,
+            EmploymentStatus = target,
+            EffectiveFrom = from,
+            EffectiveTo = null,
+            SourceType = "UAT-Admin"
+        };
+        db.EmploymentStatusPeriods.Add(next);
+        AddAudit(admin, "EmploymentStatusPeriod", $"{employment.EmployeeNo}:{from:yyyy-MM-dd}",
+            "GuidedTransition", new { PreviousStatus = prior.EmploymentStatus, Status = target, EffectiveFrom = from });
+        await db.SaveChangesAsync(ct);
+        return Row(next.EmploymentStatusPeriodId, employment.EmployeeNo ?? "", target, target,
+            from, null, null, null, next.RowVersion);
     }
 
     private async Task<V180MasterDataRow> SaveEmploymentStatusCoreAsync(

@@ -1,7 +1,7 @@
 namespace FieldVisit.Application;
 
 public sealed record V180MasterDataReadinessDto(int EmploymentStatusMissingCount, int TeamCenterMissingCount, int DeploymentSiteCount, int TeamSiteMissingCount, int EmploymentSiteMissingCount, bool IsUatReady);
-public sealed record V180EmploymentStatusInput(string EmployeeNo, string Status, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? RowVersion = null);
+public sealed record V180EmploymentStatusInput(string EmployeeNo, string Status, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? RowVersion = null, bool Transition = false, bool ConfirmEndSites = false);
 public sealed record V180CenterInput(string CenterCode, string CenterName, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive, string? RowVersion = null);
 public sealed record V180TeamCenterInput(string TeamCode, string CenterCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? RowVersion = null);
 public sealed record V180DeploymentSiteInput(string CenterCode, string SiteCode, string SiteName, string LocationCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool IsActive, string? RowVersion = null);
