@@ -2501,6 +2501,28 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         var pendingView = await pendingStatus.Content.ReadFromJsonAsync<V180B3RequestView>()
             ?? throw new InvalidOperationException("OPTIONC_HTTP_STATUS_RESPONSE_MISSING");
         Assert.Equal("Pending", pendingView.Status);
+        var day = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(8));
+        var ownFilter = $"api/v1/optionc-candidate/requests/mine/search?start={day:yyyy-MM-dd}&end={day:yyyy-MM-dd}&kind=change&status=pending&q=HTTP%20approved%20address";
+        using (var own = await visitor.GetAsync(ownFilter))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, own.StatusCode);
+            var items = await own.Content.ReadFromJsonAsync<List<V180B3RequestView>>();
+            Assert.Equal(submitted.RequestPublicId, Assert.Single(items!).RequestPublicId);
+        }
+        using (var export = await visitor.GetAsync(ownFilter.Replace("/mine/search?", "/mine.xlsx?")))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, export.StatusCode);
+            using var stream = new MemoryStream(await export.Content.ReadAsByteArrayAsync());
+            using var workbook = new XSSFWorkbook(stream);
+            var sheet = workbook.GetSheetAt(0);
+            Assert.Equal(1, sheet.LastRowNum);
+            Assert.Contains("HTTP approved address", sheet.GetRow(1).GetCell(5).StringCellValue);
+        }
+        using (var excluded = await visitor.GetAsync(ownFilter.Replace("kind=change", "kind=tax")))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, excluded.StatusCode);
+            Assert.Empty((await excluded.Content.ReadFromJsonAsync<List<V180B3RequestView>>())!);
+        }
         await h.Exec("""
             UPDATE s SET GeocodeStatus=N'Succeeded',GeocodeAddressSha256=HASHBYTES('SHA2_256',CONVERT(varbinary(max),JSON_VALUE(s.ProposedJson,N'$.Address'))),Latitude=25.03,Longitude=121.56,DuplicateReviewStatus=N'Cleared',DuplicateEvidenceSha256=s.ProposedSha256,StageStatus=N'ReadyForPublish',UpdatedAt=SYSUTCDATETIME()
             FROM dbo.LocationPublicationStages s JOIN dbo.ChangeRequests r ON r.ChangeRequestId=s.ChangeRequestId WHERE r.RequestPublicId=@id;
@@ -2588,6 +2610,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         using var leader = factory.CreateClient(new WebApplicationFactoryClientOptions {
             BaseAddress = new Uri("https://localhost") });
         leader.DefaultRequestHeaders.Authorization = new("Bearer", Token(4, "E4", "leader"));
+        using (var otherOwner = await leader.GetAsync("api/v1/optionc-candidate/requests/mine/search?status=pending"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, otherOwner.StatusCode);
+            Assert.Empty((await otherOwner.Content.ReadFromJsonAsync<List<V180B3RequestView>>())!);
+        }
         var leaderReview = await leader.PostAsJsonAsync(
             $"api/v1/optionc-candidate/requests/{rejectedRequest.RequestPublicId}/leader-review",
             new V180OptionCLeaderReviewDecision(rejectedRequest.RowVersion,
@@ -2602,6 +2629,11 @@ public sealed class V180OptionCFinalSecurityGateSqlTests
         Assert.Equal("Rejected", rejected.Status);
         Assert.Equal("Abandoned", await h.StageStatus(rejected.RequestPublicId));
         Assert.Equal("Original address 11", await h.Scalar("SELECT Address FROM dbo.Locations WHERE LocationId=11"));
+        await h.Exec("UPDATE dbo.UserRoleAssignments SET EffectiveTo=DATEADD(day,-1,CONVERT(date,DATEADD(hour,8,SYSUTCDATETIME()))) WHERE UserId=1");
+        using (var revoked = await visitor.GetAsync("api/v1/optionc-candidate/requests/mine/search"))
+            Assert.Contains(revoked.StatusCode, new[] { System.Net.HttpStatusCode.Unauthorized, System.Net.HttpStatusCode.Forbidden });
+        using (var revokedExport = await visitor.GetAsync("api/v1/optionc-candidate/requests/mine.xlsx"))
+            Assert.Contains(revokedExport.StatusCode, new[] { System.Net.HttpStatusCode.Unauthorized, System.Net.HttpStatusCode.Forbidden });
     }
 
     [Fact]

@@ -43,7 +43,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$OPTIONC_EXECUTION_MODE" = IsolatedSqlTest
-          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~ScopedLocationHttpSqlTests|FullyQualifiedName~V180OwnLocationRequestFilterTests|FullyQualifiedName~V180MileageRateVersionRulesTests|FullyQualifiedName~V180OptionCHttpCandidateContractTests|FullyQualifiedName~V180AdminInformationArchitectureTests|FullyQualifiedName~V180FinalGapUiContractTests' --logger 'console;verbosity=normal'
+          dotnet test backend/tests/FieldVisit.Application.Tests/FieldVisit.Application.Tests.csproj -c Release --filter 'FullyQualifiedName~ScopedLocationHttpSqlTests|FullyQualifiedName~V180OwnLocationRequestFilterTests|FullyQualifiedName~V180MileageRateVersionRulesTests|FullyQualifiedName~V180OptionCHttpCandidateContractTests|FullyQualifiedName~V180AdminInformationArchitectureTests|FullyQualifiedName~V180FinalGapUiContractTests|FullyQualifiedName~Candidate_http_submission_approval_and_rejection_use_real_di_and_preserve_history' --logger 'console;verbosity=normal'
       - name: Recover the accepted a2bd06de rollback bytes
         run: |
           set -euo pipefail
