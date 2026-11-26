@@ -12,7 +12,7 @@ export function locationAdminGroups(approvalEnabled:boolean){
    ...(approvalEnabled?[{path:"/admin/locations/approvals",label:"地點申請複審"}]:[])
   ]},
   {label:"官方資料維護",items:[
-   {path:"/admin/locations/centers",label:"就業中心主檔"},
+   {path:"/admin/locations/centers",label:"就業中心"},
    {path:"/admin/locations/official",label:"鄉鎮台"}
   ]}
  ];
