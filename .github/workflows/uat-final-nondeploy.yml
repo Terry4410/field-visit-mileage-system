@@ -107,11 +107,11 @@ jobs:
             pdftotext -layout "$PATHB_PDF_VERIFY_DIR/$title.pdf" "$PATHB_PDF_VERIFY_DIR/$title.txt"
           done
           python3 - <<'PY'
-          import os,pathlib
+          import os,pathlib,unicodedata
           root=pathlib.Path(os.environ['PATHB_PDF_VERIFY_DIR'])
           for title in ('更正歷史','補助費率'):
               text=(root/(title+'.txt')).read_text()
-              normalized=''.join(text.split())
+              normalized=unicodedata.normalize('NFKC',''.join(text.split()))
               if title not in normalized or '最後一筆確認' not in normalized:
                   print(f'{title} extracted PDF text tail: {text[-1500:]!r}')
                   raise AssertionError(f'{title} PDF content check failed')
