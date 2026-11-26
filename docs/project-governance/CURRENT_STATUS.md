@@ -1,5 +1,44 @@
 # Field Visit — Current Project Status
 
+> **Snapshot: 2026-11-26 Asia/Taipei.** Canonical history: [Issue #41](https://github.com/Terry4410/field-visit-mileage-system/issues/41). Owner rules V2.1. This is governance documentation on an existing documentation branch, not a deployed code change or protected-branch merge.
+
+## Current decision and release freeze
+
+Owner formal sign-off: [#7194918527](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7194918527). Business UAT **ACCEPT WITH OPEN ITEMS**. Frozen source `fb60b7849ac8ac1988814d8ad1741f5df35df6b6`, Schema `1.8.0-010`, Azure Path B deployment [#7190082054](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7190082054). Azure is development/UAT only. No new general functionality, deployment, SQL/ACL/Azure changes or replay of consumed authorization.
+
+| Milestone | Status |
+| --- | --- |
+| Code Ready | PASS, [CI 45793885742](https://github.com/Terry4410/field-visit-mileage-system/actions/runs/45793885742): 45 backend/61 frontend isolated tests |
+| Business UAT | Owner ACCEPT WITH OPEN ITEMS; not blanket LIVE PASS |
+| IT Deployment Ready | REVIEW CANDIDATE, not declared ready |
+| IT Clean Build | NOT RUN by company IT |
+| Production Ready | NOT RUN; security and operational acceptance required |
+
+## Retained evidence
+
+- [#7193743501](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7193743501) and #7193396035: eight LIVE actual Excel/PDF file-content PASS.
+- [#7194772526](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7194772526): cross-team list allow/deny, full Plus Code, canonical duplicate distinct, Leader two-item nonfinancial batch close, preserved snapshot amounts, rate keyword and correction history evidence. Prior valid scoped PASS preserved.
+- IT review package [existing Library item](https://chatgpt.com/library?file_id=libfile_dc3b006b171c819193a7fcea92ceb7ae&account_id=personal), v3 technical baseline (38,383,289 bytes; SHA256 fc12cad3bc5251b5b0ba38ea6128a2261877d1d0edaa4504de033002c7b835b1), documented in #7194772526. Closeout documents may update that same item; use latest verified receipt in Issue #41 for exact package identity.
+
+## Accepted open items
+
+| Item | Disposition |
+| --- | --- |
+| P0 direct-ID cross-team detail denial and necessary backend role/team/org access | NOT RUN for direct ID; mandatory IT security acceptance before production, not waived. List PASS is not detail PASS. Resolve security failures before production. |
+| P2 legacy direct UseExisting and MergeFields | NOT RUN, Owner-approved deferral; retain canonical independent review and published-master fail-closed safeguards. |
+| P2 Admin financial multi-item close | NOT RUN, deferred; existing individual workflow, not inferred from Leader nonfinancial batch PASS. |
+| P1 rate date filter | LIVE inconclusive, verify in IT supported browser; fix only confirmed material defect. |
+
+## IT handoff
+
+Corporate Windows Server/IIS + intranet SQL Server. Entra ID permitted by IT [#7119365137](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7119365137), reconciled at [#7193912981](https://github.com/Terry4410/field-visit-mileage-system/issues/41#issuecomment-7193912981). Native IIS Windows authentication rewrite not required. Company IT owns tenant/application configuration, identity mapping, company data initialization, least-privilege SQL identity, clean install from 69-table schema and migrations, independent IIS deployment, security scanning, access and functional tests, backup/restore, monitoring and operational responsibility. Confirm app maintenance ownership. No Azure UAT DB or pilot credentials transferred as production data. IT review may begin immediately; no corporate deployment approval inferred.
+
+## Historical snapshot (retained; superseded for current decisions)
+
+The following 2026-11-19 snapshot is historical only, not the current UAT or architecture state.
+
+# Field Visit — Current Project Status
+
 > **Snapshot date:** 2026-11-19 (Asia/Taipei). **This is a dated evidence snapshot, not live telemetry.**  
 > **Canonical live/history index:** [Issue #41](https://github.com/Terry4410/field-visit-mileage-system/issues/41). Recheck its newest comments and actual PR/CI state before any further decisions.  
 > **Operating rules:** Owner-managed ChatGPT Project Instructions (check actual configured version) and [LESSONS_LEARNED.md](LESSONS_LEARNED.md).
