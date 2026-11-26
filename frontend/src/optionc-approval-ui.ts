@@ -1,4 +1,4 @@
-export type OptionCRequest={operationCode?:string;requestPublicId:string;entityId:string;teamId:number|null;riskCode:string;status:string;requestedByUserId:number;applicantName?:string|null;submittedAt:string;reviewedAt?:string|null;beforeJson:string|null;proposedJson:string;rowVersion:string};
+export type OptionCRequest={operationCode?:string;requestPublicId:string;entityId:string;teamId:number|null;riskCode:string;status:string;requestedByUserId:number;applicantName?:string|null;submittedAt:string;reviewedAt?:string|null;reviewReason?:string|null;beforeJson:string|null;proposedJson:string;rowVersion:string};
 export const fields=["LocationName","City","District","Address","PlusCode","TaxId","MasterNote"] as const;
 type Field=typeof fields[number];
 export function safeFields(json:string|null):Record<Field,string>{

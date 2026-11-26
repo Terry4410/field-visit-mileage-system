@@ -50,7 +50,7 @@ public sealed record V180B3Review(string RequestRowVersion,Guid DecisionKey,stri
 public sealed record V180B3RequestView(Guid RequestPublicId,string EntityId,int? TeamId,
     string RiskCode,string Status,int RequestedByUserId,DateTime SubmittedAt,
     string? BeforeJson,string ProposedJson,string RowVersion,string OperationCode = "",
-    DateTime? ReviewedAt = null, string? ApplicantName = null);
+    DateTime? ReviewedAt = null, string? ApplicantName = null, string? ReviewReason = null);
 
 /// <summary>Deliberately nondeployable-by-default B3 candidate.
 /// No permission for Leader is inferred from membership or seeded grants.

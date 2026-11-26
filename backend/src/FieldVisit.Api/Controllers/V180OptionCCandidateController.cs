@@ -1,6 +1,8 @@
 using FieldVisit.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NPOI.SS.UserModel;
+using NPOI.XSSF.UserModel;
 
 namespace FieldVisit.Api.Controllers;
 
@@ -77,6 +79,42 @@ public sealed class V180OptionCCandidateController(V180OptionCCandidateService s
 
     [HttpGet("requests/mine")]
     public Task<IReadOnlyList<V180B3RequestView>> Mine(CancellationToken ct) => service.OwnAsync(ct);
+
+    [HttpGet("requests/mine/search")]
+    [Authorize(Roles="visitor,leader")]
+    public Task<IReadOnlyList<V180B3RequestView>> MineSearch([FromQuery] DateOnly? start, [FromQuery] DateOnly? end, [FromQuery] string? q, [FromQuery] string? kind, [FromQuery] string? status, CancellationToken ct)
+        => service.OwnAsync(ct, new(start,end,q,kind,status));
+
+    [HttpGet("requests/mine.xlsx")]
+    [Authorize(Roles="visitor,leader")]
+    public async Task<IActionResult> MineExcel([FromQuery] DateOnly? start, [FromQuery] DateOnly? end, [FromQuery] string? q, [FromQuery] string? kind, [FromQuery] string? status, CancellationToken ct)
+    {
+        var filter=new V180OwnLocationRequestFilter(start,end,q,kind,status);
+        var data=await service.OwnAsync(ct,filter);
+        using var book=new XSSFWorkbook();var sheet=book.CreateSheet("我的地點申請");
+        static void Write(ISheet sheet,int index,string[] values)
+        {
+            var row=sheet.CreateRow(index);for(var i=0;i<values.Length;i++)row.CreateCell(i,CellType.String).SetCellValue(values[i]);
+        }
+        static string Local(DateTime? dt)=>dt?.AddHours(8).ToString("yyyy/MM/dd HH:mm")??"";
+        Write(sheet,0,["申請日期","地點名稱","申請類型","異動摘要","原始內容","申請內容","審核狀態","處理日期","審核意見"]);
+        for(var i=0;i<data.Count;i++)
+        {
+            var r=data[i];var before=V180OwnLocationRequestFilter.Read(r.BeforeJson);var after=V180OwnLocationRequestFilter.Read(r.ProposedJson);
+            var changed=V180OwnLocationRequestFilter.Fields.Where(k=>before[k]!=after[k]).ToArray();
+            Write(sheet,i+1,[Local(r.SubmittedAt),V180OwnLocationRequestFilter.Name(r),V180OwnLocationRequestFilter.TypeLabel(r),
+                string.Join("、",changed.Select(V180OwnLocationRequestFilter.Label)),
+                string.Join("\n",changed.Select(k=>V180OwnLocationRequestFilter.Label(k)+"："+before[k])),
+                string.Join("\n",changed.Select(k=>V180OwnLocationRequestFilter.Label(k)+"："+after[k])),
+                r.Status switch{"Pending"=>"待審核","Applied"=>"已完成","Rejected"=>"已退回",_=>"狀態待查核"},Local(r.ReviewedAt),r.ReviewReason??""]);
+        }
+        sheet.CreateFreezePane(0,1);using var stream=new MemoryStream();book.Write(stream);var bytes=stream.ToArray();
+        // Recheck the same live actor scope and versioned rows after generating the workbook.
+        var current=await service.OwnAsync(ct,filter);
+        if(!data.Select(r=>(r.RequestPublicId,r.RowVersion)).SequenceEqual(current.Select(r=>(r.RequestPublicId,r.RowVersion))))
+            throw new InvalidOperationException("申請資料已變更，請重新查詢後下載。");
+        return File(bytes,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","我的地點申請.xlsx");
+    }
 
     [HttpGet("requests/{id:guid}")]
     public Task<V180B3RequestView> Status(Guid id, CancellationToken ct)

@@ -65,6 +65,7 @@ public sealed class V180OptionCCandidateService(
     {
         if (input is null || input.TeamId <= 0)
             throw new InvalidOperationException("OPTIONC_CREATE_INPUT_INVALID");
+        if(input.Reason?.Trim().Length>100) throw new InvalidOperationException("申請原因不可超過 100 字。");
         var validated = V180B3ProposalSafetyRules.Validate(input.Proposed,
             new V180B3LocationFields("", null, null, null, null, null, null),
             input.Reason);
@@ -695,6 +696,7 @@ public sealed class V180OptionCCandidateService(
         V180B3SubmitLocation input, CancellationToken ct, V180OptionCExcelRowSource? excel)
     {
         var expected = V180B3RequestInputRules.RequireSubmission(input);
+        if(input.Reason?.Trim().Length>100) throw new InvalidOperationException("異動原因不可超過 100 字。");
         var connection = await RequireTargetAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         try
@@ -821,20 +823,42 @@ public sealed class V180OptionCCandidateService(
         catch { try { await tx.RollbackAsync(CancellationToken.None); } catch { } throw; }
     }
 
-    public async Task<IReadOnlyList<V180B3RequestView>> OwnAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<V180B3RequestView>> OwnAsync(CancellationToken ct, V180OwnLocationRequestFilter? filter = null)
     {
         await RequireTargetAsync(ct);
         var actorId = current.GetRequired().UserId;
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var org = await new V180OptionCLiveAuthorizationAdapter(db).ResolveLiveOrganizationAsync(actorId, ct);
-        var rows = await db.ChangeRequests.AsNoTracking().Where(x => x.OrganizationId == org
+        var query = db.ChangeRequests.AsNoTracking().Where(x => x.OrganizationId == org
             && x.RequestedByUserId == actorId && x.EntityKind == "Location"
             && (x.OperationCode == "UpdatePublishedLocation" || x.OperationCode == "CreateLocation")
             && (x.RiskCode == "High" || (x.OperationCode == "UpdatePublishedLocation" && x.RiskCode == "Low"))
-            && (x.Status == "Pending" || x.Status == "Rejected" || x.Status == "Applied"))
-            .OrderByDescending(x => x.SubmittedAt).Take(100).ToListAsync(ct);
+            && (x.Status == "Pending" || x.Status == "Rejected" || x.Status == "Applied"));
+        if (filter is not null)
+        {
+            filter.Validate();
+            if(filter.Start is DateOnly start)
+            {
+                var fromUtc=start.ToDateTime(TimeOnly.MinValue).AddHours(-8);
+                query=query.Where(x=>x.SubmittedAt>=fromUtc);
+            }
+            if(filter.End is DateOnly end)
+            {
+                var toUtc=end.ToDateTime(TimeOnly.MinValue).AddDays(1).AddHours(-8);
+                query=query.Where(x=>x.SubmittedAt<toUtc);
+            }
+            if(filter.StatusCode is string status) query=query.Where(x=>x.Status==status);
+        }
+        var rows=await query.OrderByDescending(x=>x.SubmittedAt).ThenByDescending(x=>x.ChangeRequestId)
+            .Take(filter is null ? 100 : 10001).ToListAsync(ct);
         await tx.CommitAsync(ct);
-        return rows.Select(ToView).ToList();
+        if(filter is null) return rows.Select(ToView).ToList();
+        if(rows.Count>10000) throw new InvalidOperationException("申請超過 10000 筆，請縮小日期或狀態範圍。");
+        return rows.Select(r=>ToView(r) with {
+            SubmittedAt=DateTime.SpecifyKind(r.SubmittedAt,DateTimeKind.Utc),
+            ReviewedAt=r.ReviewedAt.HasValue?DateTime.SpecifyKind(r.ReviewedAt.Value,DateTimeKind.Utc):null,
+            ReviewReason=r.ReviewReason
+        }).Where(filter.Matches).ToList();
     }
 
     public async Task<V180B3RequestView> StatusAsync(Guid id, CancellationToken ct)
